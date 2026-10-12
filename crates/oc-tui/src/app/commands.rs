@@ -1,0 +1,1364 @@
+//! Command registry (palette + slash, spec §5.10) and command execution.
+
+use super::{App, Route, Toast};
+use crate::api::types::*;
+use crate::state::cycle_variant;
+use crate::ui::dialog::{Action, Body, Dialog, Opt, PromptDialog, Select, Size};
+use crate::util::locale::{self, titlecase};
+use serde_json::{Value, json};
+
+#[derive(Clone, Debug, Default)]
+pub struct Cmd {
+    pub id: String,
+    pub title: String,
+    pub group: &'static str,
+    pub slash: Option<&'static str>,
+    pub aliases: Vec<&'static str>,
+    pub args: bool,
+    pub palette: bool,
+    pub suggested: bool,
+    pub description: Option<String>,
+}
+
+fn cmd(id: &str, title: impl Into<String>, group: &'static str) -> Cmd {
+    Cmd { id: id.into(), title: title.into(), group, palette: true, ..Default::default() }
+}
+
+impl Cmd {
+    fn slash(mut self, s: &'static str) -> Cmd {
+        self.slash = Some(s);
+        self
+    }
+    fn aliases(mut self, a: &[&'static str]) -> Cmd {
+        self.aliases = a.to_vec();
+        self
+    }
+    fn args(mut self) -> Cmd {
+        self.args = true;
+        self
+    }
+    fn hidden(mut self) -> Cmd {
+        self.palette = false;
+        self
+    }
+    fn suggested(mut self, s: bool) -> Cmd {
+        self.suggested = s;
+        self
+    }
+}
+
+/// Settings rows (`dialog-config.tsx`): (category, title, path, values, labels, default).
+pub fn settings() -> Vec<(&'static str, &'static str, &'static str, Vec<Value>, Vec<&'static str>, Value)> {
+    let onoff = || (vec![json!(false), json!(true)], vec!["off", "on"]);
+    let mut v = Vec::new();
+    v.push(("Appearance", "Theme", "theme.name", vec![], vec![], json!("opencode")));
+    v.push(("Appearance", "Color mode", "theme.mode", vec![json!("system"), json!("dark"), json!("light")], vec![], json!("system")));
+    let (a, b) = onoff();
+    v.push(("Appearance", "Animations", "animations", a, b, json!(true)));
+    v.push(("Session", "Sidebar", "session.sidebar", vec![json!("hide"), json!("auto")], vec![], json!("auto")));
+    let (a, b) = onoff();
+    v.push(("Session", "Scrollbar", "session.scrollbar", a, b, json!(false)));
+    v.push(("Session", "Thinking", "session.thinking", vec![json!("hide"), json!("show")], vec![], json!("hide")));
+    v.push(("Session", "Markdown", "session.markdown", vec![json!("source"), json!("rendered")], vec![], json!("rendered")));
+    v.push(("Session", "Tool grouping", "session.grouping", vec![json!("none"), json!("auto")], vec![], json!("auto")));
+    v.push(("Session", "Verbosity", "session.verbosity", vec![json!("low"), json!("medium"), json!("high")], vec![], json!("medium")));
+    let (a, b) = onoff();
+    v.push(("Session", "Transcript images", "session.image_preview", a, b, json!(false)));
+    let (a, b) = onoff();
+    v.push(("Session", "TPS", "session.tps", a, b, json!(true)));
+    v.push(("Session", "New session location", "session.new_location", vec![json!("launch"), json!("inherit")], vec!["launch directory", "active session"], json!("launch")));
+    v.push(("Session", "Permissions", "session.permissions", vec![json!("prompt"), json!("autoaccept")], vec!["prompt", "auto accept"], json!("prompt")));
+    v.push(("Tabs", "Mode", "tabs.mode", vec![json!("off"), json!("on"), json!("auto")], vec![], json!("auto")));
+    v.push(("Tabs", "Scope", "tabs.scope", vec![json!("cwd"), json!("global")], vec!["current directory", "global"], json!("cwd")));
+    v.push(("Tabs", "Layout", "tabs.layout", vec![json!("horizontal"), json!("vertical")], vec![], json!("horizontal")));
+    v.push(("Tabs", "Indicators", "tabs.indicators", vec![json!("status"), json!("numbers")], vec!["status icons", "always show numbers"], json!("status")));
+    v.push(("Diffs", "Layout", "diffs.view", vec![json!("auto"), json!("split"), json!("unified")], vec![], json!("auto")));
+    v.push(("Diffs", "Wrapping", "diffs.wrap", vec![json!("none"), json!("word")], vec![], json!("word")));
+    let (a, b) = onoff();
+    v.push(("Diffs", "File tree", "diffs.tree", a, b, json!(true)));
+    let (a, b) = onoff();
+    v.push(("Diffs", "Single patch", "diffs.single", a, b, json!(false)));
+    v.push(("Input", "Scroll speed", "scroll.speed", vec![], vec![], json!(3)));
+    let (a, b) = onoff();
+    v.push(("Input", "Acceleration", "scroll.acceleration", a, b, json!(false)));
+    let (a, b) = onoff();
+    v.push(("Input", "Mouse", "mouse", a, b, json!(true)));
+    let (a, b) = onoff();
+    v.push(("Input", "Editor context", "prompt.editor", a, b, json!(true)));
+    v.push(("Input", "Large pastes", "prompt.paste", vec![json!("compact"), json!("full")], vec![], json!("compact")));
+    let (a, b) = onoff();
+    v.push(("Input", "Image previews", "prompt.image_preview", a, b, json!(false)));
+    v.push(("Input", "Leader timeout", "leader.timeout", vec![], vec![], json!(2000)));
+    let (a, b) = onoff();
+    v.push(("Alerts", "Notifications", "attention.notifications", a, b, json!(false)));
+    let (a, b) = onoff();
+    v.push(("Alerts", "Sounds", "attention.sound", a, b, json!(false)));
+    v.push(("Alerts", "Volume", "attention.volume", vec![], vec![], json!(0.4)));
+    let (a, b) = onoff();
+    v.push(("Terminal", "Window title", "terminal.title", a, b, json!(true)));
+    v.push(("Terminal", "Copy behavior", "terminal.copy", vec![json!("manual"), json!("select")], vec![], json!(if cfg!(windows) { "manual" } else { "select" })));
+    let (a, b) = onoff();
+    v.push(("Debug", "Developer tools", "debug.devtools", a, b, json!(false)));
+    v
+}
+
+impl App {
+    /// Reachable commands in palette order (session route, prompt, frame, app).
+    pub fn commands(&self) -> Vec<Cmd> {
+        let mut v: Vec<Cmd> = Vec::new();
+        let in_session = self.session_id().is_some();
+        let session = self.session();
+        let has_revert = session.is_some_and(|s| s.revert.is_some());
+        let tabs = self.config.tabs_enabled();
+        if in_session {
+            v.push(cmd("session.share", "Share session", "Session").slash("share").suggested(true));
+            v.push(cmd("session.rename", "Rename session", "Session").slash("rename").args());
+            v.push(cmd("session.timeline", "Jump to message", "Session").slash("timeline"));
+            v.push(cmd("session.fork", "Fork session", "Session").slash("fork"));
+            v.push(cmd("session.compact", "Compact session", "Session").slash("compact"));
+            v.push(cmd("session.undo", "Undo previous message", "Session").slash("undo"));
+            if has_revert {
+                v.push(cmd("session.redo", "Redo", "Session").slash("redo"));
+            }
+            let thinking = if self.config.thinking() == "show" { "Collapse thinking" } else { "Expand thinking" };
+            v.push(cmd("session.toggle.thinking", thinking, "Session").hidden());
+            v.push(cmd("session.toggle.scrollbar", "Toggle session scrollbar", "Session").hidden());
+            let grouping = if self.config.grouping() == "none" { "Group related tool calls" } else { "Show tool calls individually" };
+            v.push(cmd("session.toggle.exploration_grouping", grouping, "Session").hidden());
+            v.push(cmd("session.verbosity.cycle", format!("Verbosity: {}", titlecase(self.config.verbosity())), "Session"));
+            v.push(cmd("session.messages_last_user", "Jump to last user message", "Session").hidden());
+            v.push(cmd("session.message.next", "Next message", "Session").hidden());
+            v.push(cmd("session.message.previous", "Previous message", "Session").hidden());
+            v.push(cmd("session.message.user.next", "Next user message", "Session").hidden());
+            v.push(cmd("session.message.user.previous", "Previous user message", "Session").hidden());
+            v.push(cmd("messages.copy", "Copy last assistant message", "Session"));
+            v.push(cmd("session.copy.id", "Copy session ID", "Session"));
+            v.push(cmd("session.copy", "Copy session transcript", "Session").slash("copy"));
+            v.push(cmd("session.export", "Export session transcript", "Session").slash("export"));
+            v.push(cmd("session.background", "Background blocking tools", "Session").hidden());
+            v.push(cmd("session.child.first", "Toggle subagent picker", "Session"));
+            if self.queued_prompts().len() > 0 {
+                v.push(cmd("session.queued_prompts", "View queued prompts", "Prompt"));
+            }
+            if session.is_some_and(|s| s.parent_id.is_some()) {
+                v.push(cmd("session.parent", "Go to parent session", "Session").hidden());
+            }
+            v.push(cmd("session.page.up", "Page up", "Session").hidden());
+            v.push(cmd("session.page.down", "Page down", "Session").hidden());
+            v.push(cmd("session.line.up", "Line up", "Session").hidden());
+            v.push(cmd("session.line.down", "Line down", "Session").hidden());
+            v.push(cmd("session.half.page.up", "Half page up", "Session").hidden());
+            v.push(cmd("session.half.page.down", "Half page down", "Session").hidden());
+            v.push(cmd("session.first", "First message", "Session").hidden());
+            v.push(cmd("session.last", "Last message", "Session").hidden());
+        }
+        // Prompt commands.
+        v.push(cmd("prompt.clear", "Clear prompt", "Prompt").hidden());
+        v.push(cmd("prompt.submit", "Submit prompt", "Prompt").hidden());
+        v.push(cmd("prompt.queue", "Queue prompt", "Prompt"));
+        v.push(cmd("prompt.paste", "Paste", "Prompt").hidden());
+        if self.running() {
+            v.push(cmd("session.interrupt", "Interrupt session", "Session").hidden());
+        }
+        v.push(cmd("prompt.editor", "Open editor", "Session").slash("editor"));
+        v.push(cmd("prompt.skills", "Skills", "Prompt").slash("skills"));
+        v.push(cmd("session.move", "Manage workspaces", "Session").slash("worktrees"));
+        if !self.editor.is_empty() {
+            v.push(cmd("prompt.stash", "Stash prompt", "Prompt"));
+        }
+        if !self.stash.entries.is_empty() {
+            v.push(cmd("prompt.stash.pop", "Stash pop", "Prompt"));
+            v.push(cmd("prompt.stash.list", "Stash list", "Prompt"));
+        }
+        v.push(Cmd { id: "session.cd".into(), title: "Change working directory".into(), group: "", slash: Some("cd"), args: true, palette: false, ..Default::default() });
+        // Session frame.
+        if in_session {
+            let open = self.sidebar_visible();
+            v.push(cmd("session.sidebar.toggle", if open { "Hide sidebar" } else { "Show sidebar" }, "Session"));
+            let right = self.terminal_visible().is_some();
+            if right {
+                v.push(Cmd { id: "pane.focus.left".into(), title: "Focus session pane".into(), ..Default::default() });
+                v.push(Cmd { id: "pane.focus.right".into(), title: "Focus right pane".into(), ..Default::default() });
+            }
+            if self.terminals_available {
+                v.push(cmd("terminal.toggle", if right { "Hide terminal pane" } else { "Show terminal pane" }, "Session"));
+                v.push(cmd("terminal.select", "Select terminal", "Session"));
+                if right {
+                    v.push(cmd("terminal.close", "Close terminal pane", "Session"));
+                }
+                v.push(cmd("session.terminal", "New terminal", "Session").slash("terminal"));
+            }
+        }
+        // Plugins (built-in).
+        v.push(Cmd { description: Some("One-shot answer from the session's context without adding to the conversation".into()), ..cmd("session.aside", "Ask a side question", "Session").slash("btw").args() });
+        v.push(cmd("plugins.list", "Plugins", "System").slash("plugins"));
+        v.push(cmd("diff.open", "Open diff viewer", "VCS").slash("diff"));
+        v.push(cmd("stats.open", "Usage statistics", "System").slash("stats"));
+        // App commands.
+        v.push(cmd("command.palette.show", "Show command palette", "System").hidden());
+        v.push(cmd("session.list", "Switch session", "Session").slash("sessions").aliases(&["resume", "continue"]).suggested(!self.store.sessions.is_empty()));
+        v.push(cmd("session.new", "New session", "Session").slash("new").suggested(in_session));
+        v.push(cmd("session.clear", "Clear session", "Session").slash("clear"));
+        v.push(cmd("open.menu", "Open session or project", "Session").slash("open").aliases(&["projects", "project"]));
+        if tabs {
+            v.push(cmd("session.tab.close", "Close tab", "Session"));
+            v.push(cmd("session.tab.reopen", "Reopen closed tab", "Session"));
+            v.push(cmd("session.tab.next", "Next tab", "Session").hidden());
+            v.push(cmd("session.tab.previous", "Previous tab", "Session").hidden());
+            for i in 1..=10 {
+                v.push(cmd(&format!("session.tab.select.{i}"), format!("Switch to tab {i}"), "Session").hidden());
+            }
+        } else {
+            for i in 1..=9 {
+                v.push(cmd(&format!("session.quick_switch.{i}"), format!("Switch to session in quick slot {i}"), "Session").hidden());
+            }
+        }
+        v.push(cmd("model.list", "Switch model", "Agent").slash("models").suggested(true));
+        v.push(cmd("model.cycle_recent", "Model cycle", "Agent").hidden());
+        v.push(cmd("model.cycle_recent_reverse", "Model cycle reverse", "Agent").hidden());
+        v.push(cmd("model.cycle_favorite", "Favorite cycle", "Agent").hidden());
+        v.push(cmd("model.cycle_favorite_reverse", "Favorite cycle reverse", "Agent").hidden());
+        v.push(cmd("agent.list", "Switch agent", "Agent").slash("agents"));
+        v.push(cmd("mcp.list", "MCP servers", "Agent").slash("mcps"));
+        v.push(cmd("agent.cycle", "Agent cycle", "Agent").hidden());
+        v.push(cmd("variant.cycle", "Variant cycle", "Agent"));
+        let has_variants = self.current_model_info().is_some_and(|m| !m.variants.is_empty());
+        let mut variant = cmd("variant.list", "Switch model variant", "Agent").slash("variants").aliases(&["thinking", "effort"]);
+        variant.palette = has_variants;
+        v.push(variant);
+        v.push(cmd("agent.cycle.reverse", "Agent cycle reverse", "Agent").hidden());
+        let connected = !self.providers().is_empty();
+        v.push(cmd("provider.connect", "Connect an integration", "Integration").slash("connect").suggested(!connected));
+        v.push(cmd("opencode.settings", "Open settings", "System").slash("settings").suggested(true));
+        v.push(cmd("opencode.status", "View status", "System").slash("status"));
+        v.push(cmd("server.pair", "Pair device", "System").slash("pair").aliases(&["web"]));
+        v.push(cmd("location.reload", "Reload configuration", "System").slash("reload"));
+        v.push(cmd("opencode.debug", "View debug info", "System").slash("debug"));
+        v.push(cmd("theme.switch", "Switch theme", "System").slash("themes"));
+        let mode = self.themes.effective_mode();
+        v.push(cmd("theme.switch_mode", if mode == crate::theme::Mode::Dark { "Switch to light mode" } else { "Switch to dark mode" }, "System").hidden());
+        v.push(cmd("theme.mode.lock", if self.themes.lock.is_some() { "Unlock theme mode" } else { "Lock theme mode" }, "System").hidden());
+        v.push(cmd("help.show", "Help", "System").slash("help"));
+        v.push(cmd("docs.open", "Open docs", "System"));
+        v.push(cmd("app.exit", "Exit the app", "System").slash("exit").aliases(&["quit", "q"]));
+        v.push(cmd("app.console", "Toggle console", "System"));
+        if !cfg!(windows) {
+            v.push(cmd("terminal.suspend", "Suspend terminal", "System").hidden());
+        }
+        v.push(cmd("terminal.title.toggle", if self.config.terminal_title() { "Disable terminal title" } else { "Enable terminal title" }, "System").hidden());
+        v.push(cmd("app.toggle.animations", if self.config.animations() { "Disable animations" } else { "Enable animations" }, "System").hidden());
+        v.push(cmd("app.toggle.file_context", if self.config.prompt_editor() { "Disable file context" } else { "Enable file context" }, "System").hidden());
+        v.push(cmd("app.toggle.diffwrap", if self.config.diffs_wrap() != "none" { "Disable diff wrapping" } else { "Enable diff wrapping" }, "System").hidden());
+        v.push(cmd("app.toggle.paste_summary", if self.config.prompt_paste() != "full" { "Disable paste summary" } else { "Enable paste summary" }, "System").hidden());
+        v
+    }
+
+    pub fn current_model_info(&self) -> Option<ModelInfo> {
+        let m = self.current_model()?;
+        self.model_list().into_iter().find(|x| x.provider_id == m.provider_id && x.id == m.id)
+    }
+
+    pub fn queued_prompts(&self) -> Vec<InboxItem> {
+        self.session_id()
+            .and_then(|s| self.store.pending.get(s))
+            .map(|p| p.iter().filter(|i| i.kind == "user" && i.delivery == "queue").cloned().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn sidebar_visible(&self) -> bool {
+        let Some(s) = self.session() else { return false };
+        if s.parent_id.is_some() {
+            return false;
+        }
+        if let Some(open) = self.views.get(&s.id).and_then(|v| v.sidebar_open) {
+            return open;
+        }
+        let rail = if self.vertical_tabs() { self.rail_width() } else { 0 };
+        self.config.session_sidebar() == "auto" && self.size.0.saturating_sub(rail) > 120
+    }
+
+    pub fn open_dialog(&mut self, d: Dialog) {
+        self.dialogs.clear();
+        self.dialogs.push(d);
+        self.autocomplete = None;
+        self.dirty = true;
+    }
+
+    pub fn copy(&mut self, text: &str, toast: &str) {
+        crate::clipboard::write(text);
+        self.info(toast);
+    }
+
+    /// Run a command by id. Returns false when it did not handle the request.
+    pub fn run_command(&mut self, id: &str, args: Option<String>) -> bool {
+        let sid = self.session_id().map(|s| s.to_string());
+        match id {
+            "command.palette.show" => self.open_palette(),
+            "session.list" => self.open_session_list(),
+            "session.new" | "session.clear" => {
+                if id == "session.clear"
+                    && let Some(s) = &sid
+                {
+                    let root = self.store.root(s);
+                    self.close_tab(&root);
+                }
+                self.dialogs.clear();
+                self.navigate(Route::Home);
+            }
+            "open.menu" => self.open_open_dialog(),
+            "model.list" => self.open_model_dialog(None),
+            "agent.list" => {
+                let current = self.current_agent().map(|a| a.id);
+                let opts: Vec<Opt> = self.agents().into_iter().map(|a| Opt::new(a.id.clone(), a.id.clone()).desc(a.description.unwrap_or_default())).collect();
+                let mut s = Select::new("Select agent", opts);
+                s.current = current;
+                self.open_dialog(Dialog::select("agent", s, Size::Medium));
+            }
+            "agent.cycle" | "agent.cycle.reverse" => {
+                let agents = self.agents();
+                if agents.is_empty() {
+                    return true;
+                }
+                let cur = self.current_agent().map(|a| a.id).unwrap_or_default();
+                let i = agents.iter().position(|a| a.id == cur).unwrap_or(0) as isize;
+                let d = if id == "agent.cycle" { 1 } else { -1 };
+                let n = agents.len() as isize;
+                let next = agents[(((i + d) % n + n) % n) as usize].id.clone();
+                self.set_agent(&next);
+            }
+            "variant.cycle" => {
+                let Some(info) = self.current_model_info() else { return true };
+                let variants: Vec<String> = info.variants.iter().map(|v| v.id.clone()).collect();
+                let next = cycle_variant(self.current_variant().as_deref(), &variants);
+                if let Some(mut m) = self.current_model() {
+                    self.models.set_variant(&format!("{}/{}", m.provider_id, m.id), Some(next.as_deref().unwrap_or("default")));
+                    m.variant = next;
+                    self.set_model(m, false);
+                }
+            }
+            "variant.list" => {
+                let Some(info) = self.current_model_info().filter(|m| !m.variants.is_empty()) else {
+                    self.toast(Toast::new("info", "The current model does not support any variants.").title("No variants available"));
+                    return true;
+                };
+                let mut opts = vec![Opt::new("Default", "default")];
+                opts.extend(info.variants.iter().filter(|v| v.id != "default").map(|v| Opt::new(v.id.clone(), v.id.clone())));
+                let mut s = Select::new("Select variant", opts);
+                s.flat = true;
+                s.current = Some(self.current_variant().unwrap_or_else(|| "default".into()));
+                self.open_dialog(Dialog::select("variant", s, Size::Medium));
+            }
+            "model.cycle_recent" | "model.cycle_recent_reverse" => {
+                let list = self.model_list();
+                let recent: Vec<ModelRef> = self
+                    .models
+                    .recent
+                    .iter()
+                    .filter(|r| list.iter().any(|m| m.provider_id == r.provider_id && m.id == r.model_id))
+                    .map(|r| ModelRef { provider_id: r.provider_id.clone(), id: r.model_id.clone(), variant: None })
+                    .collect();
+                self.cycle_models(recent, id.ends_with("reverse"));
+            }
+            "model.cycle_favorite" | "model.cycle_favorite_reverse" => {
+                let fav: Vec<ModelRef> = self.models.favorite.iter().map(|r| ModelRef { provider_id: r.provider_id.clone(), id: r.model_id.clone(), variant: None }).collect();
+                if fav.is_empty() {
+                    self.info("Add a favorite model to use this shortcut");
+                    return true;
+                }
+                self.cycle_models(fav, id.ends_with("reverse"));
+            }
+            "mcp.list" => self.open_mcp_dialog(),
+            "provider.connect" => {
+                self.open_dialog(Dialog::new(
+                    "alert",
+                    Body::Alert { title: "Connect an integration".into(), message: "Run `opencode auth` or configure providers in your opencode config to connect an integration.".into() },
+                ));
+            }
+            "opencode.settings" => self.open_settings(None),
+            "opencode.status" => self.open_status(),
+            "opencode.debug" => self.open_debug(),
+            "server.pair" | "location.reload" if id == "location.reload" => {
+                self.toast(Toast::new("info", "Reloading configuration…").duration(30000));
+                let c = self.client.clone();
+                self.call(async move { c.location_reload().await }, |app, _| {
+                    app.toast(Toast::new("success", "Configuration reloaded"));
+                });
+            }
+            "server.pair" => self.open_pair(),
+            "theme.switch" => self.open_theme_dialog(),
+            "theme.switch_mode" => {
+                let other = self.themes.effective_mode().other();
+                if !self.themes.supports(other) {
+                    return false;
+                }
+                self.themes.lock = Some(other);
+                self.themes.set_mode(other);
+                self.config.set("theme.mode", Some(json!(other.as_str())));
+                self.reload_theme();
+            }
+            "theme.mode.lock" => {
+                if self.themes.lock.is_some() {
+                    self.themes.lock = None;
+                    self.config.set("theme.mode", Some(json!("system")));
+                } else {
+                    let m = self.themes.effective_mode();
+                    self.themes.lock = Some(m);
+                    self.config.set("theme.mode", Some(json!(m.as_str())));
+                }
+            }
+            "help.show" => self.open_dialog(Dialog::new("help", Body::Help)),
+            "docs.open" => open_url("https://opencode.ai/docs"),
+            "app.exit" => self.quit = true,
+            "app.console" | "app.debug" => {}
+            "terminal.suspend" => {
+                #[cfg(unix)]
+                {
+                    self.suspend_requested = true;
+                }
+            }
+            "terminal.title.toggle" => {
+                let v = !self.config.terminal_title();
+                self.config.set("terminal.title", Some(json!(v)));
+            }
+            "app.toggle.animations" => {
+                let v = !self.config.animations();
+                self.config.set("animations", Some(json!(v)));
+            }
+            "app.toggle.file_context" => {
+                let v = !self.config.prompt_editor();
+                self.config.set("prompt.editor", Some(json!(v)));
+            }
+            "app.toggle.diffwrap" => {
+                let v = if self.config.diffs_wrap() == "none" { "word" } else { "none" };
+                self.config.set("diffs.wrap", Some(json!(v)));
+            }
+            "app.toggle.paste_summary" => {
+                let v = if self.config.prompt_paste() == "full" { "compact" } else { "full" };
+                self.config.set("prompt.paste", Some(json!(v)));
+            }
+            "session.tab.close" => {
+                if let Some(s) = sid {
+                    let root = self.store.root(&s);
+                    self.close_tab(&root);
+                }
+            }
+            "session.tab.reopen" => {
+                if let Some(t) = self.closed_tabs.pop() {
+                    self.navigate(Route::Session(t));
+                }
+            }
+            "session.tab.next" | "session.tab.previous" => {
+                if self.tabs.is_empty() {
+                    return false;
+                }
+                let cur = sid.map(|s| self.store.root(&s));
+                let i = cur.and_then(|c| self.tabs.iter().position(|t| *t == c));
+                let n = self.tabs.len() as isize;
+                let next = match i {
+                    Some(i) => (((i as isize) + if id.ends_with("next") { 1 } else { -1 }) % n + n) % n,
+                    None => 0,
+                };
+                let t = self.tabs[next as usize].clone();
+                self.navigate(Route::Session(t));
+            }
+            _ if id.starts_with("session.tab.select.") => {
+                let n: usize = id.rsplit('.').next().and_then(|n| n.parse().ok()).unwrap_or(1);
+                match self.tabs.get(n - 1).cloned() {
+                    Some(t) => self.navigate(Route::Session(t)),
+                    None => return false,
+                }
+            }
+            _ if id.starts_with("session.quick_switch.") => {
+                let n: usize = id.rsplit('.').next().and_then(|n| n.parse().ok()).unwrap_or(1);
+                let slots: Vec<String> = self.pins.pinned.iter().filter(|p| self.store.sessions.get(*p).is_some_and(|s| s.parent_id.is_none())).take(9).cloned().collect();
+                match slots.get(n - 1).cloned() {
+                    Some(t) => self.navigate(Route::Session(t)),
+                    None => return false,
+                }
+            }
+            "session.share" => {
+                self.toast(Toast::new("error", "Sharing is not implemented for V2 sessions yet"));
+            }
+            "session.rename" => {
+                let Some(s) = sid else { return false };
+                match args.as_deref().map(|a| a.trim()) {
+                    Some(t) if !t.is_empty() => self.rename(&s, t),
+                    Some(_) => self.rename(&s, ""),
+                    None => {
+                        let title = self.session().map(|x| x.display_title()).unwrap_or_default();
+                        let mut d = Dialog::new("rename", Body::Prompt(PromptDialog::new("Rename session", "Session title", &title)));
+                        d.data = json!(s);
+                        self.open_dialog(d);
+                    }
+                }
+            }
+            "session.timeline" => self.open_timeline(),
+            "session.fork" => self.open_fork(None),
+            "session.compact" => {
+                let Some(s) = sid else { return false };
+                let mid = crate::util::message_id();
+                let c = self.client.clone();
+                let model = self.current_model();
+                self.call(
+                    async move {
+                        if let Some(m) = model {
+                            c.switch_model(&s, &m).await?;
+                        }
+                        c.compact(&s, &mid).await
+                    },
+                    |app, item| {
+                        app.store.admit_local(item);
+                        app.dirty = true;
+                    },
+                );
+            }
+            "session.undo" => self.undo(),
+            "session.redo" => {
+                let Some(s) = sid else { return false };
+                if self.session().is_none_or(|x| x.revert.is_none()) {
+                    return false;
+                }
+                let c = self.client.clone();
+                self.call(async move { c.revert_clear(&s).await }, |_, _| {});
+            }
+            "session.toggle.thinking" => {
+                let v = if self.config.thinking() == "show" { "hide" } else { "show" };
+                self.config.set("session.thinking", Some(json!(v)));
+            }
+            "session.toggle.scrollbar" => {
+                let v = !self.config.session_scrollbar();
+                self.config.set("session.scrollbar", Some(json!(v)));
+            }
+            "session.toggle.exploration_grouping" => {
+                let v = if self.config.grouping() == "none" { "auto" } else { "none" };
+                self.config.set("session.grouping", Some(json!(v)));
+            }
+            "session.verbosity.cycle" => {
+                let v = match self.config.verbosity() {
+                    "low" => "medium",
+                    "medium" => "high",
+                    _ => "low",
+                };
+                self.config.set("session.verbosity", Some(json!(v)));
+            }
+            "messages.copy" => {
+                let Some(s) = sid else { return false };
+                let text = self
+                    .store
+                    .messages(&s)
+                    .iter()
+                    .rev()
+                    .find(|m| m.kind == "assistant" && m.content.iter().any(|c| matches!(c, Content::Text { text, .. } if !text.trim().is_empty())))
+                    .map(|m| {
+                        m.content
+                            .iter()
+                            .filter_map(|c| if let Content::Text { text, .. } = c { Some(text.trim().to_string()) } else { None })
+                            .filter(|t| !t.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("\n\n")
+                    });
+                match text {
+                    Some(t) => self.copy(&t, "Message copied to clipboard!"),
+                    None => self.info("No assistant messages found"),
+                }
+            }
+            "session.copy.id" => {
+                let Some(s) = sid else { return false };
+                self.copy(&s, "Session ID copied to clipboard!");
+            }
+            "session.copy" => {
+                let Some(s) = sid else { return false };
+                let text = self.transcript_markdown(&s, true, true);
+                self.copy(&text, "Session transcript copied to clipboard!");
+            }
+            "session.export" => {
+                if sid.is_none() {
+                    return false;
+                }
+                self.open_dialog(Dialog::new("export", Body::Export(crate::ui::dialog::ExportOptions::default())));
+            }
+            "session.background" => {
+                let Some(s) = sid else { return false };
+                if !self.running() || self.autocomplete.is_some() {
+                    return false;
+                }
+                let c = self.client.clone();
+                self.call(async move { c.background(&s).await }, |_, _| {});
+            }
+            "session.child.first" => {
+                if sid.is_none() {
+                    return false;
+                }
+                self.toggle_composer();
+            }
+            "session.queued_prompts" => self.open_queued(),
+            "session.parent" => {
+                let Some(p) = self.session().and_then(|s| s.parent_id.clone()) else { return false };
+                self.navigate(Route::Session(p));
+            }
+            "session.page.up" | "session.page.down" | "session.half.page.up" | "session.half.page.down" | "session.line.up" | "session.line.down" | "session.first" | "session.last" => {
+                if sid.is_none() {
+                    return false;
+                }
+                let h = self.transcript_rect.height.max(1) as usize;
+                let amount = match id {
+                    "session.page.up" | "session.page.down" => h / 2,
+                    "session.half.page.up" | "session.half.page.down" => h / 4,
+                    "session.first" | "session.last" => usize::MAX / 4,
+                    _ => 1,
+                };
+                if id == "session.first" {
+                    if let Some(s) = sid.clone() {
+                        self.fetch_older(&s);
+                    }
+                }
+                let up = id.ends_with("up") || id == "session.first";
+                self.scroll(up, amount.max(1));
+            }
+            "session.messages_last_user" | "session.message.next" | "session.message.previous" | "session.message.user.next" | "session.message.user.previous" => {
+                if sid.is_none() {
+                    return false;
+                }
+                self.navigate_message(id);
+            }
+            "session.interrupt" => return self.interrupt_key(),
+            "pane.focus.left" | "pane.focus.right" => {
+                if self.terminal_visible().is_none() || !self.dialogs.is_empty() {
+                    return false;
+                }
+                self.right_focus = id == "pane.focus.right";
+                if self.right_focus
+                    && let Some(p) = self.terminal_visible()
+                    && let Some(st) = self.terminal_states.get_mut(&p)
+                {
+                    st.interact();
+                }
+            }
+            "terminal.toggle" => {
+                let Some(s) = sid else { return false };
+                if self.terminal_visible().is_some() {
+                    self.terminal_open = false;
+                    self.right_focus = false;
+                } else {
+                    self.terminal_open = true;
+                    let (list, selected) = self.session_terminals(&s);
+                    match selected.or_else(|| list.first().and_then(|t| t.get("id").and_then(|x| x.as_str()).map(|x| x.to_string()))) {
+                        Some(p) => self.select_terminal(&s, Some(&p)),
+                        None => self.new_terminal(&s),
+                    }
+                }
+            }
+            "terminal.close" => {
+                let Some(s) = sid else { return false };
+                if self.terminal_visible().is_none() {
+                    return false;
+                }
+                self.select_terminal(&s, None);
+            }
+            "terminal.select" => {
+                let Some(s) = sid else { return false };
+                let (list, selected) = self.session_terminals(&s);
+                let mut opts: Vec<Opt> = list
+                    .iter()
+                    .filter_map(|t| {
+                        let id = t.get("id")?.as_str()?.to_string();
+                        let title = t.get("foregroundProcess").and_then(|x| x.as_str()).or(t.get("title").and_then(|x| x.as_str())).unwrap_or("Terminal").to_string();
+                        Some(Opt::new(title, id))
+                    })
+                    .collect();
+                opts.push(Opt::new("+ New terminal", "new"));
+                let mut sel = Select::new("Terminals", opts);
+                sel.render_filter = false;
+                sel.current = selected;
+                self.open_dialog(Dialog::select("terminal", sel, Size::Medium));
+            }
+            "session.terminal" => {
+                let Some(s) = sid else { return false };
+                self.terminal_open = true;
+                self.new_terminal(&s);
+            }
+            "session.sidebar.toggle" => {
+                let Some(s) = sid else { return false };
+                self.terminal_open = false;
+                self.right_focus = false;
+                let visible = self.sidebar_visible();
+                self.view(&s).sidebar_open = Some(!visible);
+                self.config.set("session.sidebar", Some(json!(if visible { "hide" } else { "auto" })));
+            }
+            "session.aside" => {
+                let Some(s) = sid else {
+                    self.info("Open a session first");
+                    return true;
+                };
+                match args.filter(|a| !a.trim().is_empty()) {
+                    Some(q) => self.side_question(&s, &q),
+                    None => {
+                        let mut d = Dialog::new("btw", Body::Prompt(PromptDialog::new("/btw", "Ask anything", "")));
+                        d.data = json!(s);
+                        self.open_dialog(d);
+                    }
+                }
+            }
+            "session.cd" => self.change_directory(args.unwrap_or_default()),
+            "plugins.list" => self.open_dialog(Dialog::new("alert", Body::Alert { title: "Plugins".into(), message: "Built-in plugins: home footer, prompt footer, /btw, sidebar context, sidebar MCP, sidebar footer, notifications.".into() })),
+            "diff.open" => self.open_diff(),
+            "stats.open" => self.open_stats(),
+            "session.move" => self.open_worktrees_dialog(),
+            "prompt.images.view" => {
+                self.toast(Toast::new("warning", "This view is not available in this build"));
+            }
+            "prompt.skills" => {
+                let skills = self.loc().and_then(|l| l.skills.clone()).unwrap_or_default();
+                let longest = skills.iter().map(|s| s.name.len()).max().unwrap_or(0);
+                let opts: Vec<Opt> = skills
+                    .iter()
+                    .map(|s| Opt::new(format!("{:<longest$}", s.name), s.id.clone()).desc(locale::collapse_ws(s.description.as_deref().unwrap_or(""))))
+                    .collect();
+                let mut sel = Select::new("Skills", opts);
+                sel.empty = Some("No skills available".into());
+                sel.no_match = Some("No skills found".into());
+                self.open_dialog(Dialog::select("skill", sel, Size::Large));
+            }
+            "prompt.stash" => {
+                if self.editor.is_empty() {
+                    return false;
+                }
+                self.stash.push(self.editor.info());
+                self.editor.clear();
+            }
+            "prompt.stash.pop" => match self.stash.pop() {
+                Some(p) => self.editor.set(&p),
+                None => return false,
+            },
+            "prompt.stash.list" => self.open_stash(),
+            "prompt.editor" => self.open_external_editor(),
+            "prompt.clear" => {
+                if self.editor.is_empty() {
+                    return false;
+                }
+                let info = self.editor.info();
+                if info.text.trim().chars().count() >= 20 || !info.pasted.is_empty() || !info.files.is_empty() || !info.agents.is_empty() {
+                    self.history.append(info);
+                }
+                self.editor.clear();
+                self.autocomplete = None;
+            }
+            "prompt.submit" => {
+                self.submit("steer");
+                self.dialogs.clear();
+            }
+            "prompt.queue" => self.submit("queue"),
+            "prompt.paste" => self.paste_clipboard(),
+            _ => return false,
+        }
+        self.dirty = true;
+        true
+    }
+
+    fn cycle_models(&mut self, list: Vec<ModelRef>, reverse: bool) {
+        if list.is_empty() {
+            return;
+        }
+        let cur = self.current_model();
+        let i = cur.and_then(|c| list.iter().position(|m| m.provider_id == c.provider_id && m.id == c.id));
+        let n = list.len() as isize;
+        let next = match i {
+            Some(i) => (((i as isize) + if reverse { -1 } else { 1 }) % n + n) % n,
+            None => 0,
+        };
+        let m = list[next as usize].clone();
+        self.set_model(m, true);
+    }
+
+    pub fn rename(&mut self, sid: &str, title: &str) {
+        let c = self.client.clone();
+        let s = sid.to_string();
+        let t = title.to_string();
+        self.spawn(async move { c.session_update(&s, json!({ "title": t })).await }, |app, r| {
+            if let Err(e) = r {
+                app.toast(Toast::new("error", format!("Failed to rename session: {}", crate::api::error_message(&e))));
+            }
+        });
+    }
+
+    fn undo(&mut self) {
+        let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
+        let boundary = self.session().and_then(|s| s.revert.as_ref().map(|r| r.message_id.clone()));
+        let target = self
+            .store
+            .messages(&sid)
+            .iter()
+            .rev()
+            .filter(|m| m.kind == "user")
+            .find(|m| boundary.as_ref().is_none_or(|b| m.id < *b))
+            .cloned();
+        let Some(target) = target else {
+            self.info("Nothing to undo");
+            return;
+        };
+        let c = self.client.clone();
+        let s2 = sid.clone();
+        let mid = target.id.clone();
+        let running = self.running();
+        self.call(
+            async move {
+                if running {
+                    c.interrupt(&s2, false).await?;
+                    c.wait(&s2).await?;
+                }
+                c.revert_stage(&s2, &mid).await
+            },
+            move |app, _| {
+                let mut info = crate::state::PromptInfo::empty();
+                info.text = target.text.clone().unwrap_or_default();
+                app.editor.set(&info);
+            },
+        );
+    }
+
+    pub fn transcript_markdown(&self, sid: &str, thinking: bool, tools: bool) -> String {
+        let Some(s) = self.store.session(sid) else { return String::new() };
+        let mut body = Vec::new();
+        for m in self.store.messages(sid) {
+            match m.kind.as_str() {
+                "user" => body.push(format!("## User\n\n{}", m.text_str())),
+                "shell" => body.push(format!("## Shell\n\n```\n$ {}\n{}\n```", m.command.as_deref().unwrap_or(""), m.output.as_ref().map(|o| o.output.as_str()).unwrap_or(""))),
+                "assistant" => {
+                    let mut parts = Vec::new();
+                    for c in &m.content {
+                        match c {
+                            Content::Text { text, .. } => parts.push(text.clone()),
+                            Content::Reasoning { text, .. } if thinking => parts.push(format!("_Thinking:_\n\n{text}")),
+                            Content::Tool(t) if tools => {
+                                let input = match &t.state.input {
+                                    Value::String(s) => s.clone(),
+                                    v => serde_json::to_string_pretty(v).unwrap_or_default(),
+                                };
+                                let output = if t.state.status == "error" {
+                                    t.state.error.as_ref().map(|e| e.message.clone()).unwrap_or_default()
+                                } else {
+                                    crate::ui::transcript::tool_output(t).unwrap_or_default()
+                                };
+                                parts.push(format!("**Tool: {}**\n\n**Input:**\n```json\n{input}\n```\n\n{output}", t.name));
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !parts.is_empty() {
+                        body.push(format!("## Assistant\n\n{}", parts.join("\n\n")));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let fmt = |ms: i64| {
+            use chrono::{Local, TimeZone};
+            Local.timestamp_millis_opt(ms).single().map(|d| d.format("%-m/%-d/%Y, %-I:%M:%S %p").to_string()).unwrap_or_default()
+        };
+        format!(
+            "# {}\n\n**Session ID:** {}\n**Created:** {}\n**Updated:** {}\n\n---\n\n{}\n",
+            s.display_title(),
+            s.id,
+            fmt(s.time.created),
+            fmt(s.time.updated),
+            body.join("\n\n---\n\n")
+        )
+    }
+
+    /// Export flow (`DialogExportOptions` → copy or temp file → `DialogExportResult`).
+    pub fn export_session(&mut self, opts: crate::ui::dialog::ExportOptions, copy: bool) {
+        let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
+        self.dialogs.clear();
+        let done = move |app: &mut App, text: String, ext: &str| {
+            if copy {
+                app.copy(&text, "Copied to clipboard");
+                return;
+            }
+            let path = std::env::temp_dir().join(format!("opencode-{}.{ext}", crate::util::id_body(false)));
+            match std::fs::write(&path, text) {
+                Ok(_) => {
+                    let t = app.theme().dialog().clone();
+                    let lines = vec![crate::ui::text::SLine::new(vec![crate::ui::text::seg(path.to_string_lossy().to_string(), crate::ui::text::fg(t.text.base))])];
+                    app.open_dialog(Dialog::new("text", Body::Text { title: "Session exported".into(), lines, hints: vec![("enter".into(), "close".into())], scroll: 0 }));
+                }
+                Err(e) => app.toast(Toast::new("error", e.to_string())),
+            }
+        };
+        if opts.json {
+            let c = self.client.clone();
+            let sanitize = opts.sanitize;
+            self.call(async move { c.export(&sid, sanitize).await }, move |app, v| {
+                let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                done(app, text, "json");
+            });
+        } else {
+            let text = self.transcript_markdown(&sid, opts.thinking, opts.tools);
+            done(self, text, "md");
+        }
+    }
+
+    fn side_question(&mut self, sid: &str, question: &str) {
+        const INSTRUCTIONS: &str = "Answer the user's side question using the current session context. Do not take actions, call tools, or modify the conversation. Keep the answer concise.";
+        let c = self.client.clone();
+        let s = sid.to_string();
+        let q = question.to_string();
+        let prompt = format!("{INSTRUCTIONS}\n\n{q}");
+        self.call(async move { c.generate(&s, &prompt).await }, move |app, text| {
+            let t = app.theme().clone();
+            let st = crate::theme::SyntaxStyle::from_theme(&t);
+            let o = crate::ui::markdown::MdOpts { theme: &t, syntax: &st, conceal: true, fg: t.markdown.text, mono: false };
+            let lines = crate::ui::markdown::render(&text, 80, &o);
+            let mut d = Dialog::new("text", Body::Text { title: format!("/btw {}", locale::truncate(&q, 60)), lines, hints: vec![("c".into(), "copy".into()), ("j/k ↑/↓".into(), "scroll".into())], scroll: 0 });
+            d.size = Size::Large;
+            d.centered = true;
+            d.data = json!(text);
+            app.open_dialog(d);
+        });
+    }
+
+    fn change_directory(&mut self, input: String) {
+        let input = input.trim().to_string();
+        if input.is_empty() {
+            self.toast(Toast::new("error", "Directory is required"));
+            return;
+        }
+        let base = self.location_dir();
+        let dir = if let Some(rest) = input.strip_prefix("~") {
+            format!("{}{}", dirs::home_dir().map(|h| h.to_string_lossy().to_string()).unwrap_or_default(), rest)
+        } else if input.starts_with('/') {
+            input.clone()
+        } else {
+            format!("{}/{}", base.trim_end_matches('/'), input)
+        };
+        let dir = std::path::Path::new(&dir).canonicalize().map(|p| p.to_string_lossy().to_string()).unwrap_or(dir);
+        let c = self.client.clone();
+        match self.session_id().map(|s| s.to_string()) {
+            Some(s) => {
+                let d = dir.clone();
+                self.spawn(async move { c.session_move(&s, &d).await }, |app, r| {
+                    if let Err(e) = r {
+                        app.toast(Toast::new("error", crate::api::error_message(&e)).title("Failed to change directory"));
+                    }
+                });
+            }
+            None => {
+                let d = dir.clone();
+                self.spawn(async move { c.location_get(Some(&d)).await }, |app, r| match r {
+                    Ok(info) => {
+                        app.opts.directory = info.directory.clone();
+                        app.client.directory = info.directory.clone();
+                        app.store.directory = info.directory.clone();
+                        let d = info.directory.clone();
+                        app.store.location_mut(&d).info = Some(info);
+                        app.sync_location();
+                    }
+                    Err(e) => app.toast(Toast::new("error", crate::api::error_message(&e)).title("Failed to change directory")),
+                });
+            }
+        }
+    }
+
+    fn open_external_editor(&mut self) {
+        self.editor_requested = true;
+    }
+
+    fn paste_clipboard(&mut self) {
+        if let Some(png) = crate::clipboard::read_png() {
+            let label = self.editor.next_attachment_label("Image");
+            self.editor.insert_chip(&label, crate::ui::prompt::ChipKind::Paste, json!({ "uri": format!("data:image/png;base64,{png}"), "name": "clipboard", "mime": "image/png" }), true);
+            return;
+        }
+        if let Some(text) = crate::clipboard::read_text() {
+            self.paste(&text);
+        }
+    }
+
+    // ---- dialogs -----------------------------------------------------------
+
+    pub fn open_palette(&mut self) {
+        let kb = &self.keybinds;
+        let cmds: Vec<Cmd> = self.commands().into_iter().filter(|c| c.palette && c.id != "command.palette.show").collect();
+        let mut opts: Vec<Opt> = Vec::new();
+        for c in cmds.iter().filter(|c| c.suggested) {
+            let mut o = Opt::new(c.title.clone(), format!("suggested:{}", c.id)).cat("Suggested");
+            o.footer = Some(kb.shortcut_all(&c.id)).filter(|f| !f.is_empty());
+            o.description = c.description.clone();
+            opts.push(o);
+        }
+        for c in &cmds {
+            let mut o = Opt::new(c.title.clone(), c.id.clone()).cat(c.group);
+            let footer = kb.shortcut_all(&c.id);
+            o.footer = Some(footer.clone()).filter(|f| !f.is_empty());
+            o.description = c.description.clone();
+            o.search_text = Some(format!("{} {}", c.id, c.description.clone().unwrap_or_default()));
+            o.search_footer = Some(if footer.is_empty() { c.group.to_string() } else { format!("{} · {footer}", c.group) });
+            opts.push(o);
+        }
+        for (cat, title, path, _, _, _) in settings() {
+            let mut o = Opt::new(title, format!("setting:{path}")).cat("__settings");
+            o.search_footer = Some(format!("Settings · {cat}"));
+            o.search_text = Some(format!("{cat} {path}"));
+            o.disabled = true;
+            opts.push(o);
+        }
+        let mut s = Select::new("Commands", opts);
+        s.flat = true;
+        s.threshold = 0.7;
+        self.open_dialog(Dialog::select("palette", s, Size::Medium));
+    }
+
+    pub fn open_model_dialog(&mut self, provider: Option<String>) {
+        let models: Vec<ModelInfo> = self.model_list().into_iter().filter(|m| m.status != "deprecated" && provider.as_ref().is_none_or(|p| &m.provider_id == p)).collect();
+        let providers = self.providers();
+        let pname = |id: &str| providers.iter().find(|p| p.id == id).map(|p| p.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string());
+        let connected = !providers.is_empty();
+        let show_extra = connected && provider.is_none();
+        let key = |m: &ModelInfo| format!("{}/{}", m.provider_id, m.id);
+        let mut opts: Vec<Opt> = Vec::new();
+        let mut shown: Vec<String> = Vec::new();
+        if show_extra {
+            for f in &self.models.favorite {
+                if let Some(m) = models.iter().find(|m| m.provider_id == f.provider_id && m.id == f.model_id) {
+                    let mut o = Opt::new(m.name.clone(), key(m)).cat("Favorites").desc(pname(&m.provider_id));
+                    if m.free() {
+                        o.footer = Some("Free".into());
+                    }
+                    opts.push(o);
+                    shown.push(key(m));
+                }
+            }
+            for r in &self.models.recent {
+                if self.models.is_favorite(&r.provider_id, &r.model_id) {
+                    continue;
+                }
+                if let Some(m) = models.iter().find(|m| m.provider_id == r.provider_id && m.id == r.model_id) {
+                    let mut o = Opt::new(m.name.clone(), key(m)).cat("Recent").desc(pname(&m.provider_id));
+                    if m.free() {
+                        o.footer = Some("Free".into());
+                    }
+                    opts.push(o);
+                    shown.push(key(m));
+                }
+            }
+        }
+        let mut rest: Vec<&ModelInfo> = models.iter().filter(|m| !shown.contains(&key(m))).collect();
+        let rank = |p: &str| match p {
+            "opencode-go" => 0,
+            "opencode" => 1,
+            _ => 2,
+        };
+        rest.sort_by(|a, b| {
+            rank(&a.provider_id)
+                .cmp(&rank(&b.provider_id))
+                .then(pname(&a.provider_id).cmp(&pname(&b.provider_id)))
+                .then(b.free().cmp(&a.free()))
+                .then(b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal))
+                .then(a.name.cmp(&b.name))
+        });
+        for m in rest {
+            let mut o = Opt::new(m.name.clone(), key(m));
+            if connected {
+                o.category = Some(pname(&m.provider_id));
+            }
+            if self.models.is_favorite(&m.provider_id, &m.id) {
+                o.description = Some("(Favorite)".into());
+            }
+            if m.free() {
+                o.footer = Some("Free".into());
+            }
+            opts.push(o);
+        }
+        let title = provider.as_ref().map(|p| pname(p)).unwrap_or_else(|| "Select model".into());
+        let mut s = Select::new(title, opts);
+        s.flat = true;
+        s.current = self.current_model().map(|m| format!("{}/{}", m.provider_id, m.id));
+        s.focus_current = false;
+        s.actions = vec![
+            Action { id: "model.dialog.provider".into(), title: if connected { "Connect an integration".into() } else { "View all integrations".into() }, right: false, disabled: false, hidden: false },
+            Action { id: "model.dialog.favorite".into(), title: "Favorite".into(), right: false, disabled: false, hidden: !connected },
+        ];
+        self.open_dialog(Dialog::select("model", s, Size::Medium));
+    }
+
+    pub fn open_theme_dialog(&mut self) {
+        let names = self.themes.names();
+        let opts: Vec<Opt> = names.iter().map(|n| Opt::new(n.clone(), n.clone())).collect();
+        let mut s = Select::new("Themes", opts);
+        s.current = Some(self.themes.active.clone());
+        self.theme_preview_initial = Some(self.themes.active.clone());
+        self.open_dialog(Dialog::select("theme", s, Size::Medium));
+    }
+
+    pub fn open_settings(&mut self, focus: Option<&str>) {
+        let mut opts = Vec::new();
+        for (cat, title, path, values, labels, default) in settings() {
+            let value = self.config.get(path).cloned().unwrap_or(default);
+            let footer = if path == "theme.name" {
+                self.themes.active.clone()
+            } else if path == "scroll.speed" {
+                format!("{:.2}", value.as_f64().unwrap_or(3.0))
+            } else if path == "leader.timeout" {
+                format!("{} ms", value.as_f64().unwrap_or(2000.0) as i64)
+            } else if path == "attention.volume" {
+                format!("{}%", (value.as_f64().unwrap_or(0.4) * 100.0).round() as i64)
+            } else if let Some(i) = values.iter().position(|v| *v == value) {
+                labels.get(i).map(|s| s.to_string()).unwrap_or_else(|| value.as_str().map(|s| s.to_string()).unwrap_or_else(|| value.to_string()))
+            } else {
+                value.as_str().map(|s| s.to_string()).unwrap_or_else(|| value.to_string())
+            };
+            opts.push(Opt::new(title, path).cat(cat).foot(footer));
+        }
+        let mut s = Select::new("Settings", opts);
+        s.current = Some(focus.unwrap_or("theme.name").to_string());
+        s.hints = vec![("←/→".into(), "change".into())];
+        s.actions = vec![
+            Action { id: "key:left".into(), title: String::new(), right: false, disabled: false, hidden: true },
+            Action { id: "key:right".into(), title: String::new(), right: false, disabled: false, hidden: true },
+        ];
+        let mut d = Dialog::select("settings", s, Size::Medium);
+        if let Some(sel) = d.sel() {
+            sel.focus_current_option();
+        }
+        self.open_dialog(d);
+    }
+
+    /// Step a setting value (`left`/`right`).
+    pub fn change_setting(&mut self, path: &str, dir: i64) {
+        let Some((_, _, _, values, _, default)) = settings().into_iter().find(|s| s.2 == path) else { return };
+        let current = self.config.get(path).cloned().unwrap_or(default);
+        let next = match path {
+            "theme.name" => {
+                let names = self.themes.names();
+                let i = names.iter().position(|n| *n == self.themes.active).unwrap_or(0) as i64;
+                let n = names.len() as i64;
+                let name = names[(((i + dir) % n + n) % n) as usize].clone();
+                self.set_theme(&name, true);
+                return;
+            }
+            "scroll.speed" => json!(((current.as_f64().unwrap_or(3.0) + 0.25 * dir as f64).clamp(0.25, 10.0) * 100.0).round() / 100.0),
+            "leader.timeout" => json!((current.as_f64().unwrap_or(2000.0) as i64 + 250 * dir).clamp(250, 10000)),
+            "attention.volume" => json!(((current.as_f64().unwrap_or(0.4) + 0.1 * dir as f64).clamp(0.0, 1.0) * 10.0).round() / 10.0),
+            _ => {
+                let i = values.iter().position(|v| *v == current).unwrap_or(0) as i64;
+                let n = values.len() as i64;
+                values[(((i + dir) % n + n) % n) as usize].clone()
+            }
+        };
+        self.config.set(path, Some(next.clone()));
+        if path == "theme.mode" {
+            let mode = next.as_str().unwrap_or("system");
+            self.themes.lock = crate::theme::Mode::parse(mode);
+            if let Some(m) = self.themes.lock {
+                self.themes.set_mode(m);
+            }
+            self.reload_theme();
+        }
+        if path == "leader.timeout" {
+            self.keybinds = self.config.keybinds();
+        }
+        if path == "session.permissions" {
+            self.autoaccept = next == json!("autoaccept");
+        }
+        // Rebuild the settings dialog keeping the selection.
+        let selected = self.dialogs.last_mut().and_then(|d| d.sel().map(|s| s.selected));
+        self.open_settings(Some(path));
+        if let (Some(sel), Some(i)) = (self.dialogs.last_mut().and_then(|d| d.sel()), selected) {
+            sel.selected = i;
+        }
+    }
+
+    pub fn open_session_list(&mut self) {
+        let current = self.session_id().map(|s| s.to_string());
+        let tabs = self.config.tabs_enabled();
+        let mut opts = Vec::new();
+        let today = locale::date_string(locale::now_ms());
+        for s in self.store.session_list() {
+            if s.parent_id.is_some() || s.id.starts_with("dummy") {
+                continue;
+            }
+            let date = locale::date_string(s.time.updated);
+            let cat = if !tabs && self.pins.pinned.contains(&s.id) { "Pinned".to_string() } else if date == today { "Today".to_string() } else { date };
+            let mut o = Opt::new(s.display_title(), s.id.clone()).cat(cat);
+            if self.store.is_running(&s.id) {
+                o.gutter = Some(crate::ui::text::seg(crate::ui::text::SPINNER_GLYPH.to_string(), crate::ui::text::fg(self.theme().text.muted)));
+            }
+            if self.store.permissions.get(&s.id).is_some_and(|p| !p.is_empty()) {
+                o.gutter = Some(crate::ui::text::seg("!", crate::ui::text::bold(crate::ui::text::fg(self.theme().text.feedback.warning.base))));
+            }
+            opts.push(o);
+        }
+        let mut sel = Select::new("Sessions", opts);
+        sel.current = current;
+        sel.skip_filter = false;
+        sel.empty = Some("No sessions available".into());
+        sel.no_match = Some("No sessions found".into());
+        sel.actions = vec![
+            Action { id: "session.pin.toggle".into(), title: "pin/unpin".into(), right: false, disabled: false, hidden: tabs },
+            Action { id: "session.delete".into(), title: "delete".into(), right: false, disabled: false, hidden: false },
+            Action { id: "session.rename".into(), title: "rename".into(), right: false, disabled: false, hidden: false },
+        ];
+        self.open_dialog(Dialog::select("session", sel, Size::Large));
+    }
+
+    fn open_timeline(&mut self) {
+        let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
+        let opts: Vec<Opt> = self
+            .store
+            .messages(&sid)
+            .iter()
+            .rev()
+            .filter(|m| m.kind == "user")
+            .map(|m| Opt::new(m.text_str().replace('\n', " "), m.id.clone()).foot(locale::time(m.time.created)))
+            .collect();
+        let s = Select::new("Timeline", opts);
+        self.open_dialog(Dialog::select("timeline", s, Size::Large));
+    }
+
+    pub fn open_fork(&mut self, message: Option<String>) {
+        let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
+        if let Some(m) = message {
+            self.fork(&sid, Some(m));
+            return;
+        }
+        let mut opts = vec![Opt::new("Full session", "full")];
+        opts.extend(self.store.messages(&sid).iter().rev().filter(|m| m.kind == "user").map(|m| Opt::new(m.text_str().replace('\n', " "), m.id.clone()).foot(locale::time(m.time.created))));
+        self.open_dialog(Dialog::select("fork", Select::new("Fork session", opts), Size::Large));
+    }
+
+    pub fn fork(&mut self, sid: &str, before: Option<String>) {
+        let c = self.client.clone();
+        let s = sid.to_string();
+        let text = before.as_ref().and_then(|b| self.store.messages(sid).iter().find(|m| &m.id == b).map(|m| m.text_str().to_string()));
+        self.call(async move { c.session_fork(&s, before.as_deref()).await }, move |app, info| {
+            let id = info.id.clone();
+            app.store.remember(info);
+            app.dialogs.clear();
+            app.toast(Toast::new("info", "Forked session").duration(4000));
+            app.navigate(Route::Session(id));
+            if let Some(t) = text {
+                let mut p = crate::state::PromptInfo::empty();
+                p.text = t;
+                app.editor.set(&p);
+            }
+        });
+    }
+
+    fn open_queued(&mut self) {
+        let opts: Vec<Opt> = self.queued_prompts().iter().map(|i| Opt::new(i.payload.get("text").and_then(|t| t.as_str()).unwrap_or("").replace('\n', " "), i.id.clone())).collect();
+        let mut s = Select::new("Queued prompts", opts);
+        s.actions = vec![
+            Action { id: "queued_prompt.undo".into(), title: "undo".into(), right: false, disabled: false, hidden: false },
+            Action { id: "queued_prompt.delete".into(), title: "delete".into(), right: false, disabled: false, hidden: false },
+        ];
+        self.open_dialog(Dialog::select("queued", s, Size::Medium));
+    }
+
+    fn open_stash(&mut self) {
+        let now = locale::now_ms();
+        let opts: Vec<Opt> = self
+            .stash
+            .entries
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, e)| {
+                let first = e.prompt.text.lines().next().unwrap_or("").trim().to_string();
+                let diff = (now - e.timestamp) / 1000;
+                let when = if diff < 60 {
+                    "just now".to_string()
+                } else if diff < 3600 {
+                    format!("{}m ago", diff / 60)
+                } else if diff < 86400 {
+                    format!("{}h ago", diff / 3600)
+                } else if diff < 86400 * 7 {
+                    format!("{}d ago", diff / 86400)
+                } else {
+                    locale::datetime(e.timestamp)
+                };
+                let lines = e.prompt.text.lines().count();
+                let mut o = Opt::new(locale::truncate(&first, 50), i.to_string()).desc(when);
+                if lines > 1 {
+                    o.footer = Some(format!("~{lines} lines"));
+                }
+                o
+            })
+            .collect();
+        let mut s = Select::new("Stash", opts);
+        s.actions = vec![Action { id: "stash.delete".into(), title: "delete".into(), right: false, disabled: false, hidden: false }];
+        self.open_dialog(Dialog::select("stash", s, Size::Medium));
+    }
+
+    fn open_mcp_dialog(&mut self) {
+        let mut servers = self.loc().and_then(|l| l.mcp.clone()).unwrap_or_default();
+        servers.sort_by(|a, b| a.name.cmp(&b.name));
+        let t = self.theme().clone();
+        let opts: Vec<Opt> = servers
+            .iter()
+            .map(|s| {
+                let (footer, color) = match s.status.status.as_str() {
+                    "pending" | "loading" => ("Connecting …", t.text.muted),
+                    "connected" => ("Connected ✓", t.text.feedback.success.base),
+                    "failed" => ("Failed !", t.text.feedback.error.base),
+                    "needs_auth" => ("Sign in required →", t.text.feedback.warning.base),
+                    _ => ("Disabled ○", t.text.muted),
+                };
+                let mut o = Opt::new(s.name.clone(), s.name.clone()).foot(footer);
+                o.footer_color = Some(color);
+                o
+            })
+            .collect();
+        let mut sel = Select::new("MCP servers", opts);
+        sel.actions = vec![Action { id: "dialog.mcp.toggle".into(), title: "toggle".into(), right: false, disabled: false, hidden: false }];
+        self.open_dialog(Dialog::select("mcp", sel, Size::Medium));
+    }
+
+    fn open_status(&mut self) {
+        let t = self.theme().clone();
+        let servers = self.loc().and_then(|l| l.mcp.clone()).unwrap_or_default();
+        let mut lines = Vec::new();
+        use crate::ui::text::{SLine, Seg, bold, fg, seg};
+        if servers.is_empty() {
+            lines.push(SLine::new(vec![seg("No MCP servers", fg(t.text.base))]));
+        } else {
+            lines.push(SLine::new(vec![seg(format!("{} MCP server{}", servers.len(), if servers.len() == 1 { "" } else { "s" }), fg(t.text.base))]));
+            for s in &servers {
+                let (c, text) = match s.status.status.as_str() {
+                    "connected" => (t.text.feedback.success.base, "Connected".to_string()),
+                    "failed" => (t.text.feedback.error.base, s.status.error.clone().unwrap_or_default()),
+                    "disabled" => (t.text.muted, "Disabled in configuration".to_string()),
+                    "needs_auth" => (t.text.feedback.warning.base, format!("Needs authentication: {}", s.status.error.clone().unwrap_or_default())),
+                    other => (t.text.muted, other.to_string()),
+                };
+                lines.push(SLine::new(vec![seg("• ", fg(c)), Seg::new(s.name.clone(), bold(fg(t.text.base))), seg(format!(" {text}"), fg(t.text.muted))]));
+            }
+        }
+        self.open_dialog(Dialog::new("text", Body::Text { title: "Status".into(), lines, hints: vec![], scroll: 0 }));
+    }
+
+    fn open_debug(&mut self) {
+        let t = self.theme().clone();
+        use crate::ui::text::{SLine, fg, seg};
+        let model = self.current_model().map(|m| format!("{}/{}", m.provider_id, m.id));
+        let rows = vec![
+            ("Version", Some(self.opts.version.clone()).filter(|v| !v.is_empty())),
+            ("Date", Some(locale::iso(locale::now_ms()))),
+            ("OS", Some(format!("{} {}", std::env::consts::OS, std::env::consts::ARCH))),
+            ("Terminal", std::env::var("TERM_PROGRAM").ok().or_else(|| std::env::var("TERM").ok())),
+            ("Session ID", self.session_id().map(|s| s.to_string())),
+            ("Model", model),
+        ];
+        let text: String = rows.iter().map(|(k, v)| format!("{k}: {}", v.clone().unwrap_or_else(|| "n/a".into()))).collect::<Vec<_>>().join("\n");
+        let mut lines: Vec<SLine> = rows.into_iter().map(|(k, v)| SLine::new(vec![seg(format!("{k:<10}"), fg(t.text.muted)), seg(v.unwrap_or_else(|| "n/a".into()), fg(t.text.base))])).collect();
+        lines.push(SLine::blank());
+        lines.push(SLine::new(vec![seg("Share this when reporting an issue.", fg(t.text.muted))]));
+        let mut d = Dialog::new("debug", Body::Text { title: "Debug".into(), lines, hints: vec![("copy".into(), "enter".into())], scroll: 0 });
+        d.size = Size::Large;
+        d.data = json!(text);
+        self.open_dialog(d);
+    }
+}
+
+pub fn open_url(url: &str) {
+    let cmd = if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
+    let _ = std::process::Command::new(cmd).arg(url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+}

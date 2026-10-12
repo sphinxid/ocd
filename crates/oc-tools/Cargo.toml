@@ -1,0 +1,41 @@
+[package]
+name = "oc-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oc-util = { path = "../oc-util" }
+oc-schema = { path = "../oc-schema" }
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+ignore.workspace = true
+globset.workspace = true
+similar.workspace = true
+regex.workspace = true
+base64.workspace = true
+mime_guess.workspace = true
+which.workspace = true
+parking_lot.workspace = true
+url.workspace = true
+rand.workspace = true
+chrono.workspace = true
+bytes.workspace = true
+unicode-normalization = "0.1"
+libc = "0.2"
+tree-sitter = "0.25"
+tree-sitter-bash = "=0.25.0"
+tree-sitter-powershell = "=0.25.10"
+fancy-regex = "0.14"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+
+[dev-dependencies]
+tempfile = "3"

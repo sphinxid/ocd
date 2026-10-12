@@ -1,0 +1,38 @@
+[package]
+name = "oc-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+futures.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+pulldown-cmark.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+similar.workspace = true
+chrono.workspace = true
+parking_lot.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+base64.workspace = true
+dirs.workspace = true
+rand.workspace = true
+once_cell.workspace = true
+vt100 = "0.15"
+tokio-tungstenite = "0.29"
+qrcode = { version = "0.14", default-features = false }
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "regex-fancy", "parsing"] }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -1,0 +1,862 @@
+[
+ {
+  "args": [],
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "somedir"
+  ],
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"somedir\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "-c"
+  ],
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "-s",
+   "ses_1",
+   "--prompt",
+   "hi",
+   "--auto"
+  ],
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":true,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses_1\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"hi\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--session",
+   "run"
+  ],
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"run\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--yolo"
+  ],
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":true,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--dangerously-skip-permissions"
+  ],
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":true,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--standalone",
+   "--server",
+   "http://x"
+  ],
+  "stdout": "HANDLER ocd {\"standalone\":true,\"server\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://x\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "upgrade"
+  ],
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "upgrade",
+   "v1.2.3",
+   "-m",
+   "npm"
+  ],
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"v1.2.3\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"npm\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "update",
+   "1.0.0"
+  ],
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"1.0.0\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "uninstall",
+   "--dry-run",
+   "-f"
+  ],
+  "stdout": "HANDLER uninstall {\"dryRun\":true,\"force\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "acp"
+  ],
+  "stdout": "HANDLER acp {\"login\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "acp",
+   "--login"
+  ],
+  "stdout": "HANDLER acp {\"login\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "api",
+   "session.list",
+   "--param",
+   "a=1",
+   "--param",
+   "b=c=d",
+   "--param",
+   "a=2"
+  ],
+  "stdout": "HANDLER api {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"request\":[\"session.list\"],\"data\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":[],\"param\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"a\":\"2\",\"b\":\"c=d\"}}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "api",
+   "GET",
+   "/api/info",
+   "-d",
+   "{}",
+   "-H",
+   "a:b",
+   "-H",
+   "c: d"
+  ],
+  "stdout": "HANDLER api {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"request\":[\"GET\",\"/api/info\"],\"data\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"{}\"},\"header\":[\"a:b\",\"c: d\"],\"param\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "debug",
+   "agents"
+  ],
+  "stdout": "HANDLER agents {}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "debug",
+   "config"
+  ],
+  "stdout": "HANDLER config {}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "debug",
+   "paths"
+  ],
+  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "debug",
+   "paths",
+   "db"
+  ],
+  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"db\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "auth",
+   "list",
+   "--format",
+   "json"
+  ],
+  "stdout": "HANDLER list {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"json\"}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "auth",
+   "login",
+   "openai",
+   "--method",
+   "key",
+   "--answer",
+   "a=1",
+   "--answer",
+   "b=2"
+  ],
+  "stdout": "HANDLER login {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"openai\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"key\"},\"answer\":[\"a=1\",\"b=2\"]}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "auth",
+   "logout",
+   "x",
+   "y"
+  ],
+  "stdout": "HANDLER logout {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"},\"credential\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"y\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "auth",
+   "export"
+  ],
+  "stdout": "HANDLER export {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "auth",
+   "import",
+   "f.json"
+  ],
+  "stdout": "HANDLER import {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"file\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"f.json\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "auth",
+   "switch",
+   "x"
+  ],
+  "stdout": "HANDLER switch {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"},\"credential\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "list"
+  ],
+  "stdout": "HANDLER list {}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "add",
+   "srv",
+   "--url",
+   "http://x",
+   "--header",
+   "A=1",
+   "--global"
+  ],
+  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[],\"url\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://x\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"A\":\"1\"}},\"env\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"global\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "add",
+   "srv",
+   "--env",
+   "K=V",
+   "--",
+   "npx",
+   "-y",
+   "pkg"
+  ],
+  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[\"npx\",\"-y\",\"pkg\"],\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"env\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"K\":\"V\"}},\"global\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "add",
+   "srv",
+   "cmd",
+   "arg"
+  ],
+  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[\"cmd\",\"arg\"],\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"env\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"global\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "auth"
+  ],
+  "stdout": "HANDLER auth {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "auth",
+   "s"
+  ],
+  "stdout": "HANDLER auth {\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"s\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "logout",
+   "s"
+  ],
+  "stdout": "HANDLER logout {\"name\":\"s\"}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "list",
+   "--builtin"
+  ],
+  "stdout": "HANDLER list {\"builtin\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "add",
+   "pkg@1"
+  ],
+  "stdout": "HANDLER add {\"package\":\"pkg@1\"}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "check"
+  ],
+  "stdout": "HANDLER check {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "check",
+   "x"
+  ],
+  "stdout": "HANDLER check {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "update"
+  ],
+  "stdout": "HANDLER update {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "remove",
+   "pkg"
+  ],
+  "stdout": "HANDLER remove {\"package\":\"pkg\"}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "models",
+   "--standalone"
+  ],
+  "stdout": "HANDLER models {\"standalone\":true,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "stats",
+   "--days",
+   "0",
+   "--project",
+   ".",
+   "--models",
+   "--tools",
+   "--cost",
+   "--full",
+   "--limit",
+   "3",
+   "--json"
+  ],
+  "stdout": "HANDLER stats {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"days\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"year\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"all\":false,\"project\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\".\"},\"models\":true,\"tools\":true,\"cost\":true,\"full\":true,\"limit\":3,\"json\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "stats",
+   "--year",
+   "2026"
+  ],
+  "stdout": "HANDLER stats {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"days\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"year\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":2026},\"all\":false,\"project\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"models\":false,\"tools\":false,\"cost\":false,\"full\":false,\"limit\":5,\"json\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "stats",
+   "--all"
+  ],
+  "stdout": "HANDLER stats {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"days\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"year\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"all\":true,\"project\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"models\":false,\"tools\":false,\"cost\":false,\"full\":false,\"limit\":5,\"json\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mini",
+   "-c",
+   "--fork",
+   "--replay",
+   "--replay-limit",
+   "5",
+   "-m",
+   "a/b",
+   "--agent",
+   "plan",
+   "--prompt",
+   "p",
+   "--demo"
+  ],
+  "stdout": "HANDLER mini {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":true,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":5},\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"a/b\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"plan\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"p\"},\"demo\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mini",
+   "--no-replay"
+  ],
+  "stdout": "HANDLER mini {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":false},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"demo\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mini",
+   "--replay=false"
+  ],
+  "stdout": "HANDLER mini {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":false},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"demo\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "hello",
+   "world"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"hello\",\"world\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-c",
+   "-s",
+   "ses",
+   "--fork",
+   "-m",
+   "p/m#v",
+   "--agent",
+   "a",
+   "--format",
+   "json",
+   "-f",
+   "a",
+   "-f",
+   "b",
+   "--title",
+   "t",
+   "--thinking",
+   "--auto",
+   "msg"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"msg\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses\"},\"fork\":true,\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"p/m#v\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"a\"},\"format\":\"json\",\"file\":[\"a\",\"b\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"t\"},\"thinking\":true,\"auto\":true,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--",
+   "--foo",
+   "bar"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"--foo\",\"bar\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "a",
+   "--",
+   "b"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"a\",\"b\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--yolo",
+   "x"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":true,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--title=",
+   "x"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "list",
+   "-n",
+   "5",
+   "--format",
+   "json"
+  ],
+  "stdout": "HANDLER list {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"maxCount\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":5},\"format\":\"json\"}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "delete",
+   "ses_1"
+  ],
+  "stdout": "HANDLER delete {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"sessionID\":\"ses_1\"}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "export"
+  ],
+  "stdout": "HANDLER export {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"sanitize\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "export",
+   "ses_1",
+   "--sanitize"
+  ],
+  "stdout": "HANDLER export {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses_1\"},\"sanitize\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "import",
+   "f.json",
+   "--directory",
+   "/tmp"
+  ],
+  "stdout": "HANDLER import {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"file\":\"f.json\",\"directory\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"/tmp\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "start"
+  ],
+  "stdout": "HANDLER start {}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "restart"
+  ],
+  "stdout": "HANDLER restart {}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "status"
+  ],
+  "stdout": "HANDLER status {}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "stop"
+  ],
+  "stdout": "HANDLER stop {}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "get"
+  ],
+  "stdout": "HANDLER get {\"key\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "get",
+   "env",
+   "NAME"
+  ],
+  "stdout": "HANDLER get {\"key\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"env\"},\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"NAME\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "set",
+   "port",
+   "5000"
+  ],
+  "stdout": "HANDLER set {\"key\":\"port\",\"value\":\"5000\",\"nestedValue\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "set",
+   "env",
+   "A",
+   "B"
+  ],
+  "stdout": "HANDLER set {\"key\":\"env\",\"value\":\"A\",\"nestedValue\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"B\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "service",
+   "unset",
+   "env",
+   "A"
+  ],
+  "stdout": "HANDLER unset {\"key\":\"env\",\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"A\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "reload"
+  ],
+  "stdout": "HANDLER reload {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "pair"
+  ],
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "pair",
+   "--url",
+   "http://example.com/base/"
+  ],
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://example.com/base\"},\"remote\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "pair",
+   "--remote"
+  ],
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "serve"
+  ],
+  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"cors\":[],\"service\":false,\"stdio\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "serve",
+   "--hostname",
+   "0.0.0.0",
+   "--port",
+   "0",
+   "--cors",
+   "http://a",
+   "--cors",
+   "http://b",
+   "--service"
+  ],
+  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"0.0.0.0\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"cors\":[\"http://a\",\"http://b\"],\"service\":true,\"stdio\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "serve",
+   "--stdio",
+   "--port",
+   "0"
+  ],
+  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"cors\":[],\"service\":false,\"stdio\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--print-logs",
+   "run",
+   "x"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "x",
+   "--log-level",
+   "debug"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--log-level=warn",
+   "debug",
+   "paths"
+  ],
+  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--thinking",
+   "yes",
+   "msg"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--thinking",
+   "msg"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-cf",
+   "a",
+   "x"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[\"a\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-c=false",
+   "x"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-5"
+  ],
+  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"-5\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ }
+]

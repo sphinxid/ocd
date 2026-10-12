@@ -1,0 +1,2915 @@
+[
+ {
+  "name": "basic auth",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "security": [
+    {
+     "basic": []
+    }
+   ],
+   "components": {
+    "securitySchemes": {
+     "basic": {
+      "type": "http",
+      "scheme": "Basic"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": "basic"
+ },
+ {
+  "name": "header credential with scopes",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "security": [
+       {
+        "oauth": [
+         "read",
+         "write"
+        ]
+       }
+      ]
+     }
+    }
+   },
+   "components": {
+    "securitySchemes": {
+     "oauth": {
+      "type": "oauth2",
+      "flows": {}
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": "header"
+ },
+ {
+  "name": "api key header carrier",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "security": [
+    {
+     "key": []
+    }
+   ],
+   "components": {
+    "securitySchemes": {
+     "key": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-API-Key"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": "apikey"
+ },
+ {
+  "name": "api key credential for http scheme",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "security": [
+    {
+     "bearer": []
+    }
+   ],
+   "components": {
+    "securitySchemes": {
+     "bearer": {
+      "type": "http",
+      "scheme": "bearer"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": "apikey"
+ },
+ {
+  "name": "no resolver configured",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "security": [
+    {
+     "bearer": []
+    }
+   ],
+   "components": {
+    "securitySchemes": {
+     "bearer": {
+      "type": "http",
+      "scheme": "bearer"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "all alternatives unavailable",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "security": [
+    {
+     "a": []
+    },
+    {
+     "b": [],
+     "a": []
+    }
+   ],
+   "components": {
+    "securitySchemes": {
+     "a": {
+      "type": "http",
+      "scheme": "bearer"
+     },
+     "b": {
+      "type": "http",
+      "scheme": "bearer"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": {}
+ },
+ {
+  "name": "and requirement falls through to next alternative",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "security": [
+    {
+     "a": [],
+     "b": []
+    },
+    {
+     "c": []
+    }
+   ],
+   "components": {
+    "securitySchemes": {
+     "a": {
+      "type": "http",
+      "scheme": "bearer"
+     },
+     "b": {
+      "type": "http",
+      "scheme": "bearer"
+     },
+     "c": {
+      "type": "apiKey",
+      "in": "query",
+      "name": "token"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": {
+   "a": "bearer",
+   "c": "apikey"
+  }
+ },
+ {
+  "name": "resolver failure aborts",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "security": [
+    {
+     "a": []
+    }
+   ],
+   "components": {
+    "securitySchemes": {
+     "a": {
+      "type": "http",
+      "scheme": "bearer"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": "fail"
+ },
+ {
+  "name": "anonymous alternative",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "security": [
+    {
+     "a": []
+    },
+    {}
+   ],
+   "components": {
+    "securitySchemes": {
+     "a": {
+      "type": "http",
+      "scheme": "bearer"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": {}
+ },
+ {
+  "name": "static header precedence",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "X-Trace",
+        "in": "header",
+        "schema": {
+         "type": "string"
+        }
+       }
+      ],
+      "security": [
+       {
+        "a": []
+       }
+      ]
+     }
+    }
+   },
+   "components": {
+    "securitySchemes": {
+     "a": {
+      "type": "http",
+      "scheme": "bearer"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "X-Trace": "param"
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": "bearer",
+  "headers": {
+   "X-Static": "s",
+   "X-Trace": "static",
+   "Authorization": "static-auth"
+  }
+ },
+ {
+  "name": "static header order",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "headers": {
+   "b": "x",
+   "2": "two",
+   "1": "one",
+   "B": "y"
+  }
+ },
+ {
+  "name": "http error json",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 404,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"error\":\"nope\",\"n\":1.50}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "http error long text",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 500,
+   "headers": {
+    "content-type": "text/plain"
+   },
+   "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "http error empty",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 503
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "http error malformed json",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "http error problem json",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 422,
+   "headers": {
+    "content-type": "application/problem+json; charset=utf-8"
+   },
+   "body": "{\"title\":\"bad\"}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "openapi 3.0 component collision",
+  "spec": {
+   "openapi": "3.0.3",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "components": {
+    "schemas": {
+     "X": {
+      "type": "integer",
+      "const": 1
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "openapi 3.0 parameter collision",
+  "spec": {
+   "openapi": "3.0.3",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "q",
+        "in": "query",
+        "schema": {
+         "type": "string",
+         "examples": [
+          "a"
+         ]
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "openapi 3.0 conversions",
+  "spec": {
+   "openapi": "3.0.3",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "q",
+        "in": "query",
+        "required": true,
+        "schema": {
+         "type": "integer",
+         "nullable": true,
+         "minimum": 1,
+         "exclusiveMinimum": true,
+         "maximum": 9,
+         "exclusiveMaximum": false,
+         "example": 3
+        }
+       },
+       {
+        "name": "r",
+        "in": "query",
+        "schema": {
+         "$ref": "#/components/schemas/R"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "components": {
+    "schemas": {
+     "R": {
+      "type": "object",
+      "properties": {
+       "s": {
+        "type": "string",
+        "nullable": true
+       },
+       "t": {
+        "$ref": "#/components/schemas/R"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "q": 2
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "invalid path parameter",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/items/{id}": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+         "type": "string"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "id": "."
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "path parameter encoding",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/items/{id}/x": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+         "type": "string"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "id": "a/b c~\u00e9(1)"
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "unresolved path parameter",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/items/{id}": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "deep object must be an object",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "f",
+        "in": "query",
+        "style": "deepObject",
+        "explode": true,
+        "schema": {
+         "type": "object"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "f": 1
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "missing query parameter",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "q",
+        "in": "query",
+        "required": true,
+        "schema": {
+         "type": "string"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "missing body field",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "post": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "requestBody": {
+       "required": true,
+       "content": {
+        "application/json": {
+         "schema": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "name"
+          ],
+          "additionalProperties": false
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "header simple shapes",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "a",
+        "in": "header",
+        "schema": {
+         "type": "array"
+        }
+       },
+       {
+        "name": "o",
+        "in": "header",
+        "schema": {
+         "type": "object"
+        }
+       },
+       {
+        "name": "n",
+        "in": "header",
+        "schema": {
+         "type": "number"
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "a": [
+    "x",
+    1,
+    true,
+    null
+   ],
+   "o": {
+    "k": "v",
+    "m": 2
+   },
+   "n": 1e+21
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "query numbers",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "a",
+        "in": "query",
+        "schema": {}
+       },
+       {
+        "name": "b",
+        "in": "query",
+        "schema": {}
+       },
+       {
+        "name": "c",
+        "in": "query",
+        "explode": false,
+        "schema": {}
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "a": 0.1,
+   "b": [
+    1e-07,
+    1e+21,
+    -0.0,
+    1e-06,
+    123.456
+   ],
+   "c": {
+    "x": 1,
+    "y": "z w"
+   }
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "query array nested without explode",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "a",
+        "in": "query",
+        "explode": false,
+        "schema": {}
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "a": [
+    [
+     1
+    ]
+   ]
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "json with bom and charset",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "Application/JSON ; charset=utf-8"
+   },
+   "body": "\ufeff{\"b\":1,\"2\":2,\"1\":[3]}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "text without content type",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "body": "hello"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "empty json success",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   }
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "optional value body omitted",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "post": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "requestBody": {
+       "content": {
+        "application/json; charset=utf-8": {
+         "schema": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "optional value body sent",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "post": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "requestBody": {
+       "content": {
+        "application/json; charset=utf-8": {
+         "schema": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "body": "x\u2028y\"z"
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "optional object body omitted",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "put": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "requestBody": {
+       "content": {
+        "application/json": {
+         "schema": {
+          "type": "object",
+          "properties": {
+           "a": {
+            "type": "string"
+           }
+          },
+          "additionalProperties": false
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "required object body empty",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "patch": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "requestBody": {
+       "required": true,
+       "content": {
+        "application/json": {
+         "schema": {
+          "type": "object",
+          "properties": {
+           "2": {
+            "type": "string"
+           },
+           "a": {
+            "type": "string"
+           },
+           "1": {
+            "type": "number"
+           }
+          },
+          "additionalProperties": false
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "a": "x",
+   "1": 1,
+   "2": "two"
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "accept header parameter ignored",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "Accept",
+        "in": "header",
+        "schema": {
+         "type": "string"
+        }
+       },
+       {
+        "name": "X-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+         "type": "string"
+        },
+        "description": "Trace id"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "X-Id": "1",
+   "Accept": "nope"
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "unsupported encodings",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/a/{id}": {
+     "get": {
+      "operationId": "label",
+      "parameters": [
+       {
+        "name": "id",
+        "in": "path",
+        "style": "label",
+        "schema": {}
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/b": {
+     "get": {
+      "operationId": "deep",
+      "parameters": [
+       {
+        "name": "f",
+        "in": "query",
+        "style": "deepObject",
+        "explode": false,
+        "schema": {}
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/c": {
+     "get": {
+      "operationId": "content",
+      "parameters": [
+       {
+        "name": "f",
+        "in": "query",
+        "content": {
+         "application/json": {}
+        }
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/d": {
+     "get": {
+      "operationId": "location",
+      "parameters": [
+       {
+        "name": "f",
+        "in": "body",
+        "schema": {}
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/e": {
+     "get": {
+      "operationId": "noschema",
+      "parameters": [
+       {
+        "name": "f",
+        "in": "query"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/f": {
+     "get": {
+      "operationId": "explode",
+      "parameters": [
+       {
+        "name": "f",
+        "in": "query",
+        "explode": "yes",
+        "schema": {}
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/g": {
+     "get": {
+      "operationId": "pipe",
+      "parameters": [
+       {
+        "name": "f",
+        "in": "query",
+        "style": "pipeDelimited",
+        "schema": {}
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/h": {
+     "get": {
+      "operationId": "unresolved",
+      "parameters": [
+       {
+        "$ref": "#/components/parameters/Missing"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/i": {
+     "get": {
+      "operationId": "noname",
+      "parameters": [
+       {
+        "in": "query",
+        "schema": {}
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/j": {
+     "get": {
+      "operationId": "servers",
+      "servers": [
+       {
+        "url": "https://{tenant}.example.com"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/k": {
+     "get": {
+      "operationId": "relative",
+      "servers": [
+       {
+        "url": "/v1"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/l": {
+     "get": {
+      "operationId": "noservers",
+      "servers": [],
+      "responses": {}
+     }
+    },
+    "/m": {
+     "get": {
+      "operationId": "security",
+      "security": [
+       {
+        "oauth": []
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/n": {
+     "get": {
+      "operationId": "scopes",
+      "security": [
+       {
+        "oauth": [
+         1
+        ]
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/o": {
+     "get": {
+      "operationId": "reqobj",
+      "security": [
+       1
+      ],
+      "responses": {}
+     }
+    },
+    "/p": {
+     "get": {
+      "operationId": "resp",
+      "responses": {
+       "200": {
+        "$ref": "#/components/responses/Missing"
+       }
+      }
+     }
+    },
+    "/q": {
+     "post": {
+      "operationId": "nobody",
+      "requestBody": {
+       "content": {}
+      },
+      "responses": {}
+     }
+    },
+    "/r": {
+     "get": {
+      "operationId": "reserved",
+      "parameters": [
+       {
+        "name": "f",
+        "in": "query",
+        "allowReserved": "no",
+        "schema": {}
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/s": {
+     "get": {
+      "operationId": "style",
+      "parameters": [
+       {
+        "name": "f",
+        "in": "query",
+        "style": "",
+        "schema": {}
+       }
+      ],
+      "responses": {}
+     }
+    }
+   },
+   "components": {
+    "securitySchemes": {
+     "oauth": {
+      "type": "mutualTLS"
+     }
+    }
+   }
+  },
+  "tool": null,
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "outputs and descriptions",
+  "spec": {
+   "openapi": "3.1.0",
+   "servers": [
+    {
+     "url": "https://api.example.com/v2/"
+    }
+   ],
+   "paths": {
+    "/a": {
+     "get": {
+      "summary": "Summary only",
+      "responses": {
+       "201": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "type": "number"
+          }
+         }
+        }
+       },
+       "200": {
+        "content": {
+         "text/plain": {},
+         "application/json": {
+          "schema": {
+           "type": "string",
+           "writeOnly": true
+          }
+         }
+        }
+       },
+       "2XX": {
+        "description": "x"
+       },
+       "default": {
+        "content": {
+         "application/octet-stream": {}
+        }
+       }
+      }
+     }
+    },
+    "/b": {
+     "get": {
+      "description": "Desc",
+      "summary": "S",
+      "responses": {
+       "200": {
+        "content": "text"
+       }
+      }
+     }
+    },
+    "/c": {
+     "get": {
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {}
+        }
+       }
+      }
+     }
+    },
+    "/d/{x}": {
+     "servers": [
+      {
+       "url": "https://path.example.com"
+      }
+     ],
+     "get": {
+      "responses": {}
+     },
+     "post": {
+      "servers": [
+       {
+        "url": "http://op.example.com"
+       }
+      ],
+      "responses": {}
+     }
+    }
+   }
+  },
+  "tool": null,
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "example and dialect conversion",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "q",
+        "in": "query",
+        "required": true,
+        "schema": {
+         "$schema": "https://spec.openapis.org/oas/3.1/dialect/base",
+         "type": "string",
+         "example": "e",
+         "examples": [
+          "f"
+         ],
+         "description": "own"
+        },
+        "description": "param"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "q": "v"
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "server url from spec with trailing slashes",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      }
+     }
+    }
+   },
+   "servers": [
+    {
+     "url": "https://API.example.com/base//"
+    }
+   ]
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "existing query in path",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/x?a=1%202&c": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "b",
+        "in": "query",
+        "schema": {}
+       }
+      ]
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "b": "q r"
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "auth query replaces model query",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "parameters": [
+       {
+        "name": "token",
+        "in": "query",
+        "schema": {}
+       },
+       {
+        "name": "z",
+        "in": "query",
+        "schema": {}
+       }
+      ],
+      "security": [
+       {
+        "k": []
+       }
+      ]
+     }
+    }
+   },
+   "components": {
+    "securitySchemes": {
+     "k": {
+      "type": "apiKey",
+      "in": "query",
+      "name": "token"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {
+   "token": "model",
+   "z": "1"
+  },
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": "apikey"
+ },
+ {
+  "name": "duplicate header credential",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/test": {
+     "get": {
+      "operationId": "test",
+      "responses": {
+       "200": {
+        "description": "Success"
+       }
+      },
+      "security": [
+       {
+        "a": [],
+        "b": []
+       }
+      ]
+     }
+    }
+   },
+   "components": {
+    "securitySchemes": {
+     "a": {
+      "type": "oauth2"
+     },
+     "b": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "x-custom"
+     }
+    }
+   }
+  },
+  "tool": "test",
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096",
+  "auth": {
+   "a": "header",
+   "b": "apikey"
+  }
+ },
+ {
+  "name": "server declarations",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/j": {
+     "get": {
+      "operationId": "servers",
+      "servers": [
+       {
+        "url": "https://{tenant}.example.com"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/k": {
+     "get": {
+      "operationId": "relative",
+      "servers": [
+       {
+        "url": "/v1"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/l": {
+     "get": {
+      "operationId": "noservers",
+      "servers": [],
+      "responses": {}
+     }
+    },
+    "/m": {
+     "servers": null,
+     "get": {
+      "operationId": "nullservers",
+      "responses": {}
+     }
+    },
+    "/n": {
+     "get": {
+      "operationId": "ftp",
+      "servers": [
+       1,
+       {
+        "url": "ftp://x.example.com"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/o": {
+     "get": {
+      "operationId": "fragment",
+      "servers": [
+       {
+        "url": "https://x.example.com/#frag"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/p": {
+     "get": {
+      "operationId": "emptyquery",
+      "servers": [
+       {
+        "url": "HTTPS://X.example.com/a/?"
+       }
+      ],
+      "responses": {}
+     }
+    },
+    "/q": {
+     "get": {
+      "operationId": "badport",
+      "servers": [
+       {
+        "url": "http://x.example.com:99999"
+       }
+      ],
+      "responses": {}
+     }
+    }
+   }
+  },
+  "tool": null,
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "collisions and namespaces",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/1": {
+     "get": {
+      "operationId": "a.b",
+      "responses": {}
+     }
+    },
+    "/2": {
+     "get": {
+      "operationId": "a",
+      "responses": {}
+     }
+    },
+    "/3": {
+     "get": {
+      "operationId": "a.b.c",
+      "responses": {}
+     }
+    },
+    "/4": {
+     "get": {
+      "operationId": "a.b",
+      "responses": {}
+     }
+    },
+    "/5": {
+     "get": {
+      "operationId": "9 lives.__proto__",
+      "responses": {}
+     }
+    },
+    "/6": {
+     "get": {
+      "operationId": "constructor",
+      "responses": {}
+     }
+    },
+    "/7": {
+     "get": {
+      "operationId": "a_b_2",
+      "responses": {}
+     }
+    },
+    "/8": {
+     "get": {
+      "operationId": "a.b",
+      "responses": {}
+     }
+    },
+    "/9/{}/{x-y}": {
+     "get": {
+      "responses": {}
+     },
+     "trace": {
+      "responses": {}
+     },
+     "x-other": {
+      "responses": {}
+     },
+     "parameters": []
+    }
+   }
+  },
+  "tool": null,
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "openapi 3.0 references",
+  "spec": {
+   "openapi": "3.0.1",
+   "paths": {
+    "/a": {
+     "get": {
+      "operationId": "self",
+      "parameters": [
+       {
+        "name": "p",
+        "in": "query",
+        "schema": {
+         "type": "object",
+         "properties": {
+          "a": {
+           "type": "string"
+          },
+          "b": {
+           "$ref": "#/properties/a"
+          },
+          "c": {
+           "$ref": "#/properties/%61"
+          },
+          "d": {
+           "$ref": "#"
+          },
+          "e": {
+           "$ref": ""
+          },
+          "f": {
+           "$ref": "other.json#/x"
+          }
+         }
+        }
+       }
+      ],
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "type": "object",
+           "properties": {
+            "a": {
+             "type": "string"
+            },
+            "b": {
+             "$ref": "#/properties/a"
+            },
+            "c": {
+             "$ref": "#/properties/%61"
+            },
+            "d": {
+             "$ref": "#"
+            },
+            "e": {
+             "$ref": ""
+            },
+            "f": {
+             "$ref": "other.json#/x"
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "/b": {
+     "get": {
+      "operationId": "names",
+      "parameters": [
+       {
+        "name": "p",
+        "in": "query",
+        "schema": {
+         "allOf": [
+          {
+           "$ref": "#/components/schemas/A%20B",
+           "description": "dropped sibling"
+          },
+          {
+           "$ref": "#/components/schemas/1"
+          }
+         ],
+         "items": [
+          {
+           "type": "string"
+          }
+         ],
+         "not": true,
+         "additionalProperties": {
+          "$ref": "#/components/schemas/2"
+         }
+        }
+       }
+      ],
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "allOf": [
+            {
+             "$ref": "#/components/schemas/A%20B",
+             "description": "dropped sibling"
+            },
+            {
+             "$ref": "#/components/schemas/1"
+            }
+           ],
+           "items": [
+            {
+             "type": "string"
+            }
+           ],
+           "not": true,
+           "additionalProperties": {
+            "$ref": "#/components/schemas/2"
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "/c": {
+     "get": {
+      "operationId": "bounds",
+      "parameters": [
+       {
+        "name": "p",
+        "in": "query",
+        "schema": {
+         "type": "number",
+         "minimum": 1,
+         "exclusiveMinimum": false,
+         "maximum": 5,
+         "exclusiveMaximum": 3,
+         "nullable": false,
+         "$ref": false
+        }
+       }
+      ],
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "type": "number",
+           "minimum": 1,
+           "exclusiveMinimum": false,
+           "maximum": 5,
+           "exclusiveMaximum": 3,
+           "nullable": false,
+           "$ref": false
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "components": {
+    "schemas": {
+     "A B": {
+      "type": "string",
+      "nullable": true,
+      "example": "x"
+     },
+     "2": {
+      "type": "integer"
+     },
+     "1": {
+      "type": "boolean"
+     },
+     "b": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       true
+      ]
+     }
+    }
+   }
+  },
+  "tool": null,
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "openapi 3.1 references",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/a": {
+     "get": {
+      "operationId": "rootid",
+      "parameters": [
+       {
+        "name": "p",
+        "in": "query",
+        "schema": {
+         "$id": "https://example.com/s",
+         "properties": {
+          "x": {
+           "$ref": "#/components/schemas/X"
+          }
+         }
+        }
+       }
+      ],
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "$id": "https://example.com/s",
+           "properties": {
+            "x": {
+             "$ref": "#/components/schemas/X"
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "/b": {
+     "get": {
+      "operationId": "embedded",
+      "parameters": [
+       {
+        "name": "p",
+        "in": "query",
+        "schema": {
+         "properties": {
+          "x": {
+           "$id": "inner",
+           "$ref": "#/components/schemas/X",
+           "properties": {
+            "y": {
+             "$ref": "#/components/schemas/X"
+            }
+           }
+          },
+          "z": {
+           "$dynamicRef": "#/components/schemas/X",
+           "$ref": "#/components/schemas/X"
+          },
+          "w": {
+           "$id": "#frag",
+           "$ref": "#/components/schemas/X"
+          }
+         }
+        }
+       }
+      ],
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "properties": {
+            "x": {
+             "$id": "inner",
+             "$ref": "#/components/schemas/X",
+             "properties": {
+              "y": {
+               "$ref": "#/components/schemas/X"
+              }
+             }
+            },
+            "z": {
+             "$dynamicRef": "#/components/schemas/X",
+             "$ref": "#/components/schemas/X"
+            },
+            "w": {
+             "$id": "#frag",
+             "$ref": "#/components/schemas/X"
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "/c": {
+     "get": {
+      "operationId": "examples",
+      "parameters": [
+       {
+        "name": "p",
+        "in": "query",
+        "schema": {
+         "type": "object",
+         "properties": {
+          "a": {
+           "type": "string",
+           "example": 1,
+           "examples": "no"
+          },
+          "b": {
+           "type": "string",
+           "example": 1,
+           "examples": [
+            2
+           ]
+          },
+          "c": {
+           "$schema": "https://spec.openapis.org/oas/3.1/dialect/base#",
+           "type": "string"
+          }
+         },
+         "$defs": "notobject"
+        }
+       }
+      ],
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "type": "object",
+           "properties": {
+            "a": {
+             "type": "string",
+             "example": 1,
+             "examples": "no"
+            },
+            "b": {
+             "type": "string",
+             "example": 1,
+             "examples": [
+              2
+             ]
+            },
+            "c": {
+             "$schema": "https://spec.openapis.org/oas/3.1/dialect/base#",
+             "type": "string"
+            }
+           },
+           "$defs": "notobject"
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "/d": {
+     "get": {
+      "operationId": "emptydefs",
+      "parameters": [
+       {
+        "name": "p",
+        "in": "query",
+        "schema": {
+         "type": "string",
+         "$defs": {}
+        }
+       }
+      ],
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "type": "string",
+           "$defs": {}
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "components": {
+    "schemas": {
+     "X": {
+      "type": "string"
+     },
+     "10": {
+      "type": "number"
+     },
+     "9": {
+      "type": "null"
+     }
+    }
+   }
+  },
+  "tool": null,
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "directional keywords everywhere",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/a": {
+     "post": {
+      "operationId": "write",
+      "requestBody": {
+       "required": true,
+       "content": {
+        "application/vnd.api+json": {
+         "schema": {
+          "$ref": "#/components/schemas/Doc"
+         }
+        }
+       }
+      },
+      "responses": {
+       "200": {
+        "content": {
+         "application/json": {
+          "schema": {
+           "$ref": "#/components/schemas/Doc"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "components": {
+    "schemas": {
+     "Doc": {
+      "type": "object",
+      "required": [
+       "id",
+       "secret",
+       "items",
+       5
+      ],
+      "properties": {
+       "id": {
+        "type": "string",
+        "readOnly": true
+       },
+       "secret": {
+        "type": "string",
+        "writeOnly": true
+       },
+       "items": {
+        "type": "array",
+        "items": {
+         "$ref": "#/components/schemas/Item"
+        }
+       },
+       "map": {
+        "type": "object",
+        "additionalProperties": {
+         "$ref": "#/components/schemas/Item"
+        },
+        "patternProperties": {
+         "^x": {
+          "$ref": "#/components/schemas/Item"
+         }
+        }
+       },
+       "tuple": {
+        "prefixItems": [
+         {
+          "$ref": "#/components/schemas/Item"
+         }
+        ]
+       },
+       "local": {
+        "$ref": "#/$defs/L"
+       },
+       "legacy": {
+        "$ref": "#/definitions/D"
+       }
+      },
+      "$defs": {
+       "L": {
+        "type": "object",
+        "properties": {
+         "r": {
+          "readOnly": true
+         },
+         "s": {}
+        },
+        "required": [
+         "r",
+         "s"
+        ]
+       }
+      },
+      "definitions": {
+       "D": {
+        "writeOnly": true
+       }
+      },
+      "dependentSchemas": {
+       "id": {
+        "properties": {
+         "q": {
+          "readOnly": true
+         }
+        }
+       }
+      },
+      "then": {
+       "properties": {
+        "id": {}
+       },
+       "required": [
+        "id"
+       ]
+      },
+      "unevaluatedProperties": {
+       "properties": {
+        "k": {
+         "readOnly": true
+        },
+        "j": {}
+       }
+      }
+     },
+     "Item": {
+      "type": "object",
+      "properties": {
+       "rid": {
+        "type": "string",
+        "readOnly": true
+       },
+       "wid": {
+        "type": "string",
+        "writeOnly": true
+       },
+       "n": {
+        "type": "number"
+       }
+      },
+      "required": [
+       "rid",
+       "wid",
+       "n"
+      ]
+     }
+    }
+   }
+  },
+  "tool": null,
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ },
+ {
+  "name": "parameter descriptions and conflicts",
+  "spec": {
+   "openapi": "3.1.0",
+   "paths": {
+    "/x/{a}": {
+     "parameters": [
+      {
+       "name": "a",
+       "in": "path",
+       "required": true,
+       "schema": {
+        "type": "string",
+        "description": "own"
+       },
+       "description": "param"
+      },
+      {
+       "name": "b",
+       "in": "query",
+       "schema": {
+        "type": "string"
+       },
+       "description": "query b"
+      }
+     ],
+     "post": {
+      "operationId": "conflicts",
+      "parameters": [
+       {
+        "name": "a",
+        "in": "query",
+        "schema": {
+         "type": "integer"
+        }
+       },
+       {
+        "name": "query_a",
+        "in": "header",
+        "schema": {
+         "type": "string"
+        }
+       },
+       {
+        "name": "b",
+        "in": "query",
+        "schema": {
+         "type": "boolean"
+        },
+        "description": ""
+       },
+       {
+        "name": "2",
+        "in": "query",
+        "schema": {}
+       }
+      ],
+      "requestBody": {
+       "required": true,
+       "content": {
+        "application/json": {
+         "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "a",
+           "body_a"
+          ],
+          "properties": {
+           "a": {
+            "type": "string"
+           },
+           "body_a": {
+            "type": "string"
+           },
+           "1": {
+            "type": "string"
+           }
+          }
+         }
+        }
+       }
+      },
+      "responses": {
+       "204": {}
+      }
+     }
+    }
+   }
+  },
+  "tool": null,
+  "input": {},
+  "response": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json"
+   },
+   "body": "{\"ok\":true}"
+  },
+  "baseUrl": "http://localhost:4096"
+ }
+]

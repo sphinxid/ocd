@@ -1,0 +1,659 @@
+//! Snapshot-style tests of key screens using ratatui's `TestBackend`.
+
+use super::*;
+use crate::api::types::FileDiff;
+use crate::keymap::Stroke;
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
+use serde_json::json;
+
+fn app() -> App {
+    let opts = TuiOptions {
+        url: "http://127.0.0.1:1".into(),
+        directory: "/work/proj".into(),
+        version: "2.0.26".into(),
+        channel: "test".into(),
+        ..Default::default()
+    };
+    let mut cfg = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "animations": false }));
+    cfg.terminal_suspend = true;
+    let mut app = App::headless(opts, cfg);
+    // Isolate from the user's state files.
+    app.history = crate::state::History::default();
+    app.stash = crate::state::Stash::default();
+    app.models = crate::state::ModelPrefs::default();
+    app.pins = crate::state::SessionPins::default();
+    app.keyed = crate::state::KeyedStore { dir: std::env::temp_dir().join(format!("oc-tui-keyed-{}", crate::util::id_body(false))) };
+    app.placeholder = 1;
+    app.connection = crate::api::sse::ConnStatus::Connected;
+    let loc = app.store.location_mut("/work/proj");
+    loc.agents = Some(vec![
+        AgentInfo { id: "build".into(), name: "build".into(), mode: "primary".into(), ..Default::default() },
+        AgentInfo { id: "plan".into(), name: "plan".into(), mode: "primary".into(), ..Default::default() },
+        AgentInfo { id: "explore".into(), name: "explore".into(), mode: "subagent".into(), ..Default::default() },
+    ]);
+    loc.models = Some(vec![ModelInfo {
+        id: "claude-sonnet".into(),
+        provider_id: "anthropic".into(),
+        name: "Claude Sonnet 4.5".into(),
+        variants: vec![ModelVariant { id: "high".into() }],
+        limit: ModelLimit { context: 200000.0, output: 8000.0 },
+        status: "active".into(),
+        enabled: true,
+        ..Default::default()
+    }]);
+    loc.providers = Some(vec![ProviderInfo { id: "anthropic".into(), name: "Anthropic".into(), ..Default::default() }]);
+    app.default_model = Some(ModelRef { id: "claude-sonnet".into(), provider_id: "anthropic".into(), variant: None });
+    app
+}
+
+fn render(app: &mut App, w: u16, h: u16) -> Vec<String> {
+    let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    let buf = term.backend().buffer().clone();
+    (0..h)
+        .map(|y| {
+            let mut line = String::new();
+            for x in 0..w {
+                line.push_str(buf[(x, y)].symbol());
+            }
+            line.trim_end().to_string()
+        })
+        .collect()
+}
+
+fn contains(lines: &[String], needle: &str) -> bool {
+    lines.iter().any(|l| l.contains(needle))
+}
+
+fn session(app: &mut App) -> String {
+    let id = "ses_test".to_string();
+    app.store.remember(SessionInfo {
+        id: id.clone(),
+        title: Some("Fix parser bug".into()),
+        agent: Some("build".into()),
+        model: Some(ModelRef { id: "claude-sonnet".into(), provider_id: "anthropic".into(), variant: None }),
+        location: LocationRef { directory: "/work/proj".into(), workspace_id: None },
+        cost: 0.12,
+        ..Default::default()
+    });
+    let msgs: Vec<Message> = serde_json::from_value(json!([
+        {"id":"msg_1","type":"user","text":"Fix the bug in parser.ts","time":{"created":1000},
+         "files":[{"name":"src/parser.ts","mime":"text/plain","data":"","source":{"type":"uri","uri":"file:///work/proj/src/parser.ts"}}]},
+        {"id":"msg_2","type":"assistant","agent":"build","model":{"id":"claude-sonnet","providerID":"anthropic"},
+         "time":{"created":1100,"streamed":1200,"completed":73100},"finish":"stop",
+         "tokens":{"input":12000,"output":300,"reasoning":0,"cache":{"read":0,"write":0}},
+         "content":[
+            {"type":"reasoning","text":"**Inspecting parser**\n\nLooking at it","time":{"created":1100,"completed":3500}},
+            {"type":"tool","id":"t1","name":"read","state":{"status":"completed","input":{"path":"/work/proj/src/parser.ts"},"content":[{"type":"text","text":"x"}]},"time":{"created":1200,"completed":1300}},
+            {"type":"tool","id":"t2","name":"grep","state":{"status":"completed","input":{"pattern":"parse"},"metadata":{"matches":3},"content":[{"type":"text","text":"x"}]},"time":{"created":1300,"completed":1400}},
+            {"type":"tool","id":"t3","name":"bash","state":{"status":"completed","input":{"command":"bun test"},"content":[{"type":"text","text":"3 pass\n0 fail"}]},"time":{"created":1400,"completed":1500}},
+            {"type":"tool","id":"t4","name":"edit","state":{"status":"completed","input":{"path":"src/parser.ts"},
+              "metadata":{"files":[{"file":"src/parser.ts","status":"modified","additions":1,"deletions":1,"patch":"@@ -1,3 +1,3 @@\n a\n-b\n+c\n d\n"}]},
+              "content":[{"type":"text","text":"ok"}]},"time":{"created":1500,"completed":1600}},
+            {"type":"tool","id":"t5","name":"todowrite","state":{"status":"completed","input":{"count":2},"content":[{"type":"text","text":"ok"}]},"time":{"created":1600,"completed":1700}},
+            {"type":"text","text":"I fixed the **bug**.\n\n- updated parser\n- added test"}
+         ]},
+        {"id":"msg_3","type":"idle","outcome":"succeeded","time":{"created":73200}}
+    ]))
+    .unwrap();
+    app.store.messages.insert(id.clone(), msgs);
+    app.store.loaded.insert(format!("session.message:{id}"));
+    app.store.loaded.insert(format!("session.pending:{id}"));
+    app.route = Route::Session(id.clone());
+    id
+}
+
+#[test]
+fn home_wide_logo_and_prompt() {
+    let mut a = app();
+    let lines = render(&mut a, 100, 30);
+    let joined = lines.join("\n");
+    // "opencode-d": "open" + "code" + hyphen + "d".
+    assert!(joined.contains("█▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█     █▀▀█"), "{joined}");
+    assert!(joined.contains("▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀     ▀▀▀▀"));
+    assert!(joined.contains("█  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀ ▀▀▀ █  █"), "{joined}");
+    assert!(contains(&lines, "┃  Ask anything… \"What is the tech stack of this project?\""), "{joined}");
+    assert!(contains(&lines, "┃  Build · Claude Sonnet 4.5 Anthropic"), "{joined}");
+    assert!(contains(&lines, "╹▀▀▀"));
+    assert!(contains(&lines, "shift+tab agents  ctrl+p commands"), "{joined}");
+    assert!(contains(&lines, "2.0.26"));
+    // Logo is horizontally centered: 48 wide in 100 columns.
+    let row = lines.iter().find(|l| l.contains("█▀▀█ █▀▀█")).unwrap();
+    assert_eq!(row.chars().position(|c| c == '█').unwrap(), (100 - 48) / 2);
+}
+
+#[test]
+fn home_narrow_stacked_logo() {
+    let mut a = app();
+    let lines = render(&mut a, 40, 24);
+    let joined = lines.join("\n");
+    assert!(joined.contains("█▀▀█ █▀▀█ █▀▀█ █▀▀▄\n"), "{joined}");
+    assert!(joined.contains("▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀     ▀▀▀▀"), "{joined}");
+    // Narrow: agent label and provider hidden.
+    assert!(contains(&lines, "┃ Claude Sonnet 4.5"), "{joined}");
+    assert!(!contains(&lines, "shift+tab agents"));
+}
+
+#[test]
+fn home_tiny_go_logo() {
+    let mut a = app();
+    let lines = render(&mut a, 20, 14);
+    assert!(contains(&lines, "█▀▀█"));
+    assert!(!contains(&lines, "█▀▀▄"));
+}
+
+#[test]
+fn session_transcript_narrow() {
+    let mut a = app();
+    session(&mut a);
+    let lines = render(&mut a, 80, 60);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "┃  Fix the bug in parser.ts"), "{joined}");
+    assert!(contains(&lines, " file  src/parser.ts"), "{joined}");
+    assert!(contains(&lines, "+ Thought: Inspecting parser · 2.4s"), "{joined}");
+    assert!(contains(&lines, "→ Explored: 1 read, 1 search"), "{joined}");
+    assert!(contains(&lines, "┃  $ bun test"), "{joined}");
+    assert!(contains(&lines, "┃  3 pass"), "{joined}");
+    assert!(contains(&lines, "┃  ← Edit src/parser.ts"), "{joined}");
+    assert!(contains(&lines, "2 - b"), "{joined}");
+    assert!(contains(&lines, "2 + c"), "{joined}");
+    assert!(contains(&lines, "✓ todowrite [count=2]"), "{joined}");
+    assert!(contains(&lines, "I fixed the bug."), "{joined}");
+    assert!(contains(&lines, "- updated parser"), "{joined}");
+    assert!(contains(&lines, "Build · Claude Sonnet 4.5 · 1m 12s · 3000.0 tok/s"), "{joined}");
+    // Session prompt shows no placeholder and the usage in the footer.
+    assert!(contains(&lines, "12.3K (6%) · $0.12"), "{joined}");
+    // No sidebar at 80 columns.
+    assert!(!contains(&lines, "Fix parser bug"));
+}
+
+#[test]
+fn session_wide_with_sidebar_and_split_diff() {
+    let mut a = app();
+    session(&mut a);
+    let lines = render(&mut a, 170, 70);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Fix parser bug"), "{joined}");
+    assert!(contains(&lines, "Context"), "{joined}");
+    assert!(contains(&lines, "12,300 tokens"), "{joined}");
+    assert!(contains(&lines, "6% used"));
+    assert!(contains(&lines, "$0.12 spent"));
+    // Split diff: both sides on one row.
+    let row = lines.iter().find(|l| l.contains("- b")).unwrap();
+    assert!(row.contains("+ c"), "{row}");
+}
+
+#[test]
+fn thinking_show_mode_and_verbosity_low() {
+    let mut a = app();
+    session(&mut a);
+    a.config.set("session.thinking", Some(json!("show")));
+    let lines = render(&mut a, 80, 60);
+    assert!(contains(&lines, "┃ Thought: 2.4s"), "{}", lines.join("\n"));
+    a.config.set("session.thinking", Some(json!("hide")));
+    a.config.set("session.verbosity", Some(json!("low")));
+    let lines = render(&mut a, 80, 60);
+    assert!(contains(&lines, "+ 1 command, 1 edit, 1 thought, 1 read, 2 tools"), "{}", lines.join("\n"));
+}
+
+#[test]
+fn palette_dialog() {
+    let mut a = app();
+    a.on_key(Stroke::ctrl("p"));
+    assert_eq!(a.dialogs.len(), 1);
+    let lines = render(&mut a, 100, 40);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Commands"), "{joined}");
+    assert!(contains(&lines, "esc"));
+    assert!(contains(&lines, "Search"));
+    assert!(contains(&lines, "Suggested"));
+    assert!(contains(&lines, "Switch model"), "{joined}");
+    assert!(contains(&lines, "ctrl+x m"), "{joined}");
+    // Title at x = dialog left + 4.
+    let row = lines.iter().find(|l| l.contains("Commands")).unwrap();
+    assert_eq!(row.find("Commands").unwrap(), (100 - 60) / 2 + 4);
+    // Typing filters.
+    for c in "theme".chars() {
+        a.on_key(Stroke::key(&c.to_string()));
+    }
+    let lines = render(&mut a, 100, 40);
+    assert!(contains(&lines, "Switch theme"), "{}", lines.join("\n"));
+    a.on_key(Stroke::key("escape"));
+    assert!(a.dialogs.is_empty());
+}
+
+#[test]
+fn leader_sequences() {
+    let mut a = app();
+    session(&mut a);
+    a.on_key(Stroke::ctrl("x"));
+    assert_eq!(a.pending_keys.len(), 1);
+    a.on_key(Stroke::key("n"));
+    assert_eq!(a.route, Route::Home);
+    assert!(a.pending_keys.is_empty());
+    // Leader then an unbound key: typed into the prompt.
+    a.on_key(Stroke::ctrl("x"));
+    a.on_key(Stroke::key("z"));
+    assert_eq!(a.editor.text, "z");
+    // Leader then escape clears without typing.
+    a.on_key(Stroke::ctrl("x"));
+    a.on_key(Stroke::key("escape"));
+    assert!(a.pending_keys.is_empty());
+    assert_eq!(a.editor.text, "z");
+}
+
+#[test]
+fn prompt_typing_shell_mode_and_clear() {
+    let mut a = app();
+    a.on_key(Stroke::key("!"));
+    assert!(a.editor.shell);
+    let lines = render(&mut a, 100, 30);
+    assert!(contains(&lines, "Run a command… \""), "{}", lines.join("\n"));
+    assert!(contains(&lines, "esc exit shell mode"));
+    assert!(contains(&lines, "Shell"));
+    a.on_key(Stroke::key("escape"));
+    assert!(!a.editor.shell);
+    for c in "hello".chars() {
+        a.on_key(Stroke::key(&c.to_string()));
+    }
+    assert_eq!(a.editor.text, "hello");
+    a.on_key(Stroke::ctrl("c"));
+    assert_eq!(a.editor.text, "");
+    // ctrl+c on an empty prompt exits.
+    a.on_key(Stroke::ctrl("c"));
+    assert!(a.quit);
+}
+
+#[test]
+fn slash_autocomplete() {
+    let mut a = app();
+    a.on_key(Stroke::key("/"));
+    let ac = a.autocomplete.clone().expect("autocomplete open");
+    assert_eq!(ac.mode, "command");
+    assert!(ac.items.iter().any(|i| i.display.trim() == "/models"));
+    for c in "them".chars() {
+        a.on_key(Stroke::key(&c.to_string()));
+    }
+    let ac = a.autocomplete.clone().unwrap();
+    assert_eq!(ac.items[0].display.trim(), "/themes");
+    let lines = render(&mut a, 100, 30);
+    assert!(contains(&lines, "/themes"), "{}", lines.join("\n"));
+    a.on_key(Stroke::key("return"));
+    assert!(a.autocomplete.is_none());
+    assert_eq!(a.dialogs.last().map(|d| d.purpose.as_str()), Some("theme"));
+}
+
+#[test]
+fn permission_prompt() {
+    let mut a = app();
+    let sid = session(&mut a);
+    a.store.permissions.insert(
+        sid.clone(),
+        vec![PermissionRequest {
+            id: "per_1".into(),
+            session_id: sid.clone(),
+            action: "bash".into(),
+            resources: vec!["rm -rf build".into()],
+            save: Some(vec!["rm *".into()]),
+            metadata: Some(json!({"command": "rm -rf build"})),
+            ..Default::default()
+        }],
+    );
+    let lines = render(&mut a, 100, 50);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "△ Permission required"), "{joined}");
+    assert!(contains(&lines, "$ rm -rf build"), "{joined}");
+    assert!(contains(&lines, " Allow once  Always allow  Reject "), "{joined}");
+    assert!(contains(&lines, "ctrl+f fullscreen  ⇆ select  enter confirm"), "{joined}");
+    a.on_key(Stroke::key("right"));
+    let lines = render(&mut a, 100, 50);
+    assert!(contains(&lines, "This will always allow the following patterns for this project."), "{}", lines.join("\n"));
+    assert!(contains(&lines, "- rm *"));
+}
+
+#[test]
+fn form_prompt() {
+    let mut a = app();
+    let sid = session(&mut a);
+    a.store.forms.insert(
+        sid.clone(),
+        vec![(
+            FormInfo {
+                id: "frm_1".into(),
+                session_id: sid.clone(),
+                title: "Setup".into(),
+                fields: vec![
+                    json!({"key":"lang","type":"string","title":"Language","description":"Which language?","options":[{"value":"ts","label":"TypeScript"},{"value":"rs","label":"Rust"}],"custom":true}),
+                    json!({"key":"tests","type":"boolean","title":"Tests"}),
+                ],
+                ..Default::default()
+            },
+            None,
+        )],
+    );
+    let lines = render(&mut a, 100, 50);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Setup"), "{joined}");
+    assert!(contains(&lines, "Language  Tests  Submit"), "{joined}");
+    assert!(contains(&lines, "Which language?"));
+    assert!(contains(&lines, "1. TypeScript"));
+    assert!(contains(&lines, "3. Type your own answer"));
+    assert!(contains(&lines, "⇆ tab  ↑↓ select  enter confirm  esc dismiss"), "{joined}");
+    a.on_key(Stroke::key("2"));
+    let ui = a.form_ui.clone().unwrap();
+    assert_eq!(ui.answers.get("lang"), Some(&json!("rs")));
+    assert_eq!(ui.tab, 1);
+}
+
+#[test]
+fn toast_rendering() {
+    let mut a = app();
+    a.toast(Toast::new("error", "Something failed badly").title("Failed to load theme: x"));
+    let lines = render(&mut a, 100, 30);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Failed to load theme: x"), "{joined}");
+    assert!(contains(&lines, "Something failed badly"));
+    let row = lines.iter().find(|l| l.contains("Something failed")).unwrap();
+    assert!(row.trim_end().ends_with('┃'));
+}
+
+#[test]
+fn model_and_settings_dialogs() {
+    let mut a = app();
+    a.run_command("model.list", None);
+    let lines = render(&mut a, 100, 40);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Select model"), "{joined}");
+    assert!(contains(&lines, "Anthropic"));
+    assert!(contains(&lines, "● Claude Sonnet 4.5") || contains(&lines, "●    Claude Sonnet 4.5"), "{joined}");
+    a.close_dialog();
+    a.run_command("opencode.settings", None);
+    let lines = render(&mut a, 100, 60);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Settings"), "{joined}");
+    assert!(contains(&lines, "Appearance"));
+    assert!(contains(&lines, "←/→ change"), "{joined}");
+}
+
+#[test]
+fn streaming_events_update_view() {
+    let mut a = app();
+    let sid = session(&mut a);
+    let ev = |kind: &str, data: serde_json::Value| Event { id: format!("evt_{}", crate::util::id_body(false)), created: 80000, kind: kind.into(), data, ..Default::default() };
+    a.on_event(ev("session.execution.started", json!({"sessionID": sid})));
+    a.on_event(ev("session.step.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "agent": "build", "model": {"id":"claude-sonnet","providerID":"anthropic"}, "started": 80000})));
+    a.on_event(ev("session.text.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "ordinal": 0})));
+    a.on_event(ev("session.text.delta", json!({"sessionID": sid, "assistantMessageID": "msg_9", "ordinal": 0, "delta": "Streaming reply"})));
+    let lines = render(&mut a, 80, 60);
+    assert!(contains(&lines, "Streaming reply"), "{}", lines.join("\n"));
+    assert!(contains(&lines, "esc interrupt"), "{}", lines.join("\n"));
+    a.on_key(Stroke::key("escape"));
+    let lines = render(&mut a, 80, 60);
+    assert!(contains(&lines, "esc again to interrupt"));
+}
+
+#[test]
+fn vertical_rail_and_tab_menu() {
+    let mut a = app();
+    a.config.set("tabs", Some(json!({"mode": "on", "layout": "vertical"})));
+    let sid = session(&mut a);
+    a.tabs = vec![sid.clone()];
+    let lines = render(&mut a, 140, 70);
+    let joined = lines.join("\n");
+    assert!(lines[1].contains("Fix parser bug"), "{joined}");
+    assert!(lines[2].contains("proj"), "{joined}");
+    assert!(lines[4].contains("+ New session"), "{joined}");
+    // Content starts right of the 42-column rail.
+    let row = lines.iter().find(|l| l.contains("Fix the bug in parser.ts")).unwrap_or_else(|| panic!("{joined}"));
+    assert!(row.find("Fix the bug").unwrap() > 42);
+    // Right click opens the context menu.
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    a.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Right), column: 5, row: 1, modifiers: KeyModifiers::NONE });
+    assert!(a.tab_menu.is_some());
+    let lines = render(&mut a, 140, 70);
+    assert!(contains(&lines, "Copy session ID"), "{}", lines.join("\n"));
+    assert!(contains(&lines, "Rename"));
+    a.on_key(Stroke::key("escape"));
+    assert!(a.tab_menu.is_none());
+    // Compact rail.
+    a.rail_pref = 8;
+    let lines = render(&mut a, 140, 70);
+    assert!(lines[1].contains('⌕'), "{}", lines.join("\n"));
+}
+
+#[test]
+fn diff_viewer_route() {
+    let mut a = app();
+    session(&mut a);
+    a.run_command("diff.open", None);
+    assert_eq!(a.route, Route::Plugin("diff".into()));
+    let d = a.diff.as_mut().unwrap();
+    d.loading = false;
+    d.base = Some("main".into());
+    d.files = vec![
+        FileDiff { file: "src/a.ts".into(), patch: "@@ -1,2 +1,2 @@\n-x\n+y\n z\n".into(), additions: 1, deletions: 1, status: Some("modified".into()) },
+        FileDiff { file: "README.md".into(), patch: "@@ -0,0 +1 @@\n+hello\n".into(), additions: 1, deletions: 0, status: Some("added".into()) },
+    ];
+    let lines = render(&mut a, 140, 40);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "All · vs main"), "{joined}");
+    assert!(contains(&lines, "0/2"), "{joined}");
+    assert!(contains(&lines, "≡ a.ts"), "{joined}");
+    assert!(contains(&lines, "+1 -1"), "{joined}");
+    assert!(contains(&lines, "+ hello"), "{joined}");
+    a.on_key(Stroke::key("m"));
+    let lines = render(&mut a, 140, 40);
+    assert!(contains(&lines, "1/2"), "{}", lines.join("\n"));
+    a.on_key(Stroke::key("g"));
+    a.on_key(Stroke::key("g"));
+    assert_eq!(a.diff.as_ref().unwrap().scroll, 0);
+    a.on_key(Stroke::key("q"));
+    assert_eq!(a.route, Route::Session("ses_test".into()));
+    // Narrow: header line instead of tree.
+    a.run_command("diff.open", None);
+    a.diff.as_mut().unwrap().loading = false;
+    let lines = render(&mut a, 80, 20);
+    assert!(contains(&lines, "No changes to show"), "{}", lines.join("\n"));
+}
+
+#[test]
+fn stats_route() {
+    let mut a = app();
+    a.run_command("stats.open", None);
+    let lines = render(&mut a, 100, 40);
+    assert!(contains(&lines, "Gathering your stats…"));
+    a.stats.as_mut().unwrap().data = Some(json!({
+        "range": {"from": 1767225600000i64, "to": 1770000000000i64},
+        "sessions": 12, "subagents": 0, "prompts": 30, "steps": 50,
+        "tokens": {"input": 1200000, "output": 30000, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+        "cost": 1.5, "tools": {"mode": "none"}, "activeDays": 9, "streak": 4,
+        "activity": [{"date": "2026-01-05", "steps": 3}], "models": []
+    }));
+    let lines = render(&mut a, 120, 40);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "ocd / stats"), "{joined}");
+    assert!(contains(&lines, "TOKENS"));
+    assert!(contains(&lines, "4 days"));
+    assert!(contains(&lines, "active days"));
+    assert!(contains(&lines, "opencode.ai"));
+    a.on_key(Stroke::key("escape"));
+    assert_eq!(a.route, Route::Home);
+}
+
+#[test]
+fn composer_drawer_and_message_navigation() {
+    let mut a = app();
+    let sid = session(&mut a);
+    a.store.remember(SessionInfo { id: "ses_child".into(), parent_id: Some(sid.clone()), agent: Some("explore".into()), title: Some("find config loader".into()), ..Default::default() });
+    a.store.active.insert("ses_child".into(), true);
+    a.on_key(Stroke::key("down"));
+    assert!(a.composer.is_some());
+    let lines = render(&mut a, 100, 60);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Subagents  Shell"), "{joined}");
+    assert!(contains(&lines, "Explore: find config loader"), "{joined}");
+    assert!(contains(&lines, "Running"), "{joined}");
+    assert!(contains(&lines, "interrupt ctrl+d  show inactive ctrl+a  tabs ←/→"), "{joined}");
+    a.on_key(Stroke::key("escape"));
+    assert!(a.composer.is_none());
+    // Message navigation: previous user message brings it to the top.
+    let _ = render(&mut a, 100, 20);
+    assert!(a.navigate_message("session.message.user.previous"));
+    let lines = render(&mut a, 100, 20);
+    assert!(lines[1].contains("Fix the bug in parser.ts"), "{}", lines.join("\n"));
+}
+
+#[test]
+fn export_options_dialog() {
+    let mut a = app();
+    session(&mut a);
+    a.run_command("session.export", None);
+    let lines = render(&mut a, 100, 40);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Export session"), "{joined}");
+    assert!(contains(&lines, "Export as:  ◉ Markdown   ○ JSON"), "{joined}");
+    assert!(contains(&lines, "[x] Include thinking"));
+    assert!(contains(&lines, "Copy") && contains(&lines, "Export"));
+    a.on_key(Stroke::key("tab"));
+    a.on_key(Stroke::key("return"));
+    let lines = render(&mut a, 100, 40);
+    assert!(contains(&lines, "[ ] Sanitize sensitive data"), "{}", lines.join("\n"));
+}
+
+#[test]
+fn open_worktrees_and_pair_dialogs() {
+    let mut a = app();
+    a.store.remember(SessionInfo { id: "ses_other".into(), title: Some("Refactor tabs".into()), location: LocationRef { directory: "/work/proj".into(), workspace_id: None }, ..Default::default() });
+    a.run_command("open.menu", None);
+    a.refresh_open_options(vec![json!({ "id": "prj_1", "canonical": "/work/other", "name": "other", "vcs": "git" })]);
+    let lines = render(&mut a, 100, 40);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Open"), "{joined}");
+    assert!(contains(&lines, "Search sessions and projects…"), "{joined}");
+    assert!(contains(&lines, "Sessions") && contains(&lines, "Projects"), "{joined}");
+    assert!(contains(&lines, "Refactor tabs"), "{joined}");
+    assert!(contains(&lines, "/work/other →"), "{joined}");
+    // Right on a git project opens its worktrees view; left goes back.
+    for c in "other".chars() {
+        a.on_key(Stroke::key(&c.to_string()));
+    }
+    a.on_key(Stroke::key("right"));
+    assert_eq!(a.dialogs.last().unwrap().purpose, "open-worktrees");
+    let lines = render(&mut a, 100, 40);
+    assert!(contains(&lines, "other / Worktrees"), "{}", lines.join("\n"));
+    a.on_key(Stroke::ctrl("n"));
+    let lines = render(&mut a, 100, 40);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "other / New worktree"), "{joined}");
+    assert!(contains(&lines, "Leave blank for a random name."), "{joined}");
+    a.on_key(Stroke::key("tab"));
+    let generated = match &a.dialogs.last().unwrap().body {
+        crate::ui::dialog::Body::Prompt(p) => p.value.clone(),
+        _ => panic!(),
+    };
+    assert!(generated.contains('-'));
+    a.dialogs.clear();
+
+    // Worktrees dialog without project info reports an error toast.
+    a.run_command("session.move", None);
+    assert!(a.dialogs.is_empty());
+    a.store.location_mut("/work/proj").info = Some(LocationInfo { directory: "/work/proj".into(), project: ProjectRef { id: "prj_1".into(), canonical: "/work/proj".into(), ..Default::default() } });
+    a.run_command("session.move", None);
+    let lines = render(&mut a, 140, 40);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "Worktrees"), "{joined}");
+    assert!(contains(&lines, "Loading worktrees…"), "{joined}");
+    assert!(contains(&lines, "new ctrl+a"), "{joined}");
+    a.dialogs.clear();
+
+    // Pair dialog.
+    a.run_command("server.pair", None);
+    let lines = render(&mut a, 100, 40);
+    assert!(contains(&lines, "Pair"), "{}", lines.join("\n"));
+    assert!(contains(&lines, "Loading server information…"));
+}
+
+#[test]
+fn mouse_drag_select_copies() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let mk = |kind, column, row| MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
+    let mut a = app();
+    let lines = render(&mut a, 100, 30);
+    let (row, line) = lines.iter().enumerate().find(|(_, l)| l.contains("ctrl+p commands")).map(|(i, l)| (i as u16, l.clone())).unwrap();
+    let col = line.find("ctrl+p").unwrap() as u16;
+    crate::clipboard::TEST_CLIPBOARD.with(|c| *c.borrow_mut() = None);
+    a.on_mouse(mk(MouseEventKind::Down(MouseButton::Left), col, row));
+    a.on_mouse(mk(MouseEventKind::Drag(MouseButton::Left), col + 5, row));
+    let _ = render(&mut a, 100, 30);
+    a.on_mouse(mk(MouseEventKind::Up(MouseButton::Left), col + 5, row));
+    let copied = crate::clipboard::TEST_CLIPBOARD.with(|c| c.borrow().clone());
+    assert_eq!(copied.as_deref(), Some("ctrl+p"));
+    assert_eq!(a.toast.as_ref().map(|t| t.message.as_str()), Some("Copied to clipboard"));
+    assert!(a.selection.is_some());
+    // escape clears the selection (consumed because it had text).
+    a.on_key(Stroke::key("escape"));
+    assert!(a.selection.is_none());
+    // Plain click: no copy.
+    crate::clipboard::TEST_CLIPBOARD.with(|c| *c.borrow_mut() = None);
+    a.on_mouse(mk(MouseEventKind::Down(MouseButton::Left), col, row));
+    a.on_mouse(mk(MouseEventKind::Up(MouseButton::Left), col, row));
+    assert!(crate::clipboard::TEST_CLIPBOARD.with(|c| c.borrow().is_none()));
+    // Manual mode: right-click copies.
+    a.config = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "terminal": { "copy": "manual" } }));
+    a.on_mouse(mk(MouseEventKind::Down(MouseButton::Left), col, row));
+    a.on_mouse(mk(MouseEventKind::Drag(MouseButton::Left), col + 5, row));
+    a.on_mouse(mk(MouseEventKind::Up(MouseButton::Left), col + 5, row));
+    assert!(crate::clipboard::TEST_CLIPBOARD.with(|c| c.borrow().is_none()));
+    a.on_mouse(mk(MouseEventKind::Down(MouseButton::Right), col, row));
+    assert_eq!(crate::clipboard::TEST_CLIPBOARD.with(|c| c.borrow().clone()).as_deref(), Some("ctrl+p"));
+}
+
+#[test]
+fn mini_scrollback_and_footer() {
+    use super::mini::{MiniState, lines_to_ansi, plain, row_to_ansi};
+    let mut a = app();
+    a.mini = true;
+    a.size = (100, 30);
+    let header = plain(&[a.mini_header(100)]).join("");
+    assert!(header.starts_with("▪ oc mini v2.0.26 · /work/proj"), "{header}");
+    session(&mut a);
+    // New (not resumed) session: the whole finished transcript is committed once.
+    let mut st = MiniState { replay: true, replay_limit: 200, ..Default::default() };
+    let (commit, tail) = a.mini_transcript(&mut st, 100);
+    let text = plain(&commit).join("\n");
+    assert!(text.contains("Fix the bug in parser.ts"), "{text}");
+    assert!(text.contains("I fixed the bug."), "{text}");
+    assert!(tail.is_empty());
+    let (again, _) = a.mini_transcript(&mut st, 100);
+    assert!(again.is_empty());
+    // Footer is the prompt dock only.
+    let (buf, cursor) = a.mini_footer(100, 29, &tail);
+    let rows: Vec<String> = (0..buf.area.height).map(|y| (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()).collect();
+    assert!(rows.iter().any(|r| r.contains("Build · Claude Sonnet 4.5")), "{rows:?}");
+    assert!(buf.area.height < 12, "{}", buf.area.height);
+    assert!(cursor.is_some());
+    assert!(row_to_ansi(&buf, 0).contains("\x1b["));
+    // Resumed with --no-replay: history is skipped.
+    let mut st = MiniState { replay: false, replay_limit: 200, resumed: true, ..Default::default() };
+    a.store.message_cursor.insert("ses_test".into(), None);
+    let (commit, _) = a.mini_transcript(&mut st, 100);
+    assert!(commit.is_empty());
+    // Exit banner.
+    let banner = plain(&a.mini_banner()).join("\n");
+    assert!(banner.contains("Session   Fix parser bug"), "{banner}");
+    assert!(banner.contains("Continue  ocd mini -s ses_test"), "{banner}");
+    assert_eq!(lines_to_ansi(&a.mini_banner(), 80).len(), 3);
+}
+
+#[tokio::test]
+async fn enter_key_submits_from_home() {
+    let mut a = app();
+    for c in "hi".chars() {
+        a.on_key(Stroke::key(&c.to_string()));
+    }
+    let ev = crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    a.on_key(crate::keymap::stroke_from_event(&ev).unwrap());
+    assert_eq!(a.editor.text, "");
+    assert!(matches!(a.route, Route::Session(_)), "{:?}", a.route);
+}

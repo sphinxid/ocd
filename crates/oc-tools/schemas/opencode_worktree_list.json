@@ -1,0 +1,1 @@
+{"inputSchema":{"type":"object","properties":{},"additionalProperties":false},"outputSchema":{"type":"object","properties":{"worktrees":{"type":"array","items":{"type":"object","properties":{"directory":{"type":"string"},"strategy":{"type":"string"}},"required":["directory"],"additionalProperties":false}}},"required":["worktrees"],"additionalProperties":false}}

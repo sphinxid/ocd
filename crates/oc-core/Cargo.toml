@@ -1,0 +1,60 @@
+[package]
+name = "oc-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oc-util = { path = "../oc-util" }
+oc-schema = { path = "../oc-schema" }
+oc-storage = { path = "../oc-storage" }
+oc-tools = { path = "../oc-tools" }
+oc-codemode = { path = "../oc-codemode" }
+oc-mcp = { path = "../oc-mcp" }
+oc-config = { path = "../oc-config" }
+oc-git = { path = "../oc-git" }
+oc-ai = { path = "../oc-ai" }
+tokio.workspace = true
+tokio-util.workspace = true
+tokio-stream.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+json5.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+ignore.workspace = true
+globset.workspace = true
+similar.workspace = true
+regex.workspace = true
+chrono.workspace = true
+base64.workspace = true
+sha2.workspace = true
+hex.workspace = true
+mime_guess.workspace = true
+which.workspace = true
+shell-words.workspace = true
+html2md.workspace = true
+portable-pty.workspace = true
+parking_lot.workspace = true
+dashmap.workspace = true
+indexmap.workspace = true
+once_cell.workspace = true
+url.workspace = true
+rand.workspace = true
+bytes.workspace = true
+rusqlite.workspace = true
+uuid = { version = "1", features = ["v4"] }
+percent-encoding = "2"
+notify = "8"
+
+[dev-dependencies]
+tempfile = "3"
+axum.workspace = true
+parking_lot.workspace = true
+reqwest.workspace = true
+async-trait.workspace = true
+tokio.workspace = true

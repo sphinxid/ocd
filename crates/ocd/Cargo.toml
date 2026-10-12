@@ -1,0 +1,54 @@
+[package]
+name = "ocd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ocd — the opencode-compatible command line interface (port of packages/cli)"
+
+[dependencies]
+oc-util = { path = "../oc-util" }
+oc-schema = { path = "../oc-schema" }
+oc-storage = { path = "../oc-storage" }
+oc-ai = { path = "../oc-ai" }
+oc-core = { path = "../oc-core" }
+oc-server = { path = "../oc-server" }
+oc-backend = { path = "../oc-backend" }
+oc-tools = { path = "../oc-tools" }
+oc-config = { path = "../oc-config" }
+oc-mcp = { path = "../oc-mcp" }
+oc-tui = { path = "../oc-tui" }
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+base64.workspace = true
+rand.workspace = true
+regex.workspace = true
+url.workspace = true
+indexmap.workspace = true
+parking_lot.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+mime_guess.workspace = true
+hex.workspace = true
+bytes.workspace = true
+sha2.workspace = true
+sha1 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+libc = "0.2"
+qrcode = { version = "0.14", default-features = false }
+percent-encoding = "2"
+
+[dev-dependencies]
+tempfile = "3"
+axum.workspace = true
+
+[[bin]]
+name = "ocd"
+path = "src/main.rs"

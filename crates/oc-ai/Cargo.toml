@@ -1,0 +1,42 @@
+[package]
+name = "oc-ai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oc-util = { path = "../oc-util" }
+oc-schema = { path = "../oc-schema" }
+tokio.workspace = true
+tokio-util.workspace = true
+reqwest.workspace = true
+eventsource-stream.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+base64.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+hex.workspace = true
+url.workspace = true
+indexmap.workspace = true
+rand.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+parking_lot.workspace = true
+dirs.workspace = true
+hmac = "0.12"
+crc32fast = "1"
+uuid = { version = "1", features = ["v4"] }
+async-stream = "0.3"
+percent-encoding = "2"
+ring = "0.17"
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

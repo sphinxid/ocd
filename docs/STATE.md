@@ -1,0 +1,98 @@
+# Port state / handoff (last updated 2026-10-12)
+
+**Name:** the Rust port is **ocd** (user: only the app + binary are ocd; everything else must stay backward-compatible with opencode). TUI logo reads "opencode-d" (oc-tui view_helpers LOGO_RIGHT, breakpoints 31/53). `ocd upgrade` only prints "ocd is built from source; rebuild it to upgrade" (exit 0); `uninstall` unchanged. (binary `ocd`, crate `crates/ocd`). Upstream compatibility surfaces (config/data dirs, opencode.json, .opencode/, OPENCODE_* env, HTTP API, x-opencode-* headers, plugin package names) keep the opencode names on purpose.
+
+Goal (user request): an exact behavioral replica of **opencode v2** in Rust — full CLI + server + **Rust TUI**
+(user chose "Full CLI + Rust TUI"). Project root: this repository. Working rules for every crate:
+`docs/PORTING.md`. Specs: `docs/spec/01..08` (~18k lines, all complete).
+
+## Upstream reference
+- Repo `anomalyco/opencode`, branch `v2`, commit `4617210822bdbb31e5749751afbfb4584ccedac8`, MIT (`LICENSE-opencode`).
+- Read-only checkout (may vanish with the session scratchpad; re-clone if missing):
+  `git clone --depth 1 --branch v2 https://github.com/anomalyco/opencode.git`
+  (was at `$OCD_SCRATCH/src/opencode`).
+- Toolchain: rustup in `~/.cargo` (Rust 1.99, edition 2024). Always `export PATH=$HOME/.cargo/bin:$PATH`.
+  Machine: 8 cores, 13 GB RAM. No git commits (user's global rule: only commit when asked; never add AI attribution).
+
+## Key facts learned (affect design)
+- Upstream ships as a **Bun-compiled single binary**, not Node (Node only as launcher shim / optional build).
+- Architecture: background HTTP server (~142 endpoints, `assets/openapi.json` is normative) + TUI client over HTTP/SSE.
+  Core is **event-sourced**: durable session events → projectors → SQLite tables; `event` table stays empty locally
+  (persist=false); `event_sequence` holds per-aggregate seq (first event seq 0).
+- DB: `<XDG_DATA_HOME|~/.local/share>/opencode/opencode.db` (release channels), WAL, pragmas in spec 02 §1.3.
+  Fresh DB = run `assets/sql/schema.sql` + insert all 49 ids from `assets/sql/migration_ids.txt`.
+- Paths are XDG on every OS. Log: `<data>/log/opencode.log`, logfmt, trimmed >50MiB → ~25MiB.
+- IDs: 12 hex (48-bit, ts<<12+counter, truncated) + 14 base62; `ses_` descending, others ascending.
+- v2 messages have no "parts": assistant `content[]` items (text/reasoning/tool). Stored `data` excludes `id`/`type`.
+- MCP tools reach the model by default only via the Code Mode `execute` tool → **oc-codemode is required**.
+- The persistent PTY daemon `opencode-pty` (npm `@opencode-ai/pty@0.2.0`) is **already Rust** (portable-pty +
+  libghostty) — reuse rather than rewrite. `@` file picker uses `fff` (MIT Rust core) — usable directly.
+- No LSP client in v2. No Anthropic OAuth in v2. No CLAUDE.md instruction discovery (only AGENTS.md).
+- JS/TS user plugins, TUI plugins and `aisdk:` npm provider packages need a JS runtime — **undecided**
+  (options: embed deno_core/boa, or bridge to `bun`). Defer until core runs.
+- Session loop details (inbox steer/queue, coordinator, drain, step, retries 2s→10s ×10, compaction threshold
+  window − max(10%,16k), keep 15k) are in spec 03.
+
+## Assets copied verbatim (`assets/`)
+`prompt/system/*.txt` (default.txt = runner system.txt; anthropic/gpt/gpt-astra/kimi/meta/trinity),
+`prompt/command/{initialize,review}.txt`, `prompt/agent/{explore,title,summary}.txt`, `skill/{opencode,report}.md`,
+`tool/patch.txt`, `themes/` (34 incl. `v2/opencode.json`), `models-dev/snapshot.txt` (5.3 MB),
+`openapi.json`, `sql/schema.sql`, `sql/migration_ids.txt`, `sql/migration/*.sql` (49; statements split by
+`\n--> statement-breakpoint\n`).
+
+## Crate status
+| crate | owner | status |
+|---|---|---|
+| oc-util | me | DONE: global paths, db/log path, jsonc, `{env:}/{file:}`, logfmt logger + trim, flock (TS-compatible), hash, version. Tests pass. |
+| oc-schema | me | DONE: id gen (bit-exact), types (SessionInfo, ModelRef, TokenUsage, Ruleset, ToolContent, attachments…), `Message` enum (11 types, row encode/decode), `SessionEvent` enum (44 durable events, versions, data()). |
+| oc-storage | me | DONE (core): open+pragmas+chmod600, migrations (fresh/upgrade/drizzle seed; special cases session-metadata, loose_psylocke alt branch = first 12 stmts, legacy credential import, fk-off), KV, durable commit (`commit_session_event(s)`), full session projector + message updater port, session reads. Tests pass (`tests/projector.rs`). TODO: worktree.resolved projector, session list/pagination per spec 02 §7.8, export/import, v1→v2 data import. |
+| oc-ai | agent | DONE (231 tests; 226 recorded upstream streams decode): ModelsDev+Catalog+resolve→ResolvedModel, Client::stream, all chat protocols, credentials/OAuth (Integrations), retry helpers. Gaps: aisdk:* packages, Responses websocket, non-chat modalities, some AWS/GCP cred sources. See README. |
+| oc-tools | agent | DONE (164 tests, ~21k lines): all tools, Registry/Snapshot, ToolHost (~45 async methods, only ask_permission required), tool_output::truncate, scanners (0 mismatches/81,787 upstream cases), html→md, websearch, formatters, ripgrep. Divergences: image re-encode via `image` crate, localeCompare approx. Core must implement ToolHost job methods. See README. |
+| oc-codemode | agent | DONE: ~33k lines, full JS interpreter; 1705/1707 upstream replays identical, test262 sample conformant, acorn-identical parser; README lists unsupported JS + known diffs. Wired into oc-core (runner + ExecuteTool). |
+| oc-tui | agent | DONE (136 tests): `run(TuiOptions)`, `run_mini(TuiOptions, MiniOptions)`; all screens incl. tab rail, diff viewer, stats, terminal pane (vt100), open/worktrees/pair dialogs, mouse select, comment-preserving cli.json. Mini mode simplified. Not yet run against a live server. |
+| oc-mcp | agent | DONE (44 tests): McpManager (set_servers/tools/call_tool/prompts/resources/auth_start/finish/logout, event channel), hand-rolled JSON-RPC (stdio + streamable HTTP + 2026-07-28 protocol), OAuth. Core implements McpCredentialStore + ElicitationHandler. See README. |
+| oc-server | agent | DONE (78 tests): generated types from openapi.json (codegen/gen.py), Backend trait (138 methods, default 500), envelopes/errors/auth/CORS/pairing/SSE/fs.read/PTY ws/startup/web UI/service helpers. `serve(backend, ServerOptions)`. Core must implement Backend. See README. |
+| oc-config | agent | DONE (164 tests): schema, normalize (v1→v2), discovery+watch plan, Loader (WellKnown trait), fold helpers (agents/providers/...), markdown sources, template eval, policy, redact, cli.json (CliConfig), jsonc_edit. Core owns watchers/reload/bus. See README. |
+| oc-git | agent | DONE (60 tests): Git, Snapshots, RepositoryCache (Kv trait), worktree strategy, file_retention, patch helpers; see README. vcs module DONE (GitVcs: info/base/branches/status/review_diff/init; 74 tests total). Core still owns Vcs service registry/events and the hg provider. Project id derivation + worktree DB rows stay in oc-core. |
+| oc-backend | agent | DONE (35 tests): all 138 Backend methods; `oc_backend::start`; persistent PTY; shell.*; wellknown add; config reload eviction; close_location on evict/reload/vcs.init; prompt image normalisation. Open: plugin.*/rpc.call + prompt plugin hooks (plugin host undecided). |
+| oc-persistent-pty | agent | DONE (37 tests; 2 ignored real-daemon tests pass): PersistentPty client for npm `opencode-pty` 0.2.0 (pinned hashes, downloads per platform), protocol 7, ownership/handoff, attach/replay/events, ws helpers. Backend wiring requested. |
+| oc-core | me | IN PROGRESS. Done+compiling: wildcard, bus (durable commit, broadcast, usage.updated), permission, agent (built-ins, plan reminders), project (id resolution + persist + durable worktree.resolved), instructions (sources/hash/render), inbox (admit/promote/cancel/delivery), coordinator (wake/run/interrupt/await_idle; tests pass), session service (create/prompt reconcile/synthetic/compact/rename/metadata/permissions/switch agent+model/view/claim), discovery (AGENTS.md walk, nested-on-read, skill content block), attachment (data:/file: URIs, dirs, limits, mime sniff), usage (tokens + tiered cost), publisher (LLM events → durable events, 100ms delta batching), lower (history → oc_ai::Message), errors (toSessionError for AIError, token-sharing messages), retry (policy + wait + MAX_STEPS_PROMPT), models (DbCredentials CredentialStore over `credential` table, KvCatalogCache, Models: catalog build from config+integrations, resolve_for_session), step (attempt: stream→publisher, concurrent tools, retry/continue/overflow/declines settlement, step.ended/failed), runner (Engine: select/load/request assembly w/ headers+cache key+max tokens, drain/advanceToStep/runStep, ExecutionDriver with claim/release, LocalTools ToolRunner over oc-tools Snapshot; E2E TEST PASSES: prompt→mock openai-compatible provider→read tool→answer), instruction_state (prepare/initial/preview with blobs; integration test passes), prompt (system.txt render + model-family prompts + identity + output limit + unsupported/bound images), app (App runtime + PermissionContext over DB), host (ToolHost: permissions, sessions, agents, nested instructions, synthetic), location (Loader entries + agent fold). oc-tools/oc-mcp/oc-config now enabled as deps. Deps on agent crates are commented out in oc-core/Cargo.toml until integration. DONE also: title (title.rs; E2E asserts title), snapshots (oc-git via step::Snapshotter, honors `snapshots:false`), skills (skills.rs: builtin opencode/report verbatim + config dirs + .claude/.agents compat; wired into instructions + CoreHost{app, skills}). job (job.rs: Jobs start/wait/block/background/background_all/cancel/cancel_session/pending/complete; ToolHost job_* + subagent_job_start/background/notify; SUBAGENT E2E TEST PASSES). form (form.rs: Forms create/ask/reply/cancel/list + verbatim validation; ToolHost ask_form), shell_cmd (Engine::session_shell for `!`), sessions fork/remove/revert ops, bus Durable1.id for explicit event ids. compaction (compaction.rs, 14 tests; wired: manual in drain, auto before each step, overflow recovery, output limit uses prompt estimate), mcp (mcp.rs: McpCreds over credential table, per-location McpManager, MCP tools in registry snapshot, CoreHost mcp_* methods, events forwarded; `core/mcp-guidance` instruction source), plan (reminder listener + plan-agent edit/write/patch failure rewrite), restart (Engine::resume_suspended), generate (session_generate, generate_text), transfer (export w/ sanitize, import), watch send_replace bugfix, pty (pty.rs: ephemeral PTY via portable-pty, UTF-16 cursors, attach/replay; test passes; App.ptys), services (default_services: DB-backed websearch store, shell events), reference (list/refresh via RepositoryCache, `core/reference-guidance` source), environments (App.environments SessionEnvironment; used by shell tool + `!`), worktree (create/remove/list/refresh + ToolHost worktree_*), MCP elicitation→forms (mcp.rs Elicitation, global-session forms, URL mode + legacy complete), remote URL skill sources (skill_discovery.rs: index.json pull, versioned atomic refresh, once per URL per process), hourly retention sweeps. CodeMode wired (definition + core/codemode source at index 0 + ExecuteTool through hooks; tests/e2e_codemode.rs passes). Config watching (config_watch.rs, notify; Engine::reload_location → config.updated + MCP set_servers; tests/config_watch.rs passes). Restart recovery of persisted background jobs (shell notices, subagent re-run/delivery; tests/restart.rs). Engine::close_location (reject perms/cancel forms/shutdown MCP). Skills precedence fixed (compat before config). NEXT: plugin host (DECIDED 2026-10-12: Bun sidecar, on demand — see Plan below), real-binary E2E once CLI lands. |
+| ocd (bin, crates/ocd) | agent | DONE (36 tests): full CLI as a direct port of effect/cli 4.0.1 (goldens vs real framework: help for every command, parse errors, completions); run/serve/service/auth/mcp/models/session/plugin/stats/acp/upgrade; standalone + service modes; PTY handoff via HTTP. Not implemented: `plugin add` (needs plugin sidecar), OpenTunnel remote, --wizard. Identity strings say `ocd`; compat surfaces stay opencode. |
+
+Each agent writes `crates/<crate>/README.md` with its public API when done — read those before integrating.
+If an agent was lost (session ended), re-launch it with the same scope; prompts are summarized in the table above
+and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
+
+## Plan (decided 2026-10-12 with the user)
+1. Parity pass: run real upstream opencode v2 and the Rust port side by side on the same inputs; diff HTTP
+   responses, SSE events, CLI output. Fix differences.
+2. Plugins phase 1: Bun sidecar (downloaded on first use, only when config lists plugins) running server plugins via
+   the public `@opencode/plugin` API; bridge tools/commands/hooks/transforms/storage/rpc to the Rust server.
+3. Plugins phase 2: AI SDK bridge through the same sidecar (plugin `aisdk.*` hooks + `aisdk:*` provider packages).
+4. TUI plugins (Solid/OpenTUI `tui` entrypoint): NOT supported (documented incompatibility).
+
+## Notes for oc-core (already researched)
+- Permission (`core/permission.ts`): `evaluate` = last rule where `Wildcard.match(action, rule.action) &&
+  match(resource, rule.resource)`, default `{action, resource:"*", effect:"ask"}`. Wildcard: `\`→`/`, regex-escape,
+  `*`→`.*`, `?`→`.`, trailing `" .*"` → `( .*)?`, anchored, dotall (case-insensitive on win32).
+  Missing agent → `[{*,*,deny}]`. Deny check before saved rules; saved rules (project, effect allow) appended.
+  Reply reject (with message → CorrectedError feedback, else Declined) fans out to all other pending of same session;
+  "always" saves `save[]` resources then re-evaluates other pending and auto-approves those now allowed.
+  BlockedError message = reason ?? `Permission denied: {action}`.
+- Agents: `Info.default` permissions `[*,* allow],[read,*.env ask],[read,*.env.* ask],[read,*.env.example allow]`;
+  built-ins build/plan/general/explore/compaction/title/summary per spec 03 §5.2 (prompts in assets/prompt/agent).
+  Plan: `edit * deny`, `edit {home}/.opencode/plan/* allow`, plan reminders spec 03 §2.8.5.
+- Request assembly: system = [agent.system || system.txt with `${OPENCODE_TOOL_GUIDANCE}` lines, identity block
+  `# Your Model` at index 1, instruction baseline]; model-family prompt overrides by catalog id substring
+  (gpt/gpt+astra override, claude append, kimi, trinity, muse=meta with `{{MODEL_NAME}}`).
+- Headers: x-opencode-session-id, x-opencode-parent-session-id, x-session-affinity, X-Session-Id,
+  x-parent-session-id, User-Agent, x-opencode-project, x-opencode-session, x-opencode-client.
+- Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
+
+## Session log
+- 2026-10-12 (4th): NAME: the Rust port is "ocd" (binary `ocd`, crate crates/ocd — rename delegated to CLI agent; compat surfaces stay "opencode"). Upstream real binary built at scratchpad/up-dist/cli-linux-x64/bin/opencode (bun 1.4.2 in scratchpad/bun142). Benchmark `run` with mock: upstream ~1.6 s, ocd ~0.6 s. Parity harness scripts/parity.py (first scenario: only benign races remain after fixing execution.*/usage.updated envelope location). Launched: parity-sweep agent (docs/PARITY.md, fixes in lib crates) and plugin sidecar agent (crates/oc-plugin, Bun sidecar; core wiring by main afterwards).
+- 2026-10-12 (3rd, cont.): TUI E2E WORKS against the Rust server: home renders, prompt → session view → read tool → answer (release: 312 ms). Helpers in scripts/ (mock_provider.py, vt_render.py; see scripts/README.md).
+- 2026-10-12 (3rd, cont.): REAL BINARY WORKS: `target/release/ocd run --standalone` (then still named opencode) against mock provider (scratchpad/tools/mock.py) → read tool → answer → exit. Release timing: ~0.6 s total (startup ~450 ms incl. private server spawn, LLM→tool→LLM ~130 ms). Debug first run once hung at exit (not reproduced in release).
+- 2026-10-12 (3rd): agents hit session limit again (resets 01:10 UTC 10-13); resumed CLI/backend/codemode via SendMessage. Core: worktree refresh, MCP elicitation, remote skills, config watching, codemode wiring.
+- 2026-10-12 (2nd): oc-ai/oc-codemode/oc-tui/oc-backend + codemode helper agents hit the rate limit again; resumed via SendMessage.
+- 2026-10-12: all 8 implementation agents hit an API rate limit mid-work; resumed via SendMessage after reset (crates had 3–11k lines each, all compiling except oc-codemode). oc-git had not started.

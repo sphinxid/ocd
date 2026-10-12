@@ -1,0 +1,4 @@
+# Recorded upstream executions whose exact result cannot be reproduced, with the reason.
+# Format: <test file>\t<seq>\t<reason>
+promise.test.ts	64	upstream waits for an uninterruptible tool cleanup (400 ms) past the timeout; Rust host futures are dropped immediately, so no TimeoutExceeded warning
+promise.test.ts	65	same as seq 64 (uninterruptible tool cleanup past the timeout)

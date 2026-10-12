@@ -1,0 +1,19 @@
+[package]
+name = "oc-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oc-util = { path = "../oc-util" }
+oc-schema = { path = "../oc-schema" }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+chrono.workspace = true
+regex.workspace = true
+rand.workspace = true
+thiserror.workspace = true

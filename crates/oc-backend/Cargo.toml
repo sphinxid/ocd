@@ -1,0 +1,43 @@
+[package]
+name = "oc-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "oc_server::Backend implementation over oc-core (HTTP endpoints → core services)"
+
+[dependencies]
+oc-util = { path = "../oc-util" }
+oc-schema = { path = "../oc-schema" }
+oc-storage = { path = "../oc-storage" }
+oc-core = { path = "../oc-core" }
+oc-server = { path = "../oc-server" }
+oc-config = { path = "../oc-config" }
+oc-git = { path = "../oc-git" }
+oc-mcp = { path = "../oc-mcp" }
+oc-ai = { path = "../oc-ai" }
+oc-tools = { path = "../oc-tools" }
+oc-persistent-pty = { path = "../oc-persistent-pty" }
+tokio.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+rusqlite.workspace = true
+parking_lot.workspace = true
+indexmap.workspace = true
+ignore.workspace = true
+mime_guess.workspace = true
+bytes.workspace = true
+reqwest.workspace = true
+which.workspace = true
+chrono.workspace = true
+chrono-tz = { version = "0.10", features = ["case-insensitive"] }
+axum.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tower = { workspace = true, features = ["util"] }
+base64.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }

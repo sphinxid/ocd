@@ -1,0 +1,32 @@
+# Build output
+/target/
+**/node_modules/
+
+# Runtime data must never be committed: opencode/ocd databases, credentials, logs, sessions.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+auth.json
+*.log
+/log/
+/storage/
+/snapshot/
+/tool-output/
+.opencode/
+.env
+.env.*
+
+# Local tool and editor state
+/.claude/
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Scratch output from smoke tests (terminal captures, parity dumps)
+*.raw
+/parity-out/

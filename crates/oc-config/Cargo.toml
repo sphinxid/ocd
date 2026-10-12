@@ -1,0 +1,25 @@
+[package]
+name = "oc-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oc-util = { path = "../oc-util" }
+oc-schema = { path = "../oc-schema" }
+tokio.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+regex.workspace = true
+globset.workspace = true
+ignore.workspace = true
+indexmap.workspace = true
+reqwest.workspace = true
+url.workspace = true
+async-trait.workspace = true
+uuid = { version = "1", features = ["v4"] }
+serde_yaml = "0.9"

@@ -1,0 +1,1 @@
+{"inputSchema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false},"outputSchema":{"type":"object","properties":{"directory":{"type":"string"}},"required":["directory"],"additionalProperties":false}}

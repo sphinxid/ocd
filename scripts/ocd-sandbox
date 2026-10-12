@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Run ocd with its own data/config/state/cache folders, so it never touches the data of an installed opencode
+# (opencode v1 uses the same ~/.local/share/opencode/opencode.db that ocd would migrate to the v2 schema).
+#
+#   scripts/ocd-sandbox [ocd args...]        e.g.  scripts/ocd-sandbox --standalone
+#
+# The sandbox starts with no provider logins; sign in with `scripts/ocd-sandbox auth login`.
+# Set OCD_SANDBOX to use another folder.
+set -euo pipefail
+
+root="${OCD_SANDBOX:-$HOME/.local/share/ocd-sandbox}"
+bin="$(cd "$(dirname "$0")/.." && pwd)/target/release/ocd"
+if [ ! -x "$bin" ]; then
+  echo "ocd is not built yet: run 'cargo build --release -p ocd' first" >&2
+  exit 1
+fi
+
+mkdir -p "$root/data/opencode" "$root/config/opencode" "$root/state" "$root/cache"
+
+export XDG_DATA_HOME="$root/data" XDG_CONFIG_HOME="$root/config" XDG_STATE_HOME="$root/state" XDG_CACHE_HOME="$root/cache"
+exec "$bin" "$@"

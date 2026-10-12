@@ -1,0 +1,1854 @@
+[
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "authorization": "Basic QWRhOnDDpHNzd29yZA=="
+    },
+    "body": null
+   }
+  ],
+  "contexts": [
+   {
+    "name": "basic",
+    "definition": {
+     "type": "http",
+     "scheme": "basic"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "x-custom": "v"
+    },
+    "body": null
+   }
+  ],
+  "contexts": [
+   {
+    "name": "oauth",
+    "definition": {
+     "type": "oauth2"
+    },
+    "scopes": [
+     "read",
+     "write"
+    ]
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "x-api-key": "key"
+    },
+    "body": null
+   }
+  ],
+  "contexts": [
+   {
+    "name": "key",
+    "definition": {
+     "type": "apiKey",
+     "name": "X-API-Key",
+     "in": "header"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [],
+  "contexts": [
+   {
+    "name": "bearer",
+    "definition": {
+     "type": "http",
+     "scheme": "bearer"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "Security scheme 'bearer' is not an apiKey scheme; resolve a bearer, basic, or header credential for it."
+ },
+ {
+  "requests": [],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "GET /test requires authentication; no credential available for: bearer."
+ },
+ {
+  "requests": [],
+  "contexts": [
+   {
+    "name": "a",
+    "definition": {
+     "type": "http",
+     "scheme": "bearer"
+    },
+    "scopes": []
+   },
+   {
+    "name": "b",
+    "definition": {
+     "type": "http",
+     "scheme": "bearer"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "GET /test requires authentication; no credential available for: a, b."
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test?token=key",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [
+   {
+    "name": "a",
+    "definition": {
+     "type": "http",
+     "scheme": "bearer"
+    },
+    "scopes": []
+   },
+   {
+    "name": "b",
+    "definition": {
+     "type": "http",
+     "scheme": "bearer"
+    },
+    "scopes": []
+   },
+   {
+    "name": "c",
+    "definition": {
+     "type": "apiKey",
+     "name": "token",
+     "in": "query"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [],
+  "contexts": [
+   {
+    "name": "a",
+    "definition": {
+     "type": "http",
+     "scheme": "bearer"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "vault locked"
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [
+   {
+    "name": "a",
+    "definition": {
+     "type": "http",
+     "scheme": "bearer"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "x-static": "s",
+     "x-trace": "param",
+     "authorization": "Bearer tok"
+    },
+    "body": null
+   }
+  ],
+  "contexts": [
+   {
+    "name": "a",
+    "definition": {
+     "type": "http",
+     "scheme": "bearer"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{ \"X-Trace\"?: string }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "1": "one",
+     "2": "two",
+     "b": "y"
+    },
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "GET /test failed with HTTP 404: {\"error\":\"nope\",\"n\":1.5}"
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "GET /test failed with HTTP 500: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx..."
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "GET /test failed with HTTP 503: no response body"
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "GET /test failed with HTTP 400: {"
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "GET /test failed with HTTP 422: {\"title\":\"bad\"}"
+ },
+ {
+  "throws": {
+   "name": "Error",
+   "message": "Cannot convert JSON Schema keyword \"const\" to Draft 2020-12: it is not active in OpenAPI 3.0 but would become active in the target"
+  }
+ },
+ {
+  "throws": {
+   "name": "Error",
+   "message": "Cannot convert JSON Schema keyword \"examples\" to Draft 2020-12: it is not active in OpenAPI 3.0 but would become active in the target"
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test?q=2",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ q: number | null; r?: { s?: string | null; t?: unknown } }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [],
+  "contexts": [],
+  "inputTs": "{ id: string }",
+  "outputTs": "null",
+  "error": "Invalid path parameter 'id'."
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/items/a%2Fb%20c~%C3%A9%281%29/x",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ id: string }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "Unresolved path parameter {id}."
+ },
+ {
+  "requests": [],
+  "contexts": [],
+  "inputTs": "{ f?: {} }",
+  "outputTs": "null",
+  "error": "Deep-object parameter 'f' must be an object."
+ },
+ {
+  "requests": [],
+  "contexts": [],
+  "inputTs": "{ q: string }",
+  "outputTs": "null",
+  "error": "Missing required query parameter 'q'."
+ },
+ {
+  "requests": [],
+  "contexts": [],
+  "inputTs": "{ name: string }",
+  "outputTs": "null",
+  "error": "Missing required body field 'name'."
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "a": "x,1,true,null",
+     "o": "k,v,m,2",
+     "n": "1e+21"
+    },
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ a?: Array<unknown>; o?: {}; n?: number }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test?a=0.1&b=1e-7&b=1e%2B21&b=0&b=0.000001&b=123.456&c=x%2C1%2Cy%2Cz+w",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ a?: unknown; b?: unknown; c?: unknown }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [],
+  "contexts": [],
+  "inputTs": "{ a?: unknown }",
+  "outputTs": "null",
+  "error": "Parameter 'a' contains an unsupported nested value."
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": {
+   "1": [
+    3
+   ],
+   "2": 2,
+   "b": 1
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": "hello"
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": null
+ },
+ {
+  "requests": [
+   {
+    "method": "POST",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ body?: string }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "POST",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "content-type": "application/json; charset=utf-8",
+     "content-length": "10"
+    },
+    "body": "\"x y\\\"z\""
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ body?: string }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "PUT",
+    "url": "http://localhost:4096/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ body?: { a?: string } }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "PATCH",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "content-type": "application/json",
+     "content-length": "25"
+    },
+    "body": "{\"1\":1,\"2\":\"two\",\"a\":\"x\"}"
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ \"1\"?: number; \"2\"?: string; a?: string }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test",
+    "headers": {
+     "x-id": "1"
+    },
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ \"X-Id\": string }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "skipped": [
+   {
+    "method": "GET",
+    "path": "/a/{id}",
+    "reason": "path parameter 'id' uses unsupported style 'label'"
+   },
+   {
+    "method": "GET",
+    "path": "/b",
+    "reason": "query parameter 'f' uses deepObject with explode=false"
+   },
+   {
+    "method": "GET",
+    "path": "/c",
+    "reason": "parameter 'f' uses unsupported content encoding"
+   },
+   {
+    "method": "GET",
+    "path": "/d",
+    "reason": "parameter 'f' uses unsupported location 'body'"
+   },
+   {
+    "method": "GET",
+    "path": "/e",
+    "reason": "parameter 'f' declares neither schema nor content"
+   },
+   {
+    "method": "GET",
+    "path": "/f",
+    "reason": "parameter 'f' has an invalid explode value"
+   },
+   {
+    "method": "GET",
+    "path": "/g",
+    "reason": "query parameter 'f' uses unsupported style 'pipeDelimited'"
+   },
+   {
+    "method": "GET",
+    "path": "/h",
+    "reason": "parameter declaration is missing name or location"
+   },
+   {
+    "method": "GET",
+    "path": "/i",
+    "reason": "parameter declaration is missing name or location"
+   },
+   {
+    "method": "GET",
+    "path": "/m",
+    "reason": "security requirement references missing or malformed scheme: oauth"
+   },
+   {
+    "method": "GET",
+    "path": "/n",
+    "reason": "security requirement scopes are not string arrays"
+   },
+   {
+    "method": "GET",
+    "path": "/o",
+    "reason": "security requirement is not an object"
+   },
+   {
+    "method": "GET",
+    "path": "/p",
+    "reason": "successful response declaration is invalid or unresolved"
+   },
+   {
+    "method": "POST",
+    "path": "/q",
+    "reason": "request body has no JSON content (declared: none)"
+   },
+   {
+    "method": "GET",
+    "path": "/r",
+    "reason": "parameter 'f' has an invalid allowReserved value"
+   },
+   {
+    "method": "GET",
+    "path": "/s",
+    "reason": "parameter 'f' has an invalid style"
+   }
+  ],
+  "tools": [
+   {
+    "path": "servers",
+    "description": "GET /j",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "relative",
+    "description": "GET /k",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "noservers",
+    "description": "GET /l",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   }
+  ]
+ },
+ {
+  "skipped": [],
+  "tools": [
+   {
+    "path": "getA",
+    "description": "Summary only",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "string",
+       "writeOnly": true
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "inputTs": "{}",
+    "outputTs": "string | string | number | null"
+   },
+   {
+    "path": "getB",
+    "description": "Desc",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "getC",
+    "description": "GET /c",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "getDByX",
+    "description": "GET /d/{x}",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "postDByX",
+    "description": "POST /d/{x}",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   }
+  ]
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test?q=v",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ q: string }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "https://api.example.com/base/test",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/x?a=1+2&c=&b=q+r",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [],
+  "inputTs": "{ b?: unknown }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [
+   {
+    "method": "GET",
+    "url": "http://localhost:4096/test?z=1&token=key",
+    "headers": {},
+    "body": null
+   }
+  ],
+  "contexts": [
+   {
+    "name": "k",
+    "definition": {
+     "type": "apiKey",
+     "name": "token",
+     "in": "query"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{ token?: unknown; z?: unknown }",
+  "outputTs": "null",
+  "value": {
+   "ok": true
+  }
+ },
+ {
+  "requests": [],
+  "contexts": [
+   {
+    "name": "a",
+    "definition": {
+     "type": "oauth2"
+    },
+    "scopes": []
+   },
+   {
+    "name": "b",
+    "definition": {
+     "type": "apiKey",
+     "name": "x-custom",
+     "in": "header"
+    },
+    "scopes": []
+   }
+  ],
+  "inputTs": "{}",
+  "outputTs": "null",
+  "error": "Authentication resolves multiple credentials for header 'x-custom'."
+ },
+ {
+  "skipped": [
+   {
+    "method": "GET",
+    "path": "/j",
+    "reason": "server URL 'https://{tenant}.example.com' is not an absolute URL; pass baseUrl"
+   },
+   {
+    "method": "GET",
+    "path": "/k",
+    "reason": "server URL '/v1' is not an absolute HTTP(S) URL"
+   },
+   {
+    "method": "GET",
+    "path": "/l",
+    "reason": "spec declares no servers; pass baseUrl"
+   },
+   {
+    "method": "GET",
+    "path": "/m",
+    "reason": "spec declares no servers; pass baseUrl"
+   },
+   {
+    "method": "GET",
+    "path": "/n",
+    "reason": "server URL 'ftp://x.example.com' is not an absolute HTTP(S) URL"
+   },
+   {
+    "method": "GET",
+    "path": "/o",
+    "reason": "server URL 'https://x.example.com/#frag' contains an unsupported query string or fragment"
+   },
+   {
+    "method": "GET",
+    "path": "/q",
+    "reason": "server URL 'http://x.example.com:99999' is not an absolute HTTP(S) URL"
+   }
+  ],
+  "tools": [
+   {
+    "path": "emptyquery",
+    "description": "GET /p",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   }
+  ]
+ },
+ {
+  "skipped": [],
+  "tools": [
+   {
+    "path": "a.b",
+    "description": "GET /1",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "a.bC",
+    "description": "GET /3",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "a_2",
+    "description": "GET /2",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "a_b_2",
+    "description": "GET /4",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "_9_lives.proto",
+    "description": "GET /5",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "constructor",
+    "description": "GET /6",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "a_b_2_2",
+    "description": "GET /7",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "a_b_3",
+    "description": "GET /8",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "get9ByByXY",
+    "description": "GET /9/{}/{x-y}",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   },
+   {
+    "path": "trace9ByByXY",
+    "description": "TRACE /9/{}/{x-y}",
+    "input": {
+     "type": "object",
+     "properties": {}
+    },
+    "output": null,
+    "inputTs": "{}",
+    "outputTs": "void"
+   }
+  ]
+ },
+ {
+  "skipped": [],
+  "tools": [
+   {
+    "path": "self",
+    "description": "GET /a",
+    "input": {
+     "type": "object",
+     "properties": {
+      "p": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        },
+        "b": {
+         "$ref": "#/properties/a"
+        },
+        "c": {
+         "$ref": "#/properties/a"
+        },
+        "d": {
+         "$ref": "#"
+        },
+        "e": {
+         "$ref": ""
+        },
+        "f": {
+         "$ref": "other.json#/x"
+        }
+       }
+      }
+     },
+     "$defs": {
+      "1": {
+       "type": "boolean"
+      },
+      "2": {
+       "type": "integer"
+      },
+      "A B": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "examples": [
+        "x"
+       ]
+      },
+      "b": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        true
+       ]
+      }
+     }
+    },
+    "output": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      },
+      "b": {
+       "$ref": "#/properties/a"
+      },
+      "c": {
+       "$ref": "#/properties/a"
+      },
+      "d": {
+       "$ref": "#"
+      },
+      "e": {
+       "$ref": ""
+      },
+      "f": {
+       "$ref": "other.json#/x"
+      }
+     },
+     "$defs": {
+      "1": {
+       "type": "boolean"
+      },
+      "2": {
+       "type": "integer"
+      },
+      "A B": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "examples": [
+        "x"
+       ]
+      },
+      "b": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        true
+       ]
+      }
+     }
+    },
+    "inputTs": "{ p?: { a?: string; b?: unknown; c?: unknown; d?: unknown; e?: unknown; f?: unknown } }",
+    "outputTs": "{ a?: string; b?: unknown; c?: unknown; d?: unknown; e?: unknown; f?: unknown }"
+   },
+   {
+    "path": "names",
+    "description": "GET /b",
+    "input": {
+     "type": "object",
+     "properties": {
+      "p": {
+       "allOf": [
+        {
+         "$ref": "#/$defs/A%20B"
+        },
+        {
+         "$ref": "#/$defs/1"
+        }
+       ],
+       "items": [
+        {
+         "type": "string"
+        }
+       ],
+       "not": true,
+       "additionalProperties": {
+        "$ref": "#/$defs/2"
+       }
+      }
+     },
+     "$defs": {
+      "1": {
+       "type": "boolean"
+      },
+      "2": {
+       "type": "integer"
+      },
+      "A B": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "examples": [
+        "x"
+       ]
+      },
+      "b": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        true
+       ]
+      }
+     }
+    },
+    "output": {
+     "allOf": [
+      {
+       "$ref": "#/$defs/A%20B"
+      },
+      {
+       "$ref": "#/$defs/1"
+      }
+     ],
+     "items": [
+      {
+       "type": "string"
+      }
+     ],
+     "not": true,
+     "additionalProperties": {
+      "$ref": "#/$defs/2"
+     },
+     "$defs": {
+      "1": {
+       "type": "boolean"
+      },
+      "2": {
+       "type": "integer"
+      },
+      "A B": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "examples": [
+        "x"
+       ]
+      },
+      "b": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        true
+       ]
+      }
+     }
+    },
+    "inputTs": "{ p?: (string | null) & boolean }",
+    "outputTs": "(string | null) & boolean"
+   },
+   {
+    "path": "bounds",
+    "description": "GET /c",
+    "input": {
+     "type": "object",
+     "properties": {
+      "p": {
+       "type": "number",
+       "minimum": 1,
+       "maximum": 5,
+       "$ref": false,
+       "exclusiveMaximum": 3
+      }
+     },
+     "$defs": {
+      "1": {
+       "type": "boolean"
+      },
+      "2": {
+       "type": "integer"
+      },
+      "A B": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "examples": [
+        "x"
+       ]
+      },
+      "b": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        true
+       ]
+      }
+     }
+    },
+    "output": {
+     "type": "number",
+     "minimum": 1,
+     "maximum": 5,
+     "$ref": false,
+     "exclusiveMaximum": 3,
+     "$defs": {
+      "1": {
+       "type": "boolean"
+      },
+      "2": {
+       "type": "integer"
+      },
+      "A B": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "examples": [
+        "x"
+       ]
+      },
+      "b": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        true
+       ]
+      }
+     }
+    },
+    "inputTs": "{ p?: number }",
+    "outputTs": "number"
+   }
+  ]
+ },
+ {
+  "skipped": [],
+  "tools": [
+   {
+    "path": "rootid",
+    "description": "GET /a",
+    "input": {
+     "type": "object",
+     "properties": {
+      "p": {
+       "$id": "https://example.com/s",
+       "properties": {
+        "x": {
+         "$ref": "#/components/schemas/X"
+        }
+       }
+      }
+     },
+     "$defs": {
+      "9": {
+       "type": "null"
+      },
+      "10": {
+       "type": "number"
+      },
+      "X": {
+       "type": "string"
+      }
+     }
+    },
+    "output": {
+     "$id": "https://example.com/s",
+     "properties": {
+      "x": {
+       "$ref": "#/components/schemas/X"
+      }
+     },
+     "$defs": {
+      "9": {
+       "type": "null"
+      },
+      "10": {
+       "type": "number"
+      },
+      "X": {
+       "type": "string"
+      }
+     }
+    },
+    "inputTs": "{ p?: { x?: unknown } }",
+    "outputTs": "{ x?: unknown }"
+   },
+   {
+    "path": "embedded",
+    "description": "GET /b",
+    "input": {
+     "type": "object",
+     "properties": {
+      "p": {
+       "properties": {
+        "x": {
+         "$id": "inner",
+         "$ref": "#/components/schemas/X",
+         "properties": {
+          "y": {
+           "$ref": "#/components/schemas/X"
+          }
+         }
+        },
+        "z": {
+         "$dynamicRef": "#/$defs/X",
+         "$ref": "#/$defs/X"
+        },
+        "w": {
+         "$id": "#frag",
+         "$ref": "#/$defs/X"
+        }
+       }
+      }
+     },
+     "$defs": {
+      "9": {
+       "type": "null"
+      },
+      "10": {
+       "type": "number"
+      },
+      "X": {
+       "type": "string"
+      }
+     }
+    },
+    "output": {
+     "properties": {
+      "x": {
+       "$id": "inner",
+       "$ref": "#/components/schemas/X",
+       "properties": {
+        "y": {
+         "$ref": "#/components/schemas/X"
+        }
+       }
+      },
+      "z": {
+       "$dynamicRef": "#/$defs/X",
+       "$ref": "#/$defs/X"
+      },
+      "w": {
+       "$id": "#frag",
+       "$ref": "#/$defs/X"
+      }
+     },
+     "$defs": {
+      "9": {
+       "type": "null"
+      },
+      "10": {
+       "type": "number"
+      },
+      "X": {
+       "type": "string"
+      }
+     }
+    },
+    "inputTs": "{ p?: { x?: unknown; z?: string; w?: string } }",
+    "outputTs": "{ x?: unknown; z?: string; w?: string }"
+   },
+   {
+    "path": "examples",
+    "description": "GET /c",
+    "input": {
+     "type": "object",
+     "properties": {
+      "p": {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string",
+         "example": 1,
+         "examples": "no"
+        },
+        "b": {
+         "type": "string",
+         "examples": [
+          1,
+          2
+         ]
+        },
+        "c": {
+         "$schema": "https://json-schema.org/draft/2020-12/schema",
+         "type": "string"
+        }
+       }
+      }
+     },
+     "$defs": {
+      "9": {
+       "type": "null"
+      },
+      "10": {
+       "type": "number"
+      },
+      "X": {
+       "type": "string"
+      }
+     }
+    },
+    "output": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string",
+       "example": 1,
+       "examples": "no"
+      },
+      "b": {
+       "type": "string",
+       "examples": [
+        1,
+        2
+       ]
+      },
+      "c": {
+       "$schema": "https://json-schema.org/draft/2020-12/schema",
+       "type": "string"
+      }
+     },
+     "$defs": {
+      "9": {
+       "type": "null"
+      },
+      "10": {
+       "type": "number"
+      },
+      "X": {
+       "type": "string"
+      }
+     }
+    },
+    "inputTs": "{ p?: { a?: string; b?: string; c?: string } }",
+    "outputTs": "{ a?: string; b?: string; c?: string }"
+   },
+   {
+    "path": "emptydefs",
+    "description": "GET /d",
+    "input": {
+     "type": "object",
+     "properties": {
+      "p": {
+       "type": "string"
+      }
+     },
+     "$defs": {
+      "9": {
+       "type": "null"
+      },
+      "10": {
+       "type": "number"
+      },
+      "X": {
+       "type": "string"
+      }
+     }
+    },
+    "output": {
+     "type": "string",
+     "$defs": {
+      "9": {
+       "type": "null"
+      },
+      "10": {
+       "type": "number"
+      },
+      "X": {
+       "type": "string"
+      }
+     }
+    },
+    "inputTs": "{ p?: string }",
+    "outputTs": "string"
+   }
+  ]
+ },
+ {
+  "skipped": [],
+  "tools": [
+   {
+    "path": "write",
+    "description": "POST /a",
+    "input": {
+     "type": "object",
+     "properties": {
+      "body": {
+       "$ref": "#/$defs/Doc"
+      }
+     },
+     "required": [
+      "body"
+     ],
+     "$defs": {
+      "Doc": {
+       "type": "object",
+       "required": [
+        "secret",
+        "items",
+        5
+       ],
+       "properties": {
+        "secret": {
+         "type": "string",
+         "writeOnly": true
+        },
+        "items": {
+         "type": "array",
+         "items": {
+          "$ref": "#/$defs/Item"
+         }
+        },
+        "map": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/$defs/Item"
+         },
+         "patternProperties": {
+          "^x": {
+           "$ref": "#/$defs/Item"
+          }
+         }
+        },
+        "tuple": {
+         "prefixItems": [
+          {
+           "$ref": "#/$defs/Item"
+          }
+         ]
+        },
+        "local": {
+         "$ref": "#/$defs/L"
+        },
+        "legacy": {
+         "$ref": "#/definitions/D"
+        }
+       },
+       "definitions": {
+        "D": {
+         "writeOnly": true
+        }
+       },
+       "dependentSchemas": {
+        "id": {
+         "properties": {}
+        }
+       },
+       "then": {
+        "properties": {
+         "id": {}
+        },
+        "required": [
+         "id"
+        ]
+       },
+       "unevaluatedProperties": {
+        "properties": {
+         "j": {}
+        }
+       },
+       "$defs": {
+        "L": {
+         "type": "object",
+         "properties": {
+          "s": {}
+         },
+         "required": [
+          "s"
+         ]
+        }
+       }
+      },
+      "Item": {
+       "type": "object",
+       "properties": {
+        "wid": {
+         "type": "string",
+         "writeOnly": true
+        },
+        "n": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "wid",
+        "n"
+       ]
+      }
+     }
+    },
+    "output": {
+     "$ref": "#/$defs/Doc",
+     "$defs": {
+      "Doc": {
+       "type": "object",
+       "required": [
+        "id",
+        "items",
+        5
+       ],
+       "properties": {
+        "id": {
+         "type": "string",
+         "readOnly": true
+        },
+        "items": {
+         "type": "array",
+         "items": {
+          "$ref": "#/$defs/Item"
+         }
+        },
+        "map": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/$defs/Item"
+         },
+         "patternProperties": {
+          "^x": {
+           "$ref": "#/$defs/Item"
+          }
+         }
+        },
+        "tuple": {
+         "prefixItems": [
+          {
+           "$ref": "#/$defs/Item"
+          }
+         ]
+        },
+        "local": {
+         "$ref": "#/$defs/L"
+        }
+       },
+       "definitions": {
+        "D": {
+         "writeOnly": true
+        }
+       },
+       "dependentSchemas": {
+        "id": {
+         "properties": {
+          "q": {
+           "readOnly": true
+          }
+         }
+        }
+       },
+       "then": {
+        "properties": {
+         "id": {}
+        },
+        "required": [
+         "id"
+        ]
+       },
+       "unevaluatedProperties": {
+        "properties": {
+         "k": {
+          "readOnly": true
+         },
+         "j": {}
+        }
+       },
+       "$defs": {
+        "L": {
+         "type": "object",
+         "properties": {
+          "r": {
+           "readOnly": true
+          },
+          "s": {}
+         },
+         "required": [
+          "r",
+          "s"
+         ]
+        }
+       }
+      },
+      "Item": {
+       "type": "object",
+       "properties": {
+        "rid": {
+         "type": "string",
+         "readOnly": true
+        },
+        "n": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "rid",
+        "n"
+       ]
+      }
+     }
+    },
+    "inputTs": "{ body: { secret: string; items: Array<{ wid: string; n: number }>; map?: { [key: string]: { wid: string; n: number } }; tuple?: unknown; local?: { s: unknown }; legacy?: unknown } }",
+    "outputTs": "{ id: string; items: Array<{ rid: string; n: number }>; map?: { [key: string]: { rid: string; n: number } }; tuple?: unknown; local?: { r: unknown; s: unknown } }"
+   }
+  ]
+ },
+ {
+  "skipped": [],
+  "tools": [
+   {
+    "path": "conflicts",
+    "description": "POST /x/{a}",
+    "input": {
+     "type": "object",
+     "properties": {
+      "1": {
+       "type": "string"
+      },
+      "2": {},
+      "path_a": {
+       "type": "string",
+       "description": "own"
+      },
+      "b": {
+       "type": "boolean"
+      },
+      "query_a": {
+       "type": "integer"
+      },
+      "query_a_2": {
+       "type": "string"
+      },
+      "body_a": {
+       "type": "string"
+      },
+      "body_a_2": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "path_a",
+      "body_a",
+      "body_a_2"
+     ]
+    },
+    "output": {
+     "type": "null"
+    },
+    "inputTs": "{ \"1\"?: string; \"2\"?: unknown; path_a: string; b?: boolean; query_a?: number; query_a_2?: string; body_a: string; body_a_2: string }",
+    "outputTs": "null"
+   }
+  ]
+ }
+]
