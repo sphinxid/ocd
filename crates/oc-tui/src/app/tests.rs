@@ -657,3 +657,237 @@ async fn enter_key_submits_from_home() {
     assert_eq!(a.editor.text, "");
     assert!(matches!(a.route, Route::Session(_)), "{:?}", a.route);
 }
+
+// ---- v1 → v2 migration badge (upstream component/migration-overlay.tsx) ----
+
+fn render_buf(app: &mut App, w: u16, h: u16) -> ratatui::buffer::Buffer {
+    let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+    term.draw(|f| app.draw(f)).unwrap();
+    term.backend().buffer().clone()
+}
+
+fn running(label: &str, n: Option<u64>, d: Option<u64>) -> migration::MigrationStatus {
+    let mut progress = json!({ "label": label });
+    if let Some(n) = n {
+        progress["numerator"] = json!(n);
+    }
+    if let Some(d) = d {
+        progress["denominator"] = json!(d);
+    }
+    migration::MigrationStatus::parse(&json!({ "status": "running", "progress": progress }))
+}
+
+#[test]
+fn migration_status_parse_and_count() {
+    use migration::{MigrationStatus as S, badge_text};
+    assert_eq!(S::parse(&json!({"status": "required"})), S::Required);
+    assert_eq!(S::parse(&json!({"status": "completed"})), S::Completed);
+    assert_eq!(S::parse(&json!({"status": "error", "error": "boom"})), S::Error("boom".into()));
+    assert_eq!(S::parse(&json!({"status": "weird"})), S::Other);
+    let text = |s: S| match s {
+        S::Running(Some(p)) => badge_text(&p),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(text(running("Clearing old events", None, None)), "Clearing old events");
+    assert_eq!(text(running("Migrating sessions", Some(3), None)), "Migrating sessions 3");
+    assert_eq!(text(running("Migrating sessions", Some(2419), Some(20000))), "Migrating sessions 2419/20000");
+    // Template-string formatting of explicit nulls (`${null}`); a missing numerator hides the counts.
+    let p = json!({"status": "running", "progress": {"label": "X", "numerator": null, "denominator": 4}});
+    assert_eq!(text(S::parse(&p)), "X null/4");
+    let p = json!({"status": "running", "progress": {"label": "X", "denominator": 4}});
+    assert_eq!(text(S::parse(&p)), "X");
+    assert_eq!(S::parse(&json!({"status": "running"})), S::Running(None));
+}
+
+#[test]
+fn migration_badge_running_layout_and_colors() {
+    let mut a = app();
+    a.config.set("animations", Some(json!(true)));
+    a.on_migration_status(running("Migrating sessions", Some(2419), Some(20000)));
+    assert!(a.animating());
+    let buf = render_buf(&mut a, 100, 30);
+    let row = |y: u16| (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>();
+    // Same cells as upstream at 100x30: border at col 62, spinner at 65, text 67..=95, 2-column margin.
+    assert_eq!(row(1).trim_end(), format!("{}┃", " ".repeat(62)));
+    let r2 = row(2);
+    assert!(r2.ends_with("Migrating sessions 2419/20000    "), "{r2:?}");
+    assert_eq!(buf[(62, 2)].symbol(), "┃");
+    assert!(crate::ui::text::SPINNER_FRAMES.contains(&buf[(65, 2)].symbol()));
+    assert_eq!(buf[(67, 2)].symbol(), "M");
+    assert_eq!(buf[(95, 2)].symbol(), "0");
+    assert_eq!(row(3).trim_end(), format!("{}┃", " ".repeat(62)));
+    let t = a.theme().clone();
+    let info = t.text.feedback.info.base.tui();
+    let high = t.background.raised.high.tui();
+    for (x, y) in [(62, 1), (62, 2), (62, 3), (65, 2), (67, 2), (95, 2)] {
+        assert_eq!(buf[(x, y)].fg, info, "fg at {x},{y}");
+        assert_eq!(buf[(x, y)].bg, high, "bg at {x},{y}");
+    }
+    for (x, y) in [(63, 1), (97, 3), (96, 2)] {
+        assert_eq!(buf[(x, y)].bg, high, "bg at {x},{y}");
+    }
+    for (x, y) in [(61, 2), (98, 2), (99, 1), (70, 0), (70, 4)] {
+        assert_ne!(buf[(x, y)].bg, high, "outside at {x},{y}");
+    }
+}
+
+#[test]
+fn migration_badge_without_counts_and_without_animations() {
+    let mut a = app(); // animations off
+    a.on_migration_status(running("Clearing old events", None, None));
+    let lines = render(&mut a, 100, 30);
+    assert_eq!(lines[2], format!("{}┃  ⋯ Clearing old events", " ".repeat(100 - 2 - 26)));
+    assert_eq!(lines[1].trim_start(), "┃");
+}
+
+#[test]
+fn migration_badge_narrow_terminal() {
+    use migration::Badge;
+    let p = match running("Migrating sessions", Some(1643), Some(20000)) {
+        migration::MigrationStatus::Running(Some(p)) => p,
+        _ => unreachable!(),
+    };
+    // Measured from upstream: at 32 columns the text keeps "Migrating sessions 1643/" and the border sits one
+    // column off-screen; at 25 columns "Migrating sessions " and three columns off-screen.
+    assert_eq!(Badge::layout(&p, true, 32), Badge { x: -1, width: 31, spinner: true, text: "Migrating sessions 1643/".into() });
+    assert_eq!(Badge::layout(&p, true, 25), Badge { x: -3, width: 26, spinner: true, text: "Migrating sessions ".into() });
+    assert_eq!(Badge::layout(&p, true, 38).x, 0);
+    let mut a = app();
+    a.config.set("animations", Some(json!(true)));
+    a.on_migration_status(migration::MigrationStatus::Running(Some(p)));
+    let lines = render(&mut a, 32, 20);
+    assert_eq!(&lines[2][lines[2].char_indices().nth(3).unwrap().0..], " Migrating sessions 1643/");
+    assert_eq!(lines[1], "");
+}
+
+#[test]
+fn migration_badge_hides_and_reports_errors() {
+    use migration::MigrationStatus as S;
+    let mut a = app();
+    a.on_migration_status(running("Migrating sessions", Some(1), Some(2)));
+    assert!(contains(&render(&mut a, 100, 30), "⋯ Migrating sessions 1/2"));
+    // The spinner phase restarts only when the badge reappears.
+    let since = a.migration.as_ref().unwrap().1;
+    a.on_migration_status(running("Migrating sessions", Some(2), Some(2)));
+    assert_eq!(a.migration.as_ref().unwrap().1, since);
+    for hidden in [S::Required, S::Other, S::Running(None), S::Completed] {
+        a.on_migration_status(running("Migrating sessions", Some(1), Some(2)));
+        a.on_migration_status(hidden);
+        assert!(a.migration.is_none());
+        assert!(!contains(&render(&mut a, 100, 30), "Migrating sessions"));
+    }
+    assert!(a.toast.is_none());
+    a.on_migration_status(running("Migrating sessions", Some(1), Some(2)));
+    a.on_migration_status(S::Error("Incompatible opencode-next.db: project is missing required columns: worktree".into()));
+    assert!(a.migration.is_none());
+    let toast = a.toast.clone().unwrap();
+    assert_eq!(toast.title.as_deref(), Some("Data migration failed"));
+    assert_eq!(toast.variant, "error");
+    assert_eq!(toast.duration, 10_000);
+    let lines = render(&mut a, 100, 30);
+    assert!(contains(&lines, "Data migration failed"));
+    assert!(contains(&lines, "Incompatible opencode-next.db: project is missing"), "{}", lines.join("\n"));
+    // `new Error("")` falls back to the error name.
+    a.toast = None;
+    a.on_migration_status(S::Error(String::new()));
+    assert_eq!(a.toast.clone().unwrap().message, "Error");
+}
+
+#[test]
+fn migration_badge_draws_over_toasts() {
+    let mut a = app();
+    a.toast(Toast::new("info", "Saved"));
+    a.on_migration_status(running("Migrating sessions", Some(5), Some(9)));
+    let lines = render(&mut a, 100, 30);
+    assert!(lines[2].ends_with("┃  ⋯ Migrating sessions 5/9"), "{:?}", lines[2]);
+}
+
+#[test]
+fn toast_border_keeps_underlying_background() {
+    let mut a = app();
+    a.toast(Toast::new("error", "Something failed badly"));
+    let buf = render_buf(&mut a, 100, 30);
+    let y = (0..30).find(|&y| (0..100).any(|x| buf[(x, y)].symbol() == "S")).unwrap();
+    let left = (0..100).find(|&x| buf[(x, y)].symbol() == "┃").unwrap();
+    let t = a.theme().clone();
+    assert_eq!(buf[(left, y)].bg, t.background.base.tui_or_reset());
+    assert_eq!(buf[(left + 1, y)].bg, t.background.raised.high.tui());
+}
+
+/// Minimal HTTP server answering `GET /api/experimental/migration/v1` with `bodies` in order (the last one
+/// repeats). Returns the base URL and the request counter.
+async fn migration_server(bodies: Vec<&'static str>) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let counter = hits.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut sock, _)) = listener.accept().await else { return };
+            let mut buf = vec![0u8; 4096];
+            let n = sock.read(&mut buf).await.unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert!(req.starts_with("GET /api/experimental/migration/v1 "), "{req}");
+            let i = counter.fetch_add(1, Ordering::SeqCst);
+            let body = bodies[i.min(bodies.len() - 1)];
+            let resp = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+            let _ = sock.write_all(resp.as_bytes()).await;
+        }
+    });
+    (url, hits)
+}
+
+async fn drive(app: &mut App, rx: &mut tokio::sync::mpsc::UnboundedReceiver<AppMsg>, secs: u64) -> Vec<Option<String>> {
+    let mut seen = Vec::new();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(secs);
+    while let Ok(Some(msg)) = tokio::time::timeout_at(deadline, rx.recv()).await {
+        if let AppMsg::Apply(f) = msg {
+            f(app);
+            seen.push(app.migration.as_ref().map(|(p, _)| migration::badge_text(p)));
+        }
+    }
+    seen
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn migration_poll_until_completed() {
+    let (url, hits) = migration_server(vec![
+        r#"{"status":"running","progress":{"label":"Clearing old events"}}"#,
+        r#"{"status":"running","progress":{"label":"Migrating sessions","numerator":1,"denominator":2}}"#,
+        r#"{"status":"completed"}"#,
+    ])
+    .await;
+    let (tx, mut rx) = unbounded_channel();
+    let mut a = app();
+    a.tx = tx;
+    a.client = crate::api::Client::new(&url, None, "/work/proj");
+    let started = std::time::Instant::now();
+    a.start_migration_poll();
+    let seen = drive(&mut a, &mut rx, 5).await;
+    assert_eq!(seen, vec![Some("Clearing old events".into()), Some("Migrating sessions 1/2".into()), None]);
+    // First poll after 1 s, then every second; nothing after `completed`.
+    assert!(started.elapsed() >= std::time::Duration::from_millis(3000));
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert!(a.toast.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn migration_poll_stops_on_error() {
+    let (url, hits) = migration_server(vec![
+        r#"{"status":"required"}"#,
+        r#"{"status":"error","error":"disk full\nCaused by: boom"}"#,
+    ])
+    .await;
+    let (tx, mut rx) = unbounded_channel();
+    let mut a = app();
+    a.tx = tx;
+    a.client = crate::api::Client::new(&url, None, "/work/proj");
+    a.start_migration_poll();
+    let seen = drive(&mut a, &mut rx, 4).await;
+    assert_eq!(seen, vec![None, None]);
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 2);
+    let toast = a.toast.clone().unwrap();
+    assert_eq!((toast.title.as_deref(), toast.message.as_str()), (Some("Data migration failed"), "disk full\nCaused by: boom"));
+}

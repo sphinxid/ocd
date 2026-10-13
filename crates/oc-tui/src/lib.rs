@@ -184,6 +184,8 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
         }
     });
 
+    app.start_migration_poll();
+
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(40));
     let mut title = String::new();

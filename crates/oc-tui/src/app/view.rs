@@ -57,6 +57,7 @@ impl App {
             cursor = c;
         }
         self.draw_reconnecting(buf, area, &t);
+        self.draw_migration(buf, area, &t);
         let spinner = self.spinner_frame();
         replace_spinners(buf, spinner);
         self.last_frame = Some(buf.clone());
@@ -879,10 +880,11 @@ impl App {
         let x = area.right().saturating_sub(w + 2);
         let y = area.y + 1;
         let rect = Rect::new(x, y, w, h);
-        fill(buf, rect, bg.tui());
+        // The border sits on the outer box, which has no background: its cells keep what is underneath.
+        fill(buf, Rect::new(x + 1, y, w.saturating_sub(2), h), bg.tui());
         for yy in rect.y..rect.bottom() {
-            put(buf, rect.x, yy, "┃", fg(border).bg(bg.tui()), 1);
-            put(buf, rect.right() - 1, yy, "┃", fg(border).bg(bg.tui()), 1);
+            put(buf, rect.x, yy, "┃", fg(border), 1);
+            put(buf, rect.right() - 1, yy, "┃", fg(border), 1);
         }
         draw_lines(buf, Rect::new(x + 3, y + 1, w.saturating_sub(6), h.saturating_sub(2)), &body, 0, "");
     }

@@ -99,6 +99,15 @@ The modules below cover the main session and home screens and all dialogs. They 
 - **Copy:** mouse drag-select copies on release when `terminal.copy` is `"select"`. In
   `"manual"` mode, right-click copies. While a selection exists, `esc` and `ctrl+c` follow
   `handleSelectionKey`.
+- **V1 history import badge** (upstream `MigrationOverlay`, full TUI only, not mini): 1 s after start the TUI
+  polls `GET /api/experimental/migration/v1` every second until it reports `completed`. While the status is
+  `running`, a badge sits at the top right (`top 1`, `right 2`, drawn over toasts, dialogs and the reconnect
+  overlay). It has a `┃` left border and the spinner and `<label>[ <n>[/<d>]]` text, all in
+  `text.feedback.info.base` on `background.raised.high`, with padding 2×1. With animations off the spinner becomes
+  `⋯ `. Any other status hides the badge. `error`, or a failed request, stops polling and shows the 10 s error
+  toast "Data migration failed" with the error text. The badge has no keybindings. On terminals too narrow for
+  it, it uses the same layout as upstream's Yoga quirk: the box extends past the left edge and only the first
+  wrapped line shows.
 - **`cli.json` writes:** they keep comments and formatting. `util::jsonc_edit` is a local
   copy of `oc-config`'s jsonc-parser `modify` port, and writes fall back to a pretty rewrite
   if an edit fails.
@@ -114,6 +123,6 @@ The modules below cover the main session and home screens and all dialogs. They 
 | `config` | `cli.json` (JSONC) with resolved defaults and atomic, comment-preserving writes |
 | `state` | `model.json`, `session.json`, `prompt-history.jsonl`, `prompt-stash.jsonl`, `frecency.jsonl`, and the keyed `<state>/<channel>/tui/<key>.json` store, all at the upstream paths |
 | `ui` | text and wrapping primitives, markdown rendering, syntect highlighting, unified and split diffs, the transcript row model and renderers, the prompt editor with chips, dialogs, form and permission helpers, the logo and epilogue |
-| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `mini` (scrollback and footer rendering) |
+| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `mini` (scrollback and footer rendering), `migration` (v1 import badge and status poller) |
 | `mini` | the `run_mini` event loop and footer painter |
 | `clipboard`, `attention`, `terminal` | clipboard (OSC 52 plus host tools), notifications and sounds, terminal palette probe (OSC 4/10/11) |

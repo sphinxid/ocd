@@ -102,6 +102,11 @@ impl Client {
         self.empty(self.request(Method::POST, "/api/location/reload")).await
     }
 
+    /// `experimental.migration.v1.status`.
+    pub async fn migration_v1_status(&self) -> anyhow::Result<Value> {
+        self.json(self.request(Method::GET, "/api/experimental/migration/v1")).await
+    }
+
     pub async fn info(&self) -> anyhow::Result<Value> {
         self.json(self.request(Method::GET, "/api/info")).await
     }

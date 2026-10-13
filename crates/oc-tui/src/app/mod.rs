@@ -5,6 +5,7 @@ pub mod composer;
 pub mod diffview;
 pub mod stats;
 pub mod input;
+pub mod migration;
 pub mod mini;
 pub mod selection;
 pub mod tabs;
@@ -249,6 +250,8 @@ pub struct App {
     pub last_frame: Option<ratatui::buffer::Buffer>,
     /// Running as `opencode mini` (scrollback transcript + live footer).
     pub mini: bool,
+    /// V1 history import badge: current progress and when the badge appeared (spinner phase).
+    pub migration: Option<(migration::MigrationProgress, Instant)>,
 }
 
 impl App {
@@ -353,6 +356,7 @@ impl App {
             selection: None,
             last_frame: None,
             mini: false,
+            migration: None,
             config,
             opts,
         };
@@ -1192,6 +1196,7 @@ impl App {
     /// Whether any animation needs periodic redraws.
     pub fn animating(&self) -> bool {
         self.running() || self.toast.is_some() || self.pending_deadline.is_some() || self.connection != ConnStatus::Connected
+            || self.migration.is_some()
             || self.store.active.values().any(|v| *v)
     }
 
