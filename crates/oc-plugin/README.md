@@ -267,6 +267,13 @@ and functions are `{"$fn": handle}`. The upstream editors these values feed:
 | `websearch` | `{providers: [{id, name, execute}], selection?}` | `execute(ProviderInput)` |
 | `worktree` | `{strategies: [{id, create, remove, list}], selected?}` | `create(input)`, `remove(input)`, `list(sourceDirectory)` |
 
+The catalog domains (`provider`, `model`) are decoded lazily in the sidecar: a provider record (or a
+provider's model list) that no transform reached comes back as `{"$same": providerID}` (`{"$same":
+true}` in place of a model list), and the core keeps its own copy. Their input is large and rarely
+changes, so the core sends it through `PluginHost::transform_keyed(location, domain, key, value)`:
+the sidecar keeps the last input per location and domain under `key`, later calls name it by the key
+alone, and a `transform.input` error (unknown key, e.g. after a restart) makes the core send it again.
+
 Tool entries returned with a `js:` handle are plugin tools, or native tools a plugin wrapped.
 Execute them with `PluginHost::execute_tool(location, handle, input, {sessionID, agent, messageID,
 id}, progress)`, which applies upstream's runtime decode, encode and normalise steps. Run

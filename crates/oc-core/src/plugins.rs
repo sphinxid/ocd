@@ -836,6 +836,21 @@ impl Plugins {
         }
     }
 
+    /// [`Plugins::transform`] of a catalog domain (`provider`, `model`), whose input holds every
+    /// provider record and model: the sidecar keeps the input under its fingerprint `input`, so a
+    /// rebuild with unchanged native records (e.g. after a plugin's `provider.reload()`) neither
+    /// builds nor sends it again. `None` when no plugin transforms the domain or the transform failed.
+    async fn transform_catalog(&self, key: &str, domain: &str, input: u64, value: impl FnOnce() -> Value) -> Option<Value> {
+        let host = self.host.get()?;
+        match host.transform_keyed(&LocationRef::new(key.to_string()), domain, input, value).await {
+            Ok(out) => out,
+            Err(error) => {
+                tracing::error!(%error, domain, "plugin transform failed");
+                None
+            }
+        }
+    }
+
     /// Drops a cached domain (`<domain>.reload`).
     pub fn invalidate(&self, key: &str, domain: &str) {
         self.catalog_cache.lock().remove(&(key.to_string(), domain.to_string()));
@@ -1068,14 +1083,22 @@ impl Plugins {
         {
             return cached.clone();
         }
-        let value = json!({ "records": records.values().map(record_json).collect::<Vec<_>>() });
-        let mut out = self.transform(key, "provider", value).await;
+        let value = || json!({ "records": records.values().map(record_json).collect::<Vec<_>>() });
+        let Some(mut out) = self.transform_catalog(key, "provider", input, value).await else { return records };
         let mut next = indexmap::IndexMap::new();
         let items = match out.get_mut("records").map(Value::take) {
             Some(Value::Array(items)) => items,
             _ => Vec::new(),
         };
         for item in items {
+            // A record no transform touched comes back as `{"$same": id}` (the sidecar decodes
+            // catalog records lazily): keep the native one.
+            if let Some(id) = item.get("$same").and_then(Value::as_str) {
+                if let Some(record) = records.get(id) {
+                    next.insert(id.to_string(), record.clone());
+                }
+                continue;
+            }
             match record_from_json(&item) {
                 Some(record) => {
                     next.insert(record.provider.id.clone(), record);
@@ -1107,8 +1130,11 @@ impl Plugins {
             let mut hasher = HashWriter::default();
             let _ = serde_json::to_writer(&mut hasher, &models);
             let _ = serde_json::to_writer(&mut hasher, &default);
+            // The whole value sent to the sidecar, which keeps it under this fingerprint.
             for record in records.values() {
                 let _ = serde_json::to_writer(&mut hasher, &record.provider);
+                let _ = serde_json::to_writer(&mut hasher, &record.models);
+                let _ = serde_json::to_writer(&mut hasher, &record.source_connection);
             }
             hasher.0.finish()
         };
@@ -1118,14 +1144,17 @@ impl Plugins {
         {
             return (cached.clone(), cached_default.clone());
         }
-        let mut value = json!({
-            "models": models.iter().map(|(pid, ms)| json!([pid, ms.values().collect::<Vec<_>>()])).collect::<Vec<_>>(),
-            "providers": records.values().map(record_json).collect::<Vec<_>>(),
-        });
-        if let Some((p, m)) = &default {
-            value["default"] = json!({ "providerID": p, "modelID": m });
-        }
-        let mut out = self.transform(key, "model", value).await;
+        let value = || {
+            let mut value = json!({
+                "models": models.iter().map(|(pid, ms)| json!([pid, ms.values().collect::<Vec<_>>()])).collect::<Vec<_>>(),
+                "providers": records.values().map(record_json).collect::<Vec<_>>(),
+            });
+            if let Some((p, m)) = &default {
+                value["default"] = json!({ "providerID": p, "modelID": m });
+            }
+            value
+        };
+        let Some(mut out) = self.transform_catalog(key, "model", input, value).await else { return (models, default) };
         let mut next: indexmap::IndexMap<String, indexmap::IndexMap<String, oc_ai::catalog::ModelInfo>> = indexmap::IndexMap::new();
         let items = match out.get_mut("models").map(Value::take) {
             Some(Value::Array(items)) => items,
@@ -1133,6 +1162,12 @@ impl Plugins {
         };
         for mut item in items {
             let Some(pid) = item.get(0).and_then(Value::as_str).map(String::from) else { continue };
+            // Models no transform touched come back as `{"$same": true}`: keep the native ones.
+            if item.get(1).is_some_and(|m| m.get("$same").is_some()) {
+                let same = models.get(&pid).cloned().unwrap_or_default();
+                next.insert(pid, same);
+                continue;
+            }
             let entry = next.entry(pid).or_default();
             let models = match item.get_mut(1).map(Value::take) {
                 Some(Value::Array(models)) => models,

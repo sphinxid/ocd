@@ -343,6 +343,43 @@ impl PluginHost {
         Ok(Some(result.get_mut("value").map(Value::take).unwrap_or(Value::Null)))
     }
 
+    /// [`PluginHost::transform_ref`] of a large input the sidecar keeps between calls (the catalog
+    /// domains): the call names the input by `key` (a fingerprint of the value), and `value` is
+    /// built and sent only when the sidecar does not hold that input (first call, changed input,
+    /// restarted sidecar).
+    pub async fn transform_keyed(
+        &self,
+        location: &LocationRef,
+        domain: &str,
+        key: u64,
+        value: impl FnOnce() -> Value,
+    ) -> Result<Option<Value>, CallError> {
+        let active = self.inner.with(location, |s| s.domains.contains(domain)).unwrap_or(false);
+        if !active {
+            return Ok(None);
+        }
+        let Some(sidecar) = self.inner.current() else { return Ok(None) };
+        let key = format!("{key:016x}");
+        #[derive(serde::Serialize)]
+        struct Params<'a> {
+            location: String,
+            domain: &'a str,
+            key: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            value: Option<&'a Value>,
+        }
+        let named = Params { location: location.key(), domain, key: &key, value: None };
+        let mut result = match sidecar.request_with("transform", &named).await {
+            Ok(result) => result,
+            Err(CallError::Remote(error)) if error.kind.as_deref() == Some("transform.input") => {
+                let value = value();
+                sidecar.request_with("transform", &Params { value: Some(&value), ..named }).await?
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(Some(result.get_mut("value").map(Value::take).unwrap_or(Value::Null)))
+    }
+
     /// Executes a plugin tool (`execute` handle of a tool entry with a `js:` handle) with
     /// upstream's runtime semantics: input decoded with the tool's schema, output encoded,
     /// content normalized. `context` is `{sessionID, agent, messageID, id}`; `progress` receives

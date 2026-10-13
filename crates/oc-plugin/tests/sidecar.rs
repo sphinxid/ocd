@@ -308,6 +308,54 @@ async fn effect_plugin_transforms_and_hooks() {
 }
 
 #[tokio::test]
+async fn catalog_transforms_return_untouched_entries_by_reference_and_reuse_inputs() {
+    require_bun!();
+    let s = setup();
+    let result = s.host.load(request(&s, vec![add(fixture("catalog-plugin"), json!({}))])).await;
+    assert_eq!(result.packages[0]["state"]["status"], "active", "{:?}", result.packages);
+
+    let model = |provider: &str, id: &str| json!({ "id": id, "providerID": provider, "name": id });
+    let record = |id: &str, models: Value| json!({ "provider": { "id": id, "name": id }, "models": models });
+    let providers = json!({ "records": [
+        record("untouched", json!([model("untouched", "m1")])),
+        record("fixture-provider", json!([])),
+    ] });
+    let out = s.host.transform_keyed(&s.location, "provider", 1, || providers.clone()).await.unwrap().unwrap();
+    let records = out["records"].as_array().unwrap();
+    assert_eq!(records.len(), 2, "{out}");
+    // A record no transform reached is not decoded, re-encoded or sent back.
+    assert_eq!(records[0], json!({ "$same": "untouched" }));
+    assert_eq!(records[1]["provider"]["name"], "Fixture Provider");
+    assert_eq!(records[1]["models"][0]["id"], "fixture-model");
+    assert_eq!(records[1]["models"][0]["name"], "Fixture Model");
+
+    // The sidecar kept the input: the same key needs no value, and gives the same result.
+    let again = s.host.transform_keyed(&s.location, "provider", 1, || panic!("input sent again")).await.unwrap().unwrap();
+    assert_eq!(again, out);
+    // A new key sends the new input.
+    let changed = json!({ "records": [record("fixture-provider", json!([])), record("other", json!([]))] });
+    let out = s.host.transform_keyed(&s.location, "provider", 2, || changed.clone()).await.unwrap().unwrap();
+    assert_eq!(out["records"][0]["provider"]["name"], "Fixture Provider");
+    assert_eq!(out["records"][1], json!({ "$same": "other" }));
+
+    let models = json!({
+        "models": [
+            ["opencode", [model("opencode", "big-pickle"), model("opencode", "other")]],
+            ["untouched", [model("untouched", "m1")]],
+        ],
+        "providers": [record("opencode", json!([]))],
+        "default": { "providerID": "opencode", "modelID": "big-pickle" },
+    });
+    let out = s.host.transform_keyed(&s.location, "model", 3, || models.clone()).await.unwrap().unwrap();
+    assert_eq!(out["models"][0][0], "opencode");
+    assert_eq!(out["models"][0][1][0]["name"], "Big Pickle (renamed)");
+    assert_eq!(out["models"][0][1][1]["id"], "other");
+    assert_eq!(out["models"][1], json!(["untouched", { "$same": true }]));
+    assert_eq!(out["default"], json!({ "providerID": "opencode", "modelID": "big-pickle" }));
+    s.host.shutdown().await;
+}
+
+#[tokio::test]
 async fn storage_events_and_rpc() {
     require_bun!();
     let s = setup();

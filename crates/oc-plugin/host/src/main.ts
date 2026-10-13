@@ -106,6 +106,9 @@ peer.handle(
 
 peer.handle("location.close", async (params: { location: string }) => {
   aisdk.delete(params.location)
+  for (const slot of Array.from(inputs.keys())) {
+    if (slot.startsWith(`${params.location}\u0000`)) inputs.delete(slot)
+  }
   const runtime = locations.get(params.location)
   if (!runtime) return null
   locations.delete(params.location)
@@ -148,9 +151,28 @@ peer.handle("hook.trigger", (params: { location: string; key: string; event: unk
     .then((event) => ({ event })),
 )
 
-peer.handle("transform", (params: { location: string; domain: string; value: unknown }) => {
+// The last keyed transform input per location and domain. The catalog domains send every provider
+// record and model, which rarely change between rebuilds: the core sends such a value once with a
+// `key` and later names it by that key alone (`transform.input` asks it to send the value again).
+// Transforms never mutate an input value, so it can be reused as is.
+const inputs = new Map<string, { key: string; value: unknown }>()
+
+peer.handle("transform", (params: { location: string; domain: string; value?: unknown; key?: string }) => {
   if (!isDomain(params.domain)) throw new Error(`Unknown transform domain: ${params.domain}`)
-  return { value: location(params.location).transform(params.domain, params.value) }
+  let value = params.value
+  if (params.key !== undefined) {
+    const slot = `${params.location}\u0000${params.domain}`
+    if (value === undefined) {
+      const cached = inputs.get(slot)
+      if (!cached || cached.key !== params.key) {
+        throw Object.assign(new Error(`No ${params.domain} transform input ${params.key}`), { type: "transform.input" })
+      }
+      value = cached.value
+    } else {
+      inputs.set(slot, { key: params.key, value })
+    }
+  }
+  return { value: location(params.location).transform(params.domain, value) }
 })
 
 peer.handle("invoke", (params: { location: string; handle: string; args?: unknown[]; scope?: string }, context) =>

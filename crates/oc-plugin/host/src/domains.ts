@@ -430,7 +430,35 @@ const worktree: Spec<WorktreeState, unknown> = {
 // ---------------------------------------------------------------------------------------------
 
 type ProviderRecord = { provider: any; models: Map<string, any>; sourceConnection?: unknown }
-type ProviderState = Map<string, ProviderRecord>
+
+// Catalog values arrive in their wire form and are decoded on first access. A plugin transform
+// usually touches a few providers, while the catalog holds every models.dev provider (thousands of
+// models): decoding and re-encoding all of them through the schemas made each rebuild cost about a
+// second. Entries a transform never reached go back as `{ "$same": ... }` and the core keeps its own
+// copy, like upstream, whose transforms edit its in-memory records without a schema round trip.
+const RAW = Symbol("raw")
+type Raw = { readonly [RAW]: any }
+const isRaw = (value: unknown): value is Raw => typeof value === "object" && value !== null && RAW in value
+const raw = (value: any): Raw => ({ [RAW]: value })
+
+type ProviderState = Map<string, ProviderRecord | Raw>
+
+function lazyRecords(items: any[]): ProviderState {
+  return new Map(items.map((item) => [item?.provider?.id, raw(item)]))
+}
+
+/** The record of `id`, decoded on first access (in place, so the map keeps its order). */
+function recordAt(records: ProviderState, id: string): ProviderRecord | undefined {
+  const current = records.get(id)
+  if (current === undefined || !isRaw(current)) return current
+  const record = decodeRecord(current[RAW])
+  records.set(id, record)
+  return record
+}
+
+function allRecords(records: ProviderState): ProviderRecord[] {
+  return Array.from(records.keys(), (id) => recordAt(records, id)!)
+}
 
 function decodeRecord(item: any): ProviderRecord {
   const provider = decodeWith<any>(Provider.Info, item.provider)
@@ -444,7 +472,7 @@ function decodeRecord(item: any): ProviderRecord {
     ),
     ...(item.sourceConnection === undefined || item.sourceConnection === null
       ? {}
-      : { sourceConnection: item.sourceConnection }),
+      : { sourceConnection: structuredClone(item.sourceConnection) }),
   }
 }
 
@@ -459,21 +487,18 @@ function encodeRecord(record: ProviderRecord) {
 // TODO(phase 2): upstream also runs AISDKNative.rewrite on provider/model edits (aisdk: package specifiers);
 // the Rust core applies its own provider normalisation after the transform.
 const provider: Spec<ProviderState, unknown> = {
-  decode: (value) => new Map(((value?.records ?? []) as any[]).map((item) => {
-    const record = decodeRecord(item)
-    return [record.provider.id, record]
-  })),
+  decode: (value) => lazyRecords((value?.records ?? []) as any[]),
   editor: (records) => {
     const entry = (id: string) => {
-      const current = records.get(id)
+      const current = recordAt(records, id)
       if (current) return current
       const added = { provider: (Provider.Info as any).empty(id), models: new Map<string, any>() }
       records.set(id, added)
       return added
     }
     return {
-      list: () => Array.from(records.values()),
-      get: (id: string) => records.get(id),
+      list: () => allRecords(records),
+      get: (id: string) => recordAt(records, id),
       add: (definition: { info: any; models: readonly any[]; sourceConnection?: unknown }) => {
         records.set(definition.info.id, {
           provider: structuredClone(definition.info),
@@ -508,12 +533,14 @@ const provider: Spec<ProviderState, unknown> = {
           record.models.set(modelID, model)
         },
         remove: (providerID: string, modelID: string) => {
-          records.get(providerID)?.models.delete(modelID)
+          recordAt(records, providerID)?.models.delete(modelID)
         },
       },
     }
   },
-  encode: (records) => ({ records: Array.from(records.values(), encodeRecord) }),
+  encode: (records) => ({
+    records: Array.from(records, ([id, record]) => (isRaw(record) ? { $same: id } : encodeRecord(record))),
+  }),
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -521,33 +548,34 @@ const provider: Spec<ProviderState, unknown> = {
 // ---------------------------------------------------------------------------------------------
 
 type ModelState = {
-  models: Map<string, Map<string, any>>
+  models: Map<string, Map<string, any> | Raw>
   defaultModel?: { providerID: string; modelID: string }
-  providers: Map<string, ProviderRecord>
+  providers: ProviderState
+}
+
+/** The models of `providerID`, decoded on first access (see `RAW`). */
+function modelsAt(data: ModelState, providerID: string): Map<string, any> | undefined {
+  const current = data.models.get(providerID)
+  if (current === undefined || !isRaw(current)) return current
+  const models = new Map(((current[RAW] ?? []) as any[]).map((item) => [item.id, decodeWith<any>(Model.Info, item)]))
+  data.models.set(providerID, models)
+  return models
 }
 
 const model: Spec<ModelState, unknown> = {
   decode: (value) => ({
-    models: new Map(
-      ((value?.models ?? []) as any[]).map(([providerID, models]) => [
-        providerID,
-        new Map((models as any[]).map((item) => [item.id, decodeWith<any>(Model.Info, item)])),
-      ]),
-    ),
-    ...(value?.default ? { defaultModel: value.default } : {}),
-    providers: new Map(((value?.providers ?? []) as any[]).map((item) => {
-      const record = decodeRecord(item)
-      return [record.provider.id, record]
-    })),
+    models: new Map(((value?.models ?? []) as any[]).map(([providerID, models]) => [providerID, raw(models)])),
+    ...(value?.default ? { defaultModel: { ...value.default } } : {}),
+    providers: lazyRecords((value?.providers ?? []) as any[]),
   }),
   editor: (data) => ({
     list: (providerID?: string) => {
       const ids = providerID === undefined ? Array.from(data.models.keys()) : [providerID]
-      return ids.flatMap((id) => Array.from(data.models.get(id)?.values() ?? []))
+      return ids.flatMap((id) => Array.from(modelsAt(data, id)?.values() ?? []))
     },
-    get: (providerID: string, modelID: string) => data.models.get(providerID)?.get(modelID),
+    get: (providerID: string, modelID: string) => modelsAt(data, providerID)?.get(modelID),
     update: (providerID: string, modelID: string, update: (model: any) => void) => {
-      const models = data.models.get(providerID)
+      const models = modelsAt(data, providerID)
       if (!models) return
       const model = models.get(modelID) ?? (Model.Info as any).default(providerID, modelID)
       update(model)
@@ -556,7 +584,7 @@ const model: Spec<ModelState, unknown> = {
       models.set(modelID, model)
     },
     remove: (providerID: string, modelID: string) => {
-      data.models.get(providerID)?.delete(modelID)
+      modelsAt(data, providerID)?.delete(modelID)
     },
     default: {
       get: () => data.defaultModel,
@@ -565,14 +593,14 @@ const model: Spec<ModelState, unknown> = {
       },
     },
     provider: {
-      list: () => Array.from(data.providers.values()),
-      get: (providerID: string) => data.providers.get(providerID),
+      list: () => allRecords(data.providers),
+      get: (providerID: string) => recordAt(data.providers, providerID),
     },
   }),
   encode: (data) => ({
     models: Array.from(data.models, ([providerID, models]) => [
       providerID,
-      Array.from(models.values(), (item) => encodeWith(Model.Info, item)),
+      isRaw(models) ? { $same: true } : Array.from(models.values(), (item) => encodeWith(Model.Info, item)),
     ]),
     ...(data.defaultModel === undefined ? {} : { default: data.defaultModel }),
   }),
