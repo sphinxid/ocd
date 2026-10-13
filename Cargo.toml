@@ -56,6 +56,14 @@ shell-words = "1"
 schemars = "1"
 indexmap = { version = "2", features = ["serde"] }
 
+# Debug/test builds: keep file:line for our crates' panics and backtraces, drop full debug info (and all of it for
+# dependencies). Every test binary links the whole workspace, so full debug info made target/ grow past 180 GB.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 4
