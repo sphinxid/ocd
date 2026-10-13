@@ -59,13 +59,8 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
       transform: transform("agent"),
     },
     aisdk: {
-      // TODO(phase 2): AI SDK hooks need the JS AI SDK bridge. Registrations are accepted so plugins
-      // that also register them keep loading, but they are never triggered.
-      hook: (name: string) =>
-        Effect.sync(() => {
-          log("warn", `aisdk.${name} hooks are not supported by ocd yet; the hook is ignored`, { plugin: slot.plugin.id })
-          return { dispose: Effect.void }
-        }),
+      hook: (name: "sdk" | "language", callback: (event: any) => Effect.Effect<void, any>, options?: { readonly providerID?: string }) =>
+        register(() => runtime.registerAisdkHook(slot, name, callback, options)),
     },
     provider: {
       list: api("provider.list"),

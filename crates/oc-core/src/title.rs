@@ -131,13 +131,13 @@ impl Engine {
         let preferred = match (&agent.model, &primary) {
             (Some(m), _) => {
                 let cred = self.models.credential(Some(&sel.location.key), &catalog, &m.provider_id).await;
-                catalog.resolve(&m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).ok()
+                self.models.resolve_model(Some(&sel.location.key), &catalog, &m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).await.ok()
             }
             (None, Some(p)) => match catalog.small_model(&p.model.provider_id) {
                 Some(small) => {
                     let variant = ["none", "minimal", "low"].into_iter().find(|v| small.variants.iter().any(|x| x.id == *v));
                     let cred = self.models.credential(Some(&sel.location.key), &catalog, &small.provider_id).await;
-                    catalog.resolve(&small.provider_id, &small.id, variant, cred.as_ref()).ok()
+                    self.models.resolve_model(Some(&sel.location.key), &catalog, &small.provider_id, &small.id, variant, cred.as_ref()).await.ok()
                 }
                 None => None,
             },

@@ -1,6 +1,7 @@
 //! opencode core engine (mirrors `packages/core`).
 
 pub mod agent;
+pub mod aisdk;
 pub mod app;
 pub mod attachment;
 pub mod bus;

@@ -7,6 +7,7 @@ import { makeLoader, type Installed, type Operation } from "./loader.js"
 import { LocationRuntime, type Generation } from "./location.js"
 import { isDomain } from "./domains.js"
 import { log, logError, Peer, RemoteError } from "./peer.js"
+import { AISDKService, initFailure, stream as aisdkStream } from "./aisdk.js"
 
 export const PROTOCOL = 1
 
@@ -45,6 +46,18 @@ const io = {
   notify: (method: string, params: unknown) => peer.notify(method, params),
 }
 
+// One AI SDK service per location (upstream `AISDK` is a location node), shared by the location's
+// plugin runtime (`ctx.aisdk.hook`) and the bridge requests. Locations without plugins get one too.
+const aisdk = new Map<string, AISDKService>()
+function aisdkService(key: string) {
+  let service = aisdk.get(key)
+  if (!service) {
+    service = new AISDKService(io, () => app)
+    aisdk.set(key, service)
+  }
+  return service
+}
+
 function location(key: string) {
   const found = locations.get(key)
   if (!found) throw new Error(`Unknown plugin location: ${key}`)
@@ -71,7 +84,8 @@ peer.handle(
   }) => {
     let runtime = locations.get(params.location)
     if (!runtime) {
-      runtime = new LocationRuntime(params.location, params.ref, params.info, app, io, `${++locationCounter}.`)
+      const key = params.location
+      runtime = new LocationRuntime(key, params.ref, params.info, app, io, `${++locationCounter}.`, () => aisdkService(key))
       locations.set(params.location, runtime)
     }
     const definitions: Generation[] = []
@@ -91,10 +105,38 @@ peer.handle(
 )
 
 peer.handle("location.close", async (params: { location: string }) => {
+  aisdk.delete(params.location)
   const runtime = locations.get(params.location)
   if (!runtime) return null
   locations.delete(params.location)
   await runtime.close()
+  return null
+})
+
+const withEnabled = (service: AISDKService, enabled?: string[] | null) => {
+  if (enabled) service.enabled = new Set(enabled)
+  return service
+}
+
+peer.handle("aisdk.load", async (params: { location: string; model: unknown; enabled?: string[] }) => {
+  try {
+    await withEnabled(aisdkService(params.location), params.enabled).language(params.model)
+  } catch (error) {
+    throw initFailure(error)
+  }
+  return {}
+})
+
+peer.handle(
+  "aisdk.stream",
+  (
+    params: { location: string; model: unknown; options: unknown; stream: number; http?: { response?: boolean }; enabled?: string[] },
+    context,
+  ) => aisdkStream(withEnabled(aisdkService(params.location), params.enabled), io, params, context.signal),
+)
+
+peer.handle("aisdk.close", (params: { location: string }) => {
+  aisdk.delete(params.location)
   return null
 })
 

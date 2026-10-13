@@ -211,3 +211,75 @@ def plugin_vcs_worktree(ctx):
     ctx.call("worktree.remove", "DELETE", "/api/worktree", {"projectID": pid, "directory": target, "force": False})
     ctx.call("worktree.remove.force", "DELETE", "/api/worktree", {"projectID": pid, "directory": target, "force": True})
     ctx.call("worktree.list.after", "GET", f"/api/worktree?projectID={pid}")
+
+
+AISDK_PROVIDER = "aisdk:file://" + os.path.join(FIXTURES, "aisdk-provider", "index.js")
+
+
+def aisdk_config(ctx, plugins):
+    """The fixture AI SDK provider (crates/oc-plugin/tests/fixtures/aisdk-provider, a LanguageModelV3 package
+    loaded from a file:// URL) as provider `fixture`, talking to the mock; plus a provider whose package is
+    missing."""
+    base = f"http://127.0.0.1:{ctx.mock.port}/v1"
+    return {"plugins": plugins, "model": "fixture/m1", "providers": {
+        "fixture": {"name": "Fixture", "package": AISDK_PROVIDER,
+                    "settings": {"baseURL": base, "apiKey": "test", "marker": "configured"},
+                    "models": {"m1": {"name": "Fixture One", "limit": {"context": 100000, "output": 4096}}}},
+        "broken": {"name": "Broken", "package": "aisdk:file:///nonexistent/ocd-aisdk-missing.js",
+                   "models": {"m1": {"name": "Broken One", "limit": {"context": 100000, "output": 4096}}}},
+    }}
+
+
+def record_aisdk_requests(ctx):
+    """Every request the fixture provider sent (title first): path, headers (minus transport ones) and body."""
+    out = []
+    for r in sorted(ctx.mock.requests, key=lambda r: r["kind"] != "title"):
+        h = {k.lower(): v for k, v in r["headers"].items()
+             if k.lower() not in ("content-length", "host", "connection", "accept-encoding", "accept")}
+        out.append({"kind": r["kind"], "path": r["path"], "headers": h, "body": r["body"]})
+    ctx.rec("requests", out)
+
+
+@scenario("plugin", hold_for_title=0)
+def plugin_aisdk(ctx):
+    """an AI SDK provider package without a native implementation (the bridge): text, reasoning, a tool call,
+    usage, a provider HTTP error, a stream cut mid-way (retried) and a package that fails to load."""
+    ctx.env_extra["OCD_BUN_PATH"] = BUN
+    ctx.set_script([
+        {"tools": [{"name": "read", "args": {"path": "$PROJECT/hello.txt"}}]},
+        {"reasoning": "The file greets.", "text": ["The file ", "says hi."],
+         "usage": {"prompt_tokens": 12, "completion_tokens": 7, "prompt_tokens_details": {"cached_tokens": 2},
+                   "completion_tokens_details": {"reasoning_tokens": 3}}},
+        {"status": 400, "body": {"error": {"message": "bad request from mock", "type": "invalid_request_error"}}},
+        {"text": "partial", "cut": True},
+        {"text": "Recovered."},
+    ])
+    ctx.make_project(files={"hello.txt": "hi\n"}, config_extra=aisdk_config(ctx, []))
+    ctx.start()
+    # No title request: the AI SDK route starts its step before the request goes out (upstream
+    # `streamLanguage`), so holding the main response for the title does not order title and step.
+    sid = ctx.create_session(title="Boot")
+    ctx.prompt(sid, "read hello")
+    ctx.prompt(sid, "again")
+    ctx.prompt(sid, "cut")
+    ctx.call("session.model", "POST", f"/api/session/{sid}/model", {"model": {"providerID": "broken", "id": "m1"}})
+    ctx.prompt(sid, "broken")
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.record_events()
+    record_aisdk_requests(ctx)
+
+
+@scenario("plugin", hold_for_title=0)
+def plugin_aisdk_hooks(ctx):
+    """plugin aisdk.sdk / aisdk.language hooks (wrap the SDK and the language model) and session.http.* hooks
+    around the AI SDK provider's fetch."""
+    ctx.env_extra["OCD_BUN_PATH"] = BUN
+    ctx.set_script([{"text": ["Say ORIGINAL", " now"]}])
+    ctx.make_project(files=plugin_files("aisdk-plugin", "http-plugin"),
+                     config_extra=aisdk_config(ctx, ["./plugins/aisdk-plugin", "./plugins/http-plugin"]))
+    ctx.start()
+    sid = ctx.create_session(title="Boot")
+    ctx.prompt(sid, "hi")
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.record_events()
+    record_aisdk_requests(ctx)

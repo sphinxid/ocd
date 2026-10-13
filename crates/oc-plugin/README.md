@@ -1,16 +1,19 @@
-# oc-plugin: server plugins in a Bun sidecar (phase 1)
+# oc-plugin: server plugins and the AI SDK bridge in a Bun sidecar
 
 Runs upstream opencode v2 **server plugins**, written against the public `@opencode/plugin` API in
-Promise or Effect style, unchanged. They run in a Bun sidecar that ocd starts only when a location's
-config needs a package or local plugin. The sidecar talks JSON-RPC to the Rust server over stdio.
+Promise or Effect style, unchanged (phase 1). They run in a Bun sidecar that ocd starts only when a
+location's config needs a package or local plugin. The sidecar talks JSON-RPC to the Rust server
+over stdio.
+
+The same sidecar runs **AI SDK provider packages** (phase 2): models whose package is an `aisdk:`
+npm AI SDK provider without a native Rust implementation, with the plugin `aisdk.sdk` /
+`aisdk.language` hooks. See "AI SDK bridge" below; the sidecar starts on the first such model even
+when no plugin is configured.
 
 What is out of scope:
 
 - **TUI plugins** (the `tui` entrypoint) are not supported. `@opencode/plugin/tui*` is not provided
   to plugins.
-- **AI SDK hooks** (`aisdk.sdk`, `aisdk.language`) are phase 2. Registering one is accepted, so the
-  plugin still loads, but the sidecar logs a warning and the hook is never triggered (TODO in
-  `host/src/context.ts`).
 
 Upstream references used throughout: `packages/plugin/src/*` (public API, adapter, host, runtime)
 and `packages/core/src/plugin/{host,hooks,module,supervisor}.ts`, `packages/core/src/plugin.ts`,
@@ -112,6 +115,9 @@ The protocol is newline-delimited JSON-RPC 2.0 (`src/protocol.rs`, `host/src/pee
 | `rpc.call` | `{location, rpcID, method, input}` | `{output}`; or an error with `type` = RPC failure type, plus `data` |
 | `shutdown` | `{}` | `null`, then the sidecar exits |
 | `event` (notification) | `{location?, event}` | — |
+| `aisdk.load` | `{location, model, enabled?}` | `{}`; or an error with `type` `aisdk.init` and `data.detail` (upstream `causeMessage`) |
+| `aisdk.stream` | `{location, model, options, stream, http?: {response}, enabled?}` | `null` after the last part; or an error with `type` `aisdk.error` and `data: {operation, shape}` |
+| `aisdk.close` | `{location}` | `null` (drops the location's language model and SDK caches) |
 
 ### Sidecar → Rust
 
@@ -126,6 +132,9 @@ The protocol is newline-delimited JSON-RPC 2.0 (`src/protocol.rs`, `host/src/pee
 | `events.interest` | `{location, count}` | `publish_event` is a no-op while every count is 0 |
 | `tool.progress` | `{location, id, metadata}` | the `progress` callback passed to `execute_tool` |
 | `watch` | `{file}` | emits `HostEvent::Watch` |
+| `aisdk.part` (notification) | `{stream, part}` | the stream of [`PluginHost::aisdk_stream`] |
+| `aisdk.http.request` / `aisdk.http.response` (requests) | `{stream, request[, response]}` | the stream's `AisdkHttp` (`session.http.*` hooks) |
+| `npm.add` (request) | `{spec}` | `Npm::add` in the plugin npm cache; answers `Installed` |
 
 The sidecar flushes pending change notifications before it sends any `api` request, and Rust
 applies notifications in arrival order. Example: a plugin that registers a transform and then calls
@@ -134,16 +143,16 @@ the change.
 
 ## ctx surface
 
-Legend: **S** = supported; **S\*** = supported with a noted difference; **stub** = accepted but
-inert (phase 2); **U** = unsupported. Each "api" item becomes a `PluginApi::call` with the listed
-method. The full method contract, with HTTP endpoints, is in `src/api.rs`.
+Legend: **S** = supported; **S\*** = supported with a noted difference; **U** = unsupported.
+Each "api" item becomes a `PluginApi::call` with the listed method. The full method contract,
+with HTTP endpoints, is in `src/api.rs`.
 
 | ctx member | status | how |
 |---|---|---|
 | `app`, `location`, `options` | S | `app` from `HostOptions.app`, `location` = `LoadRequest.info` decoded as `Location.Info`, `options` from the config entry |
 | `agent.get` / `list` | S | api `agent.get` / `agent.list` (`location` query passes through) |
 | `agent.transform` / `reload` | S | transform domain `agent`; api `agent.reload` |
-| `aisdk.hook("sdk" \| "language")` | stub | warns, never triggered (phase 2) |
+| `aisdk.hook("sdk" \| "language")` | S | registered in the location's AI SDK service in the sidecar (`host/src/aisdk.ts`), after the internal provider plugins' hooks; `providerID` scoping and the copy-back of `sdk` / `language` as in `core/src/plugin/host.ts:157` |
 | `command.list` | S | api `command.list` |
 | `command.transform` / `reload` | S | transform domain `command`; commands carry `execute` handles |
 | `event.subscribe()` | S | `publish_event` → `event` notification; decoded with `OpenCodeEvent`, filtered to server + `rpc.*` events |
@@ -213,7 +222,7 @@ Callbacks scoped by `providerID` are filtered in the sidecar using `event.model.
 | `shell.create.before` | **`command, cwd, timeout, shell, env`** | `packages/core/src/shell.ts:274` | `Plugins::shell_before`: shell tool (`CoreHost::shell_create_before`), `!` commands (`shell_cmd.rs`), `shell.create` | wired |
 | `tool.execute.before` | **`tool`** (renameable), `sessionID, agent, messageID, id, `**`input`** | `packages/core/src/tool.ts:104` | `runner.rs` `CoreHooks::before`, for direct calls and calls inside Code Mode (`codemode::execute_with`) | wired (`HookError::Tool` rejects the call with that `Tool.Error`) |
 | `tool.execute.after` | `tool, sessionID, agent, messageID, id, input, status` + **`result`**`{output?, content, metadata?}` or **`error`**`{message, metadata?}` | `packages/core/src/tool.ts:137` (error), `:149` (completed) | `CoreHooks::after` (after the plan agent's own hook), before content normalisation | wired |
-| `aisdk.sdk` / `aisdk.language` | — | `packages/core/src/aisdk.ts:346` / `runLanguage` | — | stub (phase 2) |
+| `aisdk.sdk` / `aisdk.language` | **`sdk`** (`model, package, options`) / **`language`** (`model, sdk, options`) | `packages/core/src/aisdk.ts:350` (`runSDK`) / `:359` (`runLanguage`) | run inside the sidecar when a model is loaded (`aisdk.load`, from oc-ai `ResolvedModel::initialize` at model resolution); never cross to Rust (JS objects) | wired |
 
 A hook defect, such as a Promise hook throwing, is returned as `HookError::Failed`. Upstream lets
 the operation fail in that case.
@@ -356,6 +365,79 @@ streaming `Response`); see docs/PARITY.md "Remaining".
 9. **Events.** Forward every bus event to `publish_event(Some(location) | None, &wire_event)`. This
    is cheap: it does nothing unless `wants_events()`.
 
+## AI SDK bridge (phase 2)
+
+Upstream references: `packages/core/src/aisdk.ts` (the `AISDK` location node), `aisdk-native.ts`
+(which packages are native), `model-resolver.ts` (`loadAISDK`), `plugin/provider/{dynamic,
+sdk-factory,factory,cohere,perplexity,vercel,gitlab,sap-ai-core}.ts` and `plugin/host.ts:157`.
+
+**Which models use it.** Exactly upstream's decision: the catalog rewrites known AI SDK packages to
+native ones (`AISDKNative.rewrite`, oc-ai `catalog/native.rs`); a model whose effective package still
+starts with `aisdk:` (an AI SDK package with no native implementation, e.g. `aisdk:@ai-sdk/deepseek`
+under a provider id other than `deepseek`, `aisdk:@ai-sdk/perplexity`, `aisdk:file:///...`) resolves
+through the bridge (oc-ai `ResolveOptions.aisdk`). Native packages never touch it.
+
+**Split of work.**
+
+| step | where | upstream |
+|---|---|---|
+| route, request lowering to `LanguageModelV3CallOptions`, raising stream parts to LLM events, error classification | oc-ai `src/aisdk.rs` | `modelFromLanguage`, `callOptions`/`prompt`, `streamLanguage`/`streamPartEvents`, `llmError` |
+| package install/import, `aisdk.sdk` / `aisdk.language` hooks (internal provider plugins, then plugins), SDK and language caches, `prepareOptions` (SDK options, timed `fetch`, extra body, header/chunk timeouts), `doStream`, error shapes | sidecar `host/src/aisdk.ts` | `AISDK.Service.language`, `prepareOptions`, `wrapSSE`, `loadSDKFactory`, the internal plugins |
+| JSON-RPC plumbing, part streams, `session.http.*` callbacks, npm installs | `src/aisdk.rs` (`PluginHost::aisdk_load/aisdk_stream/aisdk_close`) | — |
+| per-location bridge, resolution sites | oc-core `src/aisdk.rs` (`LocationBridge`), `Models::resolve_model` | `ModelResolver.layer` |
+
+**Lifecycle.** Resolution (`Models::resolve_model`: session steps, titles, compaction, generate)
+calls `aisdk.load`, which runs the hooks and constructs the language model eagerly like upstream; a
+failure is `ModelInitializationError` phase `init` ("Cannot initialize <provider>/<model>: <detail>").
+Each request then sends the compiled call options with `aisdk.stream`; the sidecar forwards every
+part except `stream-start`, `response-metadata`, `raw`, `file`, `source` and
+`tool-approval-request` (which upstream drops) as `aisdk.part` notifications, and an `error` part or a
+thrown error ends the call with its error shape. The route emits `step-start` before the request,
+applies upstream's fragment rules and no terminal-event rule (like `streamLanguage`). Dropping the
+stream (interrupt) cancels the call in the sidecar, which releases the provider's reader; no
+`abortSignal` is passed, as upstream passes none. Caches are per location and dropped when the
+location closes.
+
+**Wire forms.** File data crosses as `{"$bytes": "<base64>"}` (`Uint8Array`) or `{"$url": "..."}`
+(`URL`); base64 sources stay strings. Error shapes: `{kind: "api", message, url, statusCode, data,
+responseHeaders, responseBody, isRetryable}` for an `APICallError` (detected by its
+`vercel.ai.error.AI_APICallError` marker, message from `providerErrorMessage`), `{kind: "network",
+message, code}` for upstream's network failure codes and messages, else `{kind: "unknown", message,
+data, responseBody}` (`unknownErrorMessage`). oc-ai turns them into the same `AIError`s.
+
+**HTTP hooks.** With `session.http.request` / `.response` plugin hooks, the SDK's `fetch` goes
+through them (upstream `throughMiddleware`): the sidecar sends the request (`content-length` added
+for a body) to Rust (`aisdk.http.request`), which runs the plugin hooks, fetches with the result and,
+when a response hook exists, reads the body and passes it through `aisdk.http.response`. No
+`b3`/`traceparent` headers (the SDK uses plain `fetch`, as upstream).
+
+**Internal provider plugins** run first, in upstream's order, gated by the location's plugin
+configuration (`-opencode.provider.dynamic` etc.):
+
+| plugin | hooks | ocd |
+|---|---|---|
+| `opencode.provider.cohere`, `.perplexity`, `.vercel` | `sdk` for `@ai-sdk/cohere` / `perplexity` / `vercel` | upstream bundles these packages; ocd installs exactly upstream's pinned versions (`3.0.27`, `3.0.26`, `2.0.39`) on first use |
+| `opencode.provider.gitlab` | `sdk` for `gitlab-ai-provider`, `language` for provider `gitlab` (agentic/workflow chat) | installs `gitlab-ai-provider@6.19.0`; user agent from `ctx.app` |
+| `opencode.provider.sap.ai.core` | `sdk` / `language` for provider `sap-ai-core` | `loadSDKFactory` of the configured package, service-key environment |
+| `opencode.provider.dynamic` | `sdk` when none set it: the package's first `create*` export | `file://` URLs are imported directly; otherwise `npm.add` (official unversioned `@ai-sdk/x` → `@ai-sdk/x@ai-v6`), then `Bun.resolveSync` + import |
+| `opencode.provider.github.copilot` | `sdk` / `language` for `@ai-sdk/github-copilot` | not ported: it needs upstream's in-tree Copilot provider, and ocd's catalog never assigns that package (see Differences) |
+
+Plugin hooks see `{model, package, options, sdk?}` / `{model, sdk, options, language?}` (the
+`RuntimeInfo` model and the SDK options object upstream passes, mutations included).
+
+**Differences from upstream.**
+
+- Packages upstream bundles (cohere, perplexity, vercel, gitlab) are installed from npm at the same
+  versions, so the first use needs the registry.
+- npm install failures read `Failed to install <spec>: <bun output>` in the initialization detail
+  (upstream: the npm/arborist error message).
+- A missing module's message names the sidecar bundle as importer (`imported from .../host.js`;
+  upstream names its compiled chunk).
+- The GitHub Copilot `aisdk` hooks are not ported (above).
+- Non-AI-SDK third-party packages (a package exporting upstream's `model(modelID, settings)` for the
+  `@opencode/ai` runtime, loaded by `Provider.loadPackage`) are still unsupported:
+  `Provider package <x> is not installed`.
+
 ## Install and discovery
 
 - **Discovery.** `oc-config` already parses `plugins` and discovers `<dir>/plugin(s)/*`. That
@@ -433,9 +515,20 @@ bun nor the checkout. After rebuilding, run the tests.
   - provider, model, integration and websearch transforms plus a Code Mode tool (`catalog-plugin`);
   - `session.http.request` / `session.http.response` hooks rewriting model requests and responses
     (`http-plugin`);
-  - a selected `vcs` provider and a `worktree` strategy (`vcs-plugin`).
-- The core integration is tested in `oc-backend/tests/plugins.rs` with these fixtures, and in the
-  parity suite (`scripts/parity/plugins.py`, group `plugin`) against upstream.
+  - a selected `vcs` provider and a `worktree` strategy (`vcs-plugin`);
+  - `aisdk-provider`: a dependency-free AI SDK provider package (LanguageModelV3, factory
+    `createFixture`) with a scripted mode and a mode that talks OpenAI chat-completions SSE to a
+    `baseURL` through the SDK `fetch` (V3 prompt as `messages`), with `APICallError` markers;
+  - `aisdk-plugin`: provider-scoped `aisdk.sdk` (wraps the SDK, renames the API model) and
+    `aisdk.language` (wraps the language model, adds a header) hooks.
+- `tests/aisdk.rs`: the bridge against the real sidecar (scripted stream through the dynamic
+  plugin without any plugin loaded, error shapes, initialization failures and built-in gating,
+  plugin hooks with the HTTP middleware against a local SSE server, cancellation).
+- The core integration is tested in `oc-backend/tests/plugins.rs` and `oc-backend/tests/aisdk.rs`
+  (text, reasoning, tool calls and usage through the session runner, plugin `aisdk.*` and
+  `session.http.*` hooks, provider errors, a package that fails to load) with these fixtures, and
+  in the parity suite (`scripts/parity/plugins.py`, group `plugin`, incl. `plugin_aisdk` and
+  `plugin_aisdk_hooks`) against upstream.
 - `cargo test -p oc-plugin --test sidecar -- --ignored` also installs the published v2 plugin
   `opencode-models-discovery@1.10.0` from npm with `bun add` and activates it. This needs network.
 - Bun is taken from `OCD_BUN_PATH` or `OCD_TEST_BUN`. When neither is set, the tests fall back to

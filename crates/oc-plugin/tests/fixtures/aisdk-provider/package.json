@@ -1,0 +1,9 @@
+{
+  "name": "ocd-aisdk-fixture",
+  "version": "1.0.0",
+  "description": "Test AI SDK provider (LanguageModelV3) for the ocd AI SDK bridge",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js" },
+  "license": "MIT"
+}

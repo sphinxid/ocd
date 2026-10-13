@@ -107,6 +107,8 @@ pub struct ResolveOptions {
     pub env: Option<EnvFn>,
     /// Whether a route supports provider-native compaction; defaults to OpenAI Responses routes.
     pub native_compaction: Option<CompactionSupportFn>,
+    /// AI SDK bridge for `aisdk:` packages (upstream `loadAISDK`); without it they are unsupported.
+    pub aisdk: Option<Arc<dyn crate::aisdk::AiSdkBridge>>,
 }
 
 impl ResolveOptions {
@@ -312,11 +314,39 @@ pub fn from_catalog_model(
         }
     }
     if is_aisdk(Some(&package)) {
-        return Err(ResolveError::AisdkPackage {
-            provider_id: resolved.provider_id.clone(),
-            model_id: resolved.id.clone(),
-            package,
-        });
+        let Some(bridge) = options.aisdk.clone() else {
+            return Err(ResolveError::AisdkPackage {
+                provider_id: resolved.provider_id.clone(),
+                model_id: resolved.id.clone(),
+                package,
+            });
+        };
+        let mut overlay = native_credential_settings(&resolved.provider_id, &package, credential);
+        if let Some(metadata) = credential_metadata(credential) {
+            for (k, v) in metadata {
+                overlay.insert(k.clone(), v.clone());
+            }
+        }
+        if let Some(CredentialValue::Key { configuration: Some(configuration), .. }) = credential {
+            for (k, v) in configuration {
+                overlay.insert(k.clone(), v.clone());
+            }
+        }
+        let merged = merge_overlay(resolved.settings.as_ref(), Some(&overlay)).unwrap_or_default();
+        let mut info = resolved.clone();
+        info.settings = Some(prepare_provider_settings(&resolved, merged, options)?);
+        let runtime = crate::aisdk::language_model(&info, bridge);
+        // The AI SDK route has no provider compaction operations.
+        let native = resolved.settings.as_ref().and_then(|s| s.get("compaction")).and_then(|c| c.get("type")).and_then(Value::as_str)
+            == Some("native");
+        if native {
+            return Err(ResolveError::UnsupportedCompaction {
+                provider_id: resolved.provider_id.clone(),
+                model_id: resolved.id.clone(),
+                route: runtime.route.id.clone(),
+            });
+        }
+        return Ok(runtime);
     }
     let specifier = package_name(&package);
     if specifier.is_empty() {
@@ -381,6 +411,28 @@ pub fn from_catalog_model(
         });
     }
     Ok(runtime)
+}
+
+impl ResolvedModel {
+    /// Whether the model runs through the AI SDK bridge.
+    pub fn is_aisdk(&self) -> bool {
+        crate::aisdk::bridge_of(&self.language_model).is_some()
+    }
+
+    /// The eager part of resolution that needs I/O: for AI SDK packages, upstream's `AISDK.model`
+    /// loads the package and constructs the language model while resolving
+    /// (`ModelInitializationError` phase `init` on failure). A no-op for native packages.
+    pub async fn initialize(&self) -> Result<(), ResolveError> {
+        let Some((bridge, info)) = crate::aisdk::bridge_of(&self.language_model) else { return Ok(()) };
+        let package = self.model.package.clone().unwrap_or_else(|| "unknown".into());
+        bridge.load(info).await.map_err(|detail| ResolveError::ModelInitialization {
+            provider_id: self.model.provider_id.clone(),
+            model_id: self.model.id.clone(),
+            detail: detail.unwrap_or_else(|| format!("init failed for {package}")),
+            package,
+            phase: InitializationPhase::Init,
+        })
+    }
 }
 
 /// `hasConfiguredAuth`.

@@ -15,6 +15,7 @@ use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
+use crate::aisdk::Streams;
 use crate::api::{ApiError, ApiRequest, PluginApi};
 use crate::bun::BunResolver;
 use crate::npm::Npm;
@@ -186,6 +187,7 @@ struct Inner {
     events: broadcast::Sender<HostEvent>,
     stopping: AtomicBool,
     attempts: Mutex<u32>,
+    streams: Arc<Streams>,
 }
 
 /// The plugin host. Cheap to clone.
@@ -214,8 +216,23 @@ impl PluginHost {
                 events,
                 stopping: AtomicBool::new(false),
                 attempts: Mutex::new(0),
+                streams: Arc::default(),
             }),
         }
+    }
+
+    /// The running sidecar, started if needed.
+    pub(crate) async fn sidecar(&self) -> Result<Arc<Sidecar>, String> {
+        self.inner.ensure().await
+    }
+
+    /// The running sidecar, if any (never starts one).
+    pub(crate) fn running(&self) -> Option<Arc<Sidecar>> {
+        self.inner.current()
+    }
+
+    pub(crate) fn streams(&self) -> Arc<Streams> {
+        self.inner.streams.clone()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HostEvent> {
@@ -673,6 +690,19 @@ fn api_error(error: ApiError, rpc: bool) -> WireError {
 impl Incoming for Handler {
     async fn request(&self, method: String, params: Value) -> Result<Value, WireError> {
         let inner = self.inner.upgrade().ok_or_else(|| WireError::new("plugin host is shutting down"))?;
+        match method.as_str() {
+            "aisdk.http.request" | "aisdk.http.response" => {
+                return crate::aisdk::http_call(&inner.streams, &method, &params).await.map_err(WireError::new);
+            }
+            "npm.add" => {
+                // AI SDK provider packages (`loadSDKFactory`): the same npm cache as plugins.
+                let spec = params.get("spec").and_then(Value::as_str).unwrap_or_default().to_string();
+                let bun = inner.bun.resolve().await.map_err(WireError::new)?;
+                let installed = inner.npm.add(&bun, &spec).await.map_err(|e| WireError::new(e.to_string()))?;
+                return serde_json::to_value(installed).map_err(|e| WireError::new(e.to_string()));
+            }
+            _ => {}
+        }
         let key = params.get("location").and_then(Value::as_str).unwrap_or_default().to_string();
         let location = inner.reference(&key).ok_or_else(|| WireError::new(format!("Unknown plugin location: {key}")))?;
         match method.as_str() {
@@ -698,6 +728,10 @@ impl Incoming for Handler {
 
     fn notification(&self, method: &str, params: Value) {
         let Some(inner) = self.inner.upgrade() else { return };
+        if method == "aisdk.part" {
+            inner.streams.part(&params);
+            return;
+        }
         if method == "watch" {
             if let Some(file) = params.get("file").and_then(Value::as_str) {
                 inner.emit(HostEvent::Watch { file: PathBuf::from(file) });

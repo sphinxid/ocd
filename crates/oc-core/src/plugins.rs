@@ -340,7 +340,7 @@ impl Plugins {
         self.me.upgrade().expect("plugins alive")
     }
 
-    fn host_or_create(&self) -> &PluginHost {
+    pub(crate) fn host_or_create(&self) -> &PluginHost {
         self.host.get_or_init(|| {
             let api = self.api.read().clone().unwrap_or_else(|| Arc::new(CoreApi::new(self.me.clone())) as Arc<dyn PluginApi>);
             let host = PluginHost::new(HostOptions::from_global(&self.global, self.app_info.clone()), api);
@@ -682,6 +682,10 @@ impl Plugins {
             && let Some(host) = self.host.get()
         {
             host.close_location(&LocationRef::new(key.to_string())).await;
+        }
+        // The location's AI SDK models and SDKs (`AISDK` is a location node upstream).
+        if let Some(host) = self.host.get() {
+            host.aisdk_close(&LocationRef::new(key.to_string())).await;
         }
     }
 

@@ -96,6 +96,10 @@ class Normalizer:
         s = re.sub(r"install/channel: (v2|latest)", "install/channel: <channel>", s)
         # Plugin failure references (`err_` + 8 random hex digits).
         s = re.sub(r"\berr_[0-9a-f]{8}\b", "<err-ref>", s)
+        # The module that imported a missing AI SDK package: upstream's bundle chunk inside the compiled binary
+        # (`/$bunfs/root/chunk-<hash>.js`) vs ocd's sidecar bundle (`.../ocd-plugin-host/<hash>/host.js`).
+        s = re.sub(r"imported from (/\$bunfs/root/chunk-[0-9a-z]+\.js|\S*/ocd-plugin-host/[0-9a-f]+/host\.js)",
+                   "imported from <bundle>", s)
         return s
 
     def __call__(self, value, key=None):

@@ -171,4 +171,7 @@ commands, agents and skills; a rejecting `tool.execute.before`; `permission.eval
 denying `.env` reads; `tool.execute.after`, `session.prompt`, `session.context` and
 `shell.create.before`; storage, `ctx.event.subscribe` and `rpc.call`; provider/model/integration/
 websearch transforms and a Code Mode plugin tool with hooks on the nested call; built-in plugin
-removal without starting Bun; local plugin hot reload.
+removal without starting Bun; local plugin hot reload. `tests/aisdk.rs` configures oc-plugin's
+fixture AI SDK provider package (`aisdk:file://...`) and runs prompts through the AI SDK bridge:
+text, reasoning, a tool call and usage; plugin `aisdk.sdk` / `aisdk.language` and `session.http.*`
+hooks; a provider HTTP error and a package that fails to initialize.

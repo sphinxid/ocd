@@ -1110,7 +1110,7 @@ impl Engine {
         let m = agent.model.as_ref()?;
         let catalog = self.models.catalog_at(&loaded.sel.location.entries, Some(&loaded.sel.location.key)).await.ok()?;
         let cred = self.models.credential(Some(&loaded.sel.location.key), &catalog, &m.provider_id).await;
-        catalog.resolve(&m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).ok()
+        self.models.resolve_model(Some(&loaded.sel.location.key), &catalog, &m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).await.ok()
     }
 
     /// `SessionCompaction.compact(trigger)`.

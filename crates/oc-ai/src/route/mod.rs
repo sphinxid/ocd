@@ -102,6 +102,19 @@ pub fn set_query(url: &mut url::Url, query: &IndexMap<String, String>) {
     url.set_query(Some(&encoded));
 }
 
+/// A route that streams without the HTTP transport (upstream `route.streamPrepared` overrides, e.g.
+/// the AI SDK bridge): receives the compiled request and its protocol body.
+pub trait PreparedStream: Send + Sync {
+    fn stream(
+        &self,
+        request: LLMRequest,
+        body: Value,
+        hook: Option<Arc<dyn transport::HttpHook>>,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> crate::client::LLMStream;
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
 /// A runnable route.
 #[derive(Clone)]
 pub struct Route {
@@ -118,6 +131,8 @@ pub struct Route {
     /// Transport-level header hook with access to the body.
     pub prepare_headers: Option<PrepareHeadersFn>,
     pub defaults: ModelDefaults,
+    /// Non-HTTP execution (`streamPrepared`); `None` = the HTTP transport.
+    pub stream: Option<Arc<dyn PreparedStream>>,
 }
 
 impl fmt::Debug for Route {
@@ -145,6 +160,7 @@ impl Route {
             headers: None,
             prepare_headers: None,
             defaults: ModelDefaults::default(),
+            stream: None,
         }
     }
 

@@ -17,6 +17,7 @@ import { makeContext } from "./context.js"
 import { SPECS, type Codec, type Domain } from "./domains.js"
 import { log, RemoteError } from "./peer.js"
 import { makeRpc, type RpcFailure } from "./rpc.js"
+import { pluginHook, type AISDKService } from "./aisdk.js"
 
 export interface HostIO {
   request(method: string, params: unknown, signal?: AbortSignal): Promise<any>
@@ -81,6 +82,7 @@ export class LocationRuntime {
     readonly app: unknown,
     private readonly io: HostIO,
     prefix: string,
+    private readonly aisdk: () => AISDKService,
   ) {
     this.location = decodeLocation(info)
     this.handles = new Handles(prefix)
@@ -192,6 +194,34 @@ export class LocationRuntime {
     }
     owner.registrations.add(remove)
     this.schedule()
+    return remove
+  }
+
+  /** `ctx.aisdk.hook(name, callback, options)`: registered in the location's AI SDK service. */
+  registerAisdkHook(
+    owner: Slot,
+    name: "sdk" | "language",
+    callback: (event: unknown) => Effect.Effect<void, unknown>,
+    options?: { readonly providerID?: string },
+  ) {
+    const plugin = owner.plugin.id
+    const wrapped = pluginHook(
+      name,
+      (event) => {
+        if (owner.failure) return Effect.void
+        return Effect.suspend(() => callback(event)).pipe(withLogger(plugin))
+      },
+      options,
+    )
+    const dispose = this.aisdk().hook(name, wrapped)
+    let active = true
+    const remove = () => {
+      if (!active) return
+      active = false
+      owner.registrations.delete(remove)
+      dispose()
+    }
+    owner.registrations.add(remove)
     return remove
   }
 

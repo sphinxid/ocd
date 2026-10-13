@@ -63,6 +63,7 @@ while let Some(event) = stream.next().await {
 | `protocols` | `Protocol` + `StreamParser` traits and the adapters listed below. |
 | `providers` | `language_model(package, model_id, settings)` for every `@opencode/ai/providers/*` entrypoint, plus provider wrappers (Groq, OpenRouter, Moonshot/MiniMax chat, Vercel gateway, Bedrock Mantle, DigitalOcean). |
 | `catalog` | models.dev fetch/cache/normalization, npm → native mapping, variants, custom providers from config, registry/availability/defaults, and `Catalog::resolve` → `ResolvedModel`. |
+| `aisdk` | The AI SDK route for `aisdk:` packages (`core/src/aisdk.ts`): `language_model` (route `ai-sdk:<package>`, metadata key, defaults), `call_options` (request → `LanguageModelV3CallOptions`), stream-part raising, `error_from_shape` (`llmError`), and the `AiSdkBridge` trait the JS side implements. |
 | `credentials` | `CredentialStore` trait (+ `MemoryCredentialStore`), `Integrations` (methods, connections, refresh-on-resolve, OAuth/command attempt lifecycle), the OAuth flows, well-known discovery (`KvStore`), and the Azure CLI token helper. |
 | `retry` | Session retry schedule and decision (`RetryPolicy`), `CONTINUE_TEXT`, `session_error_type`/`session_error`, ChatGPT token-sharing non-retry codes. |
 | `modalities` | TODO list of the non-chat media protocols (not ported). |
@@ -102,6 +103,13 @@ while let Some(event) = stream.next().await {
 - Every request carries Effect's trace propagation headers (`b3`, `traceparent`) from `oc_util::trace`: one trace
   ID per process, a fresh span and parent span per request, set after the `HttpHook` request hook.
 - `catalog::PackageLoader`: optional override of the native package loader.
+- `aisdk::AiSdkBridge`: the JS runtime behind `aisdk:` packages (`load(model)` = `AISDK.language`,
+  `stream(call)` = `doStream`, parts as JSON). Pass it in `ResolveOptions.aisdk` (core: the oc-plugin
+  sidecar, `oc_core::aisdk::LocationBridge`) and call `ResolvedModel::initialize().await` after
+  resolving, which loads the package like upstream's resolver (`ModelInitializationError` phase
+  `init` on failure). Without a bridge, `aisdk:` packages fail with `ResolveError::AisdkPackage`.
+- `route::PreparedStream`: a route that streams without the HTTP transport (upstream
+  `streamPrepared`); `Client::stream_with` compiles the request and hands it the protocol body.
 
 ## Error handling and retries
 
@@ -121,7 +129,6 @@ while let Some(event) = stream.next().await {
   HTTP SSE, which is upstream's own fallback.
 - **Explicit compaction endpoints** (`/responses/compact`, compaction trigger): `compaction` and `transport` are
   surfaced on `ResolvedModel` for core to decide.
-- **AI-SDK bridge (`aisdk:*` packages)**: resolution returns `ResolveError::AisdkPackage`.
 - **Non-chat modalities**: image, video, speech and transcription (see `modalities`).
 - **AWS credential sources**: SSO, web-identity and IMDS are not implemented. Supported: env, shared files /
   `credential_process`, and ECS container credentials.

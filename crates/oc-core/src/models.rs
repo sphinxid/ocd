@@ -463,6 +463,31 @@ impl Models {
         integrations.resolve(&connection).await.ok().flatten()
     }
 
+    /// Resolution dependencies for location `key` (upstream `ModelResolver` is a location node):
+    /// `aisdk:` packages run through the AI SDK bridge in the plugin sidecar.
+    pub fn resolve_options(&self, key: Option<&str>) -> catalog::resolve::ResolveOptions {
+        let mut options = catalog::resolve::ResolveOptions::default();
+        if let (Some(plugins), Some(key)) = (self.plugins.read().clone(), key) {
+            options.aisdk = Some(Arc::new(crate::aisdk::LocationBridge::new(plugins, key)));
+        }
+        options
+    }
+
+    /// `ModelResolver.resolveModel`: [`Catalog::resolve_with`] plus the AI SDK package load.
+    pub async fn resolve_model(
+        &self,
+        key: Option<&str>,
+        catalog: &Catalog,
+        provider_id: &str,
+        model_id: &str,
+        variant: Option<&str>,
+        credential: Option<&CredentialValue>,
+    ) -> Result<ResolvedModel, catalog::resolve::ResolveError> {
+        let resolved = catalog.resolve_with(provider_id, model_id, variant, credential, &self.resolve_options(key))?;
+        resolved.initialize().await?;
+        Ok(resolved)
+    }
+
     /// `SessionRunnerModel.resolve`: session model → config model → first available text model.
     pub async fn resolve_for_session(
         &self,
@@ -481,8 +506,8 @@ impl Models {
         }
         let credential = self.credential(key, catalog, &r.provider_id).await;
         let variant = r.variant.as_deref().filter(|v| *v != "default");
-        catalog
-            .resolve(&r.provider_id, &r.id, variant, credential.as_ref())
+        self.resolve_model(key, catalog, &r.provider_id, &r.id, variant, credential.as_ref())
+            .await
             .map_err(|e| ModelError::Resolve(e.to_string()).into())
     }
 }

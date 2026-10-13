@@ -81,6 +81,7 @@ fn options(loader: &Arc<FakeLoader>) -> ResolveOptions {
             _ => None,
         })),
         native_compaction: None,
+        aisdk: None,
     }
 }
 

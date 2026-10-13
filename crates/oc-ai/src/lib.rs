@@ -10,6 +10,7 @@ pub mod response;
 pub mod route;
 pub mod protocols;
 pub mod client;
+pub mod aisdk;
 
 pub use client::{Client, Compiled, LLMStream, StreamDriver};
 pub use error::{AIError, ErrorKind, HttpContext, ProviderConfigurationError, ProviderError};

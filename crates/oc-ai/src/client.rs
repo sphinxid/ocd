@@ -191,6 +191,12 @@ impl Client {
 
     /// [`Client::stream`] with a per-call [`HttpHook`] (upstream `StreamOptions.http`).
     pub async fn stream_with(&self, request: LLMRequest, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMStream, AIError> {
+        if let Some(prepared) = request.model.route.stream.clone() {
+            // `compile` then `route.streamPrepared`: no HTTP transport, no terminal-event rule.
+            let resolved = prepare_request(&request);
+            let body = resolved.model.route.protocol.body(&resolved)?;
+            return Ok(prepared.stream(resolved, body, hook, cancel));
+        }
         let compiled = self.compile(&request).await?;
         let timeouts = Timeouts::from_request(&compiled.request);
         let url = compiled.prepared.url.clone();

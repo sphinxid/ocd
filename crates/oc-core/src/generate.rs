@@ -59,7 +59,7 @@ impl Engine {
             }));
         };
         let cred = self.models.credential(Some(&location.key), &catalog, &r.provider_id).await;
-        let resolved = catalog.resolve(&r.provider_id, &r.id, r.variant.as_deref(), cred.as_ref()).map_err(|e| {
+        let resolved = self.models.resolve_model(Some(&location.key), &catalog, &r.provider_id, &r.id, r.variant.as_deref(), cred.as_ref()).await.map_err(|e| {
             if model.is_some() {
                 GenerateError::ModelSelection(e.to_string())
             } else {
