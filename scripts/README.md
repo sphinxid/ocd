@@ -6,6 +6,9 @@
   calls, HTTP errors, 429 + Retry-After, cut streams, delays; format in `parity/mock.py`).
 - `parity.py`: the differential parity suite against upstream opencode (scenarios in `parity/`; see
   `docs/PARITY.md`). `python3 scripts/parity.py --list` lists scenarios.
+- `build-web-ui.sh <upstream-checkout> [output]`: builds upstream's web app and packs it into the archive ocd embeds
+  (`crates/ocd/web-ui/app-archive.bin`, ~24 MB, not committed; rebuild ocd afterwards). See `crates/ocd/README.md`
+  ("Web UI"). `build-plugin-host.sh` rebuilds the committed plugin sidecar bundle.
 - `vt_render.py <capture> <cols> <rows>`: replays a `script -qfec ...` capture and prints the final screen.
 
 Example (isolated state; the project's `opencode.json` points provider `mock` at the port):

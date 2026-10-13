@@ -34,6 +34,7 @@ Homebrew `opencode*` formulae, `@opencode/cli` npm packages, `opencode.ai` updat
 | `client.rs` | `client/src/promise/generated/client.ts` | HTTP client keyed by operationId (from `assets/openapi.json`): declared vs `UnexpectedStatus`/`Transport` errors, `appendQuery` encoding, SSE decoding of `/api/event` |
 | `service.rs` | `service-config.ts`, `client/src/effect/service.ts`, `service-probe.ts`, `service-contender.ts`, `pty-handoff.ts` | service config file (schema order, legacy repair/migration), probe, `discover`, `incumbent`, `ensure` (contender pool, 25 ms poll, 5→30 s spawn backoff, 120 s limit, 3× timeout recovery, version replacement), `stop`/terminate (SIGTERM, 5 s, SIGKILL), PTY handoff sidecar |
 | `connection.rs` | `server-connection.ts`, `standalone.ts`, `env.ts` | `ServerConnection.resolve` (`--server` probing + messages, `--standalone`/`disabled`, mismatch policies), standalone `serve --stdio --port 0` child with stdin lease |
+| `web_ui.rs`, `build.rs` | `app-assets.ts`, `app-archive.ts`, `script/app-assets.ts` | locating the web UI that `serve` serves (see "Web UI") |
 | `serve.rs`, `runtime.rs` | `server-process.ts` | `serve` default/stdio/service modes; service election by binding the fixed port, incumbent check, password persistence, registration + 5 s watchdog; runtime = `oc_storage::Database` → `oc_core::app::App` → `oc_core::runner::Engine` (`oc_core::services::default_services`) → `oc_backend::run_server` |
 | `run.rs` | `run/run.ts`, `run/noninteractive.ts`, `session-target.ts`, `run/ui.ts`, `tui/src/mini/tool.ts` | `ocd run`: message/stdin merge, `--file` preparation, session selection (`--continue`/`--session`/`--fork`), title, prompt + SSE consumption, permission auto-reject/`--auto`, form cancellation, reconcile, default and JSON output, tool inline rendering, exit codes 0/1/130 |
 | `acp.rs` | `acp/*.ts` | ACP JSON-RPC over stdio (see below) |
@@ -81,6 +82,41 @@ twice (parsed operands + upstream's own `process.argv` re-read), exactly like up
 | `acp` | see below |
 | `--wizard` | not supported (prints an error, exit 1) |
 
+## Web UI
+
+Every `serve` mode (foreground, `--stdio` for `--standalone` clients, `--service` for the
+background service) serves upstream's web app (`packages/app`) on non-API paths before auth,
+exactly like upstream's `WebUi.handler()` (behaviour in `crates/oc-server/README.md`, "Web UI").
+Upstream has no `web` command and opens no browser for it (`auth login` and form URLs are the
+only browser openers); neither does ocd. Open the server URL yourself and sign in, or pair with
+`ocd pair` / `/auth/connect/<code>`.
+
+**Building it.** Upstream embeds the app in the binary (`virtual:opencode-app-assets`). The
+archive is ~24 MB (1 690 files, 87 MB unpacked: the Office preview engines and fonts dominate),
+so it is **not committed**:
+
+```sh
+scripts/build-web-ui.sh <upstream-checkout>     # BUN=<bun 1.4.2>, OPENCODE_CHANNEL (default latest)
+cargo build -p ocd                              # embeds crates/ocd/web-ui/app-archive.bin
+```
+
+The script calls upstream's own `buildAppArchive` (`packages/cli/script/app-assets.ts`): `vite
+build` of `packages/app` with `OPENCODE_CHANNEL` and `VITE_OPENCODE_SERVER_MODE=origin` (written
+to the checkout's git-ignored `packages/app/dist`, as upstream's build does), every file but
+source maps brotli-compressed at quality 11, sorted, in `app-archive.ts`'s format. The result is
+byte-identical to the archive upstream's `script/build.ts` embeds for the same channel; the script
+refuses output that mentions the checkout, the repo or `$HOME`. `build.rs` embeds
+`OCD_WEB_UI_ARCHIVE` (build-time env) or `crates/ocd/web-ui/app-archive.bin` with
+`include_bytes!` after checking that its index decodes (a bad file is skipped with a cargo
+warning); `crates/ocd/web-ui/` is watched, so adding or replacing the archive rebuilds ocd.
+
+**Lookup at runtime** (`web_ui::locate`): `OCD_WEB_UI` (an archive file or an unpacked `dist`
+directory, like upstream local builds reading `packages/app/dist`; unreadable → `serve` fails
+with `OCD_WEB_UI=<path>: ...`) → the embedded archive → `app-archive.bin` next to the executable
+(unreadable → warning, skipped) → none. Without a web UI every non-API path answers an empty 404
+(`_assets/*`, `icons/*` with `no-store`), the same as an upstream build made with
+`--skip-web-ui`. `content-type` uses upstream's `mime-types` table (`oc_tools::mime`).
+
 ## ACP (`ocd acp`)
 
 Newline-delimited JSON-RPC 2.0 on stdio; a private standalone server (`OPENCODE_CLIENT=acp`).
@@ -116,4 +152,7 @@ previews/diffs) and background following of child sessions after the root turn e
 * `tests/e2e.rs`: `debug paths`, version + parse errors, background service lifecycle with
   `debug config` and `models`, `models --standalone`, `run` (default and JSON) against a mock
   OpenAI-compatible SSE provider with a tool call, missing-message and flag-conflict errors;
+* `tests/web_ui.rs`: `serve` answers non-API paths with the web UI from `OCD_WEB_UI` (SPA
+  fallback, headers, 404 `no-store`, API still 401) and rejects an unreadable override;
+  `web_ui::tests` cover the lookup order;
 * `tests/acp.rs`: ACP initialize/authenticate/new/prompt/list/unknown-method and EOF exit over stdio.

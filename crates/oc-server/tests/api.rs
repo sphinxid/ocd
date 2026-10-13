@@ -5,6 +5,7 @@ mod common;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use base64::Engine;
+use sha2::Digest;
 use common::*;
 use serde_json::json;
 
@@ -568,52 +569,234 @@ async fn pty_connect_token_gate() {
 
 // ---- web UI + compression ------------------------------------------------------------------
 
+fn br(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    brotli::BrotliCompress(&mut &data[..], &mut out, &Default::default()).unwrap();
+    out
+}
+
+fn web_ui_harness(source: oc_server::webui::WebUiSource, dir: tempfile::TempDir) -> Harness {
+    let mut opts = options(Some(PASSWORD), dir.path().to_str().unwrap());
+    opts.web_ui = Some(source);
+    let (router, handle) = oc_server::router(Mock::new(), &opts).unwrap();
+    Harness { router, handle, mock: Mock::new(), dir }
+}
+
+fn get(path: &str, encoding: Option<&str>) -> Request<Body> {
+    let mut b = Request::get(path);
+    if let Some(e) = encoding {
+        b = b.header("accept-encoding", e);
+    }
+    b.body(Body::empty()).unwrap()
+}
+
+const THEME_HTML: &[u8] = b"<html><script id=\"oc-theme-preload-script\">theme()</script><body>embedded</body></html>";
+
 #[tokio::test]
 async fn web_ui_archive_serving() {
     let dir = tempfile::tempdir().unwrap();
-    let br = |data: &[u8]| {
-        let mut out = Vec::new();
-        brotli::BrotliCompress(&mut &data[..], &mut out, &Default::default()).unwrap();
-        out
-    };
-    let index = br(b"<html><script id=\"oc-theme-preload-script\">theme()</script></html>");
+    let index = br(THEME_HTML);
     let js = br(b"console.log(1)");
-    let archive = oc_server::webui::WebUi::encode_archive(&[("index.html", &index), ("_assets/app.js", &js)]);
+    let big = "console.log('compressed');".repeat(100);
+    let big_br = br(big.as_bytes());
+    let archive = oc_server::webui::WebUi::encode_archive(&[
+        ("index.html", &index),
+        ("_assets/app.js", &js),
+        ("_assets/big.js", &big_br),
+        ("sw.js", &js),
+        ("registerSW.js", &js),
+    ]);
     let path = dir.path().join("app.bin");
     std::fs::write(&path, archive).unwrap();
-    let mut opts = options(Some(PASSWORD), dir.path().to_str().unwrap());
-    opts.web_ui = Some(path);
-    let (router, handle) = oc_server::router(Mock::new(), &opts).unwrap();
-    let h = Harness { router, handle, mock: Mock::new(), dir };
+    let h = web_ui_harness(path.into(), dir);
 
-    // SPA fallback, before auth
-    let r = h.send(Request::get("/workspace/x").body(Body::empty()).unwrap()).await;
-    assert_eq!(r.status, StatusCode::OK);
-    assert!(String::from_utf8_lossy(&r.body).contains("theme()"));
-    assert_eq!(r.header("cache-control"), Some("no-cache"));
-    assert!(r.header("content-security-policy").unwrap().contains("'sha256-"));
-    assert_eq!(r.header("x-content-type-options"), Some("nosniff"));
-    assert!(r.header("www-authenticate").is_none());
+    // SPA fallback (deep routes, dotted names, legacy /assets), before auth
+    for route in ["/", "/index.html", "/workspace/x", "/workspace/example.js", "/assets/missing.js", "/settings?x=1"] {
+        let r = h.send(get(route, None)).await;
+        assert_eq!(r.status, StatusCode::OK, "{route}");
+        assert_eq!(&r.body[..], THEME_HTML, "{route}");
+        assert_eq!(r.header("content-type"), Some("text/html"));
+        assert_eq!(r.header("cache-control"), Some("no-cache"));
+        let theme = base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(b"theme()"));
+        assert_eq!(
+            r.header("content-security-policy"),
+            Some(format!("default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-{theme}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; media-src 'self' data:; connect-src * data: blob:; worker-src 'self' blob:").as_str())
+        );
+        assert_eq!(r.header("x-content-type-options"), Some("nosniff"));
+        // Node's compression appends Accept-Encoding after CORS's Origin
+        assert_eq!(r.header("vary"), Some("Origin, Accept-Encoding"));
+        assert!(r.header("www-authenticate").is_none());
+    }
+    // the HTML is never sent pre-compressed (its CSP hashes the inline script); it is compressed on the fly
+    let r = h.send(get("/", Some("br"))).await;
+    assert_eq!(r.header("content-encoding"), Some("br"));
+    assert_ne!(&r.body[..], &index[..]);
 
-    let r = h.send(Request::get("/_assets/app.js").header("accept-encoding", "br").body(Body::empty()).unwrap()).await;
+    // brotli assets as stored, to browsers that take them
+    let r = h.send(get("/_assets/app.js", Some("gzip, deflate, br"))).await;
     assert_eq!(r.header("content-encoding"), Some("br"));
     assert_eq!(r.header("vary"), Some("accept-encoding, Origin"));
+    assert_eq!(r.header("content-type"), Some("text/javascript"));
     assert_eq!(r.header("cache-control"), Some("public, max-age=31536000, immutable"));
+    assert!(!r.header("content-security-policy").unwrap().contains("sha256"));
     assert_eq!(&r.body[..], &js[..]);
 
-    let r = h.send(Request::get("/_assets/app.js").body(Body::empty()).unwrap()).await;
+    for encoding in [None, Some("br;q=0"), Some("br; q=0.0")] {
+        let r = h.send(get("/_assets/app.js", encoding)).await;
+        assert!(r.header("content-encoding").is_none(), "{encoding:?}");
+        assert_eq!(r.header("vary"), Some("accept-encoding, Origin"));
+        assert_eq!(&r.body[..], b"console.log(1)");
+    }
+    // gzip-only clients get on-the-fly gzip even for tiny assets (no 1 KiB threshold, like upstream)
+    let r = h.send(get("/_assets/app.js", Some("gzip"))).await;
+    assert_eq!(r.header("content-encoding"), Some("gzip"));
+    let r = h.send(get("/_assets/big.js", Some("gzip"))).await;
+    assert_eq!(r.header("content-encoding"), Some("gzip"));
+
+    for revalidate in ["/sw.js", "/registerSW.js"] {
+        assert_eq!(h.send(get(revalidate, None)).await.header("cache-control"), Some("no-cache"));
+    }
+
+    // dot segments resolve like `new URL(...)`
+    let r = h.send(get("/x/../_assets/app.js", None)).await;
     assert_eq!(&r.body[..], b"console.log(1)");
 
-    let r = h.send(Request::get("/_assets/missing.js").body(Body::empty()).unwrap()).await;
+    // missing hashed assets and icons: 404 no-store, empty, whatever the method
+    for (method, route) in [("GET", "/_assets/missing.js"), ("GET", "/icons/x.png"), ("POST", "/_assets/old.css")] {
+        let r = h.send(Request::builder().method(method).uri(route).body(Body::empty()).unwrap()).await;
+        assert_eq!(r.status, StatusCode::NOT_FOUND, "{route}");
+        assert_eq!(r.header("cache-control"), Some("no-store"));
+        assert_eq!(r.header("vary"), Some("Origin"));
+        assert!(r.body.is_empty());
+    }
+
+    // other methods: 405 empty
+    for method in ["POST", "PUT", "DELETE", "PATCH"] {
+        let r = h.send(Request::builder().method(method).uri("/x").body(Body::empty()).unwrap()).await;
+        assert_eq!(r.status, StatusCode::METHOD_NOT_ALLOWED, "{method}");
+        assert!(r.body.is_empty());
+        assert!(r.header("content-type").is_none());
+    }
+
+    // HEAD: headers only, no Vary: Accept-Encoding (nothing to compress)
+    let r = h.send(Request::head("/deep/route").body(Body::empty()).unwrap()).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert!(r.body.is_empty());
+    assert_eq!(r.header("content-type"), Some("text/html"));
+    assert!(r.header("content-security-policy").unwrap().contains("'sha256-"));
+    assert_eq!(r.header("vary"), Some("Origin"));
+    let r = h.send(Request::head("/_assets/app.js").header("accept-encoding", "br").body(Body::empty()).unwrap()).await;
+    assert_eq!(r.header("content-encoding"), Some("br"));
+    assert!(r.body.is_empty());
+
+    // API paths still need auth, and unknown API routes never fall back to the SPA
+    for route in ["/api", "/api/project", "/api/missing", "/openapi.json", "/x/../api/project"] {
+        let r = h.send(get(route, None)).await;
+        assert_eq!(r.status, StatusCode::UNAUTHORIZED, "{route}");
+        assert_eq!(r.header("www-authenticate"), Some("Basic realm=\"Secure Area\""));
+    }
+    let r = h.send(Request::get("/api/missing").header("authorization", basic(PASSWORD)).body(Body::empty()).unwrap()).await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    assert!(!String::from_utf8_lossy(&r.body).contains("embedded"));
+}
+
+#[tokio::test]
+async fn web_ui_from_a_directory_uses_the_mime_lookup() {
+    let dir = tempfile::tempdir().unwrap();
+    let dist = dir.path().join("dist");
+    std::fs::create_dir_all(dist.join("_assets")).unwrap();
+    std::fs::write(dist.join("index.html"), THEME_HTML).unwrap();
+    std::fs::write(dist.join("_assets/app.js"), "console.log(1)").unwrap();
+    std::fs::write(dist.join("_assets/app.js.map"), "{}").unwrap();
+    std::fs::write(dist.join("font.woff2"), [0u8, 1, 2, 255]).unwrap();
+    let ui = oc_server::webui::WebUi::load(&dist).unwrap().with_mime(|name| {
+        if name.ends_with(".woff2") { "font/woff2".into() } else if name.ends_with(".js") { "text/javascript".into() } else { "text/html".into() }
+    });
+    assert_eq!(ui.len(), 3);
+    let h = web_ui_harness(ui.into(), dir);
+
+    // no stored brotli: plain bytes, no Vary from the web UI itself
+    let r = h.send(get("/_assets/app.js", Some("br"))).await;
+    assert_eq!(r.header("content-type"), Some("text/javascript"));
+    assert_eq!(r.header("content-encoding"), Some("br")); // compressed on the fly
+    assert_eq!(r.header("vary"), Some("Origin, Accept-Encoding"));
+    let r = h.send(get("/font.woff2", Some("br"))).await;
+    assert_eq!(r.header("content-type"), Some("font/woff2"));
+    assert!(r.header("content-encoding").is_none());
+    assert_eq!(r.header("vary"), Some("Origin"));
+    assert_eq!(&r.body[..], &[0u8, 1, 2, 255]);
+    // source maps are not served
+    let r = h.send(get("/_assets/app.js.map", None)).await;
     assert_eq!(r.status, StatusCode::NOT_FOUND);
     assert_eq!(r.header("cache-control"), Some("no-store"));
+}
 
-    let r = h.send(Request::post("/x").body(Body::empty()).unwrap()).await;
-    assert_eq!(r.status, StatusCode::METHOD_NOT_ALLOWED);
+#[tokio::test]
+async fn empty_web_ui_answers_404_before_auth() {
+    // An ocd built without the archive serves like an upstream `--skip-web-ui` build.
+    let dir = tempfile::tempdir().unwrap();
+    let h = web_ui_harness(oc_server::webui::WebUi::empty().into(), dir);
+    for (method, route, no_store) in [
+        ("GET", "/", false),
+        ("GET", "/index.html", false),
+        ("GET", "/deep/route", false),
+        ("POST", "/", false),
+        ("HEAD", "/", false),
+        ("GET", "/_assets/app.js", true),
+        ("GET", "/icons/a.png", true),
+    ] {
+        let r = h.send(Request::builder().method(method).uri(route).body(Body::empty()).unwrap()).await;
+        assert_eq!(r.status, StatusCode::NOT_FOUND, "{method} {route}");
+        assert!(r.body.is_empty());
+        assert!(r.header("www-authenticate").is_none());
+        assert_eq!(r.header("cache-control"), if no_store { Some("no-store") } else { None });
+        assert_eq!(r.header("vary"), Some("Origin"));
+    }
+    assert_eq!(h.send(get("/api/info", None)).await.status, StatusCode::UNAUTHORIZED);
+    // the archive the upstream build embeds for `--skip-web-ui` decodes to the same thing
+    let skip = oc_server::webui::WebUi::from_archive(oc_server::webui::WebUi::encode_archive(&[]).into()).unwrap();
+    assert!(skip.is_empty());
+}
 
-    // API paths still need auth
-    let r = h.send(Request::get("/api/project").body(Body::empty()).unwrap()).await;
+#[tokio::test]
+async fn web_ui_bodies_are_unsized_on_the_wire() {
+    // Upstream's Node server writes web UI responses chunked (HEAD: no length); so does ocd.
+    let dir = tempfile::tempdir().unwrap();
+    let archive = oc_server::webui::WebUi::encode_archive(&[("index.html", &br(THEME_HTML))]);
+    let mut opts = options(Some(PASSWORD), dir.path().to_str().unwrap());
+    opts.hostname = "127.0.0.1".into();
+    opts.port = Some(0);
+    opts.web_ui = Some(oc_server::webui::WebUi::from_archive(archive.into()).unwrap().into());
+    let server = oc_server::serve(Mock::new(), opts).await.unwrap();
+    let client = reqwest::Client::builder().no_gzip().no_brotli().no_deflate().build().unwrap();
+    let r = client.get(format!("{}/deep", server.url())).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.headers().get("transfer-encoding").map(|v| v.to_str().unwrap()), Some("chunked"));
+    assert!(r.headers().get("content-length").is_none());
+    assert_eq!(&r.bytes().await.unwrap()[..], THEME_HTML);
+    let r = client.head(format!("{}/deep", server.url())).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert!(r.headers().get("content-length").is_none());
+    let r = client.get(format!("{}/_assets/gone.js", server.url())).send().await.unwrap();
+    assert_eq!(r.status(), 404);
+    assert!(r.headers().get("content-length").is_none());
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn api_vary_matches_node_compression() {
+    let h = harness(Some(PASSWORD));
+    // compressible JSON: `Origin, Accept-Encoding`, whatever the size, compressed or not
+    let r = h.send(Request::get("/api/project").header("authorization", basic(PASSWORD)).body(Body::empty()).unwrap()).await;
+    assert_eq!(r.header("vary"), Some("Origin, Accept-Encoding"));
+    let r = h
+        .send(Request::get("/openapi.json").header("authorization", basic(PASSWORD)).header("accept-encoding", "br").body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(r.header("content-encoding"), Some("br"));
+    assert_eq!(r.header("vary"), Some("Origin, Accept-Encoding"));
+    let r = h.send(get("/api/info", None)).await;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(r.header("vary"), Some("Origin, Accept-Encoding"));
 }
 
 #[tokio::test]

@@ -1,7 +1,6 @@
 //! Startup: bind first, serve immediately (readiness-gated), compression + CORS layering.
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +17,7 @@ use crate::app::{App, Status};
 use crate::auth::Auth;
 use crate::context::ServerMeta;
 use crate::generated::Backend;
-use crate::webui::WebUi;
+use crate::webui::{WebUi, WebUiSource};
 
 /// First port tried when no port is given.
 pub const DEFAULT_PORT: u16 = 4096;
@@ -40,8 +39,10 @@ pub struct ServerOptions {
     pub tmp_dir: String,
     /// Default location when a request names none (default: process cwd).
     pub cwd: Option<String>,
-    /// Web UI archive file or directory (SPA served for non-API paths).
-    pub web_ui: Option<PathBuf>,
+    /// Web UI served for every non-API path before auth (`None` = no web UI layer: non-API
+    /// paths reach the API router). An empty [`WebUi`] answers 404 like an upstream build made
+    /// with `--skip-web-ui`.
+    pub web_ui: Option<WebUiSource>,
     /// Start in the `ready` state (otherwise call [`RunningServer::set_ready`]).
     pub ready: bool,
 }
@@ -186,13 +187,72 @@ impl Predicate for CompressionPolicy {
     }
 }
 
+/// Response marker: `Vary` already named `accept-encoding` before compression (the web UI's
+/// brotli assets set it themselves).
+#[derive(Debug, Clone, Copy)]
+struct VaryPreset;
+
+fn vary_members(headers: &axum::http::HeaderMap) -> Vec<String> {
+    headers
+        .get_all(header::VARY)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .collect()
+}
+
+/// Inside compression: remember whether the handler set `Vary: accept-encoding` itself.
+async fn mark_vary(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    let mut res = next.run(req).await;
+    if vary_members(res.headers()).iter().any(|m| m.eq_ignore_ascii_case("accept-encoding")) {
+        res.extensions_mut().insert(VaryPreset);
+    }
+    res
+}
+
+/// Outermost: Node's `compression` (behind Effect's middleware) adds `Vary: Accept-Encoding` when
+/// it writes the headers, i.e. after CORS's `Origin`, to every response with a compressible type
+/// that allows transforms and has a body, whatever its size. tower-http adds `accept-encoding` before CORS and
+/// only when it compresses; rewrite to upstream's form (`Origin, Accept-Encoding`).
+async fn vary_accept_encoding(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    let mut res = next.run(req).await;
+    // Nothing to compress: upstream adds no `Vary` to bodiless answers (e.g. the web UI's `HEAD`).
+    let bodiless = res.body().size_hint().exact() == Some(0) || res.extensions().get::<crate::webui::Bodiless>().is_some();
+    let preset = res.extensions().get::<VaryPreset>().is_some();
+    let h = res.headers_mut();
+    let before = vary_members(h);
+    let mut members = before.clone();
+    if !preset {
+        members.retain(|m| !m.eq_ignore_ascii_case("accept-encoding"));
+    }
+    let transform = !h
+        .get(header::CACHE_CONTROL)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|cc| cc.to_ascii_lowercase().split([',', ' ', ';']).any(|p| p == "no-transform"));
+    let typed = h.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(compressible);
+    if typed && transform && !bodiless && !members.iter().any(|m| m == "*" || m.eq_ignore_ascii_case("accept-encoding")) {
+        members.push("Accept-Encoding".to_string());
+    }
+    if members != before {
+        h.remove(header::VARY);
+        if let Ok(v) = axum::http::HeaderValue::from_str(&members.join(", ")) {
+            h.insert(header::VARY, v);
+        }
+    }
+    res
+}
+
 /// Build the full HTTP application (CORS → compression → web UI → gate → API router).
 pub(crate) fn build_router(app: Arc<App>) -> Router {
     crate::router::api_router(app.clone())
         .layer(from_fn_with_state(app.clone(), crate::app::gate))
         .layer(from_fn_with_state(app.clone(), crate::webui::web_ui))
+        .layer(axum::middleware::from_fn(mark_vary))
         .layer(CompressionLayer::new().compress_when(CompressionPolicy))
         .layer(from_fn_with_state(app, crate::cors::cors))
+        .layer(axum::middleware::from_fn(vary_accept_encoding))
 }
 
 fn format_url(host: &str, port: u16) -> String {
@@ -264,7 +324,8 @@ fn make_app(backend: Arc<dyn Backend>, opts: &ServerOptions) -> anyhow::Result<A
         meta = meta.with_cwd(cwd.clone());
     }
     let web_ui = match &opts.web_ui {
-        Some(p) => Some(WebUi::load(p)?),
+        Some(WebUiSource::Path(p)) => Some(Arc::new(WebUi::load(p)?)),
+        Some(WebUiSource::Loaded(ui)) => Some(ui.clone()),
         None => None,
     };
     let password = opts.password.clone().filter(|p| !p.is_empty());

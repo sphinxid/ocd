@@ -12,6 +12,7 @@ mod serve;
 mod service;
 mod term;
 mod ui;
+mod web_ui;
 
 use cli::Outcome;
 

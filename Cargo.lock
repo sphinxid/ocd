@@ -2561,6 +2561,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "brotli 8.0.4",
  "bytes",
  "chrono",
  "futures",

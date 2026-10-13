@@ -23,7 +23,7 @@ let server = serve(Arc::new(MyEngine::new()) as Arc<dyn Backend>, ServerOptions 
     version: "2.0.26".into(),       // /api/info version ("unknown" if empty)
     tmp_dir: "/tmp/opencode".into(),// /api/info paths.tmp
     cwd: None,                      // default location (process cwd)
-    web_ui: None,                   // Some(path): archive file or directory → SPA on non-API paths
+    web_ui: None,                   // Some(WebUiSource): SPA on non-API paths (see "Web UI")
     ready: false,                   // start in "starting" state
 }).await?;
 
@@ -195,13 +195,37 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
   types (`ServerDefinitions`, `server.connected`, `rpc.*`) are forwarded; `: heartbeat` every
   15 s; a subscriber 4096 frames behind (or lagging its broadcast channel) is dropped and its
   response aborted.
-* **Compression**: br/gzip/deflate for compressible types ≥ 1024 bytes; never SSE,
-  `no-transform`, already-encoded bodies, 1xx/204/206/304.
-* **Web UI** (`opts.web_ui`): archive `[u32 LE indexLen][JSON {"path":[offset,len]}][brotli
-  bodies]` or a directory. Served before auth for paths other than `/api`, `/api/*`,
-  `/auth/*`, `/openapi.json`; SPA fallback to `index.html`; missing `_assets/*`/`icons/*` →
-  `404` + `cache-control: no-store`; brotli passthrough for `Accept-Encoding: br` (not for
-  `index.html`); CSP with the `oc-theme-preload-script` hash; GET/HEAD only (else 405).
+* **Compression**: br/gzip/deflate for compressible types ≥ 1024 bytes (bodies without a
+  known length — the web UI's — at any size); never SSE, `no-transform`, already-encoded
+  bodies, 1xx/204/206/304. `Vary` follows Node's `compression` behind Effect's middleware: every
+  compressible, transformable response with a body gets `Accept-Encoding` appended **after**
+  CORS's `Origin` (`vary: Origin, Accept-Encoding`, also when not compressed or below the
+  threshold); a handler's own `vary: accept-encoding` (web UI brotli assets) stays first
+  (`accept-encoding, Origin`); bodiless answers get none.
+* **Web UI** (`opts.web_ui`, `webui.rs`, upstream `cli/src/services/web-ui.ts`):
+  `WebUiSource::Path(p)` (archive file or unpacked `dist` directory, loaded at startup) or
+  `WebUiSource::Loaded(Arc<WebUi>)` (`WebUi::from_archive(Bytes::from_static(..))` for an
+  embedded archive, `WebUi::empty()`, `WebUi::load(path)`; `.with_mime(fn)` installs the
+  `content-type` lookup — callers pass upstream's `mime-types` table, the default is
+  `mime_guess`). Archive format (`cli/src/app-archive.ts`): `[u32 LE indexLen][JSON
+  {"path":[offset,len]}][brotli bodies]`, offsets relative to the body;
+  `WebUi::encode_archive` writes it. Behaviour:
+  * runs before auth/readiness for every path except `/api`, `/api/*`, `/auth/*`,
+    `/openapi.json`; the path is `new URL(url, "http://localhost").pathname` (dot segments
+    resolved), the key is that path without its leading `/`;
+  * missing key under `_assets/` or `icons/` → empty `404` + `cache-control: no-store` (any
+    method); other missing keys → `index.html` (SPA fallback, also for dotted names and the
+    legacy `/assets/*`); no `index.html` (an empty web UI, like upstream `--skip-web-ui`) →
+    empty `404`; then non-GET/HEAD → empty `405`;
+  * headers: `content-type` from the lookup (no charset), `cache-control: no-cache` for
+    `index.html`, `sw.js`, `registerSW.js`, else `public, max-age=31536000, immutable`,
+    `content-security-policy` (`sha256` of the inline `oc-theme-preload-script` only on HTML),
+    `x-content-type-options: nosniff`, `vary: accept-encoding` when the asset has stored brotli
+    bytes (not for HTML), and those bytes as-is with `content-encoding: br` when
+    `Accept-Encoding` takes `br` (q≠0) and the key is not `index.html`;
+  * bodies have no size hint, so hyper frames them chunked (HEAD: no length) and compression
+    has no threshold — byte-for-byte what upstream's Node server sends;
+  * `.map` files of a directory source are skipped.
 * Unknown routes and method mismatches → empty `404`.
 
 ## Not implemented / deviations
@@ -221,6 +245,8 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
 Range/ETag, UTF-16 chunking, framed input, ID generator, SSE overflow/lag/heartbeat, JSON number
 encoding, error shapes, registration files) and integration tests with a `MockBackend`
 (`tests/common`): routing and envelopes, decoding errors, auth/pairing/cookies, CORS,
-readiness, RPC mapping, fs.read, PTY tickets, web UI, compression (`tests/api.rs`); SSE and PTY
+readiness, RPC mapping, fs.read, PTY tickets, web UI (archive/directory/empty, SPA fallback,
+brotli passthrough, CSP, HEAD, 404/405, dot segments, wire framing), compression and `Vary`
+(`tests/api.rs`); SSE and PTY
 WebSockets over a real listener, port scanning (`tests/stream.rs`); JSON-schema validation of
 success and error bodies against `assets/openapi.json` (`tests/schema.rs`).

@@ -46,7 +46,7 @@ pub(crate) struct App {
     pub pairing: Pairing,
     pub tickets: Tickets,
     pub cors: Vec<String>,
-    pub web_ui: Option<WebUi>,
+    pub web_ui: Option<Arc<WebUi>>,
     status: AtomicU8,
 }
 
@@ -56,7 +56,7 @@ impl App {
         meta: Arc<ServerMeta>,
         auth: Auth,
         cors: Vec<String>,
-        web_ui: Option<WebUi>,
+        web_ui: Option<Arc<WebUi>>,
     ) -> Self {
         Self {
             backend,

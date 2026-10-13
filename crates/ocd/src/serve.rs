@@ -4,6 +4,7 @@
 use std::time::{Duration, Instant};
 
 use oc_server::service::{Registration, write_registration};
+use oc_server::webui::WebUiSource;
 use oc_util::Global;
 use oc_util::version::{CHANNEL, VERSION};
 
@@ -32,7 +33,14 @@ fn addr_in_use(e: &anyhow::Error) -> bool {
         || e.to_string().contains("Address already in use")
 }
 
-fn server_options(hostname: &str, port: Option<u16>, cors: Vec<String>, password: &str, global: &Global) -> oc_server::ServerOptions {
+fn server_options(
+    hostname: &str,
+    port: Option<u16>,
+    cors: Vec<String>,
+    password: &str,
+    global: &Global,
+    web_ui: &WebUiSource,
+) -> oc_server::ServerOptions {
     oc_server::ServerOptions {
         hostname: hostname.to_string(),
         port,
@@ -41,7 +49,7 @@ fn server_options(hostname: &str, port: Option<u16>, cors: Vec<String>, password
         version: VERSION.to_string(),
         tmp_dir: global.tmp.display().to_string(),
         cwd: None,
-        web_ui: None,
+        web_ui: Some(web_ui.clone()),
         ready: false,
     }
 }
@@ -85,13 +93,22 @@ pub async fn run(global: &Global, opts: Options) -> anyhow::Result<i32> {
         Some(p) => Some(p as u16),
         None => None,
     };
+    // Every mode serves the web UI for non-API paths (`WebUi.handler()` in server-process.ts).
+    let web_ui = crate::web_ui::load()?;
     match opts.mode {
-        Mode::Service => run_service(global, opts.hostname, port, opts.cors).await,
-        Mode::Stdio | Mode::Default => run_plain(global, opts.mode, opts.hostname, port, opts.cors).await,
+        Mode::Service => run_service(global, opts.hostname, port, opts.cors, web_ui).await,
+        Mode::Stdio | Mode::Default => run_plain(global, opts.mode, opts.hostname, port, opts.cors, web_ui).await,
     }
 }
 
-async fn run_plain(global: &Global, mode: Mode, hostname: Option<String>, port: Option<u16>, cors: Option<Vec<String>>) -> anyhow::Result<i32> {
+async fn run_plain(
+    global: &Global,
+    mode: Mode,
+    hostname: Option<String>,
+    port: Option<u16>,
+    cors: Option<Vec<String>>,
+    web_ui: WebUiSource,
+) -> anyhow::Result<i32> {
     let environment = crate::connection::env_password();
     if mode == Mode::Stdio {
         unsafe {
@@ -106,7 +123,7 @@ async fn run_plain(global: &Global, mode: Mode, hostname: Option<String>, port: 
     };
     let hostname = hostname.unwrap_or_else(|| "127.0.0.1".into());
     let rt = crate::runtime::build(global)?;
-    let (server, _engine) = crate::runtime::serve(&rt, server_options(&hostname, port, cors.unwrap_or_default(), &password, global)).await?;
+    let (server, _engine) = crate::runtime::serve(&rt, server_options(&hostname, port, cors.unwrap_or_default(), &password, global, &web_ui)).await?;
     let url = server.url().to_string();
     if mode == Mode::Stdio {
         crate::term::write_stdout(&format!("{}\n", serde_json::json!({ "url": url })));
@@ -141,7 +158,13 @@ async fn run_plain(global: &Global, mode: Mode, hostname: Option<String>, port: 
     Ok(0)
 }
 
-async fn run_service(global: &Global, hostname: Option<String>, port: Option<u16>, cors: Option<Vec<String>>) -> anyhow::Result<i32> {
+async fn run_service(
+    global: &Global,
+    hostname: Option<String>,
+    port: Option<u16>,
+    cors: Option<Vec<String>>,
+    web_ui: WebUiSource,
+) -> anyhow::Result<i32> {
     let _ = std::env::set_current_dir(&global.home);
     let config = ServiceConfig::new(global);
     let options = config.options(false);
@@ -184,7 +207,7 @@ async fn run_service(global: &Global, hostname: Option<String>, port: Option<u16
     let _ = contended;
     let rt = crate::runtime::build(global)?;
     let server = loop {
-        match crate::runtime::serve(&rt, server_options(&hostname, Some(port), cors.clone(), &password, global)).await {
+        match crate::runtime::serve(&rt, server_options(&hostname, Some(port), cors.clone(), &password, global, &web_ui)).await {
             Ok((s, _engine)) => break s,
             Err(e) if addr_in_use(&e) => {
                 if Instant::now() >= deadline {
