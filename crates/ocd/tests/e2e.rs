@@ -5,6 +5,7 @@
 mod common;
 
 use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
 
 use axum::{Router, body::Body, response::Response, routing::post};
 use serde_json::{Value, json};
@@ -22,14 +23,19 @@ fn sse(chunks: &[Value]) -> Response {
     Response::builder().header("content-type", "text/event-stream").body(Body::from(body)).unwrap()
 }
 
-/// A mock OpenAI-compatible provider: a `read` tool call when the prompt says USE_TOOL, else text.
-fn start_mock() -> u16 {
+/// A mock OpenAI-compatible provider: a `read` tool call when the prompt says USE_TOOL, else text. Records the
+/// kind of each request (`title` or `step`) in arrival order.
+fn start_mock() -> (u16, Arc<Mutex<Vec<&'static str>>>) {
     let port = free_port();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let log = requests.clone();
     let app = Router::new().route(
         "/v1/chat/completions",
-        post(|body: axum::Json<Value>| async move {
+        post(move |body: axum::Json<Value>| async move {
             let text = body.0.to_string();
-            if text.contains("title generator") {
+            let title = text.contains("title generator");
+            log.lock().unwrap().push(if title { "title" } else { "step" });
+            if title {
                 return sse(&[
                     json!({"id":"t","choices":[{"index":0,"delta":{"role":"assistant","content":"Mock title"}}]}),
                     json!({"id":"t","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
@@ -58,7 +64,7 @@ fn start_mock() -> u16 {
             axum::serve(l, app).await.unwrap();
         });
     });
-    port
+    (port, requests)
 }
 
 fn write_config(env: &common::Env, provider_port: u16) {
@@ -178,7 +184,7 @@ fn models_with_standalone_server() {
 #[test]
 fn run_streams_text_and_tools_from_a_mock_provider() {
     let env = common::Env::new();
-    let provider = start_mock();
+    let (provider, _) = start_mock();
     write_config(&env, provider);
 
     // default format, stdout not a TTY: assistant text on stdout, step header on stderr
@@ -215,4 +221,23 @@ fn run_streams_text_and_tools_from_a_mock_provider() {
     let out = env.run(&["run", "--standalone", "--server", "http://127.0.0.1:1", "x"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(common::text(&out.stderr).contains("--server and --standalone cannot be combined"));
+}
+
+/// Like upstream, a new session's title request goes out before its first step's (the title starts before the
+/// step loads its model context), and `run` does not wait for it at exit: with a fast provider, a one-step `run`
+/// still ends up titled.
+#[test]
+fn run_sends_the_title_request_before_the_first_step() {
+    let env = common::Env::new();
+    let (provider, requests) = start_mock();
+    write_config(&env, provider);
+    for _ in 0..3 {
+        requests.lock().unwrap().clear();
+        let out = env.run(&["run", "--standalone", "say", "hi"]);
+        assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
+        assert_eq!(*requests.lock().unwrap(), vec!["title", "step"]);
+    }
+    let out = env.run(&["session", "list", "--standalone"]);
+    assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
+    assert_eq!(common::text(&out.stdout).matches("Mock title").count(), 3, "{}", common::text(&out.stdout));
 }

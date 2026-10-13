@@ -691,8 +691,16 @@ impl Engine {
                 let selected = self.prepare_context(session_id).await?;
                 let scope = if entering && !continuing { promotable } else { Scope::Steer };
                 let Some(promoted) = inbox::promote(bus, locks, session_id, scope).await? else { continue };
-                if promoted > 0 && selected.session.parent_id.is_none() && crate::title::is_untitled(&selected.session) {
-                    self.spawn_title(session_id);
+                if promoted > 0
+                    && selected.session.parent_id.is_none()
+                    && crate::title::is_untitled(&selected.session)
+                    && self.spawn_title(session_id)
+                {
+                    // Upstream's forked title fiber gets its turn at the step's next yield point, before the
+                    // step's model context is loaded. A task spawned from a tokio worker waits in that worker's
+                    // LIFO slot (not stealable) until this task yields, which can be only once the step's request
+                    // is out; yield once so the title starts first.
+                    tokio::task::yield_now().await;
                 }
                 if promoted > 0 {
                     step = 1;
@@ -706,9 +714,11 @@ impl Engine {
         }
     }
 
-    fn spawn_title(self: &Arc<Self>, session_id: &str) {
+    /// `FiberMap.run(titles, sessionID, title.generate(sessionID), { onlyIfMissing: true })`; false when one
+    /// already runs.
+    fn spawn_title(self: &Arc<Self>, session_id: &str) -> bool {
         if !self.titles.lock().insert(session_id.to_string()) {
-            return;
+            return false;
         }
         let this = self.clone();
         let id = session_id.to_string();
@@ -718,6 +728,7 @@ impl Engine {
             }
             this.titles.lock().remove(&id);
         });
+        true
     }
 
     /// `runStep`

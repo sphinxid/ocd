@@ -132,25 +132,28 @@ impl Engine {
         }) else {
             return Ok(());
         };
-        let sel = self.select(session_id).await?;
-        let Some(agent) = sel.agents.items.get("title").cloned() else { return Ok(()) };
-        let catalog = self.models.catalog_at(&sel.location.entries, Some(&sel.location.key)).await?;
-        let config_model = oc_config::fold::model(&sel.location.entries).map(|m| oc_schema::types::ModelRef {
+        // `context.selectTitle` reads only the title agent and the models, not the step's full context
+        // (`context.select`: tools, MCP, skills, instructions), so the title request is not held behind that work.
+        let location = self.location(&session.location.directory).await?;
+        let agents = self.app.plugins.agents(&location, &self.app.global.home).await;
+        let Some(agent) = agents.items.get("title").cloned() else { return Ok(()) };
+        let catalog = self.models.catalog_at(&location.entries, Some(&location.key)).await?;
+        let config_model = oc_config::fold::model(&location.entries).map(|m| oc_schema::types::ModelRef {
             id: m.model.clone(),
             provider_id: m.provider_id.clone(),
             variant: m.variant.clone(),
         });
-        let primary = self.models.resolve_for_session(Some(&sel.location.key), &catalog, session_id, session.model.as_ref(), config_model.as_ref()).await.ok();
+        let primary = self.models.resolve_for_session(Some(&location.key), &catalog, session_id, session.model.as_ref(), config_model.as_ref()).await.ok();
         let preferred = match (&agent.model, &primary) {
             (Some(m), _) => {
-                let cred = self.models.credential(Some(&sel.location.key), &catalog, &m.provider_id).await;
-                self.models.resolve_model(Some(&sel.location.key), &catalog, &m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).await.ok()
+                let cred = self.models.credential(Some(&location.key), &catalog, &m.provider_id).await;
+                self.models.resolve_model(Some(&location.key), &catalog, &m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).await.ok()
             }
             (None, Some(p)) => match catalog.small_model(&p.model.provider_id) {
                 Some(small) => {
                     let variant = ["none", "minimal", "low"].into_iter().find(|v| small.variants.iter().any(|x| x.id == *v));
-                    let cred = self.models.credential(Some(&sel.location.key), &catalog, &small.provider_id).await;
-                    self.models.resolve_model(Some(&sel.location.key), &catalog, &small.provider_id, &small.id, variant, cred.as_ref()).await.ok()
+                    let cred = self.models.credential(Some(&location.key), &catalog, &small.provider_id).await;
+                    self.models.resolve_model(Some(&location.key), &catalog, &small.provider_id, &small.id, variant, cred.as_ref()).await.ok()
                 }
                 None => None,
             },
@@ -158,11 +161,11 @@ impl Engine {
         };
         let Some(selected) = preferred.clone().or(primary.clone()) else { return Ok(()) };
         let agent_model = agent.model.is_some();
-        let mut title = self.title_attempt(&session, &sel.location.key, agent.system.as_deref(), agent_model, &first, &selected).await;
+        let mut title = self.title_attempt(&session, &location.key, agent.system.as_deref(), agent_model, &first, &selected).await;
         if title.is_none() {
             if let (Some(p), true) = (&primary, preferred.is_some()) {
                 if p.model_ref() != selected.model_ref() {
-                    title = self.title_attempt(&session, &sel.location.key, agent.system.as_deref(), agent_model, &first, p).await;
+                    title = self.title_attempt(&session, &location.key, agent.system.as_deref(), agent_model, &first, p).await;
                 }
             }
         }
