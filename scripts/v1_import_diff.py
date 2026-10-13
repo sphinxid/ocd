@@ -23,7 +23,7 @@ import sys
 import time
 import urllib.request
 
-SCRATCH = "$OCD_SCRATCH"
+SCRATCH = os.environ.get("OCD_SCRATCH", "/tmp/ocd-scratch")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PASSWORD = "v1-import-diff"
 

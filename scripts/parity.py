@@ -25,7 +25,7 @@ from parity.mock import Mock  # noqa: E402
 from parity.registry import SCENARIOS  # noqa: E402
 from parity import scenarios  # noqa: E402,F401  (registers scenarios)
 
-SCRATCH = "$OCD_SCRATCH"
+SCRATCH = os.environ.get("OCD_SCRATCH", "/tmp/ocd-scratch")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 

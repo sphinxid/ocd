@@ -26,7 +26,7 @@
 const fs = require("fs")
 const path = require("path")
 
-const SCRATCH = "$OCD_SCRATCH"
+const SCRATCH = process.env.OCD_SCRATCH || "/tmp/ocd-scratch"
 const args = process.argv.slice(2)
 function arg(name) {
   const i = args.indexOf(name)

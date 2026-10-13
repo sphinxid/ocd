@@ -10,7 +10,6 @@ use oc_codemode::parser::{ParseError, parse, to_estree};
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 
-const DEFAULT_TEST262: &str = "$OCD_SCRATCH/src/opencode/packages/codemode/test/test262";
 const FALLBACK_FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/parser");
 const STACK: usize = 256 << 20;
 
@@ -220,9 +219,12 @@ fn check_test262_file(root: &Path, rel: &str, expected: &Value) -> Option<String
 
 #[test]
 fn test262_matches_acorn() {
-    let root = PathBuf::from(std::env::var("OC_TEST262_DIR").unwrap_or_else(|_| DEFAULT_TEST262.to_string()));
+    let root = PathBuf::from(std::env::var("OC_TEST262_DIR").unwrap_or_else(|_| {
+        let scratch = std::env::var("OCD_SCRATCH").unwrap_or_default();
+        format!("{scratch}/src/opencode/packages/codemode/test/test262")
+    }));
     if !root.join("language").is_dir() && !root.join("built-ins").is_dir() {
-        eprintln!("test262 files not found at {} (set OC_TEST262_DIR); skipping", root.display());
+        eprintln!("test262 files not found at {} (set OC_TEST262_DIR or OCD_SCRATCH); skipping", root.display());
         return;
     }
     let path = fixtures_dir().join("test262.json");

@@ -1,7 +1,7 @@
 //! Server plugins end to end: the real Bun sidecar runs oc-plugin's fixture plugins against the
 //! backend (HTTP API) and the session runner (mock OpenAI-compatible provider).
 //!
-//! Bun: `OCD_BUN_PATH`, else `OCD_TEST_BUN`, else the session scratchpad's bun 1.4.2; the tests
+//! Bun: `OCD_BUN_PATH`, else `OCD_TEST_BUN`, else `$OCD_SCRATCH/bun142/bun-linux-x64/bun`; the tests
 //! are skipped (with a message) when none exists.
 
 mod common;
@@ -15,7 +15,10 @@ use common::*;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
-const DEFAULT_TEST_BUN: &str = "$OCD_SCRATCH/bun142/bun-linux-x64/bun";
+/// bun 1.4.2 in the dev scratch folder (`$OCD_SCRATCH/bun142/bun-linux-x64/bun`), when `OCD_SCRATCH` is set.
+fn scratch_bun() -> Option<PathBuf> {
+    std::env::var_os("OCD_SCRATCH").map(|dir| PathBuf::from(dir).join("bun142/bun-linux-x64/bun"))
+}
 
 fn bun() -> Option<PathBuf> {
     static BUN: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -23,7 +26,7 @@ fn bun() -> Option<PathBuf> {
         let path = std::env::var_os("OCD_BUN_PATH")
             .or_else(|| std::env::var_os("OCD_TEST_BUN"))
             .map(PathBuf::from)
-            .or_else(|| Some(PathBuf::from(DEFAULT_TEST_BUN)).filter(|p| p.exists()))?;
+            .or_else(|| scratch_bun().filter(|p| p.exists()))?;
         // SAFETY: set once, before any sidecar is spawned, to the same value in every test.
         unsafe { std::env::set_var("OCD_BUN_PATH", &path) };
         Some(path)
