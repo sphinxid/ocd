@@ -65,6 +65,17 @@ pub struct WebFetchTool {
     http: reqwest::Client,
 }
 
+/// `b3`/`traceparent` of a new client span (upstream fetches through Effect's traced HTTP client).
+fn trace_headers() -> reqwest::header::HeaderMap {
+    let mut map = reqwest::header::HeaderMap::new();
+    for (k, v) in oc_util::trace::headers() {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&v) {
+            map.insert(k, v);
+        }
+    }
+    map
+}
+
 impl WebFetchTool {
     pub fn new(http: reqwest::Client) -> Self {
         Self { http }
@@ -77,6 +88,7 @@ impl WebFetchTool {
             .header("User-Agent", agent)
             .header("Accept", accept_header(format))
             .header("Accept-Language", "en-US,en;q=0.9")
+            .headers(trace_headers())
             .send()
             .await
             .map_err(|_| format!("Transport error (GET {url})"))?;

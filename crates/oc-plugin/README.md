@@ -199,17 +199,17 @@ Callbacks scoped by `providerID` are filtered in the sidecar using `event.model.
 | key | event (mutable fields **bold**) | upstream site | ocd site | status |
 |---|---|---|---|---|
 | `session.prompt` | `sessionID, messageID, `**`prompt`**`{text, files?, agents?, skills?}, `**`metadata?`**`, `**`delivery`** | `packages/core/src/session/prompt.ts:40` | `oc-backend/src/sessions.rs` `prompt`, after awaiting activation and before attachments are materialised | wired |
-| `session.context` | `sessionID, model{providerID,modelID}, agent, `**`system, messages, options, tools{name:{description,input}}`** | `session/model-request.ts:422` (`primary`) | `oc-core/src/plugin_request.rs` `shape`, from `runner.rs` `run_step`; renamed/removed tools map back in `LocalTools` | wired |
+| `session.context` | `sessionID, model{id,providerID,variant?}, agent, `**`system, messages, options, tools{name:{description,input}}`** | `session/model-request.ts:422` (`primary`) | `oc-core/src/plugin_request.rs` `shape`, from `runner.rs` `run_step`; renamed/removed tools map back in `LocalTools` | wired |
 | `session.compaction` | as context + **`result?`** (set → skip the model call) | `session/model-request.ts:422` via `:426` | `compaction.rs` `Run::stream` | wired |
 | `session.generate` | as context | `session/model-request.ts:422` via `:427` | `generate.rs` `session_generate` | wired |
 | `session.title` | `sessionID, model, `**`system, messages, options, result?`** | `session/model-request.ts:428` | `title.rs` `title_attempt` | wired |
 | `session.model.request` | `sessionID, agent, model, kind, `**`baseURL?, headers`** | `session/model-request.ts:305` | `plugin_request.rs` `model_request`, after each shaping hook (primary/compaction/title/generate) | wired |
-| `session.http.request` | `sessionID, agent, model, kind, `**`request`**`{url, method, headers, body}` | `session/model-request.ts:343` | needs an oc-ai HTTP middleware | not wired |
-| `session.http.response` | `..., request, `**`response`**`{status, statusText, headers, body}` | `session/model-request.ts:355` | same | not wired |
+| `session.http.request` | `sessionID, agent, model, kind, `**`request`**`{url, method, headers, body}` | `session/model-request.ts:343` | `plugin_request.rs` `http_hooks` → oc-ai `HttpHook` (`Client::stream_with`), for primary/compaction/generate/title requests; the request has the prepared headers incl. `content-length`, before the trace headers | wired |
+| `session.http.response` | `..., request, `**`response`**`{status, statusText, headers, body}` | `session/model-request.ts:355` | same; `statusText` is `""` as upstream re-wraps the response; the body is read in full first, only when a plugin registered this hook; the status check runs on the returned response | wired |
 | `session.experimental.ws.handshake` | `..., `**`url, headers`** | `session/model-request.ts:375` | Responses websocket (not in ocd yet) | no core site |
 | `session.experimental.ws.send` / `receive` | `..., `**`frame`** | `session/model-request.ts:383` / `:387` | same | no core site |
 | `session.retry` | `sessionID, agent, model, error, attempt, `**`decision`** | `session/model-request.ts:399` (event built in `session/runner/retry.ts:78`) | `step.rs` after `Policy::decide_raw` (`step::Input::retry_hook`) | wired |
-| `permission.evaluate` | `sessionID, agent?, action, resources, metadata?, source?, `**`effect, message?`** | `packages/core/src/permission.ts:179` | `oc-core/src/permission.rs` `evaluate_hooked` (assert/ask) via `PermissionContext::evaluate_hook` | wired (the "always" re-evaluation of other pending requests skips the hook) |
+| `permission.evaluate` | `sessionID, agent?, action, resources, metadata?, source?, `**`effect, message?`** | `packages/core/src/permission.ts:179` | `oc-core/src/permission.rs` `evaluate_hooked` (assert/ask) via `PermissionContext::evaluate_hook` | wired (also for the "always" re-evaluation of other pending requests, with their stored metadata/source) |
 | `shell.create.before` | **`command, cwd, timeout, shell, env`** | `packages/core/src/shell.ts:274` | `Plugins::shell_before`: shell tool (`CoreHost::shell_create_before`), `!` commands (`shell_cmd.rs`), `shell.create` | wired |
 | `tool.execute.before` | **`tool`** (renameable), `sessionID, agent, messageID, id, `**`input`** | `packages/core/src/tool.ts:104` | `runner.rs` `CoreHooks::before`, for direct calls and calls inside Code Mode (`codemode::execute_with`) | wired (`HookError::Tool` rejects the call with that `Tool.Error`) |
 | `tool.execute.after` | `tool, sessionID, agent, messageID, id, input, status` + **`result`**`{output?, content, metadata?}` or **`error`**`{message, metadata?}` | `packages/core/src/tool.ts:137` (error), `:149` (completed) | `CoreHooks::after` (after the plan agent's own hook), before content normalisation | wired |
@@ -299,15 +299,24 @@ The core side lives in `oc-core/src/plugins.rs` (`Plugins`, owned by `App`), `oc
   keep their executor), `agent`, `command`, `skill`, `reference`, `mcp`, `provider` and `model`
   (`Catalog::build_staged`: after the internal provider plugins, before the configured-provider
   plugin), `integration` (plugin OAuth methods authorize through their handles in a per-attempt
-  scope), `websearch` (plugin providers execute through their handles). After a location's first
-  activation every transformed domain is rebuilt once, so failing transforms disable their plugin
-  right away. Not wired: `vcs` and `worktree` transforms (ocd's VCS and worktree services have no
-  provider/strategy registry yet).
+  scope), `websearch` (plugin providers execute through their handles; built-ins a plugin keeps or
+  re-registers run natively through `rs:websearch.<id>`), `vcs` (`Plugins::vcs` → `oc-core/src/vcs.rs`
+  `Registry`: the git provider as `rs:vcs.git.<op>` handles, plugin providers and `default.set`;
+  used by every `vcs.*` endpoint) and `worktree` (`Plugins::worktree_strategies` →
+  `oc-core/src/worktree.rs` `Strategies`: the git strategy as `rs:worktree.git.<op>`, an added
+  strategy becomes the selected one; used by `worktree.create/remove/refresh` with the project's
+  canonical location, and by the worktree tools). After a location's first activation every
+  transformed domain is rebuilt once, so failing transforms disable their plugin right away.
 - **Events.** Every bus event is forwarded to `publish_event` while some plugin subscribed; plugin
   tool progress is published without a location (as upstream).
 
-Known differences: plugin-registered integrations and web search providers go to ocd's
-process-wide registries (upstream keeps them per location); `session.http.*` hooks are not wired.
+Integrations and web search are per location like upstream: `Models::integrations_for(key)` (one
+`Integrations` registry per location over the global credential store) and
+`Plugins::websearch_for(key)` (one web search service per location, forked from the built-ins); the
+plugin `integration.connection.*` API uses the calling location's registry.
+
+Known differences: `session.http.response` gets the response body read in full (upstream passes a
+streaming `Response`); see docs/PARITY.md "Remaining".
 
 ### The original checklist
 
@@ -421,7 +430,10 @@ bun nor the checkout. After rebuilding, run the tests.
   - upstream's internal `opencode.mcp.codemode.defaults` copied verbatim (public API only);
   - `permission.evaluate`, `session.prompt`, `session.context`, `shell.create.before` and
     `tool.execute.after` hooks (`permission-plugin`);
-  - provider, model, integration and websearch transforms plus a Code Mode tool (`catalog-plugin`).
+  - provider, model, integration and websearch transforms plus a Code Mode tool (`catalog-plugin`);
+  - `session.http.request` / `session.http.response` hooks rewriting model requests and responses
+    (`http-plugin`);
+  - a selected `vcs` provider and a `worktree` strategy (`vcs-plugin`).
 - The core integration is tested in `oc-backend/tests/plugins.rs` with these fixtures, and in the
   parity suite (`scripts/parity/plugins.py`, group `plugin`) against upstream.
 - `cargo test -p oc-plugin --test sidecar -- --ignored` also installs the published v2 plugin

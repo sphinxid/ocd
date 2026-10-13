@@ -264,10 +264,11 @@ pub struct Plugins {
     tool_source: RwLock<Option<Arc<dyn ToolSource>>>,
     changes: broadcast::Sender<DomainChange>,
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
-    /// Web search services that receive plugin-registered providers.
-    websearch: RwLock<Vec<Arc<oc_tools::websearch::WebSearch>>>,
-    /// Plugin web search provider ids per location.
-    search_providers: Mutex<HashMap<String, Vec<String>>>,
+    /// The location-less web search service with the built-in providers (the template every
+    /// location's registry starts from).
+    websearch: RwLock<Option<Arc<oc_tools::websearch::WebSearch>>>,
+    /// Each location's web search registry (built-ins → plugin `websearch` transforms).
+    websearch_by_key: Mutex<HashMap<String, Arc<oc_tools::websearch::WebSearch>>>,
     /// Decoded catalog transform results per (location, domain): (revision, input hash, value).
     catalog_cache: Mutex<HashMap<(String, String), (u64, u64, CatalogValue)>>,
     watched: Mutex<HashSet<PathBuf>>,
@@ -291,8 +292,8 @@ impl Plugins {
             tool_source: RwLock::new(None),
             changes,
             watcher: Mutex::new(None),
-            websearch: RwLock::new(Vec::new()),
-            search_providers: Mutex::new(HashMap::new()),
+            websearch: RwLock::new(None),
+            websearch_by_key: Mutex::new(HashMap::new()),
             catalog_cache: Mutex::new(HashMap::new()),
             watched: Mutex::new(HashSet::new()),
             me: me.clone(),
@@ -310,9 +311,20 @@ impl Plugins {
         *self.tool_source.write() = Some(source);
     }
 
-    /// A web search service that receives the providers plugins register (`websearch.transform`).
+    /// The built-in web search service locations fork their registries from (the first one wins).
     pub fn add_websearch(&self, websearch: Arc<oc_tools::websearch::WebSearch>) {
-        self.websearch.write().push(websearch);
+        let mut base = self.websearch.write();
+        if base.is_none() {
+            *base = Some(websearch);
+        }
+    }
+
+    /// Location `key`'s web search service (upstream `WebSearch` is a location node): the
+    /// built-in providers plus the providers the location's plugins registered. `None` before a
+    /// base service was installed.
+    pub fn websearch_for(&self, key: &str) -> Option<Arc<oc_tools::websearch::WebSearch>> {
+        let base = self.websearch.read().clone()?;
+        Some(self.websearch_by_key.lock().entry(key.to_string()).or_insert_with(|| Arc::new(base.fork())).clone())
     }
 
     pub fn subscribe_changes(&self) -> broadcast::Receiver<DomainChange> {
@@ -563,6 +575,9 @@ impl Plugins {
                 state.announced.get_or_insert_with(Vec::new);
                 return;
             }
+            // Claim this configuration now: a second `ensure` for the same location (the runner and
+            // the backend each load locations) must not start another load before this one runs.
+            state.fingerprint = Some(fingerprint);
             let (requested, done) = *state.progress().borrow();
             state.progress().send_replace((requested.max(done) + 1, done));
         }
@@ -659,13 +674,7 @@ impl Plugins {
     /// Closes a location's plugins (cleanup functions run) and forgets its state.
     pub async fn close(&self, key: &str) {
         let state = self.locations.lock().remove(key);
-        if let Some(ids) = self.search_providers.lock().remove(key) {
-            for ws in self.websearch.read().iter() {
-                for id in &ids {
-                    ws.remove_provider(id);
-                }
-            }
-        }
+        self.websearch_by_key.lock().remove(key);
         self.cache.lock().retain(|(k, _), _| k != key);
         self.catalog_cache.lock().retain(|(k, _), _| k != key);
         self.natives.lock().remove(key);
@@ -1146,55 +1155,190 @@ impl Plugins {
         }
     }
 
-    /// Web search providers: the built-in providers → plugin `websearch` transforms. Providers a
-    /// plugin adds execute through their handle.
+    /// Web search providers of location `key`: the built-in providers → plugin `websearch`
+    /// transforms (a provider with an existing id replaces it in place; `default.set` sets the
+    /// selection, which config still overrides). Providers a plugin adds execute through their
+    /// handle; built-ins it kept (or wrapped) through `rs:websearch.<id>`.
     pub async fn search_providers(&self, key: &str) {
-        let services = self.websearch.read().clone();
-        let Some(first) = services.first().cloned() else { return };
-        let previous = self.search_providers.lock().get(key).cloned().unwrap_or_default();
-        let next: Vec<(String, String, String)> = if self.transforms(key, "websearch") {
-            let native: Vec<oc_tools::websearch::ProviderInfo> =
-                first.providers().await.into_iter().filter(|p| !previous.contains(&p.id)).collect();
-            let value = json!({
-                "providers": native
-                    .iter()
-                    .map(|p| json!({ "id": p.id, "name": p.name, "execute": { "$fn": format!("rs:websearch.{}", p.id) } }))
-                    .collect::<Vec<_>>(),
-            });
-            let out = self.transform(key, "websearch", value).await;
-            out.get("providers")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|p| {
-                    let handle = oc_plugin::protocol::function_handle(p.get("execute")?)?;
-                    if !oc_plugin::protocol::is_plugin_handle(handle) {
-                        return None;
+        let Some(base) = self.websearch.read().clone() else { return };
+        let Some(ws) = self.websearch_for(key) else { return };
+        let builtins = base.provider_list();
+        if !self.transforms(key, "websearch") {
+            ws.set_providers(builtins);
+            return;
+        }
+        for provider in &builtins {
+            let handle = format!("rs:websearch.{}", provider.info().id);
+            let provider = provider.clone();
+            let f: NativeFn = Arc::new(move |args: Vec<Value>| {
+                let provider = provider.clone();
+                Box::pin(async move {
+                    let query = args.first().and_then(|a| a.get("query")).and_then(Value::as_str).unwrap_or_default().to_string();
+                    match provider.execute(&query).await {
+                        Ok(results) => Ok(serde_json::to_value(results).unwrap_or(Value::Null)),
+                        Err(error) => Err(ApiError::new(error.message)),
                     }
-                    Some((p.get("id")?.as_str()?.to_string(), p.get("name").and_then(Value::as_str).unwrap_or_default().to_string(), handle.to_string()))
                 })
-                .collect()
-        } else {
-            vec![]
-        };
-        for id in previous.iter().filter(|id| !next.iter().any(|(n, _, _)| n == *id)) {
-            for ws in &services {
-                ws.remove_provider(id);
-            }
-        }
-        for (id, name, handle) in &next {
-            let provider: Arc<dyn oc_tools::websearch::SearchProvider> = Arc::new(PluginSearch {
-                plugins: self.me.clone(),
-                key: key.to_string(),
-                info: oc_tools::websearch::ProviderInfo { id: id.clone(), name: name.clone() },
-                handle: handle.clone(),
             });
-            for ws in &services {
-                ws.add_provider(provider.clone());
-            }
+            self.register_native(key, handle, f);
         }
-        self.search_providers.lock().insert(key.to_string(), next.into_iter().map(|(id, _, _)| id).collect());
+        let value = json!({
+            "providers": builtins
+                .iter()
+                .map(|p| {
+                    let info = p.info();
+                    json!({ "id": info.id, "name": info.name, "execute": { "$fn": format!("rs:websearch.{}", info.id) } })
+                })
+                .collect::<Vec<_>>(),
+        });
+        let out = self.transform(key, "websearch", value).await;
+        let mut providers: Vec<Arc<dyn oc_tools::websearch::SearchProvider>> = Vec::new();
+        for p in out.get("providers").and_then(Value::as_array).cloned().unwrap_or_default() {
+            let (Some(id), Some(handle)) = (p.get("id").and_then(Value::as_str), p.get("execute").and_then(oc_plugin::protocol::function_handle)) else {
+                continue;
+            };
+            let name = p.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+            let info = oc_tools::websearch::ProviderInfo { id: id.to_string(), name };
+            let native = handle.strip_prefix("rs:websearch.").and_then(|n| builtins.iter().find(|b| b.info().id == n).cloned());
+            let provider: Arc<dyn oc_tools::websearch::SearchProvider> = match native {
+                // An untouched built-in keeps its own executor; a re-registered one runs it under its new id/name.
+                Some(builtin) if builtin.info() == info => builtin,
+                Some(builtin) => Arc::new(RenamedSearch { inner: builtin, info }),
+                None => Arc::new(PluginSearch { plugins: self.me.clone(), key: key.to_string(), info, handle: handle.to_string() }),
+            };
+            providers.push(provider);
+        }
+        ws.set_providers(providers);
+        if let Some(selection) = out.get("selection").and_then(oc_tools::websearch::Selection::from_json) {
+            ws.set_config_selection(Some(selection));
+        }
+    }
+
+    /// Calls a function handle: native (`rs:`) ones in process, plugin ones in the sidecar.
+    async fn call_handle(&self, key: &str, handle: &str, args: Vec<Value>) -> Result<Value, oc_plugin::protocol::WireError> {
+        let location = LocationRef::new(key.to_string());
+        if !oc_plugin::protocol::is_plugin_handle(handle) {
+            return self.invoke_native(&location, handle, args).await.map_err(|e| {
+                let mut w = oc_plugin::protocol::WireError::new(e.message);
+                w.name = e.name;
+                w.data = e.data;
+                w
+            });
+        }
+        let host = self.host.get().ok_or_else(|| oc_plugin::protocol::WireError::new("Plugin host is not running"))?;
+        host.invoke(&location, handle, args, None).await.map_err(|e| match e {
+            oc_plugin::CallError::Remote(w) => *w,
+            other => oc_plugin::protocol::WireError::new(other.to_string()),
+        })
+    }
+
+    /// Location `key`'s VCS registry (`core/src/vcs.ts` State): the built-in providers (`pre`),
+    /// then plugin `vcs` transforms. `vcs` is the location's detected VCS type.
+    pub async fn vcs(&self, key: &str, vcs: Option<&str>) -> crate::vcs::Registry {
+        let mut native = crate::vcs::Registry::native(vcs);
+        if !self.builtin_enabled(key, "opencode.vcs.git") {
+            native.providers.clear();
+        }
+        if !self.transforms(key, "vcs") {
+            return native;
+        }
+        let mut providers = Vec::new();
+        for provider in &native.providers {
+            let id = provider.id().to_string();
+            let mut entry = json!({ "id": id, "name": provider.name() });
+            let ops = ["init", "info", "base", "branches", "status", "diff"];
+            for op in ops {
+                if (op == "init" && !provider.has_init()) || (op == "base" && !provider.has_base()) {
+                    continue;
+                }
+                let handle = format!("rs:vcs.{id}.{op}");
+                let provider = provider.clone();
+                let f: NativeFn = Arc::new(move |args: Vec<Value>| {
+                    let provider = provider.clone();
+                    Box::pin(async move { native_vcs(provider.as_ref(), op, args.into_iter().next().unwrap_or(Value::Null)).await })
+                });
+                self.register_native(key, handle.clone(), f);
+                entry[op] = json!({ "$fn": handle });
+            }
+            providers.push(entry);
+        }
+        let out = self.transform(key, "vcs", json!({ "providers": providers })).await;
+        let mut registry = crate::vcs::Registry { providers: Vec::new(), selection: out.get("selection").and_then(Value::as_str).map(String::from) };
+        for entry in out.get("providers").and_then(Value::as_array).cloned().unwrap_or_default() {
+            let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
+            let handle = |op: &str| entry.get(op).and_then(oc_plugin::protocol::function_handle).map(String::from);
+            let (Some(info), Some(branches), Some(status), Some(diff)) = (handle("info"), handle("branches"), handle("status"), handle("diff")) else {
+                continue;
+            };
+            // An untouched built-in keeps its native implementation.
+            let untouched = native.get(id).filter(|n| {
+                entry.get("name").and_then(Value::as_str) == Some(n.name())
+                    && ["init", "info", "base", "branches", "status", "diff"].iter().all(|op| {
+                        handle(op) == ((*op != "init" || n.has_init()) && (*op != "base" || n.has_base())).then(|| format!("rs:vcs.{id}.{op}"))
+                    })
+            });
+            let provider: Arc<dyn crate::vcs::Provider> = match untouched {
+                Some(native) => native,
+                None => Arc::new(PluginVcs {
+                    plugins: self.me.clone(),
+                    key: key.to_string(),
+                    id: id.to_string(),
+                    name: entry.get("name").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    init: handle("init"),
+                    info,
+                    base: handle("base"),
+                    branches,
+                    status,
+                    diff,
+                }),
+            };
+            registry.providers.push(provider);
+        }
+        registry
+    }
+
+    /// Location `key`'s worktree strategies (`core/src/worktree/strategies.ts` State): the git
+    /// strategy, then plugin `worktree` transforms (an added strategy becomes the selected one).
+    pub async fn worktree_strategies(&self, key: &str) -> crate::worktree::Strategies {
+        let native = crate::worktree::Strategies::default();
+        if !self.transforms(key, "worktree") {
+            return native;
+        }
+        let mut strategies = Vec::new();
+        for strategy in &native.strategies {
+            let id = strategy.id().to_string();
+            let mut entry = json!({ "id": id });
+            for op in ["create", "remove", "list"] {
+                let handle = format!("rs:worktree.{id}.{op}");
+                let strategy = strategy.clone();
+                let f: NativeFn = Arc::new(move |args: Vec<Value>| {
+                    let strategy = strategy.clone();
+                    Box::pin(async move { native_worktree(strategy.as_ref(), op, args.into_iter().next().unwrap_or(Value::Null)).await })
+                });
+                self.register_native(key, handle.clone(), f);
+                entry[op] = json!({ "$fn": handle });
+            }
+            strategies.push(entry);
+        }
+        let out = self.transform(key, "worktree", json!({ "strategies": strategies, "selected": native.selected })).await;
+        let mut result = crate::worktree::Strategies {
+            strategies: Vec::new(),
+            selected: out.get("selected").and_then(Value::as_str).unwrap_or(&native.selected).to_string(),
+        };
+        for entry in out.get("strategies").and_then(Value::as_array).cloned().unwrap_or_default() {
+            let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
+            let handle = |op: &str| entry.get(op).and_then(oc_plugin::protocol::function_handle).map(String::from);
+            let (Some(create), Some(remove), Some(list)) = (handle("create"), handle("remove"), handle("list")) else { continue };
+            let untouched = native.strategies.iter().find(|n| {
+                n.id() == id && [("create", &create), ("remove", &remove), ("list", &list)].iter().all(|(op, h)| **h == format!("rs:worktree.{id}.{op}"))
+            });
+            let strategy: Arc<dyn crate::worktree::Strategy> = match untouched {
+                Some(native) => native.clone(),
+                None => Arc::new(PluginStrategy { plugins: self.me.clone(), key: key.to_string(), id: id.to_string(), create, remove, list }),
+            };
+            result.strategies.push(strategy);
+        }
+        result
     }
 
     /// Executes a plugin command handle (`Command.execute`).
@@ -1606,6 +1750,221 @@ impl Tool for PluginTool {
                 Err(e)
             }
         }
+    }
+}
+
+/// Runs one operation of a native VCS provider for a plugin (`rs:vcs.<id>.<op>`).
+async fn native_vcs(provider: &dyn crate::vcs::Provider, op: &str, input: Value) -> Result<Value, ApiError> {
+    let scope = crate::vcs::Scope::from_json(&input).ok_or_else(|| ApiError::new("Invalid VCS scope"))?;
+    let diff_error = |e: crate::vcs::ProviderError| match e {
+        crate::vcs::ProviderError::Diff(e) => ApiError::named(oc_git::vcs::DiffError::TAG, e.message),
+        crate::vcs::ProviderError::Other(m) => ApiError::new(m),
+    };
+    let json = |v: Result<Value, serde_json::Error>| v.map_err(|e| ApiError::new(e.to_string()));
+    match op {
+        "init" => provider.init(&scope).await.map(|_| Value::Null).map_err(ApiError::new),
+        "info" => json(serde_json::to_value(provider.info(&scope).await.map_err(ApiError::new)?)),
+        "base" => json(serde_json::to_value(provider.base(&scope).await.map_err(diff_error)?)),
+        "branches" => json(serde_json::to_value(provider.branches(&scope, &crate::vcs::branch_options(&input)).await.map_err(ApiError::new)?)),
+        "status" => json(serde_json::to_value(provider.status(&scope).await.map_err(ApiError::new)?)),
+        _ => {
+            let (mode, base, context) = crate::vcs::diff_args(&input);
+            json(serde_json::to_value(provider.diff(&scope, mode, base.as_deref(), context).await.map_err(diff_error)?))
+        }
+    }
+}
+
+/// A VCS provider registered (or wrapped) by a plugin.
+struct PluginVcs {
+    plugins: Weak<Plugins>,
+    key: String,
+    id: String,
+    name: String,
+    init: Option<String>,
+    info: String,
+    base: Option<String>,
+    branches: String,
+    status: String,
+    diff: String,
+}
+
+impl PluginVcs {
+    async fn call(&self, handle: &str, input: Value) -> Result<Value, oc_plugin::protocol::WireError> {
+        let plugins = self.plugins.upgrade().ok_or_else(|| oc_plugin::protocol::WireError::new("Plugin host is not running"))?;
+        plugins.call_handle(&self.key, handle, vec![input]).await
+    }
+
+    async fn decode<T: serde::de::DeserializeOwned>(&self, handle: &str, input: Value) -> Result<T, String> {
+        let value = self.call(handle, input).await.map_err(|e| e.message)?;
+        serde_json::from_value(value).map_err(|e| e.to_string())
+    }
+
+    /// `review`: a provider's `Vcs.DiffError` passes through, anything else is generic.
+    async fn review<T: serde::de::DeserializeOwned>(&self, handle: &str, input: Value) -> Result<T, crate::vcs::ProviderError> {
+        let value = self.call(handle, input).await.map_err(|e| {
+            // Only the core's own `Vcs.DiffError` (a wrapped native provider) passes through.
+            if e.name.as_deref() == Some(oc_git::vcs::DiffError::TAG) && !oc_plugin::protocol::is_plugin_handle(handle) {
+                crate::vcs::ProviderError::Diff(oc_git::vcs::DiffError { message: e.message })
+            } else {
+                crate::vcs::ProviderError::Other(e.message)
+            }
+        })?;
+        serde_json::from_value(value).map_err(|e| crate::vcs::ProviderError::Other(e.to_string()))
+    }
+}
+
+#[async_trait]
+impl crate::vcs::Provider for PluginVcs {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn has_init(&self) -> bool {
+        self.init.is_some()
+    }
+    fn has_base(&self) -> bool {
+        self.base.is_some()
+    }
+    async fn init(&self, scope: &crate::vcs::Scope) -> Result<(), String> {
+        let handle = self.init.as_deref().ok_or("unsupported")?;
+        self.call(handle, scope.to_json()).await.map(|_| ()).map_err(|e| e.message)
+    }
+    async fn info(&self, scope: &crate::vcs::Scope) -> Result<oc_git::vcs::Info, String> {
+        self.decode(&self.info, scope.to_json()).await
+    }
+    async fn base(&self, scope: &crate::vcs::Scope) -> Result<Option<oc_git::vcs::Base>, crate::vcs::ProviderError> {
+        match &self.base {
+            Some(handle) => self.review(handle, scope.to_json()).await,
+            None => Ok(None),
+        }
+    }
+    async fn branches(&self, scope: &crate::vcs::Scope, options: &oc_git::vcs::BranchOptions) -> Result<Vec<String>, String> {
+        self.decode(&self.branches, crate::vcs::branches_input(scope, options)).await
+    }
+    async fn status(&self, scope: &crate::vcs::Scope) -> Result<Vec<oc_git::vcs::VcsFileStatus>, String> {
+        self.decode(&self.status, scope.to_json()).await
+    }
+    async fn diff(
+        &self,
+        scope: &crate::vcs::Scope,
+        mode: oc_git::vcs::Mode,
+        base: Option<&str>,
+        context: u64,
+    ) -> Result<Vec<oc_schema::types::FileDiff>, crate::vcs::ProviderError> {
+        self.review(&self.diff, crate::vcs::diff_input(scope, mode, base, context)).await
+    }
+}
+
+/// Runs one operation of a native worktree strategy for a plugin (`rs:worktree.<id>.<op>`).
+async fn native_worktree(strategy: &dyn crate::worktree::Strategy, op: &str, input: Value) -> Result<Value, ApiError> {
+    let error = |e: crate::worktree::StrategyError| match e {
+        crate::worktree::StrategyError::Worktree { message, force_required } => {
+            let mut e = ApiError::named("Worktree.OperationError", message.clone());
+            e.data = Some(json!({ "message": message, "forceRequired": force_required }));
+            e
+        }
+        crate::worktree::StrategyError::Other(message) => ApiError::new(message),
+    };
+    let path = |k: &str| input.get(k).and_then(Value::as_str).map(std::path::PathBuf::from).ok_or_else(|| ApiError::new(format!("Missing {k}")));
+    match op {
+        "create" => {
+            let created = strategy
+                .create(&path("directory")?, &path("sourceDirectory")?, input.get("branch").and_then(Value::as_str))
+                .await
+                .map_err(error)?;
+            Ok(json!({ "directory": created.display().to_string() }))
+        }
+        "remove" => {
+            let force = input.get("force").and_then(Value::as_bool).unwrap_or(false);
+            strategy.remove(&path("directory")?, force).await.map(|_| Value::Null).map_err(error)
+        }
+        _ => {
+            let root = input.as_str().ok_or_else(|| ApiError::new("Expected a directory"))?;
+            let entries = strategy.list(std::path::Path::new(root)).await.map_err(error)?;
+            serde_json::to_value(entries).map_err(|e| ApiError::new(e.to_string()))
+        }
+    }
+}
+
+/// A worktree strategy registered (or wrapped) by a plugin.
+struct PluginStrategy {
+    plugins: Weak<Plugins>,
+    key: String,
+    id: String,
+    create: String,
+    remove: String,
+    list: String,
+}
+
+impl PluginStrategy {
+    async fn call(&self, handle: &str, input: Value) -> Result<Value, crate::worktree::StrategyError> {
+        let plugins = self.plugins.upgrade().ok_or_else(|| crate::worktree::StrategyError::Other("Plugin host is not running".into()))?;
+        plugins.call_handle(&self.key, handle, vec![input]).await.map_err(|e| {
+            // `operationError` keeps git and operation errors as they are.
+            if matches!(e.name.as_deref(), Some("Worktree.OperationError" | "Git.WorktreeError")) {
+                let force_required = e.data.as_ref().and_then(|d| d.get("forceRequired")).and_then(Value::as_bool);
+                crate::worktree::StrategyError::Worktree { message: e.message, force_required }
+            } else {
+                crate::worktree::StrategyError::Other(e.message)
+            }
+        })
+    }
+}
+
+#[async_trait]
+impl crate::worktree::Strategy for PluginStrategy {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    async fn create(&self, directory: &std::path::Path, source: &std::path::Path, branch: Option<&str>) -> Result<std::path::PathBuf, crate::worktree::StrategyError> {
+        let mut input = json!({ "sourceDirectory": source.display().to_string(), "directory": directory.display().to_string() });
+        if let Some(branch) = branch {
+            input["branch"] = json!(branch);
+        }
+        let out = self.call(&self.create, input).await?;
+        // `Worktree.Info`: `{directory: AbsolutePath}`.
+        out.get("directory")
+            .and_then(Value::as_str)
+            .filter(|d| std::path::Path::new(d).is_absolute())
+            .map(std::path::PathBuf::from)
+            .ok_or_else(|| crate::worktree::StrategyError::Other(format!("Expected an absolute path at [\"directory\"], got {out}")))
+    }
+    async fn remove(&self, directory: &std::path::Path, force: bool) -> Result<(), crate::worktree::StrategyError> {
+        self.call(&self.remove, json!({ "directory": directory.display().to_string(), "force": force })).await.map(|_| ())
+    }
+    async fn list(&self, root: &std::path::Path) -> Result<Vec<oc_git::ListEntry>, crate::worktree::StrategyError> {
+        let out = self.call(&self.list, json!(root.display().to_string())).await?;
+        serde_json::from_value(out).map_err(|e| crate::worktree::StrategyError::Other(e.to_string()))
+    }
+}
+
+/// The location config's `websearch` selection (`opencode.config.websearch`): `false` disables,
+/// `"random"`, or a provider id.
+pub fn config_websearch_selection(entries: &[oc_config::schema::Entry]) -> Option<oc_tools::websearch::Selection> {
+    use oc_tools::websearch::Selection;
+    oc_config::fold::websearch(entries).map(|w| match w {
+        None => Selection::Disabled,
+        Some("random") => Selection::Random,
+        Some(p) => Selection::Provider(p.to_string()),
+    })
+}
+
+/// A built-in web search provider a plugin registered under another id or name.
+struct RenamedSearch {
+    inner: Arc<dyn oc_tools::websearch::SearchProvider>,
+    info: oc_tools::websearch::ProviderInfo,
+}
+
+#[async_trait]
+impl oc_tools::websearch::SearchProvider for RenamedSearch {
+    fn info(&self) -> oc_tools::websearch::ProviderInfo {
+        self.info.clone()
+    }
+
+    async fn execute(&self, query: &str) -> Result<Vec<oc_tools::websearch::SearchResult>, oc_tools::websearch::ProviderError> {
+        self.inner.execute(query).await
     }
 }
 

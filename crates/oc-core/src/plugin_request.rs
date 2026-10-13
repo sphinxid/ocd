@@ -1,11 +1,13 @@
 //! Plugin hooks around model requests (`core/src/session/model-request.ts` `prepare`):
 //! `session.context` / `session.compaction` / `session.generate` / `session.title` shape the
-//! request, `session.model.request` may change the base URL and headers.
+//! request, `session.model.request` may change the base URL and headers, and
+//! `session.http.request` / `session.http.response` wrap the HTTP exchange.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use oc_ai::LLMRequest;
+use oc_ai::route::transport::{HttpHook, WireRequest, WireResponse};
 use oc_ai::types::{GenerationOptions, SystemPart, ToolDefinition, ToolEntry};
 use oc_plugin::HookError;
 use oc_schema::types::ModelRef;
@@ -46,17 +48,26 @@ impl Kind {
 }
 
 /// Result of [`shape`].
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Shaped {
     /// Advertised tool name → registered tool name, after hooks renamed or removed tools; `None`
     /// when no hook ran (every advertised name is its own).
     pub tools: Option<HashMap<String, String>>,
     /// `result` set by a compaction/title hook: the model call is skipped.
     pub result: Option<String>,
+    /// The `session.http.*` middleware (`StreamOptions.http`), when a plugin registered either hook.
+    pub http: Option<Arc<dyn HttpHook>>,
 }
 
+impl std::fmt::Debug for Shaped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Shaped").field("tools", &self.tools).field("result", &self.result).field("http", &self.http.is_some()).finish()
+    }
+}
+
+/// `Model.Ref` as upstream passes it to hooks (`{id, providerID, variant?}`).
 fn model_json(model: &ModelRef) -> Value {
-    json!({ "providerID": model.provider_id, "modelID": model.id })
+    serde_json::to_value(model).unwrap_or(Value::Null)
 }
 
 /// Runs the flow's shaping hook on `req` (system, messages, options and, except for titles, the
@@ -146,7 +157,88 @@ pub async fn shape(
         }
     }
     model_request(plugins, key, kind, session_id, agent, model, req).await?;
+    shaped.http = http_hooks(plugins, key, kind, session_id, agent, model);
     Ok(shaped)
+}
+
+/// `session.http.request` / `session.http.response` around every HTTP request of the call
+/// (`model-request.ts` `hasHttpHooks` → `options.http`). `None` when no plugin registered either.
+pub fn http_hooks(plugins: &Arc<Plugins>, key: &str, kind: Kind, session_id: &str, agent: &str, model: &ModelRef) -> Option<Arc<dyn HttpHook>> {
+    let request = plugins.has_hook(key, "session.http.request", Some(&model.provider_id));
+    let response = plugins.has_hook(key, "session.http.response", Some(&model.provider_id));
+    if !request && !response {
+        return None;
+    }
+    let mut scope = Map::new();
+    scope.insert("sessionID".into(), json!(session_id));
+    scope.insert("agent".into(), json!(agent));
+    scope.insert("model".into(), model_json(model));
+    scope.insert("kind".into(), json!(kind.as_str()));
+    Some(Arc::new(PluginHttp { plugins: plugins.clone(), key: key.to_string(), scope, response }))
+}
+
+struct PluginHttp {
+    plugins: Arc<Plugins>,
+    key: String,
+    scope: Map<String, Value>,
+    response: bool,
+}
+
+fn headers_json(headers: &indexmap::IndexMap<String, String>) -> Value {
+    Value::Object(headers.iter().map(|(k, v)| (k.clone(), json!(v))).collect())
+}
+
+fn headers_of(value: Option<&Value>) -> indexmap::IndexMap<String, String> {
+    value
+        .and_then(Value::as_object)
+        .map(|o| o.iter().filter_map(|(k, v)| Some((k.to_ascii_lowercase(), v.as_str()?.to_string()))).collect())
+        .unwrap_or_default()
+}
+
+fn request_json(request: &WireRequest) -> Value {
+    json!({ "url": request.url, "method": request.method, "headers": headers_json(&request.headers), "body": request.body })
+}
+
+#[async_trait::async_trait]
+impl HttpHook for PluginHttp {
+    async fn request(&self, request: WireRequest) -> Result<WireRequest, String> {
+        let mut event = self.scope.clone();
+        event.insert("request".into(), request_json(&request));
+        let out = self.plugins.trigger(&self.key, "session.http.request", Value::Object(event)).await.map_err(|e| e.to_string())?;
+        let Some(next) = out.get("request").and_then(Value::as_object) else { return Ok(request) };
+        Ok(WireRequest {
+            url: next.get("url").and_then(Value::as_str).map(String::from).unwrap_or(request.url),
+            method: next.get("method").and_then(Value::as_str).map(String::from).unwrap_or(request.method),
+            headers: headers_of(next.get("headers")),
+            body: next.get("body").and_then(Value::as_str).map(String::from),
+        })
+    }
+
+    async fn response(&self, request: &WireRequest, response: WireResponse) -> Result<WireResponse, String> {
+        let mut event = self.scope.clone();
+        event.insert("request".into(), request_json(request));
+        event.insert(
+            "response".into(),
+            json!({
+                "status": response.status,
+                "statusText": response.status_text,
+                "headers": headers_json(&response.headers),
+                "body": response.body,
+            }),
+        );
+        let out = self.plugins.trigger(&self.key, "session.http.response", Value::Object(event)).await.map_err(|e| e.to_string())?;
+        let Some(next) = out.get("response").and_then(Value::as_object) else { return Ok(response) };
+        Ok(WireResponse {
+            status: next.get("status").and_then(Value::as_u64).map(|s| s as u16).unwrap_or(response.status),
+            status_text: next.get("statusText").and_then(Value::as_str).map(String::from).unwrap_or(response.status_text),
+            headers: headers_of(next.get("headers")),
+            body: next.get("body").and_then(Value::as_str).map(String::from),
+        })
+    }
+
+    fn wants_response(&self) -> bool {
+        self.response
+    }
 }
 
 /// `session.model.request`: the hook may change the base URL and the headers.

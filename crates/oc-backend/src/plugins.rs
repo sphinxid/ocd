@@ -153,7 +153,8 @@ impl BackendApi {
 
     async fn integration_connection(&self, request: &ApiRequest) -> Result<Value, ApiError> {
         let engine = self.engine()?;
-        let integrations = &engine.models().integrations;
+        // The calling plugin's location registry (upstream binds `ctx.integration` per location).
+        let integrations = engine.models().integrations_for(Some(&request.location.directory));
         let input = &request.input;
         let connection = |v: Option<&Value>| -> Result<oc_ai::credentials::integration::ConnectionInfo, ApiError> {
             serde_json::from_value(v.cloned().unwrap_or(Value::Null)).map_err(|e| ApiError::new(e.to_string()))

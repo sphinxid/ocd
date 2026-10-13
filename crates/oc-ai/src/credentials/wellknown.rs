@@ -108,10 +108,11 @@ pub async fn inspect(http: &reqwest::Client, origin: &str) -> Result<Manifest, W
     let url = manifest_url(origin);
     let fail = |cause: String| WellKnownError::new(format!("Failed to load wellknown manifest from {url}"), Some(cause));
     let result = async {
-        let response = http
-            .get(&url)
-            .header("Accept", "application/json")
-            .timeout(REQUEST_TIMEOUT)
+        let mut request = http.get(&url).header("Accept", "application/json").timeout(REQUEST_TIMEOUT);
+        for (k, v) in oc_util::trace::headers() {
+            request = request.header(k, v);
+        }
+        let response = request
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -142,6 +143,10 @@ pub async fn resolve_entry(
     let fail =
         |cause: String| WellKnownError::new(format!("Failed to load wellknown remote config from {url}"), Some(cause));
     let remote: Map<String, Value> = async {
+        let mut request = request;
+        for (k, v) in oc_util::trace::headers() {
+            request = request.header(k, v);
+        }
         let response = request.send().await.map_err(|e| e.to_string())?;
         if !response.status().is_success() {
             return Err(format!("non 2xx status code ({})", response.status().as_u16()));

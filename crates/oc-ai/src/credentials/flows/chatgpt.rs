@@ -8,7 +8,7 @@ use crate::credentials::integration::{AuthorizeResult, FlowError, FlowResult, OA
 use crate::credentials::kv::KvStore;
 use crate::credentials::page::{self, CallbackPageOptions};
 use crate::credentials::pkce::{self, Pkce};
-use crate::credentials::{Metadata, OAuthValue, now_ms};
+use crate::credentials::{CredentialValue, Metadata, OAuthValue, now_ms};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -39,7 +39,46 @@ pub const NON_RETRYABLE_SHARING_CODES: &[&str] = &[
 ];
 
 /// Saved client id of the active ChatGPT credential (`metadata.clientID`), if any.
-pub type SavedClientId = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+pub type SavedClientId = Arc<dyn Fn() -> futures::future::BoxFuture<'static, Option<String>> + Send + Sync>;
+
+/// A [`SavedClientId`] that never has a saved id.
+pub fn no_saved_client_id() -> SavedClientId {
+    Arc::new(|| Box::pin(async { None }))
+}
+
+/// `decodeMetadata` (chatgpt.ts:84-90): `{clientID: string, scopes?: string[], models?: RemoteModel[]}`.
+fn metadata_client_id(metadata: Option<&serde_json::Map<String, serde_json::Value>>) -> Option<String> {
+    let metadata = metadata?;
+    if let Some(scopes) = metadata.get("scopes")
+        && !scopes.as_array().is_some_and(|a| a.iter().all(serde_json::Value::is_string))
+    {
+        return None;
+    }
+    if let Some(models) = metadata.get("models")
+        && !models.as_array().is_some_and(|a| a.iter().all(serde_json::Value::is_object))
+    {
+        return None;
+    }
+    metadata.get("clientID")?.as_str().map(str::to_string)
+}
+
+/// The client id of the `openai` integration's **active connection** (chatgpt.ts:218-237): the
+/// connection `Integration.connection.active` picks (stored credentials first, then env-var
+/// connections), resolved (an expiring OAuth token is refreshed; a failed refresh means none). Only
+/// a ChatGPT token-sharing OAuth credential has one; an env-var or API-key connection has none.
+pub fn active_connection_client_id(integrations: std::sync::Weak<crate::credentials::integration::Integrations>) -> SavedClientId {
+    Arc::new(move || {
+        let integrations = integrations.clone();
+        Box::pin(async move {
+            let integrations = integrations.upgrade()?;
+            let connection = integrations.active(INTEGRATION_ID).await.ok().flatten()?;
+            match integrations.resolve(&connection).await.ok().flatten()? {
+                CredentialValue::Oauth { method_id, metadata, .. } if method_id == METHOD_ID => metadata_client_id(metadata.as_ref()),
+                _ => None,
+            }
+        })
+    })
+}
 
 pub struct ChatGptTokenSharing {
     pub ctx: FlowContext,
@@ -128,7 +167,7 @@ impl OAuthMethod for ChatGptTokenSharing {
         let pkce = pkce::openai_pkce();
         let state = pkce::random_state();
         let nonce = pkce::random_state();
-        let saved_id = (self.saved_client_id)();
+        let saved_id = (self.saved_client_id)().await;
         let (once, rx) = Once::<FlowResult<Received<Callback>>>::new();
         let expected_state = state.clone();
         let handler: Handler = Arc::new(move |request: Request| {

@@ -304,6 +304,11 @@ pub trait ToolHost: Send + Sync {
         Err(unsupported("forms"))
     }
 
+    /// The web search service of the session's location (`None`: the tool's own service).
+    fn websearch(&self) -> Option<std::sync::Arc<crate::websearch::WebSearch>> {
+        None
+    }
+
     // ---------------------------------------------------------------- instructions (read tool)
     /// `SessionInstructions.load({sessionID, paths})` for nested AGENTS.md files.
     async fn load_instructions(&self, _session_id: &str, _paths: Vec<PathBuf>) -> Result<(), String> {

@@ -5,6 +5,7 @@ pub mod global;
 pub mod hash;
 pub mod jsonc;
 pub mod log;
+pub mod trace;
 pub mod variable;
 pub mod version;
 

@@ -67,7 +67,10 @@ impl SearchProvider for TavilyProvider {
             None => request.header("X-Tavily-Access-Mode", "keyless"),
         };
         let body = json!({ "query": query, "search_depth": "basic", "chunks_per_source": 3, "max_results": 8 });
-        let request = request.header("content-type", "application/json").body(body.to_string());
+        let mut request = request.header("content-type", "application/json").body(body.to_string());
+        for (k, v) in oc_util::trace::headers() {
+            request = request.header(k, v);
+        }
         let run = async {
             let response = request.send().await.map_err(|e| transport_error("POST", &url, &e))?;
             check_status(&response, "POST", &url)?;

@@ -26,7 +26,9 @@ PASSWORD = "parity"
 #   - session slugs (random word pairs);
 #   - the application version string (dev build vs port);
 #   - absolute paths of the per-run project/state directories (identical between runs, masked for readability);
-#   - opaque base64url cursors (decoded and normalized instead of masked).
+#   - opaque base64url cursors (decoded and normalized instead of masked);
+#   - the random trace/span IDs inside `b3`/`traceparent` header values (Effect's traced HTTP client), renumbered by
+#     first appearance so which requests share a trace or span stays visible; the headers themselves are compared.
 # Anything else is compared verbatim.
 # ---------------------------------------------------------------------------------------------------------------
 # Derived IDs append a suffix (`msg_<id>_4` for forked messages), so only a following alphanumeric ends a match.
@@ -40,6 +42,9 @@ VOLATILE_KEYS = {"pid"}  # OS process ids
 # 0.0.0-v2-<timestamp> upstream, "latest" + workspace version in the port).
 BUILD_RE = re.compile(r"\b(0\.0\.0-v2-\d{12}|2\.0\.26)\b")
 UA_RE = re.compile(r"opencode/(v2|latest|local|dev)/(0\.0\.0-[\w.-]+|2\.0\.\d+)/")
+# `b3: <trace>-<span>-<sampled>[-<parent>]` and `traceparent: 00-<trace>-<span>-<flags>` (HttpTraceContext.toHeaders).
+B3_RE = re.compile(r"^([0-9a-f]{32})-([0-9a-f]{16})-([01d])(?:-([0-9a-f]{16}))?$")
+TRACEPARENT_RE = re.compile(r"^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
 
 
 class Normalizer:
@@ -48,6 +53,22 @@ class Normalizer:
         self.paths = sorted(paths.items(), key=lambda kv: -len(kv[1]))
         self.ids = {}
         self.uuids = {}
+        self.traces = {}
+        self.spans = {}
+
+    def _trace(self, kind, value):
+        table = self.traces if kind == "trace" else self.spans
+        if value not in table:
+            table[value] = f"<{kind}{len(table) + 1}>"
+        return table[value]
+
+    def trace_header(self, key, value):
+        if key == "b3" and (m := B3_RE.match(value)):
+            out = f"{self._trace('trace', m.group(1))}-{self._trace('span', m.group(2))}-{m.group(3)}"
+            return out + (f"-{self._trace('span', m.group(4))}" if m.group(4) else "")
+        if key == "traceparent" and (m := TRACEPARENT_RE.match(value)):
+            return f"00-{self._trace('trace', m.group(1))}-{self._trace('span', m.group(2))}-{m.group(3)}"
+        return None
 
     def _id(self, m):
         key = m.group(0)
@@ -96,6 +117,8 @@ class Normalizer:
         if isinstance(value, str):
             if key == "slug":
                 return "<slug>"
+            if key in ("b3", "traceparent") and (masked := self.trace_header(key, value)) is not None:
+                return masked
             if VERSION_RE.match(value):
                 return "<version>"
             if re.fullmatch(r"[A-Za-z0-9_-]{24,}", value) and not ID_RE.fullmatch(value):

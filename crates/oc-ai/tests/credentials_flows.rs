@@ -250,7 +250,7 @@ async fn chatgpt_token_sharing_loopback_flow() {
     })
     .await;
     let storage = Arc::new(MemoryKv::new());
-    let mut flow = ChatGptTokenSharing::new(ctx(), storage.clone(), Arc::new(|| None));
+    let mut flow = ChatGptTokenSharing::new(ctx(), storage.clone(), oc_ai::credentials::flows::chatgpt::no_saved_client_id());
     flow.issuer = server.base.clone();
     flow.jwks_url = format!("{}/jwks", server.base);
     let scope = CancellationToken::new();
@@ -297,7 +297,7 @@ async fn chatgpt_token_sharing_loopback_flow() {
     scope.cancel();
 
     // Second sign-in reuses the stored host id and the saved client id.
-    let mut flow = ChatGptTokenSharing::new(ctx(), storage, Arc::new(|| Some("client_saved".into())));
+    let mut flow = ChatGptTokenSharing::new(ctx(), storage, Arc::new(|| Box::pin(async { Some("client_saved".to_string()) })));
     flow.issuer = server.base.clone();
     let scope = CancellationToken::new();
     let result = flow.authorize(FormAnswer::new(), scope.clone()).await.unwrap();

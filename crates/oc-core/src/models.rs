@@ -1,7 +1,7 @@
 //! Providers, credentials and model resolution (`core/provider.ts`, `credential.ts`,
 //! `model-resolver.ts`, `session/runner/model.ts`) on top of oc-ai's catalog.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -196,14 +196,40 @@ pub enum ModelError {
     Resolve(String),
 }
 
+/// One location's integration registry (upstream `Integration` is a location node): methods and
+/// OAuth implementations, including plugin-registered ones, attempts and statuses. Credentials are
+/// global (one store shared by every instance).
+struct LocationIntegrations {
+    integrations: Arc<Integrations>,
+    /// The provider plugins' OAuth implementations are registered once per instance.
+    oauth: std::sync::Once,
+    /// The Azure plugin lists the `az login` account's resources once per location, in the background.
+    azure_started: std::sync::atomic::AtomicBool,
+    azure_resources: Arc<parking_lot::RwLock<Option<Vec<Value>>>>,
+}
+
+impl LocationIntegrations {
+    fn new(integrations: Arc<Integrations>) -> Arc<Self> {
+        Arc::new(LocationIntegrations {
+            integrations,
+            oauth: std::sync::Once::new(),
+            azure_started: std::sync::atomic::AtomicBool::new(false),
+            azure_resources: Arc::new(parking_lot::RwLock::new(None)),
+        })
+    }
+}
+
 pub struct Models {
+    /// The registry of catalogs built without a location (CLI listings, tests).
     pub integrations: Arc<Integrations>,
+    default_location: Arc<LocationIntegrations>,
+    by_location: parking_lot::Mutex<HashMap<String, Arc<LocationIntegrations>>>,
+    store: Arc<dyn CredentialStore>,
+    /// Azure Resource Manager base URL for the resource listing (tests point it at a mock).
+    azure_management: parking_lot::RwLock<String>,
     pub models_dev: Arc<ModelsDev>,
     db: Database,
     user_agent: String,
-    /// The provider plugins' OAuth implementations are registered once, after the first catalog build placed
-    /// the models.dev `key`/`env` slots.
-    oauth: std::sync::Once,
     /// Server plugins (`provider`/`model` transforms between the internal provider plugins and the
     /// configured-provider plugin).
     plugins: parking_lot::RwLock<Option<Arc<crate::plugins::Plugins>>>,
@@ -246,14 +272,44 @@ impl Models {
     pub fn new(db: Database, bus: Bus, channel: &str, version: &str) -> Models {
         let store: Arc<dyn CredentialStore> = DbCredentials::new(db.clone(), bus);
         let ua = oc_ai::credentials::user_agent(channel, version, "opencode");
+        let integrations = Integrations::new(store.clone());
         Models {
-            integrations: Integrations::new(store),
+            integrations: integrations.clone(),
+            default_location: LocationIntegrations::new(integrations),
+            by_location: parking_lot::Mutex::new(HashMap::new()),
+            store,
+            azure_management: parking_lot::RwLock::new(crate::integrations::AZURE_MANAGEMENT.into()),
             models_dev: Arc::new(ModelsDev::with_reqwest(ModelsDevOptions::from_env(ua.clone()), Arc::new(KvCatalogCache(db.clone())))),
             db,
             user_agent: ua,
-            oauth: std::sync::Once::new(),
             plugins: parking_lot::RwLock::new(None),
         }
+    }
+
+    fn location_integrations(&self, key: &str) -> Arc<LocationIntegrations> {
+        self.by_location
+            .lock()
+            .entry(key.to_string())
+            .or_insert_with(|| LocationIntegrations::new(Integrations::new(self.store.clone())))
+            .clone()
+    }
+
+    /// The integration registry of location `key` (`None`: the location-less one).
+    pub fn integrations_for(&self, key: Option<&str>) -> Arc<Integrations> {
+        match key {
+            Some(key) => self.location_integrations(key).integrations.clone(),
+            None => self.integrations.clone(),
+        }
+    }
+
+    /// Points the Azure resource listing at another Resource Manager base URL (tests).
+    pub fn set_azure_management(&self, url: impl Into<String>) {
+        *self.azure_management.write() = url.into();
+    }
+
+    /// Drops the registry of a closed location (its attempts end with it, like upstream's scope).
+    pub fn close_location(&self, key: &str) {
+        self.by_location.lock().remove(key);
     }
 
     /// Runs plugin `provider`/`model` transforms in catalog builds of plugin locations.
@@ -263,29 +319,46 @@ impl Models {
 
     /// The provider and web-search plugins' integration registrations (crate::integrations), replayed after the
     /// models.dev ones on every catalog build, like upstream's integration State rebuild.
-    fn register_builtin_integrations(&self, snapshots: &[catalog::models_dev::Snapshot], sections: &[Value]) {
+    fn register_builtin_integrations(&self, state: &Arc<LocationIntegrations>, snapshots: &[catalog::models_dev::Snapshot], sections: &[Value]) {
+        let integrations = &state.integrations;
         let initial = snapshots.iter().filter_map(|s| s.info.settings.clone().map(|settings| (s.info.id.clone(), settings)));
         let environment = crate::integrations::Environment {
             env: oc_ai::credentials::process_env(),
             home: crate::integrations::global_home(),
             settings: crate::integrations::settings(initial, sections),
             azure_cli: which::which("az").is_ok(),
+            azure_resources: state.azure_resources.read().clone(),
         };
-        crate::integrations::register(&self.integrations, &environment);
-        self.oauth.call_once(|| {
-            let db = self.db.clone();
-            let chatgpt_client_id: oc_ai::credentials::flows::chatgpt::SavedClientId = Arc::new(move || {
-                let rows = DbCredentials::rows_of(&db).ok()?;
-                let openai: Vec<&Row> = rows.iter().filter(|r| r.integration_id.as_deref() == Some("openai")).collect();
-                match &selected(openai)?.value {
-                    CredentialValue::Oauth { method_id, metadata, .. } if method_id == "chatgpt-token-sharing" => {
-                        metadata.as_ref()?.get("clientID")?.as_str().map(str::to_string)
+        crate::integrations::register(integrations, &environment);
+        // azure.ts:404-408: list the `az login` account's resources in the background, once.
+        if environment.azure_cli
+            && !crate::integrations::azure_resource_configured(&environment)
+            && !state.azure_started.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            let (weak, resources) = (Arc::downgrade(integrations), state.azure_resources.clone());
+            let (home, env) = (environment.home.clone(), environment.env.clone());
+            let (management, user_agent) = (self.azure_management.read().clone(), self.user_agent.clone());
+            tokio::spawn(async move {
+                let tokens = oc_ai::credentials::azure::AzureCliTokens::new(Arc::new(oc_ai::credentials::azure::SystemAz));
+                let http = reqwest::Client::new();
+                match crate::integrations::list_azure_resources(&home, &env, &tokens, &http, &management, &user_agent).await {
+                    Ok(Some(list)) => {
+                        *resources.write() = Some(list.clone());
+                        // `ctx.integration.reload()`: the method now offers the resources.
+                        if let Some(integrations) = weak.upgrade() {
+                            integrations.register_method("azure", crate::integrations::azure_cli_method(false, Some(&list)));
+                        }
                     }
-                    _ => None,
+                    Ok(None) => {}
+                    Err(cause) => tracing::debug!(%cause, "failed to list Azure resources"),
                 }
             });
+        }
+        state.oauth.call_once(|| {
+            // chatgpt.ts:218-237: the saved client of the `openai` integration's active connection.
+            let chatgpt_client_id = oc_ai::credentials::flows::chatgpt::active_connection_client_id(Arc::downgrade(integrations));
             crate::integrations::register_oauth(
-                &self.integrations,
+                integrations,
                 crate::integrations::OAuthDeps {
                     ctx: oc_ai::credentials::http::FlowContext::new(self.user_agent.clone()),
                     env: oc_ai::credentials::process_env(),
@@ -322,30 +395,35 @@ impl Models {
         // Plugin order (core/src/plugin/internal.ts): models.dev, then the provider and web-search plugins, then
         // the configured-provider plugin.
         let dev_specs = catalog::models_dev::integrations(&snapshots);
+        let state = match key {
+            Some(k) => self.location_integrations(k),
+            None => self.default_location.clone(),
+        };
+        let integrations = &state.integrations;
         let register_specs = |specs: &[catalog::IntegrationSpec]| {
             for spec in specs {
                 if let Some(name) = &spec.name {
-                    self.integrations.update(&spec.id, |r| r.name = name.clone());
+                    integrations.update(&spec.id, |r| r.name = name.clone());
                 }
                 for m in &spec.methods {
-                    self.integrations.register_method(&spec.id, method(m));
+                    integrations.register_method(&spec.id, method(m));
                 }
             }
         };
         register_specs(&dev_specs);
-        self.register_builtin_integrations(&snapshots, &sections);
+        self.register_builtin_integrations(&state, &snapshots, &sections);
         // Plugin `integration` transforms run between the internal plugins and the configured ones.
         let host = self.plugins.read().clone();
         if let (Some(host), Some(key)) = (host, key) {
-            host.integrations(key, &self.integrations).await;
+            host.integrations(key, integrations).await;
         }
-        let known: HashSet<String> = self.integrations.refs().into_iter().map(|r| r.id).collect();
+        let known: HashSet<String> = integrations.refs().into_iter().map(|r| r.id).collect();
         register_specs(&config.integrations(|id| known.contains(id)));
         let mut access = Access::new();
-        for info in self.integrations.list().await.map_err(|e| anyhow::anyhow!("{e}"))? {
+        for info in integrations.list().await.map_err(|e| anyhow::anyhow!("{e}"))? {
             access.set(info.id.clone(), info.connections.iter().map(|c| c.key()).collect());
         }
-        let configured: HashSet<String> = self.integrations.refs().into_iter().map(|r| r.id).collect();
+        let configured: HashSet<String> = integrations.refs().into_iter().map(|r| r.id).collect();
         let connected = std::env::var("OPENCODE_API_KEY").is_ok_and(|v| !v.is_empty())
             || access.connections("opencode").is_some_and(|c| !c.is_empty());
         // Upstream registers the OpenCode Zen provider plugin among the provider plugins, before the
@@ -373,18 +451,22 @@ impl Models {
         .await)
     }
 
-    pub async fn credential(&self, catalog: &Catalog, provider_id: &str) -> Option<CredentialValue> {
+    /// The active connection's credential for `provider_id`, resolved through location `key`'s
+    /// integration registry (its env methods and OAuth refresh implementations).
+    pub async fn credential(&self, key: Option<&str>, catalog: &Catalog, provider_id: &str) -> Option<CredentialValue> {
         let integration = catalog
             .provider(provider_id)
             .and_then(|p| p.integration_id.clone())
             .unwrap_or_else(|| provider_id.to_string());
-        let connection = self.integrations.active(&integration).await.ok().flatten()?;
-        self.integrations.resolve(&connection).await.ok().flatten()
+        let integrations = self.integrations_for(key);
+        let connection = integrations.active(&integration).await.ok().flatten()?;
+        integrations.resolve(&connection).await.ok().flatten()
     }
 
     /// `SessionRunnerModel.resolve`: session model → config model → first available text model.
     pub async fn resolve_for_session(
         &self,
+        key: Option<&str>,
         catalog: &Catalog,
         session_id: &str,
         session_model: Option<&ModelRef>,
@@ -397,7 +479,7 @@ impl Models {
         if catalog.model(&r.provider_id, &r.id).is_none() {
             return Err(ModelError::Unavailable(r.provider_id.clone(), r.id.clone()).into());
         }
-        let credential = self.credential(catalog, &r.provider_id).await;
+        let credential = self.credential(key, catalog, &r.provider_id).await;
         let variant = r.variant.as_deref().filter(|v| *v != "default");
         catalog
             .resolve(&r.provider_id, &r.id, variant, credential.as_ref())

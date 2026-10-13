@@ -236,7 +236,11 @@ impl Ripgrep {
         let archive = self.bin.join(&filename);
         tracing::info!(url = %url, "downloading ripgrep");
         std::fs::create_dir_all(&self.bin).map_err(|e| e.to_string())?;
-        let response = self.http.get(&url).send().await.map_err(|e| e.to_string())?;
+        let mut request = self.http.get(&url);
+        for (k, v) in oc_util::trace::headers() {
+            request = request.header(k, v);
+        }
+        let response = request.send().await.map_err(|e| e.to_string())?;
         if !response.status().is_success() {
             return Err(format!("StatusCode: non 2xx status code ({} GET {url})", response.status().as_u16()));
         }

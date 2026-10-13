@@ -115,6 +115,9 @@ pub(crate) async fn mcp_call<T>(
     for (name, value) in headers {
         request = request.header(*name, value);
     }
+    for (k, v) in oc_util::trace::headers() {
+        request = request.header(k, v);
+    }
     let request = request.body(serde_json::to_vec(&body).unwrap_or_default());
     let run = async {
         let response = request.send().await.map_err(|e| transport_error("POST", url, &e))?;

@@ -54,7 +54,7 @@ async fn always_reply_saves_rule_for_session_project() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     // Reply from a plain OS thread: nothing may depend on thread-local state from the evaluation.
     let perms = app.permissions.clone();
-    std::thread::spawn(move || perms.reply("per_000000000001aaaaaaaaaaaaaa", Reply::Always, None).unwrap())
+    std::thread::spawn(move || futures::executor::block_on(perms.reply("per_000000000001aaaaaaaaaaaaaa", Reply::Always, None)).unwrap())
         .join()
         .unwrap();
     waiter.await.unwrap().unwrap();

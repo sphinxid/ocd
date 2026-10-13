@@ -414,7 +414,11 @@ impl Default for ReqwestGet {
 #[async_trait]
 impl HttpGet for ReqwestGet {
     async fn get(&self, url: &str, user_agent: &str) -> Result<HttpResponse, String> {
-        let response = self.0.get(url).header("User-Agent", user_agent).send().await.map_err(|e| e.to_string())?;
+        let mut request = self.0.get(url).header("User-Agent", user_agent);
+        for (k, v) in oc_util::trace::headers() {
+            request = request.header(k, v);
+        }
+        let response = request.send().await.map_err(|e| e.to_string())?;
         let status = response.status().as_u16();
         let body = response.text().await.map_err(|e| e.to_string())?;
         Ok(HttpResponse { status, body })

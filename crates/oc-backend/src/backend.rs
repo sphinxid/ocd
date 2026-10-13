@@ -512,14 +512,14 @@ impl Backend for Engine {
     // ---- integration ----------------------------------------------------------------------------
 
     async fn integration_list(&self, ctx: &RequestContext, _req: IntegrationListRequest) -> Result<Vec<IntegrationInfo>, ApiError> {
-        self.integrations_ready(ctx).await?;
-        let list = self.models().integrations.list().await.map_err(integration_error)?;
+        let integrations = self.integrations_ready(ctx).await?;
+        let list = integrations.list().await.map_err(integration_error)?;
         list.iter().map(conv).collect()
     }
 
     async fn integration_get(&self, ctx: &RequestContext, req: IntegrationGetRequest) -> Result<IntegrationInfo, ApiError> {
-        self.integrations_ready(ctx).await?;
-        conv(self.integration(&req.integration_id).await?)
+        let integrations = self.integrations_ready(ctx).await?;
+        conv(self.integration(&integrations, &req.integration_id).await?)
     }
 
     async fn experimental_integration_wellknown_add(
@@ -527,71 +527,68 @@ impl Backend for Engine {
         ctx: &RequestContext,
         req: ExperimentalIntegrationWellknownAddRequest,
     ) -> Result<(), ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
+        let loc = self.locations.get(&ctx.location.directory).await?;
         let entry = self
             .wellknown
             .add(&req.body.url)
             .await
             .map_err(|e| ApiError::invalid_request(e.message).with_kind("well_known_discovery"))?;
         // `Integration.reload()`: register the new source's login method.
-        oc_ai::credentials::wellknown::register(&self.models().integrations, &[entry]);
+        oc_ai::credentials::wellknown::register(&self.models().integrations_for(Some(&loc.key)), &[entry]);
         Ok(())
     }
 
     async fn integration_connect_key(&self, ctx: &RequestContext, req: IntegrationConnectKeyRequest) -> Result<(), ApiError> {
-        self.integrations_ready(ctx).await?;
-        self.integration(&req.integration_id).await?;
+        let integrations = self.integrations_ready(ctx).await?;
+        self.integration(&integrations, &req.integration_id).await?;
         let answer = req.body.answer.map(conv).transpose()?;
-        self.models()
-            .integrations
+        integrations
             .connect_key(&req.integration_id, &req.body.key, answer, req.body.label)
             .await
             .map_err(authorization_error)
     }
 
     async fn integration_connect_external(&self, ctx: &RequestContext, req: IntegrationConnectExternalRequest) -> Result<(), ApiError> {
-        self.integrations_ready(ctx).await?;
-        self.integration(&req.integration_id).await?;
+        let integrations = self.integrations_ready(ctx).await?;
+        self.integration(&integrations, &req.integration_id).await?;
         let answer = req.body.answer.map(conv).transpose()?;
-        self.models()
-            .integrations
+        integrations
             .connect_external(&req.integration_id, &req.body.method_id, answer, req.body.label)
             .await
             .map_err(authorization_error)
     }
 
     async fn integration_oauth_connect(&self, ctx: &RequestContext, req: IntegrationOauthConnectRequest) -> Result<IntegrationAttemptEncoded, ApiError> {
-        self.integrations_ready(ctx).await?;
+        let integrations = self.integrations_ready(ctx).await?;
         let input = oc_ai::credentials::integration::OAuthConnect {
             integration_id: req.integration_id,
             method_id: req.body.method_id,
             answer: req.body.answer.map(conv).transpose()?,
             label: req.body.label,
         };
-        let attempt = self.models().integrations.connect_oauth(input).await.map_err(authorization_error)?;
+        let attempt = integrations.connect_oauth(input).await.map_err(authorization_error)?;
         conv(attempt)
     }
 
     async fn integration_oauth_status(&self, ctx: &RequestContext, req: IntegrationOauthStatusRequest) -> Result<IntegrationAttemptStatus, ApiError> {
-        self.integrations_ready(ctx).await?;
-        self.integration(&req.integration_id).await?;
-        match self.models().integrations.oauth_status(&req.integration_id, &req.attempt_id) {
+        let integrations = self.integrations_ready(ctx).await?;
+        self.integration(&integrations, &req.integration_id).await?;
+        match integrations.oauth_status(&req.integration_id, &req.attempt_id) {
             Ok(s) => conv(s),
             Err(_) => Err(attempt_not_found(&req.integration_id, &req.attempt_id, "OAuth")),
         }
     }
 
     async fn integration_oauth_cancel(&self, ctx: &RequestContext, req: IntegrationOauthCancelRequest) -> Result<(), ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
-        self.models().integrations.cancel_oauth(&req.integration_id, &req.attempt_id);
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        self.models().integrations_for(Some(&loc.key)).cancel_oauth(&req.integration_id, &req.attempt_id);
         Ok(())
     }
 
     async fn integration_oauth_complete(&self, ctx: &RequestContext, req: IntegrationOauthCompleteRequest) -> Result<(), ApiError> {
-        self.integrations_ready(ctx).await?;
-        self.integration(&req.integration_id).await?;
-        self.models()
-            .integrations
+        let integrations = self.integrations_ready(ctx).await?;
+        self.integration(&integrations, &req.integration_id).await?;
+        integrations
             .complete_oauth(&req.integration_id, &req.attempt_id, req.body.code)
             .await
             .map_err(|e| match e {
@@ -606,8 +603,8 @@ impl Backend for Engine {
     }
 
     async fn integration_command_connect(&self, ctx: &RequestContext, req: IntegrationCommandConnectRequest) -> Result<IntegrationCommandAttempt, ApiError> {
-        self.integrations_ready(ctx).await?;
-        let info = self.integration(&req.integration_id).await?;
+        let integrations = self.integrations_ready(ctx).await?;
+        let info = self.integration(&integrations, &req.integration_id).await?;
         let has = info.methods.iter().any(|m| m.kind() == "command" && m.id() == Some(req.body.method_id.as_str()));
         if !has {
             return Err(ApiError::integration_method_not_found(&req.integration_id, &req.body.method_id));
@@ -622,17 +619,17 @@ impl Backend for Engine {
     }
 
     async fn integration_command_status(&self, ctx: &RequestContext, req: IntegrationCommandStatusRequest) -> Result<IntegrationCommandAttemptStatus, ApiError> {
-        self.integrations_ready(ctx).await?;
-        self.integration(&req.integration_id).await?;
-        match self.models().integrations.command_status(&req.integration_id, &req.attempt_id) {
+        let integrations = self.integrations_ready(ctx).await?;
+        self.integration(&integrations, &req.integration_id).await?;
+        match integrations.command_status(&req.integration_id, &req.attempt_id) {
             Ok(s) => conv(s),
             Err(_) => Err(attempt_not_found(&req.integration_id, &req.attempt_id, "Command")),
         }
     }
 
     async fn integration_command_cancel(&self, ctx: &RequestContext, req: IntegrationCommandCancelRequest) -> Result<(), ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
-        self.models().integrations.cancel_command(&req.integration_id, &req.attempt_id);
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        self.models().integrations_for(Some(&loc.key)).cancel_command(&req.integration_id, &req.attempt_id);
         Ok(())
     }
 
@@ -844,6 +841,7 @@ impl Backend for Engine {
         self.app
             .permissions
             .reply(&req.request_id, reply, req.body.message)
+            .await
             .map_err(|_| ApiError::permission_not_found(&req.request_id))
     }
 
@@ -1178,6 +1176,7 @@ impl Backend for Engine {
     async fn worktree_create(&self, _ctx: &RequestContext, req: WorktreeCreateRequest) -> Result<WorktreeInfo, ApiError> {
         let b = req.body;
         let configured = self.worktree_parent(&b.project_id).await;
+        let strategies = self.worktree_strategies(&b.project_id).await;
         let dir = oc_core::worktree::create(
             &self.app.bus,
             &self.app.global,
@@ -1187,6 +1186,7 @@ impl Backend for Engine {
             b.directory.as_deref().map(std::path::Path::new),
             b.name.as_deref(),
             configured.as_deref(),
+            &strategies,
         )
         .await
         .map_err(worktree_error)?;
@@ -1194,12 +1194,14 @@ impl Backend for Engine {
     }
 
     async fn worktree_refresh(&self, _ctx: &RequestContext, req: WorktreeRefreshRequest) -> Result<(), ApiError> {
-        oc_core::worktree::refresh(&self.app.bus, &req.body.project_id).await.map_err(worktree_error)
+        let strategies = self.worktree_strategies(&req.body.project_id).await;
+        oc_core::worktree::refresh(&self.app.bus, &req.body.project_id, &strategies).await.map_err(worktree_error)
     }
 
     async fn worktree_remove(&self, _ctx: &RequestContext, req: WorktreeRemoveRequest) -> Result<(), ApiError> {
         let b = req.body;
-        oc_core::worktree::remove(&self.app.bus, &b.project_id, &b.directory, b.force).await.map_err(worktree_error)
+        let strategies = self.worktree_strategies(&b.project_id).await;
+        oc_core::worktree::remove(&self.app.bus, &b.project_id, &b.directory, b.force, &strategies).await.map_err(worktree_error)
     }
 
     async fn experimental_session_stats(&self, _ctx: &RequestContext, req: ExperimentalSessionStatsRequest) -> Result<SessionStatsInfo, ApiError> {
@@ -1263,19 +1265,21 @@ impl Backend for Engine {
         let loc = self.locations.get(&ctx.location.directory).await?;
         let provider = req.provider.unwrap_or_else(|| "git".into());
         let directory = loc.project_directory().to_path_buf();
+        self.app.plugins.await_activation(&loc.key).await;
         if !directory.is_dir() {
             return Err(ApiError::invalid_request("Project directory does not exist").with_field("location"));
         }
         if loc.vcs().is_some() {
             return Err(ApiError::conflict("Project already has version control", Some(directory.display().to_string())));
         }
-        match provider.as_str() {
-            "git" => oc_git::GitVcs::init(&directory)
-                .await
-                .map_err(|_| ApiError::service_unavailable("VCS initialization failed", Some(provider.clone())))?,
-            // TODO(core): the hg provider.
-            "hg" => return Err(ApiError::service_unavailable("VCS initialization failed", Some(provider.clone()))),
-            _ => return Err(ApiError::invalid_request("Unknown VCS provider").with_field("provider")),
+        let registry = self.app.plugins.vcs(&loc.key, loc.vcs()).await;
+        let unavailable = || ApiError::service_unavailable("VCS initialization failed", Some(provider.clone()));
+        match registry.get(&provider) {
+            Some(p) if !p.has_init() => return Err(ApiError::vcs_init_not_supported(provider)),
+            Some(p) => p.init(&oc_core::vcs::Scope::of(&loc.location)).await.map_err(|_| unavailable())?,
+            // TODO(core): the hg provider is not ported.
+            None if provider == "hg" => return Err(unavailable()),
+            None => return Err(ApiError::invalid_request("Unknown VCS provider").with_field("provider")),
         }
         let resolved = oc_core::project::resolve_and_persist(&self.app.bus, &directory).await.map_err(defect)?;
         if resolved.vcs.is_none() {
@@ -1287,20 +1291,12 @@ impl Backend for Engine {
     }
 
     async fn vcs_get(&self, ctx: &RequestContext, _req: VcsGetRequest) -> Result<VcsInfo, ApiError> {
-        let loc = self.locations.get(&ctx.location.directory).await?;
-        match loc.git_vcs() {
-            Some(vcs) => {
-                let mut info = vcs.info().await;
-                info.provider = Some("git".into());
-                conv(info)
-            }
-            None => from_json(json!({"branch": {}})),
-        }
+        let vcs = self.vcs(ctx).await?;
+        conv(vcs.info().await)
     }
 
     async fn vcs_base(&self, ctx: &RequestContext, _req: VcsBaseRequest) -> Result<Option<VcsBase>, ApiError> {
-        let loc = self.locations.get(&ctx.location.directory).await?;
-        let Some(vcs) = loc.git_vcs() else { return Ok(None) };
+        let vcs = self.vcs(ctx).await?;
         match vcs.base().await {
             Ok(b) => b.map(conv).transpose(),
             Err(e) => Err(ApiError::service_unavailable(e.message, Some("vcs".into()))),
@@ -1308,30 +1304,24 @@ impl Backend for Engine {
     }
 
     async fn vcs_status(&self, ctx: &RequestContext, _req: VcsStatusRequest) -> Result<Vec<VcsFileStatus>, ApiError> {
-        let loc = self.locations.get(&ctx.location.directory).await?;
-        match loc.git_vcs() {
-            Some(vcs) => vcs.status().await.into_iter().map(conv).collect(),
-            None => Ok(vec![]),
-        }
+        let vcs = self.vcs(ctx).await?;
+        vcs.status().await.into_iter().map(conv).collect()
     }
 
     async fn vcs_branch_list(&self, ctx: &RequestContext, req: VcsBranchListRequest) -> Result<VcsBranchList, ApiError> {
-        let loc = self.locations.get(&ctx.location.directory).await?;
-        let Some(vcs) = loc.git_vcs() else { return Ok(vec![]) };
+        let vcs = self.vcs(ctx).await?;
         let limit = req.limit.unwrap_or(50).clamp(0, 100) as u64;
         Ok(vcs.branches(&oc_git::vcs::BranchOptions { search: req.search, limit: Some(limit) }).await)
     }
 
     async fn vcs_diff(&self, ctx: &RequestContext, req: VcsDiffRequest) -> Result<Vec<FileDiffInfo>, ApiError> {
-        let loc = self.locations.get(&ctx.location.directory).await?;
-        let Some(vcs) = loc.git_vcs() else { return Ok(vec![]) };
+        let vcs = self.vcs(ctx).await?;
         let mode = match req.mode {
             VcsMode::Working => oc_git::vcs::Mode::Working,
             VcsMode::Branch => oc_git::vcs::Mode::Branch,
             VcsMode::Committed => oc_git::vcs::Mode::Committed,
         };
-        let options = oc_git::vcs::DiffOptions { context: req.context.map(|c| c.max(0) as u64), base: req.base };
-        match vcs.review_diff(mode, &options).await {
+        match vcs.diff(mode, req.context.map(|c| c.max(0) as u64), req.base.as_deref()).await {
             Ok(rows) => conv(rows),
             Err(e) => Err(ApiError::service_unavailable(e.message, Some("vcs".into()))),
         }
@@ -1362,15 +1352,15 @@ impl Backend for Engine {
 
     async fn websearch_providers(&self, ctx: &RequestContext, _req: WebsearchProvidersRequest) -> Result<Vec<WebSearchProvider>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        self.configure_websearch(&loc);
-        self.websearch.providers().await.into_iter().map(conv).collect()
+        let websearch = self.configure_websearch(&loc);
+        websearch.providers().await.into_iter().map(conv).collect()
     }
 
     async fn websearch_query(&self, ctx: &RequestContext, req: WebsearchQueryRequest) -> Result<WebSearchResponseEncoded, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        self.configure_websearch(&loc);
+        let websearch = self.configure_websearch(&loc);
         use oc_tools::websearch::WebSearchError as W;
-        match self.websearch.query(&req.body.query, req.body.provider_id.as_deref(), None, &|_| {}).await {
+        match websearch.query(&req.body.query, req.body.provider_id.as_deref(), None, &|_| {}).await {
             Ok(r) => conv(r),
             Err(W::ProviderRequired) => Err(ApiError::invalid_request("Web search provider is required")
                 .with_kind("websearch_provider_required")
@@ -1471,7 +1461,7 @@ fn worktree_error(e: oc_core::worktree::WorktreeError) -> ApiError {
         W::SourceDirectoryNotFound(d) => ApiError::worktree(format!("Worktree source not found: {d}"), None),
         W::DestinationExists(d) => ApiError::worktree(format!("Worktree destination already exists: {d}"), None),
         W::InvalidDirectory(d) => ApiError::worktree(format!("Invalid worktree directory: {d}"), None),
-        W::Git { message, force_required } => ApiError::worktree(message, Some(force_required)),
+        W::Git { message, force_required } => ApiError::worktree(message, force_required),
         other => ApiError::worktree(other.to_string(), None),
     }
 }
@@ -1543,15 +1533,33 @@ impl Engine {
             .map(|p| p.display().to_string())
     }
 
-    /// Location config `websearch` selection (`false` disables, a provider id pins).
-    fn configure_websearch(&self, loc: &crate::locations::Loc) {
-        use oc_tools::websearch::Selection;
-        let selection = oc_config::fold::websearch(&loc.location.entries).map(|w| match w {
-            None => Selection::Disabled,
-            Some("random") => Selection::Random,
-            Some(p) => Selection::Provider(p.to_string()),
-        });
-        self.websearch.set_config_selection(selection);
+    /// The location's VCS service: the provider its registry selects (plugin `vcs` transforms
+    /// included) over the location's scope.
+    async fn vcs(&self, ctx: &RequestContext) -> Result<oc_core::vcs::Vcs, ApiError> {
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        let registry = self.app.plugins.vcs(&loc.key, loc.vcs()).await;
+        Ok(oc_core::vcs::Vcs { provider: registry.selected(loc.vcs()), scope: oc_core::vcs::Scope::of(&loc.location) })
+    }
+
+    /// The worktree strategies of a project's canonical checkout location (booted first, like
+    /// upstream's `Worktree.load`).
+    async fn worktree_strategies(&self, project_id: &str) -> oc_core::worktree::Strategies {
+        if let Some(dir) = oc_core::worktree::project_worktree(&self.app.bus, project_id)
+            && std::path::Path::new(&dir).is_dir()
+        {
+            let _ = self.locations.get(&dir).await;
+        }
+        oc_core::worktree::strategies(&self.app.plugins, &self.app.bus, project_id).await
+    }
+
+    /// The location's web search service with its config `websearch` selection applied
+    /// (`false` disables, a provider id pins; the config plugin runs after plugin transforms).
+    fn configure_websearch(&self, loc: &crate::locations::Loc) -> Arc<oc_tools::websearch::WebSearch> {
+        let websearch = self.app.plugins.websearch_for(&loc.key).unwrap_or_else(|| self.websearch.clone());
+        if let Some(selection) = oc_core::plugins::config_websearch_selection(&loc.location.entries) {
+            websearch.set_config_selection(Some(selection));
+        }
+        websearch
     }
 
     /// PTYs are per location upstream: a PTY created elsewhere is not found here.
@@ -1582,19 +1590,25 @@ impl Engine {
     }
 
     /// `Plugin.awaitActivation`: building the catalog registers integrations and their methods.
-    async fn integrations_ready(&self, ctx: &RequestContext) -> Result<Arc<crate::locations::Loc>, ApiError> {
+    /// Returns the location's integration registry (upstream `Integration` is location-scoped).
+    async fn integrations_ready(&self, ctx: &RequestContext) -> Result<Arc<oc_ai::credentials::Integrations>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
         self.catalog(&loc).await?;
+        let integrations = self.models().integrations_for(Some(&loc.key));
         // `WellKnownPlugin`: persisted sources contribute command login methods.
         match self.wellknown.entries().await {
-            Ok(entries) => oc_ai::credentials::wellknown::register(&self.models().integrations, &entries),
+            Ok(entries) => oc_ai::credentials::wellknown::register(&integrations, &entries),
             Err(e) => tracing::warn!(error = %e, "failed to load wellknown sources"),
         }
-        Ok(loc)
+        Ok(integrations)
     }
 
-    async fn integration(&self, id: &str) -> Result<oc_ai::credentials::integration::IntegrationInfo, ApiError> {
-        match self.models().integrations.get(id).await.map_err(integration_error)? {
+    async fn integration(
+        &self,
+        integrations: &oc_ai::credentials::Integrations,
+        id: &str,
+    ) -> Result<oc_ai::credentials::integration::IntegrationInfo, ApiError> {
+        match integrations.get(id).await.map_err(integration_error)? {
             Some(i) => Ok(i),
             None => Err(ApiError::integration_not_found(id)),
         }

@@ -24,6 +24,10 @@ pub struct CoreHost {
 
 #[async_trait]
 impl ToolHost for CoreHost {
+    fn websearch(&self) -> Option<Arc<oc_tools::websearch::WebSearch>> {
+        self.app.plugins.websearch_for(self.location.as_deref()?)
+    }
+
     async fn ask_permission(&self, r: PermissionRequest) -> Result<(), PermissionError> {
         let input = AssertInput {
             id: None,
@@ -301,7 +305,8 @@ impl ToolHost for CoreHost {
     }
 
     async fn worktree_create(&self, project_id: &str, name: &str) -> Result<Value, String> {
-        let dir = crate::worktree::create(&self.app.bus, &self.app.global, project_id, None, None, None, Some(name), None)
+        let strategies = crate::worktree::strategies(&self.app.plugins, &self.app.bus, project_id).await;
+        let dir = crate::worktree::create(&self.app.bus, &self.app.global, project_id, None, None, None, Some(name), None, &strategies)
             .await
             .map_err(|e| e.to_string())?;
         Ok(serde_json::json!({"directory": dir.display().to_string()}))
@@ -312,9 +317,10 @@ impl ToolHost for CoreHost {
     }
 
     async fn worktree_remove(&self, project_id: &str, directory: &str, force: bool) -> Result<(), WorktreeRemoveError> {
-        crate::worktree::remove(&self.app.bus, project_id, directory, force).await.map_err(|e| match e {
+        let strategies = crate::worktree::strategies(&self.app.plugins, &self.app.bus, project_id).await;
+        crate::worktree::remove(&self.app.bus, project_id, directory, force, &strategies).await.map_err(|e| match e {
             crate::worktree::WorktreeError::InvalidDirectory(_) => WorktreeRemoveError::InvalidDirectory,
-            crate::worktree::WorktreeError::Git { force_required: true, .. } => WorktreeRemoveError::ForceRequired,
+            crate::worktree::WorktreeError::Git { force_required: Some(true), .. } => WorktreeRemoveError::ForceRequired,
             other => WorktreeRemoveError::Other(other.to_string()),
         })
     }

@@ -333,6 +333,30 @@ impl WebSearch {
         }
     }
 
+    /// The registered providers in registration order.
+    pub fn provider_list(&self) -> Vec<Arc<dyn SearchProvider>> {
+        self.data.read().providers.clone()
+    }
+
+    /// Replace every provider (a rebuilt registry: built-ins → plugin transforms).
+    pub fn set_providers(&self, providers: Vec<Arc<dyn SearchProvider>>) {
+        self.data.write().providers = providers;
+    }
+
+    /// A new service over the same store, user agent and clock with this one's providers: one
+    /// location's registry (upstream `WebSearch` is a location node; its own providers, selection,
+    /// cooldowns and random-provider affinity).
+    pub fn fork(&self) -> WebSearch {
+        WebSearch {
+            store: self.store.clone(),
+            data: RwLock::new(Data { providers: self.provider_list(), selection: None }),
+            cooldowns: Mutex::new(HashMap::new()),
+            preferred: Mutex::new(HashMap::new()),
+            user_agent: self.user_agent.clone(),
+            clock: RwLock::new(self.clock.read().clone()),
+        }
+    }
+
     pub fn remove_provider(&self, id: &str) {
         self.data.write().providers.retain(|p| p.info().id != id);
     }

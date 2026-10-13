@@ -134,9 +134,8 @@ impl ApiError {
     pub fn worktree(message: impl Into<String>, force_required: Option<bool>) -> Self {
         let mut data = Map::new();
         data.insert("message".into(), Value::String(message.into()));
-        if let Some(f) = force_required {
-            data.insert("forceRequired".into(), Value::Bool(f));
-        }
+        // Upstream always sets the key (`forceRequired: ... : undefined`), which encodes as null.
+        data.insert("forceRequired".into(), force_required.map(Value::Bool).unwrap_or(Value::Null));
         tagged(400, "WorktreeError", json!({ "name": "WorktreeError", "data": Value::Object(data) }))
     }
 
@@ -445,6 +444,11 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&body).unwrap(),
             r#"{"_tag":"WorktreeError","name":"WorktreeError","data":{"message":"nope","forceRequired":true}}"#
+        );
+        let ApiError::Typed { body, .. } = ApiError::worktree("nope", None) else { panic!() };
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"_tag":"WorktreeError","name":"WorktreeError","data":{"message":"nope","forceRequired":null}}"#
         );
     }
 

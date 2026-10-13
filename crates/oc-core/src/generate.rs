@@ -28,7 +28,7 @@ impl Engine {
             req.messages.push(LlmMessage::system(update));
         }
         req.messages.push(LlmMessage::user_text(prompt));
-        crate::plugin_request::shape(
+        let shaped = crate::plugin_request::shape(
             &self.app.plugins,
             &loaded.sel.location.key,
             crate::plugin_request::Kind::Generate,
@@ -40,7 +40,7 @@ impl Engine {
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
         tracing::info!(sessionID = session_id, providerID = %loaded.resolved.model.provider_id, modelID = %loaded.resolved.model.id, "sending session generation request");
-        let response = self.client.generate(req, CancellationToken::new()).await?;
+        let response = self.client.generate_with(req, CancellationToken::new(), shaped.http).await?;
         Ok(response.text())
     }
 
@@ -58,7 +58,7 @@ impl Engine {
                 None => "No model specified and no supported model is available".into(),
             }));
         };
-        let cred = self.models.credential(&catalog, &r.provider_id).await;
+        let cred = self.models.credential(Some(&location.key), &catalog, &r.provider_id).await;
         let resolved = catalog.resolve(&r.provider_id, &r.id, r.variant.as_deref(), cred.as_ref()).map_err(|e| {
             if model.is_some() {
                 GenerateError::ModelSelection(e.to_string())

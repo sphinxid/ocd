@@ -92,8 +92,15 @@ while let Some(event) = stream.next().await {
   in the `credential` table. The ordering and selection rules are exported as pure functions (`store::selected`,
   `store::list_order`, `store::plan_create`, `store::unique_label`).
 - `credentials::KvStore`: `wellknown:*` keys.
-- `route::transport::HttpMiddleware`: per-request header injection (Copilot, Azure Entra, `http.request` hooks).
+- `route::transport::HttpMiddleware`: per-request header injection (Copilot, Azure Entra).
   Register it with `Client::with_middleware`.
+- `route::transport::HttpHook`: per-call middleware around the HTTP exchange (upstream `StreamOptions.http`, which
+  core builds from the `session.http.request` / `session.http.response` plugin hooks). Pass it to
+  `Client::stream_with` / `generate_with`. The request hook sees a `WireRequest` (prepared headers incl.
+  `content-length`, body); the response hook a `WireResponse` (status, empty status text, headers, body read in
+  full, only when `wants_response()`), and the status check runs on its result.
+- Every request carries Effect's trace propagation headers (`b3`, `traceparent`) from `oc_util::trace`: one trace
+  ID per process, a fresh span and parent span per request, set after the `HttpHook` request hook.
 - `catalog::PackageLoader`: optional override of the native package loader.
 
 ## Error handling and retries

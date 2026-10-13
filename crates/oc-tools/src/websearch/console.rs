@@ -67,7 +67,10 @@ impl SearchProvider for ConsoleProvider {
             request = request.header("x-org-id", org);
         }
         let body = json!({ "query": query, "providerID": self.provider_id });
-        let request = request.header("content-type", "application/json").body(body.to_string());
+        let mut request = request.header("content-type", "application/json").body(body.to_string());
+        for (k, v) in oc_util::trace::headers() {
+            request = request.header(k, v);
+        }
         let run = async {
             let response = request.send().await.map_err(|e| transport_error("POST", &url, &e))?;
             check_status(&response, "POST", &url)?;

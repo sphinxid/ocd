@@ -42,6 +42,7 @@ impl Engine {
             req.system = vec![SystemPart::text(s)];
         }
         req.messages = vec![LlmMessage::user_text(text)];
+        self.session_http(session, &mut req);
         // `session.title` may shape the request or answer it (`result`).
         let shaped = crate::plugin_request::shape(
             &self.app.plugins,
@@ -53,16 +54,16 @@ impl Engine {
             &mut req,
         )
         .await;
-        match shaped {
+        let http = match shaped {
             Ok(shaped) if shaped.result.is_some() => {
                 return shaped.result.and_then(|t| t.split('\n').map(str::trim).find(|l| !l.is_empty()).map(str::to_string));
             }
-            Ok(_) => {}
+            Ok(shaped) => shaped.http,
             Err(error) => {
                 tracing::warn!(%error, "session.title hook failed");
                 return None;
             }
-        }
+        };
         let mut out = String::new();
         let mut failed = false;
         let mut tokens = TokenUsage::default();
@@ -73,7 +74,7 @@ impl Engine {
             .map(|c| crate::usage::Cost { tier_size: c.tier.as_ref().map(|t| t.size.max(0) as u64), input: c.input, output: c.output, cache_read: c.cache.read, cache_write: c.cache.write })
             .collect();
         let mut any_usage = false;
-        match self.client.stream(req, CancellationToken::new()).await {
+        match self.client.stream_with(req, CancellationToken::new(), http).await {
             Err(_) => failed = true,
             Ok(mut stream) => {
                 while let Some(ev) = stream.next().await {
@@ -126,16 +127,16 @@ impl Engine {
             provider_id: m.provider_id.clone(),
             variant: m.variant.clone(),
         });
-        let primary = self.models.resolve_for_session(&catalog, session_id, session.model.as_ref(), config_model.as_ref()).await.ok();
+        let primary = self.models.resolve_for_session(Some(&sel.location.key), &catalog, session_id, session.model.as_ref(), config_model.as_ref()).await.ok();
         let preferred = match (&agent.model, &primary) {
             (Some(m), _) => {
-                let cred = self.models.credential(&catalog, &m.provider_id).await;
+                let cred = self.models.credential(Some(&sel.location.key), &catalog, &m.provider_id).await;
                 catalog.resolve(&m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).ok()
             }
             (None, Some(p)) => match catalog.small_model(&p.model.provider_id) {
                 Some(small) => {
                     let variant = ["none", "minimal", "low"].into_iter().find(|v| small.variants.iter().any(|x| x.id == *v));
-                    let cred = self.models.credential(&catalog, &small.provider_id).await;
+                    let cred = self.models.credential(Some(&sel.location.key), &catalog, &small.provider_id).await;
                     catalog.resolve(&small.provider_id, &small.id, variant, cred.as_ref()).ok()
                 }
                 None => None,

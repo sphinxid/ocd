@@ -61,11 +61,11 @@ impl WebSearchTool {
     }
 
     /// Consent flow when no provider is selected. `Ok(Some(id))` = chosen provider.
-    async fn choose(&self, ctx: &ToolContext) -> Result<Option<String>, ErrorCause> {
-        if matches!(self.websearch.default_provider().await, Ok(Some(_))) {
+    async fn choose(&self, websearch: &WebSearch, ctx: &ToolContext) -> Result<Option<String>, ErrorCause> {
+        if matches!(websearch.default_provider().await, Ok(Some(_))) {
             return Ok(None);
         }
-        let providers = self.websearch.providers().await;
+        let providers = websearch.providers().await;
         if providers.is_empty() {
             return Err(ErrorCause::Error(String::new()));
         }
@@ -103,7 +103,7 @@ impl WebSearchTool {
         let FormResponse::Answered(answer) = response else { return Err(cancelled()) };
         let choice = answer.get("choice").and_then(Value::as_str).unwrap_or("").to_string();
         if choice == "disable" {
-            self.websearch.select(Selection::Disabled).await;
+            websearch.select(Selection::Disabled).await;
             return Err(ErrorCause::Error(String::new()));
         }
         let provider_id = if choice == "choose" {
@@ -123,13 +123,13 @@ impl WebSearchTool {
             "random".into()
         };
         if provider_id == "random" {
-            self.websearch.select(Selection::Random).await;
+            websearch.select(Selection::Random).await;
             return Ok(None);
         }
         let Some(provider) = providers.iter().find(|p| p.id == provider_id) else {
             return Err(ErrorCause::Error(String::new()));
         };
-        self.websearch.select(Selection::Provider(provider.id.clone())).await;
+        websearch.select(Selection::Provider(provider.id.clone())).await;
         Ok(Some(provider.id.clone()))
     }
 }
@@ -160,18 +160,19 @@ impl Tool for WebSearchTool {
             .map_err(super::perm(fallback.clone()))?;
         let progress = ctx.progress.clone();
         let on_provider = move |p: &crate::websearch::ProviderInfo| progress(meta(vec![("provider", json!(p.id))]));
-        let mut result = self.websearch.query(&input.query, None, Some(&ctx.session_id), &on_provider).await;
+        let websearch = ctx.host.websearch().unwrap_or_else(|| self.websearch.clone());
+        let mut result = websearch.query(&input.query, None, Some(&ctx.session_id), &on_provider).await;
         if matches!(result, Err(WebSearchError::ProviderRequired)) {
             let chosen = {
                 let _guard = SELECTION_LOCK.lock().await;
-                match tokio::time::timeout(Duration::from_secs(60), self.choose(&ctx)).await {
+                match tokio::time::timeout(Duration::from_secs(60), self.choose(&websearch, &ctx)).await {
                     Err(_) => Err(ErrorCause::Error("Web search cancelled".into())),
                     Ok(r) => r,
                 }
             };
             result = match chosen {
                 Err(cause) => return Err(ToolError::with_cause(fallback, cause)),
-                Ok(id) => self.websearch.query(&input.query, id.as_deref(), Some(&ctx.session_id), &on_provider).await,
+                Ok(id) => websearch.query(&input.query, id.as_deref(), Some(&ctx.session_id), &on_provider).await,
             };
         }
         let response = match result {

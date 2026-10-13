@@ -279,3 +279,32 @@ def loop_llm_request(ctx):
         {"tools": [{"name": "read", "args": {"path": "$PROJECT/hello.txt"}}]},
         {"text": "Done."},
     ], text="read hello", files={"hello.txt": "hi\n"}, llm_full=True)
+
+
+@scenario("loop")
+def loop_trace_headers(ctx):
+    """trace propagation headers of every outgoing request (title, model steps, webfetch) over two prompts."""
+    url = f"http://127.0.0.1:{ctx.mock.port}/page"
+    ctx.set_script([
+        {"tools": [{"name": "webfetch", "args": {"url": url, "format": "text"}}]},
+        {"text": "Fetched."},
+        {"text": "Again."},
+    ])
+    ctx.make_project()
+    ctx.start()
+    sid = ctx.create_session()
+    ctx.prompt(sid, "fetch the page")
+    # An incoming trace context is not adopted by the session's requests.
+    mark = len(ctx.server.events)
+    ctx.call("session.prompt", "POST", f"/api/session/{sid}/prompt", {"text": "again"},
+             headers={"x-opencode-directory": ctx.project,
+                      "traceparent": "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"})
+    ctx.wait_idle(sid, start=mark)
+    # Title requests race the first step; list them first, the rest in arrival order.
+    reqs = sorted(ctx.mock.requests, key=lambda r: r["kind"] != "title")
+    out = []
+    for r in reqs:
+        h = {k.lower(): v for k, v in r["headers"].items()}
+        out.append({"kind": r["kind"], "method": "GET" if r["kind"] == "GET" else "POST", "path": r["path"],
+                    "b3": h.get("b3"), "traceparent": h.get("traceparent")})
+    ctx.rec("requests", out)

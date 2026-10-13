@@ -6,7 +6,7 @@ use crate::error::{AIError, HttpContext, TransportOperation};
 use crate::protocols::{route_label, StreamParser};
 use crate::response::{LLMResponse, ResponseState};
 use crate::route::framing::{Frame, Framer};
-use crate::route::transport::{self, HttpMiddleware, PreparedRequest, Timeouts};
+use crate::route::transport::{self, HttpHook, HttpMiddleware, PreparedRequest, Timeouts};
 use crate::types::{LLMEvent, LLMRequest};
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
@@ -186,6 +186,11 @@ impl Client {
     /// Start a streaming call. Resolves once response headers arrive; HTTP failures are returned here.
     /// Cancellation ends the stream with a Transport error (code `"Aborted"`).
     pub async fn stream(&self, request: LLMRequest, cancel: CancellationToken) -> Result<LLMStream, AIError> {
+        self.stream_with(request, cancel, None).await
+    }
+
+    /// [`Client::stream`] with a per-call [`HttpHook`] (upstream `StreamOptions.http`).
+    pub async fn stream_with(&self, request: LLMRequest, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMStream, AIError> {
         let compiled = self.compile(&request).await?;
         let timeouts = Timeouts::from_request(&compiled.request);
         let url = compiled.prepared.url.clone();
@@ -194,7 +199,7 @@ impl Client {
             _ = cancel.cancelled() => {
                 return Err(AIError::transport(TransportOperation::Request, "Request aborted", Some("Aborted"), Some(&url)));
             }
-            result = transport::execute(&self.http, &compiled.prepared, timeouts) => result?,
+            result = transport::execute_with(&self.http, &compiled.prepared, timeouts, hook.as_deref()) => result?,
         };
         let mut driver = StreamDriver::new(&compiled.request);
         driver.http = Some(execution.http.clone());
@@ -253,8 +258,13 @@ impl Client {
 
     /// Stream and fold into an [`LLMResponse`].
     pub async fn generate(&self, request: LLMRequest, cancel: CancellationToken) -> Result<LLMResponse, AIError> {
+        self.generate_with(request, cancel, None).await
+    }
+
+    /// [`Client::generate`] with a per-call [`HttpHook`].
+    pub async fn generate_with(&self, request: LLMRequest, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMResponse, AIError> {
         let label = route_label(&request);
-        let mut stream = self.stream(request, cancel).await?;
+        let mut stream = self.stream_with(request, cancel, hook).await?;
         let mut state = ResponseState::new();
         while let Some(item) = stream.next().await {
             state.reduce(item?);

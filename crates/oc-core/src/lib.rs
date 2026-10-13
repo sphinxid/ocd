@@ -42,6 +42,7 @@ pub mod skills;
 pub mod step;
 pub mod title;
 pub mod transfer;
+pub mod vcs;
 pub mod worktree;
 pub mod usage;
 pub mod wildcard;

@@ -399,6 +399,26 @@ async fn catalog_integration_websearch_and_codemode_tools() {
     assert_eq!(r.json()["data"]["results"][0]["url"], "https://example.com/rust");
     let _ = d;
 
+    // Plugin-registered integrations and web search providers belong to the plugin's location
+    // (upstream `Integration` and `WebSearch` are location nodes): another location has neither.
+    let other = std::fs::canonicalize(s.h.root.path()).unwrap().join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("opencode.json"), "{}").unwrap();
+    let other = other.display().to_string();
+    let at = Some(other.as_str());
+    let r = s.h.req_in(at, "GET", "/api/integration/fixture-integration", None).await;
+    assert_eq!(r.status, 404, "{:?}", String::from_utf8_lossy(&r.body));
+    let search = s.h.req_in(at, "GET", "/api/websearch/provider", None).await.json();
+    assert_eq!(search["location"]["directory"], other);
+    assert!(!search["data"].to_string().contains("fixture-search"), "{search}");
+    assert!(search["data"].to_string().contains("exa"), "{search}");
+    let r = s.h.req_in(at, "POST", "/api/websearch", Some(json!({ "query": "rust", "providerID": "fixture-search" }))).await;
+    assert_eq!(r.status, 400, "{:?}", String::from_utf8_lossy(&r.body));
+    // ... and the plugin's location still has both.
+    let search = s.h.get("/api/websearch/provider").await.json();
+    assert!(search["data"].to_string().contains("fixture-search"), "{search}");
+    assert_eq!(s.h.get("/api/integration/fixture-integration").await.status, 200);
+
     // A Code Mode tool from a plugin, called inside `execute`: `tool.execute.before` applies to the
     // nested call too.
     let session = s.h.session().await;
@@ -441,5 +461,38 @@ async fn local_plugin_hot_reload() {
         assert!(tokio::time::Instant::now() < deadline, "plugin was not reloaded: {list:?}");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    s.shutdown().await;
+}
+
+#[tokio::test]
+async fn vcs_and_worktree_transforms() {
+    require_bun!();
+    let s = setup(json!([fixture("vcs-plugin")]), vec![]).await;
+    // The plugin's provider is selected (`default.set`) and serves every VCS endpoint.
+    let info = s.h.get("/api/vcs").await.json();
+    assert_eq!(info["data"], json!({ "provider": "fake", "branch": { "current": "fake:true:true", "default": "trunk" } }), "{info}");
+    let branches = s.h.get("/api/vcs/branch?search=fe&limit=3").await.json();
+    assert_eq!(branches["data"], json!(["trunk", "limit:3", "search:fe"]));
+    let diff = s.h.get("/api/vcs/diff?mode=branch&base=main&context=5").await.json();
+    assert_eq!(diff["data"][0]["patch"], "mode=branch base=main context=5 max=10000000");
+    let failed = s.h.get("/api/vcs/diff?mode=committed").await;
+    assert_eq!(failed.status, 503);
+    assert_eq!(failed.json()["message"], "VCS provider could not produce a diff");
+    let base = s.h.get("/api/vcs/base").await.json();
+    assert_eq!(base["data"], json!({ "name": "trunk", "ref": "abc123", "source": "default" }));
+    // `vcs.init` with a provider that has no `init`.
+    let r = s.h.post("/api/vcs/init?provider=fake", json!({})).await;
+    assert_eq!(r.status, 501, "{:?}", String::from_utf8_lossy(&r.body));
+    assert_eq!(r.json()["providerID"], "fake");
+    // The worktree strategy registry: git first, the plugin's strategy added and selected.
+    let strategies = s.h.app.plugins.worktree_strategies(&s.h.dir()).await;
+    assert_eq!(strategies.strategies.iter().map(|s| s.id().to_string()).collect::<Vec<_>>(), ["git", "fake"]);
+    assert_eq!(strategies.selected, "fake");
+    let root = s.h.root.path().join("wt-root");
+    std::fs::create_dir_all(&root).unwrap();
+    let listed = strategies.get("fake").unwrap().list(&root).await.unwrap();
+    assert_eq!(listed[0].directory, root);
+    let err = strategies.get("fake").unwrap().remove(&root, false).await.unwrap_err();
+    assert_eq!(err, oc_core::worktree::StrategyError::Other("force required by fake".into()));
     s.shutdown().await;
 }

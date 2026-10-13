@@ -512,3 +512,36 @@ fn form_validation_rules() {
     assert_eq!(validate_fields(&bad).as_deref(), Some("Form field condition must reference an earlier field: a -> b"));
     assert_eq!(validate_fields(&[]).as_deref(), Some("Form must have at least one field"));
 }
+
+#[tokio::test]
+async fn chatgpt_saved_client_id_follows_the_active_connection() {
+    use oc_ai::credentials::flows::chatgpt::active_connection_client_id;
+    let store = MemoryCredentialStore::shared();
+    let env = map_env([("OPENAI_API_KEY", "sk-env")]);
+    let integrations = Integrations::with(store.clone(), env, Arc::new(|| 1_000));
+    integrations.register_method("openai", Method::Env { names: vec!["OPENAI_API_KEY".into()] });
+    let saved = active_connection_client_id(Arc::downgrade(&integrations));
+    // Only an env-var connection: resolves to a key, no saved client.
+    assert_eq!(saved().await, None);
+    let sharing = |client: serde_json::Value| CredentialValue::Oauth {
+        method_id: "chatgpt-token-sharing".into(),
+        refresh: "r".into(),
+        access: "a".into(),
+        expires: u64::MAX,
+        metadata: client.as_object().cloned(),
+    };
+    let row = store.create(CreateCredential::new("openai", sharing(json!({"clientID": "client_abc", "scopes": ["x"]})))).await.unwrap();
+    assert_eq!(saved().await.as_deref(), Some("client_abc"));
+    // A newer API-key credential becomes the active connection.
+    let key = store.create(CreateCredential::new("openai", CredentialValue::key("sk"))).await.unwrap();
+    store.activate(&key.id).await.unwrap();
+    assert_eq!(saved().await, None);
+    store.activate(&row.id).await.unwrap();
+    assert_eq!(saved().await.as_deref(), Some("client_abc"));
+    // Metadata that fails `decodeMetadata` has no client id.
+    let bad = store.create(CreateCredential::new("openai", sharing(json!({"clientID": "client_bad", "scopes": "x"})))).await.unwrap();
+    store.activate(&bad.id).await.unwrap();
+    assert_eq!(saved().await, None);
+    drop(integrations);
+    assert_eq!(saved().await, None);
+}

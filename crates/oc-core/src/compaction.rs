@@ -860,7 +860,7 @@ impl Run<'_> {
         let key = metadata_key(self.model);
         let costs = costs(self.model);
         let mut streamed = Streamed { text: String::new(), provider_state: None };
-        let mut stream = self.engine.client.stream(request, self.cancel.clone()).await.map_err(Fail::Ai)?;
+        let mut stream = self.engine.client.stream_with(request, self.cancel.clone(), shaped.http).await.map_err(Fail::Ai)?;
         while let Some(event) = stream.next().await {
             match event.map_err(Fail::Ai)? {
                 LLMEvent::ProviderError { message, classification, .. } => {
@@ -1109,7 +1109,7 @@ impl Engine {
         let agent = loaded.sel.agents.items.get("compaction")?;
         let m = agent.model.as_ref()?;
         let catalog = self.models.catalog_at(&loaded.sel.location.entries, Some(&loaded.sel.location.key)).await.ok()?;
-        let cred = self.models.credential(&catalog, &m.provider_id).await;
+        let cred = self.models.credential(Some(&loaded.sel.location.key), &catalog, &m.provider_id).await;
         catalog.resolve(&m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).ok()
     }
 

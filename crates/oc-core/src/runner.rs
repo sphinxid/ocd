@@ -200,6 +200,7 @@ impl Engine {
             mcp.shutdown().await;
         }
         self.app.plugins.close(directory).await;
+        self.models.close_location(directory);
     }
 
     /// `Config.reload()`: re-run discovery and load; when the entries or compatibility roots changed, replace the
@@ -412,7 +413,7 @@ impl Engine {
         });
         let resolved = self
             .models
-            .resolve_for_session(&catalog, &sel.session.id, sel.session.model.as_ref(), config_model.as_ref())
+            .resolve_for_session(Some(&sel.location.key), &catalog, &sel.session.id, sel.session.model.as_ref(), config_model.as_ref())
             .await
             .map_err(|e| crate::errors::StepFailed(SessionError::new("provider.no-route", e.to_string())))?;
         let messages = history_for_runner(&self.app.bus, &sel.session.id)?;
@@ -484,7 +485,13 @@ impl Engine {
         let estimate = crate::compaction::estimate_prompt(loaded, &req.tools);
         let max = crate::prompt::output_limit(model.output_limit().max(0) as u64, model.context_limit().max(0) as u64, false, Some(estimate));
         req.generation = Some(GenerationOptions { max_tokens: Some(max as f64), ..Default::default() });
-        let s = &loaded.sel.session;
+        self.session_http(&loaded.sel.session, &mut req);
+        (req, names)
+    }
+
+    /// The per-session request headers and prompt cache key every model request of a session carries
+    /// (`SessionModelRequest.prepare`: primary, compaction, title and generate requests alike).
+    pub(crate) fn session_http(&self, s: &SessionInfo, req: &mut LLMRequest) {
         let affinity = s.parent_id.clone().or_else(|| s.fork.as_ref().map(|f| f.session_id.clone())).unwrap_or_else(|| s.id.clone());
         let mut headers = indexmap::IndexMap::new();
         headers.insert("x-opencode-session-id".into(), s.id.clone());
@@ -507,7 +514,6 @@ impl Engine {
         req.http = Some(HttpOptions { headers: Some(headers), ..Default::default() });
         let re = regex::Regex::new(r"^ses_[0-9a-f]{64}$").unwrap();
         req.prompt_cache_key = Some(if re.is_match(&affinity) { affinity[4..].to_string() } else { affinity });
-        (req, names)
     }
 
     /// Runs the `session.context` (and `session.model.request`) plugin hooks on a primary request.
@@ -528,6 +534,12 @@ impl Engine {
 
     fn tool_runner(self: &Arc<Self>, loaded: &Loaded, assistant: &str, renamed: Option<HashMap<String, String>>) -> Arc<dyn ToolRunner> {
         let entries = &loaded.sel.location.entries;
+        // The location's web search registry with its config selection (`opencode.config.websearch`).
+        if let Some(selection) = crate::plugins::config_websearch_selection(entries)
+            && let Some(websearch) = self.app.plugins.websearch_for(&loaded.sel.location.key)
+        {
+            websearch.set_config_selection(Some(selection));
+        }
         let config = ToolConfig {
             tool_output_max_lines: oc_config::fold::tool_output(entries).and_then(|t| t.max_lines).map(|v| v as usize),
             tool_output_max_bytes: oc_config::fold::tool_output(entries).and_then(|t| t.max_bytes).map(|v| v as usize),
@@ -771,6 +783,7 @@ impl Engine {
                 tool_choice_none: step_limit,
                 tools: self.tool_runner(&loaded, &assistant, shaped.tools),
                 retry_hook,
+                http_hook: shaped.http,
                 snapshots: self.snapshotter(&loaded),
                 recover_continuation,
                 retry: &mut retry,

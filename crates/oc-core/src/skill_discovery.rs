@@ -80,6 +80,9 @@ async fn get(url: &str, json: bool) -> anyhow::Result<bytes::Bytes> {
         if json {
             request = request.header("accept", "application/json");
         }
+        for (k, v) in oc_util::trace::headers() {
+            request = request.header(k, v);
+        }
         let result = match request.send().await {
             Ok(r) if r.status().is_success() => return Ok(r.bytes().await?),
             Ok(r) => anyhow::anyhow!("StatusCode: {}", r.status()),

@@ -24,10 +24,11 @@ def plugin_files(*names):
     return out
 
 
-def boot(ctx, plugins, names, script=None, files=None):
+def boot(ctx, plugins, names, script=None, files=None, git_repo=False):
     ctx.env_extra["OCD_BUN_PATH"] = BUN
     ctx.set_script(script or [])
-    ctx.make_project(files=dict(plugin_files(*names), **(files or {})), config_extra={"plugins": plugins})
+    ctx.make_project(files=dict(plugin_files(*names), **(files or {})), config_extra={"plugins": plugins},
+                     git_repo=git_repo)
     ctx.start()
 
 
@@ -154,3 +155,59 @@ def plugin_rpc_storage(ctx):
     time.sleep(1.0)
     ctx.record_events()
     record_storage(ctx)
+
+
+@scenario("plugin")
+def plugin_http_hooks(ctx):
+    """session.http.request rewrites headers and body of every model request; session.http.response rewrites the stream."""
+    boot(ctx, ["./plugins/http-plugin"], ["http-plugin"], script=[
+        {"tools": [{"name": "read", "args": {"path": "$PROJECT/hello.txt"}}]},
+        {"text": ["Say ORIGINAL", " now"]},
+    ], files={"hello.txt": "hi\n"})
+    sid = ctx.create_session()
+    ctx.prompt(sid, "read hello")
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.record_events()
+    reqs = sorted(ctx.mock.requests, key=lambda r: r["kind"] != "title")
+    out = []
+    for r in reqs:
+        h = {k.lower(): v for k, v in r["headers"].items()}
+        body = r["body"] if isinstance(r["body"], dict) else {}
+        out.append({"kind": r["kind"], "seen": h.get("x-fixture-seen"), "user": body.get("user"),
+                    "trace": [k for k in ("b3", "traceparent") if k in h]})
+    ctx.rec("requests", out)
+
+
+@scenario("plugin", hold_for_title=0)
+def plugin_vcs_worktree(ctx):
+    """vcs and worktree transforms: a selected plugin VCS provider and a plugin worktree strategy."""
+    boot(ctx, ["./plugins/vcs-plugin"], ["vcs-plugin"], git_repo=True)
+    sid = ctx.create_session(title="Boot")
+    settle_lists(ctx)
+    d = f"directory={ctx.project}"
+    _, session = ctx.call("session.get", "GET", f"/api/session/{sid}", record=False)
+    pid = ((session or {}).get("data") or {}).get("projectID")
+    # Upstream serves vcs.get from a cache its State refresh fills asynchronously.
+    ctx.call("vcs.get.warmup", "GET", f"/api/vcs?{d}", record=False)
+    time.sleep(1.0)
+    for label, path in [
+        ("vcs.get", f"/api/vcs?{d}"),
+        ("vcs.base", f"/api/vcs/base?{d}"),
+        ("vcs.status", f"/api/vcs/status?{d}"),
+        ("vcs.branch.list", f"/api/vcs/branch?{d}&search=fe&limit=3"),
+        ("vcs.diff.working", f"/api/vcs/diff?{d}&mode=working"),
+        ("vcs.diff.branch", f"/api/vcs/diff?{d}&mode=branch&base=main&context=5"),
+        ("vcs.diff.committed", f"/api/vcs/diff?{d}&mode=committed"),
+    ]:
+        ctx.call(label, "GET", path)
+    ctx.call("vcs.init", "POST", f"/api/vcs/init?{d}&provider=fake", {})
+    ctx.call("worktree.create", "POST", "/api/worktree", {"projectID": pid, "name": "wt1"})
+    ctx.call("worktree.list", "GET", f"/api/worktree?projectID={pid}")
+    ctx.call("worktree.refresh", "POST", "/api/worktree/refresh", {"projectID": pid})
+    _, listed = ctx.call("worktree.list.refreshed", "GET", f"/api/worktree?projectID={pid}")
+    rows = listed if isinstance(listed, list) else ((listed or {}).get("data") or [])
+    created = [w["directory"] for w in rows if w.get("strategy") == "fake"]
+    target = created[0] if created else ctx.project + "/missing"
+    ctx.call("worktree.remove", "DELETE", "/api/worktree", {"projectID": pid, "directory": target, "force": False})
+    ctx.call("worktree.remove.force", "DELETE", "/api/worktree", {"projectID": pid, "directory": target, "force": True})
+    ctx.call("worktree.list.after", "GET", f"/api/worktree?projectID={pid}")

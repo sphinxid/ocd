@@ -89,7 +89,15 @@ impl Harness {
     }
 
     pub async fn req(&self, method: &str, uri: &str, body: Option<Value>) -> Res {
+        self.req_in(None, method, uri, body).await
+    }
+
+    /// A request at location `directory` (`x-opencode-directory`), or the server cwd.
+    pub async fn req_in(&self, directory: Option<&str>, method: &str, uri: &str, body: Option<Value>) -> Res {
         let mut b = Request::builder().method(method).uri(uri);
+        if let Some(directory) = directory {
+            b = b.header("x-opencode-directory", directory);
+        }
         let body = match body {
             Some(v) => {
                 b = b.header("content-type", "application/json");

@@ -246,60 +246,74 @@ impl Permissions {
         }
     }
 
-    pub fn reply(&self, request_id: &str, reply: Reply, message: Option<String>) -> Result<(), String> {
-        let mut pending = self.pending.lock();
-        let Some(existing) = pending.shift_remove(request_id) else {
-            return Err(request_id.to_string());
-        };
+    /// `reply`. After an "always" reply with rules to save, every other pending request is
+    /// re-evaluated like a new ask, including the `permission.evaluate` hook, and the ones now
+    /// allowed are approved (`core/src/permission.ts` `reply`).
+    pub async fn reply(&self, request_id: &str, reply: Reply, message: Option<String>) -> Result<(), String> {
         let publish = |sid: &str, rid: &str, r: &str| {
             self.ctx.publish("permission.replied", serde_json::json!({"sessionID": sid, "requestID": rid, "reply": r}))
         };
-        publish(&existing.request.session_id, &existing.request.id, reply_str(reply));
-        let fail = || match &message {
-            Some(m) => PermissionError::Corrected { feedback: m.clone() },
-            None => PermissionError::Declined,
-        };
-        if reply == Reply::Reject {
-            let _ = existing.tx.send(Err(fail()));
-            let same: Vec<String> = pending
-                .iter()
-                .filter(|(_, p)| p.request.session_id == existing.request.session_id)
-                .map(|(k, _)| k.clone())
-                .collect();
-            for id in same {
-                if let Some(item) = pending.shift_remove(&id) {
-                    publish(&item.request.session_id, &item.request.id, "reject");
-                    let _ = item.tx.send(Err(fail()));
-                }
-            }
-            return Ok(());
-        }
-        let save = existing.request.save.clone().unwrap_or_default();
-        if reply == Reply::Always && !save.is_empty() {
-            self.ctx.save(&existing.request.session_id, &existing.request.action, &save);
-        }
-        let _ = existing.tx.send(Ok(()));
-        if reply != Reply::Always || save.is_empty() {
-            return Ok(());
-        }
-        let ids: Vec<String> = pending.keys().cloned().collect();
-        for id in ids {
-            let item = &pending[&id];
-            let input = AssertInput {
-                id: Some(item.request.id.clone()),
-                session_id: item.request.session_id.clone(),
-                action: item.request.action.clone(),
-                resources: item.request.resources.clone(),
-                save: item.request.save.clone(),
-                metadata: None,
-                source: None,
-                agent: item.agent.clone(),
+        let candidates: Vec<(String, AssertInput)> = {
+            let mut pending = self.pending.lock();
+            let Some(existing) = pending.shift_remove(request_id) else {
+                return Err(request_id.to_string());
             };
-            if matches!(self.evaluate_input(&input), Some(Evaluated::Allow(_))) {
-                let item = pending.shift_remove(&id).unwrap();
-                publish(&item.request.session_id, &item.request.id, "always");
-                let _ = item.tx.send(Ok(()));
+            publish(&existing.request.session_id, &existing.request.id, reply_str(reply));
+            let fail = || match &message {
+                Some(m) => PermissionError::Corrected { feedback: m.clone() },
+                None => PermissionError::Declined,
+            };
+            if reply == Reply::Reject {
+                let _ = existing.tx.send(Err(fail()));
+                let same: Vec<String> = pending
+                    .iter()
+                    .filter(|(_, p)| p.request.session_id == existing.request.session_id)
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                for id in same {
+                    if let Some(item) = pending.shift_remove(&id) {
+                        publish(&item.request.session_id, &item.request.id, "reject");
+                        let _ = item.tx.send(Err(fail()));
+                    }
+                }
+                return Ok(());
             }
+            let save = existing.request.save.clone().unwrap_or_default();
+            if reply == Reply::Always && !save.is_empty() {
+                self.ctx.save(&existing.request.session_id, &existing.request.action, &save);
+            }
+            let _ = existing.tx.send(Ok(()));
+            if reply != Reply::Always || save.is_empty() {
+                return Ok(());
+            }
+            pending
+                .iter()
+                .map(|(id, item)| {
+                    (
+                        id.clone(),
+                        AssertInput {
+                            id: Some(item.request.id.clone()),
+                            session_id: item.request.session_id.clone(),
+                            action: item.request.action.clone(),
+                            resources: item.request.resources.clone(),
+                            save: item.request.save.clone(),
+                            metadata: item.request.metadata.clone(),
+                            source: item.request.source.clone(),
+                            agent: item.agent.clone(),
+                        },
+                    )
+                })
+                .collect()
+        };
+        for (id, input) in candidates {
+            // A missing session is skipped (upstream catches `Session.NotFoundError`).
+            if !matches!(self.evaluate_hooked(&input).await, Some((Evaluated::Allow(_), _))) {
+                continue;
+            }
+            // Still pending? It may have been answered or abandoned while the hook ran.
+            let Some(item) = self.pending.lock().shift_remove(&id) else { continue };
+            publish(&item.request.session_id, &item.request.id, "always");
+            let _ = item.tx.send(Ok(()));
         }
         Ok(())
     }
@@ -358,3 +372,102 @@ fn reply_str(r: Reply) -> &'static str {
 
 #[allow(dead_code)]
 type _Unused = HashMap<(), ()>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct Ctx {
+        saved: Mutex<Vec<PermissionRule>>,
+        hooked: Arc<Mutex<Vec<Value>>>,
+        replies: Mutex<Vec<(String, String)>>,
+    }
+
+    impl PermissionContext for Ctx {
+        fn configured(&self, session_id: &str, _agent: Option<&str>) -> Option<Ruleset> {
+            (session_id != "ses_gone").then(|| vec![PermissionRule { action: "*".into(), resource: "*".into(), effect: Effect::Ask }])
+        }
+        fn saved(&self, _session_id: &str) -> Vec<PermissionRule> {
+            self.saved.lock().clone()
+        }
+        fn save(&self, _session_id: &str, action: &str, resources: &[String]) {
+            self.saved.lock().extend(resources.iter().map(|r| PermissionRule { action: action.into(), resource: r.clone(), effect: Effect::Allow }));
+        }
+        fn publish(&self, kind: &str, data: Value) {
+            if kind == "permission.replied" {
+                self.replies.lock().push((data["requestID"].as_str().unwrap().into(), data["reply"].as_str().unwrap().into()));
+            }
+        }
+        fn evaluate_hook(&self, _session_id: &str, mut event: Value) -> futures::future::BoxFuture<'static, Value> {
+            let hooked = self.hooked.clone();
+            Box::pin(async move {
+                hooked.lock().push(event.clone());
+                // A plugin keeps asking for `veto.env` even when a saved rule allows it.
+                if event["resources"].as_array().is_some_and(|r| r.iter().any(|v| v == "veto.env")) {
+                    event["effect"] = "ask".into();
+                }
+                event
+            })
+        }
+    }
+
+    fn input(id: &str, session: &str, resource: &str, save: bool) -> AssertInput {
+        let mut metadata = serde_json::Map::new();
+        metadata.insert("file".into(), resource.into());
+        AssertInput {
+            id: Some(id.into()),
+            session_id: session.into(),
+            action: "read".into(),
+            resources: vec![resource.into()],
+            save: save.then(|| vec!["*".into()]),
+            metadata: Some(metadata),
+            source: None,
+            agent: Some("build".into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn always_recheck_runs_the_evaluate_hook() {
+        let ctx = Arc::new(Ctx::default());
+        let perms = Arc::new(Permissions::new(ctx.clone()));
+        let mut waits = vec![];
+        for (id, session, resource, save) in
+            [("per_a", "ses_1", "a.env", true), ("per_b", "ses_2", "b.env", false), ("per_c", "ses_1", "veto.env", false), ("per_d", "ses_gone", "d.env", false)]
+        {
+            if session == "ses_gone" {
+                // A pending request whose session disappeared is skipped by the re-check.
+                let request = Permissions::request(&input(id, session, resource, save));
+                waits.push(perms.create(request, Some("build".into())));
+                continue;
+            }
+            let p = perms.clone();
+            let i = input(id, session, resource, save);
+            let handle = tokio::spawn(async move { p.assert(i).await });
+            tokio::task::yield_now().await;
+            while !perms.list().iter().any(|r| r.id == id) {
+                tokio::task::yield_now().await;
+            }
+            let (tx, rx) = oneshot::channel();
+            tokio::spawn(async move {
+                let _ = tx.send(handle.await.unwrap());
+            });
+            waits.push(rx);
+        }
+        ctx.hooked.lock().clear();
+        perms.reply("per_a", Reply::Always, None).await.unwrap();
+        let remaining: Vec<String> = perms.list().into_iter().map(|r| r.id).collect();
+        assert_eq!(remaining, vec!["per_c", "per_d"]);
+        assert_eq!(*ctx.replies.lock(), vec![("per_a".into(), "always".into()), ("per_b".into(), "always".into())]);
+        // The hook saw the re-checked requests with their stored metadata (not the missing session's).
+        let hooked = ctx.hooked.lock().clone();
+        assert_eq!(hooked.len(), 2);
+        assert_eq!(hooked[0]["resources"], serde_json::json!(["b.env"]));
+        assert_eq!(hooked[0]["metadata"], serde_json::json!({"file": "b.env"}));
+        assert_eq!(hooked[0]["effect"], "allow");
+        assert_eq!(hooked[1]["resources"], serde_json::json!(["veto.env"]));
+        let mut waits = waits.into_iter();
+        assert!(waits.next().unwrap().await.unwrap().is_ok());
+        assert!(waits.next().unwrap().await.unwrap().is_ok());
+    }
+}

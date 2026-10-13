@@ -30,6 +30,52 @@ pub trait HttpMiddleware: Send + Sync {
     async fn on_request(&self, request: &LLMRequest, prepared: &mut PreparedRequest) -> Result<(), AIError>;
 }
 
+/// A request as plugins see it in `session.http.request` / `session.http.response` (a web `Request`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WireRequest {
+    pub url: String,
+    pub method: String,
+    /// Lowercase names.
+    pub headers: IndexMap<String, String>,
+    pub body: Option<String>,
+}
+
+/// A response as plugins see it in `session.http.response` (a web `Response`, body read as text).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WireResponse {
+    pub status: u16,
+    pub status_text: String,
+    /// Lowercase names.
+    pub headers: IndexMap<String, String>,
+    pub body: Option<String>,
+}
+
+/// Per-call HTTP middleware (upstream `StreamOptions.http`, which core builds from the
+/// `session.http.request` / `session.http.response` plugin hooks in `session/model-request.ts`).
+/// It wraps the executor's send: the request hook sees the prepared request before Effect's client
+/// adds its trace headers, the response hook sees the response before the status check. An `Err`
+/// fails the call as an HTTP transport error with that message.
+#[async_trait]
+pub trait HttpHook: Send + Sync {
+    async fn request(&self, request: WireRequest) -> Result<WireRequest, String>;
+    async fn response(&self, request: &WireRequest, response: WireResponse) -> Result<WireResponse, String>;
+    /// False when nothing observes responses: the body then streams through untouched.
+    fn wants_response(&self) -> bool {
+        true
+    }
+}
+
+impl WireRequest {
+    /// The request as `HttpClientRequest.toWeb` presents it: the prepared headers plus the
+    /// `content-length` that `bodyText` sets.
+    pub fn from_prepared(prepared: &PreparedRequest) -> Self {
+        let mut headers: IndexMap<String, String> =
+            prepared.headers.iter().map(|(k, v)| (k.to_ascii_lowercase(), v.clone())).collect();
+        headers.insert("content-length".into(), prepared.body.len().to_string());
+        Self { url: prepared.url.clone(), method: prepared.method.clone(), headers, body: Some(prepared.body.clone()) }
+    }
+}
+
 /// `bodyWithOverlay`.
 pub fn body_with_overlay(body: Value, request: &LLMRequest) -> Result<(Value, String), AIError> {
     let Some(overlay) = request.http.as_ref().and_then(|h| h.body.as_ref()) else {
@@ -125,14 +171,57 @@ fn header_map(headers: &reqwest::header::HeaderMap) -> IndexMap<String, String> 
 
 /// Send the request; on status >= 400 read and classify the body. Applies the header timeout.
 pub async fn execute(client: &reqwest::Client, prepared: &PreparedRequest, timeouts: Timeouts) -> Result<HttpExecution, AIError> {
-    let mut builder = client.request(
-        reqwest::Method::from_bytes(prepared.method.as_bytes()).unwrap_or(reqwest::Method::POST),
-        &prepared.url,
-    );
-    for (k, v) in &prepared.headers {
+    execute_with(client, prepared, timeouts, None).await
+}
+
+/// [`execute`] with an optional [`HttpHook`] around the send (`RequestExecutor.execute(request, middleware)`).
+/// Every request carries the `b3`/`traceparent` headers of a new client span
+/// ([`oc_util::trace`]), set after the request hook like Effect's traced client does.
+pub async fn execute_with(
+    client: &reqwest::Client,
+    prepared: &PreparedRequest,
+    timeouts: Timeouts,
+    hook: Option<&dyn HttpHook>,
+) -> Result<HttpExecution, AIError> {
+    let hooked = match hook {
+        None => None,
+        Some(hook) => Some(
+            hook.request(WireRequest::from_prepared(prepared))
+                .await
+                .map_err(|message| AIError::transport(TransportOperation::Request, message, None, Some(&prepared.url)))?,
+        ),
+    };
+    let (method, url) = match &hooked {
+        Some(w) => (w.method.as_str(), w.url.as_str()),
+        None => (prepared.method.as_str(), prepared.url.as_str()),
+    };
+    let mut builder = client.request(reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST), url);
+    match &hooked {
+        Some(w) => {
+            for (k, v) in &w.headers {
+                // The client computes the length of the body it actually sends.
+                if k != "content-length" && k != "b3" && k != "traceparent" {
+                    builder = builder.header(k, v);
+                }
+            }
+            if let Some(body) = &w.body
+                && !matches!(w.method.as_str(), "GET" | "HEAD")
+            {
+                builder = builder.body(body.clone());
+            }
+        }
+        None => {
+            for (k, v) in &prepared.headers {
+                if !k.eq_ignore_ascii_case("b3") && !k.eq_ignore_ascii_case("traceparent") {
+                    builder = builder.header(k, v);
+                }
+            }
+            builder = builder.body(prepared.body.clone());
+        }
+    }
+    for (k, v) in oc_util::trace::headers() {
         builder = builder.header(k, v);
     }
-    let builder = builder.body(prepared.body.clone());
     let send = builder.send();
     let response = match timeouts.header {
         Some(limit) => match tokio::time::timeout(limit, send).await {
@@ -158,6 +247,11 @@ pub async fn execute(client: &reqwest::Client, prepared: &PreparedRequest, timeo
         };
         AIError::transport(TransportOperation::Request, reqwest_message(&e), code, Some(&prepared.url)).with_cause(&e)
     })?;
+    if let (Some(hook), Some(sent)) = (hook, &hooked)
+        && hook.wants_response()
+    {
+        return hooked_response(hook, sent, response).await;
+    }
     let status = response.status().as_u16();
     let url = response.url().to_string();
     let headers = header_map(response.headers());
@@ -183,5 +277,43 @@ pub async fn execute(client: &reqwest::Client, prepared: &PreparedRequest, timeo
             })
         })
         .boxed();
+    Ok(HttpExecution { http, body })
+}
+
+/// The `session.http.response` half: the response (body read in full, as the plugin reads it) goes
+/// through the hook, then the hook's response is status-checked and streamed.
+async fn hooked_response(hook: &dyn HttpHook, sent: &WireRequest, response: reqwest::Response) -> Result<HttpExecution, AIError> {
+    let status = response.status();
+    let wire = WireResponse {
+        status: status.as_u16(),
+        // `new Response(stream, {status, headers})` in model-request.ts: no status text.
+        status_text: String::new(),
+        headers: header_map(response.headers()),
+        body: None,
+    };
+    let url = sent.url.clone();
+    let bytes = response.bytes().await.map_err(|e| {
+        AIError::transport(
+            TransportOperation::Read,
+            format!("Connection lost while reading the response: {}", reqwest_message(&e)),
+            Some("TransportError"),
+            Some(&url),
+        )
+    })?;
+    let wire = WireResponse {
+        body: if [204, 205, 304].contains(&wire.status) { None } else { Some(String::from_utf8_lossy(&bytes).into_owned()) },
+        ..wire
+    };
+    let out = hook
+        .response(sent, wire)
+        .await
+        .map_err(|message| AIError::transport(TransportOperation::Request, message, None, Some(&url)))?;
+    let headers: IndexMap<String, String> = out.headers.iter().map(|(k, v)| (k.to_ascii_lowercase(), v.clone())).collect();
+    let http = HttpContext { url: url.clone(), status: out.status, headers: headers.clone() };
+    if out.status >= 400 {
+        let message = http_status_message(out.status, out.body.as_deref());
+        return Err(http_failure(message, Some(&url), Some(out.status), &headers, out.body));
+    }
+    let body = futures::stream::iter(out.body.map(|b| Ok(Bytes::from(b.into_bytes())))).boxed();
     Ok(HttpExecution { http, body })
 }
