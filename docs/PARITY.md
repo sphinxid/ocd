@@ -11,7 +11,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -27,7 +27,7 @@ Layout:
 | `scripts/parity.py` | runner: selection, per-binary runs, diff, summary |
 | `scripts/parity/harness.py` | `Server` (isolated `serve --port 0`, SSE capture), `Ctx` (per-run API used by scenarios), the normalizer, the dump format |
 | `scripts/parity/mock.py` | scriptable OpenAI-compatible SSE provider (also behind `scripts/mock_provider.py`) |
-| `scripts/parity/{loop,sessions,readonly,errors,cli}.py` | scenarios, one function each, registered with `@scenario(group)` |
+| `scripts/parity/{loop,sessions,readonly,errors,cli,plugins}.py` | scenarios, one function each, registered with `@scenario(group)` |
 
 How a scenario runs, for each binary in turn: the project directory and the XDG state root are recreated at the
 **same paths** (so path-derived values such as project IDs are directly comparable), the mock starts on one
@@ -58,14 +58,15 @@ title/step ordering deterministic.
 - the per-run project/state/server paths and URL (identical between runs; masked for readability);
 - pagination cursors are base64url-decoded and normalized instead of masked;
 - CLI output: the program name `ocd` → `opencode` in command position and in completion-script identifiers,
-  epoch-ms numbers in JSON lines.
+  epoch-ms numbers in JSON lines;
+- plugin failure references (`err_` + 8 random hex digits).
 
 Harness waits that work around upstream laziness (documented below as races, not masked): the first session
 creation waits until `agent.list` answers the same twice and `plugin.updated` was seen; `readonly_server` settles
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (45)
+## Scenarios (50)
 
 | group | scenarios |
 |---|---|
@@ -76,8 +77,21 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | readonly | server info, location, config, shells, agents, commands, skills, models (+default), providers, integrations, MCP, plugins, credentials, websearch providers, references, forms, permissions, PTYs, shells, projects, debug locations, v1 migration status; fs list/read/find (incl. traversal and content types); vcs in a git repo (status, branches, base, three diff modes, bad mode, worktree list) and outside one (incl. `vcs.init`); instruction entries + full LLM request with AGENTS.md/skill/command present; debug location evict + reload |
 | errors | 25 not-found shapes, 42 validation cases (params, query, payload, invalid JSON, empty body, wrong content types), 7 auth cases |
 | cli | `--help` for the root and all 17 subcommands and 29 nested ones, `--version`, unknown flag, bash completions; `run` default and `--format json` with a tool call, `run` without a message; `models`, `stats` (+`--json`, `--all`), `session list`, `debug paths/config/agents`, `mcp list`, `plugin list`, `auth list`, `service status/get` |
+| plugin | oc-plugin's fixture plugins (`crates/oc-plugin/tests/fixtures`) copied into the project and configured as local plugins; the port runs them in its Bun sidecar (`OCD_BUN_PATH`, default the scratchpad bun 1.4.2), upstream in-process. `plugin_inventory`: Promise + Effect + invalid + failing-transform plugins → `plugin.list` (order, sources, failures, the `skill.transform` failure disabling its plugin), `command.list`, `agent.list`, `skill.list`, boot and failure events. `plugin_tool`: a plugin tool offered to the model (tool names and full definitions of the first request) and executed with `tool.execute.before` rewriting its input, tool progress, a plugin command writing storage, the storage rows. `plugin_hooks`: `permission.evaluate` allowing/denying `.env` reads, `tool.execute.after` replacing a result, `session.prompt` rewriting the prompt, `session.context` adding a system part, `shell.create.before` adding an env variable. `plugin_effect`: agent/skill transforms and a rejecting `tool.execute.before`. `plugin_rpc_storage`: `rpc.call` (success, declared error, invalid input, unknown method, unknown RPC), storage incl. `ctx.event.subscribe` rows |
 
 ## Results
+
+Regression run after the plugin integration (debug build, 2026-10-13, groups loop + session + plugin): 29 of 31
+identical; the two diffs are the known `loop_tool_error` race and `loop_llm_request` tracing headers below.
+
+Plugin group (debug build, 2026-10-13): **5 of 5 identical** (`plugin_inventory`, `plugin_tool`,
+`plugin_hooks`, `plugin_effect`, `plugin_rpc_storage`), repeated runs stable except one
+`plugin_hooks` diff seen once in seven runs and not reproduced (a timing race between hook events
+and the step). Fixed on the way: plugin tool progress carried a location (upstream publishes it
+from plugin code, outside the location scope), the inventory did not reflect a plugin disabled by
+a failing transform, and the refresh events after that failure (`command.updated`,
+`skill.updated`, `plugin.updated`) were missing because ocd only rebuilt domains lazily (it now
+rebuilds every plugin-transformed domain once after a location's first activation).
 
 Final full run (debug build, 2026-10-13): **38 of 45 scenarios identical**. The 7 remaining diffs are all
 classified below; none is an unexplained behavioral difference.
@@ -146,8 +160,14 @@ classified below; none is an unexplained behavioral difference.
 | An unknown-tool failure and `session.step.streamed` race (concurrent tool fibers vs stream end) | session/runner/step.ts |
 | `b3`/`traceparent` request headers with random trace IDs | Effect HTTP client tracing propagation; the port has no OpenTelemetry tracer |
 | `run` without `-m` picks OpenCode Zen's free model in both (network) | the suite passes `-m mock/m1` |
+| Plugins activate asynchronously after a location boots: an early `plugin.list` (e.g. `ocd plugin list` against a fresh standalone server) shows only built-ins in both binaries; the plugin scenarios wait for `plugin.updated` and settle the lists | core/src/plugin/supervisor.ts |
 
 ### Remaining
+
+Plugins: `vcs` and `worktree` plugin transforms and the `session.http.request/response` hooks are not
+wired (see crates/oc-plugin/README.md "Core integration"); plugin-registered integrations and web
+search providers live in ocd's process-wide registries instead of per location. `plugin add` was
+compared by hand (network): same output and npm cache layout (`opencode-models-discovery@1.10.0`).
 
 | difference | upstream reference | note |
 |---|---|---|

@@ -128,6 +128,7 @@ async fn run_plain(global: &Global, mode: Mode, hostname: Option<String>, port: 
             _ = wait_for_signal() => {}
         }
         server.shutdown().await;
+        rt.app.plugins.shutdown().await;
         return Ok(0);
     }
     crate::term::write_stdout(&format!("server listening on {url}\n"));
@@ -136,6 +137,7 @@ async fn run_plain(global: &Global, mode: Mode, hostname: Option<String>, port: 
     }
     wait_for_signal().await;
     server.shutdown().await;
+    rt.app.plugins.shutdown().await;
     Ok(0)
 }
 
@@ -215,6 +217,7 @@ async fn run_service(global: &Global, hostname: Option<String>, port: Option<u16
         _ = wait_for_signal() => {}
     }
     server.shutdown().await;
+    rt.app.plugins.shutdown().await;
     oc_server::service::remove_registration_if_owned(&file, &registration);
     Ok(0)
 }

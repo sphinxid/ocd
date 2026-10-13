@@ -63,10 +63,15 @@ fn report_content(version: &str, channel: &str, plugins: &[String]) -> String {
     .join("\n")
 }
 
-/// All skills for a location, later sources replacing earlier ones by id.
+/// All skills for a location, later sources replacing earlier ones by id (without plugins; see
+/// `Plugins::skills`).
 pub async fn list(location: &Location, global: &oc_util::Global, version: &str) -> Vec<Skill> {
-    let home = &global.home;
-    let mut out: IndexMap<String, Skill> = IndexMap::new();
+    with_configured(builtin(location, version), location, global).await
+}
+
+/// The built-in skills (`opencode.skill`, a `pre` internal plugin).
+pub fn builtin(location: &Location, version: &str) -> Vec<Skill> {
+    let mut out: Vec<Skill> = Vec::new();
     let plugins: Vec<String> = oc_config::fold::plugins(&location.entries)
         .iter()
         .map(|p| serde_json::to_value(p).ok().and_then(|v| v.as_str().map(str::to_string).or_else(|| v["package"].as_str().map(str::to_string))).unwrap_or_default())
@@ -75,17 +80,32 @@ pub async fn list(location: &Location, global: &oc_util::Global, version: &str) 
         ("opencode", "OpenCode", OPENCODE_DESCRIPTION, "/builtin/opencode.md", OPENCODE_CONTENT.to_string()),
         ("report", "Report", REPORT_DESCRIPTION, "/builtin/report.md", report_content(version, oc_util::version::CHANNEL, &plugins)),
     ] {
-        out.insert(
-            id.into(),
-            Skill { id: id.into(), name: name.into(), description: Some(description.into()), autoinvoke: None, path: PathBuf::from(path), content },
-        );
+        out.push(Skill { id: id.into(), name: name.into(), description: Some(description.into()), autoinvoke: None, path: PathBuf::from(path), content });
+    }
+    out
+}
+
+/// Applies the compatibility roots and configured skill sources (`post` internal plugins) after
+/// `skills`, later ids replacing earlier ones.
+pub async fn with_configured(skills: Vec<Skill>, location: &Location, global: &oc_util::Global) -> Vec<Skill> {
+    with_sources(skills, location, global, true, true).await
+}
+
+/// [`with_configured`] with the compatibility roots (`opencode.config.compatibility`) and the
+/// configured sources (`opencode.config.skill`) individually enabled.
+pub async fn with_sources(skills: Vec<Skill>, location: &Location, global: &oc_util::Global, compat: bool, config: bool) -> Vec<Skill> {
+    let home = &global.home;
+    let mut out: IndexMap<String, Skill> = IndexMap::new();
+    for s in skills {
+        out.insert(s.id.clone(), s);
     }
     // Compatibility roots register before config sources, so configured skills win (`plugin/internal.ts`).
     let (claude, agents) = location.sources.compatibility();
-    for s in oc_config::sources::compatibility_skills(&claude, &agents) {
+    for s in oc_config::sources::compatibility_skills(&claude, &agents).into_iter().filter(|_| compat) {
         out.insert(s.id.clone(), s);
     }
-    for source in oc_config::sources::skill_sources(&location.entries, home, &location.directory) {
+    let sources = if config { oc_config::sources::skill_sources(&location.entries, home, &location.directory) } else { vec![] };
+    for source in sources {
         let dirs = match source {
             SkillSource::Directory { path } => vec![path],
             SkillSource::Url { url } => crate::skill_discovery::pull_cached(&global.cache, &url).await,

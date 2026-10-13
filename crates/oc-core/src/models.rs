@@ -204,6 +204,9 @@ pub struct Models {
     /// The provider plugins' OAuth implementations are registered once, after the first catalog build placed
     /// the models.dev `key`/`env` slots.
     oauth: std::sync::Once,
+    /// Server plugins (`provider`/`model` transforms between the internal provider plugins and the
+    /// configured-provider plugin).
+    plugins: parking_lot::RwLock<Option<Arc<crate::plugins::Plugins>>>,
 }
 
 /// Plugin storage of `opencode.provider.chatgpt` (`PluginHost.storage`: `plugin:<utf-16 hex id>:<key>` in kv).
@@ -249,7 +252,13 @@ impl Models {
             db,
             user_agent: ua,
             oauth: std::sync::Once::new(),
+            plugins: parking_lot::RwLock::new(None),
         }
+    }
+
+    /// Runs plugin `provider`/`model` transforms in catalog builds of plugin locations.
+    pub fn set_plugins(&self, plugins: Arc<crate::plugins::Plugins>) {
+        *self.plugins.write() = Some(plugins);
     }
 
     /// The provider and web-search plugins' integration registrations (crate::integrations), replayed after the
@@ -289,6 +298,12 @@ impl Models {
 
     /// Build the location catalog (models.dev → data plugins → configured providers).
     pub async fn catalog(&self, entries: &[Entry]) -> anyhow::Result<Catalog> {
+        self.catalog_at(entries, None).await
+    }
+
+    /// [`Models::catalog`] of the plugin location `key`: plugin `provider` and `model` transforms
+    /// run after the internal provider plugins, before the configured-provider plugin.
+    pub async fn catalog_at(&self, entries: &[Entry], key: Option<&str>) -> anyhow::Result<Catalog> {
         let snapshots = self.models_dev.get().await.map_err(|e| anyhow::anyhow!("{e}"))?;
         let sections: Vec<Value> = entries
             .iter()
@@ -319,6 +334,11 @@ impl Models {
         };
         register_specs(&dev_specs);
         self.register_builtin_integrations(&snapshots, &sections);
+        // Plugin `integration` transforms run between the internal plugins and the configured ones.
+        let host = self.plugins.read().clone();
+        if let (Some(host), Some(key)) = (host, key) {
+            host.integrations(key, &self.integrations).await;
+        }
         let known: HashSet<String> = self.integrations.refs().into_iter().map(|r| r.id).collect();
         register_specs(&config.integrations(|id| known.contains(id)));
         let mut access = Access::new();
@@ -328,12 +348,29 @@ impl Models {
         let configured: HashSet<String> = self.integrations.refs().into_iter().map(|r| r.id).collect();
         let connected = std::env::var("OPENCODE_API_KEY").is_ok_and(|v| !v.is_empty())
             || access.connections("opencode").is_some_and(|c| !c.is_empty());
-        let mut plugins = catalog::standard_plugins(&snapshots, configured, config);
         // Upstream registers the OpenCode Zen provider plugin among the provider plugins, before the
         // configured-provider plugin (core/src/plugin/internal.ts `pre`/`post`).
-        let at = plugins.len().saturating_sub(1);
-        plugins.insert(at, Box::new(catalog::plugins::OpencodeZen { connected }));
-        Ok(Catalog::build(&mut plugins, &access))
+        let mut plugins: Vec<Box<dyn catalog::CatalogPlugin + Send>> = vec![
+            Box::new(catalog::ModelsDevPlugin::new(&snapshots)),
+            Box::new(catalog::DataPlugins::new(configured)),
+            Box::new(catalog::plugins::OpencodeZen { connected }),
+            Box::new(config),
+        ];
+        let post = plugins.len() - 1;
+        let host = self.plugins.read().clone();
+        let (Some(plugins_host), Some(key)) = (host, key) else {
+            return Ok(Catalog::build_staged(&mut plugins, post, &access, async |r| r, async |m, d, _| (m, d)).await);
+        };
+        let key = key.to_string();
+        let (p1, k1, p2, k2) = (plugins_host.clone(), key.clone(), plugins_host, key);
+        Ok(Catalog::build_staged(
+            &mut plugins,
+            post,
+            &access,
+            async move |records| p1.provider_records(&k1, records).await,
+            async move |models, default, records| p2.model_records(&k2, models, default, records).await,
+        )
+        .await)
     }
 
     pub async fn credential(&self, catalog: &Catalog, provider_id: &str) -> Option<CredentialValue> {

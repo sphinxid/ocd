@@ -17,6 +17,8 @@ oc-mcp = { path = "../oc-mcp" }
 oc-ai = { path = "../oc-ai" }
 oc-tools = { path = "../oc-tools" }
 oc-persistent-pty = { path = "../oc-persistent-pty" }
+oc-plugin = { path = "../oc-plugin" }
+tower = { workspace = true, features = ["util"] }
 tokio.workspace = true
 futures.workspace = true
 serde.workspace = true

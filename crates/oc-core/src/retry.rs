@@ -40,6 +40,13 @@ impl Default for Policy {
 impl Policy {
     /// `exponential(2s) min spaced(10s)`, jittered ×[0.8,1.2], raised to retry-after, ceil.
     pub fn decide(&mut self, cause: &AIError, retryable: bool) -> Option<Decision> {
+        self.decide_raw(cause, retryable).and_then(|(d, retry)| retry.then_some(d))
+    }
+
+    /// Like [`Policy::decide`], but also returns a decision when the schedule continues and the
+    /// error is not retryable (`retry == false`), for the `session.retry` hook to override.
+    /// `None` when the schedule is exhausted.
+    pub fn decide_raw(&mut self, cause: &AIError, retryable: bool) -> Option<(Decision, bool)> {
         if self.recurrences >= MAX_RETRIES {
             return None;
         }
@@ -55,7 +62,7 @@ impl Policy {
         if is_timeout(cause) {
             self.timeouts += 1;
         }
-        (retryable && self.timeouts <= MAX_TIMEOUT_RETRIES).then_some(Decision { attempt: self.attempt, delay })
+        Some((Decision { attempt: self.attempt, delay }, retryable && self.timeouts <= MAX_TIMEOUT_RETRIES))
     }
 }
 

@@ -8,6 +8,7 @@ pub mod fs;
 pub mod fuzzy;
 pub mod locations;
 pub mod persistent;
+pub mod plugins;
 pub mod sessions;
 pub mod shells;
 pub mod stats;
@@ -50,6 +51,7 @@ pub async fn start(
     opts: oc_server::ServerOptions,
 ) -> anyhow::Result<(oc_server::RunningServer, Arc<Engine>)> {
     let engine = engine(app, runner);
+    plugins::install(&engine, &opts);
     // Adopt an inherited persistent-PTY handoff at boot.
     engine.persistent().await;
     let server = oc_server::serve(engine.clone() as Arc<dyn oc_server::Backend>, opts).await?;
@@ -81,5 +83,7 @@ pub fn router(
     runner: Option<Arc<oc_core::runner::Engine>>,
     opts: &oc_server::ServerOptions,
 ) -> anyhow::Result<(axum::Router, oc_server::RouterHandle)> {
-    oc_server::router(engine(app, runner) as Arc<dyn oc_server::Backend>, opts)
+    let engine = engine(app, runner);
+    plugins::install(&engine, opts);
+    oc_server::router(engine as Arc<dyn oc_server::Backend>, opts)
 }

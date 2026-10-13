@@ -281,6 +281,69 @@ impl Npm {
         self.install(bun, pkg, false).await
     }
 
+    /// `Npm.check`: whether a newer revision of a mutable spec is available (the registry's
+    /// resolution of the spec through `bun info`, or the Git ref through `git ls-remote`).
+    pub async fn check(&self, bun: &Path, pkg: &str) -> Result<bool, NpmError> {
+        let failed = |message: String| NpmError::Install { pkg: pkg.into(), message };
+        let target = parse(pkg).ok_or_else(|| failed("Package checks only support registry and Git package specs".into()))?;
+        let mutable = match &target {
+            Target::Registry { mutable, .. } | Target::Git { mutable, .. } => *mutable,
+        };
+        if !mutable {
+            return Ok(false);
+        }
+        let (installed, exists) = self.resolve(pkg);
+        if !exists {
+            return Err(failed(format!("Package is not installed: {pkg}")));
+        }
+        let root = Self::current(&self.directory(pkg)).unwrap_or_else(|| self.directory(pkg));
+        let available = match &target {
+            Target::Registry { name, spec, .. } => {
+                let out = tokio::process::Command::new(bun)
+                    .args(["info", &format!("{name}@{spec}"), "version", "--json"])
+                    .current_dir(&root)
+                    .stdin(std::process::Stdio::null())
+                    .output()
+                    .await
+                    .map_err(|e| failed(e.to_string()))?;
+                if !out.status.success() {
+                    return Err(failed(String::from_utf8_lossy(&out.stderr).trim().to_string()));
+                }
+                let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                serde_json::from_str::<serde_json::Value>(&text)
+                    .ok()
+                    .and_then(|v| match v {
+                        serde_json::Value::String(s) => Some(s),
+                        serde_json::Value::Array(a) => a.last().and_then(|v| v.as_str().map(String::from)),
+                        _ => None,
+                    })
+                    .or_else(|| (!text.is_empty()).then_some(text))
+            }
+            Target::Git { .. } => {
+                let spec = pkg.split_once('@').filter(|(n, r)| !n.is_empty() && !n.contains(['/', ':']) && r.contains(['/', ':'])).map(|(_, r)| r).unwrap_or(pkg);
+                let (url, reference) = spec.split_once('#').unwrap_or((spec, "HEAD"));
+                let url = url.strip_prefix("git+").unwrap_or(url);
+                let url = match url.strip_prefix("github:") {
+                    Some(repo) => format!("https://github.com/{repo}.git"),
+                    None => url.to_string(),
+                };
+                let out = tokio::process::Command::new("git")
+                    .args(["ls-remote", &url, reference])
+                    .stdin(std::process::Stdio::null())
+                    .output()
+                    .await
+                    .map_err(|e| failed(e.to_string()))?;
+                String::from_utf8_lossy(&out.stdout).split_whitespace().next().map(String::from)
+            }
+        };
+        let available = available.ok_or_else(|| failed(format!("Package revision not found: {pkg}")))?;
+        let current = match &target {
+            Target::Git { .. } => installed.revision.clone(),
+            Target::Registry { .. } => installed.version.clone(),
+        };
+        Ok(current.as_deref() != Some(available.as_str()))
+    }
+
     /// `Npm.update`: reinstalls mutable specs, then garbage-collects generations.
     pub async fn update(&self, bun: &Path, pkg: &str) -> Result<Installed, NpmError> {
         let mutable = match parse(pkg) {

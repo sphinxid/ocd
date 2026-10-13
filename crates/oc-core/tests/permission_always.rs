@@ -59,7 +59,7 @@ async fn always_reply_saves_rule_for_session_project() {
         .unwrap();
     waiter.await.unwrap().unwrap();
 
-    let (_, effect) = app.permissions.ask(input("per_000000000002aaaaaaaaaaaaaa"));
+    let (_, effect) = app.permissions.ask(input("per_000000000002aaaaaaaaaaaaaa")).await;
     assert_eq!(effect, Effect::Allow);
     let _ = std::fs::remove_dir_all(&root);
 }

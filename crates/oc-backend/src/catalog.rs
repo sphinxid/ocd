@@ -11,10 +11,10 @@ use crate::locations::Loc;
 pub const PROMPT_INITIALIZE: &str = include_str!("../../../assets/prompt/command/initialize.txt");
 pub const PROMPT_REVIEW: &str = include_str!("../../../assets/prompt/command/review.txt");
 
-/// Every skill registered at a location (`oc_core::skills::list`: built-ins, configured
-/// directories and remote sources, compatibility roots).
-pub async fn skills(loc: &Loc, version: &str, global: &oc_util::Global) -> Vec<Skill> {
-    oc_core::skills::list(&loc.location, global, version).await
+/// Every skill registered at a location (built-ins, plugin transforms, then compatibility roots
+/// and configured directories and remote sources).
+pub async fn skills(loc: &Loc, version: &str, global: &oc_util::Global, plugins: &oc_core::plugins::Plugins) -> Vec<Skill> {
+    plugins.skills(&loc.location, global, version).await
 }
 
 /// `Skill.Info` JSON.
@@ -37,6 +37,8 @@ pub enum CommandDef {
     Review,
     Mcp(oc_mcp::Prompt),
     Config(Command),
+    /// A plugin command: its `execute` function handle in the plugin host.
+    Plugin(String),
 }
 
 /// `mcpCommandName`: `<server>:<prompt>` with `[^a-zA-Z0-9_-]` → `_`.
@@ -57,8 +59,15 @@ pub fn prompt_message_text(content: &Value) -> String {
 }
 
 /// Commands registered at a location: built-ins, MCP prompts, then configuration (later names
-/// replace earlier).
+/// replace earlier). Without plugin transforms; see `Engine::commands`.
 pub fn commands(loc: &Loc, prompts: &[oc_mcp::Prompt]) -> IndexMap<String, (Option<String>, CommandDef)> {
+    let mut out = native(prompts);
+    configured(loc, &mut out);
+    out
+}
+
+/// The native commands registered before plugins (`opencode.command`, MCP prompts).
+pub fn native(prompts: &[oc_mcp::Prompt]) -> IndexMap<String, (Option<String>, CommandDef)> {
     let mut out = IndexMap::new();
     out.insert("init".to_string(), (Some("guided AGENTS.md setup".to_string()), CommandDef::Init));
     out.insert(
@@ -68,10 +77,14 @@ pub fn commands(loc: &Loc, prompts: &[oc_mcp::Prompt]) -> IndexMap<String, (Opti
     for prompt in prompts {
         out.insert(mcp_command_name(&prompt.server, &prompt.name), (prompt.description.clone(), CommandDef::Mcp(prompt.clone())));
     }
+    out
+}
+
+/// Configured commands (`opencode.config.command`, a `post` plugin).
+pub fn configured(loc: &Loc, out: &mut IndexMap<String, (Option<String>, CommandDef)>) {
     for (name, command) in sources::commands(&loc.location.entries) {
         out.insert(name, (command.description.clone(), CommandDef::Config(command)));
     }
-    out
 }
 
 /// `append(template, input)` of the built-in command plugin.

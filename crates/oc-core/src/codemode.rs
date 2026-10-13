@@ -12,7 +12,7 @@ use oc_codemode::host::{CallResult, ExtensionInvocation, Host, HostValue, Json, 
 use oc_codemode::tool_runtime::{ToolDef, ToolEntry};
 use oc_codemode::tool_schema::ToolSchema;
 use oc_schema::{Metadata, ToolContent};
-use oc_tools::registry::{execute_tool as run_tool, NoHooks};
+use oc_tools::registry::{execute_tool as run_tool, ExecuteHooks, NoHooks};
 use oc_tools::tool::{normalized_name, DefinitionContext};
 use oc_tools::{Snapshot, Tool, ToolContext, ToolDefinition, ToolError, ToolResult};
 use serde_json::{json, Value};
@@ -202,6 +202,8 @@ struct Collected {
 struct ExecuteHost {
     tools: Vec<(String, String, Arc<dyn Tool>)>,
     ctx: ToolContext,
+    /// `tool.execute.before/after` for nested calls (`beforeExecute` → `executeTool`).
+    hooks: Arc<dyn ExecuteHooks>,
     rows: ProgressRows,
     progress_lock: Mutex<()>,
     calls: Mutex<usize>,
@@ -249,11 +251,15 @@ impl Host for ExecuteHost {
         let mut ctx = self.ctx.clone();
         ctx.call_id = oc_schema::id::ascending("call");
         let files = self.files.clone();
+        let hooks = self.hooks.clone();
         Box::pin(async move {
             let Some((_, name, tool)) = found else {
                 return Err(ToolCallError::failure("Execute context is unavailable"));
             };
-            let executed = run_tool(tool.as_ref(), &name, input.unwrap_or(Value::Null), ctx, &NoHooks)
+            let mut input = input.unwrap_or(Value::Null);
+            let mut hooked = name.clone();
+            hooks.before(&mut hooked, &mut input, &ctx).await.map_err(|e| ToolCallError::Failure(e.model_message()))?;
+            let executed = run_tool(tool.as_ref(), &name, input, ctx, hooks.as_ref())
                 .await
                 .map_err(|e| ToolCallError::Failure(e.model_message()))?;
             let collected = output_files(&executed.content);
@@ -286,6 +292,11 @@ impl Host for ExecuteHost {
 
 /// Runs the `execute` tool: `{ code }` → `{ output, content, metadata }` like upstream `CodeModeTool.create`.
 pub async fn execute(snapshot: &Snapshot, input: Value, ctx: ToolContext) -> Result<ToolResult, ToolError> {
+    execute_with(snapshot, input, ctx, Arc::new(NoHooks)).await
+}
+
+/// [`execute`] with plugin hooks around every nested tool call.
+pub async fn execute_with(snapshot: &Snapshot, input: Value, ctx: ToolContext, hooks: Arc<dyn ExecuteHooks>) -> Result<ToolResult, ToolError> {
     let Some(code) = input.get("code").and_then(|c| c.as_str()).map(String::from) else {
         return Err(ToolError::new(
             "The execute tool was called with invalid arguments: expected { code: string }.".to_string(),
@@ -300,6 +311,7 @@ pub async fn execute(snapshot: &Snapshot, input: Value, ctx: ToolContext) -> Res
     let host = Arc::new(ExecuteHost {
         tools,
         ctx: ctx.clone(),
+        hooks,
         rows: ProgressRows::new(),
         progress_lock: Mutex::new(()),
         calls: Mutex::new(0),
@@ -335,7 +347,7 @@ pub async fn execute(snapshot: &Snapshot, input: Value, ctx: ToolContext) -> Res
 
 
 /// The `execute` tool over a request snapshot, so it runs through the same hooks and normalization as direct tools.
-pub struct ExecuteTool(pub Snapshot);
+pub struct ExecuteTool(pub Snapshot, pub Arc<dyn ExecuteHooks>);
 
 #[async_trait::async_trait]
 impl Tool for ExecuteTool {
@@ -348,6 +360,6 @@ impl Tool for ExecuteTool {
         })
     }
     async fn execute(&self, input: Value, ctx: ToolContext) -> Result<ToolResult, ToolError> {
-        execute(&self.0, input, ctx).await
+        execute_with(&self.0, input, ctx, self.1.clone()).await
     }
 }

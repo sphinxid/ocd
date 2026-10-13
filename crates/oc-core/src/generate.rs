@@ -28,6 +28,17 @@ impl Engine {
             req.messages.push(LlmMessage::system(update));
         }
         req.messages.push(LlmMessage::user_text(prompt));
+        crate::plugin_request::shape(
+            &self.app.plugins,
+            &loaded.sel.location.key,
+            crate::plugin_request::Kind::Generate,
+            session_id,
+            &loaded.sel.agent.id,
+            &loaded.resolved.model_ref(),
+            &mut req,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
         tracing::info!(sessionID = session_id, providerID = %loaded.resolved.model.provider_id, modelID = %loaded.resolved.model.id, "sending session generation request");
         let response = self.client.generate(req, CancellationToken::new()).await?;
         Ok(response.text())
@@ -36,7 +47,7 @@ impl Engine {
     /// `Generate.text`: a one-off prompt against `model` or the default model.
     pub async fn generate_text(self: &Arc<Self>, directory: &str, prompt: &str, model: Option<ModelRef>) -> Result<String, GenerateError> {
         let location = self.location(directory).await.map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
-        let catalog = self.models.catalog(&location.entries).await.map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
+        let catalog = self.models.catalog_at(&location.entries, Some(&location.key)).await.map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
         let pick = match &model {
             Some(m) => catalog.model(&m.provider_id, &m.id).map(|_| m.clone()),
             None => catalog.select(None).map(|m| ModelRef { id: m.id.clone(), provider_id: m.provider_id.clone(), variant: None }),

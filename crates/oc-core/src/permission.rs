@@ -95,6 +95,10 @@ pub trait PermissionContext: Send + Sync {
     /// Save "always" rules for the project of `session_id`.
     fn save(&self, session_id: &str, action: &str, resources: &[String]);
     fn publish(&self, kind: &str, data: Value);
+    /// `permission.evaluate` plugin hook: returns the (possibly mutated) event.
+    fn evaluate_hook(&self, _session_id: &str, event: Value) -> futures::future::BoxFuture<'static, Value> {
+        Box::pin(async move { event })
+    }
 }
 
 struct Pending {
@@ -131,6 +135,38 @@ impl Permissions {
         Some(if ask { Evaluated::Ask(all) } else { Evaluated::Allow(all) })
     }
 
+    /// `evaluateInput` including the `permission.evaluate` hook (not run for config denies).
+    async fn evaluate_hooked(&self, input: &AssertInput) -> Option<(Evaluated, Option<String>)> {
+        let evaluated = self.evaluate_input(input)?;
+        let (effect, rules) = match evaluated {
+            Evaluated::Deny(rules) => return Some((Evaluated::Deny(rules), None)),
+            Evaluated::Allow(rules) => ("allow", rules),
+            Evaluated::Ask(rules) => ("ask", rules),
+        };
+        let mut event = serde_json::Map::new();
+        event.insert("sessionID".into(), Value::String(input.session_id.clone()));
+        if let Some(agent) = &input.agent {
+            event.insert("agent".into(), Value::String(agent.clone()));
+        }
+        event.insert("action".into(), Value::String(input.action.clone()));
+        event.insert("resources".into(), serde_json::to_value(&input.resources).unwrap_or_default());
+        if let Some(metadata) = &input.metadata {
+            event.insert("metadata".into(), Value::Object(metadata.clone()));
+        }
+        if let Some(source) = &input.source {
+            event.insert("source".into(), serde_json::to_value(source).unwrap_or_default());
+        }
+        event.insert("effect".into(), Value::String(effect.into()));
+        let out = self.ctx.evaluate_hook(&input.session_id, Value::Object(event)).await;
+        let message = out.get("message").and_then(Value::as_str).map(String::from);
+        let evaluated = match out.get("effect").and_then(Value::as_str).unwrap_or(effect) {
+            "deny" => Evaluated::Deny(rules),
+            "allow" => Evaluated::Allow(rules),
+            _ => Evaluated::Ask(rules),
+        };
+        Some((evaluated, message))
+    }
+
     fn request(input: &AssertInput) -> Request {
         Request {
             id: input.id.clone().unwrap_or_else(oc_schema::id::permission),
@@ -160,7 +196,7 @@ impl Permissions {
         if *self.closed.lock() {
             return Err(PermissionError::Declined);
         }
-        let Some(result) = self.evaluate_input(&input) else {
+        let Some((result, message)) = self.evaluate_hooked(&input).await else {
             return Err(PermissionError::Blocked {
                 rules: vec![],
                 permission: input.action.clone(),
@@ -173,11 +209,12 @@ impl Permissions {
                 rules: rules.into_iter().filter(|r| wildcard::matches(&input.action, &r.action)).collect(),
                 permission: input.action.clone(),
                 resources: input.resources.clone(),
-                reason: None,
+                reason: message,
             }),
             Evaluated::Allow(_) => Ok(()),
             Evaluated::Ask(_) => {
-                let request = Self::request(&input);
+                let mut request = Self::request(&input);
+                request.message = message;
                 let id = request.id.clone();
                 let rx = self.create(request, input.agent.clone());
                 let guard = PendingGuard { owner: self, id };
@@ -189,13 +226,17 @@ impl Permissions {
     }
 
     /// `ask`: returns the request id and effect without waiting.
-    pub fn ask(&self, input: AssertInput) -> (String, Effect) {
-        let request = Self::request(&input);
+    pub async fn ask(&self, input: AssertInput) -> (String, Effect) {
+        let mut request = Self::request(&input);
         let id = request.id.clone();
         if *self.closed.lock() {
             return (id, Effect::Deny);
         }
-        match self.evaluate_input(&input) {
+        let evaluated = self.evaluate_hooked(&input).await;
+        if let Some((_, message)) = &evaluated {
+            request.message = message.clone();
+        }
+        match evaluated.map(|(e, _)| e) {
             Some(Evaluated::Ask(_)) => {
                 let _ = self.create(request, input.agent.clone());
                 (id, Effect::Ask)

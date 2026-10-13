@@ -73,6 +73,8 @@ class Normalizer:
         # Build version/channel embedded in text (e.g. the built-in report skill's diagnostics).
         s = BUILD_RE.sub("<version>", s)
         s = re.sub(r"install/channel: (v2|latest)", "install/channel: <channel>", s)
+        # Plugin failure references (`err_` + 8 random hex digits).
+        s = re.sub(r"\berr_[0-9a-f]{8}\b", "<err-ref>", s)
         return s
 
     def __call__(self, value, key=None):

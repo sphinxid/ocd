@@ -45,52 +45,81 @@ impl Backend for Engine {
 
     async fn agent_list(&self, ctx: &RequestContext, _req: AgentListRequest) -> Result<Vec<AgentInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        loc.agents.list().into_iter().map(conv).collect()
+        self.agents(&loc).await.list().into_iter().map(conv).collect()
     }
 
     async fn agent_get(&self, ctx: &RequestContext, req: AgentGetRequest) -> Result<AgentInfo, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        match loc.agents.items.get(&req.agent_id) {
+        match self.agents(&loc).await.items.get(&req.agent_id) {
             Some(a) => conv(a),
             None => Err(ApiError::agent_not_found(req.agent_id)),
         }
     }
 
-    // ---- plugin (TODO(core): plugin host) -----------------------------------------------------
+    // ---- plugin -------------------------------------------------------------------------------
 
     async fn plugin_list(&self, ctx: &RequestContext, _req: PluginListRequest) -> Result<Vec<PluginInfo>, ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
-        // The built-in plugins are part of the server inventory (core/src/plugin/internal.ts `pre`, provider
-        // and websearch plugins, `post`), each active with server features.
-        BUILTIN_PLUGINS
-            .iter()
-            .map(|id| {
-                from_json(json!({
-                    "id": id,
-                    "source": {"type": "builtin"},
-                    "features": {"server": true},
-                    "state": {"status": "active"},
-                }))
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        self.app.plugins.inventory(&loc.key).into_iter().map(from_json).collect()
+    }
+
+    async fn plugin_check(&self, ctx: &RequestContext, req: PluginCheckRequest) -> Result<Vec<PluginInfo>, ApiError> {
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        let inventory = self.app.plugins.inventory(&loc.key);
+        let targets = package_targets(&inventory);
+        if let Some(t) = req.body.target.as_ref().filter(|t| !targets.contains(t)) {
+            return Err(ApiError::invalid_request(format!("Plugin package is not in the current server inventory: {t}")).with_field("target"));
+        }
+        let selected: Vec<String> = targets.into_iter().filter(|t| req.body.target.as_ref().is_none_or(|s| s == t)).collect();
+        let mut outdated = std::collections::HashMap::new();
+        for target in &selected {
+            outdated.insert(target.clone(), self.plugin_outdated(target).await);
+        }
+        inventory
+            .into_iter()
+            .map(|mut plugin| {
+                let target = plugin.pointer("/source/target").and_then(Value::as_str).map(String::from);
+                if plugin.pointer("/source/type").and_then(Value::as_str) == Some("package")
+                    && let Some(target) = target
+                    && let Some(flag) = outdated.get(&target)
+                {
+                    let source = plugin["source"].clone();
+                    let mut next = json!({ "type": "package", "target": target });
+                    if let Some(v) = source.get("version") {
+                        next["version"] = v.clone();
+                    }
+                    if *flag {
+                        next["outdated"] = json!(true);
+                    }
+                    if source.get("updating").and_then(Value::as_bool) == Some(true) {
+                        next["updating"] = json!(true);
+                    }
+                    plugin["source"] = next;
+                }
+                from_json(plugin)
             })
             .collect()
     }
 
-    async fn plugin_check(&self, ctx: &RequestContext, req: PluginCheckRequest) -> Result<Vec<PluginInfo>, ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
-        if let Some(t) = req.body.target {
-            return Err(ApiError::invalid_request(format!("Plugin package is not in the current server inventory: {t}")).with_field("target"));
-        }
-        Ok(vec![])
-    }
-
     async fn plugin_update(&self, ctx: &RequestContext, req: PluginUpdateRequest) -> Result<(), ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        let targets = package_targets(&self.app.plugins.inventory(&loc.key));
+        let unknown: Vec<String> = req.body.targets.iter().filter(|t| !targets.contains(t)).cloned().collect();
+        if !unknown.is_empty() {
+            return Err(ApiError::invalid_request(format!("Plugin packages are not in the current server inventory: {}", unknown.join(", ")))
+                .with_field("targets"));
+        }
+        let mut failures = vec![];
+        for target in &req.body.targets {
+            if let Err(e) = self.plugin_install_update(target).await {
+                failures.push(format!("{target}: {e}"));
+            }
+        }
         if !req.body.targets.is_empty() {
-            return Err(ApiError::invalid_request(format!(
-                "Plugin packages are not in the current server inventory: {}",
-                req.body.targets.join(", ")
-            ))
-            .with_field("targets"));
+            self.app.plugins.load(loc.location.clone(), true).await;
+        }
+        if !failures.is_empty() {
+            return Err(ApiError::service_unavailable(format!("Failed to update plugin packages: {}", failures.join("; ")), Some("plugin".into())));
         }
         Ok(())
     }
@@ -784,7 +813,7 @@ impl Backend for Engine {
             source: b.source.map(conv).transpose()?,
             agent: b.agent,
         };
-        let (id, effect) = self.app.permissions.ask(input);
+        let (id, effect) = self.app.permissions.ask(input).await;
         Ok(SessionPermissionCreateData { id, effect: conv(effect)? })
     }
 
@@ -868,20 +897,33 @@ impl Backend for Engine {
 
     async fn skill_list(&self, ctx: &RequestContext, _req: SkillListRequest) -> Result<Vec<SkillInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        let skills = crate::catalog::skills(&loc, &self.app.version, &self.app.global).await;
+        let skills = self.skills(&loc).await;
         skills.iter().map(|s| from_json(crate::catalog::skill_json(s))).collect()
     }
 
     async fn reference_list(&self, ctx: &RequestContext, _req: ReferenceListRequest) -> Result<Vec<ReferenceInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        oc_core::reference::list(&loc.location, &self.app.global).iter().map(|r| from_json(r.to_json())).collect()
+        self.app.plugins.references(&loc.location, &self.app.global).await.iter().map(|r| from_json(r.to_json())).collect()
     }
 
-    // ---- rpc (TODO(core): plugin RPC) ---------------------------------------------------------
+    // ---- rpc ----------------------------------------------------------------------------------
 
     async fn rpc_call(&self, ctx: &RequestContext, req: RpcCallRequest) -> Result<RpcOutput, ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
-        Err(ApiError::rpc("rpc.not_found", format!("RPC not found: {}", req.rpc_id), None))
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        // `Plugin.awaitActivation`, then `Rpc.call` (server/src/handlers/rpc.ts).
+        self.app.plugins.await_activation(&loc.key).await;
+        let location = oc_plugin::LocationRef::new(loc.key.clone());
+        let input = req.body.input.clone().map(|v| serde_json::to_value(v).unwrap_or(Value::Null)).unwrap_or(Value::Null);
+        let result = match self.app.plugins.host() {
+            Some(host) => host.rpc_call(&location, &req.rpc_id, &req.method, input).await,
+            None => Err(oc_plugin::RpcFailure { kind: "rpc.unavailable".into(), message: format!("RPC is unavailable: {}", req.rpc_id), data: None }),
+        };
+        match result {
+            Ok(Value::Null) => from_json(json!({})),
+            Ok(output) => from_json(json!({ "output": output })),
+            Err(f) if f.kind == "rpc.invalid_output" || f.kind == "rpc.internal" => Err(ApiError::rpc_internal(f.kind, f.message)),
+            Err(f) => Err(ApiError::rpc(f.kind, f.message, f.data)),
+        }
     }
 
     // ---- events -------------------------------------------------------------------------------
@@ -1090,7 +1132,7 @@ impl Backend for Engine {
         let mut env: std::collections::HashMap<String, String> = session_env.unwrap_or_else(|| std::env::vars().collect());
         env.insert("TERM".into(), "xterm-256color".into());
         env.insert("OPENCODE_TERMINAL".into(), "1".into());
-        let invocation = oc_tools::host::ShellInvocation {
+        let mut invocation = oc_tools::host::ShellInvocation {
             command: b.command,
             cwd: b.cwd.filter(|c| !c.is_empty()).unwrap_or_else(|| loc.key.clone()),
             timeout: b.timeout.unwrap_or(0).max(0) as u64,
@@ -1101,6 +1143,7 @@ impl Backend for Engine {
             ),
             env,
         };
+        self.app.plugins.shell_before(&loc.key, &mut invocation).await.map_err(ApiError::defect)?;
         // Core errors become defects (500), like upstream's `Effect.orDie`.
         let info = self.shell().spawn(&invocation, metadata, loc.project_id()).await.map_err(ApiError::defect)?;
         self.shell_owner.lock().insert(info.id.clone(), loc.key.clone());
@@ -1566,94 +1609,17 @@ impl Engine {
     }
 }
 
-/// Built-in plugin ids in activation order, as upstream's `plugin.list` reports them.
-const BUILTIN_PLUGINS: [&str; 88] = [
-    "opencode.tool.input.repair",
-    "opencode.config.worktree",
-    "opencode.config.mcp",
-    "opencode.mcp.codemode.defaults",
-    "opencode.wellknown",
-    "opencode.vcs.git",
-    "opencode.agent",
-    "opencode.plan",
-    "opencode.command",
-    "opencode.skill",
-    "opencode.vcs.hg",
-    "opencode.models.dev",
-    "opencode.provider.amazon.bedrock",
-    "opencode.provider.azure",
-    "opencode.provider.cerebras",
-    "opencode.provider.chatgpt",
-    "opencode.provider.cloudflare.ai.gateway",
-    "opencode.provider.cloudflare.workers.ai",
-    "opencode.provider.cohere",
-    "opencode.provider.databricks",
-    "opencode.provider.digitalocean",
-    "opencode.provider.github.copilot",
-    "opencode.provider.gitlab",
-    "opencode.provider.google.vertex",
-    "opencode.provider.kilo",
-    "opencode.provider.llmgateway",
-    "opencode.provider.lmstudio",
-    "opencode.provider.modal",
-    "opencode.provider.neon",
-    "opencode.provider.nvidia",
-    "opencode.provider.ollama",
-    "opencode.provider.opencode",
-    "opencode.provider.snowflake.cortex",
-    "opencode.provider.openai",
-    "opencode.provider.openrouter",
-    "opencode.provider.perplexity",
-    "opencode.provider.poe",
-    "opencode.provider.prompt-cache-key",
-    "opencode.provider.sap.ai.core",
-    "opencode.provider.vercel",
-    "opencode.provider.vllm",
-    "opencode.provider.xai",
-    "opencode.provider.zenmux",
-    "opencode.provider.dynamic",
-    "opencode.websearch.exa",
-    "opencode.websearch.firecrawl",
-    "opencode.websearch.parallel",
-    "opencode.websearch.tavily",
-    "opencode.websearch.tinyfish",
-    "opencode.tool.patch",
-    "opencode.prompt.openai",
-    "opencode.prompt.anthropic",
-    "opencode.prompt.kimi",
-    "opencode.prompt.arcee",
-    "opencode.prompt.meta",
-    "opencode.prompt.verbosity",
-    "opencode.prompt.identity",
-    "opencode.tool.edit",
-    "opencode.tool.glob",
-    "opencode.tool.grep",
-    "opencode.tools",
-    "opencode.tools.mcp-resources",
-    "opencode.tool.question",
-    "opencode.tool.read",
-    "opencode.tool.shell",
-    "opencode.tool.skill",
-    "opencode.tool.subagent",
-    "opencode.tool.webfetch",
-    "opencode.tool.websearch",
-    "opencode.tool.write",
-    "opencode.warming",
-    "opencode.config.instruction",
-    "opencode.config.reference",
-    "opencode.config.agent",
-    "opencode.browser",
-    "opencode.config.command",
-    "opencode.config.compaction",
-    "opencode.config.formatter",
-    "opencode.config.image",
-    "opencode.config.location-watcher",
-    "opencode.config.shell",
-    "opencode.config.snapshot",
-    "opencode.config.tool-output",
-    "opencode.config.compatibility",
-    "opencode.config.skill",
-    "opencode.config.provider",
-    "opencode.config.websearch",
-    "opencode.config.policy",
-];
+/// Package targets of an inventory (`plugin.check`/`plugin.update`), deduplicated in order.
+fn package_targets(inventory: &[Value]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for plugin in inventory {
+        if plugin.pointer("/source/type").and_then(Value::as_str) == Some("package")
+            && let Some(t) = plugin.pointer("/source/target").and_then(Value::as_str)
+            && !out.iter().any(|o| o == t)
+        {
+            out.push(t.to_string());
+        }
+    }
+    out
+}
+

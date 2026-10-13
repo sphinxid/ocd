@@ -32,7 +32,12 @@ impl Info {
 }
 
 pub fn list(location: &Location, global: &oc_util::Global) -> Vec<Info> {
-    oc_config::fold::references(&location.entries, &global.home, &location.directory)
+    infos(oc_config::fold::references(&location.entries, &global.home, &location.directory).into_iter().collect(), global)
+}
+
+/// `Reference.Info` of resolved sources (invalid remote sources are skipped).
+pub fn infos(sources: Vec<(String, ReferenceSource)>, global: &oc_util::Global) -> Vec<Info> {
+    sources
         .into_iter()
         .filter_map(|(name, source)| {
             let (description, hidden) = match &source {

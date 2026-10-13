@@ -87,15 +87,21 @@ pub fn sections(location: &Location) -> Vec<oc_mcp::config::McpSection> {
         .collect()
 }
 
-pub async fn manager(db: &Database, forms: &Forms, location: &Location, version: &str) -> Arc<McpManager> {
+/// The location's MCP servers: configuration (`opencode.config.mcp`, a `pre` plugin), then plugin
+/// transforms.
+pub async fn servers(plugins: &crate::plugins::Plugins, location: &Location) -> indexmap::IndexMap<String, oc_mcp::config::ServerConfig> {
+    let s = sections(location);
+    plugins.mcp_servers(location, oc_mcp::config::merge_documents(s.iter())).await
+}
+
+pub async fn manager(db: &Database, forms: &Forms, location: &Location, version: &str, plugins: &crate::plugins::Plugins) -> Arc<McpManager> {
     let manager = Arc::new(McpManager::new(ManagerOptions {
         directory: location.directory.clone(),
         client_info: ClientInfo { name: "opencode".into(), version: version.into() },
         credentials: Some(Arc::new(McpCreds(db.clone()))),
         elicitation: Some(Arc::new(Elicitation::new(forms.clone()))),
     }));
-    let s = sections(location);
-    manager.set_servers(oc_mcp::config::merge_documents(s.iter())).await;
+    manager.set_servers(servers(plugins, location).await).await;
     manager
 }
 

@@ -18,6 +18,8 @@ pub struct CoreHost {
     pub skills: Arc<Vec<SkillInfo>>,
     /// MCP manager of the session's location.
     pub mcp: Option<Arc<oc_mcp::manager::McpManager>>,
+    /// Plugin location key of the session (`shell.create.before`).
+    pub location: Option<String>,
 }
 
 #[async_trait]
@@ -289,6 +291,13 @@ impl ToolHost for CoreHost {
 
     async fn session_environment(&self, session_id: &str) -> Option<std::collections::HashMap<String, String>> {
         self.app.environments.lock().get(session_id).cloned()
+    }
+
+    async fn shell_create_before(&self, invocation: &mut ShellInvocation) -> Result<(), String> {
+        match &self.location {
+            Some(key) => self.app.plugins.shell_before(key, invocation).await,
+            None => Ok(()),
+        }
     }
 
     async fn worktree_create(&self, project_id: &str, name: &str) -> Result<Value, String> {

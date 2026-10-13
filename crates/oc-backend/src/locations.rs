@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
-use oc_core::agent::Agents;
 use oc_core::app::App;
 use oc_core::location::Location;
 use oc_git::{Git, SnapshotLocation, Snapshots};
@@ -34,7 +33,6 @@ pub struct Loc {
     /// The requested directory, verbatim (cache key and `location.directory` in responses).
     pub key: String,
     pub location: Arc<Location>,
-    pub agents: Agents,
     pub snapshots: Snapshots,
 }
 
@@ -141,7 +139,9 @@ impl Locations {
         let location = loaded.map_err(|e| {
             if is_dir(directory) { ApiError::defect(format!("location load failed: {e:#}")) } else { ApiError::location_not_found(directory) }
         })?;
-        let agents = location.agents(&self.app.global.home);
+        // Plugins activate asynchronously (`PluginSupervisor`); the runner already started them
+        // for its own location load.
+        self.app.plugins.ensure(&location);
         let snapshots = Snapshots::new(
             self.git.clone(),
             SnapshotLocation {
@@ -152,11 +152,29 @@ impl Locations {
                 vcs: location.project.vcs.as_ref().map(|v| v.kind().to_string()),
             },
         );
-        let loc = Arc::new(Loc { key: directory.to_string(), location, agents, snapshots });
+        let loc = Arc::new(Loc { key: directory.to_string(), location, snapshots });
         let at = oc_schema::types::LocationRef { directory: directory.to_string(), workspace_id: None };
         // `LocationLifecycle` activates the project inside the location's service scope, so the
         // event carries the location (core/src/location-lifecycle.ts:32, bus.ts publish).
         self.activate(loc.project_id(), Some(at.clone()));
+        if oc_core::plugins::Plugins::has_operations(&loc.location) && !self.app.plugins.activated(&loc.key) {
+            // Configured plugins: the boot batch ends when their activation settles.
+            let (app, loc2, at2) = (self.app.clone(), loc.clone(), at.clone());
+            tokio::spawn(async move {
+                app.plugins.await_activation(&loc2.key).await;
+                boot_notifications(&app, &loc2, &at2).await;
+                app.plugins.rebuild(&loc2.location).await;
+            });
+            return Ok(loc);
+        }
+        boot_notifications(&self.app, &loc, &at).await;
+        Ok(loc)
+    }
+}
+
+/// The `*.updated` notifications of a location's boot batch.
+async fn boot_notifications(app: &App, loc: &Loc, at: &oc_schema::types::LocationRef) {
+    {
         // Booting a location activates the built-in plugins inside one `State.batch`; when the
         // batch ends every State they touched notifies once, in first-change order, and the plugin
         // supervisor then announces its inventory (core/src/plugin.ts `activate`, core/src/state.ts
@@ -169,12 +187,14 @@ impl Locations {
                 && let Some(vcs) = loc.git_vcs()
                 && let Some(branch) = vcs.info().await.branch.current
             {
-                self.app.bus.publish("vcs.branch.updated", json!({ "branch": branch }), Some(at.clone()));
+                app.bus.publish("vcs.branch.updated", json!({ "branch": branch }), Some(at.clone()));
             }
-            self.app.bus.publish(kind, json!({}), Some(at.clone()));
+            app.bus.publish(kind, json!({}), Some(at.clone()));
         }
-        Ok(loc)
     }
+}
+
+impl Locations {
 
     /// `Project.activate`: records activity at most once per minute per project.
     pub fn activate(&self, project_id: &str, location: Option<oc_schema::types::LocationRef>) {
@@ -218,8 +238,9 @@ impl Locations {
     /// `location.shutdown`.
     pub async fn evict(&self, directory: &str) {
         let removed = self.map.lock().shift_remove(directory);
-        if let Some(r) = &self.runner {
-            r.close_location(directory).await;
+        match &self.runner {
+            Some(r) => r.close_location(directory).await,
+            None => self.app.plugins.close(directory).await,
         }
         if removed.is_some_and(|c| c.initialized()) {
             self.shutdown(directory);

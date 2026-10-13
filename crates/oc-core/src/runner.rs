@@ -15,7 +15,6 @@ use oc_schema::event::{InterruptReason, SessionEvent};
 use oc_schema::message::{CompactionStatus, ToolState};
 use oc_schema::types::{Effect, Metadata, ModelRef, SessionError, SessionInfo};
 use oc_schema::Message;
-use oc_tools::registry::NoHooks;
 use oc_tools::tool::{DefinitionContext, ToolConfig, ToolContext, ToolErrorKind};
 use oc_tools::{Registry, Snapshot};
 
@@ -77,6 +76,8 @@ impl Engine {
         let mut registry = Registry::default();
         oc_tools::tools::register_builtins(&mut registry, services);
         let models = Models::new(app.db.clone(), app.bus.clone(), oc_util::version::CHANNEL, &app.version);
+        models.set_plugins(app.plugins.clone());
+        app.plugins.add_websearch(services.websearch.clone());
         Arc::new_cyclic(|me| Engine {
             app,
             models,
@@ -97,6 +98,29 @@ impl Engine {
         let driver: Arc<dyn Driver> = Arc::new(ExecutionDriver { engine: self.clone() });
         if self.app.coordinator.set(crate::coordinator::Coordinator::new(driver)).is_ok() {
             crate::plan::spawn(self.app.clone());
+            self.app.plugins.set_tool_source(Arc::new(RunnerTools(Arc::downgrade(self))));
+            // Plugin MCP transforms changed: reconcile the location's servers.
+            let mut changes = self.app.plugins.subscribe_changes();
+            let me = Arc::downgrade(self);
+            tokio::spawn(async move {
+                loop {
+                    let change = match changes.recv().await {
+                        Ok(c) => c,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(_) => break,
+                    };
+                    if change.domain != "mcp" {
+                        continue;
+                    }
+                    let Some(engine) = me.upgrade() else { break };
+                    let Some(location) = engine.locations.lock().get(&change.key).cloned() else { continue };
+                    let key = location.directory.display().to_string();
+                    let mcp = engine.mcps.lock().await.get(&key).cloned();
+                    if let Some(mcp) = mcp {
+                        mcp.set_servers(crate::mcp::servers(&engine.app.plugins, &location).await).await;
+                    }
+                }
+            });
             // Hourly retention sweeps (`tool-output.ts`, `shell.ts`).
             let data = self.app.global.data.clone();
             tokio::spawn(async move {
@@ -120,7 +144,12 @@ impl Engine {
         }
         let loc = Arc::new(Location::load(&self.app.global, &self.app.bus, std::path::Path::new(directory)).await?);
         crate::reference::refresh(&self.app, crate::reference::list(&loc, &self.app.global));
-        self.locations.lock().insert(directory.to_string(), loc.clone());
+        let loc = {
+            let mut locations = self.locations.lock();
+            // A concurrent load may have won; keep one location per key.
+            locations.entry(directory.to_string()).or_insert(loc).clone()
+        };
+        self.app.plugins.ensure(&loc);
         self.watch(directory, &loc);
         Ok(loc)
     }
@@ -170,6 +199,7 @@ impl Engine {
         if let Some(mcp) = mcp {
             mcp.shutdown().await;
         }
+        self.app.plugins.close(directory).await;
     }
 
     /// `Config.reload()`: re-run discovery and load; when the entries or compatibility roots changed, replace the
@@ -186,11 +216,11 @@ impl Engine {
         let next = Arc::new(next);
         crate::reference::refresh(&self.app, crate::reference::list(&next, &self.app.global));
         self.locations.lock().insert(directory.to_string(), next.clone());
+        self.app.plugins.ensure(&next);
         let key = next.directory.display().to_string();
         let mcp = self.mcps.lock().await.get(&key).cloned();
         if let Some(mcp) = mcp {
-            let sections = crate::mcp::sections(&next);
-            mcp.set_servers(oc_mcp::config::merge_documents(sections.iter())).await;
+            mcp.set_servers(crate::mcp::servers(&self.app.plugins, &next).await).await;
         }
         self.app.bus.publish(
             "config.updated",
@@ -207,7 +237,7 @@ impl Engine {
         if let Some(m) = mcps.get(&key) {
             return m.clone();
         }
-        let m = crate::mcp::manager(&self.app.db, &self.app.forms, location, &self.app.version).await;
+        let m = crate::mcp::manager(&self.app.db, &self.app.forms, location, &self.app.version, &self.app.plugins).await;
         let mut rx = m.subscribe();
         let bus = self.app.bus.clone();
         let loc = oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None };
@@ -261,7 +291,8 @@ impl Engine {
     pub async fn select(&self, session_id: &str) -> anyhow::Result<Selected> {
         let session = self.app.sessions.get(session_id)?;
         let location = self.location(&session.location.directory).await?;
-        let agents = location.agents(&self.app.global.home);
+        self.app.plugins.await_activation(&location.key).await;
+        let agents = self.app.plugins.agents(&location, &self.app.global.home).await;
         *self.app.agents.write() = agents.clone();
         let agent_id = session.agent.clone();
         let agent = agents.select(agent_id.as_deref()).cloned().ok_or_else(|| agent_not_found(agent_id.as_deref().unwrap_or("build")))?;
@@ -273,19 +304,10 @@ impl Engine {
                 let _ = mcp.wait_ready(&server.name).await;
             }
         }
-        let mut registry = self.registry.clone();
-        for t in mcp.tools() {
-            let _ = registry.add(Arc::new(oc_tools::tools::mcp::McpTool::new(oc_tools::tools::mcp::McpToolInfo {
-                server: t.server.clone(),
-                name: t.name.clone(),
-                description: t.description.clone(),
-                input_schema: t.input_schema.clone(),
-                output_schema: t.output_schema.clone(),
-                codemode: t.codemode != Some(false),
-            })));
-        }
+        let registry = self.base_registry(&location.key, &mcp);
+        let registry = self.app.plugins.tools(&location.key, registry).await;
         let snapshot = registry.snapshot(&permissions);
-        let skills = crate::skills::list(&location, &self.app.global, &self.app.version).await;
+        let skills = self.app.plugins.skills(&location, &self.app.global, &self.app.version).await;
         let mut sources = self.sources(&session, &location, &permissions, &skills)?;
         // MCP guidance comes first ("most to least shared").
         let tools = mcp.tools();
@@ -303,11 +325,35 @@ impl Engine {
             })
             .collect();
         sources.insert(0, instructions::mcp_source(summaries));
-        let references = crate::reference::list(&location, &self.app.global);
+        let references = self.app.plugins.references(&location, &self.app.global).await;
         sources.insert(1, crate::reference::source(&references));
         // CodeMode catalog is the most shared source.
         sources.insert(0, crate::codemode::instruction_source(&snapshot));
         Ok(Selected { session, location, agents, agent, permissions, snapshot, sources, skills, mcp })
+    }
+
+    /// The native tool registry of a location: built-ins plus its MCP tools.
+    pub fn base_registry(&self, key: &str, mcp: &oc_mcp::manager::McpManager) -> Registry {
+        let mut registry = self.registry.clone();
+        // Built-in tool plugins removed by configuration (`-opencode.tool.read`, `-*`, ...).
+        if let Some(enabled) = self.app.plugins.enabled(key) {
+            for (id, tool) in registry.list() {
+                if crate::plugins::tool_plugin(tool.as_ref()).is_some_and(|p| !enabled.iter().any(|e| e == p)) {
+                    registry.remove(&id);
+                }
+            }
+        }
+        for t in mcp.tools() {
+            let _ = registry.add(Arc::new(oc_tools::tools::mcp::McpTool::new(oc_tools::tools::mcp::McpToolInfo {
+                server: t.server.clone(),
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema: t.input_schema.clone(),
+                output_schema: t.output_schema.clone(),
+                codemode: t.codemode != Some(false),
+            })));
+        }
+        registry
     }
 
     fn sources(
@@ -358,7 +404,7 @@ impl Engine {
 
     /// `context.load`
     pub async fn load(&self, sel: Selected) -> anyhow::Result<Loaded> {
-        let catalog = self.models.catalog(&sel.location.entries).await?;
+        let catalog = self.models.catalog_at(&sel.location.entries, Some(&sel.location.key)).await?;
         let config_model = oc_config::fold::model(&sel.location.entries).map(|m| ModelRef {
             id: m.model.clone(),
             provider_id: m.provider_id.clone(),
@@ -464,7 +510,23 @@ impl Engine {
         (req, names)
     }
 
-    fn tool_runner(self: &Arc<Self>, loaded: &Loaded, assistant: &str) -> Arc<dyn ToolRunner> {
+    /// Runs the `session.context` (and `session.model.request`) plugin hooks on a primary request.
+    pub async fn shape_primary(&self, loaded: &Loaded, req: &mut LLMRequest) -> anyhow::Result<crate::plugin_request::Shaped> {
+        let s = &loaded.sel.session;
+        crate::plugin_request::shape(
+            &self.app.plugins,
+            &loaded.sel.location.key,
+            crate::plugin_request::Kind::Primary,
+            &s.id,
+            &loaded.sel.agent.id,
+            &loaded.resolved.model_ref(),
+            req,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    fn tool_runner(self: &Arc<Self>, loaded: &Loaded, assistant: &str, renamed: Option<HashMap<String, String>>) -> Arc<dyn ToolRunner> {
         let entries = &loaded.sel.location.entries;
         let config = ToolConfig {
             tool_output_max_lines: oc_config::fold::tool_output(entries).and_then(|t| t.max_lines).map(|v| v as usize),
@@ -479,14 +541,17 @@ impl Engine {
         // for models that edit with `edit`/`write`) fails with "Tool is not available for this request"
         // (core/src/tool.ts Snapshot.execute `input.definitions`).
         let ctx = self.definition_context(loaded);
-        let advertised: std::collections::HashSet<String> = loaded
-            .sel
-            .snapshot
-            .definitions(&ctx, crate::codemode::execute_definition(&loaded.sel.snapshot))
-            .into_iter()
-            .map(|d| d.name)
-            .collect();
+        let advertised: HashMap<String, String> = renamed.unwrap_or_else(|| {
+            loaded
+                .sel
+                .snapshot
+                .definitions(&ctx, crate::codemode::execute_definition(&loaded.sel.snapshot))
+                .into_iter()
+                .map(|d| (d.name.clone(), d.name))
+                .collect()
+        });
         Arc::new(LocalTools {
+            key: loaded.sel.location.key.clone(),
             engine: self.clone(),
             advertised,
             snapshot: loaded.sel.snapshot.clone(),
@@ -667,7 +732,18 @@ impl Engine {
                 Err(e) => return Err(DrainError::Failed(e)),
             }
             let step_limit = loaded.sel.agent.steps.is_some_and(|s| step >= s);
-            let (request, _) = self.request(&loaded, step_limit);
+            let (mut request, _) = self.request(&loaded, step_limit);
+            let shaped = self.shape_primary(&loaded, &mut request).await.map_err(DrainError::Failed)?;
+            let key = loaded.sel.location.key.clone();
+            let retry_hook: Option<step::RetryHook> = self.app.plugins.has_hook(&key, "session.retry", Some(&loaded.resolved.model.provider_id)).then(|| {
+                let plugins = self.app.plugins.clone();
+                let (session, agent, model) = (session_id.clone(), loaded.sel.agent.id.clone(), loaded.resolved.model_ref());
+                let hook: step::RetryHook = Arc::new(move |error, attempt, decision| {
+                    let (plugins, key, session, agent, model) = (plugins.clone(), key.clone(), session.clone(), agent.clone(), model.clone());
+                    Box::pin(async move { crate::plugin_request::retry(&plugins, &key, &session, &agent, &model, &error, attempt, decision).await })
+                });
+                hook
+            });
             let cost: Vec<crate::usage::Cost> = loaded
                 .resolved
                 .cost()
@@ -693,7 +769,8 @@ impl Engine {
                 cost,
                 request,
                 tool_choice_none: step_limit,
-                tools: self.tool_runner(&loaded, &assistant),
+                tools: self.tool_runner(&loaded, &assistant, shaped.tools),
+                retry_hook,
                 snapshots: self.snapshotter(&loaded),
                 recover_continuation,
                 retry: &mut retry,
@@ -807,7 +884,10 @@ fn settle_stale(bus: &Bus, session: &str) -> anyhow::Result<()> {
 
 struct LocalTools {
     engine: Arc<Engine>,
-    advertised: std::collections::HashSet<String>,
+    /// Plugin location key.
+    key: String,
+    /// Advertised tool name → registered name (session hooks may rename or remove tools).
+    advertised: HashMap<String, String>,
     snapshot: Snapshot,
     config: Arc<ToolConfig>,
     session: SessionInfo,
@@ -821,7 +901,12 @@ struct LocalTools {
 #[async_trait]
 impl ToolRunner for LocalTools {
     async fn run(&self, call: ToolCall, progress: step::Progress, cancel: CancellationToken) -> ToolRun {
-        let host: Arc<dyn oc_tools::ToolHost> = Arc::new(crate::host::CoreHost { app: self.engine.app.clone(), skills: self.skills.clone(), mcp: Some(self.mcp.clone()) });
+        let host: Arc<dyn oc_tools::ToolHost> = Arc::new(crate::host::CoreHost {
+            app: self.engine.app.clone(),
+            skills: self.skills.clone(),
+            mcp: Some(self.mcp.clone()),
+            location: Some(self.key.clone()),
+        });
         let ctx = ToolContext {
             session_id: self.session.id.clone(),
             message_id: self.message_id.clone(),
@@ -839,22 +924,38 @@ impl ToolRunner for LocalTools {
         };
         let data = self.engine.app.global.data.clone();
         let (max_lines, max_bytes) = (self.config.tool_output_max_lines.unwrap_or(2000), self.config.tool_output_max_bytes.unwrap_or(51200));
-        let hooks: Box<dyn oc_tools::registry::ExecuteHooks> = if self.agent == "plan" {
-            Box::new(PlanHooks { dir: crate::agent::plan_dir(&self.engine.app.global.home).display().to_string() })
-        } else {
-            Box::new(NoHooks)
-        };
-        let result = if call.name == oc_codemode::execute_tool::NAME && self.snapshot.execute_enabled {
-            let (mut name, mut input) = (call.name.clone(), call.input);
-            hooks.before(&mut name, &mut input, &ctx).await;
-            if name == oc_codemode::execute_tool::NAME {
-                let tool = crate::codemode::ExecuteTool(self.snapshot.clone());
-                oc_tools::registry::execute_tool(&tool, &name, input, ctx, hooks.as_ref()).await
-            } else {
-                self.snapshot.execute(&name, input, ctx, Some(&self.advertised), hooks.as_ref()).await
+        let hooks: Arc<dyn oc_tools::registry::ExecuteHooks> = Arc::new(CoreHooks {
+            plan: (self.agent == "plan").then(|| PlanHooks { dir: crate::agent::plan_dir(&self.engine.app.global.home).display().to_string() }),
+            plugins: self.engine.app.plugins.clone(),
+            key: self.key.clone(),
+        });
+        // `Snapshot.execute` (core/src/tool.ts): before hook, availability for this request, then the tool.
+        let (mut name, mut input) = (call.name.clone(), call.input);
+        if let Some(tool) = self.snapshot.direct_tool(&name) {
+            input = tool.prepare_input(input);
+        }
+        let execute_enabled = self.snapshot.execute_enabled;
+        let result = match hooks.before(&mut name, &mut input, &ctx).await {
+            Err(e) => Err(e),
+            Ok(()) => {
+                let requested = self.advertised.get(&name).cloned();
+                let known = self.snapshot.direct_tool(&name).is_some() || (execute_enabled && name == oc_codemode::execute_tool::NAME);
+                if requested.is_none() && known {
+                    Err(oc_tools::ToolError::new(format!("Tool is not available for this request: {name}")))
+                } else {
+                    let real = requested.unwrap_or(name);
+                    if real == oc_codemode::execute_tool::NAME && execute_enabled {
+                        let tool = crate::codemode::ExecuteTool(self.snapshot.clone(), hooks.clone());
+                        oc_tools::registry::execute_tool(&tool, &real, input, ctx, hooks.as_ref()).await
+                    } else if let Some(tool) = self.snapshot.direct_tool(&real) {
+                        oc_tools::registry::execute_tool(tool.as_ref(), &real, input, ctx, hooks.as_ref()).await
+                    } else {
+                        Err(oc_tools::ToolError::new(format!(
+                            "No tool named \"{real}\" is currently available. Please use a tool from the available tool list."
+                        )))
+                    }
+                }
             }
-        } else {
-            self.snapshot.execute(&call.name, call.input, ctx, Some(&self.advertised), hooks.as_ref()).await
         };
         match result {
             Ok(result) => {
@@ -874,6 +975,22 @@ impl ToolRunner for LocalTools {
     }
 }
 
+/// `tool.list` for plugins: the location's tool domain after every transform.
+struct RunnerTools(std::sync::Weak<Engine>);
+
+impl crate::plugins::ToolSource for RunnerTools {
+    fn tool_value(&self, key: String) -> futures::future::BoxFuture<'static, Option<serde_json::Value>> {
+        let engine = self.0.upgrade();
+        Box::pin(async move {
+            let engine = engine?;
+            let location = engine.location(&key).await.ok()?;
+            let mcp = engine.mcp(&location).await;
+            let registry = engine.app.plugins.tools(&key, engine.base_registry(&key, &mcp)).await;
+            Some(crate::plugins::tool_value(&registry))
+        })
+    }
+}
+
 struct GitSnapshots(Arc<oc_git::Snapshots>);
 
 #[async_trait]
@@ -883,6 +1000,124 @@ impl step::Snapshotter for GitSnapshots {
     }
     async fn files(&self, from: &str, to: &str) -> Option<Vec<String>> {
         self.0.files(&oc_git::TreeId(from.into()), &oc_git::TreeId(to.into())).await.ok()
+    }
+}
+
+/// `tool.execute.before/after`: the native internal hooks (plan agent) in their upstream order,
+/// then the plugin callbacks.
+struct CoreHooks {
+    plan: Option<PlanHooks>,
+    plugins: Arc<crate::plugins::Plugins>,
+    key: String,
+}
+
+#[async_trait]
+impl oc_tools::registry::ExecuteHooks for CoreHooks {
+    async fn before(&self, tool: &mut String, input: &mut serde_json::Value, ctx: &ToolContext) -> Result<(), oc_tools::ToolError> {
+        if !self.plugins.has_hook(&self.key, "tool.execute.before", None) {
+            return Ok(());
+        }
+        let event = serde_json::json!({
+            "tool": tool,
+            "sessionID": ctx.session_id,
+            "agent": ctx.agent,
+            "messageID": ctx.message_id,
+            "id": ctx.call_id,
+            "input": input,
+        });
+        match self.plugins.trigger(&self.key, "tool.execute.before", event).await {
+            Ok(out) => {
+                if let Some(t) = out.get("tool").and_then(|t| t.as_str()) {
+                    *tool = t.to_string();
+                }
+                *input = out.get("input").cloned().unwrap_or(serde_json::Value::Null);
+                Ok(())
+            }
+            Err(oc_plugin::HookError::Tool { message, metadata }) => {
+                let mut e = oc_tools::ToolError::new(message);
+                if let Some(m) = metadata.and_then(|m| m.as_object().cloned()) {
+                    e = e.with_metadata(m.into_iter().collect());
+                }
+                Err(e)
+            }
+            Err(oc_plugin::HookError::Failed(message)) => Err(oc_tools::ToolError::new(message)),
+        }
+    }
+
+    async fn after(
+        &self,
+        tool: &str,
+        input: &serde_json::Value,
+        result: &mut Result<oc_tools::ToolResult, oc_tools::ToolError>,
+        ctx: &ToolContext,
+    ) {
+        if let Some(plan) = &self.plan {
+            plan.after(tool, input, result, ctx).await;
+        }
+        if !self.plugins.has_hook(&self.key, "tool.execute.after", None) {
+            return;
+        }
+        let mut event = serde_json::json!({
+            "tool": tool,
+            "sessionID": ctx.session_id,
+            "agent": ctx.agent,
+            "messageID": ctx.message_id,
+            "id": ctx.call_id,
+            "input": input,
+        });
+        match result {
+            Ok(r) => {
+                let mut v = serde_json::Map::new();
+                if let Some(o) = &r.output {
+                    v.insert("output".into(), o.clone());
+                }
+                v.insert("content".into(), serde_json::to_value(&r.content).unwrap_or_default());
+                if let Some(m) = &r.metadata {
+                    v.insert("metadata".into(), serde_json::Value::Object(m.clone().into_iter().collect()));
+                }
+                event["status"] = "completed".into();
+                event["result"] = serde_json::Value::Object(v);
+            }
+            Err(e) if e.kind == ToolErrorKind::Failure => {
+                let mut v = serde_json::json!({ "message": e.message });
+                if let Some(m) = &e.metadata {
+                    v["metadata"] = serde_json::Value::Object(m.clone().into_iter().collect());
+                }
+                event["status"] = "error".into();
+                event["error"] = v;
+            }
+            // Declines, interrupts and defects are not `Tool.Error`s: no hook.
+            Err(_) => return,
+        }
+        let out = match self.plugins.trigger(&self.key, "tool.execute.after", event.clone()).await {
+            Ok(out) => out,
+            Err(error) => {
+                *result = Err(oc_tools::ToolError::new(error.to_string()));
+                return;
+            }
+        };
+        match result {
+            Ok(r) => {
+                if out.get("result") == event.get("result") {
+                    return;
+                }
+                let next = out.get("result").cloned().unwrap_or_default();
+                r.output = next.get("output").cloned();
+                r.content = next.get("content").cloned().and_then(|c| serde_json::from_value(c).ok()).unwrap_or_default();
+                r.metadata = next.get("metadata").and_then(|m| m.as_object()).map(|m| m.clone().into_iter().collect());
+            }
+            Err(e) => {
+                if out.get("error") == event.get("error") {
+                    return;
+                }
+                let next = out.get("error").cloned().unwrap_or_default();
+                let mut error = oc_tools::ToolError::new(next.get("message").and_then(|m| m.as_str()).unwrap_or_default());
+                if let Some(m) = next.get("metadata").and_then(|m| m.as_object()) {
+                    error = error.with_metadata(m.clone().into_iter().collect());
+                }
+                *e = error;
+            }
+        }
     }
 }
 

@@ -42,6 +42,27 @@ impl Engine {
             req.system = vec![SystemPart::text(s)];
         }
         req.messages = vec![LlmMessage::user_text(text)];
+        // `session.title` may shape the request or answer it (`result`).
+        let shaped = crate::plugin_request::shape(
+            &self.app.plugins,
+            &session.location.directory,
+            crate::plugin_request::Kind::Title,
+            &session.id,
+            "title",
+            &model.model_ref(),
+            &mut req,
+        )
+        .await;
+        match shaped {
+            Ok(shaped) if shaped.result.is_some() => {
+                return shaped.result.and_then(|t| t.split('\n').map(str::trim).find(|l| !l.is_empty()).map(str::to_string));
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "session.title hook failed");
+                return None;
+            }
+        }
         let mut out = String::new();
         let mut failed = false;
         let mut tokens = TokenUsage::default();
@@ -99,7 +120,7 @@ impl Engine {
         };
         let sel = self.select(session_id).await?;
         let Some(agent) = sel.agents.items.get("title").cloned() else { return Ok(()) };
-        let catalog = self.models.catalog(&sel.location.entries).await?;
+        let catalog = self.models.catalog_at(&sel.location.entries, Some(&sel.location.key)).await?;
         let config_model = oc_config::fold::model(&sel.location.entries).map(|m| oc_schema::types::ModelRef {
             id: m.model.clone(),
             provider_id: m.provider_id.clone(),

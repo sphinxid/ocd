@@ -23,7 +23,8 @@ impl Engine {
         };
         env.insert("TERM".into(), "xterm-256color".into());
         env.insert("OPENCODE_TERMINAL".into(), "1".into());
-        let invocation = ShellInvocation { command: command.into(), cwd: session.location.directory.clone(), timeout: 0, shell, env };
+        let mut invocation = ShellInvocation { command: command.into(), cwd: session.location.directory.clone(), timeout: 0, shell, env };
+        self.app.plugins.shell_before(&location.key, &mut invocation).await.map_err(|e| anyhow::anyhow!(e))?;
         let mut metadata = serde_json::Map::new();
         metadata.insert("sessionID".into(), session_id.into());
         metadata.insert("background".into(), true.into());

@@ -286,6 +286,63 @@ impl Catalog {
         Catalog { records, available, by_provider, all, default_model }
     }
 
+    /// [`Catalog::build`] with hooks between the plugins before `post` and those from `post` on (the
+    /// place upstream's plugin host runs plugin `provider`/`model` transforms: after the internal
+    /// `pre` plugins, before the `post` ones such as the configured-provider plugin). The hooks get
+    /// and return the provider records, and the available models with the default model.
+    pub async fn build_staged<P, PF, M, MF>(
+        plugins: &mut [Box<dyn CatalogPlugin + Send + '_>],
+        post: usize,
+        access: &Access,
+        provider_hook: P,
+        model_hook: M,
+    ) -> Catalog
+    where
+        P: FnOnce(IndexMap<String, ProviderRecord>) -> PF,
+        PF: std::future::Future<Output = IndexMap<String, ProviderRecord>>,
+        M: FnOnce(IndexMap<String, IndexMap<String, ModelInfo>>, Option<(String, String)>, IndexMap<String, ProviderRecord>) -> MF,
+        MF: std::future::Future<Output = (IndexMap<String, IndexMap<String, ModelInfo>>, Option<(String, String)>)>,
+    {
+        let post = post.min(plugins.len());
+        let mut providers = ProviderEditor::new();
+        for plugin in plugins[..post].iter_mut() {
+            plugin.providers(&mut providers);
+        }
+        providers.records = provider_hook(std::mem::take(&mut providers.records)).await;
+        for plugin in plugins[post..].iter_mut() {
+            plugin.providers(&mut providers);
+        }
+        let records = providers.into_records();
+        let available: Vec<String> =
+            records.values().filter(|r| is_available(r, access)).map(|r| r.provider.id.clone()).collect();
+        let models: IndexMap<String, IndexMap<String, ModelInfo>> =
+            available.iter().map(|id| (id.clone(), records[id].models.clone())).collect();
+        let (models, default_model) = {
+            let mut editor = ModelEditor { models, default_model: None, records: &records };
+            for plugin in plugins[..post].iter_mut() {
+                plugin.models(&mut editor);
+            }
+            (editor.models, editor.default_model)
+        };
+        let (models, default_model) = model_hook(models, default_model, records.clone()).await;
+        let mut editor = ModelEditor { models, default_model, records: &records };
+        for plugin in plugins[post..].iter_mut() {
+            plugin.models(&mut editor);
+        }
+        let ModelEditor { models, default_model, .. } = editor;
+        let by_provider: IndexMap<String, IndexMap<String, ModelInfo>> = models
+            .into_iter()
+            .map(|(pid, models)| {
+                let provider = records.get(&pid).map(|r| &r.provider);
+                let merged = models.into_iter().map(|(mid, m)| (mid, effective_model(&m, provider))).collect();
+                (pid, merged)
+            })
+            .collect();
+        let mut all: Vec<ModelInfo> = by_provider.values().flat_map(|m| m.values().cloned()).collect();
+        all.sort_by(|a, b| b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal));
+        Catalog { records, available, by_provider, all, default_model }
+    }
+
     /// Any provider definition (`Provider.get`), available or not.
     pub fn provider(&self, id: &str) -> Option<&ProviderInfo> {
         self.records.get(id).map(|r| &r.provider)

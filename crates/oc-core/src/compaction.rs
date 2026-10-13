@@ -841,6 +841,22 @@ impl Run<'_> {
     }
 
     async fn stream(&self, request: LLMRequest) -> Result<Streamed, Fail> {
+        // `session.compaction` may shape the request or provide the summary (`result`).
+        let mut request = request;
+        let shaped = crate::plugin_request::shape(
+            &self.engine.app.plugins,
+            &self.loaded.sel.location.key,
+            crate::plugin_request::Kind::Compaction,
+            &self.session_id,
+            &self.loaded.sel.agent.id,
+            &self.model.model_ref(),
+            &mut request,
+        )
+        .await
+        .map_err(|e| Fail::Failure(SessionError::new("unknown", e.to_string())))?;
+        if let Some(text) = shaped.result {
+            return Ok(Streamed { text, provider_state: None });
+        }
         let key = metadata_key(self.model);
         let costs = costs(self.model);
         let mut streamed = Streamed { text: String::new(), provider_state: None };
@@ -1092,7 +1108,7 @@ impl Engine {
     async fn compaction_model(&self, loaded: &Loaded) -> Option<ResolvedModel> {
         let agent = loaded.sel.agents.items.get("compaction")?;
         let m = agent.model.as_ref()?;
-        let catalog = self.models.catalog(&loaded.sel.location.entries).await.ok()?;
+        let catalog = self.models.catalog_at(&loaded.sel.location.entries, Some(&loaded.sel.location.key)).await.ok()?;
         let cred = self.models.credential(&catalog, &m.provider_id).await;
         catalog.resolve(&m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).ok()
     }

@@ -74,8 +74,8 @@ twice (parsed operands + upstream's own `process.argv` re-read), exactly like up
 | `debug paths/config/agents` | complete |
 | `auth list/export/import/login/logout/switch` | complete; login supports key/external/oauth/command methods and form answers (`--answer`); interactive pickers use a simplified clack-style UI (multiselect asks for comma-separated values) |
 | `mcp list/add/auth/logout` | complete (strings from `oc_mcp::cli`; `add` uses `oc_config::jsonc_edit`) |
-| `plugin list/check/update/remove` | server plugins via the API; `remove` edits the global config and `cli.json` |
-| `plugin add` | validates the specifier, then fails: installing npm/git plugin packages needs the JS plugin runtime, which this build does not include. TUI package plugins are not inspected by list/check/update for the same reason |
+| `plugin list/check/update/remove` | server plugins via the API; TUI package plugins from `cli.json` are inspected too (installed version from upstream's npm cache layout, update check with `oc_plugin::npm::Npm::check`, `update` reinstalls with `Npm::update`); `remove` edits the global config and `cli.json` |
+| `plugin add` | complete: installs with Bun into upstream's npm cache (`oc_plugin::npm`), resolves the `server`/root and `tui` entrypoints with Bun's module resolution (upstream `Host.resolve`) and writes the global config (`plugins`) or `cli.json`, with upstream's messages. Bun comes from `OCD_BUN_PATH`/`OPENCODE_BUN_PATH` or the pinned 1.4.2 download. TUI plugins are recorded but ocd's TUI does not run them (documented incompatibility) |
 | `models`, `reload`, `api`, `pair`, `session list/delete/export/import`, `stats` | complete (`pair` renders the QR code with the `qrcode` crate; module layout may differ from `uqr`) |
 | `upgrade` / `uninstall` | native adaptation: method detection recognises `~/.opencode/bin/opencode` (curl), Homebrew cellars and an npm `package.json` owning the executable; otherwise `--method` is required. Release lookup, package-manager commands, `UpgradeError` formatting and the uninstall plan (services, cache, shell PATH lines, package) follow upstream |
 | `acp` | see below |

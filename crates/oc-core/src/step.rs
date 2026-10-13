@@ -35,6 +35,9 @@ pub enum ToolRun {
 
 pub type Progress = Arc<dyn Fn(Metadata) + Send + Sync>;
 
+/// `session.retry` hook: receives the error, attempt and proposed decision JSON, returns the decision.
+pub type RetryHook = Arc<dyn Fn(SessionError, u32, serde_json::Value) -> futures::future::BoxFuture<'static, serde_json::Value> + Send + Sync>;
+
 #[async_trait]
 pub trait ToolRunner: Send + Sync {
     async fn run(&self, call: ToolCall, progress: Progress, cancel: CancellationToken) -> ToolRun;
@@ -81,6 +84,8 @@ pub struct Input<'a> {
     pub retry: &'a mut Policy,
     pub cancel: CancellationToken,
     pub location_closed: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// `session.retry` plugin hook: `(error, attempt, decision)` → decision.
+    pub retry_hook: Option<RetryHook>,
     /// Runner-owned overflow recovery (compaction); returns whether it succeeded.
     pub recover_overflow: Box<dyn FnOnce() -> futures::future::BoxFuture<'a, bool> + Send + 'a>,
 }
@@ -261,7 +266,26 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
     let retry = match (&llm_failure, &llm_error) {
         (Some(f), Some(_)) if !f.is_context_overflow() => {
             let retryable = f.is_retryable() || (recorded.output_started && is_interrupted_stream(f));
-            input.retry.decide(f, retryable)
+            match (input.retry.decide_raw(f, retryable), &input.retry_hook, &llm_error) {
+                (None, _, _) => None,
+                (Some((d, ok)), None, _) => ok.then_some(d),
+                (Some((d, ok)), Some(hook), Some(error)) => {
+                    let proposed = if ok { serde_json::json!({ "retry": true, "delay": d.delay }) } else { serde_json::json!({ "retry": false }) };
+                    let decided = hook(error.clone(), d.attempt, proposed).await;
+                    if decided.get("retry").and_then(serde_json::Value::as_bool) == Some(true) {
+                        let delay = decided
+                            .get("delay")
+                            .and_then(serde_json::Value::as_f64)
+                            .filter(|v| v.is_finite() && *v >= 0.0)
+                            .map(|v| v.ceil() as u64)
+                            .unwrap_or(d.delay);
+                        Some(Decision { attempt: d.attempt, delay })
+                    } else {
+                        None
+                    }
+                }
+                (Some((d, ok)), Some(_), None) => ok.then_some(d),
+            }
         }
         _ => None,
     };

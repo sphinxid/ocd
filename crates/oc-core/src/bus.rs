@@ -13,6 +13,20 @@ use oc_storage::Database;
 
 pub type Event = Arc<Envelope>;
 
+thread_local! {
+    static NO_LOCATION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `f` with ephemeral events published without a location. Plugin code publishes outside a
+/// location's service scope upstream (e.g. `context.progress` of a plugin tool), so its events
+/// carry none.
+pub fn without_location<R>(f: impl FnOnce() -> R) -> R {
+    let previous = NO_LOCATION.with(|c| c.replace(true));
+    let out = f();
+    NO_LOCATION.with(|c| c.set(previous));
+    out
+}
+
 #[derive(Clone)]
 pub struct Bus {
     db: Database,
@@ -62,6 +76,7 @@ impl Bus {
 
     /// Ephemeral event (never stored).
     pub fn publish(&self, kind: &str, data: Value, location: Option<LocationRef>) -> Event {
+        let location = if NO_LOCATION.with(|c| c.get()) { None } else { location };
         let env = Arc::new(Envelope {
             id: oc_schema::id::event(),
             created: oc_schema::id::now_ms(),

@@ -16,6 +16,7 @@ oc-backend = { path = "../oc-backend" }
 oc-tools = { path = "../oc-tools" }
 oc-config = { path = "../oc-config" }
 oc-mcp = { path = "../oc-mcp" }
+oc-plugin = { path = "../oc-plugin" }
 oc-tui = { path = "../oc-tui" }
 tokio.workspace = true
 tokio-util.workspace = true

@@ -12,6 +12,8 @@ use crate::agent::{Agent, Agents, Mode};
 use crate::project::{self, Resolved};
 
 pub struct Location {
+    /// The directory exactly as requested (location cache key, plugin location name).
+    pub key: String,
     pub directory: PathBuf,
     pub project: Resolved,
     pub entries: Vec<Entry>,
@@ -44,22 +46,28 @@ fn to_state(a: &Agent) -> AgentState {
 
 impl Location {
     pub async fn load(global: &oc_util::Global, bus: &crate::bus::Bus, directory: &Path) -> anyhow::Result<Location> {
+        let key = directory.display().to_string();
         let directory = std::fs::canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
         let project = project::resolve_and_persist(bus, &directory).await?;
         let loader = oc_config::load::Loader::new(global, directory.clone(), oc_config::discovery::Options::from_env());
         let (sources, entries) = loader.entries().await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(Location { directory, project, entries, sources })
+        Ok(Location { key, directory, project, entries, sources })
     }
 
     /// Built-in agents with configuration applied (AgentPlugin → PlanPlugin → ConfigAgent).
     pub fn agents(&self, home: &Path) -> Agents {
-        let builtin = Agents::builtin(home);
+        self.agents_from(Agents::builtin(home), home, true)
+    }
+
+    /// `agents` after the built-in agents went through plugin transforms: configuration
+    /// (`opencode.config.agent`) and the browser deny (`opencode.browser`, when enabled) apply on top.
+    pub fn agents_from(&self, builtin: Agents, home: &Path, browser: bool) -> Agents {
         let existing: IndexMap<String, AgentState> =
             builtin.items.iter().map(|(id, a)| (id.clone(), to_state(a))).collect();
         let mut docs = self.entries.clone();
         docs.extend(oc_config::sources::agent_documents(&self.entries));
         let folded = fold::agents(&docs, home, existing);
-        let mut out = Agents { items: IndexMap::new(), default: folded.default_agent.clone() };
+        let mut out = Agents { items: IndexMap::new(), default: folded.default_agent.clone().or(builtin.default.clone()) };
         for (id, mut state) in folded.agents {
             let known = builtin.items.get(&id).cloned();
             let base = known.clone().unwrap_or_else(|| Agent::default_for(&id));
@@ -73,11 +81,13 @@ impl Location {
             }
             // The built-in browser plugin, registered after the config agent plugin, appends a browser
             // deny to every agent until a desktop attachment allows it (plugin-browser/src/connection.ts).
-            state.permissions.push(oc_schema::types::PermissionRule {
-                action: "browser".into(),
-                resource: "*".into(),
-                effect: oc_schema::types::Effect::Deny,
-            });
+            if browser {
+                state.permissions.push(oc_schema::types::PermissionRule {
+                    action: "browser".into(),
+                    resource: "*".into(),
+                    effect: oc_schema::types::Effect::Deny,
+                });
+            }
             out.items.insert(
                 id.clone(),
                 Agent {

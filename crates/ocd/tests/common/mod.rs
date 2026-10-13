@@ -33,6 +33,7 @@ impl Env {
             .env("PWD", self.path("work"))
             .env("OPENCODE_DISABLE_MODELS_FETCH", "1")
             .env("OPENCODE_DISABLE_AUTOUPDATE", "1")
+            .env_remove("OPENCODE_TEST_HOME")
             .env_remove("OPENCODE_CONFIG_DIR")
             .env_remove("OPENCODE_PASSWORD")
             .env_remove("OPENCODE_SERVER_PASSWORD")

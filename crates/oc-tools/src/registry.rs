@@ -167,8 +167,10 @@ impl Registry {
 /// Plugin `tool.execute.before/after` hooks (owned by core).
 #[async_trait]
 pub trait ExecuteHooks: Send + Sync {
-    /// May rewrite the tool name and input.
-    async fn before(&self, _tool: &mut String, _input: &mut Value, _ctx: &ToolContext) {}
+    /// May rewrite the tool name and input, or reject the call with a `Tool.Error`.
+    async fn before(&self, _tool: &mut String, _input: &mut Value, _ctx: &ToolContext) -> Result<(), ToolError> {
+        Ok(())
+    }
     /// May rewrite the result or error.
     async fn after(&self, _tool: &str, _input: &Value, _result: &mut Result<ToolResult, ToolError>, _ctx: &ToolContext) {}
 }
@@ -251,7 +253,7 @@ impl Snapshot {
         if let Some(tool) = self.direct_tool(&tool_name) {
             input = tool.prepare_input(input);
         }
-        hooks.before(&mut tool_name, &mut input, &ctx).await;
+        hooks.before(&mut tool_name, &mut input, &ctx).await?;
         if let Some(advertised) = advertised {
             if !advertised.contains(&tool_name) && self.direct_tool(&tool_name).is_some() {
                 return Err(ToolError::new(format!("Tool is not available for this request: {tool_name}")));

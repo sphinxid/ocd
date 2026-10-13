@@ -27,10 +27,11 @@ engine.environment(session_id)               // app.environments entry (PUT /api
 | module | contents |
 |---|---|
 | `engine` | `Engine` (app, optional runner, models, location cache, websearch, PTY ownership), session-scope helper (`SessionNotFoundError`/`LocationNotFoundError`), wake/is_active via `app.coordinator` |
-| `locations` | `LocationServiceMap`: per-directory (verbatim key) `Loc { location, agents, snapshots }`, single-flight build, `Project.activate` (≤ 1/min, `project.updated`), `evict` (`location.shutdown`), `reload` (503 `{service:"location"}`) |
+| `locations` | `LocationServiceMap`: per-directory (verbatim key) `Loc { location, snapshots }`, single-flight build, `Project.activate` (≤ 1/min, `project.updated`), plugin activation (`Plugins::ensure`; with configured plugins the nine boot `*.updated` notifications wait for it, then the plugin domains are rebuilt), `evict` (`location.shutdown`, plugin location closed), `reload` (503 `{service:"location"}`) |
+| `plugins` | `BackendApi`, the server's `oc_plugin::PluginApi`: plugin `ctx.*` API calls run through an in-process router (the same handlers, validation, errors and envelopes as HTTP; upstream `ClientApi` names mapped to operation ids, path/query/body split from the OpenAPI document, the plugin's location as `x-opencode-directory`, `session.create` defaulting `location`); `integration.connection.*` over oc-ai `Integrations`; host-service methods and storage via `oc_core::plugins::CoreApi`; `rs:command.<name>` handles run native commands. `install(engine, opts)` is called by `start`/`router` |
 | `sessions` | `session.*` handlers: create/remove (children, interrupt, `Bus.remove`)/update/fork (instruction state + entries)/prompt (attachments via `oc_core::attachment`, skills)/synthetic/compact (input id honoured)/interrupt (resume semantics)/inbox/move/messages/context/revert stage-clear-commit (oc-git `Snapshots`)/diff (`SessionDiff.turn`)/instruction entries/skill activation/commands (built-ins + config templates with `` !`cmd` ``) |
 | `store` | SQL equivalents of `SessionStore.list/messages/message/context`, instruction entries, saved permissions, `Bus.remove`, event-log reads |
-| `catalog` | skills (via `oc_core::skills`) and the command registry (`init`, `review`, MCP prompts, config commands) |
+| `catalog` | skills (via `oc_core::plugins::Plugins::skills`) and the command registry (`init`, `review`, MCP prompts → plugin `command` transforms → config commands; plugin commands are `CommandDef::Plugin(handle)`) |
 | `fs` + `fuzzy` | `fs.read` (confined, realpath), `fs.list` (dirs first, locale order), `fs.write`, `fs.find` (gitignore-aware walk + fuzzy ranking) |
 | `stats` | `SessionStats.get` |
 | `shells` | `ShellSelect.list` (unix) |
@@ -133,12 +134,25 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
 * **vcs** (git via `oc_git::GitVcs`): `vcs.init` (git; hg → 503), `vcs.get`, `vcs.base`,
   `vcs.status`, `vcs.branch.list` (limit ≤ 100), `vcs.diff` (review budget).
 
-## TODO(core) — stubs and what they need from oc-core
+## Plugins
 
-| operation(s) | current answer | needs |
-|---|---|---|
-| prompt plugin hooks (`session.prompt`) | skipped | `PluginHooks` (plugin host) |
-| `plugin.*`, `rpc.call` | `[]` / 400 on any target / 400 `RpcError` | plugin host + RPC |
+Server plugins run in oc-plugin's Bun sidecar, driven by `oc_core::plugins::Plugins` (see
+`crates/oc-core` and `crates/oc-plugin/README.md`). The backend's part:
+
+* **`plugin.list`**: the location's inventory (built-ins in upstream order, package/local plugins
+  in boot order, failures). **`plugin.check`**: package targets checked for updates
+  (`Npm::check`: `bun info` for registry specs, `git ls-remote` for Git specs; failures count as
+  current), `outdated` set like upstream. **`plugin.update`**: `Npm::update` per target, then the
+  location's plugins reload; failures answer upstream's 503.
+* **`rpc.call`**: `Plugin.awaitActivation`, then the sidecar registry; failures map to upstream's
+  `RpcError` (400) / `RpcInternalError` (500, `rpc.internal`/`rpc.invalid_output`); unknown ids
+  answer `rpc.unavailable` / `RPC is unavailable: <id>`.
+* **`session.prompt`**: awaits activation and runs the `session.prompt` hook before attachments
+  are materialised (the message id is generated first when the hook exists).
+* **`session.command`**: awaits activation; plugin commands execute through their handle.
+* Domain listings (`agent.*`, `command.list`, `skill.list`, `reference.list`, `model.*`,
+  `provider.*`, `integration.*`, `websearch.*`) include plugin transforms; `shell.create` runs
+  `shell.create.before`.
 
 Deviations: `fs.find` ranking approximates fuzzysort/fff; the location cache key is verbatim but
 the runner's own cache is cleared wholesale on evict/reload; 
@@ -149,4 +163,12 @@ the runner's own cache is cleared wholesale on evict/reload;
 router over an in-memory database and a temp `Global` (sessions + cursor paging, prompt/inbox/
 messages/fork, attachments and skills, commands, permissions, filesystem, projects/config/
 credentials, instruction entries + session log, forms (incl. a waiting `ask`) and background, export/import, runner-less generate/MCP, PTY lifecycle + attach, shell commands + bus events, config update/reload eviction, wellknown add, prompt image normalization, stats, shells/websearch/references, git worktrees (+ refresh), persistent PTY without a daemon; `persistent_pty_real_daemon` is `#[ignore]` (needs `opencode-pty`), runner-less interrupt/wait/view/revert, move,
-git VCS, models/providers/integrations, event feed).
+git VCS, models/providers/integrations, event feed). `tests/plugins.rs` runs oc-plugin's fixture
+plugins in the real Bun sidecar (bun from `OCD_BUN_PATH`/`OCD_TEST_BUN`, else the scratchpad bun;
+skipped without one) against the router with the session runner and a mock provider: a plugin tool
+offered to the model and executed with `tool.execute.before` rewriting its input; plugin
+commands, agents and skills; a rejecting `tool.execute.before`; `permission.evaluate` allowing and
+denying `.env` reads; `tool.execute.after`, `session.prompt`, `session.context` and
+`shell.create.before`; storage, `ctx.event.subscribe` and `rpc.call`; provider/model/integration/
+websearch transforms and a Code Mode plugin tool with hooks on the nested call; built-in plugin
+removal without starting Bun; local plugin hot reload.

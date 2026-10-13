@@ -29,6 +29,8 @@ pub struct App {
     pub ptys: crate::pty::Ptys,
     /// `SessionEnvironment`: full replacement environments per session.
     pub environments: Arc<parking_lot::Mutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>>>,
+    /// Server plugins (Bun sidecar, started on demand).
+    pub plugins: Arc<crate::plugins::Plugins>,
     pub version: String,
 }
 
@@ -36,6 +38,7 @@ struct PermCtx {
     db: Database,
     bus: Bus,
     agents: Arc<RwLock<Agents>>,
+    plugins: Arc<crate::plugins::Plugins>,
 }
 
 impl PermCtx {
@@ -83,6 +86,24 @@ impl PermissionContext for PermCtx {
         });
     }
 
+    fn evaluate_hook(&self, session_id: &str, event: Value) -> futures::future::BoxFuture<'static, Value> {
+        let plugins = self.plugins.clone();
+        let key = plugins.session_key(session_id);
+        Box::pin(async move {
+            let Some(key) = key else { return event };
+            if !plugins.has_hook(&key, "permission.evaluate", None) {
+                return event;
+            }
+            match plugins.trigger(&key, "permission.evaluate", event.clone()).await {
+                Ok(out) => out,
+                Err(error) => {
+                    tracing::error!(%error, "permission.evaluate hook failed");
+                    event
+                }
+            }
+        })
+    }
+
     fn publish(&self, kind: &str, data: Value) {
         let session = data.get("sessionID").and_then(Value::as_str).map(str::to_string);
         match session {
@@ -101,9 +122,17 @@ impl App {
         let version = version.into();
         let bus = Bus::new(db.clone());
         let agents = Arc::new(RwLock::new(Agents::builtin(&global.home)));
-        let permissions = Arc::new(Permissions::new(Arc::new(PermCtx { db: db.clone(), bus: bus.clone(), agents: agents.clone() })));
+        let global = Arc::new(global);
+        let plugins = crate::plugins::Plugins::new(global.clone(), db.clone(), bus.clone(), &version);
+        let permissions = Arc::new(Permissions::new(Arc::new(PermCtx {
+            db: db.clone(),
+            bus: bus.clone(),
+            agents: agents.clone(),
+            plugins: plugins.clone(),
+        })));
         Arc::new(App {
-            global: Arc::new(global),
+            plugins,
+            global,
             sessions: Sessions::new(bus.clone(), version.clone()),
             jobs: Arc::new(crate::job::Jobs::new(db.clone())),
             forms: crate::form::Forms::new(bus.clone()),

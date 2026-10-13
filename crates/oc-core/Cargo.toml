@@ -14,6 +14,7 @@ oc-mcp = { path = "../oc-mcp" }
 oc-config = { path = "../oc-config" }
 oc-git = { path = "../oc-git" }
 oc-ai = { path = "../oc-ai" }
+oc-plugin = { path = "../oc-plugin" }
 tokio.workspace = true
 tokio-util.workspace = true
 tokio-stream.workspace = true

@@ -22,7 +22,7 @@ pub struct Engine {
     own_models: Option<oc_core::models::Models>,
     pub locations: Locations,
     /// `WebSearch` service (built-in providers over the `kv` table and credentials).
-    pub websearch: oc_tools::websearch::WebSearch,
+    pub websearch: Arc<oc_tools::websearch::WebSearch>,
     /// Persistent PTY service (built on first use, see [`Engine::persistent`]).
     persistent: tokio::sync::OnceCell<oc_persistent_pty::PersistentPty>,
     persistent_options: Mutex<Option<oc_persistent_pty::Options>>,
@@ -52,10 +52,12 @@ impl oc_ai::credentials::KvStore for DbKv {
     }
 }
 
-fn websearch(app: &Arc<App>) -> oc_tools::websearch::WebSearch {
+fn websearch(app: &Arc<App>) -> Arc<oc_tools::websearch::WebSearch> {
     let store = Arc::new(oc_core::services::WebSearchKv { app: app.clone() });
     let ws = oc_tools::websearch::WebSearch::new(store, reqwest::Client::new());
     ws.set_user_agent(format!("opencode/{}/{}/opencode", oc_util::version::CHANNEL, app.version));
+    let ws = Arc::new(ws);
+    app.plugins.add_websearch(ws.clone());
     ws
 }
 
@@ -64,6 +66,7 @@ impl Engine {
     pub fn new(app: Arc<App>) -> Arc<Engine> {
         let app_ref = app.clone();
         let models = oc_core::models::Models::new(app.db.clone(), app.bus.clone(), oc_util::version::CHANNEL, &app.version);
+        models.set_plugins(app.plugins.clone());
         Arc::new(Engine {
             locations: Locations::new(app.clone(), None),
             app,
@@ -166,7 +169,7 @@ impl Engine {
     /// The location's model catalog (`Provider`/`Model` services).
     pub async fn catalog(&self, loc: &Loc) -> Result<oc_ai::catalog::Catalog, ApiError> {
         self.models()
-            .catalog(&loc.location.entries)
+            .catalog_at(&loc.location.entries, Some(&loc.key))
             .await
             .map_err(|e| ApiError::service_unavailable(e.to_string(), Some("provider".into())))
     }
@@ -179,13 +182,53 @@ impl Engine {
         }
     }
 
-    /// Commands of a location, including MCP prompt commands.
+    /// Commands of a location: built-ins and MCP prompt commands, plugin transforms, then
+    /// configured commands.
     pub async fn commands(&self, loc: &Loc) -> IndexMap<String, (Option<String>, crate::catalog::CommandDef)> {
+        let mut native = self.native_commands(loc).await;
+        let plugins = &self.app.plugins;
+        // Built-in command plugins removed by configuration (`-opencode.command`).
+        if !plugins.builtin_enabled(&loc.key, "opencode.command") {
+            native.retain(|_, (_, def)| !matches!(def, crate::catalog::CommandDef::Init | crate::catalog::CommandDef::Review));
+        }
+        let mut out = if plugins.host().is_some() {
+            let list: Vec<(String, Option<String>)> = native.iter().map(|(n, (d, _))| (n.clone(), d.clone())).collect();
+            let mut out = IndexMap::new();
+            for (name, description, handle) in plugins.commands(&loc.key, list).await {
+                let def = match handle.strip_prefix("rs:command.").and_then(|n| native.shift_remove(n)) {
+                    Some((_, def)) => def,
+                    None if oc_plugin::protocol::is_plugin_handle(&handle) => crate::catalog::CommandDef::Plugin(handle),
+                    None => continue,
+                };
+                out.insert(name, (description, def));
+            }
+            out
+        } else {
+            native
+        };
+        if plugins.builtin_enabled(&loc.key, "opencode.config.command") {
+            crate::catalog::configured(loc, &mut out);
+        }
+        out
+    }
+
+    /// The native commands registered before plugins (built-ins, MCP prompts).
+    pub async fn native_commands(&self, loc: &Loc) -> IndexMap<String, (Option<String>, crate::catalog::CommandDef)> {
         let prompts = match self.mcp(loc).await {
             Some(m) => m.prompts(),
             None => vec![],
         };
-        crate::catalog::commands(loc, &prompts)
+        crate::catalog::native(&prompts)
+    }
+
+    /// Agents of a location after plugin transforms and configuration.
+    pub async fn agents(&self, loc: &Loc) -> oc_core::agent::Agents {
+        self.app.plugins.agents(&loc.location, &self.app.global.home).await
+    }
+
+    /// Skills of a location after plugin transforms and configuration.
+    pub async fn skills(&self, loc: &Loc) -> Vec<oc_config::sources::Skill> {
+        crate::catalog::skills(loc, &self.app.version, &self.app.global, &self.app.plugins).await
     }
 
     /// Environment variables set for a session through `PUT /api/session/{id}/environment`.
@@ -223,5 +266,27 @@ impl Engine {
 
     pub fn home(&self) -> &Path {
         &self.app.global.home
+    }
+}
+
+impl Engine {
+    /// `PluginUpdate.check(target, {refresh: true})`: whether a newer package is available.
+    pub async fn plugin_outdated(&self, target: &str) -> bool {
+        let Some(host) = self.app.plugins.host() else { return false };
+        let Ok(bun) = host.bun().await else { return false };
+        match host.npm().check(&bun, target).await {
+            Ok(outdated) => outdated,
+            Err(error) => {
+                tracing::warn!(%error, target, "plugin update check failed");
+                false
+            }
+        }
+    }
+
+    /// `PluginUpdate.update(target)`: installs the latest revision of a package plugin.
+    pub async fn plugin_install_update(&self, target: &str) -> Result<(), String> {
+        let host = self.app.plugins.host().ok_or_else(|| "Plugin host is not running".to_string())?;
+        let bun = host.bun().await?;
+        host.npm().update(&bun, target).await.map(|_| ()).map_err(|e| e.to_string())
     }
 }

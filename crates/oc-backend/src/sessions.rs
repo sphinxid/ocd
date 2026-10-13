@@ -222,7 +222,7 @@ impl Engine {
         };
         let skills = match skills.filter(|s| !s.is_empty()) {
             Some(requested) => {
-                let registry = crate::catalog::skills(loc, &self.app.version, &self.app.global).await;
+                let registry = self.skills(loc).await;
                 let mut prepared: IndexMap<String, String> = IndexMap::new();
                 let mut out = Vec::new();
                 for attachment in requested {
@@ -250,7 +250,37 @@ impl Engine {
 
     pub async fn prompt(&self, id: &str, body: api::SessionPromptBody) -> Result<api::SessionInboxUser, ApiError> {
         let (_, loc) = self.session_scope(id).await?;
-        // TODO(core): plugin `session.prompt` hooks (`PluginHooks.trigger`).
+        // `SessionPrompt.prepare`: `Plugin.awaitActivation`, then the `session.prompt` hook before
+        // attachments are materialised.
+        self.app.plugins.await_activation(&loc.key).await;
+        let mut body = body;
+        if self.app.plugins.has_hook(&loc.key, "session.prompt", None) {
+            let message_id = body.id.clone().unwrap_or_else(oc_schema::id::message);
+            let mut prompt = json!({ "text": body.text });
+            if let Some(f) = &body.files {
+                prompt["files"] = serde_json::to_value(f).unwrap_or_default();
+            }
+            if let Some(a) = &body.agents {
+                prompt["agents"] = serde_json::to_value(a).unwrap_or_default();
+            }
+            if let Some(sk) = &body.skills {
+                prompt["skills"] = serde_json::to_value(sk).unwrap_or_default();
+            }
+            let mut event = json!({ "sessionID": id, "messageID": message_id, "prompt": prompt });
+            if let Some(m) = &body.metadata {
+                event["metadata"] = serde_json::to_value(m).unwrap_or_default();
+            }
+            event["delivery"] = body.delivery.as_ref().map(|d| serde_json::to_value(d).unwrap_or_default()).unwrap_or(json!("steer"));
+            let out = self.app.plugins.trigger(&loc.key, "session.prompt", event).await.map_err(|e| defect(e.to_string()))?;
+            let prompt = out.get("prompt").cloned().unwrap_or_default();
+            body.id = Some(message_id);
+            body.text = prompt.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+            body.files = prompt.get("files").cloned().filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v).ok());
+            body.agents = prompt.get("agents").cloned().filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v).ok());
+            body.skills = prompt.get("skills").cloned().filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v).ok());
+            body.metadata = out.get("metadata").cloned().filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v).ok());
+            body.delivery = out.get("delivery").cloned().and_then(|v| serde_json::from_value(v).ok()).or(body.delivery);
+        }
         let (files, skills) = self.prepare_prompt(&loc, body.files, body.skills).await?;
         let input = PromptInput {
             id: body.id.clone(),
@@ -679,7 +709,7 @@ impl Engine {
 
     pub async fn activate_skill(&self, id: &str, skill_id: &str, resume: Option<bool>) -> Result<(), ApiError> {
         let (_, loc) = self.session_scope(id).await?;
-        let skills = crate::catalog::skills(&loc, &self.app.version, &self.app.global).await;
+        let skills = self.skills(&loc).await;
         let Some(skill) = skills.into_iter().find(|s| s.id == skill_id) else {
             return Err(ApiError::skill_not_found(skill_id));
         };
@@ -699,10 +729,61 @@ impl Engine {
 
     pub async fn command(&self, id: &str, body: api::SessionCommandBody) -> Result<(), ApiError> {
         let (session, loc) = self.session_scope(id).await?;
+        // `SessionCommand.execute`: `Plugin.awaitActivation`, then `Command.execute`.
+        self.app.plugins.await_activation(&loc.key).await;
         let commands = self.commands(&loc).await;
         let Some((_, def)) = commands.get(&body.name) else {
             return Err(ApiError::command_not_found(&body.name, format!("Command not found: {}", body.name)));
         };
+        if let crate::catalog::CommandDef::Plugin(handle) = def {
+            let mut prompt = json!({ "text": body.text });
+            if let Some(f) = &body.files {
+                prompt["files"] = serde_json::to_value(f).unwrap_or_default();
+            }
+            if let Some(a) = &body.agents {
+                prompt["agents"] = serde_json::to_value(a).unwrap_or_default();
+            }
+            if let Some(sk) = &body.skills {
+                prompt["skills"] = serde_json::to_value(sk).unwrap_or_default();
+            }
+            let delivery = body.delivery.as_ref().map(|d| serde_json::to_value(d).unwrap_or_default()).unwrap_or(json!("steer"));
+            let invocation = json!({ "sessionID": id, "prompt": prompt, "delivery": delivery });
+            return self.app.plugins.execute_command(&loc.key, handle, invocation).await.map_err(|message| {
+                tracing::error!(command = body.name, error = message, "command execution failed");
+                ApiError::command_execution(&body.name, message)
+            });
+        }
+        self.run_command(id, session, loc.clone(), def, body).await
+    }
+
+    /// A native command invoked by a plugin through its `rs:command.<name>` handle.
+    pub async fn native_command(&self, _directory: &str, name: &str, invocation: Value) -> Result<(), ApiError> {
+        let id = invocation.get("sessionID").and_then(Value::as_str).unwrap_or_default().to_string();
+        let (session, loc) = self.session_scope(&id).await?;
+        let commands = self.native_commands(&loc).await;
+        let Some((_, def)) = commands.get(name) else {
+            return Err(ApiError::command_not_found(name, format!("Command not found: {name}")));
+        };
+        let prompt = invocation.get("prompt").cloned().unwrap_or_default();
+        let body = api::SessionCommandBody {
+            name: name.to_string(),
+            text: prompt.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
+            files: prompt.get("files").cloned().and_then(|v| serde_json::from_value(v).ok()),
+            agents: prompt.get("agents").cloned().and_then(|v| serde_json::from_value(v).ok()),
+            skills: prompt.get("skills").cloned().and_then(|v| serde_json::from_value(v).ok()),
+            delivery: invocation.get("delivery").cloned().and_then(|v| serde_json::from_value(v).ok()),
+        };
+        self.run_command(&id, session, loc.clone(), def, body).await
+    }
+
+    async fn run_command(
+        &self,
+        id: &str,
+        session: oc_schema::types::SessionInfo,
+        loc: Arc<crate::locations::Loc>,
+        def: &crate::catalog::CommandDef,
+        body: api::SessionCommandBody,
+    ) -> Result<(), ApiError> {
         let name = body.name.clone();
         let failed = |message: String| {
             tracing::error!(command = name, error = message, "command execution failed");
@@ -712,6 +793,7 @@ impl Engine {
         let mut agent_switch: Option<String> = None;
         let mut model_switch: Option<ModelRef> = None;
         let text = match def {
+            crate::catalog::CommandDef::Plugin(_) => return Err(failed("Plugin commands run in the plugin host".into())),
             crate::catalog::CommandDef::Init => {
                 crate::catalog::append(&crate::catalog::PROMPT_INITIALIZE.replace("${path}", &project_dir), &body.text)
             }
@@ -742,7 +824,8 @@ impl Engine {
             }
             crate::catalog::CommandDef::Config(command) => {
                 let agent = command.agent.clone();
-                let agent_info = agent.as_ref().and_then(|a| loc.agents.items.get(a)).cloned();
+                let agents = self.agents(&loc).await;
+                let agent_info = agent.as_ref().and_then(|a| agents.items.get(a)).cloned();
                 if let Some(a) = &agent
                     && agent_info.is_none() {
                         return Err(failed(format!("Agent not found: {a}")));
@@ -856,8 +939,9 @@ impl Engine {
         body: api::SessionCommandBody,
     ) -> Result<(), ApiError> {
         let wanted = agent.clone().or(parent.agent.clone());
-        let selected = loc
-            .agents
+        let selected = self
+            .agents(loc)
+            .await
             .select(wanted.as_deref())
             .cloned()
             .ok_or_else(|| ApiError::defect(format!("Agent not found: {}", wanted.unwrap_or_default())))?;
@@ -891,7 +975,7 @@ impl Engine {
             description,
         };
         use oc_tools::host::ToolHost;
-        let host = oc_core::host::CoreHost { app: self.app.clone(), skills: Arc::new(vec![]), mcp: None };
+        let host = oc_core::host::CoreHost { app: self.app.clone(), skills: Arc::new(vec![]), mcp: None, location: None };
         host.subagent_job_start(recovery.clone()).await.map_err(ApiError::defect)?;
         host.subagent_job_background(recovery).await.map_err(ApiError::defect)?;
         Ok(())
