@@ -602,27 +602,28 @@ impl App {
         let prompt_h = prompt_lines.as_ref().map(|p| p.0.len()).unwrap_or(0);
         let max_dock = (inner.height as usize).saturating_sub(4);
         let dock_h = (dock.len() + prompt_h).min(max_dock) as u16;
-        let strip_y = inner.bottom().saturating_sub(dock_h + 1);
+        // Status strip: the busy rows (ocd addition) between blank rows, so they never touch the transcript or the
+        // prompt box, or (idle) one row for "Jump to latest".
+        let away = self.views.get(sid).is_some_and(|v| v.scroll_from_bottom > 0);
+        let jump = "Jump to latest ↓";
+        let busy_w = if away { width.saturating_sub(sw(jump) + 1) } else { width };
+        let busy = self.busy_lines(t, busy_w, self.highlight(t));
+        let strip_h = if busy.is_empty() { 1 } else { busy.len() as u16 + 2 };
+        let strip_y = inner.bottom().saturating_sub(dock_h + strip_h).max(inner.y);
         let transcript = Rect::new(inner.x, inner.y, inner.width, strip_y.saturating_sub(inner.y));
         self.draw_transcript(buf, transcript, t, sid, width);
-        // Status strip.
-        let away = self.views.get(sid).is_some_and(|v| v.scroll_from_bottom > 0);
-        let mut busy_w = width;
         if away {
-            let label = "Jump to latest ↓";
-            let x = inner.right().saturating_sub(sw(label) as u16);
-            put(buf, x, strip_y, label, fg(t.text.action.secondary.base), sw(label));
-            self.hits.push((Rect::new(x, strip_y, sw(label) as u16, 1), Click::JumpBottom));
-            busy_w = width.saturating_sub(sw(label) + 1);
+            let x = inner.right().saturating_sub(sw(jump) as u16);
+            put(buf, x, strip_y, jump, fg(t.text.action.secondary.base), sw(jump));
+            self.hits.push((Rect::new(x, strip_y, sw(jump) as u16, 1), Click::JumpBottom));
         }
-        // Busy status line (ocd addition), left side of the strip.
-        if strip_y >= inner.y
-            && let Some(line) = self.busy_line(t, busy_w, self.highlight(t))
-        {
-            draw_lines(buf, Rect::new(inner.x, strip_y, busy_w as u16, 1), &[line], 0, "");
+        if !busy.is_empty() {
+            let y = strip_y + 1;
+            let h = (busy.len() as u16).min(inner.bottom().saturating_sub(y));
+            draw_lines(buf, Rect::new(inner.x, y, busy_w as u16, h), &busy, 0, "");
         }
         // Dock.
-        let mut y = strip_y + 1;
+        let mut y = strip_y + strip_h;
         let dock_rect = Rect::new(inner.x, y, inner.width, (dock.len() as u16).min(dock_h));
         let hits = draw_lines(buf, dock_rect, &dock, 0, "");
         self.hits.extend(hits);

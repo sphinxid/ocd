@@ -113,9 +113,15 @@ The modules below cover the main session and home screens and all dialogs. They 
   setting up, the model has not sent its first token yet, or a tool is running. ocd adds one status line, like
   Claude Code's, from the moment Enter is pressed until the session goes idle:
   `⠹ Waiting for Claude Sonnet 4.5… (12s · ↓ 1.2k tokens · esc to interrupt)`. Upstream's footer bar is kept.
-  - **Where:** in the full TUI it goes on the left of the 1-row strip between the transcript and the bottom dock,
-    which upstream leaves blank. "Jump to latest ↓" keeps the right side, and the status line is shortened to fit
-    next to it. In mini mode it is the footer row right above the prompt, permission or form dock.
+  - **Where:** in the full TUI it goes between the transcript and the bottom dock, with a blank row above and
+    below it (upstream has one blank strip row there, which is what remains when idle). "Jump to latest ↓" goes
+    on the right of the blank row above, and the status line is shortened to fit next to it. In mini mode it is
+    the footer row right above the prompt, permission or form dock.
+  - **Shell commands** go on their own row under the status: `⠦ Running shell… (7s · …)` then `  $ npm test`.
+  - **Thinking once:** while a thought is in progress the status line says `Thinking…` (or `Thinking: <title>…`
+    with the thought's bold title), and the transcript does not draw upstream's live `Thinking` row (thought group
+    or activity label) at the same time. The finished `+ Thought · 5.0s` row appears as upstream's does. With
+    `session.thinking` set to `show`, reasoning text still streams into the transcript.
   - **Parts:** the spinner (braille frames at 80 ms in the agent colour, or a static `⋯` with animations off), the
     phrase (`text.base`; `text.feedback.warning.base` for retries and for permission/question waits), then in
     `text.muted`: the elapsed time, the output token count and the interrupt hint. The elapsed time counts from

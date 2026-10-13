@@ -918,9 +918,10 @@ fn busy_status_line_wide_and_narrow() {
     // Request out, no tokens yet: animations are off in the fixture, so the glyph is static.
     let lines = render(&mut a, 100, 40);
     assert_eq!(busy_row(&lines).trim(), "⋯ Waiting for Claude Sonnet 4.5… (12s · esc to interrupt)", "{}", lines.join("\n"));
-    // The line sits in the strip right above the prompt box; upstream's footer bar stays.
+    // The line sits one blank row above the prompt box; upstream's footer bar stays.
     let row = lines.iter().position(|l| l.contains("Waiting for")).unwrap();
-    assert!(lines[row + 1].trim_start().starts_with('┃'), "{}", lines.join("\n"));
+    assert!(lines[row + 1].trim().is_empty(), "{}", lines.join("\n"));
+    assert!(lines[row + 2].trim_start().starts_with('┃'), "{}", lines.join("\n"));
     assert!(contains(&lines, "[⋯] esc interrupt"), "{}", lines.join("\n"));
     let lines = render(&mut a, 40, 30);
     assert_eq!(busy_row(&lines).trim(), "⋯ Waiting for Claude Sonnet 4.5… (12s)", "{}", lines.join("\n"));
@@ -928,10 +929,15 @@ fn busy_status_line_wide_and_narrow() {
     a.on_event(busy_ev("session.step.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "agent": "build", "model": {"id":"claude-sonnet","providerID":"anthropic"}, "started": 80000})));
     a.on_event(busy_ev("session.tool.input.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "id": "t9", "name": "bash"})));
     a.on_event(busy_ev("session.tool.called", json!({"sessionID": sid, "assistantMessageID": "msg_9", "id": "t9", "input": {"command": "npm test"}})));
+    // The command goes on its own row under the status, then a blank row, then the prompt box.
     let lines = render(&mut a, 100, 40);
-    assert_eq!(busy_row(&lines).trim(), "⋯ Running shell: npm test… (12s · ↓ ~6 tokens · esc to interrupt)", "{}", lines.join("\n"));
+    assert_eq!(busy_row(&lines).trim(), "⋯ Running shell… (12s · ↓ ~6 tokens · esc to interrupt)", "{}", lines.join("\n"));
+    let row = lines.iter().position(|l| l.contains("Running shell…")).unwrap();
+    assert_eq!(lines[row + 1].trim(), "$ npm test", "{}", lines.join("\n"));
+    assert!(lines[row + 2].trim().is_empty(), "{}", lines.join("\n"));
+    assert!(lines[row + 3].trim_start().starts_with('┃'), "{}", lines.join("\n"));
     let lines = render(&mut a, 40, 30);
-    assert_eq!(busy_row(&lines).trim(), "⋯ Running shell: npm test… (12s)", "{}", lines.join("\n"));
+    assert_eq!(busy_row(&lines).trim(), "⋯ Running shell… (12s · ↓ ~6 tokens)", "{}", lines.join("\n"));
     // Armed interrupt.
     a.on_key(Stroke::key("escape"));
     let lines = render(&mut a, 100, 40);
@@ -939,8 +945,29 @@ fn busy_status_line_wide_and_narrow() {
     // Idle: gone.
     a.on_event(busy_ev("session.execution.succeeded", json!({"sessionID": sid})));
     let lines = render(&mut a, 100, 40);
-    assert!(!lines.iter().any(|l| l.contains("Running shell: npm test…") || l.contains("to interrupt")), "{}", lines.join("\n"));
+    assert!(!lines.iter().any(|l| l.contains("Running shell…") || l.contains("$ npm test") || l.contains("to interrupt")), "{}", lines.join("\n"));
     assert!(a.busy.is_empty());
+}
+
+#[test]
+fn busy_status_replaces_the_live_thinking_row() {
+    let mut a = app();
+    let sid = busy_fixture(&mut a);
+    a.on_event(busy_ev("session.step.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "agent": "build", "model": {"id":"claude-sonnet","providerID":"anthropic"}, "started": 80000})));
+    a.on_event(busy_ev("session.reasoning.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "ordinal": 0})));
+    a.on_event(busy_ev("session.reasoning.delta", json!({"sessionID": sid, "assistantMessageID": "msg_9", "ordinal": 0, "delta": "**Planning the tests**\n\nFirst"})));
+    let lines = render(&mut a, 100, 40);
+    // Thinking shows once: in the status line, with the thought's title, between blank rows.
+    let rows: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| l.contains("Thinking")).map(|(i, _)| i).collect();
+    assert_eq!(rows.len(), 1, "{}", lines.join("\n"));
+    assert!(lines[rows[0]].trim().starts_with("⋯ Thinking: Planning the tests… (12s"), "{}", lines.join("\n"));
+    assert!(lines[rows[0] - 1].trim().is_empty() && lines[rows[0] + 1].trim().is_empty(), "{}", lines.join("\n"));
+    // Once the thought completes, the transcript shows it as usual.
+    a.on_event(busy_ev("session.reasoning.ended", json!({"sessionID": sid, "assistantMessageID": "msg_9", "ordinal": 0, "text": "**Planning the tests**\n\nFirst"})));
+    a.on_event(busy_ev("session.text.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "ordinal": 0})));
+    let lines = render(&mut a, 100, 40);
+    assert!(contains(&lines, "+ Thought: Planning the tests"), "{}", lines.join("\n"));
+    assert!(!lines.iter().any(|l| l.contains("Thinking")), "{}", lines.join("\n"));
 }
 
 #[test]

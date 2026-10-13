@@ -95,7 +95,7 @@ impl App {
             dock.push(SLine::blank());
         }
         // Busy status line (ocd addition) right above the prompt / permission / form.
-        if let Some(mut line) = self.busy_line(&t, w.saturating_sub(1), self.highlight(&t)) {
+        for mut line in self.busy_lines(&t, w.saturating_sub(1), self.highlight(&t)) {
             line.segs.insert(0, pad(1));
             dock.push(line);
         }

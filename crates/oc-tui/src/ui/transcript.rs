@@ -1624,6 +1624,11 @@ fn group_lines(ctx: &RCtx, kind: GroupKind, children: &[Node], completed: bool, 
             if completed && duration > 0 {
                 label.push_str(&format!(" · {}", locale::duration(duration)));
             }
+            // ocd: the busy status line says "Thinking…" (with the title) while a thought is in progress, so the
+            // collapsed live row is not drawn too; it appears as "Thought · <duration>" once the thought completes.
+            if !completed && !expanded {
+                return out;
+            }
             out.extend(inline_row(ctx, if expanded { "-" } else { "+" }, color, completed, false, false, !completed, &pending_label, vec![s(label, color)], None, None, click));
             if expanded {
                 out.extend(render_children("thought"));
@@ -1763,8 +1768,8 @@ fn activity_summary(ctx: &RCtx, entries: &[&Entry], pending: &[PartRef], closed:
                     Content::Reasoning { text, time, .. } => {
                         let is_active = !closed && time.as_ref().and_then(|t| t.completed).is_none() && m.time.completed.is_none();
                         if is_active {
+                            // ocd: no "Thinking…" label of its own; the busy status line shows it.
                             active = true;
-                            active_label.get_or_insert("Thinking…".into());
                         } else if !reasoning_content(text).is_empty() {
                             counts[2] += 1;
                         }

@@ -6,8 +6,12 @@
 //!
 //! ```text
 //! ⠹ Waiting for Claude Sonnet 4.5… (12s · esc to interrupt)
-//! ⠼ Running shell: npm test… (1m 05s · ↓ 1.2k tokens · esc to interrupt)
+//! ⠼ Running shell… (1m 05s · ↓ 1.2k tokens · esc to interrupt)
+//!   $ npm test
 //! ```
+//!
+//! A shell command goes on its own row under the status. The transcript's own live "Thinking" row
+//! is not drawn while this line is shown (see `ui::transcript`), so thinking appears once, here.
 //!
 //! The phase is derived only from what the TUI already has: the optimistic submission (outbox), the
 //! inbox, the projected messages (`session.step.*`, `session.text.*`, `session.reasoning.*`,
@@ -19,7 +23,7 @@ use crate::api::types::*;
 use crate::store::Store;
 use crate::theme::{Rgba, Theme};
 use crate::ui::text::*;
-use crate::ui::transcript::{canonical_tool, format_path};
+use crate::ui::transcript::{canonical_tool, format_path, reasoning_content, reasoning_title};
 use crate::util::locale;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -48,12 +52,15 @@ pub enum Phase {
     ConnectingMcp,
     /// The request to the model is being prepared or is out; no output yet (model name).
     Waiting(String),
-    Thinking,
+    /// Reasoning is streaming (the title of the latest thought, like the transcript's `Thinking: <title>`).
+    Thinking(Option<String>),
     Writing,
     /// A tool call's input is streaming (tool display name).
     Preparing(String),
     /// A tool is executing (label, number of other running tools).
     Running(String, usize),
+    /// A shell command is running (first line of the command, number of other running tools).
+    Shell(Option<String>, usize),
     /// A provider retry is scheduled.
     Retrying { at: i64, attempt: i64 },
     Compacting,
@@ -70,11 +77,14 @@ impl Phase {
             Phase::ConnectingMcp => "Connecting to MCP servers…".into(),
             Phase::Waiting(model) if model.is_empty() => "Waiting for the model…".into(),
             Phase::Waiting(model) => format!("Waiting for {model}…"),
-            Phase::Thinking => "Thinking…".into(),
+            Phase::Thinking(None) => "Thinking…".into(),
+            Phase::Thinking(Some(title)) => format!("Thinking: {title}…"),
             Phase::Writing => "Writing…".into(),
             Phase::Preparing(tool) => format!("Preparing {tool}…"),
             Phase::Running(label, 0) => format!("{label}…"),
             Phase::Running(label, more) => format!("{label}… (+{more} more)"),
+            Phase::Shell(_, 0) => "Running shell…".into(),
+            Phase::Shell(_, more) => format!("Running shell… (+{more} more)"),
             Phase::Retrying { at, attempt } => {
                 // Same countdown as the transcript's retry row, which refreshes once per wall-clock second.
                 let now = now - now.rem_euclid(1000);
@@ -84,6 +94,14 @@ impl Phase {
             Phase::Compacting => "Compacting…".into(),
             Phase::Permission => "Waiting for permission…".into(),
             Phase::Question => "Waiting for your answer…".into(),
+        }
+    }
+
+    /// The row under the status (the shell command), if any.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Phase::Shell(Some(cmd), _) => Some(cmd),
+            _ => None,
         }
     }
 
@@ -172,8 +190,8 @@ fn phase(i: &Inputs, cur: &[&Message]) -> Phase {
             "compaction" if m.status.as_deref() == Some("running") => return Phase::Compacting,
             "compaction" => return waiting(None),
             "shell" if m.status.as_deref() == Some("running") => {
-                let cmd = m.command.as_deref().map(first_line).unwrap_or_default();
-                return Phase::Running(if cmd.is_empty() { "Running shell".into() } else { format!("Running shell: {cmd}") }, 0);
+                let cmd = m.command.as_deref().map(first_line).filter(|c| !c.is_empty());
+                return Phase::Shell(cmd, 0);
             }
             "user" | "synthetic" => break,
             _ => continue,
@@ -204,11 +222,19 @@ fn assistant_phase(i: &Inputs, m: &Message, waiting: Phase) -> Phase {
         _ => None,
     }).collect();
     let streaming = m.time.streamed.is_none();
-    let run = |t: &ToolPart| Phase::Running(tool_label(t, i.cwd), running.len().saturating_sub(1));
+    let run = |t: &ToolPart| {
+        let more = running.len().saturating_sub(1);
+        if canonical_tool(&t.name) == "shell" {
+            let cmd = t.state.input.get("command").and_then(|v| v.as_str()).map(first_line).filter(|c| !c.is_empty());
+            Phase::Shell(cmd, more)
+        } else {
+            Phase::Running(tool_label(t, i.cwd), more)
+        }
+    };
     match m.content.last() {
         Some(Content::Tool(t)) if t.state.status == "streaming" && streaming => Phase::Preparing(tool_name(&t.name)),
         Some(Content::Tool(t)) if t.state.status == "running" => run(t),
-        Some(Content::Reasoning { .. }) if streaming => Phase::Thinking,
+        Some(Content::Reasoning { text, .. }) if streaming => Phase::Thinking(reasoning_title(&reasoning_content(text))),
         Some(Content::Text { .. }) if streaming => Phase::Writing,
         _ => match running.first() {
             Some(t) => run(t),
@@ -354,6 +380,19 @@ pub struct LineOpts<'a> {
     pub width: usize,
 }
 
+/// The status line and, for a shell command, the command on the row below it (`  $ npm test`).
+pub fn lines(st: &Status, o: &LineOpts) -> Vec<SLine> {
+    let mut out = vec![line(st, o)];
+    if let Some(cmd) = st.phase.detail() {
+        let t = o.theme;
+        let room = o.width.saturating_sub(4);
+        if room > 0 {
+            out.push(SLine::new(vec![seg("  $ ", fg(t.text.muted)), seg(locale::truncate_width(cmd, room), fg(t.text.muted))]));
+        }
+    }
+    out
+}
+
 /// The status line, fitted to `o.width`: details are dropped (tokens, then the interrupt hint)
 /// before the phrase is truncated; the elapsed time stays.
 pub fn line(st: &Status, o: &LineOpts) -> SLine {
@@ -439,19 +478,20 @@ impl App {
         })
     }
 
-    /// The rendered status line for the current session (`None` when idle).
-    pub(super) fn busy_line(&self, t: &Theme, width: usize, color: Rgba) -> Option<SLine> {
-        let st = self.busy_status()?;
+    /// The rendered status rows for the current session (empty when idle).
+    pub(super) fn busy_lines(&self, t: &Theme, width: usize, color: Rgba) -> Vec<SLine> {
+        let Some(st) = self.busy_status() else { return vec![] };
+        let Some(sid) = self.session_id() else { return vec![] };
         let animations = self.config.animations();
         let spinner = if animations { self.spinner_frame() } else { "⋯" };
         // The hint only applies where the interrupt key works: prompt focused, not in shell mode.
-        let key = if self.active_permission().is_none() && self.active_form().is_none() && !self.editor.shell && self.store.is_running(self.session_id()?) {
+        let key = if self.active_permission().is_none() && self.active_form().is_none() && !self.editor.shell && self.store.is_running(sid) {
             // Shown like upstream's footer hint ("esc", not the keymap's "escape").
             self.keybinds.shortcut("session.interrupt").replace("escape", "esc")
         } else {
             String::new()
         };
-        Some(line(&st, &LineOpts { theme: t, spinner, spinner_color: color, interrupt_key: &key, armed: self.interrupt > 0, now: self.now(), width }))
+        lines(&st, &LineOpts { theme: t, spinner, spinner_color: color, interrupt_key: &key, armed: self.interrupt > 0, now: self.now(), width })
     }
 
     /// Start (or keep) the busy turn of a session when a prompt or shell command is submitted.
@@ -550,6 +590,11 @@ mod tests {
         status(store, turn).map(|s| s.phase.phrase(0)).unwrap_or_else(|| "<idle>".into())
     }
 
+    /// The row under the status (the shell command), if any.
+    fn detail(store: &Store, turn: Option<&Turn>) -> Option<String> {
+        status(store, turn).and_then(|s| s.phase.detail().map(str::to_string))
+    }
+
     const A: &str = "msg_a";
 
     fn step(s: &mut Store) {
@@ -577,6 +622,10 @@ mod tests {
         assert_eq!(phrase(&s, Some(&turn)), "Waiting for Mock Model…");
         s.apply(&ev("session.reasoning.started", json!({"assistantMessageID":A,"ordinal":0})));
         assert_eq!(phrase(&s, Some(&turn)), "Thinking…");
+        // The thought's title, as the transcript's collapsed row would show it.
+        s.apply(&ev("session.reasoning.delta", json!({"assistantMessageID":A,"ordinal":0,"delta":"**Planning the tests**\n\nFirst"})));
+        assert_eq!(phrase(&s, Some(&turn)), "Thinking: Planning the tests…");
+        assert_eq!(detail(&s, Some(&turn)), None);
         s.apply(&ev("session.reasoning.ended", json!({"assistantMessageID":A,"ordinal":0,"text":"hmm"})));
         s.apply(&ev("session.text.started", json!({"assistantMessageID":A,"ordinal":0})));
         s.apply(&ev("session.text.delta", json!({"assistantMessageID":A,"ordinal":0,"delta":"Let me run the tests."})));
@@ -584,10 +633,12 @@ mod tests {
         s.apply(&ev("session.tool.input.started", json!({"assistantMessageID":A,"id":"t1","name":"bash"})));
         assert_eq!(phrase(&s, Some(&turn)), "Preparing shell command…");
         s.apply(&ev("session.tool.called", json!({"assistantMessageID":A,"id":"t1","input":{"command":"npm test\necho done"},"executed":true})));
-        assert_eq!(phrase(&s, Some(&turn)), "Running shell: npm test…");
+        assert_eq!(phrase(&s, Some(&turn)), "Running shell…");
+        assert_eq!(detail(&s, Some(&turn)).as_deref(), Some("npm test"));
         // Stream ends while the tool still runs.
         s.apply(&ev("session.step.streamed", json!({"assistantMessageID":A})));
-        assert_eq!(phrase(&s, Some(&turn)), "Running shell: npm test…");
+        assert_eq!(phrase(&s, Some(&turn)), "Running shell…");
+        assert_eq!(detail(&s, Some(&turn)).as_deref(), Some("npm test"));
         s.apply(&ev("session.tool.success", json!({"assistantMessageID":A,"id":"t1","content":[]})));
         assert_eq!(phrase(&s, Some(&turn)), "Waiting for Mock Model…");
         s.apply(&ev("session.step.ended", json!({"assistantMessageID":A,"finish":"tool-calls","tokens":{"input":100,"output":40,"reasoning":2}})));
@@ -654,7 +705,8 @@ mod tests {
         let mut s = Store::new("/work");
         let turn = Turn { started: 0, acked: Some(1) };
         s.apply(&ev("session.shell.started", json!({"shell":{"id":"sh_1","command":"sleep 5","status":"running"}})));
-        assert_eq!(phrase(&s, Some(&turn)), "Running shell: sleep 5…");
+        assert_eq!(phrase(&s, Some(&turn)), "Running shell…");
+        assert_eq!(detail(&s, Some(&turn)).as_deref(), Some("sleep 5"));
         s.apply(&ev("session.execution.started", json!({})));
         step(&mut s);
         s.apply(&ev("session.text.started", json!({"assistantMessageID":A,"ordinal":0})));
