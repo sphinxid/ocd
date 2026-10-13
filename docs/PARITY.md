@@ -11,7 +11,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -26,8 +26,8 @@ Layout:
 |---|---|
 | `scripts/parity.py` | runner: selection, per-binary runs, diff, summary |
 | `scripts/parity/harness.py` | `Server` (isolated `serve --port 0`, SSE capture), `Ctx` (per-run API used by scenarios), the normalizer, the dump format |
-| `scripts/parity/mock.py` | scriptable SSE provider: chat completions, Responses and Anthropic Messages streams by request path, non-streaming completions, GET routes (also behind `scripts/mock_provider.py`) |
-| `scripts/parity/{loop,sessions,readonly,errors,cli,plugins,copilot}.py` | scenarios, one function each, registered with `@scenario(group)` |
+| `scripts/parity/mock.py` | scriptable provider: chat completions, Responses and Anthropic Messages SSE streams by request path, Open Responses over WebSocket, non-streaming completions, GET routes (also behind `scripts/mock_provider.py`) |
+| `scripts/parity/{loop,sessions,readonly,errors,cli,plugins,copilot,websocket}.py` | scenarios, one function each, registered with `@scenario(group)` |
 
 How a scenario runs, for each binary in turn: the project directory and the XDG state root are recreated at the
 **same paths** (so path-derived values such as project IDs are directly comparable), the mock starts on one
@@ -45,10 +45,17 @@ chunks), `tools` (`[{name, args, id}]`, several = parallel calls), `finish`, `us
 `headers` (HTTP error, e.g. 429 with `retry-after`), `cut` (drop the connection mid-stream), `delay`, `stall`
 (pause after the first chunk), `hang` (never answer). `"$PROJECT"` in any string is replaced by the project path.
 With a title expected, the first main response is held until the title was answered (+0.5 s), which makes the
-title/step ordering deterministic. The wire format follows the request path: `.../responses` answers OpenAI
-Responses events, `.../messages` Anthropic Messages events (text and tool calls), other paths chat-completions
-chunks; a request with `"stream": false` gets one JSON chat completion. `mock.routes[path] = (status, json)`
-answers GET requests (e.g. a Copilot `/models` list); other GETs are 404.
+title/step ordering deterministic. The wire format follows the request path: `.../messages` answers Anthropic
+Messages events (text and tool calls), `.../responses` Open Responses / OpenAI Responses events
+(`response.created`, output items, deltas, `response.completed` with output and usage; response IDs `resp_<n>`
+counted per mock, `resp_t<n>` for titles so a title racing the first step never shifts them), other paths
+chat-completions chunks; a request with `"stream": false` gets one JSON chat completion. The Responses events also
+go out as text frames on a WebSocket (a GET upgrade; every `response.create` frame consumes a turn). WebSocket-only
+turn fields: `error_frame` (send this frame instead of a response), `drop` (send the content, then drop the TCP
+connection), `close: [code, reason]` (the same with a close frame), `reject_upgrade: <status>` (refuse the next
+upgrade while this is the first unused turn). The mock records every upgrade (headers, connection number), frame
+(parsed and raw), client close (code) and drop. `mock.routes[path] = (status, json)` answers other GET requests
+(e.g. a Copilot `/models` list); the rest are 404.
 
 ### What the normalizer masks (and nothing else)
 
@@ -74,7 +81,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (57)
+## Scenarios (61)
 
 | group | scenarios |
 |---|---|
@@ -85,15 +92,28 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | readonly | server info, location, config, shells, agents, commands, skills, models (+default), providers, integrations, MCP, plugins, credentials, websearch providers, references, forms, permissions, PTYs, shells, projects, debug locations, v1 migration status; fs list/read/find (incl. traversal and content types); vcs in a git repo (status, branches, base, three diff modes, bad mode, worktree list) and outside one (incl. `vcs.init`); instruction entries + full LLM request with AGENTS.md/skill/command present; debug location evict + reload |
 | errors | 25 not-found shapes, 42 validation cases (params, query, payload, invalid JSON, empty body, wrong content types), 7 auth cases |
 | cli | `--help` for the root and all 17 subcommands and 29 nested ones, `--version`, unknown flag, bash completions; `run` default and `--format json` with a tool call, `run` without a message; `models`, `stats` (+`--json`, `--all`), `session list`, `debug paths/config/agents`, `mcp list`, `plugin list`, `auth list`, `service status/get` |
+| websocket | a configured provider on the native OpenAI package with `transport: "websocket"` against the mock's Open Responses endpoint; every upgrade (headers without the random key, host and Bun's `permessage-deflate` offer), frame (body with instructions/tool schemas as digests, key order) and close is compared. `ws_session`: five prompts on one session, a read tool round trip and the answer as continuation frames (`previous_response_id` + only the new input) over one socket, a `previous_response_not_found` error frame (rejected → step retried in full on a new socket), a server error frame (retry on a new socket), a socket dropped mid-answer (`WebSocket closed with code 1006`, continue), a close frame 1011 before any output (retry). `ws_interrupt`: an interrupt while the socket waits closes it; the next prompt reconnects in full. `ws_fallback`: a refused upgrade pins the session to HTTP (both steps POST with tracing headers), a second session gets its own socket, a provider with `transport: "http"` never opens one. `ws_plugin_hooks`: oc-plugin's `ws-plugin` fixture (`experimental.ws.handshake/send/receive` rewriting the upgrade URL and headers, each sent frame and the received text; `session.http.request` marking HTTP requests): the title and, after an error frame and a refused reconnect, the HTTP fallback carry the HTTP hook's header, the socket traffic carries only the ws hooks' marks |
 | plugin | oc-plugin's fixture plugins (`crates/oc-plugin/tests/fixtures`) copied into the project and configured as local plugins; the port runs them in its Bun sidecar (`OCD_BUN_PATH`, default `$OCD_SCRATCH/bun142/bun-linux-x64/bun`), upstream in-process. `plugin_inventory`: Promise + Effect + invalid + failing-transform plugins → `plugin.list` (order, sources, failures, the `skill.transform` failure disabling its plugin), `command.list`, `agent.list`, `skill.list`, boot and failure events. `plugin_tool`: a plugin tool offered to the model (tool names and full definitions of the first request) and executed with `tool.execute.before` rewriting its input, tool progress, a plugin command writing storage, the storage rows. `plugin_hooks`: `permission.evaluate` allowing/denying `.env` reads, `tool.execute.after` replacing a result, `session.prompt` rewriting the prompt, `session.context` adding a system part, `shell.create.before` adding an env variable. `plugin_effect`: agent/skill transforms and a rejecting `tool.execute.before`. `plugin_rpc_storage`: `rpc.call` (success, declared error, invalid input, unknown method, unknown RPC), storage incl. `ctx.event.subscribe` rows. `plugin_http_hooks`: `session.http.request` rewriting headers and body of every model request (title + steps; what the hook saw is echoed in a header) and `session.http.response` rewriting the streamed body. `plugin_vcs_worktree`: a plugin VCS provider selected with `default.set` (get/base/status/branches with search+limit/three diff modes incl. a failing one, `vcs.init` conflict) and a plugin worktree strategy (create, list, refresh, remove without and with `force`). `plugin_aisdk`: a configured provider whose package is oc-plugin's fixture AI SDK provider (`aisdk:file://.../aisdk-provider/index.js`, a LanguageModelV3 package talking to the mock through the SDK `fetch`): a read tool call, reasoning + text with cached/reasoning usage, an HTTP 400 (`APICallError`), a stream cut mid-way, then a model whose package does not exist (initialization failure); every request the provider sent (V3 prompt, tools, call headers, provider options, SDK options) is compared. `plugin_aisdk_hooks`: the same provider with plugin `aisdk.sdk` / `aisdk.language` hooks (wrapped SDK and language model) and `session.http.*` hooks around the SDK's fetch. `plugin_copilot`: the built-in GitHub Copilot plugin against the mock as a Copilot API (a fake OAuth credential created through the API, its `apiEndpoint` metadata = the mock; HTTPS goes to a dead proxy): the `/models` sync, the derived catalog, a `/responses` tool round trip (gpt-5.4), `/chat/completions` (gemini) and the native `/v1/messages` route (claude) after model switches, the utility-model title; every request the mock received (headers lowercased and sorted, transport headers dropped). `plugin_copilot_unsynced`: the same with a failing sync (404): every models.dev model through the in-tree AI SDK provider at the connection's API base |
 
 ## Results
+
+Copilot + Responses WebSocket combined (debug build, 2026-10-13): groups websocket + plugin + loop in one run,
+**33 of 34 identical** (`ws_*` 4 of 4, `plugin_copilot` and `plugin_copilot_unsynced` identical); the one diff is
+the known `loop_tool_error` race. The mock now serves both batches' Responses scenarios with one event generator
+(`created_at`/`model` in the response objects, which the AI SDK's Responses parser requires; separate title IDs).
 
 GitHub Copilot (debug build, 2026-10-13): `plugin_copilot` and `plugin_copilot_unsynced` identical; groups plugin
 (11 of 11) and loop (18 of 19, the known `loop_tool_error` race) show no new diffs. Also compared by hand per
 route (gpt-5.4 `/responses`, grok without advertised endpoints `/responses`, gemini and gpt-5-mini
 `/chat/completions`, claude native `/v1/messages`, claude unsynced `/chat/completions`): identical catalogs and
 request bodies; on the AI SDK routes even header name case and order match (both send through Bun's `fetch`).
+
+Responses WebSocket (debug build, 2026-10-13): group `websocket` **4 of 4 identical** (`ws_session`,
+`ws_interrupt`, `ws_fallback`, `ws_plugin_hooks`): the same upgrades, the same frames (content and key order;
+continuation frames with `previous_response_id`, full frames after a rejection or on a new socket), the same
+closes, HTTP fallbacks and session events. Groups loop + plugin + websocket in one run: 30 of 32 identical; the two diffs
+are the known `loop_tool_error` race and a `loop_http_400` title-rename vs failed-step race (identical in reruns;
+the pre-change binary shows the same race in 2 of 4 runs).
 
 AI SDK bridge (debug build, 2026-10-13): `plugin_aisdk` and `plugin_aisdk_hooks` identical (repeated runs);
 upstream runs the fixture package in-process, ocd in its Bun sidecar. Both scenarios create the session with a
@@ -175,10 +195,10 @@ classified below; none is an unexplained behavioral difference.
 | 30 | Azure `azure-cli` connect form never listed resources | core/src/plugin/provider/azure.ts:374-408 | `oc-core/src/integrations.rs` `list_azure_resources` (signed-in `azureProfile.json` under `$AZURE_CONFIG_DIR` or `<home>/.azure`, BOM stripped; management token from `az account get-access-token`; Azure Resource Graph query with `$top: 1000`; options `{value, label, description: "<group> · <location>"}` for names matching the resource pattern), started once per location in the background like upstream; the form then offers the resources (`custom: true`) or says none were found. `configuredResource` now treats an empty `AZURE_RESOURCE_NAME` as winning (`??`). Test `oc-core/tests/azure_resources.rs` with a fake `az` on `PATH` and a local Resource Graph mock |
 | 31 | Plugin-registered integrations and web search providers were process-wide; the "always" re-check of other pending permission requests skipped the `permission.evaluate` hook and dropped their metadata/source | core/src/integration.ts and core/src/websearch.ts are location nodes; core/src/permission.ts `reply` | `Models` keeps one `Integrations` registry per location (credentials stay global; OAuth implementations, the ChatGPT client lookup and the Azure listing per registry; dropped on location close); backend integration endpoints and the plugin `integration.connection.*` API use the location's registry. `Plugins` keeps one web search service per location forked from the built-ins (plugin providers, plugin `default.set` selection, config selection, cooldowns, random affinity per location; built-ins a plugin re-registers keep their executor through `rs:websearch.<id>`); the tool resolves it through `ToolHost::websearch`. `Permissions::reply` is async and re-evaluates through `evaluate_hooked` with the stored request. Tests: `oc-backend/tests/plugins.rs` (second location sees neither the plugin's integration nor its provider), `permission.rs` unit test `always_recheck_runs_the_evaluate_hook` |
 | 32 | A location's plugins could load twice when the runner and the backend booted it at the same time (a fixture plugin's `boots` counter read 2) | core/src/plugin.ts (one activation per location) | `Plugins::ensure` claims the configuration before spawning the load |
-
 | 33 | `aisdk:` packages (AI SDK providers without a native implementation) failed with `Unsupported package`; plugin `aisdk.*` hooks were inert | core/src/aisdk.ts, core/src/model-resolver.ts `loadAISDK`, core/src/plugin/provider/{dynamic,sdk-factory,cohere,perplexity,vercel,gitlab,sap-ai-core}.ts, core/src/plugin/host.ts:157 | AI SDK bridge: oc-ai `src/aisdk.rs` (route, `callOptions` lowering, stream-part raising, `llmError` from error shapes), oc-plugin `src/aisdk.rs` + `host/src/aisdk.ts` (sidecar: package install/import, internal and plugin `aisdk` hooks, `prepareOptions` fetch with timeouts/extra body/HTTP hooks, `doStream`), oc-core `src/aisdk.rs` (`LocationBridge`) and `Models::resolve_model` (eager load at resolution, `ModelInitializationError` phase `init`). Scenarios `plugin_aisdk`, `plugin_aisdk_hooks`; `oc-plugin/tests/aisdk.rs`, `oc-backend/tests/aisdk.rs` |
-
 | 34 | GitHub Copilot models kept models.dev's packages (native OpenAI/Anthropic/OpenAI-compatible routes at api.githubcopilot.com, without Copilot headers); the plugin's `/models` sync, `sdk`/`language` hooks, `session.model.request` / `session.title` / `session.http.request` hooks and the `gpt-5-chat-latest` model transform were missing | core/src/plugin/provider/github-copilot.ts:159-345, core/src/github-copilot/ | oc-ai `catalog/copilot.rs` (live-model decoding, `derive`/`build`, the provider/model transforms) and `js_date.rs` (`Date.parse` incl. the legacy format, for release dates from model versions; 106k-string differential test against Bun); oc-core `copilot.rs` (per-location loaded state: initial load when the location's catalog is first built, reload on `credential.switched`; interaction headers, utility title, native-route HTTP hook, which also routes every Copilot request through the HTTP middleware as upstream); sidecar `host/src/aisdk.ts` internal plugin `opencode.provider.github.copilot` with upstream's in-tree provider (`core/src/github-copilot`) bundled from the checkout. Also: the sidecar's `ctx.app.name` is now `cli` (was `opencode`; upstream's server passes the CLI's name), a `session.title` hook `result` is used verbatim (was: its first non-empty line), and a switched session model keeps `variant: "default"` in the step's model ref. Scenarios `plugin_copilot`, `plugin_copilot_unsynced`; `oc-backend/tests/copilot.rs` |
+| 35 | No Responses WebSocket transport: every model streamed over HTTP SSE | ai/src/protocols/open-responses-channel.ts, open-responses-continuation.ts, openai-responses.ts `channelTransport`, providers/{azure,xai}.ts, route/transport/websocket*.ts; core/src/session/model-transport.ts, session/model-request.ts:367-391, session/runner/llm.ts, plugin/provider/{openai,xai,azure}.ts | oc-ai `route/websocket.rs` (channel exchange types, tokio-tungstenite connector, close codes as Bun reports them) and `protocols/open_responses_channel.rs` (`response.create` message, base and continuation drivers, rejections); the `channel` of the openai/azure/xai Responses routes; `Client::stream_opts` (`StreamOptions.web_socket`; the HTTP fallback keeps the `session.http.*` hook and trace headers, the handshake has neither); catalog plugin `ResponsesWebSockets` (`transport: "websocket"` default for openai, xai and capable azure providers). oc-core `model_transport.rs` (`SessionModelTransport`: one socket per session, reuse, rotation on handshake change or age, checkpoint staged on completion and committed after the route stream ends, close after error frames, poison on dropped/incomplete exchanges, HTTP pinning after a failed connect, a 1009 rejection or 5 lost exchanges, 15 s connect and 30 min / `chunkTimeout` idle limits); the runner binds it for primary steps of `transport: "websocket"` models with the `experimental.ws.*` plugin hooks (`plugin_request.rs` `ws_hooks`) and closes it on session remove/move, location close and server shutdown (normal closure). Group `websocket`; `oc-core/tests/model_transport.rs`, unit tests in oc-ai |
+| 36 | Step events of a session created with a model but no variant lacked `variant: "default"` | core/src/model-resolver.ts `resolveModel` (`...(variant === undefined ? {} : { variant })`) | `oc-core/src/models.rs` `resolve_for_session` keeps the requested variant (`"default"` included) in the model ref, the same change as in #34 (seen in `ws_fallback`) |
 
 ### By design (not fixed)
 
@@ -202,6 +222,7 @@ classified below; none is an unexplained behavioral difference.
 | `location.reload` boots the replacement location's plugins asynchronously; an evict right after it cancels that (no boot notifications) | core/src/location-service-map.ts `reload` |
 | `glob`/`grep` result order is ripgrep's parallel walk order (both binaries run `rg` with the same arguments; order changes between runs) | core/src/ripgrep.ts |
 | An unknown-tool failure and `session.step.streamed` race (concurrent tool fibers vs stream end) | session/runner/step.ts |
+| An HTTP 400 on the first step and the forked title rename can commit in either order (`loop_http_400`, occasionally) | core/src/session/runner/llm.ts:174 |
 | `b3`/`traceparent` header values are random (one trace ID per process, fresh span IDs per request) | Effect's native tracer; normalized by the harness, see #24 |
 | `run` without `-m` picks OpenCode Zen's free model in both (network) | the suite passes `-m mock/m1` |
 | Plugins activate asynchronously after a location boots: an early `plugin.list` (e.g. `ocd plugin list` against a fresh standalone server) shows only built-ins in both binaries; the plugin scenarios wait for `plugin.updated` and settle the lists | core/src/plugin/supervisor.ts |
@@ -221,6 +242,8 @@ classified below; none is an unexplained behavioral difference.
 | An AI SDK package install failure reads `Failed to install <spec>: <bun output>` in the initialization detail (upstream: the npm/arborist error message) | util/src/npm.ts `InstallFailedError` | ocd installs with `bun add` |
 | Third-party packages for upstream's own runtime (exporting `model(modelID, settings)` for `@opencode/ai`, loaded by `Provider.loadPackage` from npm) are not supported: `Provider package <x> is not installed` | core/src/provider.ts `loadPackage` | AI SDK packages (`aisdk:`) are |
 | The worktree tools use the strategies of the project's canonical location only when that location is already loaded (the HTTP endpoints boot it first) | core/src/worktree.ts `load` | the tool path falls back to the git strategy |
+| The Responses WebSocket connects directly: no `WSS_PROXY`/`WS_PROXY`/`HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` tunnel (`NO_PROXY`, loopback exempt), and the upgrade offers no `permessage-deflate` (Bun's client does) | core/src/effect/websocket-constructor.ts | the suite masks `sec-websocket-extensions` |
+| The Azure plugin's Entra token on the WebSocket handshake (`experimental.ws.handshake`) is not ported, like its `http.request` Entra hook | core/src/plugin/provider/azure.ts:499-527 | key auth works on both |
 
 ## CLI-crate differences (for the CLI owner; `crates/ocd` was not edited)
 

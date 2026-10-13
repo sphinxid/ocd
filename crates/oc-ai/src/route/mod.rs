@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod framing;
 pub mod transport;
+pub mod websocket;
 
 use crate::error::ProviderConfigurationError;
 use crate::protocols::Protocol;
@@ -133,6 +134,9 @@ pub struct Route {
     pub defaults: ModelDefaults,
     /// Non-HTTP execution (`streamPrepared`); `None` = the HTTP transport.
     pub stream: Option<Arc<dyn PreparedStream>>,
+    /// The Open Responses WebSocket channel (`OpenResponsesChannel.transport`): used when the caller
+    /// passes a channel executor (`StreamOptions.webSocket`); `None` = HTTP only.
+    pub channel: Option<Arc<crate::protocols::open_responses_channel::ChannelOptions>>,
 }
 
 impl fmt::Debug for Route {
@@ -161,6 +165,7 @@ impl Route {
             prepare_headers: None,
             defaults: ModelDefaults::default(),
             stream: None,
+            channel: None,
         }
     }
 
@@ -211,6 +216,12 @@ impl Route {
         for (k, v) in query {
             self.endpoint.query.insert(k, v);
         }
+        self
+    }
+
+    /// Set (or clear) the WebSocket channel transport.
+    pub fn channel(mut self, channel: Option<crate::protocols::open_responses_channel::ChannelOptions>) -> Self {
+        self.channel = channel.map(Arc::new);
         self
     }
 

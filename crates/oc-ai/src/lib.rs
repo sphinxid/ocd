@@ -13,7 +13,7 @@ pub mod protocols;
 pub mod client;
 pub mod aisdk;
 
-pub use client::{Client, Compiled, LLMStream, StreamDriver};
+pub use client::{Client, Compiled, LLMStream, StreamDriver, StreamOptions};
 pub use error::{AIError, ErrorKind, HttpContext, ProviderConfigurationError, ProviderError};
 pub use media::{MediaAsset, MediaSource};
 pub use response::{LLMResponse, ResponseState};

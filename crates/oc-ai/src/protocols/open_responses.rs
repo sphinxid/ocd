@@ -677,7 +677,12 @@ fn as_text(value: Option<&Value>) -> Option<String> {
 
 /// `providerFailure(event, fallback)`.
 pub fn provider_failure(event: &Value, fallback: &str) -> AIError {
-    let body = encode(event);
+    provider_failure_with_body(event, fallback, &encode(event))
+}
+
+/// `providerFailure(event, fallback, body)` with an explicit body (the WebSocket channel passes the frame).
+pub fn provider_failure_with_body(event: &Value, fallback: &str, body: &str) -> AIError {
+    let body = body.to_string();
     let raw = event.get("error").filter(|v| !v.is_null()).or_else(|| event.get("response").and_then(|r| r.get("error")));
     let nested: Option<Object> = match raw {
         Some(Value::String(s)) => {

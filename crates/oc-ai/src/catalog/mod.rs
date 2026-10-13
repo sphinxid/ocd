@@ -48,5 +48,10 @@ pub fn standard_plugins<'a>(
     configured: HashSet<String>,
     config: ConfigProviders,
 ) -> Vec<Box<dyn CatalogPlugin + 'a>> {
-    vec![Box::new(ModelsDevPlugin::new(data)), Box::new(DataPlugins::new(configured)), Box::new(config)]
+    vec![
+        Box::new(ModelsDevPlugin::new(data)),
+        Box::new(DataPlugins::new(configured)),
+        Box::new(plugins::ResponsesWebSockets),
+        Box::new(config),
+    ]
 }

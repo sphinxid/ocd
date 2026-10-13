@@ -210,6 +210,56 @@ impl CatalogPlugin for OpencodeZen {
     }
 }
 
+/// The Responses WebSocket default of the OpenAI, xAI and Azure provider plugins
+/// (`core/src/plugin/provider/{openai,xai,azure}.ts` provider transforms): `settings.transport` becomes
+/// `"websocket"` unless already set. Runs among the provider plugins, before configured providers.
+pub struct ResponsesWebSockets;
+
+fn default_websocket(provider: &mut ProviderInfo) {
+    let mut settings = provider.settings.clone().unwrap_or_default();
+    if settings.get("transport").is_none_or(serde_json::Value::is_null) {
+        settings.insert("transport".into(), serde_json::Value::String("websocket".into()));
+    }
+    provider.settings = Some(settings);
+}
+
+/// `responsesWebSocketCapable` (azure.ts): the v1 Responses API of an `*.openai.azure.com` resource.
+pub fn azure_websocket_capable(provider: &ProviderInfo) -> bool {
+    if provider.package != "@opencode/ai/providers/azure/responses" {
+        return false;
+    }
+    if provider.setting("useDeploymentBasedUrls") == Some(&serde_json::Value::Bool(true)) {
+        return false;
+    }
+    if provider.setting("apiVersion").is_some_and(|v| v.as_str() != Some("v1")) {
+        return false;
+    }
+    let Some(base) = provider.setting("baseURL").and_then(serde_json::Value::as_str) else { return true };
+    static AZURE: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?i)^https://[^/]+\.openai\.azure\.com(?:/|$)").unwrap());
+    AZURE.is_match(base)
+}
+
+impl CatalogPlugin for ResponsesWebSockets {
+    fn providers(&mut self, editor: &mut ProviderEditor) {
+        for id in ["openai", "xai"] {
+            if editor.get(id).is_some() {
+                editor.update(id, default_websocket);
+            }
+        }
+        for id in editor.ids() {
+            let Some(record) = editor.get(&id) else { continue };
+            let provider = &record.provider;
+            if provider.id != "azure" && !provider.package.starts_with("@opencode/ai/providers/azure/") {
+                continue;
+            }
+            if azure_websocket_capable(provider) {
+                editor.update(&id, default_websocket);
+            }
+        }
+    }
+}
+
 /// JS truthiness of a settings value.
 fn truthy(v: &serde_json::Value) -> bool {
     match v {

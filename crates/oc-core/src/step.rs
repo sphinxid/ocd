@@ -88,6 +88,8 @@ pub struct Input<'a> {
     pub retry_hook: Option<RetryHook>,
     /// `session.http.request` / `session.http.response` middleware.
     pub http_hook: Option<Arc<dyn oc_ai::route::transport::HttpHook>>,
+    /// The session's Responses WebSocket (`StreamOptions.webSocket`) for WebSocket-transport models.
+    pub web_socket: Option<Arc<dyn oc_ai::route::websocket::ChannelExecutor>>,
     /// Runner-owned overflow recovery (compaction); returns whether it succeeded.
     pub recover_overflow: Box<dyn FnOnce() -> futures::future::BoxFuture<'a, bool> + Send + 'a>,
 }
@@ -150,7 +152,8 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
 
     // ---- provider stream ----
     let stream_result: Result<(), AIError> = async {
-        let mut stream = input.client.stream_with(input.request.clone(), stream_cancel.clone(), input.http_hook.clone()).await?;
+        let options = oc_ai::StreamOptions { http: input.http_hook.clone(), web_socket: input.web_socket.clone() };
+        let mut stream = input.client.stream_opts(input.request.clone(), stream_cancel.clone(), options).await?;
         while let Some(item) = stream.next().await {
             let event = item?;
             if overflow.is_some() || publisher.has_provider_error() {

@@ -439,6 +439,8 @@ impl Models {
                 plugins.push(Box::new(catalog::copilot::GithubCopilot { state }));
             }
             plugins.push(Box::new(catalog::plugins::OpencodeZen { connected }));
+            // Responses WebSocket transport defaults of the openai/azure/xai provider plugins.
+            plugins.push(Box::new(catalog::plugins::ResponsesWebSockets));
             plugins.push(Box::new(config.clone()));
             plugins
         };

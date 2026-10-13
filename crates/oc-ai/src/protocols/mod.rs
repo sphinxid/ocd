@@ -13,6 +13,7 @@ pub mod gemini;
 pub mod google_interactions;
 pub mod mistral_chat;
 pub mod open_responses;
+pub mod open_responses_channel;
 pub mod openai_chat;
 pub mod openai_chat_variants;
 pub mod openai_responses;

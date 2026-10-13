@@ -328,11 +328,39 @@ fn azure(model_id: &str, s: &mut Settings, chat: bool) -> Result<LanguageModel> 
     };
     let credential = Credential::optional(api_key, "apiKey").or_else(Credential::env("AZURE_OPENAI_API_KEY"));
     let azure_auth = auth::and_then(auth::remove("authorization"), auth::header("api-key", credential));
-    let base_route = if chat { oc::route().id("azure-openai-chat").provider("azure") } else { oai::route().id("azure-openai-responses").provider("azure") };
+    let base_route = if chat {
+        oc::route().id("azure-openai-chat").provider("azure")
+    } else {
+        oai::route().id("azure-openai-responses").provider("azure").channel(Some(azure_channel()))
+    };
     let route = base_route.base_url(Some(endpoint_base)).query(endpoint_query).auth(azure_auth);
     let route = d.apply_openai(route, model_id);
     let m = model(route, model_id)?;
     Ok(if chat { with_compat(m, compat(json!({"supportsPromptCacheKey": true}))) } else { m })
+}
+
+/// Azure's Responses WebSocket (`providers/azure.ts` `responsesRoute.transport`): only the v1 API of an
+/// `*.openai.azure.com` resource offers it, at the same path without `api-version`.
+fn azure_channel() -> crate::protocols::open_responses_channel::ChannelOptions {
+    crate::protocols::open_responses_channel::ChannelOptions::new("azure-openai-responses", "Azure OpenAI Responses", Some(55 * 60 * 1000))
+        .enabled(|value| {
+            let Ok(url) = url::Url::parse(value) else { return false };
+            url.scheme() == "https"
+                && url.host_str().is_some_and(|h| h.ends_with(".openai.azure.com"))
+                && url.path().ends_with("/openai/v1/responses")
+                && url.query_pairs().find(|(k, _)| k == "api-version").map(|(_, v)| v.into_owned()).as_deref() == Some("v1")
+        })
+        .url(|value| {
+            let Ok(mut url) = url::Url::parse(value) else { return value.to_string() };
+            let pairs: Vec<(String, String)> = url.query_pairs().filter(|(k, _)| k != "api-version").map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+            if pairs.is_empty() {
+                url.set_query(None);
+            } else {
+                let encoded: String = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(pairs.iter()).finish();
+                url.set_query(Some(&encoded));
+            }
+            url.to_string()
+        })
 }
 
 fn bedrock_credentials(value: Option<Value>) -> Option<bc::AwsCredentials> {
@@ -599,7 +627,11 @@ fn xai(model_id: &str, s: &mut Settings) -> Result<LanguageModel> {
     let base = s.string("baseURL").unwrap_or_else(|| "https://api.x.ai/v1".into());
     let mut d = Defaults::from(s);
     d.provider_options = std::mem::take(&mut s.rest);
-    let route = responses_route("xai-responses", "xai", "xai", Some("https://api.x.ai/v1"), rv::xai_protocol()).with_provider_options(orp::default_options());
+    let channel = crate::protocols::open_responses_channel::ChannelOptions::new("xai-responses", "xAI Responses", Some(24 * 60 * 1000))
+        .continuation(crate::protocols::open_responses_channel::xai_continuation);
+    let route = responses_route("xai-responses", "xai", "xai", Some("https://api.x.ai/v1"), rv::xai_protocol())
+        .with_provider_options(orp::default_options())
+        .channel(Some(channel));
     model(d.apply(route).base_url(Some(base)).auth(bearer(api_key, &["XAI_API_KEY"])), model_id)
 }
 

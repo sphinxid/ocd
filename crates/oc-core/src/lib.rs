@@ -19,6 +19,7 @@ pub mod inbox;
 pub mod location;
 pub mod mcp;
 pub mod lower;
+pub mod model_transport;
 pub mod models;
 pub mod instruction_state;
 pub mod job;

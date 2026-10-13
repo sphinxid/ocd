@@ -146,6 +146,7 @@ async fn run_plain(
         }
         server.shutdown().await;
         rt.app.plugins.shutdown().await;
+        rt.app.model_transport.shutdown().await;
         return Ok(0);
     }
     crate::term::write_stdout(&format!("server listening on {url}\n"));
@@ -155,6 +156,7 @@ async fn run_plain(
     wait_for_signal().await;
     server.shutdown().await;
     rt.app.plugins.shutdown().await;
+    rt.app.model_transport.shutdown().await;
     Ok(0)
 }
 
@@ -241,6 +243,7 @@ async fn run_service(
     }
     server.shutdown().await;
     rt.app.plugins.shutdown().await;
+    rt.app.model_transport.shutdown().await;
     oc_server::service::remove_registration_if_owned(&file, &registration);
     Ok(0)
 }

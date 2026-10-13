@@ -6,7 +6,7 @@ provider, catalog and credential parts of `packages/core`. The spec is `docs/spe
 It covers:
 - the normalized request, message and event model;
 - protocol adapters, with exact request bodies and stream parsing;
-- HTTP transport, with SSE and AWS event-stream framing;
+- HTTP transport, with SSE and AWS event-stream framing, and the Open Responses WebSocket channel;
 - provider factories;
 - the models.dev catalog and model resolution;
 - credentials and OAuth flows;
@@ -51,6 +51,9 @@ while let Some(event) = stream.next().await {
 `Client::generate(request, cancel)` folds the stream into an `LLMResponse`, which holds the assistant
 `message`, the `events`, the `usage` and the `finish_reason`.
 
+Per-call options are `StreamOptions { http, web_socket }` (`Client::stream_opts` / `generate_opts`;
+`stream_with` / `generate_with` take only the HTTP hook).
+
 ## Modules
 
 | Module | Contents |
@@ -59,7 +62,7 @@ while let Some(event) = stream.next().await {
 | `media` | `MediaAsset`/`MediaSource` (bytes, base64, url, ref), `parse_data_url`, `detect_media_type`. |
 | `error` | `AIError` (`kind: ErrorKind` with the upstream `_tag`s: `message`, `body`, `http`), `classify_provider_failure`, `is_context_overflow`, `http_status_message`, `retry_after_ms`, `rate_limit_details`, `ProviderConfigurationError`. `AIError::is_retryable()` is upstream `isRetryable`. |
 | `compile` | Request pipeline: tool-history normalization, tool dedupe, schema projection (gemini/moonshot sanitizers), effort updates, cache policy, route headers. |
-| `route` | `Route` (protocol × endpoint × auth × framing + defaults), `LanguageModel`, `Endpoint`, `auth` combinators (`bearer`, `header`, `bearer_header`, `scheme`, `remove`, `and_then`, `or_else`, `custom`, `bearer_options`), `Credential` (value, env, dynamic), `framing` (SSE, SSE+`[DONE]`, SSE event filter, NDJSON, document, AWS event stream with CRC check), `transport` (JSON POST, body overlay, header/chunk/total timeouts, `HttpMiddleware` hook). |
+| `route` | `Route` (protocol × endpoint × auth × framing + defaults + optional WebSocket `channel`), `LanguageModel`, `Endpoint`, `auth` combinators (`bearer`, `header`, `bearer_header`, `scheme`, `remove`, `and_then`, `or_else`, `custom`, `bearer_options`), `Credential` (value, env, dynamic), `framing` (SSE, SSE+`[DONE]`, SSE event filter, NDJSON, document, AWS event stream with CRC check), `transport` (JSON POST, body overlay, header/chunk/total timeouts, `HttpMiddleware` hook), `websocket` (channel exchange types: `ChannelExecutor`, `ChannelExchange`, `ChannelDriver`, `ChannelObservation`, `ChannelCheckpoint`; the tokio-tungstenite connector `open` / `DirectConnector`, `to_websocket_url`, WebSocket transport errors). |
 | `protocols` | `Protocol` + `StreamParser` traits and the adapters listed below. |
 | `providers` | `language_model(package, model_id, settings)` for every `@opencode/ai/providers/*` entrypoint, plus provider wrappers (Groq, OpenRouter, Moonshot/MiniMax chat, Vercel gateway, Bedrock Mantle, DigitalOcean). |
 | `catalog` | models.dev fetch/cache/normalization, npm → native mapping, variants, custom providers from config, registry/availability/defaults, and `Catalog::resolve` → `ResolvedModel`. `catalog::copilot`: the GitHub Copilot `/models` decoding, `derive`/`build` and the `GithubCopilot` catalog plugin (core supplies the loaded state). |
@@ -78,6 +81,7 @@ while let Some(event) = stream.next().await {
 | `openai_chat` | `openai-chat`, `openai-compatible-chat`, and every chat-family provider (`protocol_with(ChatOptions { cache_control, assistant })`). |
 | `openai_chat_variants` | `zai-chat`, `alibaba-chat`, `venice-chat` (encrypted-reasoning marker). |
 | `open_responses` | Open Responses baseline + `openai-compatible-responses`; `Adapter` hooks (native tools, hosted tools, Meta). |
+| `open_responses_channel` | The Responses WebSocket channel (`open-responses-channel.ts` + `open-responses-continuation.ts`): `ChannelOptions` (id, name, rotation age, `enabled`/`url`/`headers` endpoint hooks, continuation shape), the `response.create` message, the base driver (event order checks, error/failed frames → provider failures with the frame as body) and the continuation driver (checkpoint, incremental `previous_response_id` frames, `retry-full` / `rotate-and-retry-full` rejections), `xai_continuation`. |
 | `openai_responses` | `openai-responses`: namespaces, image generation, hosted tools, effort updates, `context_management`. |
 | `responses_variants` | `xai-responses`, `alibaba-responses`, `meta-responses`. |
 | `gemini` | `gemini`, `google-vertex-gemini`; Vertex helpers; `gemini::adc` (Google ADC: authorized_user, service_account, metadata server). |
@@ -111,6 +115,31 @@ while let Some(event) = stream.next().await {
   `init` on failure). Without a bridge, `aisdk:` packages fail with `ResolveError::AisdkPackage`.
 - `route::PreparedStream`: a route that streams without the HTTP transport (upstream
   `streamPrepared`); `Client::stream_with` compiles the request and hands it the protocol body.
+- `route::websocket::ChannelExecutor`: carries a route's WebSocket exchange (upstream
+  `StreamOptions.webSocket`, core's `SessionModelTransport.bind`, `oc_core::model_transport`).
+
+## Responses WebSocket transport
+
+Routes with a `channel`: `openai-responses` (also inherited by `azure-openai-responses` with Azure's own
+options and by `cloudflare-ai-gateway-responses`) and `xai-responses`; Meta Responses stays on HTTP.
+`Client::stream_opts` with `StreamOptions.web_socket` set and a route channel that offers the endpoint:
+
+- the request is compiled as for HTTP; the WebSocket message is the JSON body (after the `http.body` overlay)
+  without `stream`, `stream_options` and `background`, tagged `"type": "response.create"` (first key);
+- the socket URL is the HTTP URL with `https:`→`wss:` / `http:`→`ws:` (Azure: only `https://*.openai.azure.com/.../openai/v1/responses?api-version=v1`, connected without `api-version`);
+  handshake headers are the request headers after auth, without `content-type`/`content-length`, no tracing
+  headers, plus `openai-beta: responses_websockets=2026-02-06` for OpenAI (not Azure/xAI);
+- rotation age 55 min (OpenAI, Azure) / 24 min (xAI); xAI continues only stored responses
+  (`store: false` → full frames) and without `instructions`;
+- the exchange carries the same request as an HTTP fallback (with the `HttpHook` and trace headers);
+  frames are parsed like SSE data; a successful end calls the execution's `complete` (commits the
+  continuation checkpoint). A channel that does not offer the endpoint logs
+  "<name> does not offer WebSocket for this endpoint; using HTTP" and uses HTTP.
+
+Errors on the socket are `Transport` errors with `transport: "websocket"` and upstream's `code`, `phase`,
+`delivery` and `recovery` (e.g. `WebSocket closed with code 1006`, body `Connection ended`, for a socket
+lost without a close frame; `Timed out waiting for WebSocket data`). Error frames classify like SSE error
+events, with the raw frame as the body.
 
 ## Error handling and retries
 
@@ -126,8 +155,11 @@ while let Some(event) = stream.next().await {
 
 ## Not ported / gaps
 
-- **Responses WebSocket transport and continuation** (`open-responses-channel`/`continuation`): routes always use
-  HTTP SSE, which is upstream's own fallback.
+- **Responses WebSocket proxies**: upstream's WebSocket constructor tunnels through `WSS_PROXY` / `WS_PROXY` /
+  `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` (honouring `NO_PROXY`); ocd's connector connects directly. Bun's
+  client also offers `permessage-deflate`; ocd's offers no extensions.
+- **Azure Entra tokens on the WebSocket handshake** (upstream's internal `experimental.ws.handshake` hook of
+  the Azure plugin), like the `http.request` Entra hook, are not ported.
 - **Explicit compaction endpoints** (`/responses/compact`, compaction trigger): `compaction` and `transport` are
   surfaced on `ResolvedModel` for core to decide.
 - **Non-chat modalities**: image, video, speech and transcription (see `modalities`).

@@ -31,6 +31,8 @@ pub struct App {
     pub environments: Arc<parking_lot::Mutex<std::collections::HashMap<String, std::collections::HashMap<String, String>>>>,
     /// Server plugins (Bun sidecar, started on demand).
     pub plugins: Arc<crate::plugins::Plugins>,
+    /// `SessionModelTransport`: per-session Responses WebSockets.
+    pub model_transport: Arc<crate::model_transport::SessionModelTransport>,
     pub version: String,
 }
 
@@ -143,6 +145,7 @@ impl App {
             permissions,
             agents,
             coordinator: OnceLock::new(),
+            model_transport: Arc::default(),
             version,
         })
     }

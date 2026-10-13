@@ -215,8 +215,8 @@ Callbacks scoped by `providerID` are filtered in the sidecar using `event.model.
 | `session.model.request` | `sessionID, agent, model, kind, `**`baseURL?, headers`** | `session/model-request.ts:305` | `plugin_request.rs` `model_request`, after each shaping hook (primary/compaction/title/generate) | wired |
 | `session.http.request` | `sessionID, agent, model, kind, `**`request`**`{url, method, headers, body}` | `session/model-request.ts:343` | `plugin_request.rs` `http_hooks` → oc-ai `HttpHook` (`Client::stream_with`), for primary/compaction/generate/title requests; the request has the prepared headers incl. `content-length`, before the trace headers | wired |
 | `session.http.response` | `..., request, `**`response`**`{status, statusText, headers, body}` | `session/model-request.ts:355` | same; `statusText` is `""` as upstream re-wraps the response; the body is read in full first, only when a plugin registered this hook; the status check runs on the returned response | wired |
-| `session.experimental.ws.handshake` | `..., `**`url, headers`** | `session/model-request.ts:375` | Responses websocket (not in ocd yet) | no core site |
-| `session.experimental.ws.send` / `receive` | `..., `**`frame`** | `session/model-request.ts:383` / `:387` | same | no core site |
+| `session.experimental.ws.handshake` | `..., `**`url, headers`** | `session/model-request.ts:375` | `plugin_request.rs` `ws_hooks` → `model_transport::Interceptor` of the session's Responses WebSocket (primary steps of WebSocket-transport models); runs before the connection is selected, so changed headers reopen the socket | wired |
+| `session.experimental.ws.send` / `receive` | `..., `**`frame`** | `session/model-request.ts:383` / `:387` | same: every outbound frame after the continuation driver built it / every inbound frame before the driver observes it | wired |
 | `session.retry` | `sessionID, agent, model, error, attempt, `**`decision`** | `session/model-request.ts:399` (event built in `session/runner/retry.ts:78`) | `step.rs` after `Policy::decide_raw` (`step::Input::retry_hook`) | wired |
 | `permission.evaluate` | `sessionID, agent?, action, resources, metadata?, source?, `**`effect, message?`** | `packages/core/src/permission.ts:179` | `oc-core/src/permission.rs` `evaluate_hooked` (assert/ask) via `PermissionContext::evaluate_hook` | wired (also for the "always" re-evaluation of other pending requests, with their stored metadata/source) |
 | `shell.create.before` | **`command, cwd, timeout, shell, env`** | `packages/core/src/shell.ts:274` | `Plugins::shell_before`: shell tool (`CoreHost::shell_create_before`), `!` commands (`shell_cmd.rs`), `shell.create` | wired |
@@ -537,6 +537,9 @@ bun nor the checkout. After rebuilding, run the tests.
   - `session.http.request` / `session.http.response` hooks rewriting model requests and responses
     (`http-plugin`);
   - a selected `vcs` provider and a `worktree` strategy (`vcs-plugin`);
+  - `experimental.ws.handshake/send/receive` hooks marking the Responses WebSocket upgrade, sent
+    and received frames, next to a `session.http.request` hook (`ws-plugin`, used by the parity
+    scenario `ws_plugin_hooks`);
   - `aisdk-provider`: a dependency-free AI SDK provider package (LanguageModelV3, factory
     `createFixture`) with a scripted mode and a mode that talks OpenAI chat-completions SSE to a
     `baseURL` through the SDK `fetch` (V3 prompt as `messages`), with `APICallError` markers;

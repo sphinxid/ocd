@@ -6,7 +6,9 @@ use crate::error::{AIError, HttpContext, TransportOperation};
 use crate::protocols::{route_label, StreamParser};
 use crate::response::{LLMResponse, ResponseState};
 use crate::route::framing::{Frame, Framer};
+use crate::protocols::open_responses_channel::{ChannelOptions, PreparedChannel};
 use crate::route::transport::{self, HttpHook, HttpMiddleware, PreparedRequest, Timeouts};
+use crate::route::websocket::{ChannelConnect, ChannelExchange, ChannelExecution, ChannelExecutor, FrameStream};
 use crate::types::{LLMEvent, LLMRequest};
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
@@ -87,6 +89,16 @@ impl StreamDriver {
             }
         }
         Ok(())
+    }
+
+    /// Feed one already-framed frame (WebSocket text frames).
+    pub fn push_frame(&mut self, frame: Frame) -> Result<Vec<LLMEvent>, AIError> {
+        let mut out = vec![];
+        if self.stopped {
+            return Ok(out);
+        }
+        self.handle_frames(vec![frame], &mut out)?;
+        Ok(out)
     }
 
     /// Feed raw response bytes.
@@ -186,18 +198,48 @@ impl Client {
     /// Start a streaming call. Resolves once response headers arrive; HTTP failures are returned here.
     /// Cancellation ends the stream with a Transport error (code `"Aborted"`).
     pub async fn stream(&self, request: LLMRequest, cancel: CancellationToken) -> Result<LLMStream, AIError> {
-        self.stream_with(request, cancel, None).await
+        self.stream_opts(request, cancel, StreamOptions::default()).await
     }
 
     /// [`Client::stream`] with a per-call [`HttpHook`] (upstream `StreamOptions.http`).
     pub async fn stream_with(&self, request: LLMRequest, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMStream, AIError> {
+        self.stream_opts(request, cancel, StreamOptions { http: hook, web_socket: None }).await
+    }
+
+    /// [`Client::stream`] with [`StreamOptions`]: the HTTP hook and, for routes with a WebSocket
+    /// channel, the channel executor that carries the request (upstream `StreamOptions.webSocket`).
+    /// On the channel path every failure (including the HTTP fallback's) arrives in the stream.
+    pub async fn stream_opts(&self, request: LLMRequest, cancel: CancellationToken, options: StreamOptions) -> Result<LLMStream, AIError> {
+        let hook = options.http;
         if let Some(prepared) = request.model.route.stream.clone() {
             // `compile` then `route.streamPrepared`: no HTTP transport, no terminal-event rule.
             let resolved = prepare_request(&request);
             let body = resolved.model.route.protocol.body(&resolved)?;
             return Ok(prepared.stream(resolved, body, hook, cancel));
         }
+        if let (Some(executor), Some(channel)) = (options.web_socket, request.model.route.channel.clone()) {
+            // `OpenResponsesChannel.transport`: prepare both the channel and the HTTP request.
+            let resolved = prepare_request(&request);
+            let body = resolved.model.route.protocol.body(&resolved)?;
+            let parts = transport::json_request_parts(&resolved, body.clone()).await?;
+            let mut prepared = parts.clone();
+            prepared.headers.insert("content-type".into(), "application/json".into());
+            for m in &self.middleware {
+                m.on_request(&resolved, &mut prepared).await?;
+            }
+            let compiled = Compiled { request: resolved, body, prepared };
+            if channel.offers(&parts.url) {
+                let ws = channel.prepare(&parts.url, &parts.json_body, &parts.headers)?;
+                return Ok(self.channel_stream(compiled, &channel, ws, executor, cancel, hook));
+            }
+            tracing::warn!(url = %parts.url, "{} does not offer WebSocket for this endpoint; using HTTP", channel.name);
+            return self.http_stream(compiled, cancel, hook).await;
+        }
         let compiled = self.compile(&request).await?;
+        self.http_stream(compiled, cancel, hook).await
+    }
+
+    async fn http_stream(&self, compiled: Compiled, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMStream, AIError> {
         let timeouts = Timeouts::from_request(&compiled.request);
         let url = compiled.prepared.url.clone();
         let started = tokio::time::Instant::now();
@@ -209,43 +251,13 @@ impl Client {
         };
         let mut driver = StreamDriver::new(&compiled.request);
         driver.http = Some(execution.http.clone());
-        let http = execution.http.clone();
-        let mut body = execution.body;
-        let deadline = timeouts.total.map(|t| started + t);
+        let mut body = body_stream(execution, timeouts, started, cancel);
         let stream = async_stream::stream! {
             loop {
-                let chunk_timeout = timeouts.chunk;
-                let next = async {
-                    match chunk_timeout {
-                        Some(limit) => match tokio::time::timeout(limit, body.next()).await {
-                            Ok(v) => Ok(v),
-                            Err(_) => Err(AIError::transport(TransportOperation::Read, "Timed out waiting for response data", Some("Timeout"), Some(&http.url)).with_http(Some(http.clone()))),
-                        },
-                        None => Ok(body.next().await),
-                    }
-                };
-                let total = async {
-                    match deadline {
-                        Some(d) => tokio::time::sleep_until(d).await,
-                        None => futures::future::pending::<()>().await,
-                    }
-                };
-                let item = tokio::select! {
-                    _ = cancel.cancelled() => {
-                        yield Err(AIError::transport(TransportOperation::Read, "Request aborted", Some("Aborted"), Some(&http.url)).with_http(Some(http.clone())));
-                        return;
-                    }
-                    _ = total => {
-                        yield Err(AIError::transport(TransportOperation::Read, "Timed out waiting for the response to complete", Some("Timeout"), Some(&http.url)).with_http(Some(http.clone())));
-                        return;
-                    }
-                    item = next => item,
-                };
-                match item {
-                    Err(e) => { yield Err(e); return; }
-                    Ok(None) => break,
-                    Ok(Some(Err(e))) => { yield Err(e); return; }
-                    Ok(Some(Ok(bytes))) => {
+                match body.next().await {
+                    None => break,
+                    Some(Err(e)) => { yield Err(e); return; }
+                    Some(Ok(bytes)) => {
                         match driver.push(&bytes) {
                             Ok(events) => for e in events { yield Ok(e); },
                             Err(e) => { yield Err(e); return; }
@@ -262,19 +274,183 @@ impl Client {
         Ok(Box::pin(stream))
     }
 
+    /// The channel half of `OpenResponsesChannel.transport.execute`: the executor carries the exchange,
+    /// its frames are parsed like SSE data, and a successful end acknowledges the exchange.
+    fn channel_stream(
+        &self,
+        compiled: Compiled,
+        channel: &ChannelOptions,
+        prepared: PreparedChannel,
+        executor: Arc<dyn ChannelExecutor>,
+        cancel: CancellationToken,
+        hook: Option<Arc<dyn HttpHook>>,
+    ) -> LLMStream {
+        let fallback_http: Arc<parking_lot::Mutex<Option<HttpContext>>> = Arc::default();
+        let fallback = {
+            let (client, compiled, cancel, slot) = (self.http.clone(), compiled.clone(), cancel.clone(), fallback_http.clone());
+            Box::new(move || http_frames(client, compiled, hook, cancel, slot)) as Box<dyn FnOnce() -> FrameStream + Send>
+        };
+        let url = prepared.url.clone();
+        let exchange = ChannelExchange {
+            id: compiled.request.id.clone().unwrap_or_else(|| "request".into()),
+            connect: ChannelConnect { url: prepared.url.clone(), headers: prepared.headers.clone(), rotate_after_ms: prepared.rotate_after_ms },
+            fallback,
+            driver: Box::new(channel.driver(&prepared)),
+        };
+        let ChannelExecution { mut frames, complete } = executor.execute(exchange);
+        let mut driver = StreamDriver::new(&compiled.request);
+        let stream = async_stream::stream! {
+            loop {
+                let item = tokio::select! {
+                    _ = cancel.cancelled() => {
+                        yield Err(AIError::transport(TransportOperation::Read, "Request aborted", Some("Aborted"), Some(&url)));
+                        return;
+                    }
+                    item = frames.next() => item,
+                };
+                driver.http = fallback_http.lock().clone();
+                match item {
+                    None => break,
+                    Some(Err(e)) => { yield Err(e.with_http(driver.http.clone())); return; }
+                    Some(Ok(frame)) => {
+                        match driver.push_frame(Frame::Text(frame)) {
+                            Ok(events) => for e in events { yield Ok(e); },
+                            Err(e) => { yield Err(e); return; }
+                        }
+                        if driver.is_stopped() { break; }
+                    }
+                }
+            }
+            // The exchange ends before its acknowledgement (`Stream.onEnd(execution.complete)`).
+            drop(frames);
+            match driver.finish() {
+                Ok(events) => {
+                    for e in events { yield Ok(e); }
+                    complete();
+                }
+                Err(e) => { yield Err(e); }
+            }
+        };
+        Box::pin(stream)
+    }
+
     /// Stream and fold into an [`LLMResponse`].
     pub async fn generate(&self, request: LLMRequest, cancel: CancellationToken) -> Result<LLMResponse, AIError> {
-        self.generate_with(request, cancel, None).await
+        self.generate_opts(request, cancel, StreamOptions::default()).await
     }
 
     /// [`Client::generate`] with a per-call [`HttpHook`].
     pub async fn generate_with(&self, request: LLMRequest, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMResponse, AIError> {
+        self.generate_opts(request, cancel, StreamOptions { http: hook, web_socket: None }).await
+    }
+
+    /// [`Client::generate`] with [`StreamOptions`].
+    pub async fn generate_opts(&self, request: LLMRequest, cancel: CancellationToken, options: StreamOptions) -> Result<LLMResponse, AIError> {
         let label = route_label(&request);
-        let mut stream = self.stream_with(request, cancel, hook).await?;
+        let mut stream = self.stream_opts(request, cancel, options).await?;
         let mut state = ResponseState::new();
         while let Some(item) = stream.next().await {
             state.reduce(item?);
         }
         state.complete().ok_or_else(|| AIError::incomplete_stream(&label, "The provider response ended unexpectedly."))
     }
+}
+
+/// Per-call options (`StreamOptions`).
+#[derive(Clone, Default)]
+pub struct StreamOptions {
+    /// `session.http.*` middleware around every HTTP request of the call (incl. a WebSocket fallback).
+    pub http: Option<Arc<dyn HttpHook>>,
+    /// The executor that carries the call over a route's WebSocket channel.
+    pub web_socket: Option<Arc<dyn ChannelExecutor>>,
+}
+
+/// The response body with the chunk timeout, the whole-request deadline and cancellation applied.
+fn body_stream(
+    execution: transport::HttpExecution,
+    timeouts: Timeouts,
+    started: tokio::time::Instant,
+    cancel: CancellationToken,
+) -> futures::stream::BoxStream<'static, Result<bytes::Bytes, AIError>> {
+    let http = execution.http;
+    let mut body = execution.body;
+    let deadline = timeouts.total.map(|t| started + t);
+    Box::pin(async_stream::stream! {
+        loop {
+            let chunk_timeout = timeouts.chunk;
+            let next = async {
+                match chunk_timeout {
+                    Some(limit) => match tokio::time::timeout(limit, body.next()).await {
+                        Ok(v) => Ok(v),
+                        Err(_) => Err(AIError::transport(TransportOperation::Read, "Timed out waiting for response data", Some("Timeout"), Some(&http.url)).with_http(Some(http.clone()))),
+                    },
+                    None => Ok(body.next().await),
+                }
+            };
+            let total = async {
+                match deadline {
+                    Some(d) => tokio::time::sleep_until(d).await,
+                    None => futures::future::pending::<()>().await,
+                }
+            };
+            let item = tokio::select! {
+                _ = cancel.cancelled() => {
+                    yield Err(AIError::transport(TransportOperation::Read, "Request aborted", Some("Aborted"), Some(&http.url)).with_http(Some(http.clone())));
+                    return;
+                }
+                _ = total => {
+                    yield Err(AIError::transport(TransportOperation::Read, "Timed out waiting for the response to complete", Some("Timeout"), Some(&http.url)).with_http(Some(http.clone())));
+                    return;
+                }
+                item = next => item,
+            };
+            match item {
+                Err(e) => { yield Err(e); return; }
+                Ok(None) => return,
+                Ok(Some(Err(e))) => { yield Err(e); return; }
+                Ok(Some(Ok(bytes))) => yield Ok(bytes),
+            }
+        }
+    })
+}
+
+/// The HTTP fallback of a channel exchange: the prepared request over HTTP, framed into the text frames
+/// the route parses (`http.execute(prepared.http, ...)` → `execution.frames`).
+fn http_frames(
+    client: reqwest::Client,
+    compiled: Compiled,
+    hook: Option<Arc<dyn HttpHook>>,
+    cancel: CancellationToken,
+    slot: Arc<parking_lot::Mutex<Option<HttpContext>>>,
+) -> FrameStream {
+    Box::pin(async_stream::stream! {
+        let timeouts = Timeouts::from_request(&compiled.request);
+        let started = tokio::time::Instant::now();
+        let url = compiled.prepared.url.clone();
+        let execution = tokio::select! {
+            _ = cancel.cancelled() => {
+                yield Err(AIError::transport(TransportOperation::Request, "Request aborted", Some("Aborted"), Some(&url)));
+                return;
+            }
+            result = transport::execute_with(&client, &compiled.prepared, timeouts, hook.as_deref()) => result,
+        };
+        let execution = match execution {
+            Ok(e) => e,
+            Err(e) => { yield Err(e); return; }
+        };
+        *slot.lock() = Some(execution.http.clone());
+        let http = execution.http.clone();
+        let mut framer = Framer::new(&compiled.request.model.route.framing);
+        let mut body = body_stream(execution, timeouts, started, cancel);
+        while let Some(item) = body.next().await {
+            match item.and_then(|bytes| framer.push(&bytes).map_err(|e| e.with_http(Some(http.clone())))) {
+                Ok(frames) => for f in frames { yield Ok(f.raw()); },
+                Err(e) => { yield Err(e); return; }
+            }
+        }
+        match framer.finish() {
+            Ok(frames) => for f in frames { yield Ok(f.raw()); },
+            Err(e) => yield Err(e.with_http(Some(http))),
+        }
+    })
 }

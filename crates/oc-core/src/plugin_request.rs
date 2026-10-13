@@ -263,6 +263,73 @@ impl HttpHook for PluginHttp {
     }
 }
 
+const WS_HOOKS: [&str; 3] = ["session.experimental.ws.handshake", "session.experimental.ws.send", "session.experimental.ws.receive"];
+
+/// `experimental.ws.handshake` / `experimental.ws.send` / `experimental.ws.receive` around the
+/// session's Responses WebSocket (the `SessionModelTransport` interceptor of `model-request.ts`).
+/// `None` when no plugin registered any of them.
+pub fn ws_hooks(
+    plugins: &Arc<Plugins>,
+    key: &str,
+    kind: Kind,
+    session_id: &str,
+    agent: &str,
+    model: &ModelRef,
+) -> Option<Arc<dyn crate::model_transport::Interceptor>> {
+    let has = WS_HOOKS.map(|name| plugins.has_hook(key, name, Some(&model.provider_id)));
+    if !has.iter().any(|h| *h) {
+        return None;
+    }
+    let mut scope = Map::new();
+    scope.insert("sessionID".into(), json!(session_id));
+    scope.insert("agent".into(), json!(agent));
+    scope.insert("model".into(), model_json(model));
+    scope.insert("kind".into(), json!(kind.as_str()));
+    Some(Arc::new(PluginWs { plugins: plugins.clone(), key: key.to_string(), scope, has }))
+}
+
+struct PluginWs {
+    plugins: Arc<Plugins>,
+    key: String,
+    scope: Map<String, Value>,
+    has: [bool; 3],
+}
+
+impl PluginWs {
+    async fn frame(&self, index: usize, frame: String) -> Result<String, String> {
+        if !self.has[index] {
+            return Ok(frame);
+        }
+        let mut event = self.scope.clone();
+        event.insert("frame".into(), json!(frame));
+        let out = self.plugins.trigger(&self.key, WS_HOOKS[index], Value::Object(event)).await.map_err(|e| e.to_string())?;
+        Ok(out.get("frame").and_then(Value::as_str).map(String::from).unwrap_or(frame))
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::model_transport::Interceptor for PluginWs {
+    async fn handshake(&self, url: String, headers: oc_ai::route::Headers) -> Result<(String, oc_ai::route::Headers), String> {
+        if !self.has[0] {
+            return Ok((url, headers));
+        }
+        let mut event = self.scope.clone();
+        event.insert("url".into(), json!(url));
+        event.insert("headers".into(), headers_json(&headers));
+        let out = self.plugins.trigger(&self.key, WS_HOOKS[0], Value::Object(event)).await.map_err(|e| e.to_string())?;
+        let url = out.get("url").and_then(Value::as_str).map(String::from).unwrap_or(url);
+        Ok((url, headers_of(out.get("headers"))))
+    }
+
+    async fn send(&self, frame: String) -> Result<String, String> {
+        self.frame(1, frame).await
+    }
+
+    async fn receive(&self, frame: String) -> Result<String, String> {
+        self.frame(2, frame).await
+    }
+}
+
 /// `session.model.request`: the hook may change the base URL and the headers.
 pub async fn model_request(
     plugins: &Arc<Plugins>,

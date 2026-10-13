@@ -87,7 +87,7 @@ impl Engine {
                 c.interrupt(id, Some(oc_core::coordinator::Reason::User), false).await;
                 c.await_idle(id).await;
             }
-            // TODO(core): SessionModelTransport.close(sessionID) once transports exist.
+            self.app.model_transport.close(id);
             for child in store::children(&self.app.db, id).map_err(defect)? {
                 self.remove_session(&child).await?;
             }

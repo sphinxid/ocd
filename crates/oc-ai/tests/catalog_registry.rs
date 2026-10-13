@@ -617,3 +617,40 @@ fn model_selection_parsing() {
     );
     assert_eq!(ModelSelection::from_value(&json!("nope")), None);
 }
+
+#[test]
+fn responses_websocket_transport_defaults() {
+    use oc_ai::catalog::plugins::{azure_websocket_capable, ResponsesWebSockets};
+    let azure = "@opencode/ai/providers/azure/responses";
+    let mut custom = provider("openai", "@opencode/ai/providers/openai", None, &[]);
+    custom.settings = Some(json!({"transport": "http"}).as_object().unwrap().clone());
+    let catalog = build(vec![
+        providers(move |e| {
+            e.add(custom.clone(), vec![], None);
+            e.add(provider("xai", "@opencode/ai/providers/xai", None, &[]), vec![], None);
+            e.add(provider("azure", azure, None, &[]), vec![], None);
+            e.add(provider("azure-custom", azure, Some("https://gateway.example.com/openai"), &[]), vec![], None);
+            e.add(provider("azure-res", azure, Some("https://res.openai.azure.com/openai"), &[]), vec![], None);
+            e.add(provider("anthropic", "@opencode/ai/providers/anthropic", None, &[]), vec![], None);
+        }),
+        Box::new(ResponsesWebSockets),
+    ]);
+    let transport = |id: &str| catalog.provider(id).and_then(|p| p.transport()).map(String::from);
+    // An explicit transport wins; capable providers default to the WebSocket.
+    assert_eq!(transport("openai").as_deref(), Some("http"));
+    assert_eq!(transport("xai").as_deref(), Some("websocket"));
+    assert_eq!(transport("azure").as_deref(), Some("websocket"));
+    assert_eq!(transport("azure-res").as_deref(), Some("websocket"));
+    assert_eq!(transport("azure-custom"), None);
+    assert_eq!(transport("anthropic"), None);
+
+    let mut p = provider("azure", azure, None, &[]);
+    p.settings = Some(json!({"apiVersion": "2025-04-01-preview"}).as_object().unwrap().clone());
+    assert!(!azure_websocket_capable(&p));
+    p.settings = Some(json!({"useDeploymentBasedUrls": true}).as_object().unwrap().clone());
+    assert!(!azure_websocket_capable(&p));
+    p.settings = Some(json!({"apiVersion": "v1", "baseURL": "HTTPS://Res.OpenAI.Azure.com"}).as_object().unwrap().clone());
+    assert!(azure_websocket_capable(&p));
+    p.package = "@opencode/ai/providers/azure/chat".into();
+    assert!(!azure_websocket_capable(&p));
+}

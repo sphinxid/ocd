@@ -93,6 +93,14 @@ pub fn body_with_overlay(body: Value, request: &LLMRequest) -> Result<(Value, St
 
 /// `jsonRequestParts` + `jsonPost`: URL, overlaid body, headers, auth, then `content-type`.
 pub async fn prepare_json(request: &LLMRequest, body: Value) -> Result<PreparedRequest, AIError> {
+    let mut prepared = json_request_parts(request, body).await?;
+    prepared.headers.insert("content-type".into(), "application/json".into());
+    Ok(prepared)
+}
+
+/// `jsonRequestParts`: URL, overlaid body and the headers after auth (no `content-type`; the WebSocket
+/// channel hands these to the handshake).
+pub async fn json_request_parts(request: &LLMRequest, body: Value) -> Result<PreparedRequest, AIError> {
     let route = request.model.route.clone();
     let mut url = route.endpoint.render(request, &body).map_err(AIError::invalid_request)?;
     if let Some(query) = request.http.as_ref().and_then(|h| h.query.as_ref()) {
@@ -104,12 +112,11 @@ pub async fn prepare_json(request: &LLMRequest, body: Value) -> Result<PreparedR
     }
     let (json_body, body_text) = body_with_overlay(body, request)?;
     let url = url.to_string();
-    let mut headers = auth::apply(
+    let headers = auth::apply(
         route.auth.as_ref(),
         auth::AuthInput { method: "POST", url: &url, body: &body_text, headers },
     )
     .await?;
-    headers.insert("content-type".into(), "application/json".into());
     Ok(PreparedRequest { method: "POST".into(), url, headers, body: body_text, json_body })
 }
 

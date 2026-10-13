@@ -1,5 +1,5 @@
 //! OpenAI Responses (`protocols/openai-responses.ts`): namespaces, hosted tools, image generation,
-//! effort updates, context management. WebSocket transport is not ported (HTTP SSE only).
+//! effort updates, context management, and the WebSocket channel transport (`channelTransport`).
 
 use super::open_responses::{self as base, finalize, Adapter, HostedTool, OpenResponses};
 use super::options;
@@ -21,6 +21,18 @@ pub const ADAPTER: &str = "openai-responses";
 pub const NAME: &str = "OpenAI Responses";
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 pub const WEBSOCKET_PROTOCOL_HEADER: &str = "responses_websockets=2026-02-06";
+pub const WEBSOCKET_ROTATE_AFTER_MS: u64 = 55 * 60 * 1000;
+
+/// The route's WebSocket channel (`transport = channelTransport({...})`): the `openai-beta` header opts
+/// into Responses WebSockets unless the request already sets it.
+pub fn channel() -> super::open_responses_channel::ChannelOptions {
+    super::open_responses_channel::ChannelOptions::new(ADAPTER, NAME, Some(WEBSOCKET_ROTATE_AFTER_MS)).headers(|mut headers| {
+        if !headers.contains_key("openai-beta") {
+            headers.insert("openai-beta".into(), WEBSOCKET_PROTOCOL_HEADER.into());
+        }
+        headers
+    })
+}
 
 fn input_action(item: &Value) -> Value {
     item.get("action").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!({}))
@@ -270,6 +282,7 @@ pub fn route() -> Route {
     Route::new(ADAPTER, protocol(), Endpoint::new(Some(DEFAULT_BASE_URL), base::PATH), Framing::Sse)
         .initial_provider("openai", Some("openai"))
         .with_provider_options(base::default_options())
+        .channel(Some(channel()))
 }
 
 #[allow(dead_code)]

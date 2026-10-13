@@ -195,6 +195,7 @@ impl Engine {
         };
         self.app.permissions.reject_where(in_location);
         self.app.forms.cancel_where(in_location);
+        self.app.model_transport.close_where(in_location);
         let mcp = self.mcps.lock().await.remove(&canonical);
         if let Some(mcp) = mcp {
             mcp.shutdown().await;
@@ -627,6 +628,7 @@ impl Engine {
                                 }),
                             ])?;
                         } else if n.kind == "move" {
+                            self.app.model_transport.close(session_id);
                             let p = &n.payload;
                             bus.commit(vec![
                                 Durable1::from(SessionEvent::InboxDelivered { session_id: session_id.into(), inbox_id: n.id.clone() }),
@@ -748,6 +750,20 @@ impl Engine {
             let (mut request, _) = self.request(&loaded, step_limit);
             let shaped = self.shape_primary(&loaded, &mut request).await.map_err(DrainError::Failed)?;
             let key = loaded.sel.location.key.clone();
+            // `webSocket: "session"` + `model.transport === "websocket"` (model-request.ts): the session's socket
+            // carries the step when the route offers one; HTTP hooks still wrap any HTTP fallback.
+            let web_socket = (loaded.resolved.transport.as_deref() == Some("websocket")).then(|| {
+                let interceptor = crate::plugin_request::ws_hooks(
+                    &self.app.plugins,
+                    &key,
+                    crate::plugin_request::Kind::Primary,
+                    &session_id,
+                    &loaded.sel.agent.id,
+                    &loaded.resolved.model_ref(),
+                );
+                let idle = crate::model_transport::IdleTimeout::from_chunk_timeout(loaded.resolved.chunk_timeout);
+                self.app.model_transport.bind(&session_id, interceptor, idle)
+            });
             let retry_hook: Option<step::RetryHook> = self.app.plugins.has_hook(&key, "session.retry", Some(&loaded.resolved.model.provider_id)).then(|| {
                 let plugins = self.app.plugins.clone();
                 let (session, agent, model) = (session_id.clone(), loaded.sel.agent.id.clone(), loaded.resolved.model_ref());
@@ -785,6 +801,7 @@ impl Engine {
                 tools: self.tool_runner(&loaded, &assistant, shaped.tools),
                 retry_hook,
                 http_hook: shaped.http,
+                web_socket,
                 snapshots: self.snapshotter(&loaded),
                 recover_continuation,
                 retry: &mut retry,
