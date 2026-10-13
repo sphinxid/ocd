@@ -169,13 +169,27 @@ impl Sidecar {
 
     /// Sends a request; dropping the future cancels it on the sidecar (`$/cancel`).
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, CallError> {
+        self.request_with(method, &params).await
+    }
+
+    /// [`Sidecar::request`] with borrowed params, serialized straight into the request line (large
+    /// values such as catalog transforms are not copied first).
+    pub async fn request_with<P: serde::Serialize + ?Sized>(&self, method: &str, params: &P) -> Result<Value, CallError> {
         if !self.is_alive() {
             return Err(CallError::Closed("exited".into()));
         }
+        #[derive(serde::Serialize)]
+        struct Request<'a, P: ?Sized> {
+            jsonrpc: &'static str,
+            id: u64,
+            method: &'a str,
+            params: &'a P,
+        }
         let id = self.next.fetch_add(1, Ordering::SeqCst);
+        let text = serde_json::to_string(&Request { jsonrpc: "2.0", id, method, params })
+            .map_err(|e| CallError::Remote(Box::new(WireError::new(e.to_string()))))?;
         let (tx, rx) = oneshot::channel();
         self.pending.lock().insert(id, tx);
-        let text = serde_json::to_string(&Message::request(id, method, params)).map_err(|e| CallError::Remote(Box::new(WireError::new(e.to_string()))))?;
         if self.writer.send(text + "\n").is_err() {
             self.pending.lock().remove(&id);
             return Err(CallError::Closed("stdin closed".into()));

@@ -432,6 +432,30 @@ async fn catalog_integration_websearch_and_codemode_tools() {
 }
 
 #[tokio::test]
+async fn provider_reload_rebuilds_the_cached_catalog() {
+    require_bun!();
+    let s = setup(json!([fixture("reload-plugin")]), vec![]).await;
+    let names = |providers: &Value| -> Vec<String> {
+        providers["data"].as_array().unwrap().iter().filter(|p| p["id"] == "reload-provider").map(|p| p["name"].as_str().unwrap().to_string()).collect()
+    };
+    let providers = s.h.get("/api/provider").await.json();
+    assert_eq!(names(&providers), ["Reload Provider 0"], "{providers}");
+    // The location's catalog is cached; `ctx.provider.reload()` invalidates it, so the next request
+    // sees the plugin's new transform result.
+    for round in 1..=3 {
+        let r = s.h.post("/api/rpc/fixture.reload/bump", json!({ "input": {} })).await;
+        assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));
+        assert_eq!(r.json(), json!({ "output": { "round": round } }));
+        let providers = s.h.get("/api/provider").await.json();
+        assert_eq!(names(&providers), [format!("Reload Provider {round}")], "{providers}");
+        let models = s.h.get("/api/model").await.json();
+        let ids: Vec<&str> = models["data"].as_array().unwrap().iter().filter(|m| m["providerID"] == "reload-provider").map(|m| m["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, [format!("model-{round}")], "{models}");
+    }
+    s.shutdown().await;
+}
+
+#[tokio::test]
 async fn local_plugin_hot_reload() {
     require_bun!();
     if oc_config::discovery::filewatcher_disabled() {

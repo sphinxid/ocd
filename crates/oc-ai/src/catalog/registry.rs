@@ -6,6 +6,7 @@ use super::native::{rewrite_model, rewrite_provider};
 use super::types::{merge_headers, merge_overlay, model_settings, supports_text, Activation, ModelInfo, ModelStatus, ProviderInfo};
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// A provider definition with its model inventory (`Provider.Definition`).
 #[derive(Debug, Clone, PartialEq)]
@@ -246,9 +247,15 @@ pub fn effective_model(model: &ModelInfo, provider: Option<&ProviderInfo>) -> Mo
 /// Small model family priority.
 pub const SMALL_MODEL_FAMILIES: &[&str] = &["gpt-luna", "gemini-flash-lite", "gemini-flash", "claude-haiku"];
 
-/// The materialized catalog for one location.
+/// The materialized catalog for one location. Immutable once built and cheap to clone (the data is
+/// shared), so a location can keep its catalog and hand it to every request.
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
+    inner: Arc<CatalogData>,
+}
+
+#[derive(Debug, Default)]
+struct CatalogData {
     records: IndexMap<String, ProviderRecord>,
     available: Vec<String>,
     by_provider: IndexMap<String, IndexMap<String, ModelInfo>>,
@@ -283,7 +290,7 @@ impl Catalog {
             .collect();
         let mut all: Vec<ModelInfo> = by_provider.values().flat_map(|m| m.values().cloned()).collect();
         all.sort_by(|a, b| b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal));
-        Catalog { records, available, by_provider, all, default_model }
+        Catalog { inner: Arc::new(CatalogData { records, available, by_provider, all, default_model }) }
     }
 
     /// [`Catalog::build`] with hooks between the plugins before `post` and those from `post` on (the
@@ -340,30 +347,35 @@ impl Catalog {
             .collect();
         let mut all: Vec<ModelInfo> = by_provider.values().flat_map(|m| m.values().cloned()).collect();
         all.sort_by(|a, b| b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal));
-        Catalog { records, available, by_provider, all, default_model }
+        Catalog { inner: Arc::new(CatalogData { records, available, by_provider, all, default_model }) }
+    }
+
+    /// Whether both handles share one built catalog (no rebuild happened in between).
+    pub fn ptr_eq(&self, other: &Catalog) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
     }
 
     /// Any provider definition (`Provider.get`), available or not.
     pub fn provider(&self, id: &str) -> Option<&ProviderInfo> {
-        self.records.get(id).map(|r| &r.provider)
+        self.inner.records.get(id).map(|r| &r.provider)
     }
 
     pub fn record(&self, id: &str) -> Option<&ProviderRecord> {
-        self.records.get(id)
+        self.inner.records.get(id)
     }
 
     /// Every provider definition (`Provider.all`).
     pub fn providers(&self) -> impl Iterator<Item = &ProviderInfo> {
-        self.records.values().map(|r| &r.provider)
+        self.inner.records.values().map(|r| &r.provider)
     }
 
     /// Available providers (`Provider.available`).
     pub fn available_providers(&self) -> Vec<&ProviderInfo> {
-        self.available.iter().filter_map(|id| self.provider(id)).collect()
+        self.inner.available.iter().filter_map(|id| self.provider(id)).collect()
     }
 
     pub fn is_available(&self, provider_id: &str) -> bool {
-        self.available.iter().any(|id| id == provider_id)
+        self.inner.available.iter().any(|id| id == provider_id)
     }
 
     /// Integration owning a provider's credentials (`integrationID ?? providerID`).
@@ -373,44 +385,45 @@ impl Catalog {
 
     /// Effective model (`Model.get`).
     pub fn model(&self, provider_id: &str, model_id: &str) -> Option<&ModelInfo> {
-        self.by_provider.get(provider_id).and_then(|m| m.get(model_id))
+        self.inner.by_provider.get(provider_id).and_then(|m| m.get(model_id))
     }
 
     /// Every model of available providers, newest release first (`Model.all`).
     pub fn models(&self) -> &[ModelInfo] {
-        &self.all
+        &self.inner.all
     }
 
     /// Models of one available provider in definition order.
     pub fn provider_models(&self, provider_id: &str) -> Vec<&ModelInfo> {
-        self.by_provider.get(provider_id).map(|m| m.values().collect()).unwrap_or_default()
+        self.inner.by_provider.get(provider_id).map(|m| m.values().collect()).unwrap_or_default()
     }
 
     /// Enabled models, newest first (`Model.available`).
     pub fn available_models(&self) -> Vec<&ModelInfo> {
-        self.all.iter().filter(|m| m.enabled).collect()
+        self.inner.all.iter().filter(|m| m.enabled).collect()
     }
 
     /// Configured default selection, if any.
     pub fn configured_default(&self) -> Option<&(String, String)> {
-        self.default_model.as_ref()
+        self.inner.default_model.as_ref()
     }
 
     /// `Model.default`: the configured model when enabled, else the newest available text model.
     pub fn default_model(&self) -> Option<&ModelInfo> {
-        if let Some((pid, mid)) = &self.default_model {
+        if let Some((pid, mid)) = &self.inner.default_model {
             if let Some(model) = self.model(pid, mid) {
                 if model.enabled {
                     return Some(model);
                 }
             }
         }
-        self.all.iter().find(|m| m.enabled && supports_text(&m.capabilities))
+        self.inner.all.iter().find(|m| m.enabled && supports_text(&m.capabilities))
     }
 
     /// `Model.small(providerID)`: first active text model of the highest-priority small family.
     pub fn small_model(&self, provider_id: &str) -> Option<&ModelInfo> {
         let candidates: Vec<&ModelInfo> = self
+            .inner
             .all
             .iter()
             .filter(|m| {

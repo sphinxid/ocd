@@ -322,13 +322,25 @@ impl PluginHost {
     /// after the native transforms that run before plugins. Returns `value` unchanged (no IPC) when
     /// no plugin transforms the domain. See README "Transform values" for the shapes.
     pub async fn transform(&self, location: &LocationRef, domain: &str, value: Value) -> Result<Value, CallError> {
+        Ok(self.transform_ref(location, domain, &value).await?.unwrap_or(value))
+    }
+
+    /// [`PluginHost::transform`] of a borrowed value (serialized without a copy); `None` when no
+    /// plugin transforms `domain` here (the value is unchanged).
+    pub async fn transform_ref(&self, location: &LocationRef, domain: &str, value: &Value) -> Result<Option<Value>, CallError> {
         let active = self.inner.with(location, |s| s.domains.contains(domain)).unwrap_or(false);
         if !active {
-            return Ok(value);
+            return Ok(None);
         }
-        let Some(sidecar) = self.inner.current() else { return Ok(value) };
-        let result = sidecar.request("transform", json!({ "location": location.key(), "domain": domain, "value": value })).await?;
-        Ok(result.get("value").cloned().unwrap_or(Value::Null))
+        let Some(sidecar) = self.inner.current() else { return Ok(None) };
+        #[derive(serde::Serialize)]
+        struct Params<'a> {
+            location: String,
+            domain: &'a str,
+            value: &'a Value,
+        }
+        let mut result = sidecar.request_with("transform", &Params { location: location.key(), domain, value }).await?;
+        Ok(Some(result.get_mut("value").map(Value::take).unwrap_or(Value::Null)))
     }
 
     /// Executes a plugin tool (`execute` handle of a tool entry with a `js:` handle) with

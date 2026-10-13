@@ -206,6 +206,15 @@ struct LocationIntegrations {
     /// The Azure plugin lists the `az login` account's resources once per location, in the background.
     azure_started: std::sync::atomic::AtomicBool,
     azure_resources: Arc<parking_lot::RwLock<Option<Vec<Value>>>>,
+    /// The last built catalog and the fingerprint of its inputs (upstream keeps the `Provider` and
+    /// `Model` states and rebuilds them only when they are invalidated).
+    /// The models.dev data it was built from is held so its identity cannot be reused.
+    catalog: parking_lot::Mutex<Option<(u64, Arc<Vec<catalog::models_dev::Snapshot>>, Catalog)>>,
+    /// Serializes catalog builds of the location: concurrent requests wait for the build in flight
+    /// and reuse its result instead of building their own copy.
+    building: tokio::sync::Mutex<()>,
+    /// Catalog builds of the location (for tests: a cached catalog is not rebuilt).
+    builds: std::sync::atomic::AtomicU64,
 }
 
 impl LocationIntegrations {
@@ -215,7 +224,41 @@ impl LocationIntegrations {
             oauth: std::sync::Once::new(),
             azure_started: std::sync::atomic::AtomicBool::new(false),
             azure_resources: Arc::new(parking_lot::RwLock::new(None)),
+            catalog: parking_lot::Mutex::new(None),
+            building: tokio::sync::Mutex::new(()),
+            builds: std::sync::atomic::AtomicU64::new(0),
         })
+    }
+}
+
+/// Hands the pages freed by a catalog build back to the OS. A build allocates several copies of
+/// the models.dev catalog (plugin transforms cross the sidecar as JSON) and glibc keeps freed
+/// pages of its arenas, so without this a long-lived server keeps the peak of its builds resident.
+fn release_freed_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        let trim = || {
+            // SAFETY: `malloc_trim` only releases free memory of the allocator's own arenas.
+            unsafe { libc::malloc_trim(0) };
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => drop(handle.spawn_blocking(trim)),
+            Err(_) => trim(),
+        }
+    }
+}
+
+/// A `Hasher` fed through `io::Write` (fingerprints JSON without building the text).
+struct HashWriter<'a>(&'a mut std::collections::hash_map::DefaultHasher);
+
+impl std::io::Write for HashWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        std::hash::Hasher::write(self.0, buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -312,6 +355,16 @@ impl Models {
         self.by_location.lock().remove(key);
     }
 
+    /// How many times the catalog of location `key` (`None`: the default location) was built (a
+    /// cached catalog is reused until one of its inputs changes).
+    pub fn catalog_builds(&self, key: Option<&str>) -> u64 {
+        let state = match key {
+            Some(k) => self.by_location.lock().get(k).cloned(),
+            None => Some(self.default_location.clone()),
+        };
+        state.map_or(0, |s| s.builds.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
     /// Runs plugin `provider`/`model` transforms in catalog builds of plugin locations.
     pub fn set_plugins(&self, plugins: Arc<crate::plugins::Plugins>) {
         *self.plugins.write() = Some(plugins);
@@ -391,6 +444,15 @@ impl Models {
             model: m.model.clone(),
             variant: m.variant.clone(),
         });
+        let mut fingerprint = std::collections::hash_map::DefaultHasher::new();
+        {
+            use std::hash::Hash;
+            for section in &sections {
+                let _ = serde_json::to_writer(HashWriter(&mut fingerprint), section);
+                0u8.hash(&mut fingerprint);
+            }
+            format!("{default_model:?}").hash(&mut fingerprint);
+        }
         let config = ConfigProviders::from_documents(&sections).with_default_model(default_model);
         // Plugin order (core/src/plugin/internal.ts): models.dev, then the provider and web-search plugins, then
         // the configured-provider plugin.
@@ -398,6 +460,15 @@ impl Models {
         let state = match key {
             Some(k) => self.location_integrations(k),
             None => self.default_location.clone(),
+        };
+        // One build at a time per location; requests that waited find the result below.
+        let _building = state.building.lock().await;
+        // Taken before any plugin transform runs: a change during the build makes the next request
+        // rebuild.
+        let host = self.plugins.read().clone();
+        let plugin_state = match (&host, key) {
+            (Some(plugins), Some(key)) => Some(plugins.catalog_state(key)),
+            _ => None,
         };
         let integrations = &state.integrations;
         let register_specs = |specs: &[catalog::IntegrationSpec]| {
@@ -413,22 +484,61 @@ impl Models {
         register_specs(&dev_specs);
         self.register_builtin_integrations(&state, &snapshots, &sections);
         // Plugin `integration` transforms run between the internal plugins and the configured ones.
-        let host = self.plugins.read().clone();
-        if let (Some(host), Some(key)) = (host, key) {
+        if let (Some(host), Some(key)) = (&host, key) {
             host.integrations(key, integrations).await;
         }
         let known: HashSet<String> = integrations.refs().into_iter().map(|r| r.id).collect();
         register_specs(&config.integrations(|id| known.contains(id)));
         let mut access = Access::new();
         for info in integrations.list().await.map_err(|e| anyhow::anyhow!("{e}"))? {
-            access.set(info.id.clone(), info.connections.iter().map(|c| c.key()).collect());
+            let keys: Vec<String> = info.connections.iter().map(|c| c.key()).collect();
+            {
+                use std::hash::Hash;
+                info.id.hash(&mut fingerprint);
+                keys.hash(&mut fingerprint);
+            }
+            access.set(info.id.clone(), keys);
         }
         let configured: HashSet<String> = integrations.refs().into_iter().map(|r| r.id).collect();
         let connected = std::env::var("OPENCODE_API_KEY").is_ok_and(|v| !v.is_empty())
             || access.connections("opencode").is_some_and(|c| !c.is_empty());
+        {
+            use std::hash::Hash;
+            let mut ids: Vec<&String> = configured.iter().collect();
+            ids.sort();
+            ids.hash(&mut fingerprint);
+            connected.hash(&mut fingerprint);
+            plugin_state.hash(&mut fingerprint);
+        }
+        // The Copilot plugin's loaded state is an input too: its revision when the cached catalog
+        // was built (the initial `/models` load and every reload after a credential switch change it).
+        let copilot = match (&host, key) {
+            (Some(plugins), Some(key)) => plugins.copilot_enabled(key),
+            _ => false,
+        };
+        let finish = |copilot_revision: u64| {
+            use std::hash::{Hash, Hasher};
+            let mut fingerprint = fingerprint.clone();
+            copilot.hash(&mut fingerprint);
+            copilot_revision.hash(&mut fingerprint);
+            fingerprint.finish()
+        };
+        let copilot_revision = |host: &Arc<crate::plugins::Plugins>| if copilot { host.copilot.revision() } else { 0 };
+        let current = finish(host.as_ref().map(copilot_revision).unwrap_or(0));
+        if let Some((built, data, catalog)) = &*state.catalog.lock()
+            && *built == current
+            && Arc::ptr_eq(data, &snapshots)
+        {
+            return Ok(catalog.clone());
+        }
+        let store = |revision: u64, catalog: Catalog| {
+            *state.catalog.lock() = Some((finish(revision), snapshots.clone(), catalog.clone()));
+            state.builds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            release_freed_memory();
+            Ok(catalog)
+        };
         // Upstream registers the OpenCode Zen provider plugin among the provider plugins, before the
         // configured-provider plugin (core/src/plugin/internal.ts `pre`/`post`).
-        let host = self.plugins.read().clone();
         let build = |copilot: Option<catalog::copilot::State>| {
             let mut plugins: Vec<Box<dyn catalog::CatalogPlugin + Send>> = vec![
                 Box::new(catalog::ModelsDevPlugin::new(&snapshots)),
@@ -447,12 +557,12 @@ impl Models {
         let (Some(plugins_host), Some(key)) = (host, key) else {
             let mut plugins = build(Some(catalog::copilot::State::default()));
             let post = plugins.len() - 1;
-            return Ok(Catalog::build_staged(&mut plugins, post, &access, async |r| r, async |m, d, _| (m, d)).await);
+            return store(0, Catalog::build_staged(&mut plugins, post, &access, async |r| r, async |m, d, _| (m, d)).await);
         };
         let key = key.to_string();
-        let copilot = plugins_host.copilot_enabled(&key);
         let mut first = true;
         loop {
+            let revision = copilot_revision(&plugins_host);
             let mut plugins = build(copilot.then(|| plugins_host.copilot.state(&key)));
             let post = plugins.len() - 1;
             let (p1, k1, p2, k2) = (plugins_host.clone(), key.clone(), plugins_host.clone(), key.clone());
@@ -465,14 +575,14 @@ impl Models {
             )
             .await;
             if !copilot || !first {
-                return Ok(catalog);
+                return store(revision, catalog);
             }
             first = false;
             // The plugin loads when the location first needs it (upstream: on activation); the first
             // build waits for that load and is redone when it changed the state.
             let headers = catalog.provider(catalog::copilot::PROVIDER_ID).and_then(|p| p.headers.clone());
             if !plugins_host.copilot.register(&key, integrations, headers).await {
-                return Ok(catalog);
+                return store(revision, catalog);
             }
         }
     }

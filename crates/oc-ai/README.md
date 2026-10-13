@@ -29,6 +29,8 @@ let models_dev = std::sync::Arc::new(ModelsDev::with_reqwest(
 let snapshots = models_dev.get().await?;               // file → KV cache → embedded snapshot → network
 let mut plugins = standard_plugins(&snapshots, configured_integrations, ConfigProviders::from_value(&cfg["providers"]));
 let catalog = Catalog::build(&mut plugins, &access);   // Access: integration id → connection keys
+// A built `Catalog` is immutable and shares its data: `clone()` is cheap and `ptr_eq` tells two
+// handles of one build apart from a rebuild. Keep it and hand it out instead of rebuilding per call.
 
 // 2. Resolve `providerID/modelID[#variant]` into a runnable model.
 let resolved: ResolvedModel = catalog.resolve("anthropic", "claude-sonnet-4-5", Some("high"), credential.as_ref())?;

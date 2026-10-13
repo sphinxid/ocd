@@ -49,6 +49,9 @@ pub struct Copilot {
     user_agent: String,
     bus: Bus,
     subscribed: std::sync::Once,
+    /// Bumped whenever a location's loaded state changes or a location is dropped: model catalogs
+    /// built from an older state are stale.
+    revision: std::sync::atomic::AtomicU64,
     me: Weak<Copilot>,
 }
 
@@ -65,6 +68,7 @@ impl Copilot {
             user_agent: user_agent(version),
             bus,
             subscribed: std::sync::Once::new(),
+            revision: std::sync::atomic::AtomicU64::new(0),
             me: me.clone(),
         })
     }
@@ -107,7 +111,28 @@ impl Copilot {
 
     /// Drops a closed location's state (the plugin scope ends with it).
     pub fn close(&self, key: &str) {
-        self.locations.lock().remove(key);
+        if self.locations.lock().remove(key).is_some() {
+            self.bump();
+        }
+    }
+
+    /// Changes whenever any location's loaded state changes (part of the catalog cache key).
+    pub fn revision(&self) -> u64 {
+        self.revision.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn bump(&self) {
+        self.revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Replaces a location's loaded state, marking catalogs stale when it changed.
+    fn set_state(&self, location: &Location, state: State) {
+        let mut current = location.state.write();
+        if *current != state {
+            *current = state;
+            drop(current);
+            self.bump();
+        }
     }
 
     /// `credential.switched` for `github-copilot` reloads every location.
@@ -151,7 +176,7 @@ impl Copilot {
             None => None,
         };
         let Some(CredentialValue::Oauth { refresh, metadata, .. }) = credential else {
-            *location.state.write() = State::default();
+            self.set_state(location, State::default());
             return;
         };
         let url = oc_ai::credentials::flows::copilot::copilot_base_url(metadata.as_ref());
@@ -167,8 +192,10 @@ impl Copilot {
         if connection.as_ref().map(|c| c.key()) != current.as_ref().map(|c| c.key()) {
             return;
         }
-        *location.state.write() =
-            State { base_url: Some(url), token: Some(refresh), models: remote, connection: connection.map(|c| c.key()) };
+        self.set_state(
+            location,
+            State { base_url: Some(url), token: Some(refresh), models: remote, connection: connection.map(|c| c.key()) },
+        );
     }
 
     /// `CopilotModels.load`: `GET <base>/models` (5 s timeout).

@@ -274,6 +274,9 @@ pub struct Plugins {
     /// Decoded catalog transform results per (location, domain): (revision, input hash, value).
     catalog_cache: Mutex<HashMap<(String, String), (u64, u64, CatalogValue)>>,
     watched: Mutex<HashSet<PathBuf>>,
+    /// Bumped whenever cached plugin `provider`/`model`/`integration` results are dropped (a
+    /// reload, new registrations, a (re)activation): part of [`Plugins::catalog_state`].
+    catalog_epoch: std::sync::atomic::AtomicU64,
     me: Weak<Plugins>,
 }
 
@@ -300,6 +303,7 @@ impl Plugins {
             websearch_by_key: Mutex::new(HashMap::new()),
             catalog_cache: Mutex::new(HashMap::new()),
             watched: Mutex::new(HashSet::new()),
+            catalog_epoch: std::sync::atomic::AtomicU64::new(0),
             me: me.clone(),
         })
     }
@@ -405,6 +409,7 @@ impl Plugins {
                 let settled = self.locations.lock().get(&key).is_some_and(|s| s.announced.is_some());
                 for domain in domains {
                     self.cache.lock().remove(&(key.clone(), domain.clone()));
+                    self.catalog_changed(&domain);
                     if settled && let Some(kind) = domain_event(&domain) {
                         self.bus.publish(kind, json!({}), Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None }));
                     }
@@ -416,6 +421,7 @@ impl Plugins {
             }
             HostEvent::Restarted => {
                 self.cache.lock().clear();
+                self.catalog_changed("*");
                 let keys: Vec<String> = self.locations.lock().keys().cloned().collect();
                 for key in keys {
                     for domain in ["agent", "command", "skill", "tool", "mcp", "reference", "model", "provider", "integration", "websearch", "vcs", "worktree"] {
@@ -453,6 +459,7 @@ impl Plugins {
             let Some(error) = plugin.pointer("/state/error").and_then(Value::as_str) else { continue };
             let Some(domain) = error.strip_prefix("Plugin disabled after ").and_then(|r| r.split_once(".transform failed")).map(|(d, _)| d) else { continue };
             self.cache.lock().remove(&(key.to_string(), domain.to_string()));
+            self.catalog_changed(domain);
             if let Some(kind) = domain_event(domain) {
                 self.bus.publish(kind, json!({}), at.clone());
             }
@@ -638,6 +645,7 @@ impl Plugins {
         // Every cached domain of this location may have changed.
         self.cache.lock().retain(|(k, _), _| *k != key);
         self.catalog_cache.lock().retain(|(k, _), _| *k != key);
+        self.catalog_changed("*");
         let inventory = first.then(|| self.inventory(&key));
         {
             let mut locations = self.locations.lock();
@@ -682,6 +690,7 @@ impl Plugins {
         self.websearch_by_key.lock().remove(key);
         self.cache.lock().retain(|(k, _), _| k != key);
         self.catalog_cache.lock().retain(|(k, _), _| k != key);
+        self.catalog_changed("*");
         self.natives.lock().remove(key);
         if state.is_some_and(|s| s.result.is_some())
             && let Some(host) = self.host.get()
@@ -810,11 +819,16 @@ impl Plugins {
         {
             return out.clone();
         }
-        match host.transform(&location, domain, value.clone()).await {
-            Ok(out) => {
-                self.cache.lock().insert(cache_key, (revision, input, out.clone()));
+        match host.transform_ref(&location, domain, &value).await {
+            Ok(Some(out)) => {
+                // The catalog domains keep their decoded result instead (`catalog_cache`): a raw
+                // copy of every provider record and model would only double the memory held.
+                if !matches!(domain, "provider" | "model") {
+                    self.cache.lock().insert(cache_key, (revision, input, out.clone()));
+                }
                 out
             }
+            Ok(None) => value,
             Err(error) => {
                 tracing::error!(%error, domain, "plugin transform failed");
                 value
@@ -826,6 +840,32 @@ impl Plugins {
     pub fn invalidate(&self, key: &str, domain: &str) {
         self.catalog_cache.lock().remove(&(key.to_string(), domain.to_string()));
         self.cache.lock().remove(&(key.to_string(), domain.to_string()));
+        self.catalog_changed(domain);
+    }
+
+    /// Marks cached catalog inputs stale when `domain` (`*`: every domain) feeds the catalog.
+    fn catalog_changed(&self, domain: &str) {
+        if matches!(domain, "*" | "provider" | "model" | "integration") {
+            self.catalog_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Fingerprint of everything plugins contribute to location `key`'s model catalog (which of
+    /// `provider`/`model`/`integration` they transform, their registration revisions and reloads).
+    /// [`crate::models::Models`] rebuilds a cached catalog when it changes.
+    pub fn catalog_state(&self, key: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.catalog_epoch.load(std::sync::atomic::Ordering::SeqCst).hash(&mut hasher);
+        if let Some(host) = self.host.get() {
+            let location = LocationRef::new(key.to_string());
+            let domains = host.transform_domains(&location);
+            for domain in ["provider", "model", "integration"] {
+                domains.iter().any(|d| d == domain).hash(&mut hasher);
+                host.domain_revision(&location, domain).hash(&mut hasher);
+            }
+        }
+        hasher.finish()
     }
 
     fn register_native(&self, key: &str, handle: String, f: NativeFn) {
@@ -1029,9 +1069,13 @@ impl Plugins {
             return cached.clone();
         }
         let value = json!({ "records": records.values().map(record_json).collect::<Vec<_>>() });
-        let out = self.transform(key, "provider", value).await;
+        let mut out = self.transform(key, "provider", value).await;
         let mut next = indexmap::IndexMap::new();
-        for item in out.get("records").and_then(Value::as_array).cloned().unwrap_or_default() {
+        let items = match out.get_mut("records").map(Value::take) {
+            Some(Value::Array(items)) => items,
+            _ => Vec::new(),
+        };
+        for item in items {
             match record_from_json(&item) {
                 Some(record) => {
                     next.insert(record.provider.id.clone(), record);
@@ -1081,13 +1125,21 @@ impl Plugins {
         if let Some((p, m)) = &default {
             value["default"] = json!({ "providerID": p, "modelID": m });
         }
-        let out = self.transform(key, "model", value).await;
+        let mut out = self.transform(key, "model", value).await;
         let mut next: indexmap::IndexMap<String, indexmap::IndexMap<String, oc_ai::catalog::ModelInfo>> = indexmap::IndexMap::new();
-        for item in out.get("models").and_then(Value::as_array).cloned().unwrap_or_default() {
-            let Some(pid) = item.get(0).and_then(Value::as_str) else { continue };
-            let entry = next.entry(pid.to_string()).or_default();
-            for model in item.get(1).and_then(Value::as_array).cloned().unwrap_or_default() {
-                match serde_json::from_value::<oc_ai::catalog::ModelInfo>(model.clone()) {
+        let items = match out.get_mut("models").map(Value::take) {
+            Some(Value::Array(items)) => items,
+            _ => Vec::new(),
+        };
+        for mut item in items {
+            let Some(pid) = item.get(0).and_then(Value::as_str).map(String::from) else { continue };
+            let entry = next.entry(pid).or_default();
+            let models = match item.get_mut(1).map(Value::take) {
+                Some(Value::Array(models)) => models,
+                _ => Vec::new(),
+            };
+            for model in models {
+                match serde_json::from_value::<oc_ai::catalog::ModelInfo>(model) {
                     Ok(model) => {
                         entry.insert(model.id.clone(), model);
                     }

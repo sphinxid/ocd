@@ -2253,6 +2253,7 @@ dependencies = [
  "ignore",
  "indexmap",
  "json5",
+ "libc",
  "mime_guess",
  "notify",
  "oc-ai",

@@ -303,7 +303,21 @@ The core side lives in `oc-core/src/plugins.rs` (`Plugins`, owned by `App`), `oc
 - **Inventory.** `plugin.list` = `LoadResult::inventory` with the sidecar's latest package infos;
   `plugin.updated` is published when the inventory changes after the first activation (a plugin
   disabled by a failing transform first refreshes its domains, like upstream's `State.group`).
-- **Transforms** (pre → plugins → post, cached per revision and input): `tool` (registry incl. MCP
+- **Catalog.** `Models::catalog_at` keeps each location's built catalog (an immutable, shared
+  `Catalog`) and rebuilds it only when an input changes: the models.dev data, the location's
+  `providers`/`model` config, the integrations and their connections, or the plugins' catalog state
+  (`Plugins::catalog_state`: which of `provider`/`model`/`integration` they transform, the
+  registration revisions, and an epoch bumped by `<domain>.reload`, activations, restarts and
+  closes). Builds of one location are serialized, so concurrent requests (a TUI refetching
+  providers, models and integrations on every `*.updated` event, a plugin calling
+  `ctx.provider.list()`) share one build, and the freed build memory is returned to the OS
+  (`malloc_trim` on glibc). Before this, every `provider.list`/`model.list`/`integration.list` call
+  rebuilt the catalog and round-tripped all provider records through the sidecar; concurrent
+  refetches after plugin activation left an idle server with `opencode-mem` and
+  `opencode-models-discovery` at ~1.9 GB resident (now ~170 MB).
+- **Transforms** (pre → plugins → post, cached per revision and input; the `provider` and `model`
+  results are kept decoded only, and the transform value is serialized to the sidecar without a
+  copy): `tool` (registry incl. MCP
   tools; plugin tools execute in the sidecar through `execute_tool`, native tools a plugin edited
   keep their executor), `agent`, `command`, `skill`, `reference`, `mcp`, `provider` and `model`
   (`Catalog::build_staged`: after the internal provider plugins, before the configured-provider
@@ -534,6 +548,8 @@ bun nor the checkout. After rebuilding, run the tests.
   - `permission.evaluate`, `session.prompt`, `session.context`, `shell.create.before` and
     `tool.execute.after` hooks (`permission-plugin`);
   - provider, model, integration and websearch transforms plus a Code Mode tool (`catalog-plugin`);
+  - a provider transform whose result changes on `ctx.provider.reload()` through an RPC, which
+    must rebuild the cached catalog (`reload-plugin`);
   - `session.http.request` / `session.http.response` hooks rewriting model requests and responses
     (`http-plugin`);
   - a selected `vcs` provider and a `worktree` strategy (`vcs-plugin`);
@@ -556,7 +572,9 @@ bun nor the checkout. After rebuilding, run the tests.
   (text, reasoning, tool calls and usage through the session runner, plugin `aisdk.*` and
   `session.http.*` hooks, provider errors, a package that fails to load) with these fixtures, and
   in the parity suite (`scripts/parity/plugins.py`, group `plugin`, incl. `plugin_aisdk` and
-  `plugin_aisdk_hooks`) against upstream.
+  `plugin_aisdk_hooks`) against upstream. Catalog caching: `oc-core/tests/catalog_cache.rs` (shared
+  until config, connections or the location change; concurrent requests share one build) and
+  `provider_reload_rebuilds_the_cached_catalog` in `oc-backend/tests/plugins.rs`.
 - `cargo test -p oc-plugin --test sidecar -- --ignored` also installs the published v2 plugin
   `opencode-models-discovery@1.10.0` from npm with `bun add` and activates it. This needs network.
 - Bun is taken from `OCD_BUN_PATH` or `OCD_TEST_BUN`. When neither is set, the tests fall back to
