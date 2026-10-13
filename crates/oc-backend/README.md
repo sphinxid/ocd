@@ -44,8 +44,12 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
 ## Implemented
 
 * **server/location/debug/migration**: `server.info` (default), `location.get`, `location.reload`,
-  `debug.location.list/evict`, `experimental.migration.v1.status` (`completed` without a legacy
-  `session` table, else the `migration.v1-v2` kv state).
+  `debug.location.list/evict`, `experimental.migration.v1.status` (`oc_core::v1_import::Importer::global()
+  .status()`: `required | running{progress} | error | completed`).
+* **v1 → v2 history import**: `start` launches `oc_core::v1_import` on a background thread right after the
+  server is ready (`start_v1_import`, upstream `V1Migration.layer`, `server/src/routes.ts:188`). Nothing is
+  gated while it runs (one DB transaction per session, resumable via the `migration.v1-v2` kv cursor); the
+  upstream TUI only shows a corner progress badge. `router()` (tests) does not start it.
 * **agent**: `agent.list` (default first), `agent.get` (per-location config fold).
 * **session**: `list` (directory/project+subpath/search/parentID/anchor paging), `create`, `get`,
   `remove`, `update` (title/metadata/permissions; empty title → `runner.generate_title`), `fork`,

@@ -30,3 +30,7 @@ auth.json
 # Scratch output from smoke tests (terminal captures, parity dumps)
 *.raw
 /parity-out/
+
+# Python bytecode
+__pycache__/
+*.pyc

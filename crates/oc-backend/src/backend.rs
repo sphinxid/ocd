@@ -1298,26 +1298,9 @@ impl Backend for Engine {
         _ctx: &RequestContext,
         _req: ExperimentalMigrationV1StatusRequest,
     ) -> Result<ExperimentalMigrationV1StatusResponse, ApiError> {
-        let legacy: bool = self
-            .app
-            .db
-            .with(|c| {
-                use rusqlite::OptionalExtension;
-                c.query_row("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session'", [], |_| Ok(()))
-                    .optional()
-                    .map(|r| r.is_some())
-            })
-            .map_err(defect)?;
-        let status = if !legacy {
-            "completed"
-        } else {
-            // TODO(core): run the v1 → v2 history migration; report its stored state meanwhile.
-            match self.app.db.kv_get("migration.v1-v2").map_err(defect)? {
-                Some(v) if v.get("phase").and_then(Value::as_str) == Some("completed") => "completed",
-                _ => "required",
-            }
-        };
-        from_json(json!({"status": status}))
+        // V1 → V2 history import status (`V1Migration.status()`); the import itself starts with the server.
+        let status = oc_core::v1_import::Importer::global().status(&self.app.db).map_err(defect)?;
+        from_json(status.to_json())
     }
 
     // ---- websearch (TODO(core)) ---------------------------------------------------------------

@@ -54,6 +54,7 @@ pub async fn start(
     engine.persistent().await;
     let server = oc_server::serve(engine.clone() as Arc<dyn oc_server::Backend>, opts).await?;
     server.set_ready();
+    start_v1_import(&engine);
     // Restart recovery: resume sessions whose execution claim survived the last process.
     if let Some(r) = engine.runner.clone() {
         tokio::spawn(async move {
@@ -65,6 +66,13 @@ pub async fn start(
         });
     }
     Ok((server, engine))
+}
+
+/// Start the background V1 → V2 history import (`V1Migration.layer`, `server/src/routes.ts:188`). It runs on its
+/// own thread, one transaction per session; nothing waits for it. Status: `GET /api/experimental/migration/v1`.
+fn start_v1_import(engine: &Engine) {
+    let importer = oc_core::v1_import::Importer::global();
+    importer.start(engine.app.db.clone(), engine.app.global.data.clone());
 }
 
 /// Build the router without binding (tests / embedding).
