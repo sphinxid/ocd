@@ -152,6 +152,48 @@ The modules below cover the main session and home screens and all dialogs. They 
   copy of `oc-config`'s jsonc-parser `modify` port, and writes fall back to a pretty rewrite
   if an edit fails.
 
+## Rendering performance
+
+Long sessions must not slow the TUI down: the cost of a frame and of an event does not grow with the transcript
+(ocd-specific; the output is identical to rendering everything from scratch).
+
+- **Event loop** (`app/event_loop.rs`, shared by the full TUI and mini mode): each iteration waits for anything
+  (terminal input, a queued SSE event or async result, the 40 ms animation tick, the next frame), then drains
+  everything that is ready — all pending terminal input first, then queued messages in batches of 64, re-checking
+  input between batches and stopping after 8 ms. At most one frame is drawn per 16 ms (~60 fps), and only when
+  something changed, an animation is visible (`App::animating`) or transcript rows are still being rendered. A flood
+  of streaming deltas therefore costs one frame per 16 ms, not one per delta, and keys never wait behind a backlog.
+- **Transcript cache** (`app/tcache.rs`): rendered lines are cached per transcript row (`transcript::Row`: a
+  message, a part, a group or a footer). Every in-place edit of a message in the store calls `Message::touch`
+  (revision 0); the cache stamps fresh revisions and, per frame, finds the first changed message and rebuilds the
+  row list only from the start of that turn (a user message right after an `idle` marker). A row is reused when its
+  *fingerprint* (row structure, revisions of the messages it reads — a footer reads its whole turn —, the per-row UI
+  state it reads: expanded toggles, pending permission, pending inputs, background shells and their output, running
+  subagent sessions, and the retry countdown second) or its *content key* (the same with the part's content instead
+  of the message revision) is unchanged, so a text delta re-renders only the streaming part. Width, terminal width,
+  theme, config, models, agent colours and the session agent drop all rows; the revert boundary, permission blocking
+  and pending inputs rebuild the row list (rows are still reused). The background-work hint and the revert banner
+  are recomputed each frame. Spinners stay out of cached lines (a placeholder glyph replaced at draw time).
+- **Lazy rows:** rows are rendered bottom-up, only as far as the window reaches, and the rest within 8 ms per frame
+  afterwards. Opening, resizing or re-theming a long session shows the visible part at once; until every row is
+  rendered the line count and the message marks are unknown, the window is addressed from the bottom
+  (`TranscriptCache::window_bottom`) and scrolling is unclamped. Message navigation (`App::transcript_complete`)
+  and mini mode finish the render first. The window is drawn by reference (no copy of the transcript per frame).
+- **Highlighting:** `ui/highlight.rs` caches syntect tokenization (style-independent) per (language, code), up to
+  32 MB of code; finished code blocks of a streaming answer and re-wraps never parse again. The diff viewer caches
+  each file's rendered diff by content, width and theme.
+- **Other per-frame paths** read the tail only: the busy line's phase scans back to the last `idle` marker; the
+  sidebar and usage footer search the last assistant message from the end; model lookups borrow the catalog
+  (`App::models_ref`) instead of cloning it.
+- **Tests and benchmarks** (`app/perf.rs`, `app/tcache_tests.rs`): the cache must equal `render_transcript_lines`
+  (the from-scratch reference) line for line and mark for mark through a scripted session (streaming, tools,
+  permissions, retries, queued prompts, compaction, revert, older pages, toggles, width/config/theme changes), and a
+  lazily drawn frame must equal a complete one. `perf_frame_cost_independent_of_transcript_length` fails if a frame
+  after one delta in a 1,500-message session costs more than 4 ms (release) or 3× a 16-message one;
+  `perf_flood_keys_responsive` streams 200 deltas/s while pressing ↓ in a question dialog. Heavier, ignored:
+  `cargo test -p oc-tui --release -- --ignored --nocapture perf_bench perf_flood_bench perf_pieces`.
+  End to end: `scripts/tui_latency.py`.
+
 ## Modules
 
 | module | contents |
@@ -163,6 +205,6 @@ The modules below cover the main session and home screens and all dialogs. They 
 | `config` | `cli.json` (JSONC) with resolved defaults and atomic, comment-preserving writes |
 | `state` | `model.json`, `session.json`, `prompt-history.jsonl`, `prompt-stash.jsonl`, `frecency.jsonl`, and the keyed `<state>/<channel>/tui/<key>.json` store, all at the upstream paths |
 | `ui` | text and wrapping primitives, markdown rendering, syntect highlighting, unified and split diffs, the transcript row model and renderers, the prompt editor with chips, dialogs, form and permission helpers, the logo and epilogue |
-| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `mini` (scrollback and footer rendering), `migration` (v1 import badge and status poller), `busy` (busy status line: turn tracking, phase derivation, rendering) |
+| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `mini` (scrollback and footer rendering), `migration` (v1 import badge and status poller), `busy` (busy status line: turn tracking, phase derivation, rendering), `event_loop` (input-first batching, frame cap), `tcache` (incremental, lazy transcript rendering) |
 | `mini` | the `run_mini` event loop and footer painter |
 | `clipboard`, `attention`, `terminal` | clipboard (OSC 52 plus host tools), notifications and sounds, terminal palette probe (OSC 4/10/11) |

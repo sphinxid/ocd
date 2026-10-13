@@ -422,7 +422,7 @@ impl App {
         if !active(&self.store, sid, turn) {
             return None;
         }
-        let models = self.model_list();
+        let models = self.models_ref();
         let fallback = self.session().and_then(|s| s.model.clone()).or_else(|| self.current_model());
         let cwd = self.location_dir();
         let mcp_connecting = self.loc().and_then(|l| l.mcp.as_ref()).is_some_and(|l| l.iter().any(|s| s.status.status == "pending"));
@@ -430,7 +430,7 @@ impl App {
             store: &self.store,
             sid,
             turn,
-            models: &models,
+            models,
             fallback_model: fallback.as_ref(),
             cwd: Some(&cwd),
             mcp_connecting,

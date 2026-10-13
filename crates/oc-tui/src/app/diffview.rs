@@ -631,9 +631,27 @@ impl App {
             }
             let ft = crate::ui::highlight::filetype(Some(&f.file));
             let o = crate::ui::diff::DiffOpts { theme: t, syntax: &self.syntax, filetype: &ft, split: split && f.status.as_deref() == Some("modified"), wrap: true };
-            let parsed = crate::ui::diff::parse(&f.patch);
             let base_line = out.len();
-            let rendered = crate::ui::diff::render(&parsed, width.saturating_sub(2), &o);
+            // Rendered (highlighted) diffs are cached per file: this runs on every frame.
+            let key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                (&f.file, &f.patch, o.split, width, self.themes.epoch, self.style_epoch).hash(&mut h);
+                h.finish()
+            };
+            let cached = self.diff_cache.borrow().get(&key).cloned();
+            let rendered = match cached {
+                Some(r) => r,
+                None => {
+                    let r = crate::ui::diff::render(&crate::ui::diff::parse(&f.patch), width.saturating_sub(2), &o);
+                    let mut c = self.diff_cache.borrow_mut();
+                    if c.len() >= 256 {
+                        c.clear();
+                    }
+                    c.insert(key, r.clone());
+                    r
+                }
+            };
             hunks.push(base_line);
             for (i, l) in rendered.into_iter().enumerate() {
                 if i > 0 && l.segs.first().is_some_and(|s| s.text.starts_with(" @@")) {

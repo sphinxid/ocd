@@ -15,6 +15,7 @@ Turn fields (all optional):
   cut: true                  send the content chunks, then drop the connection (no finish_reason, no [DONE])
   delay: float               seconds to wait before answering
   stall: float               seconds to pause after the first content chunk (the step is visibly mid-stream)
+  pace: float                seconds to wait between content chunks (chat completions; e.g. 0.005 = 200/s)
   hang: true                 never answer (until the client disconnects or the mock stops)
   match: str                 only consume this turn for requests whose JSON body contains the substring
 
@@ -195,6 +196,8 @@ class Mock:
                     "function": {"name": tool["name"], "arguments": args}}
             out.append({"id": cid, "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [call]}}]})
         for i, o in enumerate(out):
+            if i > 0 and turn.get("pace"):
+                time.sleep(turn["pace"])
             h.wfile.write(_chunk(o))
             h.wfile.flush()
             if i == 0 and turn.get("stall"):

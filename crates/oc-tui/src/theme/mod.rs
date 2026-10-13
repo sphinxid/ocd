@@ -264,6 +264,8 @@ pub struct ThemeManager {
     pub current: Theme,
     /// Load errors waiting to be shown as toasts: (name, message).
     pub errors: Vec<(String, String)>,
+    /// Bumped on every resolve of `current` (render caches key on it).
+    pub epoch: u64,
 }
 
 impl ThemeManager {
@@ -277,6 +279,7 @@ impl ThemeManager {
             system: None,
             current: Theme::default(),
             errors: Vec::new(),
+            epoch: 0,
         };
         m.reload();
         m
@@ -359,6 +362,7 @@ impl ThemeManager {
 
     /// Resolve the active theme; on failure record an error and fall back to `opencode`.
     pub fn reload(&mut self) {
+        self.epoch += 1;
         let name = if self.has(&self.active) { self.active.clone() } else { DEFAULT_THEME.to_string() };
         match self.document(&name).and_then(|d| resolve::resolve_document(&d, self.mode)) {
             Ok(t) => self.current = t,

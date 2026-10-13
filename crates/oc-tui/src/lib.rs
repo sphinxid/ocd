@@ -21,16 +21,14 @@ pub use app::{App, AppMsg, Route, TuiOptions};
 pub use mini::{MiniOptions, run_mini};
 
 use crossterm::event::{
-    DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, Event as CEvent, EventStream,
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, EventStream, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
-use futures::StreamExt;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::io::Write;
-use std::time::Duration;
 
 type Term = Terminal<CrosstermBackend<std::io::Stdout>>;
 
@@ -143,6 +141,29 @@ fn suspend(app: &mut App, _: &Screen, _: &mut Term) {
     app.suspend_requested = false;
 }
 
+/// The full-screen terminal's steps of the event loop.
+struct TermHooks<'a> {
+    screen: &'a Screen,
+    term: &'a mut Term,
+    title: String,
+}
+
+impl app::event_loop::Hooks for TermHooks<'_> {
+    fn draw(&mut self, app: &mut App) -> anyhow::Result<()> {
+        self.term.draw(|f| app.draw(f))?;
+        set_title(app, &mut self.title);
+        Ok(())
+    }
+    fn editor(&mut self, app: &mut App) -> anyhow::Result<()> {
+        external_editor(app, self.screen, self.term);
+        Ok(())
+    }
+    fn suspend(&mut self, app: &mut App) -> anyhow::Result<()> {
+        suspend(app, self.screen, self.term);
+        Ok(())
+    }
+}
+
 /// Run the TUI until the user exits. Returns the process exit code.
 pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     let config = config::Config::load();
@@ -187,52 +208,8 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     app.start_migration_poll();
 
     let mut events = EventStream::new();
-    let mut tick = tokio::time::interval(Duration::from_millis(40));
-    let mut title = String::new();
-    let result: anyhow::Result<()> = async {
-        loop {
-            if app.dirty || app.animating() {
-                term.draw(|f| app.draw(f))?;
-                app.dirty = false;
-                set_title(&app, &mut title);
-            }
-            if app.quit {
-                break;
-            }
-            if app.editor_requested {
-                external_editor(&mut app, &screen, &mut term);
-                continue;
-            }
-            if app.suspend_requested {
-                suspend(&mut app, &screen, &mut term);
-                continue;
-            }
-            tokio::select! {
-                ev = events.next() => match ev {
-                    Some(Ok(CEvent::Key(k))) => {
-                        if let Some(s) = keymap::stroke_from_event(&k) {
-                            app.on_key(s);
-                        }
-                    }
-                    Some(Ok(CEvent::Paste(text))) => app.paste(&text),
-                    Some(Ok(CEvent::Mouse(m))) => app.on_mouse(m),
-                    Some(Ok(CEvent::Resize(_, _))) => app.dirty = true,
-                    Some(Ok(CEvent::FocusGained)) => app.focused = Some(true),
-                    Some(Ok(CEvent::FocusLost)) => app.focused = Some(false),
-                    Some(Err(e)) => return Err(e.into()),
-                    None => break,
-                },
-                msg = rx.recv() => match msg {
-                    Some(AppMsg::Sse(m)) => app.on_sse(m),
-                    Some(AppMsg::Apply(f)) => f(&mut app),
-                    None => break,
-                },
-                _ = tick.tick() => app.tick(),
-            }
-        }
-        Ok(())
-    }
-    .await;
+    let mut hooks = TermHooks { screen: &screen, term: &mut term, title: String::new() };
+    let result = app::event_loop::run(&mut app, &mut events, &mut rx, &mut hooks).await;
     screen.leave();
     if let Err(e) = result {
         eprintln!("{e}");

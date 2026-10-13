@@ -4,12 +4,14 @@ pub mod busy;
 pub mod commands;
 pub mod composer;
 pub mod diffview;
+pub mod event_loop;
 pub mod stats;
 pub mod input;
 pub mod migration;
 pub mod mini;
 pub mod selection;
 pub mod tabs;
+pub mod tcache;
 pub mod terminal;
 pub mod view;
 pub mod workspace;
@@ -242,9 +244,15 @@ pub struct App {
     pub pane_pref: Option<u16>,
     pub terminal_rect: Rect,
     pub composer: Option<composer::Composer>,
-    pub transcript_marks: Vec<(usize, String, bool)>,
     pub subagents_active: bool,
-    pub transcript_cache: Option<(String, Vec<crate::ui::text::SLine>)>,
+    /// Incremental transcript render cache (see `tcache`).
+    pub tcache: tcache::TranscriptCache,
+    /// Bumped whenever the syntax styles are rebuilt (render caches key on it).
+    pub style_epoch: u64,
+    /// Fixed clock for tests (`now()` returns it when set).
+    pub clock: Option<i64>,
+    /// Rendered file diffs of the diff viewer, by content/width/theme hash.
+    pub diff_cache: std::cell::RefCell<HashMap<u64, Vec<crate::ui::text::SLine>>>,
     /// Native-style mouse text selection over the rendered screen.
     pub selection: Option<selection::Selection>,
     /// Last rendered frame (selection text source).
@@ -353,9 +361,11 @@ impl App {
             pane_pref: None,
             terminal_rect: Rect::default(),
             composer: None,
-            transcript_marks: Vec::new(),
             subagents_active: true,
-            transcript_cache: None,
+            tcache: tcache::TranscriptCache::default(),
+            style_epoch: 0,
+            clock: None,
+            diff_cache: Default::default(),
             selection: None,
             last_frame: None,
             mini: false,
@@ -528,7 +538,7 @@ impl App {
     }
 
     pub fn model_valid(&self, m: &ModelRef) -> bool {
-        let list = self.model_list();
+        let list = self.models_ref();
         list.is_empty() || list.iter().any(|x| x.provider_id == m.provider_id && x.id == m.id)
     }
 
@@ -548,7 +558,7 @@ impl App {
         if let Some(m) = self.current_agent().and_then(|a| a.model) {
             return Some(m);
         }
-        let list = self.model_list();
+        let list = self.models_ref();
         for r in &self.models.recent {
             if list.iter().any(|x| x.provider_id == r.provider_id && x.id == r.model_id) {
                 return Some(ModelRef { provider_id: r.provider_id.clone(), id: r.model_id.clone(), variant: None });
@@ -1179,6 +1189,7 @@ impl App {
     }
 
     pub fn reload_theme(&mut self) {
+        self.style_epoch += 1;
         self.syntax = SyntaxStyle::from_theme(&self.themes.current);
         self.thinking_syntax = SyntaxStyle::muted(&self.themes.current);
         let errors = std::mem::take(&mut self.themes.errors);
@@ -1205,6 +1216,7 @@ impl App {
             || self.migration.is_some()
             || self.store.active.values().any(|v| *v)
             || !self.busy.is_empty()
+            || self.transcript_pending()
     }
 
     pub fn spinner_frame(&self) -> &'static str {
@@ -1213,9 +1225,11 @@ impl App {
     }
 
     pub fn now(&self) -> i64 {
-        now_ms()
+        self.clock.unwrap_or_else(now_ms)
     }
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod perf;

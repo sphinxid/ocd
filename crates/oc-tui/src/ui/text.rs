@@ -326,8 +326,13 @@ pub fn set_bg(buf: &mut Buffer, area: Rect, bg: Color) {
 /// Draw lines into `area`, starting at line index `offset`. Spinner placeholders are replaced
 /// with `spinner`. Returns hit regions for clickable lines.
 pub fn draw_lines(buf: &mut Buffer, area: Rect, lines: &[SLine], offset: usize, spinner: &str) -> Vec<(Rect, Click)> {
+    draw_line_iter(buf, area, lines.iter().skip(offset), spinner)
+}
+
+/// [`draw_lines`] over borrowed rows (e.g. a window into a cached transcript).
+pub fn draw_line_iter<'a>(buf: &mut Buffer, area: Rect, lines: impl Iterator<Item = &'a SLine>, spinner: &str) -> Vec<(Rect, Click)> {
     let mut hits = Vec::new();
-    for (i, line) in lines.iter().skip(offset).take(area.height as usize).enumerate() {
+    for (i, line) in lines.take(area.height as usize).enumerate() {
         let y = area.y + i as u16;
         if let Some(bg) = line.bg {
             fill(buf, Rect::new(area.x, y, area.width, 1), bg);

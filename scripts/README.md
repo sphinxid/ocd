@@ -16,6 +16,11 @@
   `--ready`, times count from when that text first appears, so a slow startup does not eat the keystrokes. Prefer it to
   `script` for timed captures: under `script` with piped input, the TUI's output sometimes stalled until the next input
   byte.
+- `tui_latency.py --bin target/release/ocd --work DIR [--turns 4] [--lines 500] [--pace 0.005]`: TUI responsiveness
+  late in a long session, isolated like `tui_capture.py`. The mock streams long markdown answers (one chunk per line,
+  `pace` seconds apart), then asks a multiple-choice question; the script reports when each answer's end shows up,
+  the prompt's echo of keys typed mid-stream, when the question dialog appears, and how long ↓ + space in it takes to
+  tick the next option. `vt_render.Screen` renders the pty output incrementally.
 
 Example (isolated state; the project's `opencode.json` points provider `mock` at the port):
 

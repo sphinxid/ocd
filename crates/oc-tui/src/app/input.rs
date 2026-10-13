@@ -528,6 +528,7 @@ impl App {
 
     /// Scroll so transcript line `top` is at the viewport top (adds navigation slack).
     pub fn jump_to_line(&mut self, top: usize) {
+        self.transcript_complete();
         let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
         let h = self.transcript_rect.height as usize;
         let slack_before = self.views.get(&sid).map(|v| v.nav_slack).unwrap_or(0);
@@ -549,9 +550,10 @@ impl App {
 
     /// `session.message.*` navigation between message boundaries.
     pub fn navigate_message(&mut self, id: &str) -> bool {
+        self.transcript_complete();
         let top = self.current_top();
         let user_only = id.contains(".user.") || id == "session.messages_last_user";
-        let marks: Vec<usize> = self.transcript_marks.iter().filter(|(_, _, u)| !user_only || *u).map(|(l, _, _)| *l).collect();
+        let marks: Vec<usize> = self.transcript_marks().iter().filter(|(_, _, u)| !user_only || *u).map(|(l, _, _)| *l).collect();
         let target = match id {
             "session.messages_last_user" => marks.last().copied(),
             _ if id.ends_with("next") => marks.iter().copied().find(|l| *l > top),
@@ -577,7 +579,8 @@ impl App {
 
     /// Jump to a specific message (timeline / "Jump to").
     pub fn jump_to_message(&mut self, message: &str) {
-        if let Some((l, _, _)) = self.transcript_marks.iter().find(|(_, m, _)| m == message).cloned() {
+        self.transcript_complete();
+        if let Some((l, _, _)) = self.transcript_marks().iter().find(|(_, m, _)| m == message).cloned() {
             self.jump_to_line(l);
         }
     }

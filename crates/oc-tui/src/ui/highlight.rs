@@ -6,6 +6,9 @@ use crate::theme::{SyntaxStyle, TokenStyle};
 use once_cell::sync::Lazy;
 use ratatui::style::{Modifier, Style};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 static SYNTAXES: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
 
@@ -85,7 +88,8 @@ fn find_syntax(lang: &str) -> Option<&'static SyntaxReference> {
 /// Map a TextMate scope atom string onto a tree-sitter style scope.
 fn map_scope(scope: &str) -> Option<&'static str> {
     let s = scope;
-    let starts = |p: &str| s == p || s.starts_with(&format!("{p}."));
+    // `s == p || s.starts_with("{p}.")`, without allocating.
+    let starts = |p: &str| s.strip_prefix(p).is_some_and(|rest| rest.is_empty() || rest.starts_with('.'));
     Some(if starts("comment") {
         "comment"
     } else if starts("punctuation.definition.comment") {
@@ -189,18 +193,146 @@ pub fn token_style(t: TokenStyle) -> Style {
     s
 }
 
-fn stack_style(stack: &ScopeStack, styles: &SyntaxStyle) -> Style {
-    for scope in stack.as_slice().iter().rev() {
-        let name = scope.build_string();
-        if let Some(mapped) = map_scope(&name) {
-            return token_style(styles.get(mapped));
-        }
+/// The tree-sitter style scope of the innermost mapped TextMate scope on the stack.
+fn stack_scope(stack: &ScopeStack) -> Option<&'static str> {
+    thread_local! {
+        /// `map_scope` per scope atom (the scope set is small and fixed).
+        static MAPPED: RefCell<HashMap<syntect::parsing::Scope, Option<&'static str>>> = Default::default();
     }
-    token_style(styles.default)
+    MAPPED.with(|m| {
+        let mut m = m.borrow_mut();
+        stack.as_slice().iter().rev().find_map(|scope| *m.entry(*scope).or_insert_with(|| map_scope(&scope.build_string())))
+    })
+}
+
+#[cfg(test)]
+fn stack_style(stack: &ScopeStack, styles: &SyntaxStyle) -> Style {
+    match stack_scope(stack) {
+        Some(mapped) => token_style(styles.get(mapped)),
+        None => token_style(styles.default),
+    }
+}
+
+/// One tokenized source line: byte ranges with their style scope, or `Raw` when the parser failed
+/// on the line (it is shown unstyled).
+enum TokLine {
+    Raw,
+    Toks(Vec<(u32, u32, Option<&'static str>)>),
+}
+
+/// Tokenize `code` (style-independent).
+fn tokenize(code: &str, syntax: &SyntaxReference) -> Vec<TokLine> {
+    let ss = &*SYNTAXES;
+    let mut state = ParseState::new(syntax);
+    let mut stack = ScopeStack::new();
+    let mut out = Vec::new();
+    for line in code.split('\n') {
+        let with_nl = format!("{line}\n");
+        let ops = match state.parse_line(&with_nl, ss) {
+            Ok(o) => o,
+            Err(_) => {
+                out.push(TokLine::Raw);
+                continue;
+            }
+        };
+        let mut toks = Vec::new();
+        let mut last = 0usize;
+        for (pos, op) in ops {
+            let pos = pos.min(line.len());
+            if pos > last {
+                toks.push((last as u32, pos as u32, stack_scope(&stack)));
+                last = pos;
+            }
+            let _ = stack.apply(&op);
+        }
+        if last < line.len() {
+            toks.push((last as u32, line.len() as u32, stack_scope(&stack)));
+        }
+        out.push(TokLine::Toks(toks));
+    }
+    out
+}
+
+/// Tokenized code blocks by (language, code). Parsing with syntect dominates rendering, and the same
+/// blocks are rendered again on every frame of a streaming answer and on every re-wrap (resize,
+/// theme switch), so finished blocks are never parsed twice. Bounded by total code size.
+#[derive(Default)]
+struct TokCache {
+    /// hash → (language, code, tokens).
+    map: HashMap<u64, Vec<TokEntry>>,
+    bytes: usize,
+}
+
+type TokEntry = (String, String, Rc<Vec<TokLine>>);
+
+const TOK_CACHE_BYTES: usize = 32 << 20;
+
+thread_local! {
+    static CACHE: RefCell<TokCache> = Default::default();
+}
+
+/// Drop this thread's tokenized code blocks (benchmarks).
+pub fn clear_cache() {
+    CACHE.with(|c| *c.borrow_mut() = TokCache::default());
+}
+
+fn tokens(code: &str, lang: &str, syntax: &SyntaxReference) -> Rc<Vec<TokLine>> {
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (lang, code).hash(&mut h);
+        h.finish()
+    };
+    let hit = CACHE.with(|c| c.borrow().map.get(&key).and_then(|v| v.iter().find(|(l, k, _)| l == lang && k == code).map(|(_, _, t)| t.clone())));
+    if let Some(t) = hit {
+        return t;
+    }
+    let t = Rc::new(tokenize(code, syntax));
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.bytes + code.len() > TOK_CACHE_BYTES {
+            c.map.clear();
+            c.bytes = 0;
+        }
+        c.bytes += code.len() + lang.len();
+        c.map.entry(key).or_default().push((lang.to_string(), code.to_string(), t.clone()));
+    });
+    t
 }
 
 /// Highlight `code` as `lang`; one segment list per source line.
 pub fn highlight(code: &str, lang: &str, styles: &SyntaxStyle) -> Vec<Vec<Seg>> {
+    let default = token_style(styles.default);
+    let Some(syntax) = find_syntax(lang) else {
+        return code.split('\n').map(|l| vec![Seg::new(l.to_string(), default)]).collect();
+    };
+    let toks = tokens(code, lang, syntax);
+    let mut out = Vec::with_capacity(toks.len());
+    for (line, tl) in code.split('\n').zip(toks.iter()) {
+        let TokLine::Toks(toks) = tl else {
+            out.push(vec![Seg::new(line.to_string(), default)]);
+            continue;
+        };
+        let mut segs: Vec<Seg> = Vec::new();
+        for &(a, b, scope) in toks {
+            let style = match scope {
+                Some(m) => token_style(styles.get(m)),
+                None => default,
+            };
+            let text = &line[a as usize..b as usize];
+            match segs.last_mut() {
+                Some(s) if s.style == style => s.text.push_str(text),
+                _ => segs.push(Seg::new(text.to_string(), style)),
+            }
+        }
+        out.push(segs);
+    }
+    out
+}
+
+/// The uncached highlighter (reference for tests).
+#[cfg(test)]
+fn highlight_uncached(code: &str, lang: &str, styles: &SyntaxStyle) -> Vec<Vec<Seg>> {
     let default = token_style(styles.default);
     let Some(syntax) = find_syntax(lang) else {
         return code.split('\n').map(|l| vec![Seg::new(l.to_string(), default)]).collect();
@@ -251,6 +383,27 @@ pub fn highlight(code: &str, lang: &str, styles: &SyntaxStyle) -> Vec<Vec<Seg>> 
 mod tests {
     use super::*;
     use crate::theme::{Mode, OPENCODE_V2, resolve};
+
+    #[test]
+    fn cached_highlight_matches_uncached() {
+        let doc: serde_json::Value = serde_json::from_str(OPENCODE_V2).unwrap();
+        let t = resolve::resolve_document(&doc, Mode::Dark).unwrap();
+        let st = SyntaxStyle::from_theme(&t);
+        let samples = [
+            ("rust", "fn main() {\n    let x = \"s\"; // c\n\n    println!(\"{x}\");\n}"),
+            ("typescript", "export const a = 1;\nfunction f(x: number): string { return `${x}` }\n/* c */"),
+            ("python", "def f(x):\n    return x  # c\n"),
+            ("bash", "echo \"hi\" | grep h && ls -la"),
+            ("none", "plain\n\ntext"),
+        ];
+        for (lang, code) in samples {
+            let a = highlight_uncached(code, lang, &st);
+            assert_eq!(highlight(code, lang, &st), a, "{lang} (miss)");
+            assert_eq!(highlight(code, lang, &st), a, "{lang} (hit)");
+        }
+        let muted = SyntaxStyle::muted(&t);
+        assert_eq!(highlight(samples[0].1, "rust", &muted), highlight_uncached(samples[0].1, "rust", &muted));
+    }
 
     #[test]
     fn rust_keywords_colored() {

@@ -13,7 +13,7 @@ use ratatui::style::{Modifier, Style};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PartRef {
     pub message: String,
     pub part: String,
@@ -27,7 +27,7 @@ pub enum GroupKind {
     Instructions,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Entry {
     Message(String),
     CompactionQueued(String),
@@ -36,13 +36,13 @@ pub enum Entry {
     TurnUsage(Vec<String>),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Node {
     Entry(Entry),
     Group { kind: GroupKind, children: Vec<Node>, size: usize },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Row {
     Entry(Entry),
     Group { kind: GroupKind, children: Vec<Node>, completed: bool, pending: Vec<PartRef> },
@@ -127,11 +127,29 @@ pub fn build_rows(
     verbosity: &str,
     blocked: &HashSet<String>,
 ) -> Vec<Row> {
+    build_rows_with(messages, inputs, pending_compactions, turn_tokens, verbosity, blocked, is_legacy(messages))
+}
+
+/// Histories without `idle` markers use the legacy turn rules.
+pub fn is_legacy(messages: &[Message]) -> bool {
+    !messages.iter().rev().any(|m| m.kind == "idle")
+}
+
+/// [`build_rows`] with the legacy flag given explicitly, so a suffix of the message list can be
+/// rebuilt on its own (the flag is a property of the whole list).
+pub fn build_rows_with(
+    messages: &[Message],
+    inputs: &HashSet<String>,
+    pending_compactions: &[String],
+    turn_tokens: bool,
+    verbosity: &str,
+    blocked: &HashSet<String>,
+    legacy: bool,
+) -> Vec<Row> {
     let running_compactions: Vec<&Message> =
         messages.iter().filter(|m| m.kind == "compaction" && m.status.as_deref() == Some("running")).collect();
     let mut pending: HashSet<String> = running_compactions.iter().map(|m| m.id.clone()).collect();
     pending.extend(inputs.iter().cloned());
-    let legacy = !messages.iter().any(|m| m.kind == "idle");
     let mut steps: Vec<&Message> = Vec::new();
     let mut entries: Vec<Proj> = Vec::new();
     let flush = |entries: &mut Vec<Proj>, steps: &mut Vec<&Message>| {
@@ -348,6 +366,10 @@ pub struct RCtx<'a> {
     pub shell_output: &'a HashMap<String, String>,
     pub running_sessions: &'a HashSet<String>,
     pub home: Option<String>,
+    /// Optional `message id → index in messages` map (first occurrence); without it lookups scan.
+    pub index: Option<&'a HashMap<String, usize>>,
+    /// Precomputed [`is_legacy`] of `messages`.
+    pub legacy: Option<bool>,
 }
 
 impl RCtx<'_> {
@@ -358,7 +380,18 @@ impl RCtx<'_> {
         self.agent_colors.get(agent).copied().unwrap_or(self.default_agent_color)
     }
     fn message(&self, id: &str) -> Option<&Message> {
-        self.messages.iter().find(|m| m.id == id)
+        self.position(id).map(|i| &self.messages[i])
+    }
+    fn position(&self, id: &str) -> Option<usize> {
+        if let Some(i) = self.index.and_then(|ix| ix.get(id)).copied()
+            && self.messages.get(i).is_some_and(|m| m.id == id)
+        {
+            return Some(i);
+        }
+        self.messages.iter().position(|m| m.id == id)
+    }
+    fn legacy(&self) -> bool {
+        self.legacy.unwrap_or_else(|| is_legacy(self.messages))
     }
     fn is_expanded(&self, id: &str, default: bool) -> bool {
         self.expanded.get(id).copied().unwrap_or(default)
@@ -1187,7 +1220,8 @@ fn render_part(ctx: &RCtx, r: &PartRef) -> Vec<SLine> {
     }
 }
 
-fn turn_bounds(messages: &[Message], idx: usize, legacy: bool) -> Option<usize> {
+/// Index of the input message of the turn that contains `idx` (scanning back to the last `idle`).
+pub fn turn_bounds(messages: &[Message], idx: usize, legacy: bool) -> Option<usize> {
     let mut input: Option<usize> = None;
     for i in (0..idx).rev() {
         let m = &messages[i];
@@ -1206,16 +1240,23 @@ fn turn_bounds(messages: &[Message], idx: usize, legacy: bool) -> Option<usize> 
 }
 
 pub fn turn_duration(m: &Message, messages: &[Message]) -> i64 {
+    let idx = messages.iter().position(|x| x.id == m.id);
+    turn_duration_at(m, messages, idx, is_legacy(messages))
+}
+
+fn turn_duration_at(m: &Message, messages: &[Message], idx: Option<usize>, legacy: bool) -> i64 {
     let Some(done) = m.time.completed else { return 0 };
-    let legacy = !messages.iter().any(|x| x.kind == "idle");
-    let idx = messages.iter().position(|x| x.id == m.id).unwrap_or(messages.len());
+    let idx = idx.unwrap_or(messages.len());
     let start = turn_bounds(messages, idx, legacy).map(|i| messages[i].time.created).unwrap_or(m.time.created);
     (done - start).max(0)
 }
 
 pub fn turn_tps(m: &Message, messages: &[Message]) -> Option<f64> {
-    let legacy = !messages.iter().any(|x| x.kind == "idle");
     let idx = messages.iter().position(|x| x.id == m.id)?;
+    turn_tps_at(messages, idx, is_legacy(messages))
+}
+
+fn turn_tps_at(messages: &[Message], idx: usize, legacy: bool) -> Option<f64> {
     let end = idx + 1;
     let start = turn_bounds(messages, end, legacy).map(|i| i as isize).unwrap_or(-1);
     let steps: Vec<&Message> = messages[((start + 1) as usize)..end].iter().filter(|x| x.kind == "assistant").collect();
@@ -1229,6 +1270,11 @@ pub fn turn_tps(m: &Message, messages: &[Message]) -> Option<f64> {
         return None;
     }
     Some(out / (d as f64 / 1000.0))
+}
+
+/// Seconds left on a scheduled retry, as the footer shows them (`Retrying in Ns`).
+pub fn retry_secs(at: i64, now: i64) -> i64 {
+    ((at - now) as f64 / 1000.0).ceil().max(0.0) as i64
 }
 
 fn render_footer(ctx: &RCtx, id: &str) -> Vec<SLine> {
@@ -1245,7 +1291,7 @@ fn render_footer(ctx: &RCtx, id: &str) -> Vec<SLine> {
         }
     }
     if let Some(r) = &m.retry {
-        let secs = ((r.at - ctx.now) as f64 / 1000.0).ceil().max(0.0) as i64;
+        let secs = retry_secs(r.at, ctx.now);
         let head = if secs > 0 { format!("Retrying in {secs}s") } else { "Retry due".into() };
         let text = format!("⚠ {head} · attempt {} · {}", r.attempt, r.error.message);
         for l in wrap(&[s(text, th.text.feedback.warning.base)], ctx.width.saturating_sub(3), Wrap::Word) {
@@ -1264,12 +1310,14 @@ fn render_footer(ctx: &RCtx, id: &str) -> Vec<SLine> {
         });
         segs.push(s(format!(" · {}", model.unwrap_or_default()), th.text.muted));
     }
-    let d = turn_duration(m, ctx.messages);
+    let idx = ctx.position(id);
+    let legacy = ctx.legacy();
+    let d = turn_duration_at(m, ctx.messages, idx, legacy);
     if d > 0 && (ctx.term_width < 28 || ctx.term_width >= 36) {
         segs.push(s(format!(" · {}", locale::duration(d)), th.text.muted));
     }
     if ctx.config.tps()
-        && let Some(v) = turn_tps(m, ctx.messages)
+        && let Some(v) = idx.and_then(|i| turn_tps_at(ctx.messages, i, legacy))
     {
         segs.push(s(format!(" · {v:.1} tok/s"), th.text.muted));
     }

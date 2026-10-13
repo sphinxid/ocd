@@ -369,11 +369,39 @@ pub struct Message {
     // idle
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
+    /// Client-side content revision (not on the wire): `Rev(0)` means "new or changed since the
+    /// transcript cache last saw it". See [`Message::touch`].
+    #[serde(skip)]
+    pub rev: Rev,
+}
+
+/// Content revision of a [`Message`], used by the incremental transcript renderer. Every in-place
+/// edit resets it to 0 (`Message::touch`); new messages start at 0; the transcript cache stamps a
+/// fresh, process-unique value on every 0 it finds. It never takes part in equality.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Rev(pub u64);
+
+impl PartialEq for Rev {
+    fn eq(&self, _: &Rev) -> bool {
+        true
+    }
+}
+
+impl Rev {
+    /// A fresh, process-unique non-zero revision.
+    pub fn next() -> Rev {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Rev(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
 }
 
 impl Message {
     pub fn from_value(v: Value) -> Option<Message> {
         serde_json::from_value(v).ok()
+    }
+    /// Mark the message as changed for the transcript cache. Call after every in-place edit.
+    pub fn touch(&mut self) {
+        self.rev = Rev(0);
     }
     pub fn is_assistant(&self) -> bool {
         self.kind == "assistant"

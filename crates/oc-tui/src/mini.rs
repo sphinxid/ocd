@@ -9,9 +9,7 @@ use crossterm::event::{
 };
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use futures::StreamExt;
 use std::io::{IsTerminal, Read, Write};
-use std::time::Duration;
 
 /// Mini-only flags (`opencode mini --replay/--no-replay --replay-limit`).
 #[derive(Clone, Debug, Default)]
@@ -120,6 +118,96 @@ fn enter(kitty: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Mini mode's steps of the event loop: footer painting, scrollback commits, clear/re-wrap.
+struct MiniHooks {
+    st: MiniState,
+    footer: Footer,
+    /// Rows waiting to be printed above the footer (header, replays).
+    pending: Vec<String>,
+    splash: bool,
+    kitty: bool,
+    last_width: u16,
+}
+
+impl MiniHooks {
+    /// Leave the terminal for the editor or a suspend, then come back.
+    fn away(&mut self, app: &mut App) -> anyhow::Result<()> {
+        let mut out = String::new();
+        self.footer.erase(&mut out);
+        print!("{out}");
+        let _ = std::io::stdout().flush();
+        leave(self.kitty);
+        if app.suspend_requested {
+            app.suspend_requested = false;
+            #[cfg(unix)]
+            unsafe {
+                libc::raise(libc::SIGTSTP);
+            }
+        } else {
+            app.editor_requested = false;
+            run_editor(app);
+        }
+        enter(self.kitty)?;
+        app.dirty = true;
+        Ok(())
+    }
+
+    /// Clear the screen and replay the session; the header is printed again with `splash`.
+    fn replay(&mut self, app: &App, width: u16) {
+        self.footer.drawn = false;
+        print!("\x1b[2J\x1b[3J\x1b[H");
+        self.st.session = None;
+        self.st.resumed = true;
+        if self.splash {
+            self.pending.extend(lines_to_ansi(&[app.mini_header(width)], width));
+        }
+    }
+}
+
+impl crate::app::event_loop::Hooks for MiniHooks {
+    fn draw(&mut self, app: &mut App) -> anyhow::Result<()> {
+        frame(app, &mut self.st, &mut self.footer, &self.pending);
+        self.pending.clear();
+        Ok(())
+    }
+    fn wants_draw(&self) -> bool {
+        !self.pending.is_empty()
+    }
+    fn editor(&mut self, app: &mut App) -> anyhow::Result<()> {
+        self.away(app)
+    }
+    fn suspend(&mut self, app: &mut App) -> anyhow::Result<()> {
+        self.away(app)
+    }
+    fn intercept(&mut self, app: &mut App, ev: &CEvent) -> bool {
+        match ev {
+            CEvent::Key(k) => {
+                let Some(s) = keymap::stroke_from_event(k) else { return true };
+                if app.dialogs.is_empty() && app.pending_keys.is_empty() && app.keybinds.match_command("app.clear", std::slice::from_ref(&s)) == Match::Full {
+                    // Clear the screen and replay the session.
+                    let w = crossterm::terminal::size().map(|s| s.0).unwrap_or(80);
+                    self.replay(app, w);
+                    app.dirty = true;
+                    return true;
+                }
+                false
+            }
+            CEvent::Paste(_) => false,
+            CEvent::Resize(w, _) => {
+                if *w != self.last_width && self.st.replay {
+                    // Re-wrap: clear and replay at the new width.
+                    self.replay(app, *w);
+                }
+                self.last_width = *w;
+                app.dirty = true;
+                true
+            }
+            // Mini mode has no mouse capture or focus reporting.
+            _ => true,
+        }
+    }
+}
+
 /// Run the minimal interactive interface until exit. Returns the process exit code.
 pub async fn run_mini(mut opts: TuiOptions, mini: MiniOptions) -> anyhow::Result<i32> {
     if !std::io::stdout().is_terminal() {
@@ -178,96 +266,21 @@ pub async fn run_mini(mut opts: TuiOptions, mini: MiniOptions) -> anyhow::Result
     });
 
     let resumed = app.opts.session.is_some() || app.opts.continue_last;
-    let mut st = MiniState { replay, replay_limit: limit.unwrap_or(200) as usize, resumed, ..Default::default() };
-    let mut footer = Footer { cursor_row: 0, drawn: false };
-    let mut pending: Vec<String> = Vec::new();
+    let mut hooks = MiniHooks {
+        st: MiniState { replay, replay_limit: limit.unwrap_or(200) as usize, resumed, ..Default::default() },
+        footer: Footer { cursor_row: 0, drawn: false },
+        pending: Vec::new(),
+        splash,
+        kitty,
+        last_width: crossterm::terminal::size().map(|s| s.0).unwrap_or(80),
+    };
     if splash {
         let w = crossterm::terminal::size().map(|s| s.0).unwrap_or(80);
-        pending.extend(lines_to_ansi(&[app.mini_header(w)], w));
+        hooks.pending.extend(lines_to_ansi(&[app.mini_header(w)], w));
     }
     let mut events = EventStream::new();
-    let mut tick = tokio::time::interval(Duration::from_millis(40));
-    let mut last_width = crossterm::terminal::size().map(|s| s.0).unwrap_or(80);
-    let result: anyhow::Result<()> = async {
-        loop {
-            if app.dirty || app.animating() || !pending.is_empty() {
-                frame(&mut app, &mut st, &mut footer, &pending);
-                pending.clear();
-                app.dirty = false;
-            }
-            if app.quit {
-                break;
-            }
-            if app.editor_requested || app.suspend_requested {
-                let mut out = String::new();
-                footer.erase(&mut out);
-                print!("{out}");
-                let _ = std::io::stdout().flush();
-                leave(kitty);
-                if app.suspend_requested {
-                    app.suspend_requested = false;
-                    #[cfg(unix)]
-                    unsafe {
-                        libc::raise(libc::SIGTSTP);
-                    }
-                } else {
-                    app.editor_requested = false;
-                    run_editor(&mut app);
-                }
-                enter(kitty)?;
-                app.dirty = true;
-                continue;
-            }
-            tokio::select! {
-                ev = events.next() => match ev {
-                    Some(Ok(CEvent::Key(k))) => {
-                        if let Some(s) = keymap::stroke_from_event(&k) {
-                            if app.dialogs.is_empty() && app.pending_keys.is_empty() && app.keybinds.match_command("app.clear", std::slice::from_ref(&s)) == Match::Full {
-                                // Clear the screen and replay the session.
-                                footer.drawn = false;
-                                print!("\x1b[2J\x1b[3J\x1b[H");
-                                st.session = None;
-                                st.resumed = true;
-                                if splash {
-                                    let w = crossterm::terminal::size().map(|s| s.0).unwrap_or(80);
-                                    pending.extend(lines_to_ansi(&[app.mini_header(w)], w));
-                                }
-                                app.dirty = true;
-                            } else {
-                                app.on_key(s);
-                            }
-                        }
-                    }
-                    Some(Ok(CEvent::Paste(text))) => app.paste(&text),
-                    Some(Ok(CEvent::Resize(w, _))) => {
-                        if w != last_width && st.replay {
-                            // Re-wrap: clear and replay at the new width.
-                            footer.drawn = false;
-                            print!("\x1b[2J\x1b[3J\x1b[H");
-                            st.session = None;
-                            st.resumed = true;
-                            if splash {
-                                pending.extend(lines_to_ansi(&[app.mini_header(w)], w));
-                            }
-                        }
-                        last_width = w;
-                        app.dirty = true;
-                    }
-                    Some(Ok(_)) => {}
-                    Some(Err(e)) => return Err(e.into()),
-                    None => break,
-                },
-                msg = rx.recv() => match msg {
-                    Some(AppMsg::Sse(m)) => app.on_sse(m),
-                    Some(AppMsg::Apply(f)) => f(&mut app),
-                    None => break,
-                },
-                _ = tick.tick() => app.tick(),
-            }
-        }
-        Ok(())
-    }
-    .await;
+    let result = crate::app::event_loop::run(&mut app, &mut events, &mut rx, &mut hooks).await;
+    let MiniHooks { mut st, mut footer, .. } = hooks;
     // Flush whatever finished, drop the footer, print the exit banner.
     let mut out = String::new();
     footer.erase(&mut out);

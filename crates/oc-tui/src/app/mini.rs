@@ -48,12 +48,15 @@ impl App {
             return (vec![], vec![]);
         }
         let w = self.mini_width(width);
-        let (lines, marks) = self.render_transcript_lines(&sid, w);
+        // Incremental: only changed rows are rendered; only new and tail lines are copied.
+        self.transcript_sync(&sid, w);
+        let len = self.tcache.len();
+        let marks = self.tcache.marks();
         let running = self.store.is_running(&sid);
         let stable = if running {
             marks.iter().rev().find(|(_, _, user)| *user).map(|(i, _, _)| i.saturating_sub(1)).unwrap_or(0)
         } else {
-            lines.len()
+            len
         };
         if st.session.as_deref() != Some(sid.as_str()) {
             st.session = Some(sid.clone());
@@ -71,11 +74,10 @@ impl App {
         if stable < st.committed {
             st.committed = stable;
         }
-        let new: Vec<SLine> = lines[st.committed..stable].to_vec();
+        let new: Vec<SLine> = self.tcache.range(st.committed, stable);
         st.committed = stable;
-        let tail: Vec<SLine> = lines[stable..].to_vec();
-        let skip = tail.len().saturating_sub(LIVE_TAIL);
-        (new, tail[skip..].to_vec())
+        let tail = self.tcache.range(len.saturating_sub(LIVE_TAIL).max(stable), len);
+        (new, tail)
     }
 
     /// Draw the live footer into a fresh buffer of `width` × (computed height ≤ `max_h`).

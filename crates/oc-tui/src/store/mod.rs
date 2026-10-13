@@ -212,6 +212,7 @@ impl Store {
             && m.kind == "assistant"
         {
             f(m);
+            m.touch();
         }
     }
 
@@ -479,6 +480,7 @@ impl Store {
                 if admitted && let Some(list) = self.messages.get_mut(&sid) && let Some(pos) = list.iter().position(|m| m.id == inbox) {
                     let mut m = list.remove(pos);
                     m.time.created = ev.created;
+                    m.touch();
                     list.push(m);
                 }
             }
@@ -591,6 +593,7 @@ impl Store {
                     m.exit = shell.get("exit").and_then(|v| v.as_i64());
                     m.output = d.get("output").and_then(|o| serde_json::from_value(o.clone()).ok());
                     m.time.completed = Some(ev.created);
+                    m.touch();
                 }
             }
             "session.step.started" => {
@@ -608,11 +611,13 @@ impl Store {
                     existing.time.created = started;
                     existing.time.streamed = None;
                     existing.time.completed = None;
+                    existing.touch();
                     return fx;
                 }
                 if let Some(cur) = Self::active_assistant(list) {
                     cur.retry = None;
                     cur.time.completed = Some(ev.created);
+                    cur.touch();
                 }
                 if !list.iter().any(|m| m.id == mid) {
                     list.push(Message {
@@ -683,8 +688,10 @@ impl Store {
                 let delta = s("delta");
                 self.edit_tool(&sid, &s("assistantMessageID"), &s("id"), |t| {
                     if t.state.status == "streaming" {
-                        let cur = t.state.input.as_str().unwrap_or("").to_string();
-                        t.state.input = Value::String(cur + &delta);
+                        match &mut t.state.input {
+                            Value::String(cur) => cur.push_str(&delta),
+                            other => *other = Value::String(delta),
+                        }
                     }
                 });
             }
@@ -813,6 +820,7 @@ impl Store {
                     && let Some(cur) = Self::active_assistant(list)
                 {
                     cur.retry = None;
+                    cur.touch();
                 }
                 if ev.kind == "session.execution.interrupted" && s("reason") == "shutdown" {
                     return fx;
@@ -877,6 +885,7 @@ impl Store {
                     && let Some(m) = list.iter_mut().rev().find(|m| m.kind == "compaction" && m.status.as_deref() == Some("running"))
                 {
                     m.summary.get_or_insert_default().push_str(&text);
+                    m.touch();
                 }
             }
             "session.compaction.ended" => {
@@ -892,6 +901,7 @@ impl Store {
                     m.reason = reason;
                     m.provider_context = ctx;
                     m.cost = d.get("cost").and_then(|v| v.as_f64());
+                    m.touch();
                 } else {
                     list.push(Message {
                         id: ev.message_id(),
@@ -924,6 +934,7 @@ impl Store {
                     m.status = Some("failed".into());
                     m.error = Some(error);
                     m.reason = Some(reason);
+                    m.touch();
                 } else {
                     list.push(Message {
                         id: input.unwrap_or(mid),

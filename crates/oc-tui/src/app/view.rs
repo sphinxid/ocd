@@ -9,13 +9,15 @@ use crate::ui::dialog;
 use crate::ui::form as F;
 use crate::ui::prompt::ChipKind;
 use crate::ui::text::*;
-use crate::ui::transcript::{self, RCtx};
+use crate::ui::transcript;
 use crate::util::locale::{self, width as sw};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+
+static SLINE_BLANK: SLine = SLine { segs: Vec::new(), bg: None, click: None };
 
 fn pad(n: usize) -> Seg {
     Seg::new(" ".repeat(n), Style::default())
@@ -337,7 +339,7 @@ impl App {
         if let Some(m) = last {
             let tokens = m.tokens.as_ref().unwrap().total();
             let mr = m.model.clone().unwrap_or_default();
-            let ctx = self.model_list().iter().find(|x| x.provider_id == mr.provider_id && x.id == mr.id).map(|x| x.limit.context).filter(|c| *c > 0.0);
+            let ctx = self.models_ref().iter().find(|x| x.provider_id == mr.provider_id && x.id == mr.id).map(|x| x.limit.context).filter(|c| *c > 0.0);
             let value = locale::number(tokens);
             out.push(match ctx {
                 Some(c) => format!("{value} ({}%)", ((tokens / c) * 100.0).round() as i64),
@@ -637,6 +639,8 @@ impl App {
         }
     }
 
+    /// Render the whole transcript from scratch (the reference for the incremental
+    /// [`super::tcache::TranscriptCache`], which must produce exactly these lines and marks).
     pub fn render_transcript_lines(&self, sid: &str, width: usize) -> (Vec<SLine>, Vec<(usize, String, bool)>) {
         let t = self.theme();
         let messages = self.store.messages(sid).to_vec();
@@ -658,36 +662,8 @@ impl App {
             .map(|l| l.iter().filter_map(|p| p.tool_id().map(|s| s.to_string())).collect())
             .unwrap_or_default();
         let rows = transcript::build_rows(&visible, &inputs, &compactions, self.config.turn_tokens().is_some(), self.config.verbosity(), &blocked);
-        let models = self.model_list();
-        let colors = self.agent_colors();
-        let expanded = self.views.get(sid).map(|v| v.expanded.clone()).unwrap_or_default();
-        let pending_inputs: HashMap<String, String> = pending.iter().filter(|i| i.kind == "user").map(|i| (i.id.clone(), i.delivery.clone())).collect();
-        let shells: HashSet<String> = self.store.locations.values().flat_map(|l| l.shells.iter().map(|s| s.id.clone())).collect();
-        let running: HashSet<String> = self.store.active.iter().filter(|(_, v)| **v).map(|(k, _)| k.clone()).collect();
-        let session_agent = self.store.session(sid).and_then(|s| s.agent.clone());
-        let ctx = RCtx {
-            theme: t,
-            syntax: &self.syntax,
-            thinking_syntax: &self.thinking_syntax,
-            config: &self.config,
-            width,
-            term_width: self.size.0 as usize,
-            models: &models,
-            messages: &visible,
-            session_agent: session_agent.as_deref(),
-            agent_colors: &colors,
-            default_agent_color: self.default_agent_color(),
-            expanded: &expanded,
-            permission_tool: if self.autoaccept { None } else { self.store.permissions.get(sid).and_then(|l| l.first()).and_then(|p| p.tool_id()) },
-            pending_inputs: &pending_inputs,
-            now: self.now(),
-            animations: self.config.animations(),
-            redo_key: self.keybinds.shortcut("session.redo"),
-            running_shells: &shells,
-            shell_output: &self.shell_output,
-            running_sessions: &running,
-            home: Some(self.location_dir()),
-        };
+        let env = self.transcript_env(sid);
+        let ctx = self.transcript_ctx(&env, &visible, width, None, None);
         let light = self.themes.effective_mode() == crate::theme::Mode::Light;
         let mut out = Vec::new();
         let mut marks: Vec<(usize, String, bool)> = Vec::new();
@@ -752,36 +728,32 @@ impl App {
         if area.height == 0 {
             return;
         }
-        let key = format!(
-            "{sid}|{width}|{}|{}|{}|{}|{}",
-            self.render_rev,
-            self.store.generation,
-            if self.store.is_running(sid) { self.now() / 1000 } else { 0 },
-            self.themes.active,
-            self.config.raw
-        );
-        let mut lines = match &self.transcript_cache {
-            Some((k, l)) if *k == key => l.clone(),
-            _ => {
-                let (l, marks) = self.render_transcript_lines(sid, width);
-                self.transcript_marks = marks;
-                self.transcript_cache = Some((key, l.clone()));
-                l
-            }
-        };
+        // Only rows whose inputs changed are rendered again, and only as far up as the window
+        // reaches (the rest completes over the next frames); the window is drawn by reference.
         let slack = self.views.get(sid).map(|v| v.nav_slack).unwrap_or(0);
-        for _ in 0..slack {
-            lines.push(SLine::blank());
-        }
-        self.transcript_lines = lines.len();
         let h = area.height as usize;
-        let max = lines.len().saturating_sub(h);
-        let from_bottom = self.views.get(sid).map(|v| v.scroll_from_bottom).unwrap_or(0).min(max);
+        let from_bottom = self.views.get(sid).map(|v| v.scroll_from_bottom).unwrap_or(0);
+        self.transcript_sync_need(sid, width, Some((from_bottom + h).saturating_sub(slack)));
+        if !self.tcache.is_complete() {
+            // The rows above the window are still being rendered: the total is not known yet, so
+            // the window is addressed from the bottom (it lies entirely in the rendered part).
+            self.transcript_lines = usize::MAX / 2;
+            let lines = self.tcache.window_bottom(from_bottom, h, slack);
+            let hits = draw_line_iter(buf, area, lines.into_iter(), SPINNER_FRAMES[0]);
+            self.hits.extend(hits);
+            return;
+        }
+        let total = self.tcache.len() + slack;
+        self.transcript_lines = total;
+        let max = total.saturating_sub(h);
+        let from_bottom = from_bottom.min(max);
         if let Some(v) = self.views.get_mut(sid) {
             v.scroll_from_bottom = from_bottom;
         }
         let offset = max - from_bottom;
-        let hits = draw_lines(buf, area, &lines, offset, SPINNER_FRAMES[0]);
+        let visible = total.saturating_sub(offset).min(h);
+        let lines = self.tcache.iter_from(offset).chain(std::iter::repeat(&SLINE_BLANK)).take(visible);
+        let hits = draw_line_iter(buf, area, lines, SPINNER_FRAMES[0]);
         self.hits.extend(hits);
     }
 
@@ -807,7 +779,7 @@ impl App {
                 let tokens = m.tokens.as_ref().unwrap().total();
                 lines.push(SLine::new(vec![s(format!("{} tokens", locale::grouped(tokens as i64)), t.text.muted)]));
                 let mr = m.model.clone().unwrap_or_default();
-                if let Some(c) = self.model_list().iter().find(|x| x.provider_id == mr.provider_id && x.id == mr.id).map(|x| x.limit.context).filter(|c| *c > 0.0) {
+                if let Some(c) = self.models_ref().iter().find(|x| x.provider_id == mr.provider_id && x.id == mr.id).map(|x| x.limit.context).filter(|c| *c > 0.0) {
                     lines.push(SLine::new(vec![s(format!("{}% used", ((tokens / c) * 100.0).round() as i64), t.text.muted)]));
                 }
             }
