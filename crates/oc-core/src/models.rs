@@ -428,27 +428,51 @@ impl Models {
             || access.connections("opencode").is_some_and(|c| !c.is_empty());
         // Upstream registers the OpenCode Zen provider plugin among the provider plugins, before the
         // configured-provider plugin (core/src/plugin/internal.ts `pre`/`post`).
-        let mut plugins: Vec<Box<dyn catalog::CatalogPlugin + Send>> = vec![
-            Box::new(catalog::ModelsDevPlugin::new(&snapshots)),
-            Box::new(catalog::DataPlugins::new(configured)),
-            Box::new(catalog::plugins::OpencodeZen { connected }),
-            Box::new(config),
-        ];
-        let post = plugins.len() - 1;
         let host = self.plugins.read().clone();
+        let build = |copilot: Option<catalog::copilot::State>| {
+            let mut plugins: Vec<Box<dyn catalog::CatalogPlugin + Send>> = vec![
+                Box::new(catalog::ModelsDevPlugin::new(&snapshots)),
+                Box::new(catalog::DataPlugins::new(configured.clone())),
+            ];
+            // opencode.provider.github.copilot (github-copilot.ts:216-244) with the location's loaded state.
+            if let Some(state) = copilot {
+                plugins.push(Box::new(catalog::copilot::GithubCopilot { state }));
+            }
+            plugins.push(Box::new(catalog::plugins::OpencodeZen { connected }));
+            plugins.push(Box::new(config.clone()));
+            plugins
+        };
         let (Some(plugins_host), Some(key)) = (host, key) else {
+            let mut plugins = build(Some(catalog::copilot::State::default()));
+            let post = plugins.len() - 1;
             return Ok(Catalog::build_staged(&mut plugins, post, &access, async |r| r, async |m, d, _| (m, d)).await);
         };
         let key = key.to_string();
-        let (p1, k1, p2, k2) = (plugins_host.clone(), key.clone(), plugins_host, key);
-        Ok(Catalog::build_staged(
-            &mut plugins,
-            post,
-            &access,
-            async move |records| p1.provider_records(&k1, records).await,
-            async move |models, default, records| p2.model_records(&k2, models, default, records).await,
-        )
-        .await)
+        let copilot = plugins_host.copilot_enabled(&key);
+        let mut first = true;
+        loop {
+            let mut plugins = build(copilot.then(|| plugins_host.copilot.state(&key)));
+            let post = plugins.len() - 1;
+            let (p1, k1, p2, k2) = (plugins_host.clone(), key.clone(), plugins_host.clone(), key.clone());
+            let catalog = Catalog::build_staged(
+                &mut plugins,
+                post,
+                &access,
+                async move |records| p1.provider_records(&k1, records).await,
+                async move |models, default, records| p2.model_records(&k2, models, default, records).await,
+            )
+            .await;
+            if !copilot || !first {
+                return Ok(catalog);
+            }
+            first = false;
+            // The plugin loads when the location first needs it (upstream: on activation); the first
+            // build waits for that load and is redone when it changed the state.
+            let headers = catalog.provider(catalog::copilot::PROVIDER_ID).and_then(|p| p.headers.clone());
+            if !plugins_host.copilot.register(&key, integrations, headers).await {
+                return Ok(catalog);
+            }
+        }
     }
 
     /// The active connection's credential for `provider_id`, resolved through location `key`'s
@@ -505,8 +529,9 @@ impl Models {
             return Err(ModelError::Unavailable(r.provider_id.clone(), r.id.clone()).into());
         }
         let credential = self.credential(key, catalog, &r.provider_id).await;
-        let variant = r.variant.as_deref().filter(|v| *v != "default");
-        self.resolve_model(key, catalog, &r.provider_id, &r.id, variant, credential.as_ref())
+        // The requested variant stays in the resolved ref (`"default"` included, as a switched session
+        // model carries it); `withVariant` treats `"default"` as no overlay.
+        self.resolve_model(key, catalog, &r.provider_id, &r.id, r.variant.as_deref(), credential.as_ref())
             .await
             .map_err(|e| ModelError::Resolve(e.to_string()).into())
     }

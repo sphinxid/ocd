@@ -36,14 +36,28 @@ pub fn is_untitled(s: &SessionInfo) -> bool {
 }
 
 impl Engine {
-    async fn title_attempt(&self, session: &SessionInfo, system: Option<&str>, text: &str, model: &oc_ai::catalog::ResolvedModel) -> Option<String> {
+    async fn title_attempt(
+        &self,
+        session: &SessionInfo,
+        key: &str,
+        system: Option<&str>,
+        agent_model: bool,
+        text: &str,
+        model: &oc_ai::catalog::ResolvedModel,
+    ) -> Option<String> {
         let mut req = LLMRequest::new(model.language_model.clone());
         if let Some(s) = system {
             req.system = vec![SystemPart::text(s)];
         }
         req.messages = vec![LlmMessage::user_text(text)];
         self.session_http(session, &mut req);
-        // `session.title` may shape the request or answer it (`result`).
+        // The built-in Copilot `session.title` hook runs first: the account's free utility model.
+        let preset = if model.model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && self.app.plugins.copilot_enabled(key) {
+            self.app.plugins.copilot.utility_title(key, &session.id, agent_model, &req.system, &req.messages, None).await
+        } else {
+            None
+        };
+        // `session.title` may shape the request or answer it (`result`, used verbatim).
         let shaped = crate::plugin_request::shape(
             &self.app.plugins,
             &session.location.directory,
@@ -52,12 +66,11 @@ impl Engine {
             "title",
             &model.model_ref(),
             &mut req,
+            preset,
         )
         .await;
         let http = match shaped {
-            Ok(shaped) if shaped.result.is_some() => {
-                return shaped.result.and_then(|t| t.split('\n').map(str::trim).find(|l| !l.is_empty()).map(str::to_string));
-            }
+            Ok(shaped) if shaped.result.is_some() => return shaped.result,
             Ok(shaped) => shaped.http,
             Err(error) => {
                 tracing::warn!(%error, "session.title hook failed");
@@ -144,15 +157,16 @@ impl Engine {
             _ => None,
         };
         let Some(selected) = preferred.clone().or(primary.clone()) else { return Ok(()) };
-        let mut title = self.title_attempt(&session, agent.system.as_deref(), &first, &selected).await;
+        let agent_model = agent.model.is_some();
+        let mut title = self.title_attempt(&session, &sel.location.key, agent.system.as_deref(), agent_model, &first, &selected).await;
         if title.is_none() {
             if let (Some(p), true) = (&primary, preferred.is_some()) {
                 if p.model_ref() != selected.model_ref() {
-                    title = self.title_attempt(&session, agent.system.as_deref(), &first, p).await;
+                    title = self.title_attempt(&session, &sel.location.key, agent.system.as_deref(), agent_model, &first, p).await;
                 }
             }
         }
-        let Some(title) = title else { return Ok(()) };
+        let Some(title) = title.filter(|t| !t.is_empty()) else { return Ok(()) };
         let title = truncate(&title);
         let current = self.app.sessions.get(session_id)?;
         if current.title != session.title || current.title.as_deref() == Some(title.as_str()) {

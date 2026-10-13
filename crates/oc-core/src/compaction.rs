@@ -851,6 +851,7 @@ impl Run<'_> {
             &self.loaded.sel.agent.id,
             &self.model.model_ref(),
             &mut request,
+            None,
         )
         .await
         .map_err(|e| Fail::Failure(SessionError::new("unknown", e.to_string())))?;

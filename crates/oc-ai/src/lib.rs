@@ -2,6 +2,7 @@
 //! provider/catalog/credential parts of `packages/core`). See `README.md`.
 
 pub mod json;
+pub mod js_date;
 pub mod error;
 pub mod media;
 pub mod types;

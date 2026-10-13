@@ -80,6 +80,7 @@ pub async fn shape(
     agent: &str,
     model: &ModelRef,
     req: &mut LLMRequest,
+    preset: Option<String>,
 ) -> Result<Shaped, HookError> {
     let mut shaped = Shaped::default();
     let hook = kind.hook();
@@ -99,6 +100,10 @@ pub async fn shape(
             options.insert("maxTokens".into(), json!(max));
         }
         event.insert("options".into(), Value::Object(options));
+        // A result an internal hook already set (the Copilot utility title).
+        if let Some(result) = &preset {
+            event.insert("result".into(), json!(result));
+        }
         let originals: Vec<ToolDefinition> = req
             .tools
             .iter()
@@ -155,6 +160,8 @@ pub async fn shape(
         if matches!(kind, Kind::Compaction | Kind::Title) {
             shaped.result = out.get("result").and_then(Value::as_str).map(String::from);
         }
+    } else if matches!(kind, Kind::Compaction | Kind::Title) {
+        shaped.result = preset;
     }
     model_request(plugins, key, kind, session_id, agent, model, req).await?;
     shaped.http = http_hooks(plugins, key, kind, session_id, agent, model);
@@ -166,7 +173,10 @@ pub async fn shape(
 pub fn http_hooks(plugins: &Arc<Plugins>, key: &str, kind: Kind, session_id: &str, agent: &str, model: &ModelRef) -> Option<Arc<dyn HttpHook>> {
     let request = plugins.has_hook(key, "session.http.request", Some(&model.provider_id));
     let response = plugins.has_hook(key, "session.http.response", Some(&model.provider_id));
-    if !request && !response {
+    // The built-in Copilot plugin registers `http.request` for its provider.
+    let copilot = (model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && plugins.copilot_enabled(key))
+        .then(|| crate::copilot::user_agent(plugins.version()));
+    if !request && !response && copilot.is_none() {
         return None;
     }
     let mut scope = Map::new();
@@ -174,14 +184,17 @@ pub fn http_hooks(plugins: &Arc<Plugins>, key: &str, kind: Kind, session_id: &st
     scope.insert("agent".into(), json!(agent));
     scope.insert("model".into(), model_json(model));
     scope.insert("kind".into(), json!(kind.as_str()));
-    Some(Arc::new(PluginHttp { plugins: plugins.clone(), key: key.to_string(), scope, response }))
+    Some(Arc::new(PluginHttp { plugins: plugins.clone(), key: key.to_string(), scope, request, response, copilot }))
 }
 
 struct PluginHttp {
     plugins: Arc<Plugins>,
     key: String,
     scope: Map<String, Value>,
+    request: bool,
     response: bool,
+    /// The Copilot hook's user agent, when the built-in hook applies.
+    copilot: Option<String>,
 }
 
 fn headers_json(headers: &indexmap::IndexMap<String, String>) -> Value {
@@ -201,7 +214,13 @@ fn request_json(request: &WireRequest) -> Value {
 
 #[async_trait::async_trait]
 impl HttpHook for PluginHttp {
-    async fn request(&self, request: WireRequest) -> Result<WireRequest, String> {
+    async fn request(&self, mut request: WireRequest) -> Result<WireRequest, String> {
+        if let Some(user_agent) = &self.copilot {
+            crate::copilot::http_request(&mut request, user_agent);
+        }
+        if !self.request {
+            return Ok(request);
+        }
         let mut event = self.scope.clone();
         event.insert("request".into(), request_json(&request));
         let out = self.plugins.trigger(&self.key, "session.http.request", Value::Object(event)).await.map_err(|e| e.to_string())?;
@@ -215,6 +234,9 @@ impl HttpHook for PluginHttp {
     }
 
     async fn response(&self, request: &WireRequest, response: WireResponse) -> Result<WireResponse, String> {
+        if !self.response {
+            return Ok(response);
+        }
         let mut event = self.scope.clone();
         event.insert("request".into(), request_json(request));
         event.insert(
@@ -251,6 +273,13 @@ pub async fn model_request(
     model: &ModelRef,
     req: &mut LLMRequest,
 ) -> Result<(), HookError> {
+    if model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && plugins.copilot_enabled(key) {
+        let mut http = req.http.clone().unwrap_or_default();
+        let mut headers = http.headers.clone().unwrap_or_default();
+        crate::copilot::model_request_headers(&mut headers, kind, session_id);
+        http.headers = Some(headers);
+        req.http = Some(http);
+    }
     if !plugins.has_hook(key, "session.model.request", Some(&model.provider_id)) {
         return Ok(());
     }

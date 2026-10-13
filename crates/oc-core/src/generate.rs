@@ -36,6 +36,7 @@ impl Engine {
             &loaded.sel.agent.id,
             &loaded.resolved.model_ref(),
             &mut req,
+            None,
         )
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;

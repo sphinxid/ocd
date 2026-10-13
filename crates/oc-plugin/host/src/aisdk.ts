@@ -1,7 +1,7 @@
 // The JS side of the AI SDK bridge: port of packages/core/src/aisdk.ts (`AISDK.Service`: hooks,
 // SDK and language model caches, `prepareOptions` with its timed fetch, the HTTP hook middleware)
 // plus the internal provider plugins that register `aisdk` hooks
-// (packages/core/src/plugin/provider/{cohere,gitlab,perplexity,sap-ai-core,vercel,dynamic}.ts).
+// (packages/core/src/plugin/provider/{cohere,github-copilot,gitlab,perplexity,sap-ai-core,vercel,dynamic}.ts).
 //
 // Rust owns request lowering (`LanguageModelV3CallOptions` arrive ready) and raising the stream
 // parts to LLM events; this side resolves/installs the provider package, runs the hooks, constructs
@@ -12,6 +12,7 @@ import { Effect } from "effect"
 import { AsyncLocalStorage } from "node:async_hooks"
 import os from "node:os"
 import { pathToFileURL } from "node:url"
+import { createOpenaiCompatible } from "@upstream-core/github-copilot/copilot-provider"
 import { log, RemoteError } from "./peer.js"
 
 export interface BridgeIO {
@@ -502,6 +503,148 @@ const sapAICore: Internal = (service, io, _app, id) => {
   }, id)
 }
 
+// opencode.provider.github.copilot (plugin/provider/github-copilot.ts:252-265, 317-344): upstream's
+// in-tree Copilot AI SDK provider (core/src/github-copilot, bundled from the checkout) with the
+// Copilot headers on every request, and the chat/responses route per model. The plugin's catalog,
+// session and HTTP hooks run in Rust (oc-ai catalog/copilot.rs, oc-core copilot.rs).
+const githubCopilot: Internal = (service, _io, app, id) => {
+  service.hook(
+    "sdk",
+    (evt: SDKEvent) => {
+      if (evt.model.providerID !== "github-copilot") return
+      if (evt.package !== "@ai-sdk/github-copilot") return
+      evt.options.fetch = copilotFetch(
+        typeof evt.options.apiKey === "string" ? evt.options.apiKey : undefined,
+        evt.options.fetch,
+        app(),
+      )
+      evt.sdk = createOpenaiCompatible(evt.options)
+    },
+    id,
+  )
+  service.hook(
+    "language",
+    (evt: LanguageEvent) => {
+      if (evt.model.providerID !== "github-copilot") return
+      if (evt.sdk.responses === undefined && evt.sdk.chat === undefined) {
+        evt.language = evt.sdk.languageModel(evt.model.modelID ?? evt.model.id)
+        return
+      }
+      if (evt.options.endpoint === "responses" && evt.sdk.responses) {
+        evt.language = evt.sdk.responses(evt.model.modelID ?? evt.model.id)
+        return
+      }
+      if (evt.options.endpoint === "chat" && evt.sdk.chat) {
+        evt.language = evt.sdk.chat(evt.model.modelID ?? evt.model.id)
+        return
+      }
+      const id = evt.model.modelID ?? evt.model.id
+      // Copilot serves Grok and MAI Code only on /responses, and Gemini only on
+      // /chat/completions; advertised endpoint metadata above wins whenever the
+      // live model list provides it.
+      const gpt = /^gpt-(\d+)/.exec(id)
+      const responses =
+        (gpt !== null && Number(gpt[1]) >= 5 && !id.startsWith("gpt-5-mini")) ||
+        id.startsWith("grok-") ||
+        id.startsWith("mai-code-")
+      evt.language = responses ? evt.sdk.responses(id) : evt.sdk.chat(id)
+    },
+    id,
+  )
+}
+
+// Verbatim from plugin/provider/github-copilot.ts (`decodeBody` is a lenient JSON.parse).
+const COPILOT_API_VERSION = "2026-08-01"
+
+function decodeBody(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
+function copilotFetch(token: string | undefined, upstream: Fetch | undefined, app: any): Fetch {
+  const send = upstream ?? fetch
+  return async (input, init) => {
+    const requestHeaders = new Headers(init?.headers)
+    const url = input instanceof URL ? input.href : typeof input === "string" ? input : input.url
+    const body = typeof init?.body === "string" ? decodeBody(init.body) : undefined
+    applyHeaders(requestHeaders, token, app, requestMetadata(url, body), false)
+    return send(input, { ...init, headers: requestHeaders })
+  }
+}
+
+function applyHeaders(headers: Headers, token: string | undefined, app: any, metadata: RequestMetadata, anthropic: boolean) {
+  if (token) {
+    headers.delete("authorization")
+    headers.delete("x-api-key")
+    headers.set("Authorization", `Bearer ${token}`)
+  }
+  headers.set("User-Agent", useragent(app))
+  headers.set("Openai-Intent", "conversation-edits")
+  headers.set("X-GitHub-Api-Version", COPILOT_API_VERSION)
+  // The step may already have declared itself agent-initiated (subagent, title, compaction);
+  // the body can only ever escalate to "agent", never back to "user".
+  if (metadata.agent) headers.set("x-initiator", "agent")
+  else if (!headers.has("x-initiator")) headers.set("x-initiator", "user")
+  if (metadata.vision) headers.set("Copilot-Vision-Request", "true")
+  if (anthropic) headers.set("anthropic-beta", "interleaved-thinking-2025-05-14")
+}
+
+type RequestMetadata = ReturnType<typeof requestMetadata>
+
+function requestMetadata(url: string, body: unknown) {
+  if (!record(body)) return { agent: false, vision: false }
+  if (Array.isArray(body.input)) {
+    const last = body.input.at(-1)
+    return {
+      agent: !record(last) || last.role !== "user",
+      vision: body.input.some(
+        (item) =>
+          record(item) &&
+          Array.isArray(item.content) &&
+          item.content.some((part) => record(part) && part.type === "input_image"),
+      ),
+    }
+  }
+  if (!Array.isArray(body.messages)) return { agent: false, vision: false }
+  const last = body.messages.at(-1)
+  if (url.includes("completions")) {
+    return {
+      agent: !record(last) || last.role !== "user",
+      vision: body.messages.some(
+        (message) =>
+          record(message) &&
+          Array.isArray(message.content) &&
+          message.content.some((part) => record(part) && part.type === "image_url"),
+      ),
+    }
+  }
+  const content = record(last) && Array.isArray(last.content) ? last.content : []
+  return {
+    agent:
+      !record(last) || last.role !== "user" || !content.some((part) => record(part) && part.type !== "tool_result"),
+    vision: body.messages.some(
+      (message) =>
+        record(message) &&
+        Array.isArray(message.content) &&
+        message.content.some(
+          (part) =>
+            record(part) &&
+            (part.type === "image" ||
+              (part.type === "tool_result" &&
+                Array.isArray(part.content) &&
+                part.content.some((nested) => record(nested) && nested.type === "image"))),
+        ),
+    ),
+  }
+}
+
+function record(input: unknown): input is Record<string, any> {
+  return typeof input === "object" && input !== null && !Array.isArray(input)
+}
+
 // opencode.provider.dynamic (plugin/provider/dynamic.ts): any other package from npm (or file://).
 const dynamic: Internal = (service, io, _app, id) => {
   service.hook("sdk", async (evt: SDKEvent) => {
@@ -510,9 +653,10 @@ const dynamic: Internal = (service, io, _app, id) => {
   }, id)
 }
 
-// ProviderPlugins order: cohere, (github-copilot), gitlab, perplexity, sap-ai-core, vercel, ..., dynamic.
+// ProviderPlugins order: cohere, github-copilot, gitlab, perplexity, sap-ai-core, vercel, ..., dynamic.
 const internalPlugins: [string, Internal][] = [
   ["opencode.provider.cohere", factoryPlugin("@ai-sdk/cohere", "createCohere")],
+  ["opencode.provider.github.copilot", githubCopilot],
   ["opencode.provider.gitlab", gitlab],
   ["opencode.provider.perplexity", factoryPlugin("@ai-sdk/perplexity", "createPerplexity")],
   ["opencode.provider.sap.ai.core", sapAICore],

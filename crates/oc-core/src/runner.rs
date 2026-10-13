@@ -527,6 +527,7 @@ impl Engine {
             &loaded.sel.agent.id,
             &loaded.resolved.model_ref(),
             req,
+            None,
         )
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))

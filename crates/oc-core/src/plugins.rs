@@ -253,6 +253,8 @@ pub struct Plugins {
     db: oc_storage::Database,
     bus: Bus,
     app_info: Value,
+    /// The built-in GitHub Copilot plugin's runtime state and hooks.
+    pub copilot: Arc<crate::copilot::Copilot>,
     api: RwLock<Option<Arc<dyn PluginApi>>>,
     host: OnceLock<PluginHost>,
     locations: Mutex<HashMap<String, LocState>>,
@@ -281,8 +283,10 @@ impl Plugins {
         Arc::new_cyclic(|me| Plugins {
             global,
             db,
+            copilot: crate::copilot::Copilot::new(bus.clone(), version),
             bus,
-            app_info: json!({ "name": "opencode", "version": version, "channel": oc_util::version::CHANNEL }),
+            // `App.Info` of the server (`App.configured(options.app)`: the CLI names itself "cli").
+            app_info: json!({ "name": oc_util::version::ARTIFACT, "version": version, "channel": oc_util::version::CHANNEL }),
             api: RwLock::new(None),
             host: OnceLock::new(),
             locations: Mutex::new(HashMap::new()),
@@ -673,6 +677,7 @@ impl Plugins {
 
     /// Closes a location's plugins (cleanup functions run) and forgets its state.
     pub async fn close(&self, key: &str) {
+        self.copilot.close(key);
         let state = self.locations.lock().remove(key);
         self.websearch_by_key.lock().remove(key);
         self.cache.lock().retain(|(k, _), _| k != key);
@@ -726,6 +731,16 @@ impl Plugins {
     }
 
     // ---------------------------------------------------------------------------------- hooks
+
+    /// The server version (`App.Info.version`).
+    pub fn version(&self) -> &str {
+        self.app_info["version"].as_str().unwrap_or_default()
+    }
+
+    /// Whether the built-in GitHub Copilot plugin runs at the location.
+    pub fn copilot_enabled(&self, key: &str) -> bool {
+        self.builtin_enabled(key, crate::copilot::PLUGIN_ID)
+    }
 
     pub fn has_hook(&self, key: &str, hook: &str, provider_id: Option<&str>) -> bool {
         self.host.get().is_some_and(|h| h.has_hook(&LocationRef::new(key.to_string()), hook, provider_id))

@@ -9,6 +9,7 @@ pub mod codemode;
 pub mod compaction;
 pub mod config_watch;
 pub mod coordinator;
+pub mod copilot;
 pub mod discovery;
 pub mod errors;
 pub mod form;

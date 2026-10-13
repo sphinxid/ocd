@@ -330,7 +330,7 @@ streaming `Response`); see docs/PARITY.md "Remaining".
 ### The original checklist
 
 1. **Construct the host.** Create one `PluginHost::new(HostOptions::from_global(&global, app),
-   api)` per server process. `app` is `{name: "opencode", version, channel}`.
+   api)` per server process. `app` is `{name: "cli", version, channel}` (upstream's server gets the CLI's app name).
 2. **Implement `PluginApi`.**
    - Methods listed in `src/api.rs` that have an HTTP endpoint: reuse the oc-backend handlers. The
      input is the merged params, query and body.
@@ -369,13 +369,33 @@ streaming `Response`); see docs/PARITY.md "Remaining".
 
 Upstream references: `packages/core/src/aisdk.ts` (the `AISDK` location node), `aisdk-native.ts`
 (which packages are native), `model-resolver.ts` (`loadAISDK`), `plugin/provider/{dynamic,
-sdk-factory,factory,cohere,perplexity,vercel,gitlab,sap-ai-core}.ts` and `plugin/host.ts:157`.
+sdk-factory,factory,cohere,github-copilot,perplexity,vercel,gitlab,sap-ai-core}.ts`, `github-copilot/`
+(the in-tree Copilot provider) and `plugin/host.ts:157`.
 
 **Which models use it.** Exactly upstream's decision: the catalog rewrites known AI SDK packages to
 native ones (`AISDKNative.rewrite`, oc-ai `catalog/native.rs`); a model whose effective package still
 starts with `aisdk:` (an AI SDK package with no native implementation, e.g. `aisdk:@ai-sdk/deepseek`
 under a provider id other than `deepseek`, `aisdk:@ai-sdk/perplexity`, `aisdk:file:///...`) resolves
 through the bridge (oc-ai `ResolveOptions.aisdk`). Native packages never touch it.
+
+**GitHub Copilot** (`opencode.provider.github.copilot`) follows upstream's provider transform
+(oc-ai `catalog/copilot.rs`, state from oc-core `copilot.rs`):
+
+- no `github-copilot` OAuth connection: every Copilot model gets `aisdk:@ai-sdk/github-copilot`
+  (models.dev's endpoints stay);
+- an OAuth connection whose `/models` sync failed: the same, with the connection's API base
+  (`metadata.apiEndpoint`, else `https://copilot-api.<enterprise>` / `https://api.githubcopilot.com`) as
+  every model's `baseURL`;
+- a synced list: the account's models only (models.dev entries whose API model is listed, plus the
+  rest of the list). Models advertising `/v1/messages` use the native `@opencode/ai/providers/anthropic`
+  at `<base>/v1` (not the bridge); the others `aisdk:@ai-sdk/github-copilot` with `endpoint:
+  "responses"` or `"chat"` from the advertised endpoints. The record is tied to the connection
+  (`sourceConnection`).
+
+The `language` hook then picks `responses` / `chat` from that `endpoint`, else by model id (GPT-5 and
+later except `gpt-5-mini*`, `grok-*` and `mai-code-*` use `/responses`, the rest `/chat/completions`).
+The sidecar runs upstream's in-tree provider (`core/src/github-copilot`, an adapted OpenAI-compatible
+chat model plus an OpenAI Responses model) bundled from the checkout, so requests are upstream's own.
 
 **Split of work.**
 
@@ -409,7 +429,9 @@ data, responseBody}` (`unknownErrorMessage`). oc-ai turns them into the same `AI
 through them (upstream `throughMiddleware`): the sidecar sends the request (`content-length` added
 for a body) to Rust (`aisdk.http.request`), which runs the plugin hooks, fetches with the result and,
 when a response hook exists, reads the body and passes it through `aisdk.http.response`. No
-`b3`/`traceparent` headers (the SDK uses plain `fetch`, as upstream).
+`b3`/`traceparent` headers (the SDK uses plain `fetch`, as upstream). The built-in Copilot plugin
+registers `session.http.request` for `github-copilot` (oc-core `copilot::http_request`: Copilot headers
+on requests that carry `x-api-key`), so every Copilot request goes through this middleware, as upstream.
 
 **Internal provider plugins** run first, in upstream's order, gated by the location's plugin
 configuration (`-opencode.provider.dynamic` etc.):
@@ -420,7 +442,7 @@ configuration (`-opencode.provider.dynamic` etc.):
 | `opencode.provider.gitlab` | `sdk` for `gitlab-ai-provider`, `language` for provider `gitlab` (agentic/workflow chat) | installs `gitlab-ai-provider@6.19.0`; user agent from `ctx.app` |
 | `opencode.provider.sap.ai.core` | `sdk` / `language` for provider `sap-ai-core` | `loadSDKFactory` of the configured package, service-key environment |
 | `opencode.provider.dynamic` | `sdk` when none set it: the package's first `create*` export | `file://` URLs are imported directly; otherwise `npm.add` (official unversioned `@ai-sdk/x` → `@ai-sdk/x@ai-v6`), then `Bun.resolveSync` + import |
-| `opencode.provider.github.copilot` | `sdk` / `language` for `@ai-sdk/github-copilot` | not ported: it needs upstream's in-tree Copilot provider, and ocd's catalog never assigns that package (see Differences) |
+| `opencode.provider.github.copilot` | `sdk` for `@ai-sdk/github-copilot` under provider `github-copilot` (`copilotFetch` around the SDK `fetch`: bearer token from `apiKey`, `User-Agent`, `Openai-Intent`, `X-GitHub-Api-Version`, `x-initiator`, `Copilot-Vision-Request`; then `createOpenaiCompatible`), `language` for provider `github-copilot` (route by `endpoint` or model id) | upstream's in-tree provider bundled in `host.js`, no npm install. The plugin's other parts run in Rust: catalog transforms, `/models` sync (reloaded on `credential.switched`), `session.model.request` (`X-Interaction-Type`/`-Id`, `x-initiator: agent` for titles, compaction and subagents), `session.title` (free `gpt-4o-mini` utility title) and `session.http.request` |
 
 Plugin hooks see `{model, package, options, sdk?}` / `{model, sdk, options, language?}` (the
 `RuntimeInfo` model and the SDK options object upstream passes, mutations included).
@@ -433,7 +455,6 @@ Plugin hooks see `{model, package, options, sdk?}` / `{model, sdk, options, lang
   (upstream: the npm/arborist error message).
 - A missing module's message names the sidecar bundle as importer (`imported from .../host.js`;
   upstream names its compiled chunk).
-- The GitHub Copilot `aisdk` hooks are not ported (above).
 - Non-AI-SDK third-party packages (a package exporting upstream's `model(modelID, settings)` for the
   `@opencode/ai` runtime, loaded by `Provider.loadPackage`) are still unsupported:
   `Provider package <x> is not installed`.
@@ -521,6 +542,10 @@ bun nor the checkout. After rebuilding, run the tests.
     `baseURL` through the SDK `fetch` (V3 prompt as `messages`), with `APICallError` markers;
   - `aisdk-plugin`: provider-scoped `aisdk.sdk` (wraps the SDK, renames the API model) and
     `aisdk.language` (wraps the language model, adds a header) hooks.
+- `oc-backend/tests/copilot.rs`: the built-in Copilot plugin against a mock Copilot API with a fake
+  OAuth credential (model sync and derived catalog, `/responses` with a tool round trip,
+  `/chat/completions`, the native `/v1/messages` route, Copilot headers, the utility title); parity
+  scenarios `plugin_copilot` and `plugin_copilot_unsynced` (`scripts/parity/copilot.py`).
 - `tests/aisdk.rs`: the bridge against the real sidecar (scripted stream through the dynamic
   plugin without any plugin loaded, error shapes, initialization failures and built-in gating,
   plugin hooks with the HTTP middleware against a local SSE server, cancellation).

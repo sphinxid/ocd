@@ -19,6 +19,7 @@
 //! ```
 
 pub mod config;
+pub mod copilot;
 pub mod models_dev;
 pub mod native;
 pub mod plugins;

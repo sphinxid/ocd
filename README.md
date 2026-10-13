@@ -53,6 +53,8 @@ suite, many replaying recorded upstream data.
 - **Chat providers:** Anthropic, OpenAI, Google, Bedrock, Mistral, Cohere, OpenAI-compatible, OpenCode Zen and
   every models.dev provider that uses those protocols. 226 recorded upstream streams decode identically.
 - **Sign-in:** API keys, OAuth, ChatGPT, GitHub Copilot and the Azure CLI.
+- **GitHub Copilot models:** the account's model list, routing between the AI SDK, Responses, Chat and native
+  Anthropic routes, and Copilot's request headers. Upstream's in-house Copilot AI SDK provider runs in the Bun helper.
 - **MCP servers:** stdio and HTTP transports, OAuth and elicitation.
 - **Server plugins:** tools, hooks, transforms, storage, rpc and events, plus `ocd plugin add/check/update`. They
   run in a small Bun helper process, as listed below.
@@ -84,7 +86,6 @@ suite, many replaying recorded upstream data.
 
 | Feature | Notes |
 |---|---|
-| GitHub Copilot AI SDK hooks | Upstream's in-house Copilot AI SDK provider isn't ported yet (in progress). |
 | OpenAI Responses over WebSocket | ocd always uses HTTP streaming, which upstream also falls back to (in progress). |
 | TUI plugins (the `tui` entrypoint) | Not planned: they need upstream's SolidJS terminal UI. |
 | Third-party packages for upstream's own model runtime (`@opencode/ai`) | AI SDK packages do work. |
