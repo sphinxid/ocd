@@ -198,7 +198,9 @@ impl<'a> Req<'a> {
 
 impl Client {
     pub fn new(endpoint: &Endpoint) -> Client {
-        let http = reqwest::Client::builder().no_proxy().build().unwrap_or_default();
+        // A remote `--server https://...` gets the same certificate trust as provider requests.
+        let builder = if endpoint.url.starts_with("https:") { oc_util::http::client_builder() } else { reqwest::Client::builder() };
+        let http = builder.no_proxy().build().unwrap_or_default();
         Client { endpoint: endpoint.clone(), http, extra_headers: vec![] }
     }
 

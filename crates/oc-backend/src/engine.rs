@@ -54,7 +54,7 @@ impl oc_ai::credentials::KvStore for DbKv {
 
 fn websearch(app: &Arc<App>) -> Arc<oc_tools::websearch::WebSearch> {
     let store = Arc::new(oc_core::services::WebSearchKv { app: app.clone() });
-    let ws = oc_tools::websearch::WebSearch::new(store, reqwest::Client::new());
+    let ws = oc_tools::websearch::WebSearch::new(store, oc_util::http::client());
     ws.set_user_agent(format!("opencode/{}/{}/opencode", oc_util::version::CHANNEL, app.version));
     let ws = Arc::new(ws);
     app.plugins.add_websearch(ws.clone());
@@ -76,7 +76,7 @@ impl Engine {
             shell_owner: Mutex::new(HashMap::new()),
             websearch: websearch(&app_ref),
             wellknown: oc_ai::credentials::wellknown::WellKnown::new(
-                reqwest::Client::new(),
+                oc_util::http::client(),
                 Arc::new(DbKv(app_ref.db.clone())),
                 oc_ai::credentials::process_env(),
             ),
@@ -99,7 +99,7 @@ impl Engine {
             shell_owner: Mutex::new(HashMap::new()),
             websearch: websearch(&app_ref),
             wellknown: oc_ai::credentials::wellknown::WellKnown::new(
-                reqwest::Client::new(),
+                oc_util::http::client(),
                 Arc::new(DbKv(app_ref.db.clone())),
                 oc_ai::credentials::process_env(),
             ),

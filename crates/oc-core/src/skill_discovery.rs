@@ -68,7 +68,7 @@ fn contains(parent: &Path, child: &Path) -> bool {
 }
 
 fn client() -> &'static reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(oc_util::http::client);
     &CLIENT
 }
 

@@ -47,9 +47,11 @@ pub struct Sidecar {
 }
 
 impl Sidecar {
-    /// Spawns `bun <script>` and starts the I/O tasks.
+    /// Spawns `bun --use-system-ca <script>` and starts the I/O tasks.
     pub fn spawn(bun: &Path, script: &Path, cwd: &Path, incoming: Arc<dyn Incoming>) -> std::io::Result<Arc<Self>> {
         let mut child = tokio::process::Command::new(bun)
+            // Upstream's binary is compiled with this flag, so plugin and AI SDK requests trust the system store.
+            .arg("--use-system-ca")
             .arg(script)
             .current_dir(cwd)
             .stdin(Stdio::piped())

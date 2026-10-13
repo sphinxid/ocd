@@ -165,7 +165,7 @@ impl Default for Client {
 
 impl Client {
     pub fn new() -> Self {
-        let http = reqwest::Client::builder().build().unwrap_or_else(|_| reqwest::Client::new());
+        let http = oc_util::http::client();
         Self { http, middleware: vec![] }
     }
 

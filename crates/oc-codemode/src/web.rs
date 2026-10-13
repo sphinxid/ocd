@@ -195,7 +195,7 @@ pub struct ReqwestClient {
 
 impl ReqwestClient {
     pub fn new() -> Self {
-        ReqwestClient { client: reqwest::Client::new() }
+        ReqwestClient { client: oc_util::http::client() }
     }
     pub fn with_client(client: reqwest::Client) -> Self {
         ReqwestClient { client }

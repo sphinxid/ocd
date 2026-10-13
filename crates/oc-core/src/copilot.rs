@@ -64,7 +64,7 @@ impl Copilot {
     pub fn new(bus: Bus, version: &str) -> Arc<Copilot> {
         Arc::new_cyclic(|me| Copilot {
             locations: Mutex::new(HashMap::new()),
-            http: reqwest::Client::new(),
+            http: oc_util::http::client(),
             user_agent: user_agent(version),
             bus,
             subscribed: std::sync::Once::new(),

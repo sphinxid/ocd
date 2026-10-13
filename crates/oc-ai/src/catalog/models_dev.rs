@@ -407,7 +407,7 @@ pub struct ReqwestGet(pub reqwest::Client);
 
 impl Default for ReqwestGet {
     fn default() -> Self {
-        Self(reqwest::Client::new())
+        Self(oc_util::http::client())
     }
 }
 

@@ -31,7 +31,7 @@ pub struct ConsoleProvider {
 impl ConsoleProvider {
     /// Builds its own client: the Console request refuses redirects (`redirect: "error"`).
     pub fn new(provider_id: impl Into<String>, credential: ConsoleCredentialFn) -> Self {
-        let client = reqwest::Client::builder()
+        let client = oc_util::http::client_builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .unwrap_or_default();

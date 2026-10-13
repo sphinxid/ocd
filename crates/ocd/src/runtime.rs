@@ -13,6 +13,8 @@ pub struct Runtime {
 
 /// Open the channel database and construct the core runtime + session runner.
 pub fn build(global: &Global) -> anyhow::Result<Runtime> {
+    // The certificate store is read while the database opens; the HTTP clients below need it.
+    oc_util::http::preload();
     let db = oc_storage::Database::open(&global.database(oc_util::version::CHANNEL), &global.data)?;
     let app = App::new(global.clone(), db, oc_util::version::VERSION);
     let services = oc_core::services::default_services(&app);

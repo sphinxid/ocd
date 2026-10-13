@@ -37,7 +37,9 @@ pub struct Client {
 
 impl Client {
     pub fn new(base: &str, password: Option<&str>, directory: &str) -> Client {
-        let http = reqwest::Client::builder().build().unwrap_or_default();
+        // A remote https server gets the same certificate trust as provider requests.
+        let builder = if base.starts_with("https:") { oc_util::http::client_builder() } else { reqwest::Client::builder() };
+        let http = builder.build().unwrap_or_default();
         let auth = password.filter(|p| !p.is_empty()).map(|p| {
             format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("opencode:{p}")))
         });

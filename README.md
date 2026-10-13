@@ -202,6 +202,26 @@ scripts/ocd-sandbox --standalone
 
 All upstream `OPENCODE_*` variables work as they do upstream.
 
+### Certificates
+
+ocd trusts the same certificates as upstream's runtime (Bun 1.4.2, built with `--use-system-ca`), for HTTPS and
+for the WebSocket transport:
+
+- the Mozilla root list;
+- the system store: every certificate in the usual bundle files, such as `/etc/ssl/certs/ca-certificates.crt`,
+  and in the usual certificate folders, such as `/etc/ssl/certs`;
+- the PEM certificates in the file named by `NODE_EXTRA_CA_CERTS`.
+
+`SSL_CERT_FILE` replaces the bundle files and `SSL_CERT_DIR` (a `:`-separated list) replaces the folders.
+`NODE_TLS_REJECT_UNAUTHORIZED=0` turns certificate checks off.
+
+If the `NODE_EXTRA_CA_CERTS` file can't be read or holds no certificate, the server prints
+`warn: ignoring extra certs from <file>, load failed: <reason>` on its error output and goes on without it, as
+upstream does. ocd also writes the line to its log.
+
+So behind a TLS-inspecting proxy, or with a provider on a private certificate authority, set
+`NODE_EXTRA_CA_CERTS` to the authority's certificate file.
+
 ### Downloads on first use
 
 When needed, ocd downloads these tools into the opencode cache folder, the same way upstream does:

@@ -146,7 +146,7 @@ async fn from_container(region: &str) -> Result<Option<AwsCredentials>, AuthFail
     } else {
         return Ok(None);
     };
-    let client = reqwest::Client::new();
+    let client = oc_util::http::client();
     let mut req = client.get(&url).timeout(std::time::Duration::from_secs(5));
     if let Ok(token) = std::env::var("AWS_CONTAINER_AUTHORIZATION_TOKEN") {
         req = req.header("authorization", token);

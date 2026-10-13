@@ -41,3 +41,6 @@ rsa = { version = "0.9", features = ["sha2", "pem"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
+rcgen.workspace = true
+rustls.workspace = true
+tempfile = "3"

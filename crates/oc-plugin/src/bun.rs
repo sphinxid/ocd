@@ -110,7 +110,7 @@ impl BunResolver {
             .ok()
             .filter(|v| !v.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_MIRROR.to_string());
-        Self { bin, http: reqwest::Client::new(), mirror }
+        Self { bin, http: oc_util::http::client(), mirror }
     }
 
     pub async fn resolve(&self) -> Result<PathBuf, String> {

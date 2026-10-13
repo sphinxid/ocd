@@ -148,7 +148,7 @@ impl PersistentPty {
     pub async fn new(global: &oc_util::Global, options: Options) -> Self {
         let root = options.root.clone().unwrap_or_else(|| global.state.join("pty"));
         let binary = options.binary.clone().unwrap_or_else(|| {
-            let resolver = BinaryResolver::new(global.bin.clone(), options.http.clone().unwrap_or_default());
+            let resolver = BinaryResolver::new(global.bin.clone(), options.http.clone().unwrap_or_else(oc_util::http::client));
             memoized_binary(resolver)
         });
         let shell = options.shell.clone().unwrap_or_else(|| {

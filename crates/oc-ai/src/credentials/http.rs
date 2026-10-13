@@ -12,7 +12,7 @@ pub struct FlowContext {
 
 impl FlowContext {
     pub fn new(user_agent: impl Into<String>) -> Self {
-        Self { http: reqwest::Client::new(), user_agent: user_agent.into() }
+        Self { http: oc_util::http::client(), user_agent: user_agent.into() }
     }
 
     pub fn with_client(http: reqwest::Client, user_agent: impl Into<String>) -> Self {

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+oc-util = { path = "../oc-util" }
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true

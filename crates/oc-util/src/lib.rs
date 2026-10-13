@@ -3,6 +3,7 @@
 pub mod flock;
 pub mod global;
 pub mod hash;
+pub mod http;
 pub mod jsonc;
 pub mod log;
 pub mod trace;

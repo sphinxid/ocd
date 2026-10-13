@@ -122,7 +122,7 @@ async fn fetch_token(client: &reqwest::Client) -> Result<(String, u64), AuthFail
 /// `Authorization: Bearer <ADC token>` with in-memory caching (refreshed 60 s before expiry).
 pub fn google_adc_auth(_project: Option<String>) -> Arc<dyn Auth> {
     let cache: Arc<Mutex<Option<(String, Instant)>>> = Arc::new(Mutex::new(None));
-    let client = reqwest::Client::new();
+    let client = oc_util::http::client();
     auth::bearer(Credential::dynamic(move || {
         let cache = cache.clone();
         let client = client.clone();

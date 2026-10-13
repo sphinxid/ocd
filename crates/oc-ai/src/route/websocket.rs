@@ -316,7 +316,9 @@ pub async fn open(url: &str, headers: &Headers) -> Result<WebSocketConnection, A
         let value = tungstenite::http::HeaderValue::from_str(value).map_err(|e| connect_error(url, e.to_string()))?;
         request.headers_mut().insert(name, value);
     }
-    let (stream, _response) = tokio_tungstenite::connect_async_with_config(request, None, true).await.map_err(|e| match e {
+    // Same certificate trust as the HTTP clients (Bun's WebSocket shares fetch's CA store).
+    let tls = tokio_tungstenite::Connector::Rustls(oc_util::http::websocket_tls());
+    let (stream, _response) = tokio_tungstenite::connect_async_tls_with_config(request, None, true, Some(tls)).await.map_err(|e| match e {
         tungstenite::Error::Http(response) => transport_error(
             format!("WebSocket closed before opening with code {}", response.status().as_u16()),
             TransportOperation::Request,

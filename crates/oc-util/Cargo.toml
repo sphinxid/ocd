@@ -21,5 +21,13 @@ sha2.workspace = true
 hex.workspace = true
 tokio.workspace = true
 parking_lot.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+webpki-roots.workspace = true
+webpki.workspace = true
 sha1 = "0.10"
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+rcgen.workspace = true
+tempfile = "3"

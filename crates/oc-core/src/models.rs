@@ -393,7 +393,7 @@ impl Models {
             let (management, user_agent) = (self.azure_management.read().clone(), self.user_agent.clone());
             tokio::spawn(async move {
                 let tokens = oc_ai::credentials::azure::AzureCliTokens::new(Arc::new(oc_ai::credentials::azure::SystemAz));
-                let http = reqwest::Client::new();
+                let http = oc_util::http::client();
                 match crate::integrations::list_azure_resources(&home, &env, &tokens, &http, &management, &user_agent).await {
                     Ok(Some(list)) => {
                         *resources.write() = Some(list.clone());

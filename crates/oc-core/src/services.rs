@@ -44,7 +44,7 @@ impl oc_tools::websearch::WebSearchStore for WebSearchKv {
 }
 
 pub fn default_services(app: &Arc<App>) -> oc_tools::tools::Services {
-    let http = reqwest::Client::new();
+    let http = oc_util::http::client();
     let bus = app.bus.clone();
     // Upstream's Shell service is location-scoped, so its events carry the location of the shell's owner:
     // the session's location for tool and `!` shells, else the working directory. Exits reuse the

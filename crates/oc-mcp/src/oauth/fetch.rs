@@ -90,7 +90,7 @@ type SharedResponse = Shared<BoxFuture<'static, Result<HttpResponse, McpError>>>
 static REFRESHES: Lazy<Mutex<HashMap<String, SharedResponse>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    reqwest::Client::builder().redirect(reqwest::redirect::Policy::limited(20)).build().expect("reqwest client")
+    oc_util::http::client_builder().redirect(reqwest::redirect::Policy::limited(20)).build().expect("reqwest client")
 });
 
 /// The process-wide HTTP client.
