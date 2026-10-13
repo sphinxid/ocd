@@ -99,6 +99,9 @@ suite, many replaying recorded upstream data.
 
 ### Different on purpose
 
+- **Working status line in the TUI:** after you press Enter, a line above the prompt shows what is happening
+  (waiting for the model, thinking, writing, running a tool, retrying, compacting), an elapsed timer that ticks every
+  second, the output token count and the interrupt key. Upstream only shows its moving progress bar, which ocd keeps.
 - **Name:** the program name, help text and logo say `ocd` / `opencode-d`.
 - **`ocd upgrade`:** prints how to rebuild from source instead of downloading a release.
 - **Version and release channel:** a source build reports `2.0.26` on the `latest` channel.

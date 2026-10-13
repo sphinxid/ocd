@@ -108,6 +108,46 @@ The modules below cover the main session and home screens and all dialogs. They 
   toast "Data migration failed" with the error text. The badge has no keybindings. On terminals too narrow for
   it, it uses the same layout as upstream's Yoga quirk: the box extends past the left edge and only the first
   wrapped line shows.
+- **Busy status line** (intentional difference from upstream, `app/busy.rs`): upstream only shows the
+  KnightRider bar in the prompt footer while a session runs, which stays the same whether the server is still
+  setting up, the model has not sent its first token yet, or a tool is running. ocd adds one status line, like
+  Claude Code's, from the moment Enter is pressed until the session goes idle:
+  `⠹ Waiting for Claude Sonnet 4.5… (12s · ↓ 1.2k tokens · esc to interrupt)`. Upstream's footer bar is kept.
+  - **Where:** in the full TUI it goes on the left of the 1-row strip between the transcript and the bottom dock,
+    which upstream leaves blank. "Jump to latest ↓" keeps the right side, and the status line is shortened to fit
+    next to it. In mini mode it is the footer row right above the prompt, permission or form dock.
+  - **Parts:** the spinner (braille frames at 80 ms in the agent colour, or a static `⋯` with animations off), the
+    phrase (`text.base`; `text.feedback.warning.base` for retries and for permission/question waits), then in
+    `text.muted`: the elapsed time, the output token count and the interrupt hint. The elapsed time counts from
+    Enter (`12s`, `1m 05s`, `1h 03m`). For a run the TUI did not start (a resumed or remotely started session), it
+    counts from the first message of the run. The token count is output plus reasoning tokens of the run's finished
+    steps, plus `chars / 4` for the step in progress; it is shown with `~` while part of it is estimated. The hint
+    uses the `session.interrupt` binding (`esc`, shown as upstream's footer shows it) and turns into
+    `esc again to interrupt` (warning colour) once armed. It is hidden while a permission or form prompt has focus,
+    and in shell mode.
+  - **Refresh:** the line redraws at least every 40 ms while it is shown, even with animations off, so the timer
+    keeps ticking during a stall.
+  - **Narrow widths:** the token count is dropped first, then the hint. After that the phrase is truncated, and
+    the elapsed time stays as long as a few phrase cells fit.
+  - **Phases:** they are derived only from data the TUI already has, with no new endpoint or event:
+    | phrase | when |
+    |---|---|
+    | `Sending…` | the prompt/command request is in flight (optimistic outbox) |
+    | `Setting up…` / `Connecting to MCP servers…` | accepted, but the input is still in the inbox (the server is loading the location, activating plugins, connecting MCP servers). The MCP variant is used while the location's MCP catalog has `pending` servers |
+    | `Waiting for <model>…` | the input was delivered (`session.inbox.delivered`) or a step finished, and no output has arrived yet. The server publishes `session.step.started` only with the first provider event, so this covers request assembly and the wait for the first token |
+    | `Thinking…` / `Writing…` | reasoning / text is streaming (the stream is open, `time.streamed` unset) |
+    | `Preparing <tool>…` | a tool call's input is streaming |
+    | `Running shell: <cmd>…`, `Reading <path>…`, `Editing <path>…`, `Running Explore subagent: <description>…`, … | a tool is executing, with `(+N more)` for parallel tools. A user `!` shell command shows as `Running shell: <cmd>…` |
+    | `Retrying in Ns (attempt k)…` | `session.retry.scheduled`. The countdown matches the transcript's retry row |
+    | `Compacting…` | a compaction is pending or running |
+    | `Waiting for permission…` / `Waiting for your answer…` | a permission or form prompt is open |
+  - **Plugin setup:** there is no event that marks plugin activation starting. The boot `*.updated` batch only
+    arrives after activation has settled, and `plugin.list` shows configured plugins only after activation. So
+    plugin setup is reported as the generic `Setting up…`.
+  - **Lifecycle:** a turn is created on submit (or on `session.execution.started` / when a running session is
+    viewed) and ended by `session.execution.{succeeded,failed,interrupted}`. It also ends on a failed submission
+    while idle, when a `!` command's request returns, or when a turn that was acknowledged has no running execution
+    within 10 s.
 - **`cli.json` writes:** they keep comments and formatting. `util::jsonc_edit` is a local
   copy of `oc-config`'s jsonc-parser `modify` port, and writes fall back to a pretty rewrite
   if an edit fails.
@@ -123,6 +163,6 @@ The modules below cover the main session and home screens and all dialogs. They 
 | `config` | `cli.json` (JSONC) with resolved defaults and atomic, comment-preserving writes |
 | `state` | `model.json`, `session.json`, `prompt-history.jsonl`, `prompt-stash.jsonl`, `frecency.jsonl`, and the keyed `<state>/<channel>/tui/<key>.json` store, all at the upstream paths |
 | `ui` | text and wrapping primitives, markdown rendering, syntect highlighting, unified and split diffs, the transcript row model and renderers, the prompt editor with chips, dialogs, form and permission helpers, the logo and epilogue |
-| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `mini` (scrollback and footer rendering), `migration` (v1 import badge and status poller) |
+| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `mini` (scrollback and footer rendering), `migration` (v1 import badge and status poller), `busy` (busy status line: turn tracking, phase derivation, rendering) |
 | `mini` | the `run_mini` event loop and footer painter |
 | `clipboard`, `attention`, `terminal` | clipboard (OSC 52 plus host tools), notifications and sounds, terminal palette probe (OSC 4/10/11) |

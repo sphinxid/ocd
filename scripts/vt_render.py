@@ -55,7 +55,12 @@ def render(raw, cols, rows):
             i += 2
             continue
         if ch == "\r": c = 0
-        elif ch == "\n": r = min(rows - 1, r + 1)
+        elif ch == "\n":
+            if r == rows - 1:  # scroll up (inline UIs such as `ocd mini` print into scrollback)
+                screen.pop(0)
+                screen.append([" "] * cols)
+            else:
+                r += 1
         elif ch == "\b": c = max(0, c - 1)
         elif ch >= " ":
             w = width(ch)

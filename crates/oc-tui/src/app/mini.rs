@@ -92,6 +92,11 @@ impl App {
         if !tail.is_empty() {
             dock.push(SLine::blank());
         }
+        // Busy status line (ocd addition) right above the prompt / permission / form.
+        if let Some(mut line) = self.busy_line(&t, w.saturating_sub(1), self.highlight(&t)) {
+            line.segs.insert(0, pad(1));
+            dock.push(line);
+        }
         let permission = self.active_permission();
         let form = self.active_form();
         let mut prompt = None;

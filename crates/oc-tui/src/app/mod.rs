@@ -1,5 +1,6 @@
 //! Application state, event loop and data synchronization (`src/app.tsx`).
 
+pub mod busy;
 pub mod commands;
 pub mod composer;
 pub mod diffview;
@@ -252,6 +253,8 @@ pub struct App {
     pub mini: bool,
     /// V1 history import badge: current progress and when the badge appeared (spinner phase).
     pub migration: Option<(migration::MigrationProgress, Instant)>,
+    /// Busy turns per session (status line above the prompt; an ocd addition).
+    pub busy: HashMap<String, busy::Turn>,
 }
 
 impl App {
@@ -357,6 +360,7 @@ impl App {
             last_frame: None,
             mini: false,
             migration: None,
+            busy: HashMap::new(),
             config,
             opts,
         };
@@ -964,6 +968,7 @@ impl App {
         let deleted_title = if current_deleted { self.session().and_then(|s| s.title.clone()) } else { None };
         let fx = self.store.apply(&ev);
         self.run_effects(fx);
+        self.turn_event(&ev);
         self.dirty = true;
         if was_connected {
             self.on_connected();
@@ -1163,6 +1168,7 @@ impl App {
             self.interrupt_at = None;
             self.dirty = true;
         }
+        self.turn_tick();
         if self.theme_needs_reload() {
             self.reload_theme();
         }
@@ -1198,6 +1204,7 @@ impl App {
         self.running() || self.toast.is_some() || self.pending_deadline.is_some() || self.connection != ConnStatus::Connected
             || self.migration.is_some()
             || self.store.active.values().any(|v| *v)
+            || !self.busy.is_empty()
     }
 
     pub fn spinner_frame(&self) -> &'static str {

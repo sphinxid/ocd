@@ -1113,6 +1113,7 @@ impl App {
         if !shell && server_cmd.is_none() {
             self.store.admit_prompt(&sid, &msg_id, &input_text, json!(agents), delivery);
         }
+        self.turn_begin(&sid);
         let delivery = delivery.to_string();
         let sid2 = sid.clone();
         let sid_nav = sid.clone();
@@ -1175,6 +1176,7 @@ impl App {
                 Ok(())
             },
             move |app, r| {
+                app.turn_acked(&sid, r.is_ok(), shell);
                 if let Err(e) = r {
                     app.store.rollback_prompt(&sid, &msg_id);
                     if created && app.store.outbox.remove(&sid) {

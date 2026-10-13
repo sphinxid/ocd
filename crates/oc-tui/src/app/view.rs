@@ -154,7 +154,7 @@ impl App {
 
     // ---- prompt ------------------------------------------------------------
 
-    fn highlight(&self, t: &Theme) -> Rgba {
+    pub(super) fn highlight(&self, t: &Theme) -> Rgba {
         let leader = !self.pending_keys.is_empty();
         if leader {
             return t.border;
@@ -605,11 +605,19 @@ impl App {
         self.draw_transcript(buf, transcript, t, sid, width);
         // Status strip.
         let away = self.views.get(sid).is_some_and(|v| v.scroll_from_bottom > 0);
+        let mut busy_w = width;
         if away {
             let label = "Jump to latest ↓";
             let x = inner.right().saturating_sub(sw(label) as u16);
             put(buf, x, strip_y, label, fg(t.text.action.secondary.base), sw(label));
             self.hits.push((Rect::new(x, strip_y, sw(label) as u16, 1), Click::JumpBottom));
+            busy_w = width.saturating_sub(sw(label) + 1);
+        }
+        // Busy status line (ocd addition), left side of the strip.
+        if strip_y >= inner.y
+            && let Some(line) = self.busy_line(t, busy_w, self.highlight(t))
+        {
+            draw_lines(buf, Rect::new(inner.x, strip_y, busy_w as u16, 1), &[line], 0, "");
         }
         // Dock.
         let mut y = strip_y + 1;

@@ -891,3 +891,92 @@ async fn migration_poll_stops_on_error() {
     let toast = a.toast.clone().unwrap();
     assert_eq!((toast.title.as_deref(), toast.message.as_str()), (Some("Data migration failed"), "disk full\nCaused by: boom"));
 }
+
+fn busy_ev(kind: &str, data: serde_json::Value) -> Event {
+    Event { id: format!("evt_{}", crate::util::id_body(false)), created: 80000, kind: kind.into(), data, ..Default::default() }
+}
+
+/// A running session whose busy turn started 12.4 s ago.
+fn busy_fixture(a: &mut App) -> String {
+    let sid = session(a);
+    a.on_event(busy_ev("session.execution.started", json!({"sessionID": sid})));
+    let now = a.now();
+    a.busy.get_mut(&sid).unwrap().started = now - 12_000;
+    sid
+}
+
+/// The status row, with the elapsed time normalised (a debug-build render can take over a second).
+fn busy_row(lines: &[String]) -> String {
+    let row = lines.iter().find(|l| l.contains("Waiting for") || l.contains("Running shell") || l.contains("Sending")).cloned().unwrap_or_default();
+    regex::Regex::new(r"\(1[2-4]s").unwrap().replace(&row, "(12s").to_string()
+}
+
+#[test]
+fn busy_status_line_wide_and_narrow() {
+    let mut a = app();
+    let sid = busy_fixture(&mut a);
+    // Request out, no tokens yet: animations are off in the fixture, so the glyph is static.
+    let lines = render(&mut a, 100, 40);
+    assert_eq!(busy_row(&lines).trim(), "⋯ Waiting for Claude Sonnet 4.5… (12s · esc to interrupt)", "{}", lines.join("\n"));
+    // The line sits in the strip right above the prompt box; upstream's footer bar stays.
+    let row = lines.iter().position(|l| l.contains("Waiting for")).unwrap();
+    assert!(lines[row + 1].trim_start().starts_with('┃'), "{}", lines.join("\n"));
+    assert!(contains(&lines, "[⋯] esc interrupt"), "{}", lines.join("\n"));
+    let lines = render(&mut a, 40, 30);
+    assert_eq!(busy_row(&lines).trim(), "⋯ Waiting for Claude Sonnet 4.5… (12s)", "{}", lines.join("\n"));
+    // A running tool.
+    a.on_event(busy_ev("session.step.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "agent": "build", "model": {"id":"claude-sonnet","providerID":"anthropic"}, "started": 80000})));
+    a.on_event(busy_ev("session.tool.input.started", json!({"sessionID": sid, "assistantMessageID": "msg_9", "id": "t9", "name": "bash"})));
+    a.on_event(busy_ev("session.tool.called", json!({"sessionID": sid, "assistantMessageID": "msg_9", "id": "t9", "input": {"command": "npm test"}})));
+    let lines = render(&mut a, 100, 40);
+    assert_eq!(busy_row(&lines).trim(), "⋯ Running shell: npm test… (12s · ↓ ~6 tokens · esc to interrupt)", "{}", lines.join("\n"));
+    let lines = render(&mut a, 40, 30);
+    assert_eq!(busy_row(&lines).trim(), "⋯ Running shell: npm test… (12s)", "{}", lines.join("\n"));
+    // Armed interrupt.
+    a.on_key(Stroke::key("escape"));
+    let lines = render(&mut a, 100, 40);
+    assert!(busy_row(&lines).ends_with("esc again to interrupt)"), "{}", lines.join("\n"));
+    // Idle: gone.
+    a.on_event(busy_ev("session.execution.succeeded", json!({"sessionID": sid})));
+    let lines = render(&mut a, 100, 40);
+    assert!(!lines.iter().any(|l| l.contains("Running shell: npm test…") || l.contains("to interrupt")), "{}", lines.join("\n"));
+    assert!(a.busy.is_empty());
+}
+
+#[test]
+fn busy_status_animated_spinner_and_mini() {
+    let mut a = app();
+    a.config.set("animations", Some(json!(true)));
+    busy_fixture(&mut a);
+    let lines = render(&mut a, 100, 40);
+    let row = busy_row(&lines);
+    let glyph = row.trim().chars().next().unwrap().to_string();
+    assert!(crate::ui::text::SPINNER_FRAMES.contains(&glyph.as_str()), "{row}");
+    // Mini mode: the same line sits above the prompt in the live footer.
+    let (buf, _) = a.mini_footer(80, 30, &[]);
+    let rows: Vec<String> = (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>()).collect();
+    assert!(busy_row(&rows).contains("Waiting for Claude Sonnet 4.5… (12s · esc to interrupt)"), "{}", rows.join("\n"));
+}
+
+#[test]
+fn busy_turn_from_submit_until_idle() {
+    let mut a = app();
+    let sid = session(&mut a);
+    a.turn_begin(&sid);
+    let lines = render(&mut a, 100, 40);
+    assert!(contains(&lines, "⋯ Sending… (0s)"), "{}", lines.join("\n"));
+    a.turn_acked(&sid, true, false);
+    assert!(a.busy[&sid].acked.is_some());
+    // A failed submission while idle ends the turn.
+    a.turn_acked(&sid, false, false);
+    assert!(a.busy.is_empty());
+    // Acknowledged turns whose execution never starts are dropped.
+    a.turn_begin(&sid);
+    a.busy.get_mut(&sid).unwrap().acked = Some(a.now() - super::busy::STALE_MS - 1);
+    a.tick();
+    assert!(a.busy.is_empty());
+    // A run observed without a turn (resumed session) is adopted.
+    a.store.active.insert(sid.clone(), true);
+    a.tick();
+    assert!(a.busy.contains_key(&sid));
+}

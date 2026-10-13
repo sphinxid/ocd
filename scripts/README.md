@@ -10,6 +10,12 @@
   (`crates/ocd/web-ui/app-archive.bin`, ~24 MB, not committed; rebuild ocd afterwards). See `crates/ocd/README.md`
   ("Web UI"). `build-plugin-host.sh` rebuilds the committed plugin sidecar bundle.
 - `vt_render.py <capture> <cols> <rows>`: replays a `script -qfec ...` capture and prints the final screen.
+- `tui_capture.py --bin target/debug/ocd --work DIR --script turns.json --ready "Mock One" --key 1.5:hi --key 2:<CR>
+  --snap 5 --snap 12 [--mini] [--config '{"animations": false}']`: runs the TUI isolated (`DIR/project`, `DIR/state`,
+  `--standalone`, mock provider from the turn script) in its own pty and prints the screen at each `--snap` time. With
+  `--ready`, times count from when that text first appears, so a slow startup does not eat the keystrokes. Prefer it to
+  `script` for timed captures: under `script` with piped input, the TUI's output sometimes stalled until the next input
+  byte.
 
 Example (isolated state; the project's `opencode.json` points provider `mock` at the port):
 
