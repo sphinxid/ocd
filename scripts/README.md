@@ -2,7 +2,10 @@
 
 - `mock_provider.py <port> <file>`: an OpenAI-compatible SSE server. The first request answers with a `read` tool call
   for `<file>`. A request carrying a tool result answers "The file says hi.", and title requests answer "Smoke test".
-  It logs request timestamps to stderr.
+  `mock_provider.py <port> --script turns.json` serves a scripted conversation instead (reasoning, parallel tool
+  calls, HTTP errors, 429 + Retry-After, cut streams, delays; format in `parity/mock.py`).
+- `parity.py`: the differential parity suite against upstream opencode (scenarios in `parity/`; see
+  `docs/PARITY.md`). `python3 scripts/parity.py --list` lists scenarios.
 - `vt_render.py <capture> <cols> <rows>`: replays a `script -qfec ...` capture and prints the final screen.
 
 Example (isolated state; the project's `opencode.json` points provider `mock` at the port):

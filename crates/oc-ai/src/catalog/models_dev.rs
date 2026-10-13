@@ -712,8 +712,10 @@ pub struct IntegrationSpec {
 /// Integrations registered by the models.dev plugin: providers with env vars get a key method and an
 /// env method listing every variable.
 pub fn integrations(data: &[Snapshot]) -> Vec<IntegrationSpec> {
+    // The models.dev plugin registers integrations from its filtered snapshots, so the deprecated alias
+    // providers never become integrations (core/src/plugin/models-dev.ts `snapshots`).
     data.iter()
-        .filter(|p| !p.environment.is_empty())
+        .filter(|p| !p.environment.is_empty() && !DROPPED_PROVIDERS.contains(&p.info.id.as_str()))
         .map(|p| IntegrationSpec {
             id: p.info.id.clone(),
             name: Some(p.info.name.clone()),

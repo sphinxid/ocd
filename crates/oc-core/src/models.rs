@@ -30,7 +30,11 @@ impl DbCredentials {
     }
 
     fn rows(&self) -> anyhow::Result<Vec<Row>> {
-        self.db.with(|c| {
+        Self::rows_of(&self.db)
+    }
+
+    fn rows_of(db: &Database) -> anyhow::Result<Vec<Row>> {
+        db.with(|c| {
             let mut s = c.prepare("SELECT id, integration_id, label, value, active, time_created, time_updated FROM credential")?;
             let r = s
                 .query_map([], |r| {
@@ -195,6 +199,37 @@ pub enum ModelError {
 pub struct Models {
     pub integrations: Arc<Integrations>,
     pub models_dev: Arc<ModelsDev>,
+    db: Database,
+    user_agent: String,
+    /// The provider plugins' OAuth implementations are registered once, after the first catalog build placed
+    /// the models.dev `key`/`env` slots.
+    oauth: std::sync::Once,
+}
+
+/// Plugin storage of `opencode.provider.chatgpt` (`PluginHost.storage`: `plugin:<utf-16 hex id>:<key>` in kv).
+struct PluginKv {
+    db: Database,
+    namespace: String,
+}
+
+impl PluginKv {
+    fn new(db: Database, plugin: &str) -> Self {
+        let hex: String = plugin.encode_utf16().map(|u| format!("{u:04x}")).collect();
+        PluginKv { db, namespace: format!("plugin:{hex}:") }
+    }
+}
+
+#[async_trait]
+impl oc_ai::credentials::KvStore for PluginKv {
+    async fn get(&self, key: &str) -> anyhow::Result<Option<Value>> {
+        self.db.kv_get(&format!("{}{key}", self.namespace))
+    }
+    async fn set(&self, key: &str, value: Value) -> anyhow::Result<()> {
+        self.db.kv_set(&format!("{}{key}", self.namespace), &value)
+    }
+    async fn remove(&self, key: &str) -> anyhow::Result<()> {
+        self.db.kv_remove(&format!("{}{key}", self.namespace))
+    }
 }
 
 fn method(m: &IntegrationMethod) -> Method {
@@ -210,8 +245,46 @@ impl Models {
         let ua = oc_ai::credentials::user_agent(channel, version, "opencode");
         Models {
             integrations: Integrations::new(store),
-            models_dev: Arc::new(ModelsDev::with_reqwest(ModelsDevOptions::from_env(ua), Arc::new(KvCatalogCache(db)))),
+            models_dev: Arc::new(ModelsDev::with_reqwest(ModelsDevOptions::from_env(ua.clone()), Arc::new(KvCatalogCache(db.clone())))),
+            db,
+            user_agent: ua,
+            oauth: std::sync::Once::new(),
         }
+    }
+
+    /// The provider and web-search plugins' integration registrations (crate::integrations), replayed after the
+    /// models.dev ones on every catalog build, like upstream's integration State rebuild.
+    fn register_builtin_integrations(&self, snapshots: &[catalog::models_dev::Snapshot], sections: &[Value]) {
+        let initial = snapshots.iter().filter_map(|s| s.info.settings.clone().map(|settings| (s.info.id.clone(), settings)));
+        let environment = crate::integrations::Environment {
+            env: oc_ai::credentials::process_env(),
+            home: crate::integrations::global_home(),
+            settings: crate::integrations::settings(initial, sections),
+            azure_cli: which::which("az").is_ok(),
+        };
+        crate::integrations::register(&self.integrations, &environment);
+        self.oauth.call_once(|| {
+            let db = self.db.clone();
+            let chatgpt_client_id: oc_ai::credentials::flows::chatgpt::SavedClientId = Arc::new(move || {
+                let rows = DbCredentials::rows_of(&db).ok()?;
+                let openai: Vec<&Row> = rows.iter().filter(|r| r.integration_id.as_deref() == Some("openai")).collect();
+                match &selected(openai)?.value {
+                    CredentialValue::Oauth { method_id, metadata, .. } if method_id == "chatgpt-token-sharing" => {
+                        metadata.as_ref()?.get("clientID")?.as_str().map(str::to_string)
+                    }
+                    _ => None,
+                }
+            });
+            crate::integrations::register_oauth(
+                &self.integrations,
+                crate::integrations::OAuthDeps {
+                    ctx: oc_ai::credentials::http::FlowContext::new(self.user_agent.clone()),
+                    env: oc_ai::credentials::process_env(),
+                    chatgpt_storage: Arc::new(PluginKv::new(self.db.clone(), "opencode.provider.chatgpt")),
+                    chatgpt_client_id,
+                },
+            );
+        });
     }
 
     /// Build the location catalog (models.dev → data plugins → configured providers).
@@ -224,24 +297,42 @@ impl Models {
                 _ => None,
             })
             .collect();
-        let config = ConfigProviders::from_documents(&sections);
-        let mut specs = catalog::models_dev::integrations(&snapshots);
-        let known: HashSet<String> = specs.iter().map(|s| s.id.clone()).collect();
-        specs.extend(config.integrations(|id| known.contains(id)));
-        for spec in &specs {
-            if let Some(name) = &spec.name {
-                self.integrations.update(&spec.id, |r| r.name = name.clone());
+        // The configured top-level `model` is the catalog default (core/src/config/plugin/provider.ts).
+        let default_model = oc_config::fold::model(entries).map(|m| catalog::config::ModelSelection {
+            provider_id: m.provider_id.clone(),
+            model: m.model.clone(),
+            variant: m.variant.clone(),
+        });
+        let config = ConfigProviders::from_documents(&sections).with_default_model(default_model);
+        // Plugin order (core/src/plugin/internal.ts): models.dev, then the provider and web-search plugins, then
+        // the configured-provider plugin.
+        let dev_specs = catalog::models_dev::integrations(&snapshots);
+        let register_specs = |specs: &[catalog::IntegrationSpec]| {
+            for spec in specs {
+                if let Some(name) = &spec.name {
+                    self.integrations.update(&spec.id, |r| r.name = name.clone());
+                }
+                for m in &spec.methods {
+                    self.integrations.register_method(&spec.id, method(m));
+                }
             }
-            for m in &spec.methods {
-                self.integrations.register_method(&spec.id, method(m));
-            }
-        }
+        };
+        register_specs(&dev_specs);
+        self.register_builtin_integrations(&snapshots, &sections);
+        let known: HashSet<String> = self.integrations.refs().into_iter().map(|r| r.id).collect();
+        register_specs(&config.integrations(|id| known.contains(id)));
         let mut access = Access::new();
         for info in self.integrations.list().await.map_err(|e| anyhow::anyhow!("{e}"))? {
             access.set(info.id.clone(), info.connections.iter().map(|c| c.key()).collect());
         }
         let configured: HashSet<String> = self.integrations.refs().into_iter().map(|r| r.id).collect();
+        let connected = std::env::var("OPENCODE_API_KEY").is_ok_and(|v| !v.is_empty())
+            || access.connections("opencode").is_some_and(|c| !c.is_empty());
         let mut plugins = catalog::standard_plugins(&snapshots, configured, config);
+        // Upstream registers the OpenCode Zen provider plugin among the provider plugins, before the
+        // configured-provider plugin (core/src/plugin/internal.ts `pre`/`post`).
+        let at = plugins.len().saturating_sub(1);
+        plugins.insert(at, Box::new(catalog::plugins::OpencodeZen { connected }));
         Ok(Catalog::build(&mut plugins, &access))
     }
 

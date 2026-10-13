@@ -21,6 +21,7 @@ pub mod models;
 pub mod instruction_state;
 pub mod job;
 pub mod instructions;
+pub mod integrations;
 pub mod permission;
 pub mod plan;
 pub mod project;

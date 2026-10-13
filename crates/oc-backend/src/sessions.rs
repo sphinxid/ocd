@@ -73,6 +73,9 @@ impl Engine {
             permissions: body.permissions.map(conv).transpose()?,
         };
         let session = self.app.sessions.create(input).await.map_err(session_error)?;
+        // Upstream activates the session's location right away (`project.updated` follows
+        // `session.created`); boot it here too so location events keep that order.
+        let _ = self.locations.get(&session.location.directory).await;
         self.session_api(&session)
     }
 

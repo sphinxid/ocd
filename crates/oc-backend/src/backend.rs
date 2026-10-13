@@ -60,7 +60,19 @@ impl Backend for Engine {
 
     async fn plugin_list(&self, ctx: &RequestContext, _req: PluginListRequest) -> Result<Vec<PluginInfo>, ApiError> {
         self.locations.get(&ctx.location.directory).await?;
-        Ok(vec![])
+        // The built-in plugins are part of the server inventory (core/src/plugin/internal.ts `pre`, provider
+        // and websearch plugins, `post`), each active with server features.
+        BUILTIN_PLUGINS
+            .iter()
+            .map(|id| {
+                from_json(json!({
+                    "id": id,
+                    "source": {"type": "builtin"},
+                    "features": {"server": true},
+                    "state": {"status": "active"},
+                }))
+            })
+            .collect()
     }
 
     async fn plugin_check(&self, ctx: &RequestContext, req: PluginCheckRequest) -> Result<Vec<PluginInfo>, ApiError> {
@@ -1553,3 +1565,95 @@ impl Engine {
         Ok(self.session_scope(session_id).await?.1)
     }
 }
+
+/// Built-in plugin ids in activation order, as upstream's `plugin.list` reports them.
+const BUILTIN_PLUGINS: [&str; 88] = [
+    "opencode.tool.input.repair",
+    "opencode.config.worktree",
+    "opencode.config.mcp",
+    "opencode.mcp.codemode.defaults",
+    "opencode.wellknown",
+    "opencode.vcs.git",
+    "opencode.agent",
+    "opencode.plan",
+    "opencode.command",
+    "opencode.skill",
+    "opencode.vcs.hg",
+    "opencode.models.dev",
+    "opencode.provider.amazon.bedrock",
+    "opencode.provider.azure",
+    "opencode.provider.cerebras",
+    "opencode.provider.chatgpt",
+    "opencode.provider.cloudflare.ai.gateway",
+    "opencode.provider.cloudflare.workers.ai",
+    "opencode.provider.cohere",
+    "opencode.provider.databricks",
+    "opencode.provider.digitalocean",
+    "opencode.provider.github.copilot",
+    "opencode.provider.gitlab",
+    "opencode.provider.google.vertex",
+    "opencode.provider.kilo",
+    "opencode.provider.llmgateway",
+    "opencode.provider.lmstudio",
+    "opencode.provider.modal",
+    "opencode.provider.neon",
+    "opencode.provider.nvidia",
+    "opencode.provider.ollama",
+    "opencode.provider.opencode",
+    "opencode.provider.snowflake.cortex",
+    "opencode.provider.openai",
+    "opencode.provider.openrouter",
+    "opencode.provider.perplexity",
+    "opencode.provider.poe",
+    "opencode.provider.prompt-cache-key",
+    "opencode.provider.sap.ai.core",
+    "opencode.provider.vercel",
+    "opencode.provider.vllm",
+    "opencode.provider.xai",
+    "opencode.provider.zenmux",
+    "opencode.provider.dynamic",
+    "opencode.websearch.exa",
+    "opencode.websearch.firecrawl",
+    "opencode.websearch.parallel",
+    "opencode.websearch.tavily",
+    "opencode.websearch.tinyfish",
+    "opencode.tool.patch",
+    "opencode.prompt.openai",
+    "opencode.prompt.anthropic",
+    "opencode.prompt.kimi",
+    "opencode.prompt.arcee",
+    "opencode.prompt.meta",
+    "opencode.prompt.verbosity",
+    "opencode.prompt.identity",
+    "opencode.tool.edit",
+    "opencode.tool.glob",
+    "opencode.tool.grep",
+    "opencode.tools",
+    "opencode.tools.mcp-resources",
+    "opencode.tool.question",
+    "opencode.tool.read",
+    "opencode.tool.shell",
+    "opencode.tool.skill",
+    "opencode.tool.subagent",
+    "opencode.tool.webfetch",
+    "opencode.tool.websearch",
+    "opencode.tool.write",
+    "opencode.warming",
+    "opencode.config.instruction",
+    "opencode.config.reference",
+    "opencode.config.agent",
+    "opencode.browser",
+    "opencode.config.command",
+    "opencode.config.compaction",
+    "opencode.config.formatter",
+    "opencode.config.image",
+    "opencode.config.location-watcher",
+    "opencode.config.shell",
+    "opencode.config.snapshot",
+    "opencode.config.tool-output",
+    "opencode.config.compatibility",
+    "opencode.config.skill",
+    "opencode.config.provider",
+    "opencode.config.websearch",
+    "opencode.config.policy",
+];

@@ -35,6 +35,11 @@ UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 ISO_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?\b")
 VERSION_RE = re.compile(r"^(0\.0\.0-v2-\d+|0\.0\.0-[\w.-]+|2\.0\.\d+)$")
 DURATION_KEYS = {"duration", "elapsed", "durationMs", "ms", "uptime"}
+VOLATILE_KEYS = {"pid"}  # OS process ids
+# User-Agent `opencode/<channel>/<version>/<app>`: channel and version come from the build (dev build "v2" +
+# 0.0.0-v2-<timestamp> upstream, "latest" + workspace version in the port).
+BUILD_RE = re.compile(r"\b(0\.0\.0-v2-\d{12}|2\.0\.26)\b")
+UA_RE = re.compile(r"opencode/(v2|latest|local|dev)/(0\.0\.0-[\w.-]+|2\.0\.\d+)/")
 
 
 class Normalizer:
@@ -64,16 +69,23 @@ class Normalizer:
         s = ID_RE.sub(self._id, s)
         s = UUID_RE.sub(self._uuid, s)
         s = ISO_RE.sub("<iso>", s)
+        s = UA_RE.sub("opencode/<channel>/<version>/", s)
+        # Build version/channel embedded in text (e.g. the built-in report skill's diagnostics).
+        s = BUILD_RE.sub("<version>", s)
+        s = re.sub(r"install/channel: (v2|latest)", "install/channel: <channel>", s)
         return s
 
     def __call__(self, value, key=None):
         if isinstance(value, dict):
-            return {k: self(v, k) for k, v in value.items()}
+            # Keys can be IDs too (e.g. `session.active` maps session IDs to status).
+            return {(self.text(k) if ID_RE.search(k) else k): self(v, k) for k, v in value.items()}
         if isinstance(value, list):
             return [self(v, key) for v in value]
         if isinstance(value, bool) or value is None:
             return value
         if isinstance(value, (int, float)):
+            if key in VOLATILE_KEYS:
+                return f"<{key}>"
             if value > 1e12 and value < 1e14:
                 return "<t>"
             if key in DURATION_KEYS:
@@ -105,6 +117,13 @@ def isolated_env(state_root, extra=None):
         os.makedirs(env[key], exist_ok=True)
     home = os.path.join(state_root, "home")
     os.makedirs(home, exist_ok=True)
+    # SAFETY: disable the background service for every channel, so CLI commands always use a private
+    # standalone server and never reach (or start) a service on the default port, which may be the user's.
+    service_dir = os.path.join(env["XDG_CONFIG_HOME"], "opencode")
+    os.makedirs(service_dir, exist_ok=True)
+    for name in ("service.json", "service-v2.json", "service-local.json"):
+        with open(os.path.join(service_dir, name), "w") as f:
+            f.write('{"disabled": true}\n')
     env.update({
         "HOME": home,
         "OPENCODE_TEST_HOME": home,
@@ -250,6 +269,7 @@ class Ctx:
         self.opts = opts
         self.log = []
         self.server = None
+        self.server_url = None
         self.event_start = 0
         self.env_extra = {}
 
@@ -296,6 +316,7 @@ class Ctx:
 
     def start(self):
         self.server = Server(self.binary, self.project, self.env(), self.name)
+        self.server_url = self.server.url
         self.event_start = len(self.server.events)
         return self.server
 
@@ -325,12 +346,30 @@ class Ctx:
         self.booted()
         return sid
 
+    def settle(self, path, timeout=6.0, gap=0.4):
+        """Poll a GET endpoint until two consecutive answers agree (unrecorded). Upstream builds several
+        location services lazily and fills them from asynchronously activated plugins: the first agent.list
+        of a location answers [], the next ones built-ins only, and config-provided agents/commands/skills
+        appear after the config plugins' debounced reload. The port answers the converged value at once."""
+        deadline = time.time() + timeout
+        last = object()
+        while time.time() < deadline:
+            _, _, data = self.server.request("GET", path, headers={"x-opencode-directory": self.project})
+            if data == last:
+                return
+            last = data
+            time.sleep(gap)
+
     def booted(self, timeout=10):
         """Wait until the location has finished booting. Upstream activates its built-in plugins
         asynchronously after the first request for a location and announces `plugin.updated` when done;
         requests racing that boot see no agents (e.g. permission asks evaluate to deny). The port boots
         synchronously and emits the same events, so waiting is a no-op there."""
         if not getattr(self, "_booted", False):
+            # A location-scoped read boots the location in both binaries; settling the agent list also waits
+            # out upstream's lazy Agent state (its first agent.list answers [] and permission asks racing it
+            # evaluate to deny; plugin event subscriptions such as plan reminders start late).
+            self.settle(f"/api/agent?directory={self.project}")
             self._booted = self.wait_for("plugin.updated", timeout=timeout) is not None
 
     def prompt(self, sid, text, label="session.prompt", wait=True, timeout=60, **extra):
@@ -409,11 +448,11 @@ def _s(v):
 
 
 def dump(ctx, prog_name=None):
-    norm = Normalizer({"root": ctx.project, "state": ctx.state, "work": ctx.work})
+    norm = Normalizer({"root": ctx.project, "state": ctx.state, "work": ctx.work, "server": ctx.server_url or ""})
     lines = []
     for label, value in ctx.log:
-        if prog_name and isinstance(value, dict) and {"stdout", "stderr"} <= value.keys():
-            value = {k: (_prog(v, prog_name) if isinstance(v, str) else v) for k, v in value.items()}
+        if isinstance(value, dict) and {"stdout", "stderr"} <= value.keys():
+            value = {k: (_cli_text(v, prog_name) if isinstance(v, str) else v) for k, v in value.items()}
         n = norm(value)
         if isinstance(n, dict) and {"stdout", "stderr", "exit"} <= n.keys():
             lines.append(f"== {label} exit={n['exit']}")
@@ -428,6 +467,16 @@ def dump(ctx, prog_name=None):
     return lines
 
 
+def _cli_text(text, prog_name):
+    if prog_name:
+        text = _prog(text, prog_name)
+    # Epoch-millisecond timestamps inside CLI JSON lines (`"timestamp":1791850080345`).
+    return re.sub(r"(?<![\d.])1[789]\d{11}(?!\d)", "<t>", text)
+
+
 def _prog(text, prog_name):
-    # By-design rename: the port's binary is `ocd`. Only the program name in command position is rewritten.
-    return re.sub(rf"(?<![\w/.-]){re.escape(prog_name)}(?=\s|$)", "opencode", text)
+    # By-design rename: the port's binary is `ocd`. The program name is rewritten in command position and in
+    # the identifiers shell-completion scripts derive from it (`_ocd()`, `###-begin-ocd-completions-###`).
+    name = re.escape(prog_name)
+    text = re.sub(rf"(?<![\w/.-]){name}(?=\s|$)", "opencode", text)
+    return re.sub(rf"(?<=[_-]){name}(?=[-_(\s]|$)", "opencode", text)

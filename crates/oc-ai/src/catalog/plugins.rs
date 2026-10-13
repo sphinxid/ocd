@@ -168,3 +168,55 @@ impl CatalogPlugin for DataPlugins {
         }
     }
 }
+
+/// The keyless part of the built-in OpenCode Zen provider plugin (`core/src/plugin/provider/opencode.ts`):
+/// without `OPENCODE_API_KEY`, an active `opencode` connection or a configured `apiKey`, the `opencode`
+/// provider is enabled with the `"public"` key and every model with a positive input price is disabled,
+/// leaving the free models usable. Runs after models.dev and before configured providers, like upstream.
+pub struct OpencodeZen {
+    /// `OPENCODE_API_KEY` is set or the `opencode` integration has an active connection.
+    pub connected: bool,
+}
+
+const OPENCODE_PROVIDER: &str = "opencode";
+
+impl CatalogPlugin for OpencodeZen {
+    fn providers(&mut self, editor: &mut ProviderEditor) {
+        let Some(record) = editor.get(OPENCODE_PROVIDER) else { return };
+        let has_key = self.connected || record.provider.setting("apiKey").is_some_and(truthy);
+        if has_key {
+            return;
+        }
+        editor.update(OPENCODE_PROVIDER, |provider| {
+            provider.activation = super::types::Activation::Enabled;
+            let mut settings = provider.settings.clone().unwrap_or_default();
+            settings.insert("apiKey".into(), serde_json::Value::String("public".into()));
+            provider.settings = Some(settings);
+        });
+    }
+
+    fn models(&mut self, editor: &mut ModelEditor<'_>) {
+        let Some(record) = editor.provider(OPENCODE_PROVIDER) else { return };
+        let real_key = record.provider.setting("apiKey").is_some_and(|k| truthy(k) && k.as_str() != Some("public"));
+        if self.connected || real_key {
+            return;
+        }
+        for (pid, mid) in editor.list(Some(OPENCODE_PROVIDER)) {
+            let paid = editor.get(&pid, &mid).is_some_and(|m| m.cost.iter().any(|c| c.input > 0.0));
+            if paid {
+                editor.update(&pid, &mid, |model| model.enabled = false);
+            }
+        }
+    }
+}
+
+/// JS truthiness of a settings value.
+fn truthy(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        serde_json::Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}

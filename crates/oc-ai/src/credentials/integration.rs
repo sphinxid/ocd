@@ -1397,7 +1397,7 @@ impl Integrations {
     }
 }
 
-/// Approximation of `String.prototype.localeCompare` for names: case-insensitive first, then exact.
+/// `String.prototype.localeCompare` (see [`oc_schema::collate`]).
 pub fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
-    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| b.cmp(a))
+    oc_schema::collate::locale_compare(a, b)
 }

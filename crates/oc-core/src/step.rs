@@ -120,6 +120,11 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
         .boxed()
         .shared()
     };
+    // Upstream forks the start-snapshot capture so it overlaps the provider request
+    // (session/runner/step.ts `pendingStartSnapshot`); drive it now, not only when the step starts. An
+    // interruption before any provider output then still records the step when the capture finished
+    // (always, without snapshots): `step.started` + `step.failed` "Step interrupted".
+    let _snapshot_driver = tokio::spawn(start_snapshot.clone());
     let publisher = Publisher::new(
         input.bus.clone(),
         PubInput {
@@ -224,8 +229,13 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
         }
     }
 
+    // An interrupted stream is not a provider failure: upstream's stream exit is an interruption, not an
+    // `AIError`, so the aborted request (`Request aborted`) must not be retried or reported
+    // (session/runner/step.ts `llmFailure = streamFailure instanceof AIError ? ...`).
+    let provider_failure = if stream_interrupted { None } else { stream_failure.clone() };
+
     // ---- overflow recovery ----
-    let overflow_failure = overflow.is_some() || stream_failure.as_ref().is_some_and(AIError::is_context_overflow);
+    let overflow_failure = overflow.is_some() || provider_failure.as_ref().is_some_and(AIError::is_context_overflow);
     if !publisher.record().output_started && overflow_failure && (input.recover_overflow)().await {
         tracing::warn!(sessionID = %input.session_id, "provider rejected the request as too long; compacting");
         return Ok(Outcome::Compacted);
@@ -236,7 +246,7 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
     let recorded = publisher.record();
     let unknown_finish = stream_failure.is_none()
         && recorded.finish.as_ref().is_some_and(|f| f.finish == FinishReason::Unknown);
-    let llm_failure: Option<AIError> = stream_failure.clone().or_else(|| {
+    let llm_failure: Option<AIError> = provider_failure.clone().or_else(|| {
         unknown_finish.then(|| {
             AIError::new(
                 ErrorKind::InvalidProviderOutput { classification: Some("incomplete-stream".into()), route: None },

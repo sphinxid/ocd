@@ -245,8 +245,23 @@ fn check(schema: &Value, name: Option<&str>, v: &Value, path: &mut Vec<Seg>) -> 
         Some("null") => if v.is_null() { Ok(()) } else { Err(mismatch(path, schema, name)) },
         Some("array") => {
             let Some(items) = v.as_array() else { return Err(mismatch(path, schema, name)) };
+            // `prefixItems` are tuple elements (`Schema.NonEmptyArray` exports `[X, ...X[]]` with
+            // minItems): a required element that is absent is a `Missing key` at its index.
+            let prefix = schema.get("prefixItems").and_then(Value::as_array);
+            let min_items = schema.get("minItems").and_then(Value::as_u64).unwrap_or(0) as usize;
+            for (i, element) in prefix.into_iter().flatten().enumerate() {
+                path.push(Seg::Index(i));
+                let r = match items.get(i) {
+                    None if i < min_items => Err(issue(path, "Missing key".into())),
+                    None => Ok(()),
+                    Some(x) => check(element, None, x, path),
+                };
+                path.pop();
+                r?;
+            }
+            let skip = prefix.map_or(0, Vec::len);
             if let Some(item) = schema.get("items") {
-                for (i, x) in items.iter().enumerate() {
+                for (i, x) in items.iter().enumerate().skip(skip) {
                     path.push(Seg::Index(i));
                     let r = check(item, None, x, path);
                     path.pop();
@@ -254,6 +269,7 @@ fn check(schema: &Value, name: Option<&str>, v: &Value, path: &mut Vec<Seg>) -> 
                 }
             }
             if let Some(min) = schema.get("minItems").and_then(Value::as_u64)
+                && prefix.is_none()
                 && (items.len() as u64) < min
             {
                 return Err(issue(path, format!("Expected a value with a length of at least {min}")));
@@ -560,6 +576,10 @@ mod tests {
             "Expected Form.Field\n  at [\"fields\"][0]"
         );
         assert_eq!(msg("credential.create", json!({"x": 1})).unwrap(), "Missing key\n  at [\"integrationID\"]");
+        assert_eq!(
+            msg("session.form.create", json!({"title": "Empty", "fields": []})).unwrap(),
+            "Missing key\n  at [\"fields\"][0]"
+        );
     }
 
     #[test]

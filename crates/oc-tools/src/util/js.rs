@@ -101,49 +101,9 @@ pub fn json_number(value: &serde_json::Number) -> String {
     number(value.as_f64().unwrap_or(f64::NAN))
 }
 
-fn char_class(c: char) -> u8 {
-    if c.is_whitespace() {
-        0
-    } else if c.is_alphanumeric() {
-        if c.is_numeric() { 2 } else { 3 }
-    } else {
-        1
-    }
-}
-
-fn base_char(c: char) -> char {
-    use unicode_normalization::UnicodeNormalization;
-    let mut decomposed = std::iter::once(c).nfd();
-    let first = decomposed.next().unwrap_or(c);
-    first.to_lowercase().next().unwrap_or(first)
-}
-
-/// Approximation of ICU root-collation `localeCompare`: whitespace < punctuation
-/// < digits < letters, letters compared case- and accent-insensitively first,
-/// then accents, then lowercase before uppercase, then code points.
+/// ICU root-collation `localeCompare` approximation (see [`oc_schema::collate`]).
 pub fn locale_compare(a: &str, b: &str) -> Ordering {
-    let primary = |s: &str| -> Vec<(u8, char)> { s.chars().map(|c| (char_class(c), base_char(c))).collect() };
-    let pa = primary(a);
-    let pb = primary(b);
-    match pa.cmp(&pb) {
-        Ordering::Equal => {}
-        other => return other,
-    }
-    // Secondary: accents (compare decomposed lowercase forms).
-    let secondary = |s: &str| -> String {
-        use unicode_normalization::UnicodeNormalization;
-        s.to_lowercase().nfd().collect()
-    };
-    match secondary(a).cmp(&secondary(b)) {
-        Ordering::Equal => {}
-        other => return other,
-    }
-    // Tertiary: lowercase sorts before uppercase.
-    let tertiary = |s: &str| -> Vec<u8> { s.chars().map(|c| if c.is_uppercase() { 1 } else { 0 }).collect() };
-    match tertiary(a).cmp(&tertiary(b)) {
-        Ordering::Equal => a.cmp(b),
-        other => other,
-    }
+    oc_schema::collate::locale_compare(a, b)
 }
 
 /// `JSON.stringify(value, null, 2)`.

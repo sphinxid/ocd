@@ -14,6 +14,7 @@ Turn fields (all optional):
   status: int                answer with this HTTP status instead of a stream; `body` (JSON) and `headers` apply
   cut: true                  send the content chunks, then drop the connection (no finish_reason, no [DONE])
   delay: float               seconds to wait before answering
+  stall: float               seconds to pause after the first content chunk (the step is visibly mid-stream)
   hang: true                 never answer (until the client disconnects or the mock stops)
   match: str                 only consume this turn for requests whose JSON body contains the substring
 """
@@ -146,9 +147,11 @@ class Mock:
             call = {"index": i, "id": tool.get("id", f"call_{i + 1}"), "type": "function",
                     "function": {"name": tool["name"], "arguments": args}}
             out.append({"id": cid, "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [call]}}]})
-        for o in out:
+        for i, o in enumerate(out):
             h.wfile.write(_chunk(o))
             h.wfile.flush()
+            if i == 0 and turn.get("stall"):
+                time.sleep(turn["stall"])
         if turn.get("cut"):
             h.wfile.flush()
             try:
@@ -179,17 +182,3 @@ def legacy_script(path):
         {"tools": [{"name": "read", "args": {"path": path}, "id": "call_1"}]},
         {"text": "The file says hi.", "usage": {"prompt_tokens": 20, "completion_tokens": 4}},
     ]
-
-
-if __name__ == "__main__":
-    port = int(sys.argv[1])
-    if len(sys.argv) > 2 and sys.argv[2] == "--script":
-        script = json.load(open(sys.argv[3]))
-    else:
-        script = legacy_script(sys.argv[2]) * 1000
-    m = Mock(port, script)
-    try:
-        while True:
-            time.sleep(3600)
-    except KeyboardInterrupt:
-        m.close()

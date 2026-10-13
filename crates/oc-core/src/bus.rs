@@ -130,6 +130,9 @@ impl Bus {
                 // location middleware, server/src/handlers/session.ts), so `bus.publish` attaches
                 // no location (core/src/bus.ts `publish`).
                 SessionEvent::Deleted { .. } => None,
+                // Inbox cancellation and delivery changes come from routes without location middleware
+                // (`session.inbox.cancel`, `session.inbox.update`, `session.move`), so no location either.
+                SessionEvent::InboxCancelled { .. } | SessionEvent::InboxDeliveryChanged { .. } => None,
                 _ => after.clone().or_else(|| before.clone()),
             };
             let env = Arc::new(Envelope {

@@ -154,7 +154,10 @@ def session_interrupt(ctx):
     sid = ctx.create_session()
     mark = len(ctx.server.events)
     ctx.prompt(sid, "hang please", wait=False)
-    ctx.wait_for("session.step.started", start=mark, timeout=20)
+    # The mock never answers this request, so no step event appears; wait for the request itself.
+    deadline = time.time() + 20
+    while time.time() < deadline and not ctx.mock.main_requests():
+        time.sleep(0.1)
     time.sleep(0.5)
     ctx.call("active.busy", "GET", "/api/session/active")
     ctx.call("interrupt", "POST", f"/api/session/{sid}/interrupt")

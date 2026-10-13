@@ -149,12 +149,21 @@ fn service_lifecycle_debug_config_and_models() {
     assert_eq!(doc["info"]["providers"]["mock"]["settings"]["apiKey"], "***");
 
     let models = env.run(&["models"]);
-    assert_eq!(common::text(&models.stdout), "mock/m1\n", "{}", common::text(&models.stderr));
+    assert_eq!(models.status.code(), Some(0), "{}", common::text(&models.stderr));
+    assert_models(&common::text(&models.stdout));
 
     let stop = env.run(&["service", "stop"]);
     assert_eq!(stop.status.code(), Some(0));
     assert_eq!(common::text(&env.run(&["service", "status"]).stdout), "stopped\n");
     assert!(!env.path("state/opencode/service.json").exists());
+}
+
+/// `ocd models` lists the configured provider first, then OpenCode Zen's free models (enabled with the public key,
+/// like upstream).
+fn assert_models(stdout: &str) {
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.first(), Some(&"mock/m1"), "{stdout}");
+    assert!(lines[1..].iter().all(|l| l.starts_with("opencode/")), "{stdout}");
 }
 
 #[test]
@@ -163,7 +172,7 @@ fn models_with_standalone_server() {
     write_config(&env, 9);
     let out = env.run(&["models", "--standalone"]);
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
-    assert_eq!(common::text(&out.stdout), "mock/m1\n");
+    assert_models(&common::text(&out.stdout));
 }
 
 #[test]

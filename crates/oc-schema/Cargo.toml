@@ -13,3 +13,4 @@ rand.workspace = true
 indexmap.workspace = true
 anyhow.workspace = true
 parking_lot.workspace = true
+unicode-normalization = "0.1"

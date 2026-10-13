@@ -567,9 +567,13 @@ async fn forms_flow() {
     let r = h.post(&base, json!({"id": "frm_1", "title": "Again", "fields": [field]})).await;
     assert_eq!(r.status, 409);
     assert_eq!(r.json(), json!({"_tag":"ConflictError","message":"Form already exists: frm_1","resource":"frm_1"}));
+    // Upstream rejects an empty field list during payload decoding (`Form.Fields` is a non-empty array).
     let r = h.post(&base, json!({"title": "Empty", "fields": []})).await;
     assert_eq!(r.status, 400);
-    assert_eq!(r.json()["field"], "fields");
+    assert_eq!(
+        r.json(),
+        json!({"_tag": "InvalidRequestError", "kind": "Payload", "message": "Missing key\n  at [\"fields\"][0]"})
+    );
 
     assert_eq!(h.get(&base).await.json()["data"].as_array().unwrap().len(), 1);
     assert_eq!(h.get("/api/form").await.json()["data"].as_array().unwrap().len(), 1);

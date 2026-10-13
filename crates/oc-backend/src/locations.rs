@@ -162,6 +162,15 @@ impl Locations {
         // supervisor then announces its inventory (core/src/plugin.ts `activate`, core/src/state.ts
         // `batch`). With the default plugin set those are exactly these nine events.
         for kind in BOOT_NOTIFICATIONS {
+            // The git VCS provider registers in the same batch; the Vcs State notify (after models, before
+            // agents) refreshes the branch and announces it when it changed from unknown
+            // (core/src/vcs.ts `refresh`).
+            if kind == "agent.updated"
+                && let Some(vcs) = loc.git_vcs()
+                && let Some(branch) = vcs.info().await.branch.current
+            {
+                self.app.bus.publish("vcs.branch.updated", json!({ "branch": branch }), Some(at.clone()));
+            }
             self.app.bus.publish(kind, json!({}), Some(at.clone()));
         }
         Ok(loc)

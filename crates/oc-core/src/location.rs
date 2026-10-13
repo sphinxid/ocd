@@ -60,8 +60,24 @@ impl Location {
         docs.extend(oc_config::sources::agent_documents(&self.entries));
         let folded = fold::agents(&docs, home, existing);
         let mut out = Agents { items: IndexMap::new(), default: folded.default_agent.clone() };
-        for (id, state) in folded.agents {
-            let base = builtin.items.get(&id).cloned().unwrap_or_else(|| Agent::default_for(&id));
+        for (id, mut state) in folded.agents {
+            let known = builtin.items.get(&id).cloned();
+            let base = known.clone().unwrap_or_else(|| Agent::default_for(&id));
+            // A configured agent that did not exist yet starts from `Info.default(id)` (default
+            // permissions), and the config plugin appends the top-level rules after them
+            // (core/src/agent.ts editor.update, core/src/config/plugin/agent.ts).
+            if known.is_none() {
+                let mut permissions = base.permissions.clone();
+                permissions.append(&mut state.permissions);
+                state.permissions = permissions;
+            }
+            // The built-in browser plugin, registered after the config agent plugin, appends a browser
+            // deny to every agent until a desktop attachment allows it (plugin-browser/src/connection.ts).
+            state.permissions.push(oc_schema::types::PermissionRule {
+                action: "browser".into(),
+                resource: "*".into(),
+                effect: oc_schema::types::Effect::Deny,
+            });
             out.items.insert(
                 id.clone(),
                 Agent {

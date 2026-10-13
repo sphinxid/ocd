@@ -30,6 +30,8 @@ def readonly_server(ctx):
     boot(ctx)
     ctx.create_session(title="Boot")
     d = f"directory={ctx.project}"
+    for path in ("/api/agent", "/api/command", "/api/skill", "/api/model", "/api/provider", "/api/integration"):
+        ctx.settle(f"{path}?{d}")
     get_all(ctx, [
         ("info", "/api/info"),
         ("location", f"/api/location?{d}"),
@@ -165,6 +167,8 @@ def readonly_debug(ctx):
     d = f"directory={ctx.project}"
     ctx.call("debug.location.list", "GET", "/api/debug/location")
     ctx.call("location.reload", "POST", f"/api/location/reload?{d}", {})
+    import time
+    time.sleep(1.5)  # upstream boots the replacement's plugins asynchronously; let that finish before evicting
     ctx.call("debug.location.evict", "DELETE", f"/api/debug/location?{d}")
     ctx.call("debug.location.list.after", "GET", "/api/debug/location")
     import time

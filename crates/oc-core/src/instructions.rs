@@ -43,11 +43,9 @@ impl Source {
     }
 }
 
-/// JavaScript `a.localeCompare(b)` approximation (ICU root collation: case-insensitive first, then lowercase first).
+/// JavaScript `a.localeCompare(b)` (see [`oc_schema::collate`]).
 pub fn locale_compare(a: &str, b: &str) -> Ordering {
-    let la = a.to_lowercase();
-    let lb = b.to_lowercase();
-    la.cmp(&lb).then_with(|| b.cmp(a))
+    oc_schema::collate::locale_compare(a, b)
 }
 
 fn utf16_cmp(a: &str, b: &str) -> Ordering {

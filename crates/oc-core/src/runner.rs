@@ -475,8 +475,20 @@ impl Engine {
             channel: oc_util::version::CHANNEL.into(),
             ..Default::default()
         };
+        // The tools advertised in this request: a call to a known tool that was not offered (e.g. `patch`
+        // for models that edit with `edit`/`write`) fails with "Tool is not available for this request"
+        // (core/src/tool.ts Snapshot.execute `input.definitions`).
+        let ctx = self.definition_context(loaded);
+        let advertised: std::collections::HashSet<String> = loaded
+            .sel
+            .snapshot
+            .definitions(&ctx, crate::codemode::execute_definition(&loaded.sel.snapshot))
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
         Arc::new(LocalTools {
             engine: self.clone(),
+            advertised,
             snapshot: loaded.sel.snapshot.clone(),
             config: Arc::new(config),
             session: loaded.sel.session.clone(),
@@ -795,6 +807,7 @@ fn settle_stale(bus: &Bus, session: &str) -> anyhow::Result<()> {
 
 struct LocalTools {
     engine: Arc<Engine>,
+    advertised: std::collections::HashSet<String>,
     snapshot: Snapshot,
     config: Arc<ToolConfig>,
     session: SessionInfo,
@@ -838,10 +851,10 @@ impl ToolRunner for LocalTools {
                 let tool = crate::codemode::ExecuteTool(self.snapshot.clone());
                 oc_tools::registry::execute_tool(&tool, &name, input, ctx, hooks.as_ref()).await
             } else {
-                self.snapshot.execute(&name, input, ctx, None, hooks.as_ref()).await
+                self.snapshot.execute(&name, input, ctx, Some(&self.advertised), hooks.as_ref()).await
             }
         } else {
-            self.snapshot.execute(&call.name, call.input, ctx, None, hooks.as_ref()).await
+            self.snapshot.execute(&call.name, call.input, ctx, Some(&self.advertised), hooks.as_ref()).await
         };
         match result {
             Ok(result) => {

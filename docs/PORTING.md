@@ -4,6 +4,13 @@ Upstream reference: anomalyco/opencode branch `v2`, commit `4617210822bdbb31e574
 Read-only checkout: `$OCD_SCRATCH/src/opencode`
 Specs: `docs/spec/01..08-*.md`. Verbatim assets: `assets/` (prompts, themes, models.dev snapshot, openapi.json).
 
+## Git
+One commit per finished batch on `main`, made by the main agent only (subagents never commit), authored as the
+user with no attribution lines. Stage only the batch's files (split mixed files with a filtered patch +
+`git apply --cached`), verify the staged tree in isolation (`git checkout-index -a --prefix=<tmp>/` + `cargo test`
+with a separate `CARGO_TARGET_DIR`), and pass the message with `git commit -F <file>` (the local `git` wrapper does
+not forward stdin, so `-F -` silently does nothing). `.gitignore` blocks databases, `auth.json`, logs, `.opencode/`.
+
 ## SAFETY: never run ocd against the user's real data
 The user has opencode **1.18.31 (v1)** installed with real data in `~/.local/share/opencode/opencode.db` (505 sessions).
 ocd uses the same paths by design. **Every** manual or scripted run of an ocd binary (or upstream v2 build) MUST set
