@@ -28,9 +28,11 @@ Measured on Linux x86_64, release builds of both, same mock model, isolated fold
 
 ## Status: what works and what doesn't
 
-How the comparison is done: both binaries run the same 55 scenarios side by side and their outputs are diffed
+How the comparison is done: both binaries run the same 61 scenarios side by side and their outputs are diffed
 (`scripts/parity.py`, see [docs/PARITY.md](docs/PARITY.md)). These cover the agent loop, sessions, permissions,
-forms, read-only endpoints, 74 error cases, the CLI and plugins. Every scenario is identical except for timing
+forms, read-only endpoints, 74 error cases, the CLI, plugins, GitHub Copilot and the OpenAI WebSocket transport.
+Every request ocd sends to the model (system prompt, tool definitions, headers, prompt-cache markers) is compared
+too. Every scenario is identical except for timing
 races that also vary between two runs of upstream, and the intended renames. Each crate also has its own test
 suite, many replaying recorded upstream data.
 
