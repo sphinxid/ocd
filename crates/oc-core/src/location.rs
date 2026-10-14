@@ -18,6 +18,9 @@ pub struct Location {
     pub project: Resolved,
     pub entries: Vec<Entry>,
     pub sources: oc_config::discovery::Sources,
+    /// Set once the location is shut down (`LocationLifecycle.isClosed`): steps that borrowed it hand off to a
+    /// fresh load at their next boundary.
+    closed: std::sync::atomic::AtomicBool,
 }
 
 fn mode_of(m: Option<&oc_config::schema::AgentMode>) -> Option<Mode> {
@@ -51,7 +54,16 @@ impl Location {
         let project = project::resolve_and_persist(bus, &directory).await?;
         let loader = oc_config::load::Loader::new(global, directory.clone(), oc_config::discovery::Options::from_env());
         let (sources, entries) = loader.entries().await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(Location { key, directory, project, entries, sources })
+        Ok(Location { key, directory, project, entries, sources, closed: Default::default() })
+    }
+
+    /// `LocationLifecycle.isClosed()`
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(crate) fn mark_closed(&self) {
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Built-in agents with configuration applied (AgentPlugin → PlanPlugin → ConfigAgent).

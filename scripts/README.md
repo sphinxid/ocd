@@ -9,6 +9,9 @@
 - `build-web-ui.sh <upstream-checkout> [output]`: builds upstream's web app and packs it into the archive ocd embeds
   (`crates/ocd/web-ui/app-archive.bin`, ~24 MB, not committed; rebuild ocd afterwards). See `crates/ocd/README.md`
   ("Web UI"). `build-plugin-host.sh` rebuilds the committed plugin sidecar bundle.
+- `why-stopped.sh [SESSION_ID] [DB]`: read-only look at why a session's run ended. Without an ID it lists recent
+  sessions with their last outcome; with one it shows the last steps (finish reason, tool errors, step errors),
+  compactions and the `RUN ENDED` row, newest first. Needs `sqlite3`.
 - `vt_render.py <capture> <cols> <rows>`: replays a `script -qfec ...` capture and prints the final screen.
 - `tui_capture.py --bin target/debug/ocd --work DIR --script turns.json --ready "Mock One" --key 1.5:hi --key 2:<CR>
   --snap 5 --snap 12 [--mini] [--config '{"animations": false}']`: runs the TUI isolated (`DIR/project`, `DIR/state`,

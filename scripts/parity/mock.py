@@ -18,11 +18,17 @@ Turn fields (all optional):
   pace: float                seconds to wait between content chunks (chat completions; e.g. 0.005 = 200/s)
   hang: true                 never answer (until the client disconnects or the mock stops)
   match: str                 only consume this turn for requests whose JSON body contains the substring
+  coalesce: true             chat completions: send the whole answer (content chunks, finish chunk, [DONE]) in one write,
+                             so the client reads its frames together
+  raw: [dict | str]          chat completions / Anthropic Messages: send exactly these SSE payloads (a dict as JSON; on
+                             `.../messages` a dict with a `type` also gets its `event:` line), then end the response
+                             (no finish chunk, no [DONE] unless listed); `stall` applies after the first
 
 The wire protocol follows the request path: `.../responses` answers Open Responses / OpenAI Responses SSE events
 (`response.created`, output items, `response.completed` with the output and usage), `.../messages` Anthropic Messages
 SSE events, a `"stream": false` body a chat-completions JSON answer, anything else chat-completions chunks (`reasoning`,
-`cut` and `stall` apply to chat completions and Responses). GET requests answer the JSON registered with
+`cut` and `stall` apply to chat completions, Responses and Anthropic Messages; `finish` sets the Anthropic
+`stop_reason`). GET requests answer the JSON registered with
 `Mock.routes[path] = (status, body)`, else 404. A GET with `Upgrade: websocket` opens a WebSocket on which every
 `response.create` text frame consumes a turn the same way and is answered with the same Responses events as text
 frames. Response IDs are `resp_<n>` per mock instance (`resp_t<n>` for title requests, so a title racing the first
@@ -181,6 +187,9 @@ class Mock:
         h.send_response(200)
         h.send_header("content-type", "text/event-stream")
         h.end_headers()
+        if turn.get("raw") is not None:
+            self._send_raw(h, turn, messages=False)
+            return
         cid = "chatcmpl-mock"
         out = []
         reasoning = turn.get("reasoning")
@@ -195,6 +204,14 @@ class Mock:
             call = {"index": i, "id": tool.get("id", f"call_{i + 1}"), "type": "function",
                     "function": {"name": tool["name"], "arguments": args}}
             out.append({"id": cid, "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [call]}}]})
+        if turn.get("coalesce") and not turn.get("cut"):
+            finish = turn.get("finish") or ("tool_calls" if turn.get("tools") else "stop")
+            usage = dict(turn.get("usage") or {"prompt_tokens": 10, "completion_tokens": 5})
+            usage.setdefault("total_tokens", usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
+            out.append({"id": cid, "choices": [{"index": 0, "delta": {}, "finish_reason": finish}], "usage": usage})
+            h.wfile.write(b"".join(_chunk(o) for o in out) + b"data: [DONE]\n\n")
+            h.wfile.flush()
+            return
         for i, o in enumerate(out):
             if i > 0 and turn.get("pace"):
                 time.sleep(turn["pace"])
@@ -219,6 +236,24 @@ class Mock:
         if kind == "title":
             self.title_done_at = time.time()
             self.title_done.set()
+
+    def _send_raw(self, h, turn, messages):
+        for i, item in enumerate(turn["raw"]):
+            if isinstance(item, dict):
+                line = "data: " + json.dumps(item) + "\n\n"
+                if messages and item.get("type"):
+                    line = "event: " + item["type"] + "\n" + line
+            else:
+                line = "data: " + item + "\n\n"
+            h.wfile.write(line.encode())
+            h.wfile.flush()
+            if i == 0 and turn.get("stall"):
+                time.sleep(turn["stall"])
+        h.wfile.flush()
+        try:
+            h.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
     def _prelude(self, h, kind, turn):
         """Shared start of an answer: title hold, delay, hang and HTTP errors. True when the answer is complete."""
@@ -367,12 +402,19 @@ class Mock:
         """Anthropic Messages API stream: text block, tool_use blocks, message_delta with the stop reason."""
         if self._prelude(h, kind, turn):
             return
+        if turn.get("raw") is not None:
+            self._send_raw(h, turn, messages=True)
+            return
         model = body.get("model", "mock") if isinstance(body, dict) else "mock"
         usage = turn.get("usage") or {}
+        sent = [0]
 
         def send(obj):
             h.wfile.write(("event: " + obj["type"] + "\ndata: " + json.dumps(obj) + "\n\n").encode())
             h.wfile.flush()
+            sent[0] += 1
+            if sent[0] == 2 and turn.get("stall"):
+                time.sleep(turn["stall"])
 
         send({"type": "message_start", "message": {
             "id": "msg_mock", "type": "message", "role": "assistant", "model": model, "content": [],
@@ -396,7 +438,13 @@ class Mock:
                   "delta": {"type": "input_json_delta", "partial_json": args}})
             send({"type": "content_block_stop", "index": index})
             index += 1
-        stop = "tool_use" if turn.get("tools") else "end_turn"
+        if turn.get("cut"):
+            try:
+                h.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            return
+        stop = turn.get("finish") or ("tool_use" if turn.get("tools") else "end_turn")
         send({"type": "message_delta", "delta": {"stop_reason": stop, "stop_sequence": None},
               "usage": {"output_tokens": usage.get("completion_tokens", 5)}})
         send({"type": "message_stop"})

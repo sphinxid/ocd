@@ -55,3 +55,31 @@ async fn interrupt_settles_with_reason() {
     assert_eq!(d.log.lock().last().unwrap(), "settled s false Some(User)");
     assert!(matches!(c.run("s").await, Exit::Success));
 }
+
+/// A drain that panics settles as a failed execution (upstream: a dying drain fiber) instead of leaving the
+/// session active forever without a terminal event.
+#[tokio::test]
+async fn panicking_drain_settles_as_failure() {
+    struct Panics(Mutex<Vec<String>>);
+    #[async_trait]
+    impl Driver for Panics {
+        async fn started(&self, _key: &str) {}
+        async fn drain(&self, _key: &str, _force: bool, _scope: Scope, _cancel: CancellationToken) -> Result<(), DrainError> {
+            tokio::task::yield_now().await;
+            panic!("index out of bounds");
+        }
+        async fn settled(&self, key: &str, exit: &Exit, _reason: Option<Reason>) {
+            let what = match exit {
+                Exit::Failure(e) => format!("failed: {e}"),
+                other => format!("{other:?}"),
+            };
+            self.0.lock().push(format!("settled {key} {what}"));
+        }
+    }
+    let d = Arc::new(Panics(Mutex::new(vec![])));
+    let c = Coordinator::new(d.clone());
+    let exit = tokio::time::timeout(Duration::from_secs(5), c.run("s")).await.expect("execution settles");
+    assert!(matches!(exit, Exit::Failure(_)));
+    assert!(!c.is_active("s"));
+    assert_eq!(d.0.lock().clone(), vec!["settled s failed: index out of bounds"]);
+}

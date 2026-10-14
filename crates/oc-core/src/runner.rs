@@ -186,6 +186,11 @@ impl Engine {
     /// MCP elicitations of its servers), shut its MCP servers down and drop the cached location.
     pub async fn close_location(&self, directory: &str) {
         let location = self.locations.lock().remove(directory);
+        // Mark it closed before rejecting its interactions, so a step whose permission ask or question is
+        // cancelled here sees the shutdown (and continues on a fresh load) rather than a user decline.
+        if let Some(l) = &location {
+            l.mark_closed();
+        }
         if let Some(handle) = self.watches.lock().remove(directory) {
             handle.abort();
         }
@@ -817,7 +822,10 @@ impl Engine {
                 recover_continuation,
                 retry: &mut retry,
                 cancel: cancel.clone(),
-                location_closed: Arc::new(|| false),
+                location_closed: {
+                    let location = loaded.sel.location.clone();
+                    Arc::new(move || location.is_closed())
+                },
                 recover_overflow: {
                     let this = self.clone();
                     let loaded_ref = &loaded;
@@ -838,10 +846,13 @@ impl Engine {
             match outcome {
                 Ok(Outcome::Completed { needs_continuation }) => return Ok(needs_continuation),
                 Ok(Outcome::Retry { error, decision }) => {
-                    crate::retry::wait(&self.app.bus, &session_id, &assistant, decision, error).await?;
+                    crate::retry::wait(&self.app.bus, &session_id, &assistant, decision, error, &cancel).await?;
                 }
                 Ok(Outcome::Continue { error, decision }) => {
-                    crate::retry::wait(&self.app.bus, &session_id, &assistant, decision, error).await?;
+                    crate::retry::wait(&self.app.bus, &session_id, &assistant, decision, error, &cancel).await?;
+                    if cancel.is_cancelled() {
+                        return Err(DrainError::Interrupted);
+                    }
                     self.app.bus.commit_one(SessionEvent::Synthetic {
                         session_id: session_id.clone(),
                         text: CONTINUE_AFTER_INCOMPLETE_STREAM.into(),
@@ -1226,6 +1237,8 @@ impl Driver for ExecutionDriver {
                     Reason::Shutdown => InterruptReason::Shutdown,
                     Reason::Inactivity => InterruptReason::Inactivity,
                 };
+                // Not an error, but the one trace of who stopped a run: the reason is not stored with the session.
+                tracing::info!(sessionID = key, reason = ?reason, "Session execution interrupted");
                 if reason != InterruptReason::Shutdown {
                     self.engine.app.jobs.cancel_session(key);
                 }

@@ -298,10 +298,18 @@ impl PluginHost {
             return Ok(event);
         }
         let Some(sidecar) = self.inner.current() else { return Ok(event) };
-        match sidecar.request("hook.trigger", json!({ "location": location.key(), "key": key, "event": event })).await {
+        let mut params = json!({ "location": location.key(), "key": key, "event": event });
+        match sidecar.request_with("hook.trigger", &params).await {
             Ok(result) => Ok(result.get("event").cloned().unwrap_or(Value::Null)),
             Err(CallError::Remote(error)) if error.kind.as_deref() == Some("tool.error") => {
                 Err(HookError::Tool { message: error.message, metadata: error.metadata })
+            }
+            // The sidecar died while the hook ran: like a sidecar that is not running (above), no plugin hook
+            // applies. Failing here would end the session's run over a crash that upstream (plugins in-process)
+            // cannot have; the restarted sidecar serves the next call.
+            Err(CallError::Closed(reason)) => {
+                tracing::warn!(hook = key, reason = %reason, "plugin host unavailable; hook skipped");
+                Ok(params["event"].take())
             }
             Err(error) => Err(HookError::Failed(error.to_string())),
         }

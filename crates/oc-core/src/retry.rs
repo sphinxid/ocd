@@ -66,8 +66,16 @@ impl Policy {
     }
 }
 
-/// Publish `session.retry.scheduled` and sleep until `at`.
-pub async fn wait(bus: &Bus, session: &str, assistant: &str, d: Decision, error: SessionError) -> anyhow::Result<()> {
+/// Publish `session.retry.scheduled` and sleep until `at`, or until the execution is interrupted (the
+/// caller checks `cancel` afterwards; upstream interrupts the sleeping fiber).
+pub async fn wait(
+    bus: &Bus,
+    session: &str,
+    assistant: &str,
+    d: Decision,
+    error: SessionError,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> anyhow::Result<()> {
     let scheduled = oc_schema::id::now_ms();
     bus.commit_one(SessionEvent::RetryScheduled {
         session_id: session.into(),
@@ -77,7 +85,10 @@ pub async fn wait(bus: &Bus, session: &str, assistant: &str, d: Decision, error:
         error,
     })?;
     let remaining = (scheduled + d.delay).saturating_sub(oc_schema::id::now_ms());
-    tokio::time::sleep(Duration::from_millis(remaining)).await;
+    tokio::select! {
+        _ = tokio::time::sleep(Duration::from_millis(remaining)) => {}
+        _ = cancel.cancelled() => {}
+    }
     Ok(())
 }
 

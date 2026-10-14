@@ -158,3 +158,25 @@ async fn stream_errors() {
     let out = decode(&req, b"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"late\"}}]}\n\n");
     assert_eq!(out.last().unwrap().as_ref().unwrap_err().message, "OpenAI Chat received content after the finish reason");
 }
+
+/// One read can carry several frames: the events of the frames before a failing one are still delivered
+/// (upstream's stream emits them before the failure), and the error body is the failing frame as sent.
+#[tokio::test]
+async fn events_before_a_failing_frame_in_the_same_read_survive() {
+    let req = LLMRequest::new(openai("gpt-x"));
+    let finish = "{\"id\": \"c\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"sensitive\"}]}";
+    let body = format!("data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"partial\"}}}}]}}\n\ndata: {finish}\n\n");
+    let out = decode(&req, body.as_bytes());
+    let ok: Vec<LLMEvent> = out.iter().filter_map(|r| r.as_ref().ok().cloned()).collect();
+    assert_eq!(types(&ok), vec!["step-start", "text-start", "text-delta"]);
+    let err = out.last().unwrap().as_ref().unwrap_err();
+    assert_eq!(err.message, "Provider finish_reason: sensitive");
+    assert!(err.is_retryable());
+    assert_eq!(err.body.as_deref(), Some(finish));
+
+    // The same through the live-stream entry point, one read holding both frames.
+    let mut driver = StreamDriver::new(&req);
+    let (events, failure) = driver.push_events(body.as_bytes());
+    assert_eq!(types(&events), vec!["step-start", "text-start", "text-delta"]);
+    assert_eq!(failure.unwrap().message, "Provider finish_reason: sensitive");
+}

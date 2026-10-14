@@ -278,7 +278,7 @@ pub async fn run_mini(mut opts: TuiOptions, mini: MiniOptions) -> anyhow::Result
         let w = crossterm::terminal::size().map(|s| s.0).unwrap_or(80);
         hooks.pending.extend(lines_to_ansi(&[app.mini_header(w)], w));
     }
-    let mut events = EventStream::new();
+    let mut events = crate::app::escape::JoinEscapes::new(EventStream::new());
     let result = crate::app::event_loop::run(&mut app, &mut events, &mut rx, &mut hooks).await;
     let MiniHooks { mut st, mut footer, .. } = hooks;
     // Flush whatever finished, drop the footer, print the exit banner.

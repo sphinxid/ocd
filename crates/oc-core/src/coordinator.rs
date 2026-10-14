@@ -2,9 +2,11 @@
 //! Effect fiber interruption is modelled with a `CancellationToken` passed to `drain`.
 
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use parking_lot::Mutex;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -105,7 +107,17 @@ impl Coordinator {
                 let result = if cancel.is_cancelled() {
                     Err(DrainError::Interrupted)
                 } else {
-                    driver.drain(&key, force, scope, cancel.clone()).await
+                    // A panic is a defect of this execution (upstream: a drain fiber that dies settles as a failed
+                    // execution); without this the task would unwind past `settled`, leaving the session active
+                    // forever with no terminal event.
+                    match AssertUnwindSafe(driver.drain(&key, force, scope, cancel.clone())).catch_unwind().await {
+                        Ok(result) => result,
+                        Err(payload) => {
+                            let message = crate::step::panic_message(payload);
+                            tracing::error!(sessionID = %key, panic = %message, "session drain panicked");
+                            Err(DrainError::Failed(anyhow::anyhow!(message)))
+                        }
+                    }
                 };
                 match result {
                     Ok(()) => {

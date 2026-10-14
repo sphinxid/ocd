@@ -110,6 +110,17 @@ fn overflow_event(e: &LLMEvent) -> bool {
     matches!(e, LLMEvent::ProviderError { classification: Some(c), .. } if c == "context-overflow")
 }
 
+/// The message of a panic payload (`panic!("...")` carries a `&str` or a `String`).
+pub fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    match payload.downcast::<String>() {
+        Ok(s) => *s,
+        Err(payload) => match payload.downcast::<&'static str>() {
+            Ok(s) => s.to_string(),
+            Err(_) => "panic".to_string(),
+        },
+    }
+}
+
 struct Run {
     handle: tokio::task::JoinHandle<ToolRun>,
     id: String,
@@ -228,7 +239,13 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
     let mut tools_interrupted = false;
     let mut tool_defect: Option<String> = None;
     for r in runs.drain(..) {
-        let result = r.handle.await.unwrap_or(ToolRun::Interrupted);
+        // A tool that panics is a defect of that call (upstream: a tool fiber that dies), not an interruption of
+        // the step: the call fails with the panic message and the run continues.
+        let result = match r.handle.await {
+            Ok(run) => run,
+            Err(e) if e.is_panic() => ToolRun::Defect(panic_message(e.into_panic())),
+            Err(_) => ToolRun::Interrupted,
+        };
         match result {
             ToolRun::Ok { .. } | ToolRun::Failed { .. } => {}
             ToolRun::Declined { question } => declines.push((r.id, question)),

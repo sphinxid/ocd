@@ -200,6 +200,30 @@ async fn stream_error_event_is_classified() {
 }
 
 #[tokio::test]
+async fn text_before_an_error_event_in_the_same_read_survives() {
+    let req = LLMRequest::new(model("claude-sonnet-4-5"));
+    let error = "{\"type\": \"error\", \"error\": {\"type\": \"overloaded_error\", \"message\": \"Overloaded\"}}";
+    let sse = format!(
+        "event: message_start\ndata: {{\"type\":\"message_start\",\"message\":{{\"id\":\"m\",\"usage\":{{\"input_tokens\":1,\"output_tokens\":1}}}}}}\n\n\
+         event: content_block_start\ndata: {{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{{\"type\":\"text\",\"text\":\"\"}}}}\n\n\
+         event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\n\
+         event: error\ndata: {error}\n\n"
+    );
+    let out = oc_ai::testing::decode(&req, sse.as_bytes());
+    let texts: Vec<&str> = out
+        .iter()
+        .filter_map(|r| match r {
+            Ok(LLMEvent::TextDelta { text, .. }) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts, vec!["partial"]);
+    let err = out.last().unwrap().as_ref().unwrap_err();
+    assert_eq!(err.message, "overloaded_error: Overloaded");
+    assert_eq!(err.body.as_deref(), Some(error));
+}
+
+#[tokio::test]
 async fn incomplete_stream_is_error() {
     let req = LLMRequest::new(model("claude-sonnet-4-5"));
     let sse = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n";

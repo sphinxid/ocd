@@ -513,6 +513,19 @@ async fn restarts_after_a_crash() {
     s.host.shutdown().await;
 }
 
+/// The sidecar dying while a hook runs skips the hook (like a sidecar that is not running) instead of failing
+/// the caller, e.g. a session step's `session.context` hook.
+#[tokio::test]
+async fn hook_is_skipped_when_the_sidecar_dies_during_the_call() {
+    require_bun!();
+    let s = setup();
+    s.host.load(request(&s, vec![add(fixture("promise-plugin"), json!({}))])).await;
+    let event = json!({ "tool": "crash_host", "sessionID": "ses_test", "agent": "build", "messageID": "msg_test", "id": "c", "input": { "text": "x" } });
+    let out = s.host.trigger_hook(&s.location, "tool.execute.before", event.clone()).await;
+    assert_eq!(out.unwrap(), event);
+    s.host.shutdown().await;
+}
+
 /// Installs a real published v2 plugin from npm with `bun add` (upstream cache layout) and runs it.
 /// Needs network: `cargo test -p oc-plugin --test sidecar -- --ignored`.
 #[tokio::test]

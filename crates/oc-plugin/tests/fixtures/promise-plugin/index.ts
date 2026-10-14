@@ -36,6 +36,8 @@ export default Plugin.define({
     await ctx.tool.hook("execute.before", (event) => {
       if (event.tool === "echo") event.input = { text: `[${(event.input as { text: string }).text}]` }
       if (event.tool === "legacy_echo") event.tool = "echo"
+      // Simulates the plugin host dying while a hook runs.
+      if (event.tool === "crash_host") process.exit(1)
     })
     return async () => {
       await ctx.storage.set("cleanup", true)

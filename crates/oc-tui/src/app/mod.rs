@@ -4,6 +4,7 @@ pub mod busy;
 pub mod commands;
 pub mod composer;
 pub mod diffview;
+pub mod escape;
 pub mod event_loop;
 pub mod stats;
 pub mod input;

@@ -78,7 +78,14 @@ impl StreamDriver {
                 break;
             }
             let step = self.parser.step(&frame).map_err(|mut e| {
-                if e.body.is_none() {
+                // Keep a body the parser assembled; replace a missing one, or one that is just the event
+                // re-serialized, with the frame as it came over the wire (`route/client.ts` `frameError`).
+                let reserialized = match (&frame, &e.body) {
+                    (Frame::Text(text), Some(body)) => serde_json::from_str::<serde_json::Value>(text)
+                        .is_ok_and(|event| crate::json::encode(&event) == *body),
+                    _ => false,
+                };
+                if e.body.is_none() || reserialized {
                     e.body = Some(frame.raw());
                 }
                 e.with_http(self.http.clone())
@@ -101,51 +108,81 @@ impl StreamDriver {
         Ok(out)
     }
 
-    /// Feed raw response bytes.
+    /// Feed raw response bytes. On a failure the events decoded before it are lost; streaming callers use
+    /// [`StreamDriver::push_events`].
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<LLMEvent>, AIError> {
+        match self.push_events(bytes) {
+            (events, None) => Ok(events),
+            (_, Some(e)) => Err(e),
+        }
+    }
+
+    /// Feed raw response bytes: the events of every frame decoded before a failure, then the failure. One read
+    /// can carry several frames, and upstream's stream emits each frame's events before a later frame fails
+    /// (e.g. text followed by an unknown `finish_reason` or an `error` event), so they must not be dropped.
+    pub fn push_events(&mut self, bytes: &[u8]) -> (Vec<LLMEvent>, Option<AIError>) {
         let mut out = vec![];
         if self.stopped {
-            return Ok(out);
+            return (out, None);
         }
-        let frames = self.framer.push(bytes).map_err(|e| e.with_http(self.http.clone()))?;
-        self.handle_frames(frames, &mut out)?;
-        Ok(out)
+        let frames = match self.framer.push(bytes) {
+            Ok(frames) => frames,
+            Err(e) => return (out, Some(e.with_http(self.http.clone()))),
+        };
+        let failure = self.handle_frames(frames, &mut out).err();
+        (out, failure)
     }
 
     /// End of byte stream: flush framing, `onHalt`, then enforce the terminal rule.
     pub fn finish(&mut self) -> Result<Vec<LLMEvent>, AIError> {
+        match self.finish_events() {
+            (events, None) => Ok(events),
+            (_, Some(e)) => Err(e),
+        }
+    }
+
+    /// [`StreamDriver::finish`] keeping the events decoded before a failure (see [`StreamDriver::push_events`]).
+    pub fn finish_events(&mut self) -> (Vec<LLMEvent>, Option<AIError>) {
         let mut out = vec![];
         if self.halted {
-            return Ok(out);
+            return (out, None);
         }
         self.halted = true;
         if !self.stopped {
-            let frames = self.framer.finish().map_err(|e| e.with_http(self.http.clone()))?;
-            self.handle_frames(frames, &mut out)?;
-        }
-        let halt = self.parser.on_halt().map_err(|e| e.with_http(self.http.clone()))?;
-        self.check(halt, &mut out)?;
-        if !self.terminal_emitted {
-            return Err(AIError::incomplete_stream(&self.label, "The provider response ended unexpectedly.").with_http(self.http.clone()));
-        }
-        Ok(out)
-    }
-
-    /// Decode a complete body (tests, recorded fixtures). Stops at the first error.
-    pub fn decode_all(request: &LLMRequest, body: &[u8]) -> Vec<Result<LLMEvent, AIError>> {
-        let mut driver = StreamDriver::new(request);
-        let mut out: Vec<Result<LLMEvent, AIError>> = vec![];
-        match driver.push(body) {
-            Ok(events) => out.extend(events.into_iter().map(Ok)),
-            Err(e) => {
-                out.push(Err(e));
-                return out;
+            let frames = match self.framer.finish() {
+                Ok(frames) => frames,
+                Err(e) => return (out, Some(e.with_http(self.http.clone()))),
+            };
+            if let Err(e) = self.handle_frames(frames, &mut out) {
+                return (out, Some(e));
             }
         }
-        match driver.finish() {
-            Ok(events) => out.extend(events.into_iter().map(Ok)),
-            Err(e) => out.push(Err(e)),
+        let halt = match self.parser.on_halt() {
+            Ok(halt) => halt,
+            Err(e) => return (out, Some(e.with_http(self.http.clone()))),
+        };
+        if let Err(e) = self.check(halt, &mut out) {
+            return (out, Some(e));
         }
+        if !self.terminal_emitted {
+            let e = AIError::incomplete_stream(&self.label, "The provider response ended unexpectedly.").with_http(self.http.clone());
+            return (out, Some(e));
+        }
+        (out, None)
+    }
+
+    /// Decode a complete body (tests, recorded fixtures): every event up to the first error, then the error.
+    pub fn decode_all(request: &LLMRequest, body: &[u8]) -> Vec<Result<LLMEvent, AIError>> {
+        let mut driver = StreamDriver::new(request);
+        let (events, failure) = driver.push_events(body);
+        let mut out: Vec<Result<LLMEvent, AIError>> = events.into_iter().map(Ok).collect();
+        if let Some(e) = failure {
+            out.push(Err(e));
+            return out;
+        }
+        let (events, failure) = driver.finish_events();
+        out.extend(events.into_iter().map(Ok));
+        out.extend(failure.map(Err));
         out
     }
 }
@@ -258,18 +295,16 @@ impl Client {
                     None => break,
                     Some(Err(e)) => { yield Err(e); return; }
                     Some(Ok(bytes)) => {
-                        match driver.push(&bytes) {
-                            Ok(events) => for e in events { yield Ok(e); },
-                            Err(e) => { yield Err(e); return; }
-                        }
+                        let (events, failure) = driver.push_events(&bytes);
+                        for e in events { yield Ok(e); }
+                        if let Some(e) = failure { yield Err(e); return; }
                         if driver.is_stopped() { break; }
                     }
                 }
             }
-            match driver.finish() {
-                Ok(events) => for e in events { yield Ok(e); },
-                Err(e) => { yield Err(e); }
-            }
+            let (events, failure) = driver.finish_events();
+            for e in events { yield Ok(e); }
+            if let Some(e) = failure { yield Err(e); }
         };
         Ok(Box::pin(stream))
     }
@@ -323,12 +358,11 @@ impl Client {
             }
             // The exchange ends before its acknowledgement (`Stream.onEnd(execution.complete)`).
             drop(frames);
-            match driver.finish() {
-                Ok(events) => {
-                    for e in events { yield Ok(e); }
-                    complete();
-                }
-                Err(e) => { yield Err(e); }
+            let (events, failure) = driver.finish_events();
+            for e in events { yield Ok(e); }
+            match failure {
+                None => complete(),
+                Some(e) => { yield Err(e); }
             }
         };
         Box::pin(stream)

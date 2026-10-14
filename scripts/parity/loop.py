@@ -160,6 +160,45 @@ def loop_stream_cut(ctx):
 
 
 @scenario("loop", hold_for_title=0)
+def loop_error_after_text(ctx):
+    """text, then a failing finish reason (`network_error`) read in the same chunk: the text is kept, the step fails and
+    the run continues with the "interrupted, continue" notice; then an unknown finish reason the same way."""
+    ctx.set_script([
+        {"text": ["Partial ", "answer"], "finish": "network_error", "coalesce": True},
+        {"text": "Recovered."},
+        {"match": "second", "text": "Odd finish", "finish": "sensitive", "coalesce": True},
+        {"match": "second", "text": "Recovered again."},
+    ])
+    ctx.make_project()
+    ctx.start()
+    sid = ctx.create_session(title="Fixed")
+    ctx.prompt(sid, "hello", timeout=30)
+    ctx.prompt(sid, "second", timeout=30)
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.record_events()
+    ctx.record_llm()
+
+
+@scenario("loop", hold_for_title=0)
+def loop_location_reload_ask(ctx):
+    """the location reloads while a permission ask is pending: the ask is cancelled ("location shut down"), not
+    declined, and the run continues on the reloaded location."""
+    ctx.set_script([{"tools": [{"name": "read", "args": {"path": "$PROJECT/.env"}}]}, {"text": "After the reload."}])
+    ctx.make_project(files={".env": "SECRET=1\n"})
+    ctx.start()
+    sid = ctx.create_session(title="Fixed")
+    mark = len(ctx.server.events)
+    ctx.prompt(sid, "read .env", wait=False)
+    ctx.wait_for("permission.asked", start=mark, timeout=30)
+    ctx.call("location.reload", "POST", f"/api/location/reload?directory={ctx.project}", {})
+    ctx.wait_idle(sid, start=mark, timeout=30)
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.call("session.get", "GET", f"/api/session/{sid}")
+    ctx.record_events(filt=lambda e: e.get("type", "").startswith("session."))
+    ctx.record_llm()
+
+
+@scenario("loop", hold_for_title=0)
 def loop_context_overflow(ctx):
     """provider reports context overflow: the session compacts and retries."""
     overflow = {"status": 400, "body": {"error": {

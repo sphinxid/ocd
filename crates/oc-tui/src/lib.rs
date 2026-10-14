@@ -207,7 +207,7 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
 
     app.start_migration_poll();
 
-    let mut events = EventStream::new();
+    let mut events = app::escape::JoinEscapes::new(EventStream::new());
     let mut hooks = TermHooks { screen: &screen, term: &mut term, title: String::new() };
     let result = app::event_loop::run(&mut app, &mut events, &mut rx, &mut hooks).await;
     screen.leave();
