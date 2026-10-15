@@ -10,6 +10,7 @@ pub mod clipboard;
 pub mod config;
 pub mod keymap;
 pub mod mini;
+mod restore;
 pub mod state;
 pub mod store;
 pub mod terminal;
@@ -39,6 +40,14 @@ struct Screen {
 
 impl Screen {
     fn enter(&self) -> anyhow::Result<()> {
+        let mut modes = restore::ALT_SCREEN | restore::FOCUS | restore::PASTE;
+        if self.mouse {
+            modes |= restore::MOUSE;
+        }
+        if self.kitty {
+            modes |= restore::KITTY;
+        }
+        restore::arm(modes);
         enable_raw_mode()?;
         let mut out = std::io::stdout();
         execute!(out, EnterAlternateScreen, EnableBracketedPaste, EnableFocusChange)?;
@@ -60,6 +69,16 @@ impl Screen {
         let _ = write!(out, "\x1b]0;\x07");
         let _ = out.flush();
         let _ = disable_raw_mode();
+        restore::disarm();
+    }
+}
+
+impl Drop for Screen {
+    /// An early `?` between `enter` and `leave` still gives the terminal back.
+    fn drop(&mut self) {
+        if restore::armed() {
+            self.leave();
+        }
     }
 }
 

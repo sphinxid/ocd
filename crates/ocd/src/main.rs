@@ -53,6 +53,7 @@ fn main() {
     }
     let role = if inv.name == "serve" { "server" } else { "cli" };
     oc_util::log::init(&global.log_file(oc_util::version::CHANNEL), role, inv.log_level.as_deref());
+    oc_util::panic::install();
     tracing::info!(
         version = oc_util::version::VERSION,
         channel = oc_util::version::CHANNEL,

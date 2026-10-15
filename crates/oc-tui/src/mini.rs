@@ -106,9 +106,11 @@ fn leave(kitty: bool) {
     let _ = write!(out, "\x1b[?25h");
     let _ = out.flush();
     let _ = disable_raw_mode();
+    crate::restore::disarm();
 }
 
 fn enter(kitty: bool) -> anyhow::Result<()> {
+    crate::restore::arm(crate::restore::PASTE | if kitty { crate::restore::KITTY } else { 0 });
     enable_raw_mode()?;
     let mut out = std::io::stdout();
     execute!(out, EnableBracketedPaste)?;

@@ -6,6 +6,7 @@ pub mod hash;
 pub mod http;
 pub mod jsonc;
 pub mod log;
+pub mod panic;
 pub mod trace;
 pub mod variable;
 pub mod version;
