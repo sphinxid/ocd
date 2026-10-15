@@ -224,6 +224,16 @@ upstream does. ocd also writes the line to its log.
 So behind a TLS-inspecting proxy, or with a provider on a private certificate authority, set
 `NODE_EXTRA_CA_CERTS` to the authority's certificate file.
 
+### When something stops or crashes
+
+- **A run ended before its tasks were done:** `sh scripts/why-stopped.sh ses_…` shows, read-only, how the
+  session's last runs ended (interrupted, model finished, or failed with a message).
+- **A process crashed:** every panic in any ocd process is logged as `panicked` with its message and source
+  line. Find it with `grep panicked ~/.local/share/opencode/log/opencode.log`.
+- **The terminal is garbled after the TUI died:** on a crash or on SIGTERM, SIGHUP, SIGINT, SIGQUIT or SIGABRT,
+  the TUI turns raw mode and mouse reporting off before it exits, like upstream. SIGKILL (for example from the
+  out-of-memory killer) can't be caught; type `reset` and press Enter to fix the terminal.
+
 ### Downloads on first use
 
 When needed, ocd downloads these tools into the opencode cache folder, the same way upstream does:

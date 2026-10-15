@@ -308,6 +308,7 @@ pub async fn run_mini(mut opts: TuiOptions, mini: MiniOptions) -> anyhow::Result
     let _ = std::io::stdout().flush();
     leave(kitty);
     if let Err(e) = result {
+        tracing::error!(cause = %e, "tui failed");
         eprintln!("{e}");
         return Ok(1);
     }

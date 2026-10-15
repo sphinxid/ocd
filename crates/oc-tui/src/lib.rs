@@ -231,6 +231,7 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     let result = app::event_loop::run(&mut app, &mut events, &mut rx, &mut hooks).await;
     screen.leave();
     if let Err(e) = result {
+        tracing::error!(cause = %e, "tui failed");
         eprintln!("{e}");
         return Ok(1);
     }
