@@ -646,7 +646,7 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
     let t = base.dialog();
     dim(buf, area, 150, base.background.base);
     let w = d.size.width().min(area.width.saturating_sub(2)).max(10);
-    let x = area.x + (area.width - w) / 2;
+    let x = area.x + area.width.saturating_sub(w) / 2;
     let mut hits = Vec::new();
     let mut cursor = None;
     let lines: Vec<SLine> = match &mut d.body {

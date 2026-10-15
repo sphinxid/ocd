@@ -39,8 +39,10 @@ pub fn session_family(sessions: &[(String, Option<String>)], session: &str) -> V
         }
         root = p;
     }
-    fn walk(parent: &str, ancestors: &[bool], sessions: &[(String, Option<String>)], out: &mut Vec<(String, String)>) {
-        let group: Vec<&String> = sessions.iter().filter(|(_, p)| p.as_deref() == Some(parent)).map(|(i, _)| i).collect();
+    // `visited` stops the recursion on a parent cycle in server data (it would overflow the stack).
+    fn walk<'a>(parent: &str, ancestors: &[bool], sessions: &'a [(String, Option<String>)], visited: &mut std::collections::HashSet<&'a str>, out: &mut Vec<(String, String)>) {
+        let group: Vec<&String> = sessions.iter().filter(|(i, p)| p.as_deref() == Some(parent) && !visited.contains(i.as_str())).map(|(i, _)| i).collect();
+        visited.extend(group.iter().map(|i| i.as_str()));
         for (i, id) in group.iter().enumerate() {
             let last = i == group.len() - 1;
             let prefix = if ancestors.is_empty() {
@@ -51,11 +53,12 @@ pub fn session_family(sessions: &[(String, Option<String>)], session: &str) -> V
             out.push((id.to_string(), prefix));
             let mut next = ancestors.to_vec();
             next.push(last);
-            walk(id, &next, sessions, out);
+            walk(id, &next, sessions, visited, out);
         }
     }
     let mut out = Vec::new();
-    walk(root, &[], sessions, &mut out);
+    let mut visited = std::collections::HashSet::from([root]);
+    walk(root, &[], sessions, &mut visited, &mut out);
     out
 }
 
@@ -421,5 +424,15 @@ mod tests {
         ];
         let f = session_family(&s, "a1");
         assert_eq!(f, vec![("a".into(), "".into()), ("a1".into(), "└─ ".into()), ("b".into(), "".into())]);
+    }
+
+    /// A parent cycle in server data (or a session that is its own parent) used to recurse until
+    /// the stack overflowed, which aborts the process.
+    #[test]
+    fn family_parent_cycle_terminates() {
+        let s = vec![("a".to_string(), Some("b".to_string())), ("b".to_string(), Some("a".to_string()))];
+        assert_eq!(session_family(&s, "a"), vec![("b".to_string(), "".to_string())]);
+        let s = vec![("a".to_string(), Some("a".to_string())), ("c".to_string(), Some("a".to_string()))];
+        assert_eq!(session_family(&s, "a"), vec![("c".to_string(), "".to_string())]);
     }
 }

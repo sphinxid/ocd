@@ -7,7 +7,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use serde_json::json;
 
-fn app() -> App {
+pub(super) fn app() -> App {
     let opts = TuiOptions {
         url: "http://127.0.0.1:1".into(),
         directory: "/work/proj".into(),
@@ -47,7 +47,7 @@ fn app() -> App {
     app
 }
 
-fn render(app: &mut App, w: u16, h: u16) -> Vec<String> {
+pub(super) fn render(app: &mut App, w: u16, h: u16) -> Vec<String> {
     let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
     let buf = term.backend().buffer().clone();
@@ -66,7 +66,7 @@ fn contains(lines: &[String], needle: &str) -> bool {
     lines.iter().any(|l| l.contains(needle))
 }
 
-fn session(app: &mut App) -> String {
+pub(super) fn session(app: &mut App) -> String {
     let id = "ses_test".to_string();
     app.store.remember(SessionInfo {
         id: id.clone(),
@@ -241,6 +241,33 @@ fn leader_sequences() {
     a.on_key(Stroke::key("escape"));
     assert!(a.pending_keys.is_empty());
     assert_eq!(a.editor.text, "z");
+}
+
+/// A hand-edited `leader.timeout` too large for `Instant` used to panic on the leader key.
+#[test]
+fn huge_leader_timeout_does_not_overflow() {
+    let mut a = app();
+    a.config.set("leader", Some(json!({ "timeout": 1e300 })));
+    a.keybinds = a.config.keybinds();
+    a.on_key(Stroke::ctrl("x"));
+    assert_eq!(a.pending_keys.len(), 1);
+    a.tick();
+    assert_eq!(a.pending_keys.len(), 1);
+    a.on_key(Stroke::key("escape"));
+    assert!(a.pending_keys.is_empty());
+}
+
+/// Agent colors come from the server's agent catalog and are parsed on every frame (prompt bar);
+/// a non-ASCII value used to panic in the hex parser in every attached TUI at once.
+#[test]
+fn non_ascii_agent_color_renders() {
+    let mut a = app();
+    session(&mut a);
+    if let Some(agents) = a.store.location_mut("/work/proj").agents.as_mut() {
+        agents[0].color = Some("#aé1234".into());
+    }
+    let lines = render(&mut a, 100, 30);
+    assert!(contains(&lines, "Build"), "{}", lines.join("\n"));
 }
 
 #[test]

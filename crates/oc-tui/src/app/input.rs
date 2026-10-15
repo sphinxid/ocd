@@ -324,7 +324,8 @@ impl App {
         }
         if prefix {
             if self.pending_keys.is_empty() && kb.is_leader(&s) {
-                self.pending_deadline = Some(Instant::now() + Duration::from_millis(kb.leader_timeout_ms));
+                // A huge `leader.timeout` from a hand-edited config never expires (instead of overflowing `Instant`).
+                self.pending_deadline = Instant::now().checked_add(Duration::from_millis(kb.leader_timeout_ms));
             }
             self.pending_keys = seq;
             return;

@@ -39,11 +39,58 @@ pub struct TermState {
     pub pending: Vec<Vec<u8>>,
 }
 
+/// Scrollback lines kept by the embedded terminal's parser.
+const SCROLLBACK: usize = 1000;
+
+thread_local! {
+    /// Set while a guarded vt100 call runs: its panic is expected and handled, so not printed.
+    static QUIET_PANIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` catching a panic, without the default hook printing it over the screen.
+fn quiet_unwind(f: impl FnOnce()) -> bool {
+    static HOOK: std::sync::Once = std::sync::Once::new();
+    HOOK.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if !QUIET_PANIC.with(|q| q.get()) {
+                previous(info);
+            }
+        }));
+    });
+    QUIET_PANIC.with(|q| q.set(true));
+    let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_ok();
+    QUIET_PANIC.with(|q| q.set(false));
+    ok
+}
+
+/// vt100 0.15 panics on some ordinary terminal output (insert mode with wide characters, inverted
+/// scroll regions, line insertion and deletion near the bottom, ...). Its parser runs on the UI
+/// thread, where a panic would end the whole TUI, so a panicking call resets the screen instead.
+fn guarded(parser: &mut vt100::Parser, size: (u16, u16), f: impl FnOnce(&mut vt100::Parser)) {
+    if !quiet_unwind(|| f(parser)) {
+        tracing::warn!("terminal emulator panicked; screen reset");
+        *parser = vt100::Parser::new(size.0.max(1), size.1.max(1), SCROLLBACK);
+    }
+}
+
 impl TermState {
-    fn new(id: &str) -> TermState {
+    /// Feed PTY output to the screen.
+    pub fn process(&mut self, data: &[u8]) {
+        let size = self.parser.screen().size();
+        guarded(&mut self.parser, size, |p| p.process(data));
+    }
+
+    /// Resize the screen (`rows`, `cols`; zero is treated as one).
+    pub fn set_size(&mut self, rows: u16, cols: u16) {
+        let size = (rows.max(1), cols.max(1));
+        guarded(&mut self.parser, size, |p| p.set_size(size.0, size.1));
+    }
+
+    pub(crate) fn new(id: &str) -> TermState {
         TermState {
             id: id.to_string(),
-            parser: vt100::Parser::new(24, 80, 1000),
+            parser: vt100::Parser::new(24, 80, SCROLLBACK),
             failure: None,
             tx: None,
             size: (80, 24),
@@ -344,8 +391,8 @@ impl App {
             apply(
                 id.clone(),
                 Box::new(move |st| {
-                    st.parser.set_size(rows, cols);
-                    st.parser.process(&checkpoint);
+                    st.set_size(rows, cols);
+                    st.process(&checkpoint);
                 }),
             );
             let ticket = match c.terminal_ticket(&id).await {
@@ -368,7 +415,7 @@ impl App {
                     msg = stream.next() => match msg {
                         Some(Ok(WsMessage::Binary(data))) => {
                             let data = data.to_vec();
-                            apply(id.clone(), Box::new(move |st| st.parser.process(&data)));
+                            apply(id.clone(), Box::new(move |st| st.process(&data)));
                         }
                         Some(Ok(WsMessage::Text(text))) => {
                             let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -455,7 +502,7 @@ fn handle_message(st: &mut TermState, v: &Value, attachment: &str) {
                 return;
             }
             if let (Some(c), Some(r)) = (v.pointer("/info/size/cols").and_then(|x| x.as_u64()), v.pointer("/info/size/rows").and_then(|x| x.as_u64())) {
-                st.parser.set_size(r as u16, c as u16);
+                st.set_size(r as u16, c as u16);
             }
             st.controller = v.get("role").and_then(|r| r.as_str()) == Some("controller");
             st.attached = true;
@@ -472,12 +519,12 @@ fn handle_message(st: &mut TermState, v: &Value, attachment: &str) {
         }
         Some("resized") => {
             if let (Some(c), Some(r)) = (v.get("cols").and_then(|x| x.as_u64()), v.get("rows").and_then(|x| x.as_u64())) {
-                st.parser.set_size(r as u16, c as u16);
+                st.set_size(r as u16, c as u16);
             }
             use base64::Engine;
             if let Some(cp) = v.get("checkpoint").and_then(|c| c.as_str()).and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok()) {
-                st.parser.process(b"\x1bc");
-                st.parser.process(&cp);
+                st.process(b"\x1bc");
+                st.process(&cp);
             }
         }
         Some("exited") => st.exited = true,
@@ -506,6 +553,34 @@ mod tests {
         let mut s = Stroke::key("x");
         s.meta = true;
         assert_eq!(encode_key(&s), Some(b"\x1bx".to_vec()));
+    }
+
+    /// vt100 0.15 panics on these ordinary sequences after a resize (wrapped wide characters then
+    /// erase-below; a cursor saved before the screen shrank, then restored and written at). The
+    /// parser runs on the UI thread: the screen is reset instead of the TUI going down.
+    #[test]
+    fn emulator_panic_resets_the_screen() {
+        let mut st = TermState::new("pty_1");
+        st.process("\t\t\tx全角全角全角全角".as_bytes());
+        st.set_size(40, 40);
+        st.process(b"\x1b[J");
+        st.process(b"after");
+        assert!(st.parser.screen().contents().contains("after"));
+        assert_eq!(st.parser.screen().size(), (40, 40));
+
+        let mut st = TermState::new("pty_2");
+        st.set_size(40, 40);
+        st.process(b"\x1b[999;999H\x1b7");
+        st.set_size(24, 40);
+        st.process(b"\x1b8hello");
+        st.process(b"\x1b[Hok");
+        assert_eq!(st.parser.screen().size(), (24, 40));
+        assert!(st.parser.screen().contents().starts_with("ok"));
+
+        // Zero sizes from the server are clamped.
+        st.set_size(0, 0);
+        st.process(b"x");
+        assert_eq!(st.parser.screen().size(), (1, 1));
     }
 
     #[test]

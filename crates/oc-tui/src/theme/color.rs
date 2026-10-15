@@ -30,6 +30,10 @@ impl Rgba {
             let v = c.to_digit(16)? as u8;
             Some(v * 17)
         };
+        // Byte slicing below needs ASCII (a non-hex character is never a match anyway).
+        if !h.is_ascii() {
+            return None;
+        }
         let cs: Vec<char> = h.chars().collect();
         match cs.len() {
             3 => Some(Rgba::rgb(d(cs[0])?, d(cs[1])?, d(cs[2])?)),
@@ -217,6 +221,16 @@ mod tests {
         assert_eq!(Rgba::from_hex("#0a0a0a").unwrap().hex(), "#0a0a0a");
         assert_eq!(Rgba::from_hex("#11223344").unwrap().hex(), "#11223344");
         assert!(Rgba::from_hex("#zz0000").is_none());
+    }
+
+    /// Six or eight characters with a multibyte one used to slice inside it and panic (agent
+    /// colors from the server are parsed on every frame).
+    #[test]
+    fn hex_parse_non_ascii() {
+        assert!(Rgba::from_hex("#aé1234").is_none());
+        assert!(Rgba::from_hex("aé1234").is_none());
+        assert!(Rgba::from_hex("#1é345678").is_none());
+        assert!(Rgba::from_hex("#é1é").is_none());
     }
 
     #[test]
