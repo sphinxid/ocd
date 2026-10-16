@@ -258,7 +258,8 @@ pub async fn run_mini(mut opts: TuiOptions, mini: MiniOptions) -> anyhow::Result
     let client = app.client.clone();
     let sse_tx = tx.clone();
     let (stx, mut srx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(crate::api::sse::run(client, stx));
+    let retry = crate::api::sse::Retry::mini(app.opts.service.as_ref().map(|s| s.reconnect.clone()));
+    tokio::spawn(crate::api::sse::run(client, stx, retry));
     tokio::spawn(async move {
         while let Some(m) = srx.recv().await {
             if sse_tx.send(AppMsg::Sse(m)).is_err() {

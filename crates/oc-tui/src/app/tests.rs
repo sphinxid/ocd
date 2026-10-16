@@ -1034,3 +1034,79 @@ fn busy_turn_from_submit_until_idle() {
     a.tick();
     assert!(a.busy.contains_key(&sid));
 }
+
+/// Managed-service hooks handing out `url`; counts restarts.
+fn managed(url: &str) -> (ServiceHooks, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = calls.clone();
+    let endpoint = crate::api::Endpoint { url: url.to_string(), password: Some("next".into()) };
+    let e2 = endpoint.clone();
+    let hooks = ServiceHooks {
+        reconnect: std::sync::Arc::new(move || {
+            let e = endpoint.clone();
+            Box::pin(async move { Ok(e) })
+        }),
+        restart: std::sync::Arc::new(move || {
+            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let e = e2.clone();
+            Box::pin(async move { Ok(e) })
+        }),
+    };
+    (hooks, calls)
+}
+
+/// `service.restart` (`/restart`) exists only with a managed service (`...(client.restart ? [...] : [])`).
+#[test]
+fn service_restart_only_when_managed() {
+    let mut a = app();
+    assert!(!a.commands().iter().any(|c| c.id == "service.restart"));
+    assert!(!a.run_command("service.restart", None));
+    let (hooks, _) = managed("http://127.0.0.1:2");
+    a.opts.service = Some(hooks);
+    let cmds = a.commands();
+    let pos = |id: &str| cmds.iter().position(|c| c.id == id).unwrap();
+    let c = &cmds[pos("service.restart")];
+    assert_eq!((c.title.as_str(), c.group, c.slash), ("Restart service", "System", Some("restart")));
+    // Between "Pair device" and "Reload configuration", as upstream lists it.
+    assert_eq!(pos("service.restart"), pos("server.pair") + 1);
+    assert_eq!(pos("location.reload"), pos("service.restart") + 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn service_restart_toasts_and_moves_client() {
+    let (tx, mut rx) = unbounded_channel();
+    let mut a = app();
+    a.tx = tx;
+    let (hooks, calls) = managed("http://127.0.0.1:3");
+    a.opts.service = Some(hooks);
+    a.run_command("help.show", None);
+    assert!(!a.dialogs.is_empty());
+    assert!(a.run_command("service.restart", None));
+    assert!(a.dialogs.is_empty());
+    let t = a.toast.clone().unwrap();
+    assert_eq!((t.variant.as_str(), t.message.as_str(), t.duration), ("info", "Restarting service…", 30000));
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
+    let AppMsg::Apply(f) = msg else { panic!("expected apply") };
+    f(&mut a);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let t = a.toast.clone().unwrap();
+    assert_eq!((t.variant.as_str(), t.message.as_str()), ("success", "Service restarted"));
+    assert_eq!(a.client.base(), "http://127.0.0.1:3");
+}
+
+/// `<Reconnecting managed>`: a managed service says it is restarting, otherwise the connection is lost.
+#[test]
+fn reconnecting_banner_managed_text() {
+    let mut a = app();
+    a.connection = crate::api::sse::ConnStatus::Reconnecting;
+    a.ever_connected = true;
+    a.connection_since = std::time::Instant::now() - std::time::Duration::from_secs(2);
+    let lines = render(&mut a, 100, 30);
+    assert!(contains(&lines, "Connection lost…"), "{}", lines.join("\n"));
+    assert!(contains(&lines, "Reconnecting to the server automatically."));
+    let (hooks, _) = managed("http://127.0.0.1:2");
+    a.opts.service = Some(hooks);
+    let lines = render(&mut a, 100, 30);
+    assert!(contains(&lines, "Restarting service…"), "{}", lines.join("\n"));
+    assert!(contains(&lines, "Your session will resume automatically."));
+}

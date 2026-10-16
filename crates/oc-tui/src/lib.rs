@@ -18,7 +18,7 @@ pub mod theme;
 pub mod ui;
 pub mod util;
 
-pub use app::{App, AppMsg, Route, TuiOptions};
+pub use app::{App, AppMsg, EndpointHook, Route, ServiceHooks, TuiOptions};
 pub use mini::{MiniOptions, run_mini};
 
 use crossterm::event::{
@@ -215,7 +215,8 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     let client = app.client.clone();
     let sse_tx = tx.clone();
     let (stx, mut srx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(api::sse::run(client, stx));
+    let retry = api::sse::Retry::tui(app.opts.service.as_ref().map(|s| s.reconnect.clone()));
+    tokio::spawn(api::sse::run(client, stx, retry));
     tokio::spawn(async move {
         while let Some(m) = srx.recv().await {
             if sse_tx.send(AppMsg::Sse(m)).is_err() {

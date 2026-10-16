@@ -64,6 +64,28 @@ pub struct TuiOptions {
     pub version: String,
     /// Terminal environment variables forwarded to new sessions.
     pub environment: HashMap<String, String>,
+    /// Managed background service controls (`server.service`); `None` for `--server` and
+    /// `--standalone`.
+    pub service: Option<ServiceHooks>,
+}
+
+/// An async endpoint resolution (`Service.ensure` behind a managed-service control).
+pub type EndpointHook = std::sync::Arc<dyn Fn() -> futures::future::BoxFuture<'static, anyhow::Result<crate::api::Endpoint>> + Send + Sync>;
+
+/// `TuiInput.server.service`: how the TUI recovers its managed background service.
+#[derive(Clone)]
+pub struct ServiceHooks {
+    /// `service.reconnect()`: find the running service, starting it again if it stopped
+    /// (possibly on a new port/password).
+    pub reconnect: EndpointHook,
+    /// `service.restart()`: stop the service (handing persistent terminals off) and start it again.
+    pub restart: EndpointHook,
+}
+
+impl std::fmt::Debug for ServiceHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ServiceHooks")
+    }
 }
 
 pub type Apply = Box<dyn FnOnce(&mut App) + Send>;

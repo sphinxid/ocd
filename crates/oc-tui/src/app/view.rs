@@ -880,10 +880,16 @@ impl App {
         }
         dim(buf, area, 150, t.background.base);
         let w = 48.min((area.width as f64 * 0.9) as u16);
+        // `<Reconnecting managed={client.restart !== undefined} />`
+        let (title, detail) = if self.opts.service.is_some() {
+            ("Restarting service…", "Your session will resume automatically.")
+        } else {
+            ("Connection lost…", "Reconnecting to the server automatically.")
+        };
         let lines = vec![
-            SLine::new(vec![s(format!("{SPINNER_GLYPH} Connection lost…"), t.text.base)]),
+            SLine::new(vec![s(format!("{SPINNER_GLYPH} {title}"), t.text.base)]),
             SLine::blank(),
-            SLine::new(vec![s("Reconnecting to the server automatically.", t.text.muted)]),
+            SLine::new(vec![s(detail, t.text.muted)]),
         ];
         let h = 5;
         let rect = Rect::new(area.x + (area.width.saturating_sub(w)) / 2, area.y + (area.height.saturating_sub(h)) / 2, w, h);

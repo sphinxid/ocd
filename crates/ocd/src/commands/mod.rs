@@ -135,6 +135,27 @@ fn tui_options(input: &Input, server: &connection::Resolved, requested_server: b
         channel: std::env::var("OPENCODE_TUI_CHANNEL").unwrap_or_else(|_| oc_util::version::CHANNEL.to_string()),
         version: oc_util::version::VERSION.to_string(),
         environment: if requested_server { Default::default() } else { connection::session_env().into_iter().collect() },
+        service: server.service.clone().map(service_hooks),
+    }
+}
+
+/// `server.service` for the TUI (`handlers/default.ts`, `handlers/mini.ts`): `reconnect` runs
+/// `Service.ensure` again, `restart` stops the service and ensures a new one.
+fn service_hooks(options: service::EnsureOptions) -> oc_tui::ServiceHooks {
+    fn endpoint(e: crate::client::Endpoint) -> oc_tui::api::Endpoint {
+        oc_tui::api::Endpoint { url: e.url, password: e.password }
+    }
+    let reconnect = std::sync::Arc::new(options);
+    let restart = reconnect.clone();
+    oc_tui::ServiceHooks {
+        reconnect: std::sync::Arc::new(move || {
+            let o = reconnect.clone();
+            Box::pin(async move { connection::reconnect(&o).await.map(endpoint) })
+        }),
+        restart: std::sync::Arc::new(move || {
+            let o = restart.clone();
+            Box::pin(async move { connection::restart(&o).await.map(endpoint) })
+        }),
     }
 }
 

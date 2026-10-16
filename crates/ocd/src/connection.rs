@@ -111,28 +111,24 @@ pub struct Resolved {
     pub standalone: Option<Standalone>,
 }
 
-#[allow(dead_code)] // `service.reconnect/restart` controls (TUI hooks)
 impl Resolved {
     pub fn client(&self) -> Client {
         Client::new(&self.endpoint)
     }
+}
 
-    /// `service.reconnect()`
-    pub async fn reconnect(&self) -> anyhow::Result<Endpoint> {
-        let Some(opts) = &self.service else { anyhow::bail!("not a managed service") };
-        let mut o = opts.clone();
-        o.version = None;
-        service::ensure(&o, None).await
-    }
+/// `managedService(options).reconnect()`: `Service.ensure` without the version check, so a
+/// stopped service is started again (possibly on a new port/password).
+pub async fn reconnect(options: &EnsureOptions) -> anyhow::Result<Endpoint> {
+    let mut o = options.clone();
+    o.version = None;
+    service::ensure(&o, None).await
+}
 
-    /// `service.restart()`
-    pub async fn restart(&self) -> anyhow::Result<Endpoint> {
-        let Some(opts) = &self.service else { anyhow::bail!("not a managed service") };
-        service::stop(&opts.file, Pty::Handoff).await?;
-        let mut o = opts.clone();
-        o.version = None;
-        service::ensure(&o, None).await
-    }
+/// `managedService(options).restart()`: stop with the persistent PTYs handed off, then ensure.
+pub async fn restart(options: &EnsureOptions) -> anyhow::Result<Endpoint> {
+    service::stop(&options.file, Pty::Handoff).await?;
+    reconnect(options).await
 }
 
 /// The directory the CLI started in (standalone children run there).

@@ -232,6 +232,9 @@ impl App {
         v.push(cmd("opencode.settings", "Open settings", "System").slash("settings").suggested(true));
         v.push(cmd("opencode.status", "View status", "System").slash("status"));
         v.push(cmd("server.pair", "Pair device", "System").slash("pair").aliases(&["web"]));
+        if self.opts.service.is_some() {
+            v.push(cmd("service.restart", "Restart service", "System").slash("restart"));
+        }
         v.push(cmd("location.reload", "Reload configuration", "System").slash("reload"));
         v.push(cmd("opencode.debug", "View debug info", "System").slash("debug"));
         v.push(cmd("theme.switch", "Switch theme", "System").slash("themes"));
@@ -385,6 +388,22 @@ impl App {
                 });
             }
             "server.pair" => self.open_pair(),
+            "service.restart" => {
+                let Some(service) = self.opts.service.clone() else { return false };
+                self.dialogs.clear();
+                self.toast(Toast::new("info", "Restarting service…").duration(30000));
+                // Resolves once the replacement service is healthy; the event stream
+                // reattaches through the reconnect loop.
+                let c = self.client.clone();
+                self.call(
+                    async move {
+                        let endpoint = (service.restart)().await?;
+                        c.set_endpoint(&endpoint);
+                        Ok(())
+                    },
+                    |app, _| app.toast(Toast::new("success", "Service restarted")),
+                );
+            }
             "theme.switch" => self.open_theme_dialog(),
             "theme.switch_mode" => {
                 let other = self.themes.effective_mode().other();

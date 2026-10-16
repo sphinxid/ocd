@@ -7,6 +7,7 @@ use base64::Engine;
 use reqwest::Method;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use std::sync::{Arc, RwLock};
 use types::*;
 
 /// An error returned by the server (`{_tag, message, ...}`) or the transport.
@@ -26,37 +27,73 @@ impl std::fmt::Display for ApiError {
 
 impl std::error::Error for ApiError {}
 
-#[derive(Clone)]
-pub struct Client {
-    http: reqwest::Client,
-    pub base: String,
-    auth: Option<String>,
-    /// Default location directory (`x-opencode-directory` / `location[directory]`).
-    pub directory: String,
+/// A server endpoint: base URL plus the basic-auth password (username `opencode`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Endpoint {
+    pub url: String,
+    pub password: Option<String>,
 }
 
-impl Client {
-    pub fn new(base: &str, password: Option<&str>, directory: &str) -> Client {
+/// The swappable part of a [`Client`]. Every clone shares it, so a managed-service reconnect
+/// (`context/client.tsx`: `api = next.api; url = next.url`, new persistent PTY client) moves
+/// all of them, the terminal websocket included, to the new endpoint at once.
+struct Conn {
+    http: reqwest::Client,
+    base: String,
+    auth: Option<String>,
+}
+
+impl Conn {
+    fn new(base: &str, password: Option<&str>) -> Conn {
         // A remote https server gets the same certificate trust as provider requests.
         let builder = if base.starts_with("https:") { oc_util::http::client_builder() } else { reqwest::Client::builder() };
         let http = builder.build().unwrap_or_default();
         let auth = password.filter(|p| !p.is_empty()).map(|p| {
             format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("opencode:{p}")))
         });
-        Client { http, base: base.trim_end_matches('/').to_string(), auth, directory: directory.to_string() }
+        Conn { http, base: base.trim_end_matches('/').to_string(), auth }
+    }
+}
+
+#[derive(Clone)]
+pub struct Client {
+    conn: Arc<RwLock<Conn>>,
+    /// Default location directory (`x-opencode-directory` / `location[directory]`).
+    pub directory: String,
+}
+
+impl Client {
+    pub fn new(base: &str, password: Option<&str>, directory: &str) -> Client {
+        Client { conn: Arc::new(RwLock::new(Conn::new(base, password))), directory: directory.to_string() }
     }
 
-    pub fn http(&self) -> &reqwest::Client {
-        &self.http
+    fn conn(&self) -> std::sync::RwLockReadGuard<'_, Conn> {
+        self.conn.read().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub fn auth_header(&self) -> Option<&str> {
-        self.auth.as_deref()
+    /// Point this client and every clone of it at another server.
+    pub fn set_endpoint(&self, endpoint: &Endpoint) {
+        let next = Conn::new(&endpoint.url, endpoint.password.as_deref());
+        *self.conn.write().unwrap_or_else(|e| e.into_inner()) = next;
+    }
+
+    /// Current server base URL (no trailing slash).
+    pub fn base(&self) -> String {
+        self.conn().base.clone()
+    }
+
+    pub fn http(&self) -> reqwest::Client {
+        self.conn().http.clone()
+    }
+
+    pub fn auth_header(&self) -> Option<String> {
+        self.conn().auth.clone()
     }
 
     fn request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
-        let mut r = self.http.request(method, format!("{}{}", self.base, path));
-        if let Some(a) = &self.auth {
+        let conn = self.conn();
+        let mut r = conn.http.request(method, format!("{}{}", conn.base, path));
+        if let Some(a) = &conn.auth {
             r = r.header("authorization", a);
         }
         r
@@ -525,7 +562,7 @@ impl Client {
 
     /// WebSocket URL for a persistent PTY attachment.
     pub fn terminal_url(&self, pty: &str, ticket: &str, cursor: i64, attachment: &str) -> String {
-        let base = self.base.replacen("https://", "wss://", 1).replacen("http://", "ws://", 1);
+        let base = self.base().replacen("https://", "wss://", 1).replacen("http://", "ws://", 1);
         format!(
             "{base}/api/experimental/persistent-pty/{}/connect?ticket={}&cursor={cursor}&attachment_id={}&takeover=true&input_protocol=1",
             urlencode(pty),
