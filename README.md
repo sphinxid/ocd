@@ -230,6 +230,11 @@ So behind a TLS-inspecting proxy, or with a provider on a private certificate au
   session's last runs ended (interrupted, model finished, or failed with a message).
 - **A process crashed:** every panic in any ocd process is logged as `panicked` with its message and source
   line. Find it with `grep panicked ~/.local/share/opencode/log/opencode.log`.
+- **The background service stopped:** an open TUI starts it again by itself, like upstream, and `/restart`
+  restarts it by hand. A stop by signal is logged as `server stopping signal=SIGTERM` (or SIGHUP, SIGINT); if the
+  service vanished without that line it was killed with SIGKILL. On systems where logging out kills your
+  processes (`loginctl show-user "$USER" -p KillUserProcesses` says `yes`), run `loginctl enable-linger "$USER"`
+  so the service survives an SSH logout.
 - **The terminal is garbled after the TUI died:** on a crash or on SIGTERM, SIGHUP, SIGINT, SIGQUIT or SIGABRT,
   the TUI turns raw mode and mouse reporting off before it exits, like upstream. SIGKILL (for example from the
   out-of-memory killer) can't be caught; type `reset` and press Enter to fix the terminal.
