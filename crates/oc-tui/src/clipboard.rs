@@ -6,10 +6,14 @@ use std::process::{Command, Stdio};
 
 /// OSC 52 sequence writing `text` to the system clipboard.
 pub fn osc52(text: &str) -> String {
+    osc52_for(text, std::env::var_os("TMUX").is_some())
+}
+
+/// tmux needs passthrough wrapping: `ESC P tmux;` + the sequence with every ESC doubled + `ESC \`.
+fn osc52_for(text: &str, tmux: bool) -> String {
     let b64 = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
     let seq = format!("\x1b]52;c;{b64}\x07");
-    // tmux needs passthrough wrapping.
-    if std::env::var_os("TMUX").is_some() { format!("\x1bPtmux;\x1b{}\x1b\\", seq.replace('\x1b', "\x1b\x1b")) } else { seq }
+    if tmux { format!("\x1bPtmux;{}\x1b\\", seq.replace('\x1b', "\x1b\x1b")) } else { seq }
 }
 
 fn host_writers() -> Vec<(&'static str, Vec<&'static str>)> {
@@ -116,8 +120,7 @@ pub fn read_png() -> Option<String> {
 mod tests {
     #[test]
     fn osc() {
-        if std::env::var_os("TMUX").is_none() {
-            assert_eq!(super::osc52("hi"), "\x1b]52;c;aGk=\x07");
-        }
+        assert_eq!(super::osc52_for("hi", false), "\x1b]52;c;aGk=\x07");
+        assert_eq!(super::osc52_for("hi", true), "\x1bPtmux;\x1b\x1b]52;c;aGk=\x07\x1b\\");
     }
 }

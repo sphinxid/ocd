@@ -54,22 +54,26 @@ fn server_options(
     }
 }
 
+/// Wait for SIGINT, SIGTERM or SIGHUP and log which one ended the server: a managed service is
+/// detached, so this line is the only trace of who stopped it.
 async fn wait_for_signal() {
     #[cfg(unix)]
-    {
+    let name = {
         use tokio::signal::unix::{SignalKind, signal};
         let mut term = signal(SignalKind::terminate()).ok();
         let mut hup = signal(SignalKind::hangup()).ok();
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = async { match term.as_mut() { Some(s) => { s.recv().await; } None => std::future::pending().await } } => {}
-            _ = async { match hup.as_mut() { Some(s) => { s.recv().await; } None => std::future::pending().await } } => {}
+            _ = tokio::signal::ctrl_c() => "SIGINT",
+            _ = async { match term.as_mut() { Some(s) => { s.recv().await; } None => std::future::pending().await } } => "SIGTERM",
+            _ = async { match hup.as_mut() { Some(s) => { s.recv().await; } None => std::future::pending().await } } => "SIGHUP",
         }
-    }
+    };
     #[cfg(not(unix))]
-    {
+    let name = {
         let _ = tokio::signal::ctrl_c().await;
-    }
+        "ctrl-c"
+    };
+    tracing::info!(signal = name, "server stopping");
 }
 
 pub async fn run(global: &Global, opts: Options) -> anyhow::Result<i32> {
