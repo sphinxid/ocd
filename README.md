@@ -301,5 +301,5 @@ Each crate has its own `README.md` with its API and any known differences from u
 
 ## License
 
-ocd is a derivative of opencode, which is MIT-licensed (copyright opencode). See
-[LICENSE-opencode](LICENSE-opencode). The workspace is declared MIT in `Cargo.toml`.
+ocd is MIT-licensed, see [LICENSE](LICENSE). It is a derivative of opencode, which is also MIT-licensed
+(copyright opencode), see [LICENSE-opencode](LICENSE-opencode).
