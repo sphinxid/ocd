@@ -165,7 +165,8 @@ To stamp your own version into `ocd --version`, set `OCD_BUILD_VERSION` when bui
 The web UI is upstream's web app, about 24 MB, so it isn't committed. Without it, `ocd serve` answers 404 for
 web pages, the same as an upstream build made with `--skip-web-ui`. The TUI and CLI don't need it.
 
-To include it, build it from an upstream checkout with Bun 1.4.2, then rebuild ocd. The archive is embedded at
+To include it, build it from an upstream checkout with Bun 1.4.2, then rebuild ocd. If `node` is on your PATH it
+must be Node 22.12 or newer (or 20.19+), because the app's bundler runs under it. The archive is embedded at
 compile time:
 
 ```sh

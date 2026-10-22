@@ -36,6 +36,16 @@ if [ ! -d "$upstream/node_modules" ]; then
   exit 2
 fi
 
+# `vite build` runs under `node` when one is on PATH (bun stands in for it otherwise), and the
+# app's bundler (rolldown) needs Node ^20.19 or >=22.12.
+if command -v node >/dev/null 2>&1; then
+  node_version="$(node --version)"
+  if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 12) || (a === 20 && b >= 19) ? 0 : 1)'; then
+    echo "error: node $node_version on PATH is too old for the web UI build (needs ^20.19 or >=22.12)" >&2
+    exit 2
+  fi
+fi
+
 # The app build calls `bun` by name; make it the selected one.
 bun="$(command -v "$bun")"
 export PATH="$(dirname "$bun"):$PATH"
