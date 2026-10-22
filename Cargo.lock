@@ -2175,6 +2175,7 @@ dependencies = [
  "image",
  "indexmap",
  "mime_guess",
+ "notify",
  "oc-ai",
  "oc-config",
  "oc-core",

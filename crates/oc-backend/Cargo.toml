@@ -28,6 +28,7 @@ async-trait.workspace = true
 tracing.workspace = true
 rusqlite.workspace = true
 parking_lot.workspace = true
+notify = "8"
 indexmap.workspace = true
 ignore.workspace = true
 mime_guess.workspace = true

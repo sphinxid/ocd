@@ -477,6 +477,49 @@ async fn vcs_on_git_repository() {
     assert_eq!(r.status, 409);
 }
 
+async fn next_event(events: &mut tokio::sync::broadcast::Receiver<oc_core::bus::Event>, kind: &str) -> oc_core::bus::Event {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let e = events.recv().await.unwrap();
+            if e.kind == kind {
+                return e;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("no {kind}"))
+}
+
+#[tokio::test]
+async fn vcs_branch_follows_head() {
+    if !git_available() {
+        return;
+    }
+    let h = harness();
+    git(&h.cwd, &["init", "-q"]);
+    std::fs::write(h.cwd.join("a.txt"), "one\n").unwrap();
+    git(&h.cwd, &["add", "."]);
+    git(&h.cwd, &["commit", "-qm", "init"]);
+    let mut events = h.app.bus.subscribe();
+    assert_eq!(h.get("/api/vcs").await.json()["data"]["branch"]["current"], "main");
+    // The boot refresh announces the branch, then the watcher starts in the background.
+    assert_eq!(next_event(&mut events, "vcs.branch.updated").await.data, json!({"branch": "main"}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    git(&h.cwd, &["checkout", "-qb", "feature"]);
+    let changed = next_event(&mut events, "filesystem.changed").await;
+    let head = std::fs::canonicalize(h.cwd.join(".git")).unwrap().join("HEAD");
+    assert_eq!(changed.data, json!({"file": head.display().to_string(), "event": "change"}));
+    assert_eq!(next_event(&mut events, "vcs.branch.updated").await.data, json!({"branch": "feature"}));
+    assert_eq!(h.get("/api/vcs").await.json()["data"]["branch"]["current"], "feature");
+
+    // A commit moves the branch, not HEAD: no announcement.
+    std::fs::write(h.cwd.join("a.txt"), "two\n").unwrap();
+    git(&h.cwd, &["commit", "-qam", "two"]);
+    git(&h.cwd, &["checkout", "-q", "main"]);
+    assert_eq!(next_event(&mut events, "vcs.branch.updated").await.data, json!({"branch": "main"}));
+}
+
 #[tokio::test]
 async fn vcs_init_on_plain_directory() {
     if !git_available() {

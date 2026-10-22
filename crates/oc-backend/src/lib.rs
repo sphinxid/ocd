@@ -14,6 +14,7 @@ pub mod shells;
 pub mod stats;
 pub mod store;
 pub mod util;
+pub mod vcs_watch;
 
 use std::sync::Arc;
 

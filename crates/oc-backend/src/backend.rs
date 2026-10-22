@@ -1291,8 +1291,12 @@ impl Backend for Engine {
     }
 
     async fn vcs_get(&self, ctx: &RequestContext, _req: VcsGetRequest) -> Result<VcsInfo, ApiError> {
-        let vcs = self.vcs(ctx).await?;
-        conv(vcs.info().await)
+        // The info of the last refresh (`current.info`); before the boot refresh, read it now.
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        match loc.vcs_state.cached() {
+            Some(info) => conv(info),
+            None => conv(crate::vcs_watch::info(&self.app, &loc).await),
+        }
     }
 
     async fn vcs_base(&self, ctx: &RequestContext, _req: VcsBaseRequest) -> Result<Option<VcsBase>, ApiError> {

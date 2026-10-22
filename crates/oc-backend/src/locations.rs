@@ -34,6 +34,8 @@ pub struct Loc {
     pub key: String,
     pub location: Arc<Location>,
     pub snapshots: Snapshots,
+    /// Cached VCS info and the branch watcher.
+    pub vcs_state: crate::vcs_watch::VcsState,
 }
 
 impl Loc {
@@ -103,6 +105,31 @@ impl Locations {
                 }
             });
         }
+        // Plugins changed a location's VCS providers: the Vcs State notify refreshes the info
+        // (once the boot refresh ran).
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let mut rx = app.plugins.subscribe_changes();
+            let (weak, app) = (Arc::downgrade(&map), app.clone());
+            handle.spawn(async move {
+                loop {
+                    match rx.recv().await {
+                        Ok(change) if change.domain == "vcs" => {
+                            let Some(map) = weak.upgrade() else { break };
+                            let loc = map.lock().get(&change.key).and_then(|c| c.get().cloned());
+                            if let Some(loc) = loc.filter(|l| l.vcs_state.cached().is_some()) {
+                                crate::vcs_watch::refresh(&app, &loc).await;
+                            }
+                        }
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            if weak.strong_count() == 0 {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
         Locations { app, runner, git: Git::new(), map, activated: Mutex::new(HashMap::new()) }
     }
 
@@ -152,46 +179,44 @@ impl Locations {
                 vcs: location.project.vcs.as_ref().map(|v| v.kind().to_string()),
             },
         );
-        let loc = Arc::new(Loc { key: directory.to_string(), location, snapshots });
+        let loc = Arc::new(Loc { key: directory.to_string(), location, snapshots, vcs_state: Default::default() });
         let at = oc_schema::types::LocationRef { directory: directory.to_string(), workspace_id: None };
         // `LocationLifecycle` activates the project inside the location's service scope, so the
         // event carries the location (core/src/location-lifecycle.ts:32, bus.ts publish).
         self.activate(loc.project_id(), Some(at.clone()));
         if oc_core::plugins::Plugins::has_operations(&loc.location) && !self.app.plugins.activated(&loc.key) {
             // Configured plugins: the boot batch ends when their activation settles.
-            let (app, loc2, at2) = (self.app.clone(), loc.clone(), at.clone());
+            let (app, git, loc2, at2) = (self.app.clone(), self.git.clone(), loc.clone(), at.clone());
             tokio::spawn(async move {
                 app.plugins.await_activation(&loc2.key).await;
-                boot_notifications(&app, &loc2, &at2).await;
+                boot_notifications(&app, &git, &loc2, &at2).await;
                 app.plugins.rebuild(&loc2.location).await;
             });
             return Ok(loc);
         }
-        boot_notifications(&self.app, &loc, &at).await;
+        boot_notifications(&self.app, &self.git, &loc, &at).await;
         Ok(loc)
     }
 }
 
-/// The `*.updated` notifications of a location's boot batch.
-async fn boot_notifications(app: &App, loc: &Loc, at: &oc_schema::types::LocationRef) {
-    {
-        // Booting a location activates the built-in plugins inside one `State.batch`; when the
-        // batch ends every State they touched notifies once, in first-change order, and the plugin
-        // supervisor then announces its inventory (core/src/plugin.ts `activate`, core/src/state.ts
-        // `batch`). With the default plugin set those are exactly these nine events.
-        for kind in BOOT_NOTIFICATIONS {
-            // The git VCS provider registers in the same batch; the Vcs State notify (after models, before
-            // agents) refreshes the branch and announces it when it changed from unknown
-            // (core/src/vcs.ts `refresh`).
-            if kind == "agent.updated"
-                && let Some(vcs) = loc.git_vcs()
-                && let Some(branch) = vcs.info().await.branch.current
-            {
-                app.bus.publish("vcs.branch.updated", json!({ "branch": branch }), Some(at.clone()));
-            }
-            app.bus.publish(kind, json!({}), Some(at.clone()));
+/// The `*.updated` notifications of a location's boot batch, then the branch watcher.
+async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_schema::types::LocationRef) {
+    // Booting a location activates the built-in plugins inside one `State.batch`; when the batch
+    // ends every State they touched notifies once, in first-change order, and the plugin supervisor
+    // then announces its inventory (core/src/plugin.ts `activate`, core/src/state.ts `batch`). With
+    // the default plugin set those are exactly these nine events.
+    for kind in BOOT_NOTIFICATIONS {
+        // The git VCS provider registers in the same batch; the Vcs State notify (after models,
+        // before agents) refreshes the info and announces the branch when it changed from unknown
+        // (core/src/vcs.ts `refresh`).
+        if kind == "agent.updated" {
+            crate::vcs_watch::refresh(app, loc).await;
         }
+        app.bus.publish(kind, json!({}), Some(at.clone()));
     }
+    // `LocationWatcher` starts once plugins have activated, in the background.
+    let (app, git, loc) = (app.clone(), git.clone(), loc.clone());
+    tokio::spawn(async move { crate::vcs_watch::watch(&app, &git, &loc).await });
 }
 
 impl Locations {

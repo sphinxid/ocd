@@ -78,7 +78,6 @@ suite, many replaying recorded upstream data.
 | Built-in AI SDK packages | Upstream bundles `@ai-sdk/cohere`, `@ai-sdk/perplexity`, `@ai-sdk/vercel` and `gitlab-ai-provider`. ocd installs them from npm on first use, at the same versions. If an install fails, the error wording differs. |
 | `session.http.response` plugin hook | The hook receives the whole response body as text instead of a stream. |
 | Plugin worktree strategies | Worktree tools use plugin strategies only after the project's location has loaded. They otherwise fall back to git. |
-| Branch-change notifications | ocd re-reads git on each request and announces the branch only at start-up. Upstream watches for branch changes. |
 | Persistent terminals | Same `opencode-pty` helper. ocd downloads it once instead of carrying it inside the binary. |
 | Mini mode (`ocd mini`) | Works, but is simplified and not compared screen by screen. |
 | `ocd auth login` pickers | Multi-select asks for comma-separated values. |
