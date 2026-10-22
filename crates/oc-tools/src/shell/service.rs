@@ -88,8 +88,6 @@ fn kill_group(pid: u32, signal: i32) {
     }
 }
 
-#[cfg(not(unix))]
-fn kill_group(_pid: u32, _signal: i32) {}
 
 fn kill_tree(pid: Option<u32>) {
     let Some(pid) = pid else { return };

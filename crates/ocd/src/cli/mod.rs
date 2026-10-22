@@ -152,7 +152,10 @@ pub fn emit(root: &Cmd, outcome: &Outcome) -> i32 {
             1
         }
         Outcome::Version => {
-            println!("{}", help::version(root.name, oc_util::version::VERSION, c));
+            match oc_util::version::BUILD {
+                Some(build) => println!("{} (opencode {})", help::version(root.name, build, c), oc_util::version::VERSION),
+                None => println!("{}", help::version(root.name, oc_util::version::VERSION, c)),
+            }
             0
         }
         Outcome::Completions(script) => {

@@ -6,6 +6,14 @@ pub const VERSION: &str = match option_env!("OPENCODE_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
+/// The ocd build, e.g. `1.2.0+abc1234` (release tag and commit), set by the release workflow
+/// with `OCD_BUILD_VERSION`. Only `--version` and the log show it; everything opencode-compatible
+/// (user agent, plugins, service registration) keeps [`VERSION`].
+pub const BUILD: Option<&str> = match option_env!("OCD_BUILD_VERSION") {
+    Some(v) if !v.is_empty() => Some(v),
+    _ => None,
+};
+
 /// Release channel. Override at build time with `OPENCODE_CHANNEL`.
 pub const CHANNEL: &str = match option_env!("OPENCODE_CHANNEL") {
     Some(v) => v,

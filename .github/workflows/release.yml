@@ -1,0 +1,178 @@
+# Builds ocd for every supported platform when a version tag (v*) is pushed, and publishes the
+# binaries on the GitHub release for that tag (created if it doesn't exist yet).
+#
+# The binaries report `<tag without v>+<short commit>` in `ocd --version`; everything that must stay
+# opencode-compatible (user agent, plugins, service registration) keeps the workspace version.
+#
+# Run it again for an existing tag from the Actions tab (Run workflow, with the tag name).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: "1.99.0"
+  # The upstream opencode commit ocd replicates, and the bun it builds with.
+  UPSTREAM_REPO: https://github.com/anomalyco/opencode.git
+  UPSTREAM_COMMIT: 4617210822bdbb31e5749751afbfb4584ccedac8
+  BUN_VERSION: "1.4.2"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  meta:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - id: meta
+        shell: bash
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="${tag#v}+$(git rev-parse --short=7 HEAD)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building $tag as $version"
+
+  # The web UI is upstream's web app, built once from the pinned upstream commit and embedded in
+  # every binary. If it fails, the binaries are built without it (ocd serve then answers 404 for
+  # web pages; the TUI and CLI don't need it).
+  web-ui:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Install bun
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bun.zip" \
+            "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"
+          unzip -q "$RUNNER_TEMP/bun.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: Check out upstream opencode
+        shell: bash
+        run: |
+          git init -q "$RUNNER_TEMP/opencode"
+          cd "$RUNNER_TEMP/opencode"
+          git fetch -q --depth 1 "$UPSTREAM_REPO" "$UPSTREAM_COMMIT"
+          git checkout -q FETCH_HEAD
+          bun install
+      - name: Build the web UI archive
+        shell: bash
+        run: scripts/build-web-ui.sh "$RUNNER_TEMP/opencode" "$RUNNER_TEMP/app-archive.bin"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-ui
+          path: ${{ runner.temp }}/app-archive.bin
+          retention-days: 1
+
+  build:
+    needs: [meta, web-ui]
+    if: ${{ !cancelled() && needs.meta.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: linux-arm64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: windows-x64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+          - name: darwin-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target ${{ matrix.target }}
+          rustup default "$RUST_VERSION"
+      - name: Download the web UI
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: web-ui
+          path: ${{ runner.temp }}/web-ui
+      - name: Build
+        shell: bash
+        env:
+          OCD_BUILD_VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          archive="$RUNNER_TEMP/web-ui/app-archive.bin"
+          if [ -f "$archive" ]; then
+            export OCD_WEB_UI_ARCHIVE="$archive"
+          else
+            echo "::warning::building without the web UI"
+          fi
+          cargo build --release --locked -p ocd --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          name="ocd-${{ needs.meta.outputs.tag }}-${{ matrix.name }}"
+          bin="target/${{ matrix.target }}/release/ocd"
+          [ -f "$bin.exe" ] && bin="$bin.exe"
+          "$bin" --version
+          mkdir -p "dist/$name"
+          cp "$bin" LICENSE LICENSE-opencode README.md "dist/$name/"
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip -bso0 "$name.zip" "$name"
+          else
+            tar -czf "$name.tar.gz" "$name"
+          fi
+          rm -rf "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ocd-${{ matrix.name }}
+          path: dist/*
+          retention-days: 1
+
+  release:
+    needs: [meta, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ocd-*
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          cd dist
+          sha256sum ocd-* > SHA256SUMS
+          cat SHA256SUMS
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" ocd-* SHA256SUMS --clobber
+          else
+            gh release create "$TAG" ocd-* SHA256SUMS --title "$TAG" --generate-notes --verify-tag
+          fi

@@ -43,12 +43,10 @@ fn stale(dir: &Path, stale: Duration) -> bool {
 }
 
 fn mkdir700(p: &Path) -> std::io::Result<()> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        b.mode(0o700);
-    }
+    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
     b.create(p)
 }
 

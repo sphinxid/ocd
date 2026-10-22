@@ -484,6 +484,7 @@ impl Contender {
     }
 }
 
+#[cfg(unix)]
 pub fn signal_name(sig: i32) -> String {
     match sig {
         1 => "SIGHUP",

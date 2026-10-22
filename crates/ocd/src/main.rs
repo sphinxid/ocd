@@ -56,6 +56,7 @@ fn main() {
     oc_util::panic::install();
     tracing::info!(
         version = oc_util::version::VERSION,
+        build = oc_util::version::BUILD.unwrap_or(""),
         channel = oc_util::version::CHANNEL,
         local = oc_util::version::local(),
         args = %serde_json::to_string(&argv).unwrap_or_default(),

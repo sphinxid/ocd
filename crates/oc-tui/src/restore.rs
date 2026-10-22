@@ -6,7 +6,9 @@
 //! The signal path only uses `write` and `tcsetattr`, which are async-signal-safe.
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicI32, AtomicU8, Ordering};
+#[cfg(unix)]
+use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 pub const ALT_SCREEN: u8 = 1;
 pub const MOUSE: u8 = 2;
@@ -16,6 +18,7 @@ pub const KITTY: u8 = 16;
 
 /// The modes the TUI turned on; 0 while it is not holding the terminal.
 static MODES: AtomicU8 = AtomicU8::new(0);
+#[cfg(unix)]
 static TTY: AtomicI32 = AtomicI32::new(-1);
 #[cfg(unix)]
 static SAVED: OnceLock<libc::termios> = OnceLock::new();

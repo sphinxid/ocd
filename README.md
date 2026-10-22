@@ -96,7 +96,7 @@ suite, many replaying recorded upstream data.
 | Remote access tunnel (OpenTunnel: `serve --remote`, `pair --remote`) | Prints that it's unsupported. |
 | `--wizard` mode | Prints an error. |
 | Some cloud credentials | AWS SSO, web identity and instance metadata, and Google workload identity federation, are missing. Env vars, shared config files, `credential_process` and ECS credentials work. |
-| macOS, Windows, Linux ARM | Not built or tested yet. Only Linux x86_64 is tested. |
+| Testing on macOS, Windows and Linux ARM | Release binaries are built for them, but only Linux x86_64 is tested. |
 
 ### Different on purpose
 
@@ -108,6 +108,31 @@ suite, many replaying recorded upstream data.
 - **Name:** the program name, help text and logo say `ocd` / `opencode-d`.
 - **`ocd upgrade`:** prints how to rebuild from source instead of downloading a release.
 - **Version and release channel:** a source build reports `2.0.26` on the `latest` channel.
+
+## Releases
+
+Pushing a tag that starts with `v` builds ocd for every platform and publishes the binaries on the GitHub
+release for that tag (`.github/workflows/release.yml`):
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+| File | Platform |
+|---|---|
+| `ocd-<tag>-linux-x64.tar.gz` | Linux x86_64, glibc 2.35 or newer (Ubuntu 22.04, Debian 12 and later) |
+| `ocd-<tag>-linux-arm64.tar.gz` | Linux ARM64, glibc 2.35 or newer |
+| `ocd-<tag>-windows-x64.zip` | Windows x86_64 |
+| `ocd-<tag>-darwin-arm64.tar.gz` | macOS on Apple silicon |
+
+`SHA256SUMS` lists the checksums. The binaries include the web UI. `ocd --version` shows the tag and commit,
+for example `ocd v1.0.0+1a2b3c4 (opencode 2.0.26)`; the opencode version is the one ocd reports to providers,
+plugins and the service, so it stays compatible. To rebuild an existing tag, run the workflow from the Actions
+tab with the tag name.
+
+The macOS binary isn't signed. After unpacking, clear the download quarantine once:
+`xattr -d com.apple.quarantine ocd`.
 
 ## Building
 
@@ -121,7 +146,7 @@ suite, many replaying recorded upstream data.
 ### Build the binary
 
 ```sh
-git clone git@github.com:sphinxid/ocd.git
+git clone https://github.com/sphinxid/ocd.git
 cd ocd
 cargo build --release -p ocd
 ./target/release/ocd --version     # ocd v2.0.26
@@ -131,6 +156,9 @@ The release build is optimised and stripped. The binary is self-contained: it ho
 optionally, the web UI. It links only against the system C library, so another Linux x86_64 machine needs
 glibc of the same version or newer. A binary built on Ubuntu 24.04 needs glibc 2.39, which means Ubuntu 24.04,
 Debian 13, Fedora 40 or newer.
+
+To stamp your own version into `ocd --version`, set `OCD_BUILD_VERSION` when building, for example
+`OCD_BUILD_VERSION=1.0.0+$(git rev-parse --short HEAD) cargo build --release -p ocd`.
 
 ### Optional: include the web UI
 
