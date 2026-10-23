@@ -270,6 +270,13 @@ pub fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style, max: usiz
     let mut cx = x as usize;
     let limit = (x as usize + max).min(area.right() as usize);
     for g in graphemes(text) {
+        // A control character would reach the terminal raw and move its cursor: a tab takes one
+        // cell, anything else none.
+        let g = if g.chars().any(char::is_control) {
+            if g == "\t" { " " } else { continue }
+        } else {
+            g
+        };
         let gw = width(g);
         if gw == 0 {
             continue;
@@ -392,6 +399,15 @@ mod tests {
 
     fn texts(lines: Vec<Vec<Seg>>) -> Vec<String> {
         lines.into_iter().map(|l| l.into_iter().map(|s| s.text).collect()).collect()
+    }
+
+    #[test]
+    fn put_keeps_control_characters_off_the_screen() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 1));
+        let written = put(&mut buf, 0, 0, "a\tb\r\x1bc", Style::default(), 10);
+        assert_eq!(written, 4);
+        let row: String = (0..10).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+        assert_eq!(row, "a bc      ");
     }
 
     #[test]

@@ -58,7 +58,10 @@ pub struct Screen<'a, B: ratatui::backend::Backend> {
     pub after: Option<AfterFrame<'a>>,
 }
 
-impl<B: ratatui::backend::Backend> Hooks for Screen<'_, B> {
+impl<B: ratatui::backend::Backend> Hooks for Screen<'_, B>
+where
+    B::Error: Send + Sync + 'static,
+{
     fn draw(&mut self, app: &mut App) -> anyhow::Result<()> {
         self.term.draw(|f| app.draw(f))?;
         if let Some(f) = &mut self.after {
