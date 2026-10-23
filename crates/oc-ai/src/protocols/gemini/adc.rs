@@ -103,7 +103,7 @@ async fn fetch_token(client: &reqwest::Client) -> Result<(String, u64), AuthFail
         }
     } else {
         client
-            .get("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token")
+            .get("https://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token")
             .header("Metadata-Flavor", "Google")
             .timeout(Duration::from_secs(3))
             .send()
