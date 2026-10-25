@@ -28,6 +28,9 @@ Measured on Linux x86_64, release builds of both, same mock model, isolated fold
 
 ## Status: what works and what doesn't
 
+This status is against opencode 2.0.26. Upstream has since released 2.1.4; what ocd needs to catch up is listed
+in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md).
+
 How the comparison is done: both binaries run the same 61 scenarios side by side and their outputs are diffed
 (`scripts/parity.py`, see [docs/PARITY.md](docs/PARITY.md)). These cover the agent loop, sessions, permissions,
 forms, read-only endpoints, 74 error cases, the CLI, plugins, GitHub Copilot and the OpenAI WebSocket transport.
