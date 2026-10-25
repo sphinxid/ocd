@@ -254,13 +254,13 @@ pub enum Content {
         #[serde(default)]
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        state: Option<Value>,
+        native: Option<Value>,
     },
     Reasoning {
         #[serde(default)]
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        state: Option<Value>,
+        native: Option<Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         time: Option<PartTime>,
     },
@@ -364,8 +364,9 @@ pub struct Message {
     pub reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
-    #[serde(rename = "providerContext", default, skip_serializing_if = "Option::is_none")]
-    pub provider_context: Option<Value>,
+    /// A provider compaction's native data; its replacement window is `native.messages`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<Value>,
     // idle
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,

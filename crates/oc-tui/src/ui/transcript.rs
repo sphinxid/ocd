@@ -1472,7 +1472,7 @@ fn render_message(ctx: &RCtx, id: &str, light: bool) -> Vec<SLine> {
             } else if status == "failed" && !cancelled {
                 center.push(s("✗ ", color));
             }
-            center.push(s(if status == "completed" && m.provider_context.is_some() { "Provider compaction" } else { "Compaction" }, color));
+            center.push(s(if status == "completed" && m.native.as_ref().is_some_and(|n| n.get("messages").is_some_and(|w| !w.is_null())) { "Provider compaction" } else { "Compaction" }, color));
             if cancelled {
                 center.push(s(" · cancelled", color));
             }

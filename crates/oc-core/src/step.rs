@@ -381,7 +381,7 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
                 assistant_message_id: aid,
                 finish: f.finish,
                 raw_finish: f.raw_finish.clone(),
-                provider_state: f.provider_state.clone(),
+                native: f.native.clone(),
                 cost,
                 tokens,
                 snapshot: end,

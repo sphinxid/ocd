@@ -93,7 +93,6 @@ crate::lit_str!(LitSkill, "skill");
 crate::lit_str!(LitSystem, "system");
 crate::lit_str!(LitError, "error");
 crate::lit_str!(LitStreaming, "streaming");
-crate::lit_int!(Lit1, 1);
 crate::lit_str!(LitSessionBusyError, "SessionBusyError");
 crate::lit_str!(LitSessionNotFoundError, "SessionNotFoundError");
 crate::lit_str!(LitNone, "none");
@@ -1152,8 +1151,6 @@ pub struct CredentialKey {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<JsonObject>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub configuration: Option<FormAnswer1>,
 }
 
 /// Component schema `Credential.OAuth`.
@@ -1280,9 +1277,6 @@ pub struct ForbiddenErrorEncoded {
 
 /// Component schema `Form.Answer`.
 pub type FormAnswer = indexmap::IndexMap<String, FormValue>;
-
-/// Component schema `Form.Answer_1`.
-pub type FormAnswer1 = indexmap::IndexMap<String, FormValue>;
 
 /// Component schema `Form.BooleanField`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -3797,8 +3791,8 @@ pub struct SessionMessageAssistant {
     pub finish: Option<SessionMessageAssistantFinish>,
     #[serde(rename = "rawFinish", default, skip_serializing_if = "Option::is_none")]
     pub raw_finish: Option<String>,
-    #[serde(rename = "providerState", default, skip_serializing_if = "Option::is_none")]
-    pub provider_state: Option<SessionMessageProviderState4>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative3>,
     #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
     pub cost: Option<MoneyUSD>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3891,7 +3885,7 @@ pub struct SessionMessageAssistantReasoning {
     pub r#type: LitReasoning,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<SessionMessageProviderState1>,
+    pub native: Option<SessionMessageNative1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time: Option<SessionMessageAssistantReasoningTime>,
 }
@@ -3919,7 +3913,7 @@ pub struct SessionMessageAssistantText {
     pub r#type: LitText,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<SessionMessageProviderState>,
+    pub native: Option<SessionMessageNative>,
 }
 
 /// Component schema `Session.Message.Assistant.Tool`.
@@ -3930,10 +3924,8 @@ pub struct SessionMessageAssistantTool {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executed: Option<bool>,
-    #[serde(rename = "providerState", default, skip_serializing_if = "Option::is_none")]
-    pub provider_state: Option<SessionMessageProviderState2>,
-    #[serde(rename = "providerResultState", default, skip_serializing_if = "Option::is_none")]
-    pub provider_result_state: Option<SessionMessageProviderState3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative2>,
     pub state: SessionMessageAssistantToolState,
     pub time: SessionMessageAssistantToolTime,
 }
@@ -4020,12 +4012,9 @@ pub struct SessionMessageCompactionCompleted {
     pub reason: SessionMessageCompactionCompletedReason,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
-    #[serde(rename = "providerState", default, skip_serializing_if = "Option::is_none")]
-    pub provider_state: Option<SessionMessageProviderState5>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative4>,
     pub summary: String,
-    pub recent: String,
-    #[serde(rename = "providerContext", default, skip_serializing_if = "Option::is_none")]
-    pub provider_context: Option<SessionProviderContext>,
     #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
     pub cost: Option<MoneyUSD>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4108,7 +4097,6 @@ pub struct SessionMessageCompactionRunning {
     pub status: LitRunning,
     pub reason: SessionMessageCompactionRunningReason,
     pub summary: String,
-    pub recent: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -4312,23 +4300,20 @@ pub struct SessionMessageModelSelectedTime {
     pub created: f64,
 }
 
-/// Component schema `Session.Message.ProviderState`.
-pub type SessionMessageProviderState = JsonObject;
+/// Component schema `Session.Message.Native`.
+pub type SessionMessageNative = JsonObject;
 
-/// Component schema `Session.Message.ProviderState_1`.
-pub type SessionMessageProviderState1 = JsonObject;
+/// Component schema `Session.Message.Native_1`.
+pub type SessionMessageNative1 = JsonObject;
 
-/// Component schema `Session.Message.ProviderState_2`.
-pub type SessionMessageProviderState2 = JsonObject;
+/// Component schema `Session.Message.Native_2`.
+pub type SessionMessageNative2 = JsonObject;
 
-/// Component schema `Session.Message.ProviderState_3`.
-pub type SessionMessageProviderState3 = JsonObject;
+/// Component schema `Session.Message.Native_3`.
+pub type SessionMessageNative3 = JsonObject;
 
-/// Component schema `Session.Message.ProviderState_4`.
-pub type SessionMessageProviderState4 = JsonObject;
-
-/// Component schema `Session.Message.ProviderState_5`.
-pub type SessionMessageProviderState5 = JsonObject;
+/// Component schema `Session.Message.Native_4`.
+pub type SessionMessageNative4 = JsonObject;
 
 /// Component schema `Session.Message.Shell`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4507,27 +4492,6 @@ pub struct SessionMessageUserTime {
 
 /// Component schema `Session.Metadata`.
 pub type SessionMetadata = JsonObject;
-
-/// Component schema `Session.ProviderContext`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SessionProviderContext {
-    pub version: Lit1,
-    pub provenance: SessionProviderContextProvenance,
-    pub messages: serde_json::Value,
-}
-
-/// Component schema `Session.ProviderContext.Provenance`.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct SessionProviderContextProvenance {
-    #[serde(rename = "providerID")]
-    pub provider_id: ProviderID,
-    pub provider: String,
-    #[serde(rename = "modelID")]
-    pub model_id: String,
-    pub route: String,
-    pub protocol: String,
-    pub endpoint: String,
-}
 
 /// Component schema `Session.Revert`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -5222,7 +5186,7 @@ impl ExperimentalSessionStatsTools {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ExperimentalSessionImportBody {
     pub info: SessionInfo,
-    pub messages: Vec<SessionMessageInfo>,
+    pub messages: Vec<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<LocationPublicRef>,
 }
@@ -7516,7 +7480,7 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// `POST /api/experimental/session/import` — `experimental.session.import`: Import session.
     ///
-    /// Import a projected session transcript at the requested location. If parentID is supplied, the parent session must already exist; import parents before children.
+    /// Import a projected session transcript at the requested location. Accepts transcripts exported by earlier releases. If parentID is supplied, the parent session must already exist; import parents before children.
     ///
     /// Scope `G`, envelope `Data`.
     async fn experimental_session_import(&self, ctx: &RequestContext, req: ExperimentalSessionImportRequest) -> Result<SessionInfo, ApiError> {

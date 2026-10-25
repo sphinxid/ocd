@@ -422,7 +422,7 @@ impl Engine {
             .resolve_for_session(Some(&sel.location.key), &catalog, &sel.session.id, sel.session.model.as_ref(), config_model.as_ref())
             .await
             .map_err(|e| crate::errors::StepFailed(SessionError::new("provider.no-route", e.to_string())))?;
-        let messages = history_for_runner(&self.app.bus, &sel.session.id)?;
+        let messages = history_for_runner(&self.app.bus, &sel.session.id, &resolved.model_ref())?;
         let initial = crate::instruction_state::initial(&self.app.bus, &sel.session.id, &sel.sources)?;
         Ok(Loaded { sel, resolved, messages, initial })
     }
@@ -628,7 +628,6 @@ impl Engine {
                                 Durable1::from(SessionEvent::CompactionStarted {
                                     session_id: session_id.into(),
                                     reason: oc_schema::message::CompactionReason::Manual,
-                                    recent: String::new(),
                                     input_id: Some(n.id.clone()),
                                 }),
                             ])?;
@@ -877,14 +876,9 @@ impl Engine {
     }
 }
 
-/// `SessionHistory.entriesForRunner`: messages from the latest completed (local) compaction.
-pub fn history_for_runner(bus: &Bus, session: &str) -> anyhow::Result<Vec<Message>> {
-    let all = bus.db().session_messages(session)?;
-    let start = all
-        .iter()
-        .rposition(|(_, m)| matches!(m, Message::Compaction(c) if matches!(&c.status, CompactionStatus::Completed { provider_context: None, .. })))
-        .unwrap_or(0);
-    Ok(all.into_iter().skip(start).map(|(_, m)| m).collect())
+/// `SessionHistory.entriesForRunner`: messages from the latest completed compaction that `model` can replay.
+pub fn history_for_runner(bus: &Bus, session: &str, model: &ModelRef) -> anyhow::Result<Vec<Message>> {
+    crate::history::load(bus.db(), session, crate::history::Boundary::Model(model))
 }
 
 /// `settleStaleCompactions` + `settleStaleToolCalls`
@@ -928,7 +922,7 @@ fn settle_stale(bus: &Bus, session: &str) -> anyhow::Result<()> {
                 content: None,
                 metadata: metadata.filter(|m| !m.is_empty()),
                 executed: executed.unwrap_or(false),
-                result_state: None,
+                native: None,
             })?;
         }
     }

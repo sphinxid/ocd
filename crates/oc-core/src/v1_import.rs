@@ -734,7 +734,11 @@ pub fn transform_session(
                 data.insert("status".into(), "completed".into());
                 data.insert("reason".into(), if get_bool(compaction, "auto") { "auto" } else { "manual" }.into());
                 data.insert("summary".into(), summary_text.into());
-                data.insert("recent".into(), serialize_recent(tail, &owned_of).into());
+                // V1 kept these messages beside the summary; they replay as text, like compactions before v2.1.
+                let recent = serialize_recent(tail, &owned_of);
+                if !recent.is_empty() {
+                    data.insert("metadata".into(), json!({ "recent": recent }));
+                }
                 data.insert("time".into(), json!({"created": item.row.time_created}));
                 let mut row = make_row(item.row, item.row.id.clone(), "compaction", data);
                 row.time_updated = item.row.time_updated.max(summary.row.time_updated);
@@ -841,7 +845,7 @@ pub fn transform_session(
                     c.insert("type".into(), "text".into());
                     c.insert("text".into(), p.get("text").cloned().unwrap_or(Value::Null));
                     if let Some(m) = p.get("metadata") {
-                        c.insert("state".into(), m.clone());
+                        c.insert("native".into(), m.clone());
                     }
                     content.push(Value::Object(c));
                 }
@@ -850,7 +854,7 @@ pub fn transform_session(
                     c.insert("type".into(), "reasoning".into());
                     c.insert("text".into(), p.get("text").cloned().unwrap_or(Value::Null));
                     if let Some(m) = p.get("metadata") {
-                        c.insert("state".into(), m.clone());
+                        c.insert("native".into(), m.clone());
                     }
                     let t = get_obj(p, "time");
                     let mut time = Map::new();
@@ -1099,7 +1103,7 @@ fn migrate_tool(part: &Map<String, Value>, fallback: i64) -> Value {
     out.insert("id".into(), part.get("callID").cloned().unwrap_or(Value::Null));
     out.insert("name".into(), part.get("tool").cloned().unwrap_or(Value::Null));
     if let Some(m) = part.get("metadata") {
-        out.insert("providerState".into(), m.clone());
+        out.insert("native".into(), m.clone());
     }
     let empty = Map::new();
     let state = get_obj(part, "state").unwrap_or(&empty);

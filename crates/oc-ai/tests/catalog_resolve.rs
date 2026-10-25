@@ -212,8 +212,7 @@ fn injects_credentials() {
     let opts = options(&loader);
     let key = CredentialValue::Key {
         key: "stored".into(),
-        metadata: Some(obj(json!({"accountID": "acct"}))),
-        configuration: Some(obj(json!({"resourceName": "res"}))),
+        metadata: Some(obj(json!({"accountID": "acct", "resourceName": "res"}))),
     };
     from_catalog_model(&model("@opencode/ai/providers/openai", json!({"apiKey": "configured", "authToken": "t"})), Some(&key), &opts).unwrap();
     let settings = loader.last().2;
@@ -415,7 +414,7 @@ fn resolves_snapshot_models_with_variants() {
         .expect("anthropic model with a high variant")
         .clone();
     let loader = Arc::new(FakeLoader::default());
-    let credential = CredentialValue::Key { key: "sk-ant".into(), metadata: None, configuration: None };
+    let credential = CredentialValue::Key { key: "sk-ant".into(), metadata: None };
     let resolved = catalog
         .resolve_with("anthropic", &model.id, Some("high"), Some(&credential), &options(&loader))
         .unwrap();

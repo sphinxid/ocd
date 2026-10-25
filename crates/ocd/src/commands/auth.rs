@@ -209,10 +209,15 @@ pub async fn import(global: &Global, input: &Input) -> anyhow::Result<i32> {
                 t
             }
         };
-        let entries: Vec<Value> = serde_json::from_str(&text)?;
-        for e in &entries {
+        let mut entries: Vec<Value> = serde_json::from_str(&text)?;
+        for e in entries.iter_mut() {
             if !(e.get("id").is_some_and(Value::is_string) && e.get("integrationID").is_some_and(Value::is_string) && e.get("value").is_some_and(Value::is_object)) {
                 anyhow::bail!("Expected an array of credential entries");
+            }
+            // `CredentialLegacy.Entry`: files exported before v2.1 keep key form answers in `configuration`.
+            match serde_json::from_value::<oc_ai::credentials::CredentialValue>(e["value"].clone()) {
+                Ok(value) => e["value"] = serde_json::to_value(value)?,
+                Err(_) => anyhow::bail!("Expected an array of credential entries"),
             }
         }
         let server = connection::resolve(global, server_args(input)).await?;

@@ -188,8 +188,9 @@ pub async fn import(global: &Global, input: &Input) -> anyhow::Result<i32> {
     } else {
         std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("Failed to read session data: {e}"))?
     };
+    // The server validates the transcript, including exports written by earlier releases.
     let data: Value = serde_json::from_str(&text)?;
-    let Some(obj) = data.as_object().filter(|o| o.get("info").is_some_and(Value::is_object)) else {
+    let Some(obj) = data.as_object() else {
         anyhow::bail!("Expected session transfer data with an info object");
     };
     let server = connection::resolve(global, server_args(input)).await?;

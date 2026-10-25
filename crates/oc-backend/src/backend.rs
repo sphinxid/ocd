@@ -483,7 +483,13 @@ impl Backend for Engine {
             directory: b.location.map(|l| l.directory).unwrap_or_else(|| ctx.server.cwd.clone()),
             workspace_id: None,
         };
-        let data = json!({"info": b.info, "messages": b.messages});
+        // Transcripts exported before v2.1 carry older names for native data: the wire stays plain JSON, and
+        // the messages are upgraded and then validated as the current shape (`ImportedMessages`).
+        let messages = oc_schema::legacy::messages(b.messages);
+        if let Some(issue) = oc_server::validate::items_issue("Session.Message.Info", "messages", &messages) {
+            return Err(ApiError::schema("Payload", issue));
+        }
+        let data = json!({"info": b.info, "messages": messages});
         match oc_core::transfer::import(&self.app.bus, &self.app.sessions, &data, location).await {
             Ok(s) => self.session_api(&s),
             Err(oc_core::transfer::ImportError::Conflict(id)) => {

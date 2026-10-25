@@ -119,12 +119,12 @@ pub enum AssistantContent {
     Text {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        state: Option<Metadata>,
+        native: Option<Metadata>,
     },
     Reasoning {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        state: Option<Metadata>,
+        native: Option<Metadata>,
         #[serde(skip_serializing_if = "Option::is_none")]
         time: Option<CompletedTime>,
     },
@@ -133,10 +133,9 @@ pub enum AssistantContent {
         name: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         executed: Option<bool>,
-        #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
-        provider_state: Option<Metadata>,
-        #[serde(rename = "providerResultState", skip_serializing_if = "Option::is_none")]
-        provider_result_state: Option<Metadata>,
+        /// Provider-owned replay data. A tool's result data is merged into its call data.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        native: Option<Metadata>,
         state: ToolState,
         time: ToolTime,
     },
@@ -294,8 +293,9 @@ pub struct Assistant {
     pub finish: Option<FinishReason>,
     #[serde(rename = "rawFinish", skip_serializing_if = "Option::is_none")]
     pub raw_finish: Option<String>,
-    #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
-    pub provider_state: Option<Metadata>,
+    /// Step-level native data, such as a provider's reason for blocking a response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native: Option<Metadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -322,18 +322,16 @@ pub enum CompactionStatus {
     Running {
         reason: CompactionReason,
         summary: String,
-        recent: String,
     },
     Completed {
         reason: CompactionReason,
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<ModelRef>,
-        #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
-        provider_state: Option<Metadata>,
+        /// A provider compaction stores its replacement window in `native.messages`, replayed instead of
+        /// `summary`. A summary references the messages it keeps verbatim with `metadata.keepID`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        native: Option<Metadata>,
         summary: String,
-        recent: String,
-        #[serde(rename = "providerContext", skip_serializing_if = "Option::is_none")]
-        provider_context: Option<Value>,
         #[serde(skip_serializing_if = "Option::is_none")]
         cost: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -408,13 +406,18 @@ impl Message {
         v.to_string()
     }
 
-    /// Reconstruct from a `session_message` row (`{...data, id, type}`).
+    /// Reconstruct from a `session_message` row (`{...data, id, type}`). Every stored message row decodes
+    /// through here, so rows written in older shapes are upgraded in one place (`history.ts` `rowInput`).
     pub fn from_row(id: &str, kind: &str, data: &str) -> serde_json::Result<Message> {
-        let mut v: Value = serde_json::from_str(data)?;
-        if let Value::Object(m) = &mut v {
-            m.insert("id".into(), Value::String(id.into()));
-            m.insert("type".into(), Value::String(kind.into()));
-        }
-        serde_json::from_value(v)
+        serde_json::from_value(Value::Object(row_input(id, kind, data)?))
     }
+}
+
+/// `{...SessionLegacy.message(type, data), id, type}` for a `session_message` row.
+pub fn row_input(id: &str, kind: &str, data: &str) -> serde_json::Result<serde_json::Map<String, Value>> {
+    let data: serde_json::Map<String, Value> = serde_json::from_str(data)?;
+    let mut m = crate::legacy::message(kind, data);
+    m.insert("id".into(), Value::String(id.into()));
+    m.insert("type".into(), Value::String(kind.into()));
+    Ok(m)
 }

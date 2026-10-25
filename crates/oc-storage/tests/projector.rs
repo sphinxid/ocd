@@ -87,7 +87,7 @@ fn full_turn_projects_messages() {
         assistant_message_id: a.clone(),
         ordinal: 0,
         text: "Done.".into(),
-        state: None,
+        native: None,
     });
     step(SessionEvent::ToolInputStarted {
         session_id: s.clone(),
@@ -101,7 +101,7 @@ fn full_turn_projects_messages() {
         id: "call_1".into(),
         input: json!({"path": "a.ts"}).as_object().unwrap().clone(),
         executed: true,
-        state: None,
+        native: None,
     });
     step(SessionEvent::ToolSuccess {
         session_id: s.clone(),
@@ -110,14 +110,14 @@ fn full_turn_projects_messages() {
         content: vec![ToolContent::Text { text: "ok".into() }],
         metadata: None,
         executed: false,
-        result_state: None,
+        native: None,
     });
     step(SessionEvent::StepEnded {
         session_id: s.clone(),
         assistant_message_id: a.clone(),
         finish: FinishReason::Stop,
         raw_finish: None,
-        provider_state: None,
+        native: None,
         cost: 0.5,
         tokens: TokenUsage { input: 10, output: 2, reasoning: 0, cache: CacheUsage::default() },
         snapshot: None,

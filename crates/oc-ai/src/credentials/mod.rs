@@ -31,8 +31,10 @@ pub use kv::{KvStore, MemoryKv};
 pub use store::{CreateCredential, CredentialEvent, CredentialStore, CredentialUpdate, MemoryCredentialStore};
 
 /// `Credential.Value` (`packages/schema/src/credential.ts`), stored as JSON in the `credential` table.
+/// Values of either shape decode, so stored rows and `auth export` files written before v2.1 are upgraded
+/// ([`LegacyCredentialValue`]); encoding writes only the current shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase", from = "LegacyCredentialValue")]
 pub enum CredentialValue {
     #[serde(rename_all = "camelCase")]
     Oauth {
@@ -47,10 +49,9 @@ pub enum CredentialValue {
     },
     Key {
         key: String,
+        /// Setup-form answers and other provider settings.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         metadata: Option<serde_json::Map<String, Value>>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        configuration: Option<serde_json::Map<String, Value>>,
     },
     External {
         #[serde(rename = "methodID")]
@@ -58,6 +59,59 @@ pub enum CredentialValue {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         metadata: Option<serde_json::Map<String, Value>>,
     },
+}
+
+/// `CredentialLegacy.Value` (`packages/schema/src/credential-legacy.ts`): before v2.1 key credentials kept
+/// their setup-form answers in `configuration`; they now live in `metadata`. Only decoding sees this shape.
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum LegacyCredentialValue {
+    #[serde(rename_all = "camelCase")]
+    Oauth {
+        #[serde(rename = "methodID")]
+        method_id: String,
+        refresh: String,
+        access: String,
+        expires: u64,
+        #[serde(default)]
+        metadata: Option<serde_json::Map<String, Value>>,
+    },
+    Key {
+        key: String,
+        #[serde(default)]
+        metadata: Option<serde_json::Map<String, Value>>,
+        #[serde(default)]
+        configuration: Option<serde_json::Map<String, Value>>,
+    },
+    External {
+        #[serde(rename = "methodID")]
+        method_id: String,
+        #[serde(default)]
+        metadata: Option<serde_json::Map<String, Value>>,
+    },
+}
+
+impl From<LegacyCredentialValue> for CredentialValue {
+    fn from(value: LegacyCredentialValue) -> Self {
+        match value {
+            LegacyCredentialValue::Oauth { method_id, refresh, access, expires, metadata } => {
+                CredentialValue::Oauth { method_id, refresh, access, expires, metadata }
+            }
+            LegacyCredentialValue::Key { key, metadata, configuration } => {
+                // Form answers overrode metadata when both reached provider settings, so they keep precedence.
+                let metadata = match configuration {
+                    None => metadata,
+                    Some(answers) => {
+                        let mut merged = metadata.unwrap_or_default();
+                        merged.extend(answers);
+                        Some(merged)
+                    }
+                };
+                CredentialValue::Key { key, metadata }
+            }
+            LegacyCredentialValue::External { method_id, metadata } => CredentialValue::External { method_id, metadata },
+        }
+    }
 }
 
 /// One stored credential row.
@@ -149,7 +203,7 @@ impl CredentialValue {
     }
 
     pub fn key(key: impl Into<String>) -> Self {
-        Self::Key { key: key.into(), metadata: None, configuration: None }
+        Self::Key { key: key.into(), metadata: None }
     }
 }
 

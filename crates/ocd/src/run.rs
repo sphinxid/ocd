@@ -1029,7 +1029,7 @@ impl Shared {
                     part.insert("messageID".into(), json!(amid));
                     part.insert("type".into(), json!("reasoning"));
                     part.insert("text".into(), json!(text));
-                    put(&mut part, "metadata", data.get("state"));
+                    put(&mut part, "metadata", data.get("native"));
                     part.insert("time".into(), json!({"start": started.as_ref().map(|s| s.1).unwrap_or(time), "end": time}));
                     self.state.lock().rendered_reasoning.insert(ck, text);
                     self.write_reasoning(Value::Object(part), time);
@@ -1065,7 +1065,7 @@ impl Shared {
                     let current = st.tools.get(&k).cloned();
                     let mut provider = Map::new();
                     put(&mut provider, "executed", data.get("executed"));
-                    put(&mut provider, "state", data.get("state"));
+                    put(&mut provider, "state", data.get("native"));
                     st.tools.insert(
                         k,
                         ToolState {
@@ -1104,7 +1104,7 @@ impl Shared {
                     };
                     let mut provider_result = Map::new();
                     put(&mut provider_result, "executed", data.get("executed"));
-                    put(&mut provider_result, "state", data.get("resultState"));
+                    put(&mut provider_result, "state", data.get("native"));
                     let mut meta = Map::new();
                     let content = if success {
                         data.get("content").cloned()
@@ -1277,7 +1277,7 @@ impl Shared {
                     part.insert("type".into(), json!(ty));
                     part.insert("text".into(), json!(text));
                     if !text_kind {
-                        put(&mut part, "metadata", item.get("state"));
+                        put(&mut part, "metadata", item.get("native"));
                     }
                     part.insert("time".into(), json!({"start": created, "end": timestamp}));
                     if text_kind {

@@ -20,7 +20,7 @@ const DELTA_BATCH: Duration = Duration::from_millis(100);
 pub struct Settlement {
     pub finish: FinishReason,
     pub raw_finish: Option<String>,
-    pub provider_state: Option<Metadata>,
+    pub native: Option<Metadata>,
     pub tokens: TokenUsage,
 }
 
@@ -46,7 +46,7 @@ struct Fragment {
     values: String,
     pending: String,
     timer: bool,
-    state: Option<Metadata>,
+    native: Option<Metadata>,
 }
 
 #[derive(Default)]
@@ -179,7 +179,7 @@ impl Publisher {
         })
     }
 
-    fn state(&self, meta: &Option<oc_ai::types::ProviderMetadata>) -> Option<Metadata> {
+    fn native(&self, meta: &Option<oc_ai::types::ProviderMetadata>) -> Option<Metadata> {
         meta.as_ref().and_then(|m| m.get(&self.key)).and_then(Value::as_object).cloned()
     }
 
@@ -245,7 +245,7 @@ impl Publisher {
         }
     }
 
-    fn frag_start(&self, k: Kind, id: &str, state: Option<Metadata>) -> anyhow::Result<u32> {
+    fn frag_start(&self, k: Kind, id: &str, native: Option<Metadata>) -> anyhow::Result<u32> {
         let mut g = self.inner.lock();
         let f = g.frags(k);
         if f.chunks.contains_key(id) {
@@ -256,7 +256,7 @@ impl Publisher {
         }
         let ordinal = f.next;
         f.next += 1;
-        f.chunks.insert(id.into(), Fragment { ordinal, values: String::new(), pending: String::new(), timer: false, state });
+        f.chunks.insert(id.into(), Fragment { ordinal, values: String::new(), pending: String::new(), timer: false, native });
         Ok(ordinal)
     }
 
@@ -283,7 +283,7 @@ impl Publisher {
         Ok(())
     }
 
-    fn frag_append(self: &Arc<Self>, k: Kind, id: &str, value: &str, state: Option<Metadata>) -> anyhow::Result<()> {
+    fn frag_append(self: &Arc<Self>, k: Kind, id: &str, value: &str, native: Option<Metadata>) -> anyhow::Result<()> {
         let spawn = {
             let mut g = self.inner.lock();
             let Some(c) = g.frags(k).chunks.get_mut(id) else {
@@ -293,8 +293,8 @@ impl Publisher {
             if k != Kind::ToolInput {
                 c.pending.push_str(value);
             }
-            if state.is_some() {
-                c.state = merge(c.state.take(), state);
+            if native.is_some() {
+                c.native = merge(c.native.take(), native);
             }
             let spawn = !c.pending.is_empty() && !c.timer;
             if spawn {
@@ -328,7 +328,7 @@ impl Publisher {
         Ok(())
     }
 
-    fn frag_end(&self, k: Kind, id: &str, state: Option<Metadata>, value: Option<String>) -> anyhow::Result<()> {
+    fn frag_end(&self, k: Kind, id: &str, native: Option<Metadata>, value: Option<String>) -> anyhow::Result<()> {
         {
             let mut g = self.inner.lock();
             let Some(c) = g.frags(k).chunks.get_mut(id) else {
@@ -339,21 +339,21 @@ impl Publisher {
         self.publish_delta(k, id)?;
         let frag = self.inner.lock().frags(k).chunks.shift_remove(id).unwrap();
         let text = value.unwrap_or(frag.values);
-        let state = if state.is_none() { frag.state } else { merge(frag.state, state) };
+        let native = if native.is_none() { frag.native } else { merge(frag.native, native) };
         match k {
             Kind::Text => self.commit(SessionEvent::TextEnded {
                 session_id: self.session_id.clone(),
                 assistant_message_id: self.current_id()?,
                 ordinal: frag.ordinal,
                 text,
-                state,
+                native,
             }),
             Kind::Reasoning => self.commit(SessionEvent::ReasoningEnded {
                 session_id: self.session_id.clone(),
                 assistant_message_id: self.current_id()?,
                 ordinal: frag.ordinal,
                 text,
-                state,
+                native,
             }),
             Kind::ToolInput => {
                 if !self.inner.lock().tools.contains_key(id) {
@@ -477,7 +477,7 @@ impl Publisher {
             content: None,
             metadata: meta,
             executed,
-            result_state: None,
+            native: None,
         })?;
         Ok(true)
     }
@@ -529,7 +529,7 @@ impl Publisher {
             error,
             finish: settlement.as_ref().filter(|s| s.finish == FinishReason::ContentFilter).map(|s| s.finish),
             raw_finish: settlement.as_ref().and_then(|s| s.raw_finish.clone()),
-            provider_state: settlement.as_ref().and_then(|s| s.provider_state.clone()),
+            native: settlement.as_ref().and_then(|s| s.native.clone()),
             cost,
             tokens,
             snapshot,
@@ -579,7 +579,7 @@ impl Publisher {
             content,
             metadata,
             executed,
-            result_state: None,
+            native: None,
         })
     }
 
@@ -606,35 +606,35 @@ impl Publisher {
             }
             LLMEvent::TextStart { id, provider_metadata } => {
                 self.inner.lock().output_started = true;
-                let ordinal = self.frag_start(Kind::Text, id, self.state(provider_metadata))?;
+                let ordinal = self.frag_start(Kind::Text, id, self.native(provider_metadata))?;
                 self.publish_pending_deltas()?;
                 let aid = self.start_assistant().await?;
                 self.commit(SessionEvent::TextStarted { session_id: self.session_id.clone(), assistant_message_id: aid, ordinal })?;
             }
             LLMEvent::TextDelta { id, text, provider_metadata } => {
-                self.frag_append(Kind::Text, id, text, self.state(provider_metadata))?
+                self.frag_append(Kind::Text, id, text, self.native(provider_metadata))?
             }
             LLMEvent::TextEnd { id, text, provider_metadata } => {
-                self.frag_end(Kind::Text, id, self.state(provider_metadata), text.clone())?
+                self.frag_end(Kind::Text, id, self.native(provider_metadata), text.clone())?
             }
             LLMEvent::ReasoningStart { id, provider_metadata } => {
                 self.inner.lock().output_started = true;
-                let state = self.state(provider_metadata);
-                let ordinal = self.frag_start(Kind::Reasoning, id, state.clone())?;
+                let native = self.native(provider_metadata);
+                let ordinal = self.frag_start(Kind::Reasoning, id, native.clone())?;
                 self.publish_pending_deltas()?;
                 let aid = self.start_assistant().await?;
                 self.commit(SessionEvent::ReasoningStarted {
                     session_id: self.session_id.clone(),
                     assistant_message_id: aid,
                     ordinal,
-                    state,
+                    native,
                 })?;
             }
             LLMEvent::ReasoningDelta { id, text, provider_metadata } => {
-                self.frag_append(Kind::Reasoning, id, text, self.state(provider_metadata))?
+                self.frag_append(Kind::Reasoning, id, text, self.native(provider_metadata))?
             }
             LLMEvent::ReasoningEnd { id, text, provider_metadata } => {
-                self.frag_end(Kind::Reasoning, id, self.state(provider_metadata), text.clone())?
+                self.frag_end(Kind::Reasoning, id, self.native(provider_metadata), text.clone())?
             }
             LLMEvent::ToolInputStart { id, name, provider_executed, .. } => {
                 self.inner.lock().output_started = true;
@@ -683,7 +683,7 @@ impl Publisher {
                     content: None,
                     metadata: progress,
                     executed: false,
-                    result_state: None,
+                    native: None,
                 })?;
             }
             LLMEvent::ToolCall { id, name, input, provider_executed, provider_metadata, .. } => {
@@ -713,7 +713,7 @@ impl Publisher {
                     id: id.clone(),
                     input: as_record(input),
                     executed,
-                    state: self.state(provider_metadata),
+                    native: self.native(provider_metadata),
                 })?;
             }
             LLMEvent::ToolResult { id, name, result, provider_executed, provider_metadata, .. } => {
@@ -734,7 +734,7 @@ impl Publisher {
                     t.settled = true;
                     (*provider_executed == Some(true) || t.provider_executed, t.progress.clone())
                 };
-                let result_state = self.state(provider_metadata);
+                let native = self.native(provider_metadata);
                 match result {
                     ToolResultValue::Error(v) => self.commit(SessionEvent::ToolFailed {
                         session_id: self.session_id.clone(),
@@ -744,7 +744,7 @@ impl Publisher {
                         content: None,
                         metadata: progress,
                         executed,
-                        result_state,
+                        native,
                     })?,
                     other => {
                         let content = match other {
@@ -761,7 +761,7 @@ impl Publisher {
                             content,
                             metadata: None,
                             executed,
-                            result_state,
+                            native,
                         })?
                     }
                 }
@@ -790,7 +790,7 @@ impl Publisher {
                     content: None,
                     metadata: progress,
                     executed,
-                    result_state: self.state(provider_metadata),
+                    native: self.native(provider_metadata),
                 })?;
             }
             LLMEvent::StepFinish { reason, usage, provider_metadata, .. } => {
@@ -803,7 +803,7 @@ impl Publisher {
                     g.settlement = Some(Settlement {
                         finish: reason.normalized,
                         raw_finish: reason.raw.clone(),
-                        provider_state: self.state(provider_metadata),
+                        native: self.native(provider_metadata),
                         tokens: tokens(usage.as_ref()),
                     });
                 }

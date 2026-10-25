@@ -2,7 +2,8 @@
 //!
 //! `schema.sql` is the schema of a fresh opencode 1.18.31 database (38 applied migrations); `data.sql` holds
 //! hand-written v1 rows covering the import's edge cases (no user data). `expected.json` is what upstream
-//! opencode v2 (`serve`, commit 4617210) wrote for exactly this input; every compared column must match exactly.
+//! opencode v2 (`serve`, commit 4617210) wrote for exactly this input, with native data and a compaction's kept
+//! text under their v2.1 names (`native`, `metadata.recent`; acdcdb8dd); every compared column must match exactly.
 
 use std::path::Path;
 use std::sync::Arc;

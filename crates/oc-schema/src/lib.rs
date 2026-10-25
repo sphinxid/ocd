@@ -3,6 +3,7 @@
 pub mod collate;
 pub mod event;
 pub mod id;
+pub mod legacy;
 pub mod message;
 pub mod types;
 

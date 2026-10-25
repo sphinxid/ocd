@@ -236,10 +236,10 @@ impl Store {
 
     fn edit_reasoning(&mut self, sid: &str, mid: &str, f: impl FnOnce(&mut String, &mut Option<Value>, &mut Option<PartTime>)) {
         self.edit_assistant(sid, mid, |m| {
-            if let Some(Content::Reasoning { text, state, time }) = m.content.iter_mut().rev().find(|c| {
+            if let Some(Content::Reasoning { text, native, time }) = m.content.iter_mut().rev().find(|c| {
                 matches!(c, Content::Reasoning { time, .. } if time.as_ref().and_then(|t| t.completed).is_none())
             }) {
-                f(text, state, time);
+                f(text, native, time);
             }
         });
     }
@@ -661,7 +661,7 @@ impl Store {
             }
             "session.text.started" => {
                 self.edit_assistant(&sid, &s("assistantMessageID"), |m| {
-                    m.content.push(Content::Text { text: String::new(), state: None })
+                    m.content.push(Content::Text { text: String::new(), native: None })
                 });
             }
             "session.text.delta" => {
@@ -762,11 +762,11 @@ impl Store {
             }
             "session.reasoning.started" => {
                 let c = ev.created;
-                let state = d.get("state").cloned();
+                let native = d.get("native").cloned();
                 self.edit_assistant(&sid, &s("assistantMessageID"), move |m| {
                     m.content.push(Content::Reasoning {
                         text: String::new(),
-                        state,
+                        native,
                         time: Some(PartTime { created: c, completed: None }),
                     })
                 });
@@ -777,13 +777,13 @@ impl Store {
             }
             "session.reasoning.ended" => {
                 let (text, c) = (s("text"), ev.created);
-                let st = d.get("state").cloned();
-                self.edit_reasoning(&sid, &s("assistantMessageID"), move |t, state, time| {
+                let n = d.get("native").cloned();
+                self.edit_reasoning(&sid, &s("assistantMessageID"), move |t, native, time| {
                     *t = text;
                     let created = time.as_ref().map(|t| t.created).unwrap_or(c);
                     *time = Some(PartTime { created, completed: Some(c) });
-                    if st.is_some() {
-                        *state = st;
+                    if n.is_some() {
+                        *native = n;
                     }
                 });
             }
@@ -893,13 +893,13 @@ impl Store {
                 let summary = d.get("text").and_then(|v| v.as_str()).map(|s| s.to_string());
                 let tokens: Option<TokenUsage> = d.get("tokens").and_then(|t| serde_json::from_value(t.clone()).ok());
                 let reason = d.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let ctx = d.get("providerContext").cloned();
+                let native = d.get("native").cloned();
                 if let Some(m) = list.iter_mut().rev().find(|m| m.kind == "compaction" && m.status.as_deref() == Some("running")) {
                     m.status = Some("completed".into());
                     m.summary = summary;
                     m.tokens = tokens;
                     m.reason = reason;
-                    m.provider_context = ctx;
+                    m.native = native;
                     m.cost = d.get("cost").and_then(|v| v.as_f64());
                     m.touch();
                 } else {
@@ -910,7 +910,7 @@ impl Store {
                         summary,
                         tokens,
                         reason,
-                        provider_context: ctx,
+                        native,
                         time: MessageTime { created: ev.created, ..Default::default() },
                         ..Default::default()
                     });
@@ -1132,6 +1132,21 @@ mod tests {
         s.apply(&ev("session.execution.succeeded", json!({"sessionID":"ses_1"})));
         assert!(!s.is_running("ses_1"));
         assert_eq!(s.messages("ses_1").last().unwrap().kind, "idle");
+    }
+
+    /// v2.1 events carry provider data as `native`; a provider compaction's window is `native.messages`.
+    #[test]
+    fn native_data_and_provider_compaction() {
+        let mut s = Store::new("/tmp");
+        s.apply(&ev("session.step.started", json!({"sessionID":"ses_1","assistantMessageID":"msg_a","agent":"build","model":{"id":"m","providerID":"p"},"started":5})));
+        s.apply(&ev("session.reasoning.started", json!({"sessionID":"ses_1","assistantMessageID":"msg_a","ordinal":0,"native":{"id":"r"}})));
+        s.apply(&ev("session.reasoning.ended", json!({"sessionID":"ses_1","assistantMessageID":"msg_a","ordinal":0,"text":"t","native":{"sig":"s"}})));
+        assert!(matches!(&s.messages("ses_1")[0].content[0], Content::Reasoning { native: Some(n), .. } if n == &json!({"sig":"s"})));
+        s.apply(&ev("session.compaction.started", json!({"sessionID":"ses_1","reason":"manual"})));
+        s.apply(&ev("session.compaction.ended", json!({"sessionID":"ses_1","reason":"manual","text":"","native":{"messages":[]}})));
+        let m = s.messages("ses_1").iter().rev().find(|m| m.kind == "compaction").unwrap();
+        assert_eq!(m.status.as_deref(), Some("completed"));
+        assert_eq!(m.native, Some(json!({"messages":[]})));
     }
 
     #[test]

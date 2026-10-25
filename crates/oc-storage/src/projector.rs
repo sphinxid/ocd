@@ -511,6 +511,7 @@ fn project_fork(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<
              ORDER BY seq",
             params![prefix, session_id, parent_id, copied],
         )?;
+        fork_keep_ids(c, session_id, parent_id, &prefix)?;
         reserve_seq(c, session_id, copied)?;
     }
     if let Some(values) = instructions {
@@ -518,6 +519,33 @@ fn project_fork(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<
         c.execute(
             "INSERT INTO instruction_state (session_id, epoch_start, through_seq, initial_values, current_values) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
             params![session_id, seq, seq, json, json],
+        )?;
+    }
+    Ok(())
+}
+
+/// A summary references the first message it kept (`metadata.keepID`), which the fork copied under a new ID.
+fn fork_keep_ids(c: &Connection, session: &str, parent: &str, prefix: &str) -> anyhow::Result<()> {
+    let rows: Vec<(String, String)> = {
+        let mut s = c.prepare(
+            "SELECT id, json_extract(data, '$.metadata.keepID') FROM session_message
+             WHERE session_id = ? AND type = 'compaction' AND json_type(data, '$.metadata.keepID') = 'text'",
+        )?;
+        let rows = s.query_map([session], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        rows
+    };
+    for (id, keep) in rows {
+        // `Schema.is(SessionMessage.ID)`: anything else is not a message reference.
+        if !keep.starts_with("msg_") {
+            continue;
+        }
+        let kept: Option<i64> = c
+            .query_row("SELECT seq FROM session_message WHERE session_id = ? AND id = ?", params![parent, keep], |r| r.get(0))
+            .optional()?;
+        let Some(kept) = kept else { continue };
+        c.execute(
+            "UPDATE session_message SET data = json_set(data, '$.metadata.keepID', ?) WHERE session_id = ? AND id = ?",
+            params![format!("{prefix}_{kept}"), session, id],
         )?;
     }
     Ok(())
@@ -598,6 +626,13 @@ fn with_assistant(
 
 fn last_tool<'a>(a: &'a mut Assistant, call: &str) -> Option<&'a mut AssistantContent> {
     a.content.iter_mut().rev().find(|c| matches!(c, AssistantContent::Tool { id, .. } if id == call))
+}
+
+/// A result event's native data merges into the tool's call data (result keys win).
+fn merge_native(target: &mut Option<Metadata>, result: &Option<Metadata>) {
+    if let Some(result) = result {
+        target.get_or_insert_with(Map::new).extend(result.clone());
+    }
 }
 
 fn terminal_snapshot(a: &mut Assistant, snapshot: &Option<String>, files: &Option<Vec<String>>) {
@@ -782,7 +817,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 a.error = None;
                 a.finish = None;
                 a.raw_finish = None;
-                a.provider_state = None;
+                a.native = None;
                 a.time = AssistantTime { created: *started, streamed: None, completed: None };
                 if let Some(snap) = snapshot {
                     let mut sn = a.snapshot.clone().unwrap_or_default();
@@ -807,7 +842,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 snapshot: snapshot.as_ref().map(|s| AssistantSnapshot { start: Some(s.clone()), end: None, files: None }),
                 finish: None,
                 raw_finish: None,
-                provider_state: None,
+                native: None,
                 cost: None,
                 tokens: None,
                 error: None,
@@ -817,24 +852,24 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
         E::StepStreamed { assistant_message_id, .. } => {
             with_assistant(c, s, assistant_message_id, |a| a.time.streamed = Some(created))?
         }
-        E::StepEnded { assistant_message_id, finish, raw_finish, provider_state, cost, tokens, snapshot, files, .. } => {
+        E::StepEnded { assistant_message_id, finish, raw_finish, native, cost, tokens, snapshot, files, .. } => {
             with_assistant(c, s, assistant_message_id, |a| {
                 a.time.completed = Some(created);
                 a.finish = Some(*finish);
                 a.raw_finish = raw_finish.clone();
-                a.provider_state = provider_state.clone();
+                a.native = native.clone();
                 a.cost = Some(*cost);
                 a.tokens = Some(*tokens);
                 terminal_snapshot(a, snapshot, files);
             })?
         }
         E::StepFailed {
-            assistant_message_id, error, finish, raw_finish, provider_state, cost, tokens, snapshot, files, ..
+            assistant_message_id, error, finish, raw_finish, native, cost, tokens, snapshot, files, ..
         } => with_assistant(c, s, assistant_message_id, |a| {
             a.time.completed = Some(created);
             a.finish = Some(finish.unwrap_or(FinishReason::Error));
             a.raw_finish = raw_finish.clone();
-            a.provider_state = provider_state.clone();
+            a.native = native.clone();
             a.error = Some(error.clone());
             a.retry = None;
             if let (Some(cost), Some(tokens)) = (cost, tokens) {
@@ -844,14 +879,14 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             terminal_snapshot(a, snapshot, files);
         })?,
         E::TextStarted { assistant_message_id, .. } => with_assistant(c, s, assistant_message_id, |a| {
-            a.content.push(AssistantContent::Text { text: String::new(), state: None })
+            a.content.push(AssistantContent::Text { text: String::new(), native: None })
         })?,
-        E::TextEnded { assistant_message_id, text, state, .. } => with_assistant(c, s, assistant_message_id, |a| {
-            if let Some(AssistantContent::Text { text: t, state: st }) =
+        E::TextEnded { assistant_message_id, text, native, .. } => with_assistant(c, s, assistant_message_id, |a| {
+            if let Some(AssistantContent::Text { text: t, native: n }) =
                 a.content.iter_mut().rev().find(|c| matches!(c, AssistantContent::Text { .. }))
             {
                 *t = text.clone();
-                *st = state.clone();
+                *n = native.clone();
             }
         })?,
         E::ToolInputStarted { assistant_message_id, id, name, .. } => with_assistant(c, s, assistant_message_id, |a| {
@@ -859,8 +894,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 id: id.clone(),
                 name: name.clone(),
                 executed: None,
-                provider_state: None,
-                provider_result_state: None,
+                native: None,
                 state: ToolState::Streaming { input: String::new() },
                 time: ToolTime { created, ran: None, completed: None },
             })
@@ -870,36 +904,32 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 *input = text.clone();
             }
         })?,
-        E::ToolCalled { assistant_message_id, id, input, executed, state, .. } => {
+        E::ToolCalled { assistant_message_id, id, input, executed, native, .. } => {
             with_assistant(c, s, assistant_message_id, |a| {
-                if let Some(AssistantContent::Tool { executed: ex, provider_state, time, state: st, .. }) = last_tool(a, id) {
+                if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
                     *ex = Some(*executed);
-                    *provider_state = state.clone();
+                    *n = native.clone();
                     time.ran = Some(created);
                     *st = ToolState::Running { input: input.clone(), metadata: Map::new() };
                 }
             })?
         }
-        E::ToolSuccess { assistant_message_id, id, content, metadata, executed, result_state, .. } => {
+        E::ToolSuccess { assistant_message_id, id, content, metadata, executed, native, .. } => {
             with_assistant(c, s, assistant_message_id, |a| {
-                if let Some(AssistantContent::Tool { executed: ex, provider_result_state, time, state: st, .. }) =
-                    last_tool(a, id)
-                {
+                if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
                     if let ToolState::Running { input, .. } = st {
                         let input = input.clone();
                         *ex = Some(*executed || *ex == Some(true));
-                        *provider_result_state = result_state.clone();
+                        merge_native(n, native);
                         time.completed = Some(created);
                         *st = ToolState::Completed { input, content: content.clone(), metadata: metadata.clone() };
                     }
                 }
             })?
         }
-        E::ToolFailed { assistant_message_id, id, error, content, metadata, executed, result_state, .. } => {
+        E::ToolFailed { assistant_message_id, id, error, content, metadata, executed, native, .. } => {
             with_assistant(c, s, assistant_message_id, |a| {
-                if let Some(AssistantContent::Tool { executed: ex, provider_result_state, time, state: st, .. }) =
-                    last_tool(a, id)
-                {
+                if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
                     let input = match st {
                         ToolState::Streaming { .. } => Some(Map::new()),
                         ToolState::Running { input, .. } => Some(input.clone()),
@@ -907,7 +937,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                     };
                     if let Some(input) = input {
                         *ex = Some(*executed || *ex == Some(true));
-                        *provider_result_state = result_state.clone();
+                        merge_native(n, native);
                         time.completed = Some(created);
                         *st = ToolState::Error {
                             input,
@@ -919,21 +949,21 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 }
             })?
         }
-        E::ReasoningStarted { assistant_message_id, state, .. } => with_assistant(c, s, assistant_message_id, |a| {
+        E::ReasoningStarted { assistant_message_id, native, .. } => with_assistant(c, s, assistant_message_id, |a| {
             a.content.push(AssistantContent::Reasoning {
                 text: String::new(),
-                state: state.clone(),
+                native: native.clone(),
                 time: Some(CompletedTime { created, completed: None }),
             })
         })?,
-        E::ReasoningEnded { assistant_message_id, text, state, .. } => with_assistant(c, s, assistant_message_id, |a| {
-            if let Some(AssistantContent::Reasoning { text: t, state: st, time }) = a.content.iter_mut().rev().find(|c| {
+        E::ReasoningEnded { assistant_message_id, text, native, .. } => with_assistant(c, s, assistant_message_id, |a| {
+            if let Some(AssistantContent::Reasoning { text: t, native: n, time }) = a.content.iter_mut().rev().find(|c| {
                 matches!(c, AssistantContent::Reasoning { time, .. } if time.as_ref().and_then(|t| t.completed).is_none())
             }) {
                 *t = text.clone();
                 *time = Some(CompletedTime { created: time.map(|t| t.created).unwrap_or(created), completed: Some(created) });
-                if state.is_some() {
-                    *st = state.clone();
+                if native.is_some() {
+                    *n = native.clone();
                 }
             }
         })?,
@@ -942,20 +972,18 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 a.retry = Some(AssistantRetry { attempt: *attempt, at: *at, error: error.clone() })
             })?
         }
-        E::CompactionStarted { reason, recent, input_id, .. } => append(Message::Compaction(Box::new(Compaction {
+        E::CompactionStarted { reason, input_id, .. } => append(Message::Compaction(Box::new(Compaction {
             id: input_id.clone().unwrap_or_else(|| from_event.clone()),
             metadata: meta.clone(),
             time: Created { created },
-            status: CompactionStatus::Running { reason: *reason, summary: String::new(), recent: recent.clone() },
+            status: CompactionStatus::Running { reason: *reason, summary: String::new() },
         })))?,
-        E::CompactionEnded { reason, model, provider_state, provider_context, text, recent, cost, tokens, .. } => {
+        E::CompactionEnded { reason, model, native, text, cost, tokens, .. } => {
             let status = CompactionStatus::Completed {
                 reason: *reason,
                 model: model.clone(),
-                provider_state: provider_state.clone(),
+                native: native.clone(),
                 summary: text.clone(),
-                recent: recent.clone(),
-                provider_context: provider_context.clone(),
                 cost: *cost,
                 tokens: *tokens,
             };

@@ -1,8 +1,8 @@
-//! Session compaction (`core/session/compaction.ts`), with the token estimate (`core/util/token.ts`) and the
-//! provider-context helpers it needs (`core/session/provider-context.ts`).
+//! Session compaction (`core/session/compaction.ts`), with the token estimate (`core/util/token.ts`).
 //!
 //! A summary compaction sends the older part of the history plus the summary prompt to the model and stores
-//! the reply as a checkpoint beside the newest `keep` tokens of conversation, kept verbatim as text:
+//! the reply as a checkpoint beside the newest `keep` tokens of conversation, referenced by their first
+//! message (`metadata.keepID`) and sent as text:
 //!
 //! ```text
 //!   first:  [E1 … E8][E9 E10]                  →  [S1 + "E9 E10"]
@@ -19,20 +19,22 @@ use std::time::Duration;
 use futures::StreamExt;
 use oc_ai::catalog::ResolvedModel;
 use oc_ai::error::FailureClassification;
-use oc_ai::route::EndpointPath;
 use oc_ai::types::{
     ContentPart, GenerationOptions, Message as LlmMessage, Role, SystemPart, ToolContent as LlmToolContent, ToolEntry,
     ToolResultValue,
 };
 use oc_ai::{AIError, ErrorKind, LLMEvent, LLMRequest};
 use oc_schema::event::SessionEvent;
-use oc_schema::message::{AssistantContent, CompactionReason, CompactionStatus, ToolState};
-use oc_schema::types::{AttachmentSource, FinishReason, Metadata, ModelRef, SessionError, TokenUsage, ToolContent};
+use oc_schema::message::{CompactionReason, CompactionStatus};
+use oc_schema::types::{FinishReason, Metadata, ModelRef, SessionError, TokenUsage};
 use oc_schema::Message;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use crate::bus::Durable1;
+use crate::history::is_native_compaction;
+use crate::recent_text::{kept, message_to_text, truncate_tool_output};
 use crate::runner::{Engine, Loaded};
 
 // ---------------------------------------------------------------------------------------------
@@ -45,7 +47,6 @@ pub const SHRINK_STEPS: [f64; 3] = [0.7, 0.5, 0.35];
 pub const RESERVE_MIN: i64 = 16_000;
 /// A common window size, assumed for the compaction request when the model's window is unknown.
 pub const UNKNOWN_WINDOW: i64 = 200_000;
-pub const TOOL_OUTPUT_MAX_CHARS: usize = 1_250;
 pub const IMAGE_TOKEN_ESTIMATE: u64 = 1_500;
 pub const PDF_TOKEN_ESTIMATE: u64 = 2_000;
 /// Default `keep` (tokens of recent conversation kept verbatim beside the summary).
@@ -307,11 +308,6 @@ pub fn has_measured_prompt(message: &Message, model: &ModelRef) -> bool {
         && a.tokens.as_ref().is_some_and(|t| t.input + t.cache.read + t.cache.write > 0)
 }
 
-/// `SessionProviderContext.isCheckpoint`: a completed compaction that installed a native replacement window.
-pub fn is_checkpoint(message: &Message) -> bool {
-    matches!(message, Message::Compaction(c) if matches!(&c.status, CompactionStatus::Completed { provider_context: Some(_), .. }))
-}
-
 fn is_completed_compaction(message: &Message) -> bool {
     matches!(message, Message::Compaction(c) if matches!(c.status, CompactionStatus::Completed { .. }))
 }
@@ -321,10 +317,10 @@ pub fn previous_compaction(messages: &[Message]) -> Option<&Message> {
     messages.first().filter(|m| is_completed_compaction(m))
 }
 
-fn previous_parts(m: &Message) -> Option<(&str, &str)> {
+fn previous_summary(m: &Message) -> Option<&str> {
     match m {
         Message::Compaction(c) => match &c.status {
-            CompactionStatus::Completed { summary, recent, .. } => Some((summary.as_str(), recent.as_str())),
+            CompactionStatus::Completed { summary, .. } => Some(summary.as_str()),
             _ => None,
         },
         _ => None,
@@ -390,32 +386,6 @@ pub fn oldest_to_drop<T>(items: &[T], size: impl Fn(&T) -> u64, budget: i64) -> 
     start
 }
 
-/// `truncateToolOutput`: more than 1,250 UTF-16 units keeps the first 1,250 code points plus `\n[truncated]`.
-pub fn truncate_tool_output(value: &str) -> String {
-    if js_len(value) <= TOOL_OUTPUT_MAX_CHARS {
-        return value.to_string();
-    }
-    let end = value.char_indices().nth(TOOL_OUTPUT_MAX_CHARS).map(|(i, _)| i).unwrap_or(value.len());
-    if end == value.len() {
-        return value.to_string();
-    }
-    format!("{}\n[truncated]", &value[..end])
-}
-
-fn serialize_tool_content(content: &[ToolContent]) -> String {
-    content
-        .iter()
-        .map(|item| match item {
-            ToolContent::Text { text } => text.clone(),
-            ToolContent::File { mime, name, .. } => match name {
-                None => format!("[Attached {mime}]"),
-                Some(n) => format!("[Attached {mime}: {n}]"),
-            },
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn serialize_llm_tool_content(content: &[LlmToolContent]) -> String {
     content
         .iter()
@@ -430,85 +400,12 @@ fn serialize_llm_tool_content(content: &[LlmToolContent]) -> String {
         .join("\n")
 }
 
-/// `messageToText`: one message as the recent, verbatim part of a summary shows it. Empty for messages that
-/// part leaves out.
-pub fn message_to_text(message: &Message) -> String {
-    match message {
-        // Earlier summaries and instruction updates are handled outside the recent part.
-        Message::Compaction(_) | Message::System { .. } => String::new(),
-        Message::User { text, files, skills, .. } => {
-            let mut lines: Vec<String> = skills
-                .iter()
-                .flatten()
-                .filter_map(|s| s.text.as_ref().map(|t| format!("[Skill activated: {}]\n{}", s.name, t)))
-                .collect();
-            lines.push(format!("[User]: {text}"));
-            for f in files.iter().flatten() {
-                let name = f.name.clone().unwrap_or_else(|| match &f.source {
-                    AttachmentSource::Uri { uri } => uri.clone(),
-                    AttachmentSource::Inline => "inline attachment".into(),
-                });
-                lines.push(format!("[Attached {}: {}]", f.mime, name));
-            }
-            lines.join("\n")
-        }
-        Message::LocationSwitched { location, .. } => {
-            format!("[User]: The working directory has been changed to {}.", location.directory)
-        }
-        Message::Assistant(a) => a
-            .content
-            .iter()
-            .flat_map(|part| -> Vec<String> {
-                match part {
-                    AssistantContent::Text { text, .. } => vec![format!("[Assistant]: {text}")],
-                    AssistantContent::Reasoning { text, .. } => {
-                        if text.is_empty() {
-                            vec![]
-                        } else {
-                            vec![format!("[Assistant reasoning]: {text}")]
-                        }
-                    }
-                    AssistantContent::Tool { name, state, .. } => {
-                        let input = match state {
-                            ToolState::Streaming { input } => input.clone(),
-                            ToolState::Running { input, .. }
-                            | ToolState::Completed { input, .. }
-                            | ToolState::Error { input, .. } => json_encode(&Value::Object(input.clone())),
-                        };
-                        let call = format!("[Assistant tool call]: {name}({input})");
-                        match state {
-                            ToolState::Completed { content, .. } => {
-                                vec![call, format!("[Tool result]: {}", truncate_tool_output(&serialize_tool_content(content)))]
-                            }
-                            ToolState::Error { error, .. } => vec![call, format!("[Tool error]: {}", error.message)],
-                            _ => vec![call],
-                        }
-                    }
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Message::Synthetic { text, .. } => format!("[Synthetic context]: {text}"),
-        Message::Skill { name, text, .. } => format!("[Skill activated: {name}]\n{text}"),
-        Message::Shell { metadata, command, output, .. } => {
-            if metadata.as_ref().and_then(|m| m.get("background")) == Some(&Value::Bool(true)) {
-                return String::new();
-            }
-            format!(
-                "[Shell]: {command}\n{}",
-                truncate_tool_output(output.as_ref().map(|o| o.output.as_str()).unwrap_or(""))
-            )
-        }
-        _ => String::new(),
-    }
-}
-
-/// `splitConversation`: `older` (`messages[..older]`) gets summarized; `recent`, the newest messages within
-/// `keep` tokens, is kept verbatim as text beside the summary.
+/// `splitConversation`: `older` (`messages[..older]`) gets summarized; the newest messages within `keep`
+/// tokens, from `keep_id` on, are kept verbatim beside the summary.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Split {
     pub older: usize,
-    pub recent: String,
+    pub keep_id: Option<String>,
 }
 
 struct Entry {
@@ -530,12 +427,11 @@ pub fn split_conversation(messages: &[Message], keep: u64) -> Option<Split> {
     if entries.is_empty() {
         return None;
     }
-    let previous_recent = previous_compaction(messages).and_then(previous_parts).map(|(_, r)| !r.is_empty()).unwrap_or(false);
-    let start = recent_start(&entries, keep, previous_recent);
-    let recent = &entries[start..];
+    let previous_recent = previous_compaction(messages).is_some_and(|p| !kept(p).is_empty());
+    let first = entries.get(recent_start(&entries, keep, previous_recent));
     Some(Split {
-        older: recent.first().map(|e| e.index).unwrap_or(messages.len()),
-        recent: recent.iter().map(|e| e.text.as_str()).collect::<Vec<_>>().join("\n\n"),
+        older: first.map(|e| e.index).unwrap_or(messages.len()),
+        keep_id: first.map(|e| messages[e.index].id().to_string()),
     })
 }
 
@@ -613,23 +509,19 @@ pub fn flatten_and_drop_oldest(
         })
         .map(|i| i + 1)
         .unwrap_or(0);
-    let summary = previous.filter(|p| !is_checkpoint(p));
+    let summary = previous.filter(|p| !is_native_compaction(p));
     // The previous summary is rebuilt from storage with its recent part removed.
     let lead: Vec<LlmMessage> = match summary {
         Some(Message::Compaction(c)) => {
             let mut c = c.clone();
-            if let CompactionStatus::Completed { recent, .. } = &mut c.status {
-                recent.clear();
-            }
+            c.metadata.get_or_insert_with(Default::default).insert("recent".into(), Value::String(String::new()));
             crate::lower::to_llm_messages(&[Message::Compaction(c)], model, None)
         }
         _ => request.messages[..end].to_vec(),
     };
+    let recent = summary.map(kept).unwrap_or("");
     // A user message and everything after it, up to the next one, is one exchange: kept or dropped whole.
-    let mut exchanges: Vec<String> = match summary.and_then(previous_parts) {
-        Some((_, recent)) if !recent.is_empty() => vec![recent.to_string()],
-        _ => vec![],
-    };
+    let mut exchanges: Vec<String> = if recent.is_empty() { vec![] } else { vec![recent.to_string()] };
     for message in &request.messages[end..] {
         let text = flatten_message(message);
         if text.is_empty() {
@@ -661,32 +553,6 @@ pub fn flatten_and_drop_oldest(
     msgs.push(LlmMessage::user_text(format!("{}{}", note(exchanges.len() - kept.len()), kept.join("\n\n"))));
     out.messages = msgs;
     Some(out)
-}
-
-// ---------------------------------------------------------------------------------------------
-// Provider context (`provider-context.ts`)
-// ---------------------------------------------------------------------------------------------
-
-/// `SessionProviderContext.provenance`: no guessed endpoints; a dynamic URL builder or a missing base URL
-/// cannot establish a durable deployment identity.
-pub fn provenance(model: &ResolvedModel) -> Option<Value> {
-    let lm = &model.language_model;
-    let endpoint = &lm.route.endpoint;
-    let base = endpoint.base_url.as_deref().filter(|b| !b.is_empty())?;
-    let EndpointPath::Static(path) = &endpoint.path else { return None };
-    let mut query: Vec<(&String, &String)> = endpoint.query.iter().collect();
-    query.sort_by(|a, b| a.0.cmp(b.0));
-    let encoded = json_encode(&json!([base, path, query.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>()]));
-    use sha2::Digest;
-    let digest = hex::encode(sha2::Sha256::digest(encoded.as_bytes()));
-    Some(json!({
-        "providerID": model.model.provider_id,
-        "provider": lm.provider,
-        "modelID": lm.id,
-        "route": lm.route.id,
-        "protocol": lm.route.protocol.id(),
-        "endpoint": digest,
-    }))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -757,21 +623,20 @@ fn failure(kind: &str, message: &str) -> Fail {
     Fail::Failure(SessionError::new(kind, message))
 }
 
-/// A summary fills `text` and `recent`; a native compaction fills `provider_context`.
+/// A summary fills `text`, and references the messages it keeps verbatim with `metadata.keepID`; history
+/// rebuilds their text from that. A native compaction fills `native.messages` with its replacement window.
 struct Res {
     text: String,
-    recent: String,
-    provider_state: Option<Metadata>,
-    provider_context: Option<Value>,
+    native: Option<Metadata>,
+    metadata: Option<Metadata>,
 }
 
 struct Streamed {
     text: String,
-    provider_state: Option<Metadata>,
 }
 
 enum Mode {
-    Summary { prompt: String, recent: String },
+    Summary { prompt: String },
     Native,
 }
 
@@ -856,11 +721,10 @@ impl Run<'_> {
         .await
         .map_err(|e| Fail::Failure(SessionError::new("unknown", e.to_string())))?;
         if let Some(text) = shaped.result {
-            return Ok(Streamed { text, provider_state: None });
+            return Ok(Streamed { text });
         }
-        let key = metadata_key(self.model);
         let costs = costs(self.model);
-        let mut streamed = Streamed { text: String::new(), provider_state: None };
+        let mut streamed = Streamed { text: String::new() };
         let mut stream = self.engine.client.stream_with(request, self.cancel.clone(), shaped.http).await.map_err(Fail::Ai)?;
         while let Some(event) = stream.next().await {
             match event.map_err(Fail::Ai)? {
@@ -881,12 +745,10 @@ impl Run<'_> {
                     );
                     streamed.text.push_str(&text);
                 }
-                LLMEvent::StepFinish { usage, provider_metadata, .. } => {
+                LLMEvent::StepFinish { usage, .. } => {
                     let tokens = crate::publisher::tokens(usage.as_ref());
                     let cost = crate::usage::calculate_cost(&costs, &tokens);
                     self.spend(cost, tokens)?;
-                    streamed.provider_state =
-                        provider_metadata.as_ref().and_then(|m| m.get(&key)).and_then(Value::as_object).cloned();
                 }
                 LLMEvent::Finish { reason, .. } => match reason.normalized {
                     FinishReason::Unknown => {
@@ -922,19 +784,19 @@ impl Run<'_> {
                 "provider.unsupported-operation",
                 &format!("Native compaction is not supported for {}/{}", request.model.provider, request.model.route.id),
             )),
-            Mode::Summary { prompt, recent } => {
+            Mode::Summary { prompt } => {
                 // A reply that ignores the template gets one reminder before it counts as a failure.
                 let mut prompted = request;
                 prompted.messages.push(LlmMessage::user_text(prompt.clone()));
                 let reply = self.stream(prompted.clone()).await?;
                 if filled(&reply.text) {
-                    return Ok(Res { text: reply.text, recent: recent.clone(), provider_state: reply.provider_state, provider_context: None });
+                    return Ok(Res { text: reply.text, native: None, metadata: None });
                 }
                 let mut nudged = prompted;
                 nudged.messages.push(LlmMessage::user_text(NUDGE));
                 let retry = self.stream(nudged).await?;
                 if filled(&retry.text) {
-                    return Ok(Res { text: retry.text, recent: recent.clone(), provider_state: retry.provider_state, provider_context: None });
+                    return Ok(Res { text: retry.text, native: None, metadata: None });
                 }
                 Err(failure(
                     "compaction.failed",
@@ -955,14 +817,9 @@ impl Run<'_> {
     async fn deliver(&self, prepared: &LLMRequest, mode: Mode, mut target: i64) -> Result<Res, Fail> {
         // The runner opened the manual compaction's message when it delivered the `/compact` item.
         if !matches!(self.trigger, Trigger::Manual { .. }) {
-            let recent = match &mode {
-                Mode::Summary { recent, .. } => recent.clone(),
-                Mode::Native => String::new(),
-            };
             self.engine.app.bus.commit_one(SessionEvent::CompactionStarted {
                 session_id: self.session_id.clone(),
                 reason: CompactionReason::Auto,
-                recent,
                 input_id: None,
             })?;
         }
@@ -1019,11 +876,18 @@ impl Run<'_> {
         let Some(split) = split_conversation(messages, keep) else {
             return Err(failure("compaction.unavailable", "Nothing to compact yet"));
         };
-        let previous = previous_compaction(messages).and_then(previous_parts);
-        let prompt = build_prompt(previous.is_some(), previous.is_some_and(|(s, _)| s.contains(LEGACY_HEADING)));
+        let previous = previous_compaction(messages).and_then(previous_summary);
+        let prompt = build_prompt(previous.is_some(), previous.is_some_and(|s| s.contains(LEGACY_HEADING)));
         let prepared = self.prepare(&messages[..split.older], budget);
         let overhead = (token_estimate(&prompt) + token_estimate(NUDGE)) as i64;
-        self.deliver(&prepared, Mode::Summary { prompt, recent: split.recent }, budget - overhead).await
+        let mut result = self.deliver(&prepared, Mode::Summary { prompt }, budget - overhead).await?;
+        let Some(keep_id) = split.keep_id else { return Ok(result) };
+        // A compaction hook may choose its own kept range.
+        let mut metadata = Metadata::new();
+        metadata.insert("keepID".into(), Value::String(keep_id));
+        metadata.extend(result.metadata.take().unwrap_or_default());
+        result.metadata = Some(metadata);
+        Ok(result)
     }
 
     async fn compact_natively(&self, budget: i64) -> Result<Res, Fail> {
@@ -1032,10 +896,6 @@ impl Run<'_> {
             return Err(failure("compaction.unavailable", "Nothing to compact yet"));
         }
         let prepared = self.prepare(messages, budget);
-        if provenance(self.model).is_none() {
-            return Err(failure("provider.unsupported-operation", "Provider compaction requires a stable, configured endpoint"));
-        }
-        // No request hooks reroute the request here, so the routed provenance always matches.
         self.deliver(&prepared, Mode::Native, budget).await
     }
 
@@ -1057,17 +917,19 @@ impl Run<'_> {
                 Ok(CompactOutcome::Failed(error))
             }
             Ok(res) => {
-                self.engine.app.bus.commit_one(SessionEvent::CompactionEnded {
-                    session_id: self.session_id.clone(),
-                    reason: self.trigger.reason(),
-                    model: Some(self.model.model_ref()),
-                    provider_state: res.provider_state,
-                    provider_context: res.provider_context,
-                    text: res.text,
-                    recent: res.recent,
-                    cost,
-                    tokens,
-                })?;
+                self.engine.app.bus.commit(vec![Durable1 {
+                    event: SessionEvent::CompactionEnded {
+                        session_id: self.session_id.clone(),
+                        reason: self.trigger.reason(),
+                        model: Some(self.model.model_ref()),
+                        native: res.native,
+                        text: res.text,
+                        cost,
+                        tokens,
+                    },
+                    metadata: res.metadata,
+                    id: None,
+                }])?;
                 Ok(CompactOutcome::Completed)
             }
         }
@@ -1096,7 +958,7 @@ impl Engine {
         }
         let model = loaded.resolved.model_ref();
         let measured = messages.iter().rposition(|m| has_measured_prompt(m, &model)).map(|i| i as i64).unwrap_or(-1);
-        let checkpoint = messages.iter().rposition(is_checkpoint).map(|i| i as i64).unwrap_or(-1);
+        let checkpoint = messages.iter().rposition(is_native_compaction).map(|i| i as i64).unwrap_or(-1);
         if measured < checkpoint {
             return false;
         }

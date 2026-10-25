@@ -293,8 +293,8 @@ pub enum SessionEvent {
         finish: FinishReason,
         #[serde(rename = "rawFinish", skip_serializing_if = "Option::is_none")]
         raw_finish: Option<String>,
-        #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
-        provider_state: Option<Metadata>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        native: Option<Metadata>,
         cost: f64,
         tokens: TokenUsage,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -313,8 +313,8 @@ pub enum SessionEvent {
         finish: Option<FinishReason>,
         #[serde(rename = "rawFinish", skip_serializing_if = "Option::is_none")]
         raw_finish: Option<String>,
-        #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
-        provider_state: Option<Metadata>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        native: Option<Metadata>,
         #[serde(skip_serializing_if = "Option::is_none")]
         cost: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -341,7 +341,7 @@ pub enum SessionEvent {
         ordinal: u32,
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        state: Option<Metadata>,
+        native: Option<Metadata>,
     },
     #[serde(rename = "session.reasoning.started")]
     ReasoningStarted {
@@ -351,7 +351,7 @@ pub enum SessionEvent {
         assistant_message_id: String,
         ordinal: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
-        state: Option<Metadata>,
+        native: Option<Metadata>,
     },
     #[serde(rename = "session.reasoning.ended")]
     ReasoningEnded {
@@ -362,7 +362,7 @@ pub enum SessionEvent {
         ordinal: u32,
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        state: Option<Metadata>,
+        native: Option<Metadata>,
     },
     #[serde(rename = "session.tool.input.started")]
     ToolInputStarted {
@@ -392,7 +392,7 @@ pub enum SessionEvent {
         input: Metadata,
         executed: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
-        state: Option<Metadata>,
+        native: Option<Metadata>,
     },
     #[serde(rename = "session.tool.success")]
     ToolSuccess {
@@ -405,8 +405,8 @@ pub enum SessionEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         metadata: Option<Metadata>,
         executed: bool,
-        #[serde(rename = "resultState", skip_serializing_if = "Option::is_none")]
-        result_state: Option<Metadata>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        native: Option<Metadata>,
     },
     #[serde(rename = "session.tool.failed")]
     ToolFailed {
@@ -421,8 +421,8 @@ pub enum SessionEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         metadata: Option<Metadata>,
         executed: bool,
-        #[serde(rename = "resultState", skip_serializing_if = "Option::is_none")]
-        result_state: Option<Metadata>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        native: Option<Metadata>,
     },
     #[serde(rename = "session.retry.scheduled")]
     RetryScheduled {
@@ -439,7 +439,6 @@ pub enum SessionEvent {
         #[serde(rename = "sessionID")]
         session_id: String,
         reason: crate::message::CompactionReason,
-        recent: String,
         #[serde(rename = "inputID", skip_serializing_if = "Option::is_none")]
         input_id: Option<String>,
     },
@@ -450,12 +449,9 @@ pub enum SessionEvent {
         reason: crate::message::CompactionReason,
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<ModelRef>,
-        #[serde(rename = "providerState", skip_serializing_if = "Option::is_none")]
-        provider_state: Option<Metadata>,
-        #[serde(rename = "providerContext", skip_serializing_if = "Option::is_none")]
-        provider_context: Option<Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        native: Option<Metadata>,
         text: String,
-        recent: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         cost: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -524,8 +520,10 @@ impl SessionEvent {
         v
     }
 
+    /// Decode a payload by event type. Stored events decode through here, so payloads written in older
+    /// shapes are upgraded in one place (`bus.ts` `decodeStoredData`).
     pub fn from_parts(kind: &str, data: Value) -> serde_json::Result<SessionEvent> {
-        let mut v = data;
+        let mut v = crate::legacy::event(kind, data);
         if let Value::Object(m) = &mut v {
             m.insert("type".into(), Value::String(kind.into()));
         }

@@ -2,6 +2,7 @@
 //! `InstructionEntry`, `InstructionState`, `PermissionSaved` and `Bus.remove`.
 
 use oc_schema::types::SessionInfo;
+use oc_schema::Message;
 use oc_server::{CursorDirection, ParentFilter, SessionListQuery};
 use oc_server::generated::SessionListOrder;
 use oc_storage::Database;
@@ -100,16 +101,21 @@ pub struct MessageRow {
 }
 
 impl MessageRow {
-    /// `{...data, id, type}` (API `Session.Message.Info` before schema encoding).
+    /// `{...data, id, type}` (API `Session.Message.Info` before schema encoding). Rows written before v2.1
+    /// are upgraded to the current shape (`history.ts` `rowInput`).
     pub fn json(&self) -> Option<Value> {
-        let mut v: Map<String, Value> = serde_json::from_str(&self.data).ok()?;
-        v.insert("id".into(), Value::String(self.id.clone()));
-        v.insert("type".into(), Value::String(self.kind.clone()));
-        Some(Value::Object(v))
+        oc_schema::message::row_input(&self.id, &self.kind, &self.data).ok().map(Value::Object)
     }
 
     pub fn data(&self) -> Value {
-        serde_json::from_str(&self.data).unwrap_or(Value::Null)
+        match serde_json::from_str::<Map<String, Value>>(&self.data) {
+            Ok(data) => Value::Object(oc_schema::legacy::message(&self.kind, data)),
+            Err(_) => Value::Null,
+        }
+    }
+
+    fn from_message(seq: i64, message: &Message) -> MessageRow {
+        MessageRow { seq, id: message.id().into(), kind: message.kind().into(), data: message.to_row_data() }
     }
 }
 
@@ -190,29 +196,11 @@ pub fn rows_of_types(db: &Database, session: &str, kinds: &[&str]) -> anyhow::Re
     })
 }
 
-/// `SessionHistory.load(db, sessionID, "latest")` (`session.context`).
+/// `SessionHistory.load(db, sessionID, "latest")` (`session.context`): a summary's kept text is rebuilt in
+/// `metadata.recent`.
 pub fn context(db: &Database, session: &str) -> anyhow::Result<Vec<MessageRow>> {
-    let compaction: Option<i64> = db.with(|c| {
-        c.query_row(
-            "SELECT seq FROM session_message WHERE session_id = ? AND type = 'compaction' AND json_extract(data, '$.status') = 'completed' ORDER BY seq DESC LIMIT 1",
-            [session],
-            |r| r.get(0),
-        )
-        .optional()
-    })?;
-    let rows: Vec<MessageRow> = db.with(|c| {
-        let mut s = c.prepare("SELECT seq, id, type, data FROM session_message WHERE session_id = ? AND seq >= ? ORDER BY seq ASC")?;
-        
-        s.query_map(rusqlite::params![session, compaction.unwrap_or(i64::MIN)], message_row)?.collect()
-    })?;
-    // A native checkpoint (completed compaction carrying provider context) supersedes earlier
-    // system messages.
-    let native = rows
-        .iter()
-        .rev()
-        .find(|r| r.kind == "compaction" && r.data().get("providerContext").is_some_and(|p| !p.is_null()))
-        .map(|r| r.seq);
-    Ok(rows.into_iter().filter(|r| !(r.kind == "system" && native.is_some_and(|n| r.seq < n))).collect())
+    let entries = oc_core::history::entries(db, session, oc_core::history::Boundary::Latest)?;
+    Ok(entries.iter().map(|(seq, m)| MessageRow::from_message(*seq, m)).collect())
 }
 
 // ---- instruction entries ---------------------------------------------------------------------
@@ -324,7 +312,8 @@ pub fn read_events(db: &Database, aggregate: &str, after: i64, through: i64) -> 
                         "created": created,
                         "type": kind,
                         "durable": {"aggregateID": aggregate, "seq": seq, "version": version},
-                        "data": serde_json::from_str::<Value>(&data).unwrap_or(Value::Null),
+                        // Payloads written before v2.1 are upgraded (`bus.ts` `decodeStoredData`).
+                        "data": oc_schema::legacy::event(&kind, serde_json::from_str::<Value>(&data).unwrap_or(Value::Null)),
                     }),
                 ))
             })?

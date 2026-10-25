@@ -77,6 +77,22 @@ pub fn payload_issue(operation: &str, body: &Value) -> Option<String> {
     check(schema, None, body, &mut path).err().map(|lines| lines.join("\n"))
 }
 
+/// Validate each of `items` against the component schema `component`, reporting paths as `[key][index]…`.
+/// For bodies whose document schema leaves the items untyped because the server upgrades them before
+/// decoding (`experimental.session.import` `messages`).
+pub fn items_issue(component: &str, key: &str, items: &[Value]) -> Option<String> {
+    let schema = serde_json::json!({ "$ref": format!("#/components/schemas/{component}") });
+    let mut path = vec![Seg::Key(key.into())];
+    for (index, item) in items.iter().enumerate() {
+        path.push(Seg::Index(index));
+        if let Err(lines) = check(&schema, None, item, &mut path) {
+            return Some(lines.join("\n"));
+        }
+        path.pop();
+    }
+    None
+}
+
 fn deref(schema: &Value) -> (&Value, Option<&str>) {
     let mut current = schema;
     let mut name = None;

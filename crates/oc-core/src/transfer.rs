@@ -152,22 +152,19 @@ fn sanitize_message(m: &mut Value) {
                     match co.get("type").and_then(Value::as_str) {
                         Some("text") => {
                             redact_field(co, "text", "text", &id);
-                            if co.contains_key("state") {
-                                co.insert("state".into(), json!({"redacted": format!("text-state:{id}")}));
+                            if co.contains_key("native") {
+                                co.insert("native".into(), json!({"redacted": format!("text-native:{id}")}));
                             }
                         }
                         Some("reasoning") => {
                             redact_field(co, "text", "reasoning", &id);
-                            if co.contains_key("state") {
-                                co.insert("state".into(), json!({"redacted": format!("reasoning-state:{id}")}));
+                            if co.contains_key("native") {
+                                co.insert("native".into(), json!({"redacted": format!("reasoning-native:{id}")}));
                             }
                         }
                         _ => {
-                            if co.contains_key("providerState") {
-                                co.insert("providerState".into(), json!({"redacted": format!("tool-provider-state:{id}")}));
-                            }
-                            if co.contains_key("providerResultState") {
-                                co.insert("providerResultState".into(), json!({"redacted": format!("tool-provider-result-state:{id}")}));
+                            if co.contains_key("native") {
+                                co.insert("native".into(), json!({"redacted": format!("tool-native:{id}")}));
                             }
                             if let Some(st) = co.get_mut("state").and_then(Value::as_object_mut) {
                                 match st.get("status").and_then(Value::as_str) {
@@ -197,9 +194,10 @@ fn sanitize_message(m: &mut Value) {
         "compaction" => {
             if o.get("status").and_then(Value::as_str) != Some("failed") {
                 redact_field(o, "summary", "compaction-summary", &id);
-                redact_field(o, "recent", "compaction-recent", &id);
+                // A provider compaction's replacement window lives in `native.messages`, so it is redacted
+                // with the rest of the native data and never exported.
                 if o.get("status").and_then(Value::as_str) == Some("completed") {
-                    redact_meta(o, "providerState", "compaction-provider-state", &id);
+                    redact_meta(o, "native", "compaction-native", &id);
                 }
             }
         }
@@ -228,10 +226,8 @@ pub async fn import(bus: &Bus, sessions: &Sessions, data: &Value, location: Loca
     }
     let project = crate::project::resolve_and_persist(bus, std::path::Path::new(&location.directory)).await?;
     let imported_at = oc_schema::id::now_ms() as i64;
-    let messages: Vec<Message> = data["messages"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
+    // Transcripts exported before v2.1 carry older names for native data.
+    let messages: Vec<Message> = oc_schema::legacy::messages(data["messages"].as_array().cloned().unwrap_or_default())
         .into_iter()
         .filter_map(|m| serde_json::from_value::<Message>(m).ok())
         .filter(is_settled)

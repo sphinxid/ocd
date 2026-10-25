@@ -8,6 +8,7 @@ use std::time::Duration;
 use axum::{body::Body, response::Response, routing::post, Router};
 use oc_ai::types::{ContentPart, Message as LlmMessage, ToolDefinition, ToolEntry, ToolNamespace};
 use oc_core::compaction::*;
+use oc_core::recent_text::*;
 use oc_core::{app::App, inbox::Scope, runner::Engine, session::{CreateInput, PromptInput}};
 use oc_schema::event::SessionEvent;
 use oc_schema::message::{CompactionReason, CompactionStatus};
@@ -32,11 +33,16 @@ fn assistant(id: &str, text: &str) -> Message {
     }))
 }
 
+/// A completed summary as history loads it: the kept text, when there is some, sits in `metadata.recent`.
 fn compaction(id: &str, summary: &str, recent: &str) -> Message {
-    msg(json!({
+    let mut v = json!({
         "type": "compaction", "id": id, "time": {"created": 1},
-        "status": "completed", "reason": "auto", "summary": summary, "recent": recent
-    }))
+        "status": "completed", "reason": "auto", "summary": summary
+    });
+    if !recent.is_empty() {
+        v["metadata"] = json!({"recent": recent});
+    }
+    msg(v)
 }
 
 fn model_ref() -> ModelRef {
@@ -358,26 +364,20 @@ fn split_conversation_boundaries() {
 
     // Everything fits: keep only the latest exchange.
     let msgs = vec![user("u1", "q1"), assistant("a1", "r1"), user("u2", "q2"), assistant("a2", "r2")];
-    assert_eq!(
-        split_conversation(&msgs, 15_000),
-        Some(Split { older: 2, recent: "[User]: q2\n\n[Assistant]: r2".into() })
-    );
+    assert_eq!(split_conversation(&msgs, 15_000), Some(Split { older: 2, keep_id: Some("u2".into()) }));
     // Nothing fits: the newest entry is still kept, from its exchange's user message.
-    assert_eq!(split_conversation(&msgs, 0), Some(Split { older: 2, recent: "[User]: q2\n\n[Assistant]: r2".into() }));
+    assert_eq!(split_conversation(&msgs, 0), Some(Split { older: 2, keep_id: Some("u2".into()) }));
 
     // One exchange, nothing older: summarize it all and keep nothing.
     let one = vec![user("u1", "q1"), assistant("a1", "r1")];
-    assert_eq!(split_conversation(&one, 15_000), Some(Split { older: 2, recent: String::new() }));
+    assert_eq!(split_conversation(&one, 15_000), Some(Split { older: 2, keep_id: None }));
 
     // One exchange after a summary that kept recent text: keep everything, summarize only the summary.
     let after = vec![compaction("c", "S", "[User]: old"), user("u1", "q1"), assistant("a1", "r1")];
-    assert_eq!(
-        split_conversation(&after, 15_000),
-        Some(Split { older: 1, recent: "[User]: q1\n\n[Assistant]: r1".into() })
-    );
+    assert_eq!(split_conversation(&after, 15_000), Some(Split { older: 1, keep_id: Some("u1".into()) }));
     // ... but a summary without recent text summarizes everything.
     let after = vec![compaction("c", "S", ""), user("u1", "q1"), assistant("a1", "r1")];
-    assert_eq!(split_conversation(&after, 15_000), Some(Split { older: 3, recent: String::new() }));
+    assert_eq!(split_conversation(&after, 15_000), Some(Split { older: 3, keep_id: None }));
 
     // Keep budget: the boundary moves back to the user message at or before the first kept entry.
     let big = "x".repeat(4_000); // 1,000 tokens
@@ -393,9 +393,7 @@ fn split_conversation_boundaries() {
     // keep 1,100 tokens: a2 (1,002 tokens with label) does not fit together with the rest → dropped = 4 (a3);
     // the user boundary at or before it is u2 (entry 2).
     let split = split_conversation(&msgs, 1_100).unwrap();
-    assert_eq!(split.older, 2);
-    assert!(split.recent.starts_with("[User]: xxxx"));
-    assert!(split.recent.ends_with("[User]: q3\n\n[Assistant]: r4"));
+    assert_eq!(split, Split { older: 2, keep_id: Some("u2".into()) });
 }
 
 // ------------------------------------------------------------------------------------------
@@ -465,7 +463,12 @@ fn flatten_and_drop_oldest_keeps_newest_exchanges() {
     request.messages = oc_core::lower::to_llm_messages(&history, &model_ref(), None);
     request.messages.insert(1, LlmMessage::system("instruction update"));
 
-    let lead = oc_core::lower::to_llm_messages(&[compaction("c1", "S", "")], &model_ref(), None);
+    // The previous summary is rebuilt with its kept text emptied.
+    let emptied = msg(json!({
+        "type": "compaction", "id": "c1", "time": {"created": 1}, "metadata": {"recent": ""},
+        "status": "completed", "reason": "auto", "summary": "S"
+    }));
+    let lead = oc_core::lower::to_llm_messages(&[emptied], &model_ref(), None);
     let all = flatten_and_drop_oldest(&request, &history, &model_ref(), None).unwrap();
     assert_eq!(all.messages.len(), 2);
     assert_eq!(all.messages[0], lead[0]);
@@ -548,6 +551,20 @@ async fn prompt(app: &Arc<App>, session: &str, text: &str) {
 
 fn last_message(app: &Arc<App>, session: &str) -> Message {
     app.db.session_messages(session).unwrap().into_iter().map(|(_, m)| m).last().unwrap()
+}
+
+fn user_id(app: &Arc<App>, session: &str, text: &str) -> String {
+    app.db
+        .session_messages(session)
+        .unwrap()
+        .into_iter()
+        .find_map(|(_, m)| matches!(&m, Message::User { text: t, .. } if t == text).then(|| m.id().to_string()))
+        .unwrap()
+}
+
+fn raw_row(app: &Arc<App>, id: &str) -> serde_json::Value {
+    let data: String = app.db.with(|c| c.query_row("SELECT data FROM session_message WHERE id = ?", [id], |r| r.get(0))).unwrap();
+    serde_json::from_str(&data).unwrap()
 }
 
 #[tokio::test]
@@ -645,11 +662,14 @@ async fn compacts_against_mock_provider() {
     let out = engine.compact(&loaded, Trigger::Overflow, CancellationToken::new()).await.unwrap();
     assert_eq!(out, CompactOutcome::Completed);
     let Message::Compaction(c) = last_message(&app, &s.id) else { panic!("{:#?}", last_message(&app, &s.id)) };
+    // The kept messages are referenced by their first message, not stored as text.
+    let second = user_id(&app, &s.id, "second question");
+    assert_eq!(c.metadata.as_ref().and_then(|m| m.get("keepID")), Some(&json!(second)));
+    assert!(raw_row(&app, &c.id).get("recent").is_none());
     match &c.status {
-        CompactionStatus::Completed { reason, summary, recent, model, tokens, cost, .. } => {
+        CompactionStatus::Completed { reason, summary, model, tokens, cost, .. } => {
             assert_eq!(*reason, CompactionReason::Auto);
             assert_eq!(summary, SUMMARY);
-            assert_eq!(recent, "[User]: second question\n\n[Assistant]: answer 2");
             assert_eq!(model.as_ref().map(|m| m.id.as_str()), Some("m1"));
             assert_eq!(tokens.as_ref().map(|t| t.input), Some(50));
             assert_eq!(*cost, Some(0.0));
@@ -669,10 +689,11 @@ async fn compacts_against_mock_provider() {
         assert_eq!(bodies[0]["max_completion_tokens"], 4096);
     }
 
-    // History after it starts from the checkpoint.
-    let history = oc_core::runner::history_for_runner(&app.bus, &s.id).unwrap();
+    // History after it starts from the checkpoint, whose kept text is rebuilt from `keepID`.
+    let history = oc_core::runner::history_for_runner(&app.bus, &s.id, &model_ref()).unwrap();
     assert_eq!(history.len(), 1);
     assert!(matches!(&history[0], Message::Compaction(c) if matches!(c.status, CompactionStatus::Completed { .. })));
+    assert_eq!(kept(&history[0]), "[User]: second question\n\n[Assistant]: answer 2");
     // The completed compaction is the last message: auto is not due right after it.
     let loaded = engine.load(engine.select(&s.id).await.unwrap()).await.unwrap();
     assert_eq!(engine.compact(&loaded, Trigger::Auto, CancellationToken::new()).await.unwrap(), CompactOutcome::Skipped);
@@ -698,7 +719,6 @@ async fn compacts_against_mock_provider() {
         .commit_one(SessionEvent::CompactionStarted {
             session_id: s.id.clone(),
             reason: CompactionReason::Manual,
-            recent: String::new(),
             input_id: Some(input_id.clone()),
         })
         .unwrap();
@@ -714,12 +734,15 @@ async fn compacts_against_mock_provider() {
     }
     let Message::Compaction(c) = last_message(&app, &s.id) else { panic!() };
     assert_eq!(c.id, input_id);
+    // One exchange after a summary that kept recent text: keep it all verbatim.
+    let third = user_id(&app, &s.id, "third question");
+    assert_eq!(c.metadata.as_ref().and_then(|m| m.get("keepID")), Some(&json!(third)));
+    let history = oc_core::runner::history_for_runner(&app.bus, &s.id, &model_ref()).unwrap();
+    assert_eq!(kept(&history[0]), "[User]: third question\n\n[Assistant]: answer 3");
     match &c.status {
-        CompactionStatus::Completed { reason, summary, recent, tokens, .. } => {
+        CompactionStatus::Completed { reason, summary, tokens, .. } => {
             assert_eq!(*reason, CompactionReason::Manual);
             assert_eq!(summary, SUMMARY);
-            // One exchange after a summary that kept recent text: keep it all verbatim.
-            assert_eq!(recent, "[User]: third question\n\n[Assistant]: answer 3");
             // both calls are billed on the compaction message
             assert_eq!(tokens.as_ref().map(|t| t.input), Some(100));
         }
@@ -742,7 +765,7 @@ async fn compacts_against_mock_provider() {
         other => panic!("{other:?}"),
     }
     // A failed compaction does not move the history boundary.
-    let history = oc_core::runner::history_for_runner(&app.bus, &s.id).unwrap();
+    let history = oc_core::runner::history_for_runner(&app.bus, &s.id, &model_ref()).unwrap();
     assert_eq!(history[0].id(), input_id);
 
     // Automatic compaction off: overflow skips too.

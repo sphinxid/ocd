@@ -308,11 +308,6 @@ pub fn from_catalog_model(
             configured.insert(k.clone(), v.clone());
         }
     }
-    if let Some(CredentialValue::Key { configuration: Some(configuration), .. }) = credential {
-        for (k, v) in configuration {
-            configured.insert(k.clone(), v.clone());
-        }
-    }
     if is_aisdk(Some(&package)) {
         let Some(bridge) = options.aisdk.clone() else {
             return Err(ResolveError::AisdkPackage {
@@ -324,11 +319,6 @@ pub fn from_catalog_model(
         let mut overlay = native_credential_settings(&resolved.provider_id, &package, credential);
         if let Some(metadata) = credential_metadata(credential) {
             for (k, v) in metadata {
-                overlay.insert(k.clone(), v.clone());
-            }
-        }
-        if let Some(CredentialValue::Key { configuration: Some(configuration), .. }) = credential {
-            for (k, v) in configuration {
                 overlay.insert(k.clone(), v.clone());
             }
         }

@@ -815,7 +815,7 @@ impl Integrations {
         self.store.create(input).await.map_err(defect)
     }
 
-    /// `connection.key`: stores `{type:"key", key, configuration?: answer}`.
+    /// `connection.key`: stores `{type:"key", key, metadata?: answer}`.
     pub async fn connect_key(
         &self,
         integration_id: &str,
@@ -835,11 +835,7 @@ impl Integrations {
         if method.form().is_none() && !answer.is_empty() {
             return Err(IntegrationError::authorization("Key method does not accept a form answer"));
         }
-        let value = CredentialValue::Key {
-            key: key.to_string(),
-            metadata: None,
-            configuration: (!answer.is_empty()).then_some(answer),
-        };
+        let value = CredentialValue::Key { key: key.to_string(), metadata: (!answer.is_empty()).then_some(answer) };
         let mut input = CreateCredential::new(integration_id, value);
         input.label = label;
         self.create_credential(input).await.map(|_| ())
