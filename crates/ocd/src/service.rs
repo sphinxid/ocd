@@ -42,6 +42,9 @@ pub struct ServiceInfo {
     pub disabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<Remote>,
+    /// Set once remote access was accepted or had been on, so turning it on again doesn't ask twice.
+    #[serde(default, rename = "remoteAccepted", skip_serializing_if = "Option::is_none")]
+    pub remote_accepted: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -56,7 +59,7 @@ pub struct ServiceInfo {
 
 fn decode_info(text: &str) -> Option<ServiceInfo> {
     let info: ServiceInfo = serde_json::from_str(text).ok()?;
-    if info.port.is_some_and(|p| !(1..=65_535).contains(&p)) {
+    if info.port.is_some_and(|p| !(1..=65_535).contains(&p)) || info.remote_accepted == Some(false) {
         return None;
     }
     Some(info)
@@ -868,5 +871,12 @@ mod tests {
         let (info, remote) = decode_legacy(r#"{"remote":true,"hostname":"h"}"#).unwrap();
         assert!(remote);
         assert_eq!(info.hostname.as_deref(), Some("h"));
+    }
+
+    #[test]
+    fn remote_accepted_is_kept_in_schema_order() {
+        let info = decode_info(r#"{"hostname":"h","remoteAccepted":true,"disabled":false}"#).unwrap();
+        assert_eq!(serde_json::to_string(&info).unwrap(), r#"{"disabled":false,"remoteAccepted":true,"hostname":"h"}"#);
+        assert!(decode_info(r#"{"remoteAccepted":false}"#).is_none());
     }
 }

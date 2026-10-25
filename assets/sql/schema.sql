@@ -86,6 +86,7 @@ CREATE TABLE `project` (
           `time_updated` integer NOT NULL,
           `time_initialized` integer,
           `time_active` integer DEFAULT 0 NOT NULL,
+          `time_archived` integer,
           `sandboxes` text NOT NULL,
           `commands` text
         );

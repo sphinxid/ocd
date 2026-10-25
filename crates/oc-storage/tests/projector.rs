@@ -47,7 +47,7 @@ fn setup() -> (Database, String) {
 fn fresh_database_has_all_migrations() {
     let db = Database::memory().unwrap();
     let n: i64 = db.with(|c| c.query_row("SELECT count(*) FROM migration", [], |r| r.get(0))).unwrap();
-    assert_eq!(n, 49);
+    assert_eq!(n, 50);
 }
 
 #[test]

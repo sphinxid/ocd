@@ -524,6 +524,13 @@ async fn service_restart(global: &Global) -> anyhow::Result<i32> {
     Ok(0)
 }
 
+/// `disableRemote`: forgets the route; having had remote access on counts as accepting it.
+fn disable_remote(info: &mut crate::service::ServiceInfo) {
+    if info.remote.take().is_some() {
+        info.remote_accepted = Some(true);
+    }
+}
+
 const KEYS: &[&str] = &["disabled", "remote", "hostname", "port", "password", "cors", "env"];
 
 fn config_key(key: &str) -> anyhow::Result<&'static str> {
@@ -605,7 +612,7 @@ async fn service_set(global: &Global, input: &Input) -> anyhow::Result<i32> {
             }
             stop_service(&config).await?;
             let mut info = config.read();
-            info.remote = None;
+            disable_remote(&mut info);
             config.write(&info)?;
         }
         "hostname" => {
@@ -685,7 +692,7 @@ async fn service_unset(global: &Global, input: &Input) -> anyhow::Result<i32> {
     let mut info = config.read();
     match selected {
         "disabled" => info.disabled = None,
-        "remote" => info.remote = None,
+        "remote" => disable_remote(&mut info),
         "hostname" => info.hostname = None,
         "port" => info.port = None,
         "password" => info.password = None,

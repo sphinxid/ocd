@@ -39,7 +39,7 @@ pub fn apply(db: &Database, data_dir: &Path) -> anyhow::Result<()> {
     }
     db.transaction(|c| {
         c.execute_batch(SCHEMA)?;
-        c.execute_batch("CREATE TABLE `migration` (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)")?;
+        c.execute_batch("CREATE TABLE \"migration\" (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)")?;
         let now = now_ms();
         for id in ids() {
             c.execute("INSERT INTO migration (id, time_completed) VALUES (?, ?)", params![id, now])?;
@@ -55,7 +55,7 @@ fn completed(c: &Connection) -> rusqlite::Result<HashSet<String>> {
 }
 
 fn apply_only(db: &Database, data_dir: &Path) -> anyhow::Result<()> {
-    db.with(|c| c.execute_batch("CREATE TABLE IF NOT EXISTS `migration` (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)"))?;
+    db.with(|c| c.execute_batch("CREATE TABLE IF NOT EXISTS \"migration\" (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)"))?;
     let mut done = db.with(completed)?;
     if done.is_empty() {
         seed_from_drizzle(db)?;

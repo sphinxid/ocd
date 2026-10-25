@@ -47,3 +47,4 @@
 20260910120000_clear_v1_session_permission
 20260923013825_project_time_active
 20261007190000_azure_cli_external_credential
+20261010180456_project_time_archived
