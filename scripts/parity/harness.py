@@ -174,6 +174,8 @@ class Server:
         self.name = name
         env = dict(env)
         env["OPENCODE_PASSWORD"] = PASSWORD
+        # Both binaries take the working directory from PWD when it is set; a shell would set it to cwd.
+        env["PWD"] = cwd
         self.proc = subprocess.Popen([binary, "serve", "--port", "0"], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.url = None
@@ -460,6 +462,8 @@ class Ctx:
     def cli(self, label, args, cwd=None, stdin=None, timeout=60, env_extra=None):
         env = self.env()
         env.update(env_extra or {})
+        # Both binaries take the working directory from PWD when it is set; a shell would set it to cwd.
+        env["PWD"] = cwd or self.project
         try:
             p = subprocess.run([self.binary, *args], cwd=cwd or self.project, env=env, input=stdin,
                                capture_output=True, text=True, timeout=timeout)

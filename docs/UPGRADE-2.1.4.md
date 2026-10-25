@@ -12,6 +12,12 @@ ocd's current code. Sizes are developer-day estimates for porting faithfully, us
 rather than as a schedule. The detailed findings, one table per area, are in the
 [appendix](#appendix-findings-per-area).
 
+## Progress
+
+| Batch | Status |
+|---|---|
+| 1. Data compatibility | Done: the v2.1 data rename with upgrade-on-read (sessions, events, imports, credentials), the project migration, and `remoteAccepted` in the service file. A database written by 2.0.26, 2.1.4 or ocd reads identically in 2.1.4 and ocd, and ocd writes the same rows and events as 2.1.4. |
+
 ## Size at a glance
 
 | Area | Rows | Estimate as reported (days) | Experimental part |
@@ -89,6 +95,8 @@ These are not part of 2.1, but they turned up during the review.
 | Console remote config (`/api/v2/config`) | Organization policies and Console-provided settings are missing | not sized |
 | Idle locations are never unloaded (`LocationActivity`) | Memory stays allocated for long-idle projects | M |
 | TUI: no execute-detail dialog, no full `/plugins` dialog, no missing-folder screen, no fork pending view, no live reload of `tui.json`, `/connect` is a plain alert | Smaller differences from upstream's TUI | S to M each |
+| Stored JSON writes whole floats as `0.0` (for example `"cost":0.0`); upstream writes `0` | Same values, different bytes in `opencode.db` | S to M (all storage writes) |
+| `run` output: the `> agent · model` header repeats on a second step, and `--format json` step events and part IDs differ from upstream | Found once the parity harness passed the right `PWD` (it inherited the parent's, so `run` never saw the test config) | S to M, compare against 2.1.4 |
 | Re-titling an already titled session ("Original request / Recent conversation") | Titles are only generated from the first message | S |
 
 ## Proposed order

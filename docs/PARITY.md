@@ -242,7 +242,7 @@ classified below; none is an unexplained behavioral difference.
 | An unknown-tool failure and `session.step.streamed` race (concurrent tool fibers vs stream end) | session/runner/step.ts |
 | An HTTP 400 on the first step and the forked title rename can commit in either order (`loop_http_400`, occasionally) | core/src/session/runner/llm.ts:174 |
 | `b3`/`traceparent` header values are random (one trace ID per process, fresh span IDs per request) | Effect's native tracer; normalized by the harness, see #24 |
-| `run` without `-m` picks OpenCode Zen's free model in both (network) | the suite passes `-m mock/m1` |
+| `run` without `-m` used to pick OpenCode Zen's free model in both (network) | caused by the harness passing the parent's `PWD`, which both binaries prefer over the working directory; the harness now sets `PWD` to the project (2026-10-25) |
 | Plugins activate asynchronously after a location boots: an early `plugin.list` (e.g. `ocd plugin list` against a fresh standalone server) shows only built-ins in both binaries; the plugin scenarios wait for `plugin.updated` and settle the lists | core/src/plugin/supervisor.ts |
 
 ### Remaining
@@ -278,7 +278,6 @@ Everything else in `cli_help` (root, 17 subcommands, 29 nested subcommands, unkn
 | `--completions bash` | `_opencode…` identifiers | `_ocd…` identifiers | by design (derived from the program name; masked) |
 | `debug paths` | `db …/opencode-v2.db` | `db …/opencode.db` | channel (`v2` dev build vs `latest`) |
 | `debug agents` | `[]` | the agent list | upstream race: the first `agent.list` of a fresh standalone server answers `[]` (lazy Agent state); ocd's answer is the intended one |
-| `run` without `-m` | uses OpenCode Zen `exo-free` despite the configured `mock/m1` | same | identical; noted because it reaches the network |
 
 ## Safety notes
 
