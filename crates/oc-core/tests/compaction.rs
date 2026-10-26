@@ -70,20 +70,65 @@ fn token_estimate_rounds_like_js() {
 fn ceiling() {
     assert_eq!(calculate_ceiling(0, None, None), None);
     assert_eq!(calculate_ceiling(0, Some(0), Some(10)), None);
-    // 10% beats the 16k reserve
-    assert_eq!(calculate_ceiling(200_000, None, None), Some(180_000));
-    // 16k reserve beats 10%
+    // 15% beats the 16k reserve
+    assert_eq!(calculate_ceiling(200_000, None, None), Some(170_000));
+    // 16k reserve beats 15%
     assert_eq!(calculate_ceiling(100_000, None, None), Some(84_000));
-    // a window too small to give up 16k keeps 10%
-    assert_eq!(calculate_ceiling(20_000, None, None), Some(18_000));
-    assert_eq!(calculate_ceiling(31_999, None, None), Some(31_999 - 3_199));
+    // a window too small to give up 16k keeps 15%
+    assert_eq!(calculate_ceiling(20_000, None, None), Some(17_000));
+    assert_eq!(calculate_ceiling(31_999, None, None), Some(31_999 - 4_799));
     assert_eq!(calculate_ceiling(32_000, None, None), Some(16_000));
-    // input limit wins over context; 0 input falls back to context
-    assert_eq!(calculate_ceiling(400_000, Some(272_000), None), Some(272_000 - 27_200));
+    // input limit wins over context (85% of it, upstream's 231,199/231,200 boundary); 0 input falls back to context
+    assert_eq!(calculate_ceiling(400_000, Some(272_000), None), Some(231_200));
     assert_eq!(calculate_ceiling(100_000, Some(0), None), Some(84_000));
     // explicit buffer
     assert_eq!(calculate_ceiling(100_000, None, Some(5_000)), Some(95_000));
-    assert_eq!(calculate_ceiling(100_000, None, Some(150_000)), Some(-50_000));
+    // A buffer that leaves the model no room, such as one set for a larger model, falls back to the default reserve.
+    assert_eq!(calculate_ceiling(100_000, None, Some(150_000)), Some(84_000));
+    assert_eq!(calculate_ceiling(100_000, None, Some(100_000)), Some(84_000));
+    assert_eq!(calculate_ceiling(100_000, None, Some(99_999)), Some(1));
+}
+
+#[test]
+fn summary_room_leaves_reserve_for_the_summary() {
+    assert_eq!(summary_room(200_000, None), 184_000);
+    assert_eq!(summary_room(400_000, Some(272_000)), 256_000);
+    assert_eq!(summary_room(10_000, None), 0);
+    assert_eq!(summary_room(0, None), 0);
+}
+
+#[test]
+fn clip_keeps_head_and_tail_code_points() {
+    let short = "a".repeat(2_000);
+    assert_eq!(clip(&short), short);
+    let long = format!("{}{}{}", "h".repeat(1_000), "m".repeat(500), "t".repeat(1_000));
+    assert_eq!(clip(&long), format!("{}\n[… 500 characters omitted …]\n{}", "h".repeat(1_000), "t".repeat(1_000)));
+    // 1,500 astral chars are 3,000 UTF-16 units but only 1,500 code points: kept whole.
+    let emoji = "😀".repeat(1_500);
+    assert_eq!(clip(&emoji), emoji);
+    let emoji = "😀".repeat(2_001);
+    assert_eq!(clip(&emoji), format!("{}\n[… 1 characters omitted …]\n{}", "😀".repeat(1_000), "😀".repeat(1_000)));
+}
+
+#[test]
+fn fit_output_lowers_limit_to_room_left() {
+    let mut request = base_request();
+    request.generation = Some(oc_ai::types::GenerationOptions { max_tokens: Some(30_000.0), ..Default::default() });
+    // About 160k estimated: the margin leaves 1,024, the floor takes min(32k, 200k - 160k) = 32k → 30k kept.
+    request.messages = vec![LlmMessage::user_text("x".repeat(640_000))];
+    let fitted = fit_output(request.clone(), 32_000, 200_000);
+    assert_eq!(fitted.generation.unwrap().max_tokens, Some(30_000.0));
+    // About 182k: under 20k of room is left.
+    request.messages = vec![LlmMessage::user_text("x".repeat(728_000))];
+    let fitted = fit_output(request.clone(), 32_000, 200_000);
+    assert_eq!(fitted.generation.unwrap().max_tokens, Some(18_000.0));
+    // 250k, past the window: the minimum.
+    request.messages = vec![LlmMessage::user_text("x".repeat(1_000_000))];
+    let fitted = fit_output(request.clone(), 32_000, 200_000);
+    assert_eq!(fitted.generation.unwrap().max_tokens, Some(1_024.0));
+    // No limit set: unchanged.
+    request.generation = None;
+    assert!(fit_output(request, 32_000, 200_000).generation.is_none());
 }
 
 #[test]
@@ -309,7 +354,7 @@ fn message_text_rendering() {
     }));
     assert_eq!(
         message_to_text(&a),
-        "[Assistant reasoning]: thinking\n[Assistant]: hi\n[Assistant tool call]: read({\"path\":\"/a\"})\n[Tool result]: line\n[Attached image/png: p]\n[Attached image/jpeg]\n[Assistant tool call]: shell({\"command\":\"ls\"})\n[Tool error]: boom\n[Assistant tool call]: edit({\"partial)"
+        "[Assistant]: hi\n[Assistant tool call]: read({\"path\":\"/a\"})\n[Tool result]: line\n[Attached image/png: p]\n[Attached image/jpeg]\n[Assistant tool call]: shell({\"command\":\"ls\"})\n[Tool error]: boom\n[Assistant tool call]: edit({\"partial)"
     );
 
     let loc = msg(json!({"type": "location-switched", "id": "l", "time": {"created": 1}, "location": {"directory": "/w"}}));
@@ -364,20 +409,20 @@ fn split_conversation_boundaries() {
 
     // Everything fits: keep only the latest exchange.
     let msgs = vec![user("u1", "q1"), assistant("a1", "r1"), user("u2", "q2"), assistant("a2", "r2")];
-    assert_eq!(split_conversation(&msgs, 15_000), Some(Split { older: 2, keep_id: Some("u2".into()) }));
+    assert_eq!(split_conversation(&msgs, 15_000), Some(Split { keep_id: Some("u2".into()) }));
     // Nothing fits: the newest entry is still kept, from its exchange's user message.
-    assert_eq!(split_conversation(&msgs, 0), Some(Split { older: 2, keep_id: Some("u2".into()) }));
+    assert_eq!(split_conversation(&msgs, 0), Some(Split { keep_id: Some("u2".into()) }));
 
     // One exchange, nothing older: summarize it all and keep nothing.
     let one = vec![user("u1", "q1"), assistant("a1", "r1")];
-    assert_eq!(split_conversation(&one, 15_000), Some(Split { older: 2, keep_id: None }));
+    assert_eq!(split_conversation(&one, 15_000), Some(Split { keep_id: None }));
 
     // One exchange after a summary that kept recent text: keep everything, summarize only the summary.
     let after = vec![compaction("c", "S", "[User]: old"), user("u1", "q1"), assistant("a1", "r1")];
-    assert_eq!(split_conversation(&after, 15_000), Some(Split { older: 1, keep_id: Some("u1".into()) }));
+    assert_eq!(split_conversation(&after, 15_000), Some(Split { keep_id: Some("u1".into()) }));
     // ... but a summary without recent text summarizes everything.
     let after = vec![compaction("c", "S", ""), user("u1", "q1"), assistant("a1", "r1")];
-    assert_eq!(split_conversation(&after, 15_000), Some(Split { older: 3, keep_id: None }));
+    assert_eq!(split_conversation(&after, 15_000), Some(Split { keep_id: None }));
 
     // Keep budget: the boundary moves back to the user message at or before the first kept entry.
     let big = "x".repeat(4_000); // 1,000 tokens
@@ -393,7 +438,7 @@ fn split_conversation_boundaries() {
     // keep 1,100 tokens: a2 (1,002 tokens with label) does not fit together with the rest → dropped = 4 (a3);
     // the user boundary at or before it is u2 (entry 2).
     let split = split_conversation(&msgs, 1_100).unwrap();
-    assert_eq!(split, Split { older: 2, keep_id: Some("u2".into()) });
+    assert_eq!(split, Split { keep_id: Some("u2".into()) });
 }
 
 // ------------------------------------------------------------------------------------------
@@ -423,7 +468,10 @@ fn flatten_messages() {
         }),
     ]);
     a.id = Some("a".into());
-    assert_eq!(flatten_message(&a), "[Assistant]: answer\n[Assistant tool call]: read({\"path\":\"/a\"})");
+    assert_eq!(flatten_message(&a, 0), "[Assistant]: answer\n[Assistant tool call]: read({\"path\":\"/a\"})");
+    assert_eq!(flatten_message(&a, OUTPUTS_REMOVED), "[Assistant]: answer\n[Assistant tool call]: read({\"path\":\"/a\"})");
+    // Only the user's text is kept from USER_ONLY on.
+    assert_eq!(flatten_message(&a, USER_ONLY), "");
     let tool = LlmMessage::tool(oc_ai::types::ToolResultPart {
         id: "c".into(),
         name: "read".into(),
@@ -434,8 +482,10 @@ fn flatten_messages() {
         metadata: None,
         provider_metadata: None,
     });
-    assert_eq!(flatten_message(&tool), "[Tool error]: {\"error\":\"x\"}");
-    assert_eq!(flatten_message(&LlmMessage::system("instr")), "");
+    assert_eq!(flatten_message(&tool, 0), "[Tool error]: {\"error\":\"x\"}");
+    assert_eq!(flatten_message(&tool, OUTPUTS_CLIPPED), "[Tool error]: {\"error\":\"x\"}");
+    assert_eq!(flatten_message(&tool, OUTPUTS_REMOVED), "[Tool error omitted]");
+    assert_eq!(flatten_message(&LlmMessage::system("instr"), 0), "");
     let media = LlmMessage::user(vec![
         ContentPart::text("see"),
         ContentPart::Media(oc_ai::types::MediaPart {
@@ -446,7 +496,41 @@ fn flatten_messages() {
             provider_metadata: None,
         }),
     ]);
-    assert_eq!(flatten_message(&media), "[User]: see\n[image/png omitted]");
+    assert_eq!(flatten_message(&media, 0), "[User]: see\n[image/png omitted]");
+    assert_eq!(flatten_message(&media, USER_ONLY), "[User]: see");
+    assert_eq!(flatten_message(&media, OMITTED), "");
+
+    // Long tool outputs are whole at level 0 and clipped from OUTPUTS_CLIPPED on; long inputs from OUTPUTS_REMOVED.
+    let long = "y".repeat(3_000);
+    let clipped = format!("{}\n[… 1000 characters omitted …]\n{}", "y".repeat(1_000), "y".repeat(1_000));
+    let result = LlmMessage::tool(oc_ai::types::ToolResultPart {
+        id: "c".into(),
+        name: "read".into(),
+        namespace: None,
+        result: oc_ai::types::ToolResultValue::Text(json!(long)),
+        provider_executed: None,
+        cache: None,
+        metadata: None,
+        provider_metadata: None,
+    });
+    assert_eq!(flatten_message(&result, 0), format!("[Tool result]: {long}"));
+    assert_eq!(flatten_message(&result, OUTPUTS_CLIPPED), format!("[Tool result]: {clipped}"));
+    let call = LlmMessage::assistant(vec![ContentPart::ToolCall(oc_ai::types::ToolCallPart {
+        id: "c".into(),
+        name: "write".into(),
+        namespace: None,
+        input: json!(long),
+        provider_executed: None,
+        cache: None,
+        metadata: None,
+        provider_metadata: None,
+    })]);
+    let quoted = format!("\"{long}\"");
+    assert_eq!(flatten_message(&call, OUTPUTS_CLIPPED), format!("[Assistant tool call]: write({quoted})"));
+    assert_eq!(flatten_message(&call, OUTPUTS_REMOVED), format!("[Assistant tool call]: write({})", clip(&quoted)));
+    let user_long = LlmMessage::user_text(long.clone());
+    assert_eq!(flatten_message(&user_long, OUTPUTS_REMOVED), format!("[User]: {long}"));
+    assert_eq!(flatten_message(&user_long, USER_ONLY), format!("[User]: {clipped}"));
 }
 
 #[test]
@@ -477,17 +561,19 @@ fn flatten_and_drop_oldest_keeps_newest_exchanges() {
         LlmMessage::user_text("[User]: kept before\n\n[User]: q1\n[Assistant]: r1\n\n[User]: q2\n[Assistant]: r2")
     );
 
-    // Room for only the newest exchange (plus the note reserve).
-    let fixed = estimate_request(&request.system, &request.tools, &lead) as i64;
+    // Room for the size of the newest exchange (plus the note reserve): every exchange is first cut to its user
+    // text, then the oldest are omitted until the rest fit. The newest is shortened but never omitted.
+    let fixed = estimate_request(&request.system, &[], &lead) as i64;
     let newest = token_estimate("[User]: q2\n[Assistant]: r2") as i64 + 1;
     let reserve = token_estimate("[3 older exchanges omitted]\n\n") as i64;
     let one = flatten_and_drop_oldest(&request, &history, &model_ref(), Some(fixed + reserve + newest)).unwrap();
-    assert_eq!(
-        one.messages[1],
-        LlmMessage::user_text("[2 older exchanges omitted]\n\n[User]: q2\n[Assistant]: r2")
-    );
-    // Not even the newest exchange fits.
+    assert!(one.tools.is_empty());
+    assert_eq!(one.messages[1], LlmMessage::user_text("[1 older exchange omitted]\n\n[User]: q1\n\n[User]: q2"));
+    // Not even the newest exchange's user text fits.
     assert!(flatten_and_drop_oldest(&request, &history, &model_ref(), Some(fixed + reserve)).is_none());
+    let tiny = token_estimate("[User]: q2") as i64 + 1;
+    let last = flatten_and_drop_oldest(&request, &history, &model_ref(), Some(fixed + reserve + tiny)).unwrap();
+    assert_eq!(last.messages[1], LlmMessage::user_text("[2 older exchanges omitted]\n\n[User]: q2"));
 
     // Without a previous compaction the lead is empty and everything is transcript.
     let plain = vec![user("u1", "q1"), assistant("a1", "r1")];
@@ -495,6 +581,103 @@ fn flatten_and_drop_oldest_keeps_newest_exchanges() {
     request2.messages = oc_core::lower::to_llm_messages(&plain, &model_ref(), None);
     let flat = flatten_and_drop_oldest(&request2, &plain, &model_ref(), Some(1_000)).unwrap();
     assert_eq!(flat.messages, vec![LlmMessage::user_text("[User]: q1\n[Assistant]: r1")]);
+}
+
+fn tool_exchange(request: &str, output: &str) -> Vec<LlmMessage> {
+    let call = ContentPart::ToolCall(oc_ai::types::ToolCallPart {
+        id: format!("call-{request}"),
+        name: "web_search".into(),
+        namespace: None,
+        input: json!({"query": "q"}),
+        provider_executed: None,
+        cache: None,
+        metadata: None,
+        provider_metadata: None,
+    });
+    let result = LlmMessage::tool(oc_ai::types::ToolResultPart {
+        id: format!("call-{request}"),
+        name: "web_search".into(),
+        namespace: None,
+        result: oc_ai::types::ToolResultValue::Text(json!(output)),
+        provider_executed: None,
+        cache: None,
+        metadata: None,
+        provider_metadata: None,
+    });
+    vec![
+        LlmMessage::user_text(request.to_string()),
+        LlmMessage::assistant(vec![call]),
+        result,
+        LlmMessage::assistant(vec![ContentPart::text(format!("Answer to {request}"))]),
+    ]
+}
+
+fn render(group: &[LlmMessage], level: usize) -> String {
+    group.iter().map(|m| flatten_message(m, level)).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n")
+}
+
+fn size(text: &str) -> i64 {
+    if text.is_empty() { 0 } else { token_estimate(text) as i64 + 1 }
+}
+
+// session-runner.test.ts "drops tool output in serialized compaction history before omitting exchanges": every
+// exchange reaches a level before any reaches the next, oldest first.
+#[test]
+fn transcript_levels_shorten_oldest_first() {
+    let first = tool_exchange("Request 0", &"x".repeat(5_000));
+    let second = tool_exchange("Request 1", &"y".repeat(5_000));
+    let mut request = base_request();
+    request.tools = vec![ToolEntry::Tool(ToolDefinition::new("web_search", "search", json!({})))];
+    request.messages = [first.clone(), second.clone()].concat();
+    let reserve = token_estimate("[2 older exchanges omitted]\n\n") as i64;
+
+    // Everything fits: whole, no note, no tool definitions.
+    let whole = flatten_and_drop_oldest(&request, &[], &model_ref(), None).unwrap();
+    assert!(whole.tools.is_empty());
+    assert_eq!(whole.messages, vec![LlmMessage::user_text(format!("{}\n\n{}", render(&first, 0), render(&second, 0)))]);
+    assert!(render(&first, 0).contains(&"x".repeat(5_000)));
+
+    // Room for the oldest without its tool output and the newest with its output clipped.
+    let room = size(&render(&first, OUTPUTS_REMOVED)) + size(&render(&second, OUTPUTS_CLIPPED));
+    let out = flatten_and_drop_oldest(&request, &[], &model_ref(), Some(room + reserve)).unwrap();
+    let LlmMessage { content, .. } = &out.messages[0];
+    let ContentPart::Text(text) = &content[0] else { panic!() };
+    assert_eq!(text.text, format!("{}\n\n{}", render(&first, OUTPUTS_REMOVED), render(&second, OUTPUTS_CLIPPED)));
+    assert!(text.text.contains("[Tool result omitted]"));
+    assert!(text.text.contains("Request 0"));
+    assert!(text.text.contains("characters omitted"));
+    assert!(!text.text.contains("older exchange"));
+}
+
+// "shortens the only exchange's user text when it does not fit"
+#[test]
+fn transcript_clips_the_only_exchange() {
+    let mut request = base_request();
+    request.messages = vec![
+        LlmMessage::user_text(format!("Request 0: {}", "x".repeat(40_000))),
+        LlmMessage::assistant(vec![ContentPart::text("Answer 0")]),
+    ];
+    let out = flatten_and_drop_oldest(&request, &[], &model_ref(), Some(1_500)).unwrap();
+    let ContentPart::Text(text) = &out.messages[0].content[0] else { panic!() };
+    assert!(text.text.starts_with("[User]: Request 0: "));
+    assert!(text.text.contains("characters omitted"));
+    assert!(!text.text.contains(&"x".repeat(2_001)));
+    assert!(!text.text.contains("Answer 0"));
+    // Below even that, it cannot fit.
+    assert!(flatten_and_drop_oldest(&request, &[], &model_ref(), Some(100)).is_none());
+}
+
+#[test]
+fn without_tail_cuts_at_kept_message() {
+    let mut request = base_request();
+    let mut a = LlmMessage::user_text("a");
+    a.id = Some("u1".into());
+    let mut b = LlmMessage::user_text("b");
+    b.id = Some("u2".into());
+    request.messages = vec![a.clone(), b];
+    assert_eq!(without_tail(&request, Some("u2")).messages, vec![a]);
+    assert_eq!(without_tail(&request, Some("missing")).messages.len(), 2);
+    assert_eq!(without_tail(&request, None).messages.len(), 2);
 }
 
 #[test]

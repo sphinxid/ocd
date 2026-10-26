@@ -489,7 +489,7 @@ impl Engine {
             req.tool_choice = Some(ToolChoice::from_str("none"));
         }
         let estimate = crate::compaction::estimate_prompt(loaded, &req.tools);
-        let max = crate::prompt::output_limit(model.output_limit().max(0) as u64, model.context_limit().max(0) as u64, false, Some(estimate));
+        let max = crate::prompt::output_limit(model.output_limit().max(0) as u64, model.context_limit().max(0) as u64, Some(estimate));
         req.generation = Some(GenerationOptions { max_tokens: Some(max as f64), ..Default::default() });
         self.session_http(&loaded.sel.session, &mut req);
         (req, names)

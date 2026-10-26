@@ -47,13 +47,9 @@ pub fn message_to_text(message: &Message) -> String {
             .flat_map(|part| -> Vec<String> {
                 match part {
                     AssistantContent::Text { text, .. } => vec![format!("[Assistant]: {text}")],
-                    AssistantContent::Reasoning { text, .. } => {
-                        if text.is_empty() {
-                            vec![]
-                        } else {
-                            vec![format!("[Assistant reasoning]: {text}")]
-                        }
-                    }
+                    // Providers return summaries of the real reasoning, and written out as text it can read like
+                    // an attempt to extract the model's thinking.
+                    AssistantContent::Reasoning { .. } => vec![],
                     AssistantContent::Tool { name, state, .. } => {
                         let input = match state {
                             ToolState::Streaming { input } => input.clone(),
