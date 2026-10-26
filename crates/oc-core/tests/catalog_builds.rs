@@ -55,10 +55,15 @@ async fn catalog_is_built_once_per_location_without_copilot() {
 
     let first = models.catalog_at(&config, Some("/loc")).await.unwrap();
     assert!(first.model("mock", "m1").is_some());
-    // The Copilot models route through the AI SDK provider when nothing was loaded.
+    // Without a loaded `/models` list, Anthropic Messages models stay native and the rest route through the AI
+    // SDK provider.
     let copilot = first.record("github-copilot").expect("models.dev lists GitHub Copilot");
     assert!(!copilot.models.is_empty());
-    assert!(copilot.models.values().all(|m| m.package.as_deref() == Some("aisdk:@ai-sdk/github-copilot")));
+    assert!(copilot.models.values().any(|m| m.package.as_deref() == Some("aisdk:@ai-sdk/github-copilot")));
+    assert!(copilot.models.values().all(|m| matches!(
+        m.package.as_deref(),
+        Some("aisdk:@ai-sdk/github-copilot" | "@opencode/ai/providers/anthropic")
+    )));
     assert_eq!(models.catalog_builds(Some("/loc")), 1, "the Copilot initial load changes nothing, so no rebuild");
     for _ in 0..5 {
         let again = models.catalog_at(&config, Some("/loc")).await.unwrap();

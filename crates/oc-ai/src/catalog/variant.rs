@@ -92,6 +92,25 @@ pub fn resolve(model: &ModelInfo, supports: &[Support]) -> Variants {
     variants.into_iter().filter(|v| seen.insert(v.id.clone())).collect()
 }
 
+/// `Variant.supports`: reasoning controls in models.dev v2's shape (`Config.Model.Reasoning`), where an
+/// effort of `default` is the provider default rather than a variant.
+pub fn supports(reasoning: &super::config::ConfigReasoning) -> Vec<Support> {
+    if !reasoning.supported {
+        return vec![];
+    }
+    let mut out = vec![];
+    if reasoning.toggle == Some(true) {
+        out.push(Support::Toggle);
+    }
+    if let Some(effort) = &reasoning.effort {
+        out.push(Support::Effort { values: Some(effort.iter().filter(|v| v.as_str() != "default").cloned().collect()) });
+    }
+    if let Some(budget) = &reasoning.budget {
+        out.push(Support::BudgetTokens { min: budget.min.map(|v| v as f64), max: budget.max.map(|v| v as f64) });
+    }
+    out
+}
+
 /// `resolve` with the default `[{type: "effort"}]` support list.
 pub fn resolve_default(model: &ModelInfo) -> Variants {
     resolve(model, &[Support::effort()])
@@ -181,9 +200,16 @@ fn openai_responses(_: &ModelInfo, support: &Support) -> Variants {
     efforts(&values.clone().unwrap_or_else(|| strs(&["none", "minimal", "low", "medium", "high", "xhigh"])), responses_effort)
 }
 
-fn xai_responses(_: &ModelInfo, support: &Support) -> Variants {
+fn open_responses(_: &ModelInfo, support: &Support) -> Variants {
     let Support::Effort { values } = support else { return vec![] };
     efforts(&values.clone().unwrap_or_else(|| strs(EFFORTS)), responses_effort)
+}
+
+fn google_interactions(_: &ModelInfo, support: &Support) -> Variants {
+    let Support::Effort { values } = support else { return vec![] };
+    efforts(&values.clone().unwrap_or_else(|| strs(EFFORTS)), |e| {
+        settings(json!({"thinkingLevel": e, "thinkingSummaries": "auto"}))
+    })
 }
 
 fn cloudflare_ai_gateway(model: &ModelInfo, support: &Support) -> Variants {
@@ -614,11 +640,21 @@ fn vercel_gateway(model: &ModelInfo, support: &Support) -> Variants {
         return openai_responses(model, support);
     }
     if id.starts_with("spacexai/grok-") {
-        return xai_responses(model, support);
+        return open_responses(model, support);
     }
-    if id.starts_with("anthropic/") {
-        return anthropic_messages(model, support);
-    }
+    vercel_messages(model, support)
+}
+
+fn vercel_responses(model: &ModelInfo, support: &Support) -> Variants {
+    if model_id(model).starts_with("openai/gpt-") { openai_responses(model, support) } else { open_responses(model, support) }
+}
+
+fn vercel_messages(model: &ModelInfo, support: &Support) -> Variants {
+    if model_id(model).starts_with("anthropic/") { anthropic_messages(model, support) } else { vercel_chat(model, support) }
+}
+
+fn vercel_chat(model: &ModelInfo, support: &Support) -> Variants {
+    let id = model_id(model);
     match support {
         Support::Effort { .. } => openai_chat(model, support),
         Support::Toggle => toggle(thinking_type("disabled"), thinking_type("adaptive")),
@@ -758,19 +794,31 @@ fn gitlab(model: &ModelInfo, support: &Support) -> Variants {
 fn protocol_for(package: &str) -> Option<Protocol> {
     Some(match package {
         "@opencode/ai/providers/openai"
+        | "@opencode/ai/providers/openai/responses"
+        | "@opencode/ai/providers/azure"
         | "@opencode/ai/providers/azure/responses"
-        | "@opencode/ai/providers/amazon-bedrock/mantle/chat"
+        | "@opencode/ai/providers/amazon-bedrock/mantle"
         | "@opencode/ai/providers/amazon-bedrock/mantle/responses"
+        | "@opencode/ai/providers/amazon-bedrock-mantle"
         | "@opencode/ai/providers/alibaba/responses"
+        | "@opencode/ai/providers/meta"
         | "@opencode/ai/providers/meta/responses"
         | "@opencode/ai/providers/minimax/responses"
         | "@opencode/ai/providers/moonshot/responses"
         | "@opencode/ai/providers/zai-coding-plan/responses" => openai_responses,
 
+        "@opencode/ai/providers/openai-compatible/responses"
+        | "@opencode/ai/providers/openai-compatible-responses"
+        | "@opencode/ai/providers/google-vertex/responses"
+        | "@opencode/ai/providers/google-vertex-responses"
+        | "@opencode/ai/providers/xai" => open_responses,
+
         "@opencode/ai/providers/openai-compatible" => openai_compatible,
+        "@opencode/ai/providers/openai/chat" => openai_chat,
         "@opencode/ai/providers/azure/chat" => openai_chat,
-        "@opencode/ai/providers/google-vertex/chat" => vertex_chat,
-        "@opencode/ai/providers/alibaba/chat" => alibaba_chat,
+        "@opencode/ai/providers/amazon-bedrock/mantle/chat" => openai_chat,
+        "@opencode/ai/providers/google-vertex/chat" | "@opencode/ai/providers/google-vertex-chat" => vertex_chat,
+        "@opencode/ai/providers/alibaba" | "@opencode/ai/providers/alibaba/chat" => alibaba_chat,
         "@opencode/ai/providers/baseten" => baseten_chat,
         "@opencode/ai/providers/cerebras" => openai_chat,
         "@opencode/ai/providers/cloudflare-workers-ai" => workers_ai_chat,
@@ -783,24 +831,31 @@ fn protocol_for(package: &str) -> Option<Protocol> {
         "@opencode/ai/providers/meta/chat" => openai_chat,
         "@opencode/ai/providers/minimax/chat" => openai_chat,
         "@opencode/ai/providers/mistral" => openai_chat,
-        "@opencode/ai/providers/moonshot/chat" => moonshot_chat,
+        "@opencode/ai/providers/google-vertex/mistral" | "@opencode/ai/providers/google-vertex-mistral" => openai_chat,
+        "@opencode/ai/providers/moonshot" | "@opencode/ai/providers/moonshot/chat" => moonshot_chat,
         "@opencode/ai/providers/togetherai" => openai_chat,
         "@opencode/ai/providers/venice" => venice_chat,
-        "@opencode/ai/providers/xai" => xai_responses,
-        "@opencode/ai/providers/zai/chat" => zai_chat,
-        "@opencode/ai/providers/zai-coding-plan/chat" => zai_chat,
+        "@opencode/ai/providers/zai"
+        | "@opencode/ai/providers/zai/chat"
+        | "@opencode/ai/providers/zai-coding-plan"
+        | "@opencode/ai/providers/zai-coding-plan/chat" => zai_chat,
 
         "@opencode/ai/providers/anthropic" => anthropic_messages,
-        "@opencode/ai/providers/google-vertex/messages" => anthropic_messages,
-        "@opencode/ai/providers/google-vertex/mistral" => openai_chat,
+        "@opencode/ai/providers/anthropic-compatible" => anthropic_messages,
+        "@opencode/ai/providers/amazon-bedrock/mantle/messages" => anthropic_messages,
+        "@opencode/ai/providers/google-vertex/messages" | "@opencode/ai/providers/google-vertex-messages" => anthropic_messages,
         "@opencode/ai/providers/alibaba/messages" => alibaba_messages,
         "@opencode/ai/providers/meta/messages" => anthropic_messages,
-        "@opencode/ai/providers/minimax/messages" => minimax_messages,
+        "@opencode/ai/providers/minimax" | "@opencode/ai/providers/minimax/messages" => minimax_messages,
         "@opencode/ai/providers/moonshot/messages" => moonshot_messages,
         "@opencode/ai/providers/zai-coding-plan/messages" => zai_messages,
 
         "@opencode/ai/providers/google" => gemini,
         "@opencode/ai/providers/google-vertex" => gemini,
+        "@opencode/ai/providers/google-vertex/gemini" => gemini,
+        "@opencode/ai/providers/google/interactions"
+        | "@opencode/ai/providers/google-vertex/interactions"
+        | "@opencode/ai/providers/google-vertex-interactions" => google_interactions,
 
         "@opencode/ai/providers/amazon-bedrock" => bedrock_converse,
         "@opencode/ai/providers/cohere" => cohere,
@@ -809,6 +864,9 @@ fn protocol_for(package: &str) -> Option<Protocol> {
         "aisdk:venice-ai-sdk-provider" => venice_chat,
         "@opencode/ai/providers/cloudflare-ai-gateway" => cloudflare_ai_gateway,
         "@opencode/ai/providers/vercel-ai-gateway" => vercel_gateway,
+        "@opencode/ai/providers/vercel-ai-gateway/chat" => vercel_chat,
+        "@opencode/ai/providers/vercel-ai-gateway/messages" => vercel_messages,
+        "@opencode/ai/providers/vercel-ai-gateway/responses" => vercel_responses,
         "aisdk:@ai-sdk/gateway" => vercel_gateway,
         "aisdk:@jerome-benoit/sap-ai-provider-v2" => sap_ai_core,
         "aisdk:gitlab-ai-provider" => gitlab,

@@ -72,6 +72,8 @@ pub struct Locations {
     git: Git,
     map: Arc<Mutex<IndexMap<String, Cell>>>,
     activated: Mutex<HashMap<String, Instant>>,
+    /// Runs before a location is built (the models.dev refresh starts when the first location boots).
+    on_build: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 fn is_dir(p: &str) -> bool {
@@ -130,7 +132,7 @@ impl Locations {
                 }
             });
         }
-        Locations { app, runner, git: Git::new(), map, activated: Mutex::new(HashMap::new()) }
+        Locations { app, runner, git: Git::new(), map, activated: Mutex::new(HashMap::new()), on_build: Mutex::new(None) }
     }
 
     pub fn git(&self) -> &Git {
@@ -155,9 +157,18 @@ impl Locations {
         result
     }
 
+    /// Run `f` before every location build.
+    pub fn on_build(&self, f: Arc<dyn Fn() + Send + Sync>) {
+        *self.on_build.lock() = Some(f);
+    }
+
     async fn build(&self, directory: &str) -> Result<Arc<Loc>, ApiError> {
         if !is_dir(directory) {
             return Err(ApiError::location_not_found(directory));
+        }
+        let hook = self.on_build.lock().clone();
+        if let Some(hook) = hook {
+            hook();
         }
         let loaded = match &self.runner {
             Some(r) => r.location(directory).await,

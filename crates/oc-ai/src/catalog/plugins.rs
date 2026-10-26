@@ -142,6 +142,17 @@ impl CatalogPlugin for DataPlugins {
                 editor.update(&id, |provider| provider.headers = Some(headers));
             }
         }
+        // prompt-cache-key.ts: set on the provider so configured provider and model compatibility can
+        // override it.
+        for id in PROMPT_CACHE_KEY_PROVIDERS {
+            if editor.get(id).is_none() {
+                continue;
+            }
+            editor.update(id, |provider| {
+                let over = Compatibility { supports_prompt_cache_key: Some(true), ..Default::default() };
+                provider.compatibility = Some(provider.compatibility.clone().unwrap_or_default().merged(&over));
+            });
+        }
     }
 
     fn models(&mut self, editor: &mut ModelEditor<'_>) {
@@ -158,13 +169,16 @@ impl CatalogPlugin for DataPlugins {
                 editor.update(&pid, mid, |model| model.enabled = false);
             }
         }
-        for pid in PROMPT_CACHE_KEY_PROVIDERS {
-            for (pid, mid) in editor.list(Some(pid)) {
-                editor.update(&pid, &mid, |model| {
-                    let over = Compatibility { supports_prompt_cache_key: Some(true), ..Default::default() };
-                    model.compatibility = Some(model.compatibility.clone().unwrap_or_default().merged(&over));
-                });
+        // databricks.ts: Databricks caches Claude only through explicit `cache_control` breakpoints.
+        for (pid, mid) in editor.list(Some("databricks")) {
+            let claude = editor.get(&pid, &mid).is_some_and(|m| m.model_id.contains("claude"));
+            if !claude {
+                continue;
             }
+            editor.update(&pid, &mid, |model| {
+                let base = Compatibility { cache_format: Some("anthropic".into()), ..Default::default() };
+                model.compatibility = Some(base.merged(&model.compatibility.clone().unwrap_or_default()));
+            });
         }
     }
 }
@@ -180,11 +194,17 @@ pub struct OpencodeZen {
 
 const OPENCODE_PROVIDER: &str = "opencode";
 
+/// `OPENCODE_DISABLE_FREE_MODELS=1|true` hides zero-cost OpenCode models and keeps the keyless
+/// `opencode` provider from turning itself on.
+pub fn free_models_disabled() -> bool {
+    std::env::var("OPENCODE_DISABLE_FREE_MODELS").is_ok_and(|v| matches!(v.to_lowercase().as_str(), "1" | "true"))
+}
+
 impl CatalogPlugin for OpencodeZen {
     fn providers(&mut self, editor: &mut ProviderEditor) {
         let Some(record) = editor.get(OPENCODE_PROVIDER) else { return };
         let has_key = self.connected || record.provider.setting("apiKey").is_some_and(truthy);
-        if has_key {
+        if has_key || free_models_disabled() {
             return;
         }
         editor.update(OPENCODE_PROVIDER, |provider| {

@@ -58,6 +58,7 @@ pub async fn start(
     let server = oc_server::serve(engine.clone() as Arc<dyn oc_server::Backend>, opts).await?;
     server.set_ready();
     start_v1_import(&engine);
+    start_models_refresh(&engine);
     // Restart recovery: resume sessions whose execution claim survived the last process.
     if let Some(r) = engine.runner.clone() {
         tokio::spawn(async move {
@@ -69,6 +70,45 @@ pub async fn start(
         });
     }
     Ok((server, engine))
+}
+
+/// Start the models.dev background refresh (`ModelsDev.layer`: when the catalog is first needed, then every
+/// 5 minutes, unless `OPENCODE_DISABLE_MODELS_FETCH` is set). A refresh that changed the catalog publishes
+/// `models-dev.refreshed` server-wide, then the models.dev plugin of every loaded location reloads its
+/// integrations and providers (`integration.updated`, `provider.updated`, and `model.updated` from the
+/// model State that follows providers). Catalogs rebuild on their next read, since they are keyed by
+/// the models.dev data they were built from.
+pub fn start_models_refresh(engine: &Arc<Engine>) {
+    let models_dev = engine.models().models_dev.clone();
+    if !models_dev.options().fetch {
+        return;
+    }
+    let mut refreshed = models_dev.subscribe();
+    models_dev.refresh_on_first_use();
+    // Upstream builds the models.dev service, and forks its refresh, when the first location boots.
+    let pending = Arc::downgrade(&models_dev);
+    engine.locations.on_build(Arc::new(move || {
+        if let Some(models_dev) = pending.upgrade() {
+            models_dev.start_pending_refresh();
+        }
+    }));
+    let engine = Arc::downgrade(engine);
+    tokio::spawn(async move {
+        loop {
+            match refreshed.recv().await {
+                Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            }
+            let Some(engine) = engine.upgrade() else { return };
+            engine.app.bus.publish("models-dev.refreshed", serde_json::json!({}), None);
+            for directory in engine.locations.keys() {
+                let at = oc_schema::types::LocationRef { directory, workspace_id: None };
+                for kind in ["integration.updated", "provider.updated", "model.updated"] {
+                    engine.app.bus.publish(kind, serde_json::json!({}), Some(at.clone()));
+                }
+            }
+        }
+    });
 }
 
 /// Start the background V1 → V2 history import (`V1Migration.layer`, `server/src/routes.ts:188`). It runs on its

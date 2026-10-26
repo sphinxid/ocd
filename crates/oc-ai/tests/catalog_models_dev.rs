@@ -34,7 +34,7 @@ fn fixture_snapshot() -> Value {
             "id": "acme-1", "modelID": "acme-1", "providerID": "acme", "name": "Acme One",
             "compatibility": {"reasoningField": "vendor_reasoning"},
             "settings": {"provider": "acme"},
-            "capabilities": {"tools": true, "input": [], "output": []},
+            "capabilities": {"tools": true, "input": [], "output": [], "temperature": true},
             "variants": [], "time": {"released": 1767225600000i64},
             "cost": [{"input": 0, "output": 0, "cache": {"read": 0, "write": 0}}],
             "status": "active", "enabled": true, "limit": {"context": 128000, "output": 8192}
@@ -63,7 +63,7 @@ fn fixture2_snapshot() -> Value {
         "models": [{
             "id": "beta-1", "modelID": "beta-1", "providerID": "beta", "name": "Beta One",
             "settings": {"provider": "beta"},
-            "capabilities": {"tools": false, "input": [], "output": []},
+            "capabilities": {"tools": false, "input": [], "output": [], "temperature": false},
             "variants": [], "time": {"released": 1769904000000i64},
             "cost": [{"input": 0, "output": 0, "cache": {"read": 0, "write": 0}}],
             "status": "active", "enabled": true, "limit": {"context": 64000, "output": 4096}

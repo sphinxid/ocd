@@ -137,17 +137,17 @@ pub fn language_model(package: &str, model_id: &str, settings: &Object) -> Resul
         "azure" | "azure/responses" => azure(model_id, &mut s, false),
         "azure/chat" => azure(model_id, &mut s, true),
         "amazon-bedrock" => amazon_bedrock(model_id, &mut s),
-        "amazon-bedrock/mantle" | "amazon-bedrock/mantle/responses" => mantle(model_id, &mut s, "responses"),
+        "amazon-bedrock/mantle" | "amazon-bedrock/mantle/responses" | "amazon-bedrock-mantle" => mantle(model_id, &mut s, "responses"),
         "amazon-bedrock/mantle/chat" => mantle(model_id, &mut s, "chat"),
         "amazon-bedrock/mantle/messages" => mantle(model_id, &mut s, "messages"),
         "google" => google(model_id, &mut s, false),
         "google/interactions" => google(model_id, &mut s, true),
         "google-vertex" | "google-vertex/gemini" => vertex_gemini(model_id, &mut s),
-        "google-vertex/interactions" => vertex_interactions(model_id, &mut s),
-        "google-vertex/messages" => vertex_messages(model_id, &mut s),
-        "google-vertex/chat" => vertex_openapi(model_id, &mut s, false),
-        "google-vertex/responses" => vertex_openapi(model_id, &mut s, true),
-        "google-vertex/mistral" => vertex_mistral(model_id, &mut s),
+        "google-vertex/interactions" | "google-vertex-interactions" => vertex_interactions(model_id, &mut s),
+        "google-vertex/messages" | "google-vertex-messages" => vertex_messages(model_id, &mut s),
+        "google-vertex/chat" | "google-vertex-chat" => vertex_openapi(model_id, &mut s, false),
+        "google-vertex/responses" | "google-vertex-responses" => vertex_openapi(model_id, &mut s, true),
+        "google-vertex/mistral" | "google-vertex-mistral" => vertex_mistral(model_id, &mut s),
         "mistral" => {
             let api_key = s.string("apiKey");
             let base = s.string("baseURL");
@@ -1018,7 +1018,7 @@ mod tests {
         for package in crate::catalog::types::BUILTIN_PACKAGES {
             let s = settings(json!({"apiKey": "k", "baseURL": "https://example.test/v1", "region": "us-east-1", "resourceName": "r", "accountId": "a", "project": "p"}));
             let result = language_model(package, "model-x", &s);
-            if package.contains("google-vertex/") && !package.ends_with("gemini") && !package.ends_with("interactions") {
+            if package.contains("google-vertex") && package != &"@opencode/ai/providers/google-vertex" && !package.ends_with("gemini") && !package.ends_with("interactions") {
                 continue; // API keys rejected
             }
             assert!(result.is_ok(), "{package}: {:?}", result.err());

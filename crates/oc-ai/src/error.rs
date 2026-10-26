@@ -628,7 +628,7 @@ pub fn provider_error_message(body: &str) -> Option<String> {
 
 /// A non-negative whole number of milliseconds (`Math.min(MAX_SAFE_INTEGER, Math.max(0, Math.ceil(ms)))`).
 fn clamp_retry_after_ms(millis: f64) -> f64 {
-    millis.ceil().max(0.0).min(9_007_199_254_740_991.0)
+    millis.ceil().clamp(0.0, 9_007_199_254_740_991.0)
 }
 
 /// Parse `retry-after-ms` / `retry-after` (seconds or HTTP date) from lower-cased headers.

@@ -235,6 +235,9 @@ pub fn effective_model(model: &ModelInfo, provider: Option<&ProviderInfo>) -> Mo
         value.canonical = Some(canonical);
     }
     value.package = model.package.clone().or_else(|| provider.map(|p| p.package.clone()));
+    if let Some(base) = provider.and_then(|p| p.compatibility.as_ref()) {
+        value.compatibility = Some(base.merged(&model.compatibility.clone().unwrap_or_default()));
+    }
     value.settings = merge_overlay(
         model_settings(provider.and_then(|p| p.settings.as_ref())).as_ref(),
         model_settings(model.settings.as_ref()).as_ref(),
@@ -260,7 +263,53 @@ struct CatalogData {
     available: Vec<String>,
     by_provider: IndexMap<String, IndexMap<String, ModelInfo>>,
     all: Vec<ModelInfo>,
+    /// Indexes into `all` of the enabled models, in `Model.available` order.
+    enabled: Vec<usize>,
     default_model: Option<(String, String)>,
+}
+
+/// Signed out, only free OpenCode models are enabled. Clients default to the first available model,
+/// so these free models stay ahead of each new free launch instead of letting release order pick
+/// the default (`model.ts` `PREFERRED_FREE`).
+pub const PREFERRED_FREE: &[&str] = &["big-pickle", "deepseek-v4.1-flash-free", "glm-5.3-flash-free", "muse-spark-1.3-contributor-free"];
+
+fn is_free(model: &ModelInfo) -> bool {
+    !model.cost.iter().any(|c| c.input > 0.0)
+}
+
+/// The effective models of the available providers, materialized (`Model.snapshot` `read`).
+fn materialize(
+    records: IndexMap<String, ProviderRecord>,
+    available: Vec<String>,
+    models: IndexMap<String, IndexMap<String, ModelInfo>>,
+    default_model: Option<(String, String)>,
+) -> Catalog {
+    let mut by_provider: IndexMap<String, IndexMap<String, ModelInfo>> = models
+        .into_iter()
+        .map(|(pid, models)| {
+            let provider = records.get(&pid).map(|r| &r.provider);
+            let merged = models.into_iter().map(|(mid, m)| (mid, effective_model(&m, provider))).collect();
+            (pid, merged)
+        })
+        .collect();
+    if super::plugins::free_models_disabled() {
+        for pid in ["opencode", "opencode-go"] {
+            if let Some(models) = by_provider.get_mut(pid) {
+                models.retain(|_, m| !is_free(m));
+            }
+        }
+    }
+    let mut all: Vec<ModelInfo> = by_provider.values().flat_map(|m| m.values().cloned()).collect();
+    all.sort_by(|a, b| b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal));
+    let mut enabled: Vec<usize> = (0..all.len()).filter(|i| all[*i].enabled).collect();
+    // `preferFree`: when every available model is a free OpenCode model, the preferred ones lead.
+    if enabled.iter().all(|i| all[*i].provider_id == "opencode" && is_free(&all[*i])) {
+        let picks: Vec<usize> =
+            PREFERRED_FREE.iter().filter_map(|id| enabled.iter().copied().find(|i| all[*i].id == *id)).collect();
+        let rest: Vec<usize> = enabled.iter().copied().filter(|i| !picks.contains(i)).collect();
+        enabled = picks.into_iter().chain(rest).collect();
+    }
+    Catalog { inner: Arc::new(CatalogData { records, available, by_provider, all, enabled, default_model }) }
 }
 
 impl Catalog {
@@ -280,17 +329,7 @@ impl Catalog {
             plugin.models(&mut editor);
         }
         let ModelEditor { models, default_model, .. } = editor;
-        let by_provider: IndexMap<String, IndexMap<String, ModelInfo>> = models
-            .into_iter()
-            .map(|(pid, models)| {
-                let provider = records.get(&pid).map(|r| &r.provider);
-                let merged = models.into_iter().map(|(mid, m)| (mid, effective_model(&m, provider))).collect();
-                (pid, merged)
-            })
-            .collect();
-        let mut all: Vec<ModelInfo> = by_provider.values().flat_map(|m| m.values().cloned()).collect();
-        all.sort_by(|a, b| b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal));
-        Catalog { inner: Arc::new(CatalogData { records, available, by_provider, all, default_model }) }
+        materialize(records, available, models, default_model)
     }
 
     /// [`Catalog::build`] with hooks between the plugins before `post` and those from `post` on (the
@@ -337,17 +376,7 @@ impl Catalog {
             plugin.models(&mut editor);
         }
         let ModelEditor { models, default_model, .. } = editor;
-        let by_provider: IndexMap<String, IndexMap<String, ModelInfo>> = models
-            .into_iter()
-            .map(|(pid, models)| {
-                let provider = records.get(&pid).map(|r| &r.provider);
-                let merged = models.into_iter().map(|(mid, m)| (mid, effective_model(&m, provider))).collect();
-                (pid, merged)
-            })
-            .collect();
-        let mut all: Vec<ModelInfo> = by_provider.values().flat_map(|m| m.values().cloned()).collect();
-        all.sort_by(|a, b| b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal));
-        Catalog { inner: Arc::new(CatalogData { records, available, by_provider, all, default_model }) }
+        materialize(records, available, models, default_model)
     }
 
     /// Whether both handles share one built catalog (no rebuild happened in between).
@@ -398,9 +427,10 @@ impl Catalog {
         self.inner.by_provider.get(provider_id).map(|m| m.values().collect()).unwrap_or_default()
     }
 
-    /// Enabled models, newest first (`Model.available`).
+    /// Enabled models, newest first, with the preferred free models first when only free OpenCode
+    /// models are available (`Model.available`).
     pub fn available_models(&self) -> Vec<&ModelInfo> {
-        self.inner.all.iter().filter(|m| m.enabled).collect()
+        self.inner.enabled.iter().map(|i| &self.inner.all[*i]).collect()
     }
 
     /// Configured default selection, if any.
@@ -417,18 +447,16 @@ impl Catalog {
                 }
             }
         }
-        self.inner.all.iter().find(|m| m.enabled && supports_text(&m.capabilities))
+        self.available_models().into_iter().find(|m| supports_text(&m.capabilities))
     }
 
     /// `Model.small(providerID)`: first active text model of the highest-priority small family.
     pub fn small_model(&self, provider_id: &str) -> Option<&ModelInfo> {
         let candidates: Vec<&ModelInfo> = self
-            .inner
-            .all
-            .iter()
+            .available_models()
+            .into_iter()
             .filter(|m| {
-                m.enabled
-                    && m.provider_id == provider_id
+                m.provider_id == provider_id
                     && m.status == ModelStatus::Active
                     && m.capabilities.input.iter().any(|i| i.starts_with("text"))
                     && m.capabilities.output.iter().any(|i| i.starts_with("text"))

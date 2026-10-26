@@ -323,6 +323,7 @@ impl Client {
     /// `continuationToken` checkpoints, and a request that reaches its output cap finishes with
     /// `CONTINUATION`. The transport resends the original body with the latest token, which also
     /// resumes a request that ended or dropped (not timed out) before finishing.
+    #[allow(clippy::result_large_err)]
     async fn continued_stream(&self, compiled: Compiled, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMStream, AIError> {
         const CONTINUATION: &str = "CONTINUATION";
         let timeouts = Timeouts::from_request(&compiled.request);
@@ -408,6 +409,7 @@ impl Client {
     }
 
     /// `jsonRequestParts` + `jsonPost` and the client middleware for a body the client builds itself.
+    #[allow(clippy::result_large_err)]
     async fn prepare(&self, request: &LLMRequest, body: serde_json::Value) -> Result<PreparedRequest, AIError> {
         let mut prepared = transport::prepare_json(request, body).await?;
         for m in &self.middleware {

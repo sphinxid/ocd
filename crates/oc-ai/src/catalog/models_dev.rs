@@ -219,6 +219,7 @@ fn model_info(provider: &Value, id: &str, model: &Value, input: ModelInput<'_>) 
             tools: model.get("tool_call").and_then(Value::as_bool).unwrap_or(false),
             input: strings(modalities.and_then(|m| m.get("input"))),
             output: strings(modalities.and_then(|m| m.get("output"))),
+            temperature: model.get("temperature").and_then(Value::as_bool),
         },
         variants: input.variants.unwrap_or_default(),
         time: ModelTime { released: s(model, "release_date").map(released).unwrap_or(0.0) },
@@ -257,6 +258,7 @@ pub fn normalize(input: &Object) -> Vec<Snapshot> {
             name: s(item, "name").unwrap_or("").to_string(),
             activation: Activation::Auto,
             package,
+            compatibility: None,
             settings,
             headers: None,
             body: None,
@@ -312,6 +314,7 @@ pub const BEDROCK_PROFILE_ONLY_IDS: &[&str] = &[
     "anthropic.claude-fable-5",
     "anthropic.claude-fable-5-1",
     "anthropic.claude-haiku-4-5-20251001-v1:0",
+    "anthropic.claude-haiku-5-5",
     "anthropic.claude-opus-4-1-20250805-v1:0",
     "anthropic.claude-opus-4-5-20251101-v1:0",
     "anthropic.claude-opus-4-7",
@@ -319,8 +322,13 @@ pub const BEDROCK_PROFILE_ONLY_IDS: &[&str] = &[
     "anthropic.claude-opus-5",
     "anthropic.claude-sonnet-4-5-20250929-v1:0",
     "anthropic.claude-sonnet-5",
+    "anthropic.claude-sonnet-5-5",
     "deepseek.r1-v1:0",
+    "meta.llama4-maverick-17b-instruct-v1:0",
+    "meta.llama4-scout-17b-instruct-v1:0",
     "mistral.pixtral-large-2502-v1:0",
+    "writer.palmyra-x4-v1:0",
+    "writer.palmyra-x5-v1:0",
 ];
 
 /// Providers replaced by canonical Azure / Google Vertex.
@@ -505,13 +513,15 @@ pub struct ModelsDev {
     populating: tokio::sync::Mutex<()>,
     lock: tokio::sync::Mutex<()>,
     events: tokio::sync::broadcast::Sender<()>,
+    /// Set by [`ModelsDev::refresh_on_first_use`]: the service starts its refresh loop when it is first used.
+    lazy_refresh: parking_lot::Mutex<Option<std::sync::Weak<ModelsDev>>>,
 }
 
 impl ModelsDev {
     pub fn new(options: ModelsDevOptions, cache: Arc<dyn CatalogCache>, http: Arc<dyn HttpGet>) -> Self {
         let key = cache_key(options.source());
         let (events, _) = tokio::sync::broadcast::channel(16);
-        Self { options, cache, http, key, memo: parking_lot::Mutex::new(None), populating: tokio::sync::Mutex::new(()), lock: tokio::sync::Mutex::new(()), events }
+        Self { options, cache, http, key, memo: parking_lot::Mutex::new(None), populating: tokio::sync::Mutex::new(()), lock: tokio::sync::Mutex::new(()), events, lazy_refresh: parking_lot::Mutex::new(None) }
     }
 
     /// Production service with the reqwest client.
@@ -626,6 +636,7 @@ impl ModelsDev {
 
     /// The memoized catalog (single-flight; failures are not memoized).
     pub async fn get(&self) -> Result<Arc<Vec<Snapshot>>, ModelsDevError> {
+        self.start_pending_refresh();
         if let Some(value) = self.memo.lock().clone() {
             return Ok(value);
         }
@@ -674,6 +685,20 @@ impl ModelsDev {
                 tracing::error!(cause = %cause, "Failed to fetch models.dev");
                 false
             }
+        }
+    }
+
+    /// Start the refresh loop when the service is first used, like upstream's lazily built `ModelsDev`
+    /// layer, which forks its refresh when the first location needs the catalog.
+    pub fn refresh_on_first_use(self: &Arc<Self>) {
+        *self.lazy_refresh.lock() = Some(Arc::downgrade(self));
+    }
+
+    /// Start the refresh loop set up by [`ModelsDev::refresh_on_first_use`], if it has not started yet.
+    pub fn start_pending_refresh(&self) {
+        let lazy = self.lazy_refresh.lock().take();
+        if let Some(this) = lazy.and_then(|w| w.upgrade()) {
+            this.spawn_refresh_loop();
         }
     }
 

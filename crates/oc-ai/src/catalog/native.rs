@@ -1,7 +1,7 @@
 //! AI SDK npm package → native `@opencode/ai/providers/*` entrypoint mapping and settings translation
 //! (`packages/core/src/aisdk-native.ts`).
 
-use super::types::{headers_from_value, is_aisdk, merge_headers, merge_overlay, package_name, HeaderMap, Variant};
+use super::types::{headers_from_value, is_aisdk, merge_headers, merge_overlay, package_name, HeaderMap, Variant, BUILTIN_PACKAGES};
 use crate::json::Object;
 use serde_json::{json, Value};
 
@@ -85,41 +85,6 @@ fn host(provider_id: &str, npm: &str) -> Option<String> {
     host_table(provider_id)?.into_iter().find(|(k, _)| *k == npm).map(|(_, v)| v)
 }
 
-const HOST_PROVIDERS: &[&str] = &[
-    "alibaba",
-    "baseten",
-    "cloudflare-ai-gateway",
-    "cohere",
-    "cloudflare-workers-ai",
-    "deepseek",
-    "digitalocean",
-    "fireworks-ai",
-    "google-vertex",
-    "kimi-for-coding",
-    "meta",
-    "minimax",
-    "moonshotai",
-    "zai",
-    "zai-coding-plan",
-];
-
-/// Every native entrypoint the mapping can produce (`NATIVE`).
-pub fn is_native(specifier: &str) -> bool {
-    if PACKAGES.iter().any(|(_, v)| *v == specifier) {
-        return true;
-    }
-    if HOST_PROVIDERS.iter().any(|p| host_table(p).unwrap_or_default().iter().any(|(_, v)| v == specifier)) {
-        return true;
-    }
-    matches!(
-        specifier,
-        "@opencode/ai/providers/azure/chat"
-            | "@opencode/ai/providers/amazon-bedrock/mantle"
-            | "@opencode/ai/providers/amazon-bedrock/mantle/chat"
-            | "@opencode/ai/providers/amazon-bedrock/mantle/responses"
-    )
-}
-
 /// Mapping context (`Context`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NativeContext<'a> {
@@ -150,9 +115,11 @@ fn azure_chat(context: &NativeContext<'_>) -> bool {
         || context.settings.and_then(|s| s.get("useCompletionUrls")) == Some(&Value::Bool(true))
 }
 
+/// Mantle serves Claude only through Anthropic Messages and GPT-OSS only through Chat.
 fn mantle(model_id: Option<&str>) -> String {
     match model_id {
         None => "@opencode/ai/providers/amazon-bedrock/mantle".into(),
+        Some(id) if id.contains("anthropic.") => "@opencode/ai/providers/amazon-bedrock/mantle/messages".into(),
         Some(id) => format!(
             "@opencode/ai/providers/amazon-bedrock/mantle/{}",
             if id.contains("gpt-oss") { "chat" } else { "responses" }
@@ -166,13 +133,13 @@ pub fn resolve(specifier: &str, context: &NativeContext<'_>) -> Option<String> {
     if is_aisdk(Some(specifier)) || package(&npm).is_some() || host(context.provider_id, &npm).is_some() {
         return native(&npm, context);
     }
-    if npm == "@opencode/ai/providers/amazon-bedrock/mantle" {
+    if npm == "@opencode/ai/providers/amazon-bedrock/mantle" || npm == "@opencode/ai/providers/amazon-bedrock-mantle" {
         return Some(mantle(context.model_id));
     }
-    if npm == "@opencode/ai/providers/azure/responses" && azure_chat(context) {
+    if (npm == "@opencode/ai/providers/azure" || npm == "@opencode/ai/providers/azure/responses") && azure_chat(context) {
         return Some("@opencode/ai/providers/azure/chat".into());
     }
-    if is_native(&npm) { Some(npm) } else { None }
+    if BUILTIN_PACKAGES.contains(&npm.as_str()) { Some(npm) } else { None }
 }
 
 /// A record whose package and overlays are rewritten on write (`Provider.Info` / `Model.Info`).
@@ -197,7 +164,9 @@ pub fn rewrite(target: RewriteTarget<'_>, specifier: Option<&str>, context: &Nat
     }
     if target.settings.is_some() {
         let mut next = translated.settings.clone();
-        if !is_native(specifier) && replacement == OPENAI_COMPATIBLE {
+        // Without `provider`, the native compatible package reports every AI SDK-mapped host as
+        // `openai-compatible`.
+        if replacement == OPENAI_COMPATIBLE && !BUILTIN_PACKAGES.contains(&specifier) {
             next.insert("provider".into(), Value::String(context.canonical.unwrap_or(context.provider_id).into()));
         }
         *target.settings = Some(next);

@@ -51,15 +51,19 @@ pub fn package_name(value: &str) -> String {
     value[AISDK_PREFIX.len()..].to_string()
 }
 
-/// Native provider entrypoints bundled with Core (`packages/core/src/provider.ts` `builtins`).
+/// Native `@opencode/ai/providers/*` entrypoints bundled with Core and loadable by name from config
+/// (`packages/core/src/provider.ts` `builtinPackages`).
 pub const BUILTIN_PACKAGES: &[&str] = &[
-    "@opencode/ai/providers/amazon-bedrock",
-    "@opencode/ai/providers/amazon-bedrock/mantle",
-    "@opencode/ai/providers/amazon-bedrock/mantle/chat",
-    "@opencode/ai/providers/amazon-bedrock/mantle/responses",
+    "@opencode/ai/providers/alibaba",
     "@opencode/ai/providers/alibaba/chat",
     "@opencode/ai/providers/alibaba/messages",
     "@opencode/ai/providers/alibaba/responses",
+    "@opencode/ai/providers/amazon-bedrock",
+    "@opencode/ai/providers/amazon-bedrock/mantle",
+    "@opencode/ai/providers/amazon-bedrock/mantle/chat",
+    "@opencode/ai/providers/amazon-bedrock/mantle/messages",
+    "@opencode/ai/providers/amazon-bedrock/mantle/responses",
+    "@opencode/ai/providers/amazon-bedrock-mantle",
     "@opencode/ai/providers/anthropic",
     "@opencode/ai/providers/anthropic-compatible",
     "@opencode/ai/providers/azure",
@@ -78,20 +82,28 @@ pub const BUILTIN_PACKAGES: &[&str] = &[
     "@opencode/ai/providers/google",
     "@opencode/ai/providers/google/interactions",
     "@opencode/ai/providers/google-vertex",
+    "@opencode/ai/providers/google-vertex/chat",
     "@opencode/ai/providers/google-vertex/gemini",
     "@opencode/ai/providers/google-vertex/interactions",
-    "@opencode/ai/providers/google-vertex/chat",
-    "@opencode/ai/providers/google-vertex/responses",
     "@opencode/ai/providers/google-vertex/messages",
     "@opencode/ai/providers/google-vertex/mistral",
+    "@opencode/ai/providers/google-vertex/responses",
+    "@opencode/ai/providers/google-vertex-chat",
+    "@opencode/ai/providers/google-vertex-interactions",
+    "@opencode/ai/providers/google-vertex-messages",
+    "@opencode/ai/providers/google-vertex-mistral",
+    "@opencode/ai/providers/google-vertex-responses",
     "@opencode/ai/providers/groq",
+    "@opencode/ai/providers/meta",
     "@opencode/ai/providers/meta/chat",
     "@opencode/ai/providers/meta/messages",
     "@opencode/ai/providers/meta/responses",
+    "@opencode/ai/providers/minimax",
     "@opencode/ai/providers/minimax/chat",
     "@opencode/ai/providers/minimax/messages",
     "@opencode/ai/providers/minimax/responses",
     "@opencode/ai/providers/mistral",
+    "@opencode/ai/providers/moonshot",
     "@opencode/ai/providers/moonshot/chat",
     "@opencode/ai/providers/moonshot/messages",
     "@opencode/ai/providers/moonshot/responses",
@@ -105,8 +117,13 @@ pub const BUILTIN_PACKAGES: &[&str] = &[
     "@opencode/ai/providers/togetherai",
     "@opencode/ai/providers/venice",
     "@opencode/ai/providers/vercel-ai-gateway",
+    "@opencode/ai/providers/vercel-ai-gateway/chat",
+    "@opencode/ai/providers/vercel-ai-gateway/messages",
+    "@opencode/ai/providers/vercel-ai-gateway/responses",
     "@opencode/ai/providers/xai",
+    "@opencode/ai/providers/zai",
     "@opencode/ai/providers/zai/chat",
+    "@opencode/ai/providers/zai-coding-plan",
     "@opencode/ai/providers/zai-coding-plan/chat",
     "@opencode/ai/providers/zai-coding-plan/messages",
     "@opencode/ai/providers/zai-coding-plan/responses",
@@ -137,6 +154,10 @@ pub struct ProviderInfo {
     pub name: String,
     pub activation: Activation,
     pub package: String,
+    /// `Provider.Compatibility`: inherited by every model of this provider; model compatibility
+    /// overrides individual fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<Compatibility>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<Object>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -155,6 +176,7 @@ impl ProviderInfo {
             name: id.into(),
             activation: Activation::Auto,
             package: String::new(),
+            compatibility: None,
             settings: None,
             headers: None,
             body: None,
@@ -187,12 +209,15 @@ pub struct Capabilities {
     pub tools: bool,
     pub input: Vec<String>,
     pub output: Vec<String>,
+    /// Whether the model accepts a sampling temperature. Unknown when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<bool>,
 }
 
 impl Default for Capabilities {
     /// `Capabilities.default()`.
     fn default() -> Self {
-        Self { tools: true, input: vec!["text".into(), "image".into()], output: vec!["text".into()] }
+        Self { tools: true, input: vec!["text".into(), "image".into()], output: vec!["text".into()], temperature: None }
     }
 }
 
@@ -205,6 +230,11 @@ pub struct PartialCapabilities {
     pub input: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<bool>,
+    /// `Config.Model.Reasoning` (models.dev v2 shape): rebuilds the variants.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<super::config::ConfigReasoning>,
 }
 
 /// `Model.mergeCapabilities`: partial config capabilities over a base, defaulting unset fields.
@@ -214,6 +244,7 @@ pub fn merge_capabilities(config: &PartialCapabilities, base: Option<&Capabiliti
         tools: config.tools.unwrap_or(fallback.tools),
         input: config.input.clone().unwrap_or(fallback.input),
         output: config.output.clone().unwrap_or(fallback.output),
+        temperature: config.temperature.or(base.and_then(|b| b.temperature)),
     }
 }
 
@@ -415,10 +446,17 @@ pub fn catalog_compatibility(input: &Compatibility) -> Compatibility {
         require_finish_reason: input.require_finish_reason,
         require_assistant_after_tool: input.require_assistant_after_tool,
         supports_prompt_cache_key: input.supports_prompt_cache_key,
+        stream_usage: input.stream_usage,
+        cache_format: input.cache_format.clone(),
         supports_thinking_block_binding: input.supports_thinking_block_binding,
         supports_effort_updates: input.supports_effort_updates,
         ..Default::default()
     }
+}
+
+/// `Provider.Compatibility`: the model compatibility without the model-version features.
+pub fn provider_compatibility(input: &Compatibility) -> Compatibility {
+    Compatibility { supports_thinking_block_binding: None, supports_effort_updates: None, ..catalog_compatibility(input) }
 }
 
 /// Decode a catalog `Model.Compatibility` JSON object (unknown keys dropped, invalid → `None`).

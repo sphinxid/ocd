@@ -6,7 +6,8 @@ use super::models_dev::{IntegrationMethod, IntegrationSpec};
 use super::registry::{CatalogPlugin, ModelEditor, ProviderEditor};
 use super::types::{
     aisdk, catalog_compatibility, compatibility_from_interleaved, merge_capabilities, merge_headers, merge_overlay,
-    parse_model_ref, Cost, CostCache, CostTier, HeaderMap, ModelInfo, PartialCapabilities, Variant,
+    parse_model_ref, provider_compatibility, Cost, CostCache, CostTier, HeaderMap, ModelInfo, ModelTime,
+    PartialCapabilities, Variant,
 };
 use super::variant;
 use crate::json::Object;
@@ -54,6 +55,28 @@ pub struct ConfigLimit {
     pub output: Option<i64>,
 }
 
+/// `Config.Model.Reasoning.budget`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ConfigReasoningBudget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<i64>,
+}
+
+/// `Config.Model.Reasoning`: models.dev v2's `capabilities.reasoning`. OpenCode builds the model's
+/// variants from it; no control means none.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ConfigReasoning {
+    pub supported: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toggle: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<ConfigReasoningBudget>,
+}
+
 /// `Config.Model`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ConfigModel {
@@ -63,6 +86,9 @@ pub struct ConfigModel {
     pub family: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// `YYYY-MM-DD` or `YYYY-MM`; sets `time.released`.
+    #[serde(rename = "releaseDate", default, skip_serializing_if = "Option::is_none")]
+    pub release_date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compatibility: Option<Compatibility>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,6 +122,10 @@ pub struct ConfigProvider {
     pub env: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    /// `Provider.Compatibility`: defaults for every model of this provider; model compatibility
+    /// overrides individual fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<Compatibility>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<Object>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,6 +143,7 @@ pub fn parse_providers(section: &Value) -> Vec<(String, ConfigProvider)> {
         .iter()
         .filter_map(|(id, raw)| match serde_json::from_value::<ConfigProvider>(raw.clone()) {
             Ok(mut provider) => {
+                provider.compatibility = provider.compatibility.as_ref().map(provider_compatibility);
                 if let Some(models) = provider.models.as_mut() {
                     for model in models.values_mut() {
                         model.compatibility = model.compatibility.as_ref().map(catalog_compatibility);
@@ -228,7 +259,8 @@ impl ConfigProviders {
                 methods.push(IntegrationMethod::Env { names: env.clone() });
             }
             known.push(id.clone());
-            out.push(IntegrationSpec { id: id.clone(), name: provider.name.clone(), methods });
+            // An empty name counts as omitted.
+            out.push(IntegrationSpec { id: id.clone(), name: provider.name.clone().filter(|n| !n.is_empty()), methods });
         }
         out
     }
@@ -259,6 +291,9 @@ impl CatalogPlugin for ConfigProviders {
                     if source.canonical.is_some() {
                         provider.canonical = source.canonical;
                     }
+                    if source.compatibility.is_some() {
+                        provider.compatibility = source.compatibility;
+                    }
                     if source.settings.is_some() {
                         provider.settings = source.settings;
                     }
@@ -275,11 +310,15 @@ impl CatalogPlugin for ConfigProviders {
                 if item.canonical.is_some() {
                     provider.canonical = item.canonical.clone();
                 }
-                if let Some(name) = &item.name {
+                // An empty name counts as omitted.
+                if let Some(name) = item.name.as_ref().filter(|n| !n.is_empty()) {
                     provider.name = name.clone();
                 }
                 if let Some(package) = &item.package {
                     provider.package = package.clone();
+                }
+                if let Some(compatibility) = &item.compatibility {
+                    provider.compatibility = Some(provider.compatibility.clone().unwrap_or_default().merged(compatibility));
                 }
                 if item.settings.is_some() {
                     provider.settings = merge_overlay(provider.settings.as_ref(), item.settings.as_ref());
@@ -318,14 +357,38 @@ impl CatalogPlugin for ConfigProviders {
                     if item.package.is_some() {
                         model.package = None;
                     }
-                    if item.settings.as_ref().map(|s| s.contains_key("baseURL")).unwrap_or(false) {
+                });
+            }
+            // A configured provider baseURL replaces every catalog per-model endpoint, not only those of
+            // configured models. Configured per-model settings are applied later and still win.
+            if item.settings.as_ref().is_some_and(|s| s.contains_key("baseURL")) {
+                let with_base: Vec<String> = editor
+                    .get(id)
+                    .map(|r| {
+                        r.models
+                            .iter()
+                            .filter(|(_, m)| m.settings.as_ref().is_some_and(|s| s.contains_key("baseURL")))
+                            .map(|(mid, _)| mid.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for mid in with_base {
+                    editor.update_model(id, &mid, |model| {
                         if let Some(settings) = model.settings.as_mut() {
                             settings.shift_remove("baseURL");
                         }
-                    }
-                });
+                    });
+                }
             }
             next.push((index, definitions));
+        }
+        // Configured limits are seeded before plugin model transforms run.
+        for (index, _) in &next {
+            let (id, item) = &self.entries[*index];
+            for (mid, config) in item.models.iter().flatten() {
+                let Some(limit) = &config.limit else { continue };
+                editor.update_model(id, mid, |model| apply_limit(model, limit));
+            }
         }
         self.sources = next;
     }
@@ -356,8 +419,25 @@ impl CatalogPlugin for ConfigProviders {
                     }
                     apply_model_config(model, config);
                 });
-                if config.variants.is_none() && base.is_none() {
-                    let provider_package = editor.provider(provider_id).map(|r| r.provider.package.clone());
+                // Variants are spelled for the final package, which the update above normalizes from
+                // `aisdk:*`.
+                let provider_package = editor.provider(provider_id).map(|r| r.provider.package.clone());
+                editor.update(provider_id, mid, |model| {
+                    // Configured reasoning replaces the base variants; configured variants still overlay them.
+                    if let Some(reasoning) = config.capabilities.as_ref().and_then(|c| c.reasoning.as_ref()) {
+                        let mut probe = model.clone();
+                        probe.package = model.package.clone().or_else(|| provider_package.clone());
+                        model.variants = variant::resolve(&probe, &variant::supports(reasoning));
+                    }
+                    apply_model_variants(model, config);
+                });
+                // Inherited variants are spelled for the base model's package, so a package override
+                // needs fresh ones. A base without variants has no reasoning support to respell.
+                let repackaged = base.is_some_and(|base| {
+                    !base.variants.is_empty() && editor.get(provider_id, mid).map(|m| &m.package) != Some(&base.package)
+                });
+                let reasoning = config.capabilities.as_ref().is_some_and(|c| c.reasoning.is_some());
+                if config.variants.is_none() && !reasoning && (base.is_none() || repackaged) {
                     editor.update(provider_id, mid, |model| {
                         let mut probe = model.clone();
                         probe.package = model.package.clone().or(provider_package);
@@ -369,16 +449,34 @@ impl CatalogPlugin for ConfigProviders {
     }
 }
 
-/// Overlay one configured model onto a model definition.
+/// `{...model.limit, ...config.limit}`.
+fn apply_limit(model: &mut ModelInfo, limit: &ConfigLimit) {
+    if let Some(context) = limit.context {
+        model.limit.context = context;
+    }
+    if let Some(input) = limit.input {
+        model.limit.input = Some(input);
+    }
+    if let Some(output) = limit.output {
+        model.limit.output = output;
+    }
+}
+
+/// Overlay one configured model onto a model definition: the identity, overlay, capability and
+/// limit fields (the first model update of `opencode.config.provider`).
 pub fn apply_model_config(model: &mut ModelInfo, config: &ConfigModel) {
     if let Some(family) = &config.family {
         model.family = Some(family.clone());
     }
-    if let Some(name) = &config.name {
+    // An empty name counts as omitted.
+    if let Some(name) = config.name.as_ref().filter(|n| !n.is_empty()) {
         model.name = name.clone();
     }
     if let Some(model_id) = &config.model_id {
         model.model_id = model_id.clone();
+    }
+    if let Some(date) = &config.release_date {
+        model.time = ModelTime { released: super::models_dev::released(date) };
     }
     if let Some(compatibility) = &config.compatibility {
         model.compatibility = Some(model.compatibility.clone().unwrap_or_default().merged(compatibility));
@@ -398,6 +496,14 @@ pub fn apply_model_config(model: &mut ModelInfo, config: &ConfigModel) {
     if let Some(capabilities) = &config.capabilities {
         model.capabilities = merge_capabilities(capabilities, Some(&model.capabilities));
     }
+    if let Some(limit) = &config.limit {
+        apply_limit(model, limit);
+    }
+}
+
+/// The variant, cost and `disabled` fields of one configured model (the second model update, after
+/// the package is normalized).
+pub fn apply_model_variants(model: &mut ModelInfo, config: &ConfigModel) {
     if let Some(variants) = &config.variants {
         for variant in variants {
             let position = match model.variants.iter().position(|v| v.id == variant.id) {
@@ -440,17 +546,6 @@ pub fn apply_model_config(model: &mut ModelInfo, config: &ConfigModel) {
     if let Some(disabled) = config.disabled {
         model.enabled = !disabled;
     }
-    if let Some(limit) = &config.limit {
-        if let Some(context) = limit.context {
-            model.limit.context = context;
-        }
-        if let Some(input) = limit.input {
-            model.limit.input = Some(input);
-        }
-        if let Some(output) = limit.output {
-            model.limit.output = output;
-        }
-    }
 }
 
 /// `ConfigProviderPlugin.foldSettings` (`plugin/provider/configured.ts`): fold a provider's settings
@@ -487,8 +582,40 @@ fn put(out: &mut Object, key: &str, value: Option<Value>) {
     }
 }
 
-const SETTINGS_KNOWN: &[&str] = &["timeout", "headerTimeout", "chunkTimeout", "compaction", "transport"];
-const MODEL_SETTINGS_KNOWN: &[&str] = &["compaction"];
+const SETTINGS_KNOWN: &[&str] = &["timeout", "headerTimeout", "chunkTimeout", "compaction", "transport", "encoding"];
+const MODEL_SETTINGS_KNOWN: &[&str] = &["compaction", "encoding"];
+
+/// Model options read before the request is built; v1's `@ai-sdk/openai-compatible` sent every other
+/// one verbatim in the request body (`ConfigProviderOptionsV1.compatibleModel`).
+const COMPATIBLE_KEYS: &[&str] = &[
+    "apiKey",
+    "baseURL",
+    "headers",
+    "body",
+    "extraBody",
+    "timeout",
+    "chunkTimeout",
+    "headerTimeout",
+    "disabled",
+    "reasoningEffort",
+    "textVerbosity",
+    "user",
+    "strictJsonSchema",
+];
+
+/// `ConfigProviderOptionsV1.compatibleModel`: the read options as settings, the rest as the body.
+pub fn compatible_model(options: &Object) -> (Object, Option<Object>) {
+    let settings: Object = options.iter().filter(|(k, _)| COMPATIBLE_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let body: Object = options.iter().filter(|(k, _)| !COMPATIBLE_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    (settings, (!body.is_empty()).then_some(body))
+}
+
+/// `packageSpecifier`: built-in provider routes are already native package specifiers; only npm
+/// packages load through the AI SDK.
+fn package_specifier(npm: &str) -> String {
+    let name = super::types::package_name(npm);
+    if name.starts_with("@opencode/ai/") { name } else { aisdk(npm) }
+}
 
 /// Schema-encode settings: declared keys first, then the rest in input order.
 fn canonical_settings(settings: &Object, known: &[&str]) -> Object {
@@ -521,7 +648,7 @@ fn int(value: &Value) -> Option<Value> {
     value.as_f64().map(|v| json!(v.trunc() as i64))
 }
 
-fn migrate_model(info: &Object) -> Object {
+fn migrate_model(info: &Object, npm: Option<&str>) -> Object {
     let options = obj(info.get("options"));
     let block_binding_off = |key: &str| {
         options.and_then(|o| o.get(key)).and_then(|v| v.get("blockBinding")) == Some(&Value::Bool(false))
@@ -580,7 +707,13 @@ fn migrate_model(info: &Object) -> Object {
         None
     };
     let provider = obj(info.get("provider"));
-    let package = provider.and_then(|p| p.get("npm")).and_then(Value::as_str).filter(|n| !n.is_empty()).map(|n| json!(aisdk(n)));
+    let model_npm = provider.and_then(|p| p.get("npm")).and_then(Value::as_str);
+    let compatible = model_npm.or(npm) == Some("@ai-sdk/openai-compatible");
+    let split = |input: &Object| -> (Object, Option<Object>) { if compatible { compatible_model(input) } else { (input.clone(), None) } };
+    let migrated = settings.as_ref().map(split);
+    let body = migrated.as_ref().and_then(|(_, b)| b.clone());
+    let settings = migrated.map(|(s, _)| s);
+    let package = model_npm.filter(|n| !n.is_empty()).map(|n| json!(package_specifier(n)));
     let api = provider.and_then(|p| p.get("api")).and_then(Value::as_str).filter(|a| !a.is_empty());
     let settings = match (api, settings) {
         (Some(api), s) => {
@@ -598,7 +731,9 @@ fn migrate_model(info: &Object) -> Object {
                     let mut v = Object::new();
                     v.insert("id".into(), json!(id));
                     if let Some(o) = options.as_object() {
-                        v.insert("settings".into(), Value::Object(canonical_settings(o, MODEL_SETTINGS_KNOWN)));
+                        let (settings, body) = split(o);
+                        v.insert("settings".into(), Value::Object(canonical_settings(&settings, MODEL_SETTINGS_KNOWN)));
+                        put(&mut v, "body", body.map(Value::Object));
                     }
                     Value::Object(v)
                 })
@@ -620,7 +755,7 @@ fn migrate_model(info: &Object) -> Object {
     put(&mut out, "package", package);
     put(&mut out, "settings", settings.map(|s| Value::Object(canonical_settings(&s, MODEL_SETTINGS_KNOWN))));
     put(&mut out, "headers", info.get("headers").cloned());
-    put(&mut out, "body", None);
+    put(&mut out, "body", body.map(Value::Object));
     put(&mut out, "capabilities", capabilities);
     put(&mut out, "variants", variants);
     put(&mut out, "cost", cost);
@@ -630,7 +765,14 @@ fn migrate_model(info: &Object) -> Object {
 }
 
 fn migrate_standard(info: &Object) -> Object {
-    let options = obj(info.get("options"));
+    // V1 `setCacheKey` toggled `prompt_cache_key` for the whole provider; it is not a provider package setting.
+    let rest = obj(info.get("options")).map(|o| {
+        let mut rest = o.clone();
+        rest.shift_remove("setCacheKey");
+        rest
+    });
+    let set_cache_key = obj(info.get("options")).and_then(|o| o.get("setCacheKey")).cloned();
+    let options = rest.as_ref();
     let split = options.map(split_options);
     let api = info.get("api").and_then(Value::as_str).filter(|a| !a.is_empty());
     let settings = match (api, &split) {
@@ -642,12 +784,13 @@ fn migrate_standard(info: &Object) -> Object {
         (None, Some(split)) => Some(split.0.clone()),
         (None, None) => None,
     };
-    let package = info.get("npm").and_then(Value::as_str).filter(|n| !n.is_empty()).map(|n| json!(aisdk(n)));
+    let npm = info.get("npm").and_then(Value::as_str);
+    let package = npm.filter(|n| !n.is_empty()).map(|n| json!(package_specifier(n)));
     let models = obj(info.get("models")).map(|models| {
         Value::Object(
             models
                 .iter()
-                .filter_map(|(name, model)| model.as_object().map(|m| (name.clone(), Value::Object(migrate_model(m)))))
+                .filter_map(|(name, model)| model.as_object().map(|m| (name.clone(), Value::Object(migrate_model(m, npm)))))
                 .collect(),
         )
     });
@@ -655,6 +798,7 @@ fn migrate_standard(info: &Object) -> Object {
     put(&mut out, "name", info.get("name").cloned());
     put(&mut out, "env", info.get("env").cloned());
     put(&mut out, "package", package);
+    put(&mut out, "compatibility", set_cache_key.map(|v| json!({"supportsPromptCacheKey": v})));
     put(&mut out, "settings", settings.map(|s| Value::Object(canonical_settings(&s, SETTINGS_KNOWN))));
     put(&mut out, "headers", split.as_ref().and_then(|s| s.1.clone()));
     put(&mut out, "body", split.as_ref().and_then(|s| s.2.clone()));
@@ -664,7 +808,7 @@ fn migrate_standard(info: &Object) -> Object {
 
 /// Insert `key` keeping the schema field order of `Config.Provider`.
 fn reorder_provider(input: Object) -> Object {
-    const ORDER: &[&str] = &["canonical", "name", "env", "package", "settings", "headers", "body", "models"];
+    const ORDER: &[&str] = &["canonical", "name", "env", "package", "compatibility", "settings", "headers", "body", "models"];
     let mut out = Object::new();
     for key in ORDER {
         if let Some(v) = input.get(*key) {
@@ -718,6 +862,7 @@ fn reorder_model(input: Object) -> Object {
         "modelID",
         "family",
         "name",
+        "releaseDate",
         "compatibility",
         "package",
         "settings",

@@ -295,15 +295,15 @@ pub struct Compatibility {
     pub require_assistant_after_tool: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_store: Option<bool>,
-    /// Request usage in the stream with `stream_options.include_usage`. Defaults to true.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stream_usage: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_strict_mode: Option<bool>,
     /// Accepts `prompt_cache_key` in the request body. Chat omits the key unless this is true; other
     /// protocols omit it only when this is false. Session-affinity headers still flow regardless.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_prompt_cache_key: Option<bool>,
+    /// Request usage in the stream with `stream_options.include_usage`. Defaults to true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_usage: Option<bool>,
     /// `"anthropic" | "alibaba"`: prompt-cache marker syntax the endpoint accepts. Overrides the route
     /// default; both send `cache_control`, and `alibaba` skips tool definitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -332,9 +332,9 @@ impl Compatibility {
             require_finish_reason,
             require_assistant_after_tool,
             supports_store,
-            stream_usage,
             supports_strict_mode,
             supports_prompt_cache_key,
+            stream_usage,
             cache_format,
             zai_tool_stream,
             require_signature,
