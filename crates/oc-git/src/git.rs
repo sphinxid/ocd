@@ -103,6 +103,27 @@ impl Operation {
     }
 }
 
+/// On Windows, Git exits non-zero instead of reusing a loose object that another process is finalizing at the same
+/// moment. Objects are content-addressed, so one of at most two retries (50 ms apart) finds that copy in place.
+/// Only a Git exit is retried, never a failure to start Git, and other platforms fail on the first attempt
+/// (`retryConcurrentObjectWrite`, bc5ebf00a).
+async fn retry_concurrent_object_write<T, F, Fut>(retry: bool, mut run: F) -> Result<T, OperationError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, OperationError>>,
+{
+    let mut retries = 0;
+    loop {
+        match run().await {
+            Err(error) if retry && retries < 2 && error.cause.is_none() => {
+                retries += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            result => return result,
+        }
+    }
+}
+
 /// `Git.OperationError`. `cause` is set when the failure did not come from Git's exit status
 /// (spawn failure, filesystem error).
 #[derive(Debug, Clone, thiserror::Error)]
@@ -814,12 +835,14 @@ impl Git {
                 .collect::<Vec<_>>()
                 .join("\0")
                 + "\0";
-            self.repository_operation(
-                Operation::Refresh,
-                repository,
-                vec![s("update-index"), s("--add"), s("--remove"), s("--replace"), s("-z"), s("--stdin")],
-                RepoOptions { stdin: Some(stdin.into_bytes()), index, ..Default::default() },
-            )
+            retry_concurrent_object_write(cfg!(windows), || {
+                self.repository_operation(
+                    Operation::Refresh,
+                    repository,
+                    vec![s("update-index"), s("--add"), s("--remove"), s("--replace"), s("-z"), s("--stdin")],
+                    RepoOptions { stdin: Some(stdin.clone().into_bytes()), index, ..Default::default() },
+                )
+            })
             .await?;
         }
         Ok(skipped)
@@ -865,14 +888,15 @@ impl Git {
     }
 
     async fn write_tree_with(&self, repository: &Repository, index: Option<&Path>) -> Result<TreeId, OperationError> {
-        let output = self
-            .repository_operation(
+        let output = retry_concurrent_object_write(cfg!(windows), || {
+            self.repository_operation(
                 Operation::WriteTree,
                 repository,
                 vec![s("write-tree")],
                 RepoOptions { index, ..Default::default() },
             )
-            .await?;
+        })
+        .await?;
         let tree = output.text.trim().to_string();
         if TREE_ID.is_match(&tree) {
             return Ok(TreeId(tree));
@@ -1705,5 +1729,40 @@ mod tests {
             SNAPSHOT_CONFIG,
             "[core]\n\tautocrlf = false\n\tlongpaths = true\n\tsymlinks = true\n\tfsmonitor = false\n\tuntrackedCache = true\n\t# A split index cannot name its shared file once manyFiles skips index checksums.\n\tsplitIndex = false\n[feature]\n\tmanyFiles = true\n[index]\n\tversion = 4\n\tthreads = true\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn retries_git_exits_twice_and_only_when_enabled() {
+        let failing = |cause: Option<&str>| OperationError {
+            operation: Operation::WriteTree,
+            message: "fail".into(),
+            directory: None,
+            cause: cause.map(String::from),
+        };
+        for (retry, cause, attempts) in [(true, None, 3), (false, None, 1), (true, Some("spawn"), 1)] {
+            let mut count = 0;
+            let result: Result<(), _> = retry_concurrent_object_write(retry, || {
+                count += 1;
+                let error = failing(cause);
+                async move { Err(error) }
+            })
+            .await;
+            assert!(result.is_err());
+            assert_eq!(count, attempts, "retry {retry}, cause {cause:?}");
+        }
+        let mut count = 0;
+        let result = retry_concurrent_object_write(true, || {
+            count += 1;
+            let ok = count == 2;
+            let error = failing(None);
+            async move { if ok { Ok(7) } else { Err(error) } }
+        })
+        .await;
+        assert_eq!(result.unwrap(), 7);
     }
 }

@@ -258,19 +258,29 @@ impl Ripgrep {
     }
 
     async fn extract(&self, archive: &Path, dir: &Path, platform: &str, extension: &str, target: &Path) -> Result<(), String> {
+        // Windows zips go through the bsdtar in System32 (Windows 10 1803+), not PowerShell, which policy can block.
+        // Git's GNU tar can come first on PATH and cannot read zip, so the system copy is called by path. bsdtar
+        // decodes its arguments in the ANSI code page, so it runs inside the temp dir and only sees the ASCII
+        // archive name (126b7b633).
         let output = if extension == "zip" {
-            let shell = crate::util::which("powershell.exe", Some(&self.bin))
-                .or_else(|| crate::util::which("pwsh.exe", Some(&self.bin)))
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "powershell.exe".into());
-            let command = format!(
-                "$global:ProgressPreference = 'SilentlyContinue'; Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
-                archive.to_string_lossy().replace('\'', "''"),
-                dir.to_string_lossy().replace('\'', "''")
-            );
-            tokio::process::Command::new(shell).args(["-NoProfile", "-NonInteractive", "-Command", &command]).stdin(Stdio::null()).output().await
+            let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+            let tar = Path::new(&system_root).join("System32").join("tar.exe");
+            let relative = archive
+                .file_name()
+                .map(|name| Path::new("..").join(name))
+                .filter(|_| archive.parent() == dir.parent())
+                .unwrap_or_else(|| archive.to_path_buf());
+            tokio::process::Command::new(tar).arg("-xf").arg(relative).current_dir(dir).stdin(Stdio::null()).output().await
         } else {
-            tokio::process::Command::new("tar").arg("-xzf").arg(archive).arg("-C").arg(dir).stdin(Stdio::null()).output().await
+            tokio::process::Command::new("tar")
+                .arg("-xzf")
+                .arg(archive)
+                .arg("-C")
+                .arg(dir)
+                .current_dir(dir)
+                .stdin(Stdio::null())
+                .output()
+                .await
         }
         .map_err(|e| e.to_string())?;
         if !output.status.success() {
