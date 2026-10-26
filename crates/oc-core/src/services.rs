@@ -90,7 +90,15 @@ fn shell_event(ev: &oc_tools::shell::service::ShellEvent) -> (&'static str, Valu
             }
             ("shell.created", serde_json::json!({"info": info}))
         }
-        E::Exited { id, exit, status } => ("shell.exited", serde_json::json!({"id": id, "exit": exit, "status": status})),
+        E::Exited { id, exit, status } => {
+            // `exit` is omitted when the command has no exit code (killed, timed out, signalled).
+            let mut data = serde_json::json!({ "id": id });
+            if let Some(exit) = exit {
+                data["exit"] = serde_json::json!(exit);
+            }
+            data["status"] = serde_json::json!(status);
+            ("shell.exited", data)
+        }
         E::Deleted { id } => ("shell.deleted", serde_json::json!({"id": id})),
     }
 }
