@@ -424,7 +424,7 @@
    "seq": 5,
    "time_created": 1700000010000,
    "time_updated": 1700000010050,
-   "data": "{\"text\":\"The available tools have changed.\\n\\nThe following tools were renamed and must be called by their new names: `bash` is now `shell`; `task` is now `subagent`; `apply_patch` is now `patch`.\\n\\nThe `subagent` tool takes `agent` instead of `subagent_type` and `sessionID` instead of `task_id`.\\n\\nThe `read` tool now takes `path` instead of `filePath`.\\n\\nThe `todowrite` tool is no longer available and must not be called.\",\"time\":{\"created\":1700000010000}}"
+   "data": "{\"text\":\"The available tools have changed.\\n\\nThe following tools were renamed and must be called by their new names: `bash` is now `shell`; `task` is now `subagent`; `apply_patch` is now `patch`.\\n\\nThe `subagent` tool takes `agent` instead of `subagent_type` and `sessionID` instead of `task_id`.\\n\\nThe `read` tool now takes `path` instead of `filePath`.\\n\\nThe `todowrite` tool is no longer available by default. Only call it if it is in your tool list.\",\"time\":{\"created\":1700000010000}}"
   },
   {
    "id": "msg_500000000001aaaaaaaaaaaaaa",

@@ -185,3 +185,136 @@ fn background_start_reports_progress_and_errors() {
         json!({"status": "running", "progress": {"label": "Migrating sessions", "numerator": 3, "denominator": 5}})
     );
 }
+
+/// A v1 database with only the given rows (no fixture data).
+fn empty_v1(dir: &Path, rows: &str) -> Database {
+    v1_database(dir, rows)
+}
+
+// v1-migration.test.ts "migrates $directory in $worktree": legacy ACP sessions can store a cwd relative to an
+// unknown process directory; the project worktree replaces it and the V1 row stays intact.
+#[test]
+fn migrates_relative_session_directories() {
+    for (worktree, directory, expected) in [
+        ("/repo", ".", "/repo"),
+        ("/repo", "src", "/repo"),
+        ("C:/repo", ".", "C:/repo"),
+        ("//server/share/repo", ".", "//server/share/repo"),
+        ("/repo", "C:/other", "C:/other"),
+        ("/repo", "//server/share/other", "//server/share/other"),
+        ("/repo", "", ""),
+        ("relative", ".", ""),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = empty_v1(
+            dir.path(),
+            &format!(
+                "INSERT INTO project (id, worktree, time_created, time_updated, sandboxes) VALUES ('saved-project', '{worktree}', 1, 2, '[]');
+                 INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+                   VALUES ('ses_test', 'saved-project', 'test', '{directory}', 'Test', '1', 1, 2);"
+            ),
+        );
+        Importer::new().run(&db, dir.path(), &Options::default()).unwrap();
+        assert_eq!(rows(&db, "SELECT directory FROM session_v2 WHERE id = 'ses_test'"), vec![json!({ "directory": expected })], "{worktree} {directory}");
+        assert_eq!(rows(&db, "SELECT directory FROM session WHERE id = 'ses_test'"), vec![json!({ "directory": directory })]);
+    }
+}
+
+// "reassigns V1 sessions with missing projects and directory %s"
+#[test]
+fn reassigns_sessions_with_missing_projects() {
+    for directory in ["/nonexistent-ocd-v1-orphan", "."] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = empty_v1(
+            dir.path(),
+            &format!(
+                "INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+                   VALUES ('ses_orphan', 'missing-project', 'orphan', '{directory}', 'Orphan', '1', 1, 2);"
+            ),
+        );
+        Importer::new().run(&db, dir.path(), &Options::default()).unwrap();
+        assert_eq!(rows(&db, "SELECT project_id FROM session_v2 WHERE id = 'ses_orphan'"), vec![json!({ "project_id": "global" })]);
+        assert_eq!(rows(&db, "SELECT worktree FROM project WHERE id = 'global'"), vec![json!({ "worktree": "/" })]);
+        let expected = if directory == "." { "/" } else { directory };
+        assert_eq!(rows(&db, "SELECT directory FROM session_v2 WHERE id = 'ses_orphan'"), vec![json!({ "directory": expected })]);
+        assert_eq!(rows(&db, "SELECT value FROM kv WHERE key = 'migration.v1-v2'"), vec![json!({ "value": r#"{"phase":"completed"}"# })]);
+    }
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(["-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", "-c", "user.name=t", "-c", "user.email=t@t"])
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+// "attributes V1 global sessions to the V2 project of their directory"
+#[tokio::test]
+async fn attributes_global_sessions_to_their_directory_projects() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(tmp.path()).unwrap();
+    let plain = root.join("plain");
+    let nested = plain.join("nested");
+    let repo = root.join("repo");
+    let missing = root.join("missing");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::create_dir_all(repo.join("pkg/a")).unwrap();
+    std::fs::write(repo.join("README.md"), "repo").unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "initial"]);
+    let data = tempfile::tempdir().unwrap();
+    let mut inserts = String::from("INSERT INTO project (id, worktree, time_created, time_updated, sandboxes) VALUES ('global', '/', 1, 2, '[]');\n");
+    for (id, project, directory) in [
+        ("ses_plain", "global", plain.clone()),
+        ("ses_nested", "global", nested.clone()),
+        ("ses_repo", "global", repo.join("pkg/a")),
+        ("ses_missing", "global", missing.clone()),
+        ("ses_orphan", "missing-project", plain.clone()),
+        ("ses_imported", "global", plain.clone()),
+    ] {
+        inserts.push_str(&format!(
+            "INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES ('{id}', '{project}', '{id}', '{}', 'Test', '1', 1, 2);\n",
+            directory.display()
+        ));
+    }
+    let db = empty_v1(data.path(), &inserts);
+    db.with(|c| {
+        c.execute(
+            "INSERT INTO session_v2 (id, project_id, slug, directory, title, version, time_created, time_updated) VALUES ('ses_imported', 'global', 'ses_imported', ?1, 'Kept', '1', 1, 2)",
+            [plain.display().to_string()],
+        )
+    })
+    .unwrap();
+    let path = data.path().to_path_buf();
+    let db2 = db.clone();
+    tokio::task::spawn_blocking(move || Importer::new().run(&db2, &path, &Options::default()).unwrap()).await.unwrap();
+    // New owners take their recency from the V1 session instead of the import time.
+    assert_eq!(
+        rows(&db, "SELECT time_active FROM project WHERE id NOT IN ('global', 'missing-project')"),
+        vec![json!({ "time_active": 2 }); 3]
+    );
+    let plain_project = oc_core::project::resolve(&plain).await;
+    let nested_project = oc_core::project::resolve(&nested).await;
+    let repo_project = oc_core::project::resolve(&repo).await;
+    assert_eq!(repo_project.vcs.as_ref().map(|v| v.kind()), Some("git"));
+    assert_eq!(
+        rows(&db, "SELECT id, project_id, path, title FROM session_v2 ORDER BY id"),
+        vec![
+            json!({ "id": "ses_imported", "project_id": "global", "path": null, "title": "Kept" }),
+            json!({ "id": "ses_missing", "project_id": "global", "path": null, "title": "Test" }),
+            json!({ "id": "ses_nested", "project_id": nested_project.id, "path": "", "title": "Test" }),
+            json!({ "id": "ses_orphan", "project_id": plain_project.id, "path": "", "title": "Test" }),
+            json!({ "id": "ses_plain", "project_id": plain_project.id, "path": "", "title": "Test" }),
+            json!({ "id": "ses_repo", "project_id": repo_project.id, "path": "pkg/a", "title": "Test" }),
+        ]
+    );
+}
+

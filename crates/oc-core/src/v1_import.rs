@@ -229,32 +229,75 @@ impl Importer {
             self.update_progress(Progress::migrating(migrated + completed, denominator));
         })?;
         self.update_progress(Progress::migrating(migrated + source_total, denominator));
-        let projects: HashSet<String> = db.with(|c| {
-            let mut s = c.prepare("SELECT id FROM project")?;
-            let rows = s.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<HashSet<_>>>();
+        let mut projects: HashMap<String, String> = db.with(|c| {
+            let mut s = c.prepare("SELECT id, worktree FROM project")?;
+            let rows = s
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<HashMap<_, _>>>();
             rows
         })?;
+        let mut directories: HashMap<String, Option<Owner>> = HashMap::new();
+        let mut lookup_timed_out = false;
         loop {
             let state = db.with(|c| Ok(read_state(c)))??;
             let cursor = match state {
                 Some(MigrationState::Sessions { cursor }) => cursor,
                 _ => None,
             };
-            let next: Option<(String, String)> = db.with(|c| {
+            let next: Option<NextSession> = db.with(|c| {
+                let sql = format!(
+                    "SELECT id, project_id, workspace_id, directory, path, time_updated,
+                       EXISTS (SELECT 1 FROM session_v2 WHERE session_v2.id = session.id) AS imported
+                     FROM session {} ORDER BY id DESC LIMIT 1",
+                    if cursor.is_some() { "WHERE id < ?1" } else { "" }
+                );
+                let read = |r: &rusqlite::Row| {
+                    Ok(NextSession {
+                        id: r.get(0)?,
+                        project_id: r.get(1)?,
+                        workspace_id: r.get(2)?,
+                        directory: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                        path: r.get(4)?,
+                        time_updated: r.get(5)?,
+                        imported: r.get::<_, i64>(6)? != 0,
+                    })
+                };
                 match &cursor {
-                    None => c.query_row("SELECT id, project_id FROM session ORDER BY id DESC LIMIT 1", [], |r| {
-                        Ok((r.get(0)?, r.get(1)?))
-                    }),
-                    Some(cursor) => c.query_row(
-                        "SELECT id, project_id FROM session WHERE id < ? ORDER BY id DESC LIMIT 1",
-                        [cursor],
-                        |r| Ok((r.get(0)?, r.get(1)?)),
-                    ),
+                    None => c.query_row(&sql, [], read),
+                    Some(cursor) => c.query_row(&sql, [cursor], read),
                 }
                 .optional()
             })?;
-            let Some((session_id, project_id)) = next else { break };
-            db.transaction(|tx| import_session(tx, &session_id, &project_id, &projects))?;
+            let Some(next) = next else { break };
+            let project_id =
+                if projects.contains_key(&next.project_id) { next.project_id.clone() } else { GLOBAL_PROJECT.to_string() };
+            // Legacy ACP sessions can store a cwd relative to an unknown process directory. Use the project
+            // worktree instead, and leave the original V1 row intact.
+            let directory = if next.directory.is_empty() || stored_absolute_path(&next.directory).is_some() {
+                next.directory.clone()
+            } else {
+                let worktree = projects.get(&project_id).cloned().unwrap_or_else(|| path_root(data_dir));
+                stored_absolute_path(&worktree).unwrap_or_default()
+            };
+            let unowned =
+                project_id == GLOBAL_PROJECT && next.workspace_id.is_none() && !next.imported && directory == next.directory;
+            if unowned && !lookup_timed_out && !directories.contains_key(&directory) {
+                let resolved = resolve_directory(&directory);
+                // One hung directory (e.g. a dead network mount) usually means more; leave the rest under global.
+                if resolved.is_none() {
+                    lookup_timed_out = true;
+                    tracing::warn!(directory = %directory, "Stopped resolving V1 session directories after a timeout");
+                }
+                directories.insert(directory.clone(), resolved.flatten());
+            }
+            let owner = if unowned { directories.get(&directory).cloned().flatten() } else { None };
+            let target = SessionTarget { directory: &directory, owner: owner.as_ref(), projects: &projects };
+            db.transaction(|tx| import_session(tx, &next, &target))?;
+            if let Some(owner) = owner
+                && !projects.contains_key(&owner.id)
+            {
+                projects.insert(owner.id.clone(), owner.canonical.clone());
+            }
             self.increment_progress(denominator);
             std::thread::yield_now();
         }
@@ -408,12 +451,83 @@ pub struct TransformResult {
 
 const SESSION_JSON_COLUMNS: [&str; 6] = ["fork_boundary", "summary_diffs", "metadata", "revert", "permission", "model"];
 
-fn import_session(
-    tx: &Connection,
-    session_id: &str,
-    v1_project_id: &str,
-    projects: &HashSet<String>,
-) -> anyhow::Result<()> {
+/// The next legacy session row to import.
+struct NextSession {
+    id: String,
+    project_id: String,
+    workspace_id: Option<String>,
+    directory: String,
+    path: Option<String>,
+    time_updated: i64,
+    /// Already stored in `session_v2` (an earlier V2 import kept it).
+    imported: bool,
+}
+
+/// The V2 project that owns a V1 global session's directory, found without persisting it.
+#[derive(Clone, Debug)]
+struct Owner {
+    id: String,
+    canonical: String,
+    vcs: Option<&'static str>,
+    /// The directory relative to the project's worktree, `/`-separated.
+    path: String,
+}
+
+struct SessionTarget<'a> {
+    /// The session directory (a relative V1 cwd replaced by the project worktree).
+    directory: &'a str,
+    owner: Option<&'a Owner>,
+    projects: &'a HashMap<String, String>,
+}
+
+/// `storedAbsolutePath` (`database/path.ts`): absolute POSIX, `C:/` or `//server` paths, which can move
+/// between operating systems during migration.
+fn stored_absolute_path(input: &str) -> Option<String> {
+    let result = if cfg!(windows) { input.replace('\\', "/") } else { input.to_string() };
+    let bytes = result.as_bytes();
+    let windows = (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/')
+        || result.starts_with("//");
+    (result.starts_with('/') || windows).then_some(result)
+}
+
+/// `resolveDirectory`: V1 grouped non-git sessions under global; V2 resolves an owner for each directory.
+/// Discovery does not persist or announce the project. Any failure keeps the session under global. The
+/// lookup runs detached so a filesystem or git call that never returns cannot stall the migration;
+/// `None` means it timed out (5 s).
+fn resolve_directory(directory: &str) -> Option<Option<Owner>> {
+    let directory = directory.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let owner = (|| -> Option<Owner> {
+            if directory.is_empty() {
+                return None;
+            }
+            let absolute = oc_config::discovery::absolute(Path::new(&directory));
+            let normalized = std::fs::canonicalize(absolute).ok()?;
+            if !normalized.is_dir() {
+                return None;
+            }
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+            let project = runtime.block_on(crate::project::resolve(&normalized));
+            let path = normalized
+                .strip_prefix(&project.directory)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            Some(Owner {
+                id: project.id.clone(),
+                canonical: project.canonical.display().to_string(),
+                vcs: project.vcs.as_ref().map(|v| v.kind()),
+                path,
+            })
+        })();
+        let _ = tx.send(owner);
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5)).ok()
+}
+
+fn import_session(tx: &Connection, next: &NextSession, target: &SessionTarget) -> anyhow::Result<()> {
+    let session_id = next.id.as_str();
+    let v1_project_id = next.project_id.as_str();
     let now = oc_storage::db::now_ms();
     let state = json!({"phase": "sessions", "cursor": session_id});
     tx.execute(
@@ -421,10 +535,27 @@ fn import_session(
          ON CONFLICT (key) DO UPDATE SET value = ?2, time_updated = ?3",
         params![MIGRATION_STATE_KEY, js_stringify(&state), now],
     )?;
-    let project_id = if projects.contains(v1_project_id) { v1_project_id } else { GLOBAL_PROJECT };
+    let project_id = if target.projects.contains_key(v1_project_id) { v1_project_id } else { GLOBAL_PROJECT };
     if project_id != v1_project_id {
         tracing::warn!(session_id, project_id = v1_project_id, "Reassigned V1 session with missing project");
     }
+    if target.directory != next.directory {
+        tracing::warn!(session_id, directory = %next.directory, resolved = %target.directory, "Replaced relative V1 session directory");
+    }
+    if let Some(owner) = target.owner
+        && !target.projects.contains_key(&owner.id)
+    {
+        tx.execute(
+            "INSERT INTO project (id, worktree, vcs, sandboxes, time_created, time_updated, time_active)
+             VALUES (?1, ?2, ?3, '[]', ?4, ?4, ?5) ON CONFLICT DO NOTHING",
+            params![owner.id, owner.canonical, owner.vcs, now, next.time_updated],
+        )?;
+    }
+    let project_id = target.owner.map(|o| o.id.as_str()).unwrap_or(project_id);
+    let path = match target.owner {
+        Some(owner) => Some(owner.path.clone()),
+        None => next.path.clone(),
+    };
     tx.execute(
         "INSERT OR IGNORE INTO session_v2 (
            id, project_id, workspace_id, parent_id, slug, directory, path, title, version, share_url,
@@ -433,13 +564,13 @@ fn import_session(
            revert, permission, agent, model, time_created, time_updated, time_compacting, time_archived
          )
          SELECT
-           id, ?1, workspace_id, parent_id, slug, directory, path, title, version, share_url,
+           id, ?1, workspace_id, parent_id, slug, ?3, ?4, title, version, share_url,
            summary_additions, summary_deletions, summary_files, summary_diffs, metadata, cost,
            tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write,
            revert, NULL, agent, model, time_created, time_updated, time_compacting, time_archived
          FROM session
          WHERE id = ?2",
-        params![project_id, session_id],
+        params![project_id, session_id, target.directory, path],
     )?;
     let next = read_session_row(tx, session_id)?
         .ok_or_else(|| anyhow!("Failed to copy V1 session {session_id}"))?;
@@ -1085,9 +1216,12 @@ fn legacy_tool_notice(messages: &[MessageRow]) -> Option<String> {
         parts.push("The `skill` tool now takes `id` instead of `name`.".into());
     }
     if removed.len() == 1 {
-        parts.push(format!("The `{}` tool is no longer available and must not be called.", removed[0]));
+        parts.push(format!("The `{}` tool is no longer available by default. Only call it if it is in your tool list.", removed[0]));
     } else if removed.len() > 1 {
-        parts.push(format!("The following tools are no longer available and must not be called: {}.", list(&removed)));
+        parts.push(format!(
+            "The following tools are no longer available by default. Only call them if they are in your tool list: {}.",
+            list(&removed)
+        ));
     }
     if parts.is_empty() {
         return None;
