@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use crate::interp::coerce::{coerce_to_number, with_primitives, Hint};
-use crate::interp::errors::{host_error, range_error, type_error, ErrorType, JsResult};
+use crate::interp::errors::{host_error, type_error, ErrorType, JsResult};
 use crate::interp::function::{arg, constants, constructor, method, methods, Method, NResult, NativeFn};
 use crate::interp::Rt;
 use crate::number;
@@ -71,10 +71,7 @@ fn to_precision(value: f64, digits: Option<f64>) -> JsResult<String> {
 
 fn to_string_radix(value: f64, radix: Option<f64>) -> JsResult<String> {
     let Some(radix) = radix else { return Ok(number::to_string(value)) };
-    if radix < 2.0 || radix > 36.0 {
-        return Err(range_error("Number.toString radix must be between 2 and 36."));
-    }
-    // What passes CodeMode's own check reaches the host, which truncates (NaN becomes 0 and throws).
+    // The host truncates the radix before checking its range (NaN becomes 0 and throws).
     let r = number::to_integer_or_infinity(radix);
     if !(2.0..=36.0).contains(&r) {
         return Err(range("toString() radix argument must be between 2 and 36"));

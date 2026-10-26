@@ -1414,11 +1414,8 @@ impl Frame {
         self.rt.interrupt.check()?;
         let depth = self.depth.get().max(self.ambient.depth) + 1;
         if depth > MAX_CALL_DEPTH {
-            // Upstream overflows the host stack first when async functions recurse before their first await;
-            // that host RangeError surfaces without a location.
-            if closure.func.is_async {
-                return Err(unlocated_error(ErrorType::RangeError, "Maximum call stack size exceeded."));
-            }
+            // Async functions included: since jobs run to completion (2.1), they no longer overflow the host stack
+            // before reaching the limit.
             return Err(located(range_error("Maximum call stack size exceeded"), node));
         }
         let func = closure.func.clone();

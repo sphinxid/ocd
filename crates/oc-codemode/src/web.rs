@@ -28,6 +28,12 @@ impl HostFunction for Fetch {
         1
     }
     fn call(&self, args: Vec<HostValue>) -> HostCall {
+        // `URL.parse(String(input))?.protocol === "file:"`: the host never reads local files for a program.
+        if url::Url::parse(&string_of(args.first().unwrap_or(&HostValue::Undefined))).is_ok_and(|u| u.scheme() == "file") {
+            return HostCall::Pending(Box::pin(async {
+                Err(HostValue::error("Error", "fetch cannot be used for filesystem access."))
+            }));
+        }
         let request = match build_request(&args) {
             Ok(r) => r,
             Err(e) => return HostCall::Pending(Box::pin(async move { Err(e) })),

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use crate::interp::coerce::{coerce_to_integer, coerce_to_number, coerce_to_string};
+use crate::interp::callback::{Callback, apply_collection_callback};
 use crate::interp::errors::{JsResult, range_error, syntax_error, type_error};
 use crate::interp::function::{
     Method, NResult, NativeFn, arg, constructor, method, methods, prototype_from, receiver, requires_new,
@@ -29,10 +30,18 @@ fn view_of(o: &Obj) -> &BytesData {
     o.bytes().expect("receiver checked")
 }
 
-/// The bytes a Uint8Array, array, or other iterable of numbers describes; each value wraps to a byte.
-async fn collect_bytes(rt: &Rt, source: &Value, name: &str, site: Site) -> JsResult<Vec<u8>> {
+/// The bytes a Uint8Array, array, or other iterable of numbers describes; each value wraps to a byte. As in
+/// TypedArray.from, a mapper sees the original values, after the source is consumed in full.
+async fn collect_bytes(
+    rt: &Rt,
+    source: &Value,
+    name: &str,
+    site: Site,
+    mapper: Option<(Callback, Value)>,
+) -> JsResult<Vec<u8>> {
     if let Value::Object(o) = source
         && let Some(b) = o.bytes()
+        && mapper.is_none()
     {
         return Ok(b.to_vec());
     }
@@ -42,14 +51,30 @@ async fn collect_bytes(rt: &Rt, source: &Value, name: &str, site: Site) -> JsRes
             describe_value(source)
         )));
     };
-    let mut values: Vec<u8> = Vec::new();
+    let mut values: Vec<Value> = Vec::new();
     loop {
         let step = cursor.next().await?;
         if step.done {
-            return Ok(values);
+            break;
         }
-        values.push(to_uint8(coerce_to_number(&step.value)));
+        values.push(step.value);
         check_array_length(values.len() as f64)?;
+    }
+    if let Some((apply, this_arg)) = mapper {
+        let mut mapped = Vec::with_capacity(values.len());
+        for (index, value) in values.into_iter().enumerate() {
+            mapped.push(apply(rt, vec![value, Value::Number(index as f64)], this_arg.clone(), site).await?);
+        }
+        values = mapped;
+    }
+    Ok(values.iter().map(|v| to_uint8(coerce_to_number(v))).collect())
+}
+
+/// Uint8Array cannot contain NaN, so non-number search values never match a byte.
+fn search_value(value: &Value) -> f64 {
+    match value {
+        Value::Number(n) => *n,
+        _ => f64::NAN,
     }
 }
 
@@ -223,7 +248,7 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
                 if matches!(source, Value::Object(_) | Value::Tool(_)) {
                     let rt = rt.clone();
                     return NResult::future(async move {
-                        let bytes = collect_bytes(&rt, &source, "new Uint8Array(...)", site).await?;
+                        let bytes = collect_bytes(&rt, &source, "new Uint8Array(...)", site, None).await?;
                         Ok(Value::Object(bytes_obj(&into, bytes)))
                     });
                 }
@@ -262,9 +287,16 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
         &ctor,
         vec![
             method("from", 1, |rt, site, _, args| {
+                let mapper = match arg(&args, 1) {
+                    Value::Undefined => None,
+                    mapper => match apply_collection_callback(&mapper, "Uint8Array.from") {
+                        Ok(apply) => Some((apply, arg(&args, 2))),
+                        Err(e) => return NResult::err(e),
+                    },
+                };
                 let rt = rt.clone();
                 NResult::future(async move {
-                    let bytes = collect_bytes(&rt, &arg(&args, 0), "Uint8Array.from", site).await?;
+                    let bytes = collect_bytes(&rt, &arg(&args, 0), "Uint8Array.from", site, mapper).await?;
                     Ok(Value::Object(bytes_obj(&rt.builtins.uint8_array, bytes)))
                 })
             }),
@@ -324,7 +356,7 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
             let offset = opt_number(&arg(&args, 1)).unwrap_or(0.0);
             let rt = rt.clone();
             NResult::future(async move {
-                let source = collect_bytes(&rt, &arg(&args, 0), "Uint8Array.set", site).await?;
+                let source = collect_bytes(&rt, &arg(&args, 0), "Uint8Array.set", site, None).await?;
                 let view = view_of(&target);
                 if !(offset.is_finite() && offset >= 0.0) || source.len() as f64 + offset > view.length as f64 {
                     return Err(range_error("Uint8Array.set: the source does not fit at that offset."));
@@ -389,14 +421,14 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
         method("indexOf", 1, |_, _, this, args| {
             NResult::from(bytes_receiver(&this, "indexOf").map(|o| {
                 let bytes = view_of(&o).to_vec();
-                let search = coerce_to_number(&arg(&args, 0));
+                let search = search_value(&arg(&args, 0));
                 Value::Number(index_of(&bytes, search, opt_number(&arg(&args, 1))).map(|i| i as f64).unwrap_or(-1.0))
             }))
         }),
         method("lastIndexOf", 1, |_, _, this, args| {
             NResult::from(bytes_receiver(&this, "lastIndexOf").map(|o| {
                 let bytes = view_of(&o).to_vec();
-                let search = coerce_to_number(&arg(&args, 0));
+                let search = search_value(&arg(&args, 0));
                 let len = bytes.len() as f64;
                 if bytes.is_empty() {
                     return Value::Number(-1.0);
@@ -418,7 +450,7 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
         method("includes", 1, |_, _, this, args| {
             NResult::from(bytes_receiver(&this, "includes").map(|o| {
                 let bytes = view_of(&o).to_vec();
-                let search = coerce_to_number(&arg(&args, 0));
+                let search = search_value(&arg(&args, 0));
                 Value::Bool(index_of(&bytes, search, opt_number(&arg(&args, 1))).is_some())
             }))
         }),

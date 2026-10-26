@@ -686,7 +686,10 @@ pub fn array_global(rt: &Rt) -> Value {
                     )
                     .await?;
                     match &mapped {
-                        Value::Object(o) if o.is_array() => values.extend(o.array_values()),
+                        // Holes are skipped, as flattening does; they never become undefined.
+                        Value::Object(o) if o.is_array() => {
+                            values.extend((0..o.array_len()).filter_map(|i| array_element(o, i)))
+                        }
                         _ => values.push(mapped),
                     }
                 }
