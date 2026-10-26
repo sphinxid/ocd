@@ -7,6 +7,7 @@
 //! * [`registry`]: provider/model folds, availability, effective models, default and small model.
 //! * [`config`]: custom providers from config and the v1 `provider` migration.
 //! * [`plugins`]: data-only effects of core provider plugins.
+//! * [`openai`]: the Codex, ChatGPT token-sharing and ChatGPT input-cap effects of the OpenAI sign-ins.
 //! * [`resolve`]: catalog model → runtime [`crate::LanguageModel`].
 //!
 //! Typical use:
@@ -22,6 +23,7 @@ pub mod config;
 pub mod copilot;
 pub mod models_dev;
 pub mod native;
+pub mod openai;
 pub mod plugins;
 pub mod registry;
 pub mod resolve;

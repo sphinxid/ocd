@@ -212,6 +212,9 @@ struct LocationIntegrations {
     building: tokio::sync::Mutex<()>,
     /// Catalog builds of the location (for tests: a cached catalog is not rebuilt).
     builds: std::sync::atomic::AtomicU64,
+    /// The OpenAI provider plugins' loaded state: the `openai` active connection's key and how it
+    /// signs in. Reloaded when the active connection changes (upstream: on `credential.switched`).
+    openai: parking_lot::Mutex<Option<(Option<String>, catalog::openai::SignIn)>>,
 }
 
 impl LocationIntegrations {
@@ -222,6 +225,7 @@ impl LocationIntegrations {
             catalog: parking_lot::Mutex::new(None),
             building: tokio::sync::Mutex::new(()),
             builds: std::sync::atomic::AtomicU64::new(0),
+            openai: parking_lot::Mutex::new(None),
         })
     }
 }
@@ -269,6 +273,8 @@ pub struct Models {
     /// Server plugins (`provider`/`model` transforms between the internal provider plugins and the
     /// configured-provider plugin).
     plugins: parking_lot::RwLock<Option<Arc<crate::plugins::Plugins>>>,
+    /// The ChatGPT plugin moved token-sharing credentials saved under `chatgpt-browser`.
+    chatgpt_migrated: tokio::sync::OnceCell<()>,
 }
 
 /// Plugin storage of `opencode.provider.chatgpt` (`PluginHost.storage`: `plugin:<utf-16 hex id>:<key>` in kv).
@@ -318,6 +324,7 @@ impl Models {
             db,
             user_agent: ua,
             plugins: parking_lot::RwLock::new(None),
+            chatgpt_migrated: tokio::sync::OnceCell::new(),
         }
     }
 
@@ -340,6 +347,9 @@ impl Models {
     /// Drops the registry of a closed location (its attempts end with it, like upstream's scope).
     pub fn close_location(&self, key: &str) {
         self.by_location.lock().remove(key);
+        if let Some(plugins) = self.plugins.read().as_ref() {
+            plugins.openai.remove(key);
+        }
     }
 
     /// How many times the catalog of location `key` (`None`: the default location) was built (a
@@ -382,6 +392,62 @@ impl Models {
                 },
             );
         });
+    }
+
+    /// The ChatGPT plugin's startup migration (chatgpt.ts): token-sharing credentials saved under
+    /// the `chatgpt-browser` method move to `chatgpt-token-sharing`, and the models they carried move
+    /// to the plugin's storage unless it already has a valid copy. Runs once.
+    async fn migrate_chatgpt_credentials(&self) {
+        use catalog::openai::{legacy_token_sharing, model_cache_key, remote_models, INTEGRATION_ID};
+        self.chatgpt_migrated
+            .get_or_init(|| async {
+                let storage = PluginKv::new(self.db.clone(), catalog::openai::CHATGPT_PLUGIN_ID);
+                let Ok(saved) = self.store.list(INTEGRATION_ID).await else { return };
+                for credential in saved {
+                    let CredentialValue::Oauth { method_id, refresh, access, expires, metadata } = &credential.value else { continue };
+                    let Some((client_id, models, rest)) = legacy_token_sharing(method_id, metadata.as_ref()) else { continue };
+                    let key = model_cache_key(&client_id);
+                    let cached = oc_ai::credentials::KvStore::get(&storage, &key).await.ok().flatten();
+                    if let Some(models) = models
+                        && !remote_models(cached.as_ref())
+                    {
+                        let _ = oc_ai::credentials::KvStore::set(&storage, &key, models).await;
+                    }
+                    let value = CredentialValue::Oauth {
+                        method_id: oc_ai::credentials::flows::chatgpt::METHOD_ID.into(),
+                        refresh: refresh.clone(),
+                        access: access.clone(),
+                        expires: *expires,
+                        metadata: Some(rest),
+                    };
+                    let update = oc_ai::credentials::store::CredentialUpdate { label: None, value: Some(value) };
+                    if let Err(error) = self.store.update(&credential.id, update).await {
+                        tracing::warn!(%error, "failed to migrate a ChatGPT credential");
+                    }
+                }
+            })
+            .await;
+    }
+
+    /// The OpenAI provider plugins' loaded state for a location: how the `openai` integration's
+    /// active connection signs in (its credential resolved, so an expiring OAuth token is refreshed;
+    /// a failed resolve signs in as nothing). Loaded again only when the active connection changes.
+    async fn openai_sign_in(&self, state: &LocationIntegrations) -> catalog::openai::SignIn {
+        let integrations = &state.integrations;
+        let connection = integrations.active(catalog::openai::INTEGRATION_ID).await.ok().flatten();
+        let key = connection.as_ref().map(|c| c.key());
+        if let Some((loaded, sign_in)) = &*state.openai.lock()
+            && *loaded == key
+        {
+            return sign_in.clone();
+        }
+        let credential = match &connection {
+            Some(connection) => integrations.resolve(connection).await.ok().flatten(),
+            None => None,
+        };
+        let sign_in = catalog::openai::SignIn::from_connection(key.as_deref(), credential.as_ref());
+        *state.openai.lock() = Some((key, sign_in.clone()));
+        sign_in
     }
 
     /// Build the location catalog (models.dev → data plugins → configured providers).
@@ -462,6 +528,24 @@ impl Models {
             access.set(info.id.clone(), keys);
         }
         let configured: HashSet<String> = integrations.refs().into_iter().map(|r| r.id).collect();
+        // The OpenAI provider plugins (openai.ts, chatgpt.ts, openai-context-caps.ts) and their loaded
+        // sign-in state.
+        let builtin = |id: &str| match (&host, key) {
+            (Some(plugins), Some(key)) => plugins.builtin_enabled(key, id),
+            _ => true,
+        };
+        let (chatgpt_on, openai_on, caps_on) = (
+            builtin(catalog::openai::CHATGPT_PLUGIN_ID),
+            builtin(catalog::openai::OPENAI_PLUGIN_ID),
+            builtin(catalog::openai::CONTEXT_CAPS_PLUGIN_ID),
+        );
+        if chatgpt_on {
+            self.migrate_chatgpt_credentials().await;
+        }
+        let sign_in = self.openai_sign_in(state.as_ref()).await;
+        if let (Some(plugins), Some(key)) = (&host, key) {
+            plugins.openai.set(key, sign_in.clone());
+        }
         let connected = std::env::var("OPENCODE_API_KEY").is_ok_and(|v| !v.is_empty())
             || access.connections("opencode").is_some_and(|c| !c.is_empty());
         {
@@ -471,6 +555,7 @@ impl Models {
             ids.hash(&mut fingerprint);
             connected.hash(&mut fingerprint);
             plugin_state.hash(&mut fingerprint);
+            (&sign_in, chatgpt_on, openai_on, caps_on).hash(&mut fingerprint);
         }
         // The Copilot plugin's loaded state is an input too: its revision when the cached catalog
         // was built (the initial `/models` load and every reload after a credential switch change it).
@@ -506,6 +591,10 @@ impl Models {
                 Box::new(catalog::ModelsDevPlugin::new(&snapshots)),
                 Box::new(catalog::DataPlugins::new(configured.clone())),
             ];
+            // opencode.provider.chatgpt (token sharing), ahead of the other provider plugins.
+            if chatgpt_on {
+                plugins.push(Box::new(catalog::openai::ChatGpt { sign_in: sign_in.clone(), sections: sections.clone() }));
+            }
             // opencode.provider.github.copilot (github-copilot.ts:216-244) with the location's loaded state.
             if let Some(state) = copilot {
                 plugins.push(Box::new(catalog::copilot::GithubCopilot { state }));
@@ -513,6 +602,13 @@ impl Models {
             plugins.push(Box::new(catalog::plugins::OpencodeZen { connected }));
             // Responses WebSocket transport defaults of the openai/azure/xai provider plugins.
             plugins.push(Box::new(catalog::plugins::ResponsesWebSockets));
+            // opencode.provider.openai (Codex) and opencode.provider.openai-context-caps.
+            if openai_on {
+                plugins.push(Box::new(catalog::openai::OpenAi { sign_in: sign_in.clone(), sections: sections.clone() }));
+            }
+            if caps_on {
+                plugins.push(Box::new(catalog::openai::OpenAiContextCaps { sign_in: sign_in.clone() }));
+            }
             plugins.push(Box::new(config.clone()));
             plugins
         };

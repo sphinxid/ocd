@@ -37,7 +37,7 @@ use crate::location::Location;
 
 /// Built-in (internal) plugin ids in activation order (`core/src/plugin/internal.ts` `pre`, the
 /// provider and web-search plugins, `post`), as `plugin.list` reports them.
-pub const BUILTIN_PLUGINS: [&str; 88] = [
+pub const BUILTIN_PLUGINS: [&str; 89] = [
     "opencode.tool.input.repair",
     "opencode.config.worktree",
     "opencode.config.mcp",
@@ -72,6 +72,7 @@ pub const BUILTIN_PLUGINS: [&str; 88] = [
     "opencode.provider.opencode",
     "opencode.provider.snowflake.cortex",
     "opencode.provider.openai",
+    "opencode.provider.openai-context-caps",
     "opencode.provider.openrouter",
     "opencode.provider.perplexity",
     "opencode.provider.poe",
@@ -129,7 +130,7 @@ pub const BUILTIN_PLUGINS: [&str; 88] = [
 ];
 
 /// Index of the first `post` internal plugin in [`BUILTIN_PLUGINS`].
-const POST_START: usize = 71;
+const POST_START: usize = 72;
 
 /// The ocd-native internal plugins in upstream order.
 pub fn internal_plugins() -> InternalPlugins {
@@ -255,6 +256,8 @@ pub struct Plugins {
     app_info: Value,
     /// The built-in GitHub Copilot plugin's runtime state and hooks.
     pub copilot: Arc<crate::copilot::Copilot>,
+    /// The built-in OpenAI provider plugins' loaded sign-in state.
+    pub openai: Arc<crate::openai::OpenAi>,
     api: RwLock<Option<Arc<dyn PluginApi>>>,
     host: OnceLock<PluginHost>,
     locations: Mutex<HashMap<String, LocState>>,
@@ -287,6 +290,7 @@ impl Plugins {
             global,
             db,
             copilot: crate::copilot::Copilot::new(bus.clone(), version),
+            openai: Arc::new(crate::openai::OpenAi::new()),
             bus,
             // `App.Info` of the server (`App.configured(options.app)`: the CLI names itself "cli").
             app_info: json!({ "name": oc_util::version::ARTIFACT, "version": version, "channel": oc_util::version::CHANNEL }),
