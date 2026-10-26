@@ -144,18 +144,28 @@ fn substitutes_environment_variables_and_relative_file_contents() {
     let tmp = Tmp::new();
     let global = tmp.path().join("global");
     let var = format!("OC_CONFIG_TEST_TOKEN_{}", std::process::id());
-    // SAFETY: unique variable name, test-local.
-    unsafe { std::env::set_var(&var, "secret") };
+    let flag = format!("OC_CONFIG_TEST_FLAG_{}", std::process::id());
+    // SAFETY: unique variable names, test-local.
+    unsafe {
+        std::env::set_var(&var, r#"C:\Users\new\"secret""#);
+        std::env::set_var(&flag, "false");
+    }
     tmp.write("token.txt", "file\n\"token\"\n");
     tmp.write(
         "opencode.jsonc",
         &format!(
             r#"{{
-  // Ignored reference: {{file:missing.txt}}
+  // Ignored reference: {{file:.}}
   "username": "user-{{env:OC_CONFIG_TEST_MISSING_VAR}}",
+  "snapshots": {{env:{flag}}},
   "mcp": {{ "servers": {{ "remote": {{
     "type": "remote", "url": "https://example.com/mcp",
-    "headers": {{ "Authorization": "Bearer {{env:{var}}}", "X-Token": "{{file:token.txt}}" }}
+    "headers": {{
+      "Authorization": "Bearer {{env:{var}}}",
+      "X-Token": "{{file:token.txt}}",
+      "X-Missing": "Bearer {{file:~/.opencode-test-missing/key}}",
+      "X-Folder": "{{file:.}}"
+    }}
   }} }} }}
 }}"#
         ),
@@ -164,27 +174,28 @@ fn substitutes_environment_variables_and_relative_file_contents() {
     let (_, entries) = block_on(l.entries()).unwrap();
     let info = entries.iter().filter(|e| in_fixture(&tmp, e)).find_map(Entry::info).unwrap();
     assert_eq!(info.username.as_deref(), Some("user-"));
+    assert_eq!(info.snapshots, Some(false));
     let encoded = info.to_value();
     assert_eq!(
         encoded["mcp"]["servers"]["remote"]["headers"],
-        json!({ "Authorization": "Bearer secret", "X-Token": "file\n\"token\"" })
+        json!({
+            "Authorization": r#"Bearer C:\Users\new\"secret""#,
+            "X-Token": "file\n\"token\"",
+            "X-Missing": "Bearer ",
+            "X-Folder": "",
+        })
     );
 }
 
 #[test]
-fn missing_file_reference_is_fatal_with_verbatim_message() {
+fn missing_file_reference_substitutes_empty() {
     let tmp = Tmp::new();
     let global = tmp.path().join("global");
-    let file = tmp.write("opencode.json", r#"{"username":"{file:nope.txt}"}"#);
+    tmp.write("opencode.json", r#"{"username":"{file:nope.txt}","shell":"kept"}"#);
     let l = loader(&tmp, tmp.path(), &global, Options::default());
-    let err = block_on(l.entries()).unwrap_err();
-    let named = err.to_named_error();
-    assert_eq!(named["name"], "ConfigInvalidError");
-    assert_eq!(named["data"]["path"], json!(file.to_string_lossy()));
-    assert_eq!(
-        named["data"]["message"],
-        json!(format!("bad file reference: \"{{file:nope.txt}}\" {} does not exist", tmp.path().join("nope.txt").display()))
-    );
+    let (_, entries) = block_on(l.entries()).unwrap();
+    let info = entries.iter().filter(|e| in_fixture(&tmp, e)).find_map(Entry::info).unwrap();
+    assert_eq!((info.username.as_deref(), info.shell.as_deref()), (Some(""), Some("kept")));
 }
 
 #[test]
@@ -263,6 +274,144 @@ fn deduplicates_global_ecosystem_directories_found_during_upward_discovery() {
 }
 
 #[test]
+fn excludes_claude_directories_when_claude_is_disabled() {
+    let tmp = Tmp::new();
+    let global = tmp.path().join("global");
+    let home = global.join("home");
+    let project = tmp.path().join("project");
+    for dir in [home.join(".claude"), home.join(".agents"), project.join(".claude"), project.join(".agents")] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let in_tmp = |items: Vec<PathBuf>| items.into_iter().filter(|p| p.starts_with(tmp.path())).collect::<Vec<_>>();
+    // Fixture control: both global and project claude dirs are found by default.
+    let (claude, _) = discover(&global, &home, &project, &Options::default()).compatibility();
+    assert_eq!(in_tmp(claude), vec![home.join(".claude"), project.join(".claude")]);
+    let sources = discover(&global, &home, &project, &Options { claude: Some(false), ..Default::default() });
+    let (claude, agents) = sources.compatibility();
+    assert!(claude.is_empty());
+    assert_eq!(in_tmp(agents), vec![home.join(".agents"), project.join(".agents")]);
+}
+
+// Filesystem sandboxes deny reads outside the project. Simulate a denied discovery root with a
+// symlink into an unsearchable directory, which makes realpath fail with EACCES.
+#[cfg(unix)]
+#[test]
+fn treats_unreadable_discovery_roots_as_absent() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc_geteuid() } == 0 {
+        return;
+    }
+    let tmp = Tmp::new();
+    let global = tmp.path().join("global");
+    let home = global.join("home");
+    let project = home.join("project");
+    let locked = tmp.mkdir("locked");
+    std::fs::create_dir_all(locked.join("agents")).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("opencode.json"), r#"{"shell":"project"}"#).unwrap();
+    std::os::unix::fs::symlink(locked.join("agents"), home.join(".agents")).unwrap();
+    std::os::unix::fs::symlink(locked.join("agents"), project.join(".opencode")).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let l = loader(&tmp, &project, &global, Options::default());
+    let result = block_on(l.entries());
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (_, entries) = result.unwrap();
+    let shells: Vec<&str> = entries.iter().filter_map(Entry::info).filter_map(|i| i.shell.as_deref()).collect();
+    assert_eq!(shells, vec!["project"]);
+}
+
+#[cfg(unix)]
+unsafe extern "C" {
+    #[link_name = "geteuid"]
+    fn libc_geteuid() -> u32;
+}
+
+#[test]
+fn loads_system_configuration_at_highest_priority() {
+    use oc_config::discovery::System;
+    use oc_config::policy::{ManagedState, decision, statements};
+    use oc_config::schema::{PolicyAction, PolicyEffect};
+    let tmp = Tmp::new();
+    let system = tmp.mkdir("system");
+    let global = tmp.mkdir("global");
+    let project = tmp.mkdir("project");
+    let tool = |effect: &str| json!({ "action": "tool.use", "resource": "shell:*", "effect": effect });
+    tmp.write(
+        "system/opencode.json",
+        &json!({ "shell": "system", "username": "system-user", "experimental": { "policies": [tool("deny")] } }).to_string(),
+    );
+    tmp.write("global/opencode.json", r#"{"shell":"global"}"#);
+    tmp.write("project/opencode.json", &json!({ "shell": "project", "experimental": { "policies": [tool("allow")] } }).to_string());
+    let l = loader(&tmp, &project, &global, Options { system: System::Path(system.clone()), ..Default::default() });
+    let (sources, entries) = block_on(l.entries()).unwrap();
+    let shells: Vec<&str> = entries.iter().filter_map(Entry::info).filter_map(|i| i.shell.as_deref()).collect();
+    assert_eq!(shells, vec!["global", "project", "system"]);
+    let directories: Vec<&Path> = entries
+        .iter()
+        .filter_map(|e| match e {
+            Entry::Directory { path } => Some(path.as_path()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(directories, vec![global.as_path(), system.as_path()]);
+    assert_eq!(fold::shell(&entries), Some("system"));
+    assert_eq!(fold::latest(&entries, |i| i.username.as_ref()).map(String::as_str), Some("system-user"));
+    let policies = statements(&entries, &ManagedState::default());
+    assert_eq!(decision(&policies, PolicyAction::ToolUse, "shell:ls"), PolicyEffect::Deny);
+    assert_eq!(sources.system, Some(ProjectRoot { path: system.clone(), present: true }));
+    // The system directory is watched like the global one.
+    assert!(plan(&sources).iter().any(|t| matches!(t, WatchTarget::Directory { path, .. } if path == &system)));
+
+    let l = loader(&tmp, &project, &global, Options { system: System::Off, ..Default::default() });
+    let (_, entries) = block_on(l.entries()).unwrap();
+    let shells: Vec<&str> = entries.iter().filter_map(Entry::info).filter_map(|i| i.shell.as_deref()).collect();
+    assert_eq!(shells, vec!["global", "project"]);
+    // A location at the system directory skips the project walk.
+    let sources = discover(&global, &global.join("home"), &system, &Options { system: System::Path(system.clone()), ..Default::default() });
+    assert!(sources.direct.is_empty() && sources.project.is_empty());
+    // `global: false` skips the system directory too.
+    let sources = discover(&global, &global.join("home"), &project, &Options { system: System::Path(system.clone()), global: Some(false), ..Default::default() });
+    assert!(sources.system.is_none());
+}
+
+#[test]
+fn resolves_the_system_configuration_directory_per_platform() {
+    use oc_config::discovery::system_directory;
+    assert_eq!(system_directory("darwin", None), PathBuf::from("/Library/Application Support/opencode"));
+    assert_eq!(system_directory("linux", None), PathBuf::from("/etc/opencode"));
+    assert_eq!(system_directory("win32", Some("D:\\ProgramData")), PathBuf::from("D:\\ProgramData\\opencode"));
+    assert_eq!(system_directory("win32", None), PathBuf::from("C:\\ProgramData\\opencode"));
+}
+
+#[test]
+fn resolves_macos_managed_preferences_with_user_specific_profiles_first() {
+    assert_eq!(
+        oc_config::discovery::preference_paths("alice"),
+        [
+            PathBuf::from("/Library/Managed Preferences/alice/ai.opencode.managed.plist"),
+            PathBuf::from("/Library/Managed Preferences/ai.opencode.managed.plist"),
+        ]
+    );
+}
+
+#[test]
+fn strips_mdm_payload_metadata_from_managed_preferences() {
+    let stripped = oc_config::discovery::strip_preference_metadata(
+        &json!({
+            "PayloadDisplayName": "OpenCode",
+            "PayloadIdentifier": "ai.opencode.managed",
+            "PayloadType": "ai.opencode.managed",
+            "PayloadUUID": "00000000-0000-0000-0000-000000000000",
+            "PayloadVersion": 1,
+            "_manualProfile": true,
+            "share": "disabled",
+        })
+        .to_string(),
+    );
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&stripped).unwrap(), json!({ "share": "disabled" }));
+}
+
+#[test]
 fn global_directory_as_location_skips_the_walk() {
     let tmp = Tmp::new();
     let global = tmp.mkdir("global");
@@ -276,6 +425,8 @@ fn watch_sources() -> (PathBuf, PathBuf, Sources) {
     let project = PathBuf::from("/watch-plan-project");
     let root = project.join(".opencode");
     let sources = Sources {
+        system: None,
+        preferences: None,
         global: None,
         explicit: None,
         direct: vec![project.join("opencode.json"), project.join("opencode.jsonc")],
@@ -295,10 +446,25 @@ fn watch_plan_groups_missing_candidates_and_keeps_parent_watches() {
         json!([{ "path": project, "type": "entries", "names": [".agents", ".claude", ".opencode", "opencode.json", "opencode.jsonc"] }])
     );
     let present = plan(&Sources { project: vec![ProjectRoot { path: root.clone(), present: true }], ..sources.clone() });
-    let mut expected = vec![json!({ "path": root, "type": "directory", "ignore": ["node_modules", ".git", "**/{node_modules,.git}/**"] })];
+    let ignore = json!(["node_modules", ".git", ".venv", "venv", "__pycache__", "**/{node_modules,.git,.venv,venv,__pycache__}/**"]);
+    let mut expected = vec![json!({ "path": root, "type": "directory", "ignore": ignore })];
     expected.push(serde_json::to_value(&missing[0]).unwrap());
     assert_eq!(serde_json::to_value(&present).unwrap(), json!(expected));
-    assert_eq!(present[0].key(), r#"{"path":"/watch-plan-project/.opencode","type":"directory","ignore":["node_modules",".git","**/{node_modules,.git}/**"]}"#);
+    assert_eq!(present[0].key(), r#"{"path":"/watch-plan-project/.opencode","type":"directory","ignore":["node_modules",".git",".venv","venv","__pycache__","**/{node_modules,.git,.venv,venv,__pycache__}/**"]}"#);
+    let system = project.join("system-opencode");
+    let with_system = plan(&Sources {
+        system: Some(ProjectRoot { path: system.clone(), present: true }),
+        project: vec![ProjectRoot { path: root.clone(), present: true }],
+        ..sources.clone()
+    });
+    assert_eq!(
+        serde_json::to_value(&with_system).unwrap(),
+        json!([
+            { "path": system, "type": "directory", "ignore": ignore },
+            { "path": root, "type": "directory", "ignore": ignore },
+            { "path": project, "type": "entries", "names": [".agents", ".claude", ".opencode", "opencode.json", "opencode.jsonc", "system-opencode"] },
+        ])
+    );
 }
 
 #[test]
@@ -428,6 +594,34 @@ fn agent_permissions_expand_home_for_path_actions() {
         ("external_directory".into(), "/home/u".into()),
         ("edit".into(), "/home/u".into()),
     ]);
+}
+
+// agent.test.ts "reads agent files that use V2 fields as V2"
+#[test]
+fn reads_agent_files_that_use_v2_fields_as_v2() {
+    let tmp = Tmp::new();
+    tmp.write(
+        "agents/named.md",
+        "---\nname: named\ndescription: Named reviewer\npermissions:\n  - action: edit\n    resource: \"*\"\n    effect: deny\n---\nReview only.",
+    );
+    tmp.write(
+        "agents/mixed.md",
+        "---\ntools:\n  shell: false\npermissions:\n  - action: edit\n    resource: \"*\"\n    effect: deny\n---\nMixed fields.",
+    );
+    tmp.write("agents/themed.md", "---\ndescription: Themed\nmode: subagent\ncolor: accent\n---\nUse a theme color.");
+    let entries = vec![Entry::Directory { path: tmp.path().to_path_buf() }];
+    let folded = fold::agents(&sources::agent_documents(&entries), Path::new("/home/u"), IndexMap::new());
+    let deny = json!([{ "action": "edit", "resource": "*", "effect": "deny" }]);
+    let named = &folded.agents["named"];
+    assert_eq!(named.description.as_deref(), Some("Named reviewer"));
+    assert_eq!(serde_json::to_value(&named.permissions).unwrap(), deny);
+    assert!(named.body.is_empty());
+    let mixed = &folded.agents["mixed"];
+    assert_eq!(serde_json::to_value(&mixed.permissions).unwrap(), deny);
+    assert!(mixed.body.is_empty());
+    let themed = &folded.agents["themed"];
+    assert_eq!((themed.system.as_deref(), themed.description.as_deref()), (Some("Use a theme color."), Some("Themed")));
+    assert!(themed.color.is_none());
 }
 
 // --- Markdown commands -------------------------------------------------------------------------------

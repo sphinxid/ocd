@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use crate::decode::{Decode, deep_equal, encode, js_numbers, non_negative_int, positive_int, record};
 use crate::legacy;
 use crate::schema::{
-    Agent, Command, Compaction, Enterprise, Experimental, Formatter, FormatterEntry, Lsp, LspEntry, McpServer,
+    Agent, Command, Compaction, Enterprise, Experimental, Formatter, IdleTimeout, FormatterEntry, Lsp, LspEntry, McpServer,
     McpTimeout, Media, ModelSelection, Plugin, Policy, Provider, Reference, Share, ToolOutput, UpdatePolicy,
     Warming, Watcher, WebSearch, Worktree,
 };
@@ -403,6 +403,7 @@ pub fn normalize(input: &Value) -> NormalizeResult {
     normalize_skills(input, &mut encoded, &mut d);
     normalize_mcp(input, &mut encoded, &mut d);
     normalize_compaction(input, &mut encoded, &mut d);
+    normalize_policies(input, &mut encoded, &mut d);
     normalize_experimental(input, &mut encoded, &mut d);
     normalize_watcher(input, &mut encoded, &mut d);
     normalize_formatter(input, &mut encoded, &mut d);
@@ -482,6 +483,7 @@ fn normalize_mcp(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
     let mut legacy_servers = Obj::new();
     let mut native_servers = Obj::new();
     let mut timeout = Obj::new();
+    // V1 never applied this to connecting, unlike a per-server timeout.
     if let Some(Value::Object(experimental)) = input.get("experimental")
         && let Some(raw) = experimental.get("mcp_timeout")
         && let Some(value) =
@@ -505,6 +507,7 @@ fn normalize_mcp(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                         continue;
                     }
                     if name == "servers" && !is_direct_legacy_mcp(value) {
+                        let value = &expand_server_timeouts(value);
                         for (key, server) in decode_map(Some(value), &path, d, |v, path, d| {
                             decode_encoded::<McpServer>(v, path, d)
                         }) {
@@ -513,7 +516,11 @@ fn normalize_mcp(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                         continue;
                     }
                     if name == "timeout" && !is_direct_legacy_mcp(value) {
-                        normalize_mcp_timeout(value, &mut timeout, &path, d);
+                        let value = match value {
+                            Value::Number(_) => legacy::migrate_mcp_timeout(value),
+                            _ => value.clone(),
+                        };
+                        normalize_mcp_timeout(&value, &mut timeout, &path, d);
                         continue;
                     }
                     if let Some(server) = decode_value(legacy::decode_mcp, value, path, d) {
@@ -540,6 +547,28 @@ fn normalize_mcp(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
         out.insert("servers".into(), Value::Object(servers));
     }
     encoded.insert("mcp".into(), Value::Object(out));
+}
+
+/// Native servers accept the V1 bare-number timeout so one V1-shaped field does not drop the whole server.
+fn expand_server_timeouts(value: &Value) -> Value {
+    let Some(servers) = record(value) else { return value.clone() };
+    Value::Object(
+        servers
+            .iter()
+            .map(|(name, server)| {
+                let server = match record(server) {
+                    Some(o) if o.get("timeout").is_some_and(Value::is_number) => {
+                        let mut o = o.clone();
+                        let timeout = legacy::migrate_mcp_timeout(&o["timeout"]);
+                        o.insert("timeout".into(), timeout);
+                        Value::Object(o)
+                    }
+                    _ => server.clone(),
+                };
+                (name.clone(), server)
+            })
+            .collect(),
+    )
 }
 
 fn normalize_mcp_timeout(value: &Value, timeout: &mut Obj, path: &[String], d: &mut Diags) {
@@ -624,8 +653,9 @@ fn decode_provider_list(input: &Obj, key: &str, d: &mut Diags) -> ProviderList {
     }
 }
 
-fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
-    let mut result = Obj::new();
+// V1 provider lists and `experimental.policies` stay supported and merge into
+// top-level `policies`; within a document, later sources win ties.
+fn normalize_policies(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
     let mut generated: Vec<Value> = Vec::new();
     let enabled = decode_provider_list(input, "enabled_providers", d);
     if enabled.present && (!enabled.non_empty || !enabled.values.is_empty()) {
@@ -641,7 +671,27 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
         generated
             .push(json!({ "action": "provider.use", "resource": legacy::provider_id(resource), "effect": "deny" }));
     }
-    let mut native: Vec<Value> = Vec::new();
+    let policy = |v: &Value, path: Vec<String>, d: &mut Diags| decode_encoded::<Policy>(v, path, d);
+    let experimental = match input.get("experimental") {
+        Some(Value::Object(e)) => decode_list(e.get("policies"), &p(&["experimental", "policies"]), d, policy),
+        _ => vec![],
+    };
+    let native = decode_list(input.get("policies"), &p(&["policies"]), d, policy);
+    let experimental_array = matches!(input.get("experimental"), Some(Value::Object(e)) if is_array(e.get("policies")));
+    if !generated.is_empty()
+        || !experimental.is_empty()
+        || !native.is_empty()
+        || is_array(input.get("policies"))
+        || experimental_array
+    {
+        generated.extend(experimental);
+        generated.extend(native);
+        encoded.insert("policies".into(), Value::Array(generated));
+    }
+}
+
+fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
+    let mut result = Obj::new();
     if let Some(experimental) = input.get("experimental") {
         match record(experimental) {
             None => invalid(p(&["experimental"]), d),
@@ -649,10 +699,12 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                 for key in UNSUPPORTED_EXPERIMENTAL {
                     unsupported_if_present(e, key, p(&["experimental", key]), d);
                 }
-                if let Some(v) = e.get("portable_shell_scanner")
-                    && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", "portable_shell_scanner"]), d)
-                {
-                    result.insert("portable_shell_scanner".into(), value);
+                for key in ["portable_shell_scanner", "todo", "background_compaction"] {
+                    if let Some(v) = e.get(key)
+                        && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", key]), d)
+                    {
+                        result.insert(key.into(), value);
+                    }
                 }
                 if let Some(v) = e.get("subagent_depth")
                     && let Some(value) =
@@ -660,16 +712,14 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                 {
                     result.insert("subagent_depth".into(), value);
                 }
-                native.extend(decode_list(e.get("policies"), &p(&["experimental", "policies"]), d, |v, path, d| {
-                    decode_encoded::<Policy>(v, path, d)
-                }));
+                if let Some(v) = e.get("location_idle_timeout")
+                    && let Some(value) =
+                        decode_encoded::<IdleTimeout>(v, p(&["experimental", "location_idle_timeout"]), d)
+                {
+                    result.insert("location_idle_timeout".into(), value);
+                }
             }
         }
-    }
-    let policies_array = matches!(input.get("experimental"), Some(Value::Object(e)) if is_array(e.get("policies")));
-    if !generated.is_empty() || !native.is_empty() || policies_array {
-        generated.extend(native);
-        result.insert("policies".into(), Value::Array(generated));
     }
     let empty_input = matches!(input.get("experimental"), Some(Value::Object(e)) if e.is_empty());
     if !result.is_empty() || empty_input {

@@ -979,7 +979,10 @@ impl Plugins {
         };
         let compat = self.builtin_enabled(&location.key, "opencode.config.compatibility");
         let config = self.builtin_enabled(&location.key, "opencode.config.skill");
-        crate::skills::with_sources(builtin, location, global, compat, config).await
+        let mut skills = crate::skills::with_sources(builtin, location, global, compat, config).await;
+        let policies = self.policies(location);
+        skills.retain(|skill| crate::policy::skill_allowed(&policies, &skill.id));
+        skills
     }
 
     /// References: plugins → configuration (`opencode.config.reference` is a `post` plugin).
@@ -1020,8 +1023,12 @@ impl Plugins {
         servers: indexmap::IndexMap<String, oc_mcp::config::ServerConfig>,
     ) -> indexmap::IndexMap<String, oc_mcp::config::ServerConfig> {
         let servers = if self.builtin_enabled(&location.key, "opencode.config.mcp") { servers } else { indexmap::IndexMap::new() };
+        let policies = self.policies(location);
+        let allowed = |servers: indexmap::IndexMap<String, oc_mcp::config::ServerConfig>| {
+            servers.into_iter().filter(|(name, _)| crate::policy::mcp_allowed(&policies, name)).collect()
+        };
         if self.host.get().is_none() {
-            return servers;
+            return allowed(servers);
         }
         let value = json!({
             "servers": servers.iter().map(|(name, config)| json!([name, config])).collect::<Vec<_>>(),
@@ -1038,7 +1045,21 @@ impl Plugins {
                 Err(error) => tracing::warn!(%error, server = name, "invalid plugin MCP server"),
             }
         }
-        result
+        allowed(result)
+    }
+
+    /// `opencode.config.policy` statements of a location (none when the plugin is disabled).
+    pub fn policies(&self, location: &Location) -> Vec<oc_config::policy::Statement> {
+        if !self.builtin_enabled(&location.key, crate::policy::PLUGIN_ID) {
+            return vec![];
+        }
+        crate::policy::statements(&location.entries)
+    }
+
+    /// [`Plugins::policies`] for the location last loaded under `key`.
+    pub fn policies_at(&self, key: &str) -> Vec<oc_config::policy::Statement> {
+        let location = self.locations.lock().get(key).and_then(|s| s.location.clone());
+        location.map(|l| self.policies(&l)).unwrap_or_default()
     }
 
     /// Commands: the native `pre` value (`{commands: [{name, description?, execute}]}`) → plugins.

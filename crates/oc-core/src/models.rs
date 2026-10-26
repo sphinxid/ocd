@@ -544,6 +544,8 @@ impl Models {
             (Some(plugins), Some(key)) => plugins.builtin_enabled(key, id),
             _ => true,
         };
+        // opencode.config.policy (a `post` plugin): denied providers are removed after every other transform.
+        let policies = if builtin(crate::policy::PLUGIN_ID) { crate::policy::statements(entries) } else { vec![] };
         let (chatgpt_on, openai_on, caps_on) = (
             builtin(catalog::openai::CHATGPT_PLUGIN_ID),
             builtin(catalog::openai::OPENAI_PLUGIN_ID),
@@ -566,6 +568,7 @@ impl Models {
             connected.hash(&mut fingerprint);
             plugin_state.hash(&mut fingerprint);
             (&sign_in, chatgpt_on, openai_on, caps_on).hash(&mut fingerprint);
+            serde_json::to_string(&policies).unwrap_or_default().hash(&mut fingerprint);
         }
         // The Copilot plugin's loaded state is an input too: its revision when the cached catalog
         // was built (the initial `/models` load and every reload after a credential switch change it).
@@ -620,11 +623,12 @@ impl Models {
                 plugins.push(Box::new(catalog::openai::OpenAiContextCaps { sign_in: sign_in.clone() }));
             }
             plugins.push(Box::new(config.clone()));
+            plugins.push(Box::new(crate::policy::Providers(policies.clone())));
             plugins
         };
         let (Some(plugins_host), Some(key)) = (host, key) else {
             let mut plugins = build(Some(catalog::copilot::State::default()));
-            let post = plugins.len() - 1;
+            let post = plugins.len() - 2;
             return store(0, Catalog::build_staged(&mut plugins, post, &access, async |r| r, async |m, d, _| (m, d)).await);
         };
         let key = key.to_string();
@@ -632,7 +636,7 @@ impl Models {
         loop {
             let revision = copilot_revision(&plugins_host);
             let mut plugins = build(copilot.then(|| plugins_host.copilot.state(&key)));
-            let post = plugins.len() - 1;
+            let post = plugins.len() - 2;
             let (p1, k1, p2, k2) = (plugins_host.clone(), key.clone(), plugins_host.clone(), key.clone());
             let catalog = Catalog::build_staged(
                 &mut plugins,

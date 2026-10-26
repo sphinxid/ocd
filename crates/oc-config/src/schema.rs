@@ -1514,10 +1514,20 @@ pub struct Experimental {
     /// Enable the experimental portable shell permission scanner. Defaults to false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portable_shell_scanner: Option<bool>,
+    /// Enable the experimental todowrite tool. Defaults to false (accepted; ocd has no todowrite tool).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub todo: Option<bool>,
+    /// Enable experimental background compaction (accepted; not implemented by ocd).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_compaction: Option<bool>,
     /// Maximum subagent nesting depth. Defaults to 1.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_depth: Option<u64>,
-    /// Ordered policies controlling access to configured resources.
+    /// How long a location can go without session activity before its services are unloaded
+    /// (accepted; ocd never unloads idle locations).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location_idle_timeout: Option<IdleTimeout>,
+    /// Deprecated: use top-level policies. Ordered policies controlling access to configured resources.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policies: Option<Vec<Policy>>,
 }
@@ -1527,9 +1537,29 @@ impl Decode for Experimental {
         let o = record(value)?;
         Some(Experimental {
             portable_shell_scanner: opt(o, "portable_shell_scanner")?,
+            todo: opt(o, "todo")?,
+            background_compaction: opt(o, "background_compaction")?,
             subagent_depth: opt_with(o, "subagent_depth", non_negative_int)?,
+            location_idle_timeout: opt(o, "location_idle_timeout")?,
             policies: opt(o, "policies")?,
         })
+    }
+}
+
+/// `Schema.Union([Schema.DurationFromString, Schema.Literal(false)])`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum IdleTimeout {
+    Never(bool),
+    After(Duration),
+}
+
+impl Decode for IdleTimeout {
+    fn decode(value: &Value) -> Option<Self> {
+        match value {
+            Value::Bool(false) => Some(IdleTimeout::Never(false)),
+            _ => Duration::decode(value).map(IdleTimeout::After),
+        }
     }
 }
 
@@ -1562,6 +1592,9 @@ pub struct Info {
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<Ruleset>,
+    /// Ordered policies controlling access to providers, tools, and integrations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policies: Option<Vec<Policy>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agents: Option<IndexMap<String, Agent>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1615,6 +1648,7 @@ impl Decode for Info {
             enterprise: opt(o, "enterprise")?,
             username: opt(o, "username")?,
             permissions: opt(o, "permissions")?,
+            policies: opt(o, "policies")?,
             agents: opt(o, "agents")?,
             snapshots: opt(o, "snapshots")?,
             watcher: opt(o, "watcher")?,
@@ -1671,6 +1705,7 @@ deserialize_via_decode!(
     ToolOutput,
     Worktree,
     Experimental,
+    IdleTimeout,
     Settings,
 );
 

@@ -31,7 +31,7 @@ fn accepts_tool_use_without_losing_statement_order() {
     let (encoded, d) = normalized(json!({ "experimental": { "policies": policies } }));
     assert!(d.is_empty());
     let info = Info::decode(&encoded).unwrap();
-    assert_eq!(serde_json::to_value(info.experimental.unwrap().policies.unwrap()).unwrap(), policies);
+    assert_eq!(serde_json::to_value(info.policies.unwrap()).unwrap(), policies);
 }
 
 #[test]
@@ -41,10 +41,7 @@ fn drops_unsupported_policy_actions() {
         { "action": "tool.use", "effect": "deny", "resource": "shell:*" },
         { "action": "future.use", "effect": "deny", "resource": "*" },
     ]}}));
-    assert_eq!(
-        encoded["experimental"]["policies"],
-        json!([{ "action": "tool.use", "resource": "shell:*", "effect": "deny" }])
-    );
+    assert_eq!(encoded["policies"], json!([{ "action": "tool.use", "resource": "shell:*", "effect": "deny" }]));
     assert_eq!(
         d.iter().map(|x| x.path.clone()).collect::<Vec<_>>(),
         pv(&[&["experimental", "policies", "0"], &["experimental", "policies", "2"]])
@@ -369,7 +366,7 @@ fn legacy_mcp_mapping() {
     }}));
     assert_eq!(
         serde_json::to_string(&encoded["mcp"]["servers"]).unwrap(),
-        r#"{"remote":{"type":"remote","url":"https://x","oauth":{"client_id":"id","callback_port":1234},"disabled":true,"timeout":{"catalog":10,"execution":10}},"nooauth":{"type":"remote","url":"https://y","oauth":false}}"#
+        r#"{"remote":{"type":"remote","url":"https://x","oauth":{"client_id":"id","callback_port":1234},"disabled":true,"timeout":{"startup":10,"catalog":10,"execution":10}},"nooauth":{"type":"remote","url":"https://y","oauth":false}}"#
     );
 }
 
@@ -409,42 +406,91 @@ fn compaction_leaves() {
 #[test]
 fn enabled_provider_lists() {
     assert_eq!(
-        normalized(json!({ "enabled_providers": [] })).0["experimental"],
-        json!({ "policies": [{ "action": "provider.use", "resource": "*", "effect": "deny" }] })
+        normalized(json!({ "enabled_providers": [] })).0["policies"],
+        json!([{ "action": "provider.use", "resource": "*", "effect": "deny" }])
     );
     assert_eq!(
-        normalized(json!({ "enabled_providers": [1, "anthropic", false] })).0["experimental"],
-        json!({ "policies": [
+        normalized(json!({ "enabled_providers": [1, "anthropic", false] })).0["policies"],
+        json!([
             { "action": "provider.use", "resource": "*", "effect": "deny" },
             { "action": "provider.use", "resource": "anthropic", "effect": "allow" },
-        ]})
+        ])
     );
-    assert!(normalized(json!({ "enabled_providers": [1, false] })).0.get("experimental").is_none());
-    assert!(normalized(json!({ "enabled_providers": "anthropic" })).0.get("experimental").is_none());
+    assert!(normalized(json!({ "enabled_providers": [1, false] })).0.get("policies").is_none());
+    assert!(normalized(json!({ "enabled_providers": "anthropic" })).0.get("policies").is_none());
+}
+
+// "merges migrated, experimental, and native policies in order"
+#[test]
+fn native_policies_after_migrated() {
+    let encoded = normalized(json!({
+        "enabled_providers": ["anthropic"],
+        "disabled_providers": ["openai"],
+        "policies": [{ "action": "provider.use", "resource": "native", "effect": "deny" }],
+        "experimental": {
+            "portable_shell_scanner": true, "todo": true, "background_compaction": true, "subagent_depth": 0,
+            "location_idle_timeout": "2 hours",
+            "policies": [{ "action": "provider.use", "resource": "custom", "effect": "allow" }],
+        },
+    }))
+    .0;
+    assert_eq!(
+        encoded["experimental"],
+        json!({
+            "portable_shell_scanner": true,
+            "todo": true,
+            "background_compaction": true,
+            "subagent_depth": 0,
+            "location_idle_timeout": "7200000 millis",
+        })
+    );
+    assert_eq!(
+        encoded["policies"],
+        json!([
+            { "action": "provider.use", "resource": "*", "effect": "deny" },
+            { "action": "provider.use", "resource": "anthropic", "effect": "allow" },
+            { "action": "provider.use", "resource": "openai", "effect": "deny" },
+            { "action": "provider.use", "resource": "custom", "effect": "allow" },
+            { "action": "provider.use", "resource": "native", "effect": "deny" },
+        ])
+    );
+    let info = Info::decode(&encoded).unwrap();
+    assert_eq!(serde_json::to_value(&info.experimental).unwrap()["location_idle_timeout"], json!("7200000 millis"));
 }
 
 #[test]
-fn native_policies_after_migrated() {
+fn never_emits_experimental_policies() {
     assert_eq!(
-        normalized(json!({
-            "enabled_providers": ["anthropic"],
-            "disabled_providers": ["openai"],
-            "experimental": {
-                "portable_shell_scanner": true, "subagent_depth": 0,
-                "policies": [{ "action": "provider.use", "resource": "custom", "effect": "allow" }],
-            },
-        }))
-        .0["experimental"],
+        normalized(json!({ "experimental": { "policies": [{ "action": "provider.use", "resource": "*", "effect": "deny" }] } })).0,
+        json!({ "policies": [{ "action": "provider.use", "resource": "*", "effect": "deny" }] })
+    );
+}
+
+#[test]
+fn expands_numeric_mcp_timeouts_to_every_phase() {
+    let (encoded, d) = normalized(json!({ "mcp": {
+        "timeout": 4000,
+        "servers": {
+            "local": { "type": "local", "command": ["local"], "timeout": 6000 },
+            "remote": { "type": "remote", "url": "https://remote.example.com", "timeout": 8000 },
+            "structured": { "type": "local", "command": ["structured"], "timeout": { "catalog": 9000 } },
+            "invalid": { "type": "local", "command": ["invalid"], "timeout": -1 },
+        },
+    }}));
+    assert_eq!(
+        encoded["mcp"],
         json!({
-            "portable_shell_scanner": true,
-            "subagent_depth": 0,
-            "policies": [
-                { "action": "provider.use", "resource": "*", "effect": "deny" },
-                { "action": "provider.use", "resource": "anthropic", "effect": "allow" },
-                { "action": "provider.use", "resource": "openai", "effect": "deny" },
-                { "action": "provider.use", "resource": "custom", "effect": "allow" },
-            ],
+            "timeout": { "startup": 4000, "catalog": 4000, "execution": 4000 },
+            "servers": {
+                "local": { "type": "local", "command": ["local"], "timeout": { "startup": 6000, "catalog": 6000, "execution": 6000 } },
+                "remote": { "type": "remote", "url": "https://remote.example.com", "timeout": { "startup": 8000, "catalog": 8000, "execution": 8000 } },
+                "structured": { "type": "local", "command": ["structured"], "timeout": { "catalog": 9000 } },
+            },
         })
+    );
+    assert_eq!(
+        d.iter().map(|x| (x.kind, x.path.clone())).collect::<Vec<_>>(),
+        vec![(DiagnosticKind::Invalid, pv(&[&["mcp", "servers", "invalid"]])[0].clone())]
     );
 }
 
@@ -605,14 +651,14 @@ fn legacy_agent_migration_fields() {
 fn explicit_empty_values_preserved() {
     let (encoded, _) = normalized(json!({
         "snapshot": false, "autoshare": false, "references": {}, "commands": {}, "agents": {}, "providers": {},
-        "instructions": [], "experimental": { "subagent_depth": 0 },
+        "instructions": [], "experimental": { "subagent_depth": 0, "location_idle_timeout": false },
     }));
     assert_eq!(encoded["snapshots"], json!(false));
     for key in ["references", "commands", "agents", "providers"] {
         assert_eq!(encoded[key], json!({}));
     }
     assert_eq!(encoded["instructions"], json!([]));
-    assert_eq!(encoded["experimental"], json!({ "subagent_depth": 0 }));
+    assert_eq!(encoded["experimental"], json!({ "subagent_depth": 0, "location_idle_timeout": false }));
     assert!(encoded.get("share").is_none());
 }
 
@@ -693,7 +739,7 @@ fn migrates_v1_scalars() {
 #[test]
 fn migrates_v1_provider_lists_to_policies() {
     let e = normalized(json!({ "enabled_providers": ["anthropic", "openai"], "disabled_providers": ["openai"] })).0;
-    assert_eq!(e["experimental"]["policies"], json!([
+    assert_eq!(e["policies"], json!([
         { "action": "provider.use", "resource": "*", "effect": "deny" },
         { "action": "provider.use", "resource": "anthropic", "effect": "allow" },
         { "action": "provider.use", "resource": "openai", "effect": "allow" },
@@ -734,7 +780,7 @@ fn renames_old_provider_ids_while_migrating() {
     assert_eq!(e["model"], json!({ "providerID": "azure", "model": "deployment" }));
     assert_eq!(e["agents"]["reviewer"]["model"], json!({ "providerID": "google-vertex", "model": "claude-sonnet" }));
     assert_eq!(e["commands"]["review"]["model"], json!({ "providerID": "azure", "model": "deployment" }));
-    assert_eq!(e["experimental"]["policies"], json!([
+    assert_eq!(e["policies"], json!([
         { "action": "provider.use", "resource": "*", "effect": "deny" },
         { "action": "provider.use", "resource": "google-vertex", "effect": "allow" },
         { "action": "provider.use", "resource": "azure", "effect": "deny" },
@@ -793,11 +839,12 @@ fn migrates_v1_command_configuration() {
 
 #[test]
 fn normalizes_renamed_permission_actions() {
-    let e = normalized(json!({ "permission": { "task": "ask", "bash": { "git status": "allow", "*": "deny" }, "write": "deny", "read": "allow" } })).0;
+    let e = normalized(json!({ "permission": { "task": "ask", "bash": { "git status": "allow", "*": "deny" }, "write": "deny", "apply_patch": "deny", "read": "allow" } })).0;
     assert_eq!(e["permissions"], json!([
         { "action": "subagent", "resource": "*", "effect": "ask" },
         { "action": "shell", "resource": "git status", "effect": "allow" },
         { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
         { "action": "edit", "resource": "*", "effect": "deny" },
         { "action": "read", "resource": "*", "effect": "allow" },
     ]));

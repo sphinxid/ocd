@@ -31,6 +31,7 @@ pub mod permission;
 pub mod plan;
 pub mod plugin_request;
 pub mod plugins;
+pub mod policy;
 pub mod project;
 pub mod prompt;
 pub mod publisher;

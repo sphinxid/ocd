@@ -14,9 +14,6 @@ use crate::schema::{Entry, Info};
 /// Fatal location load errors (a defect upstream; the previous config stays active on reload).
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
-    /// `{file:}` substitution failure (`ConfigInvalidError`).
-    #[error("{0}")]
-    Invalid(#[from] oc_util::variable::ConfigInvalidError),
     /// Read error other than NotFound / PermissionDenied.
     #[error("failed to read {path}: {source}")]
     Io {
@@ -27,13 +24,9 @@ pub enum LoadError {
 }
 
 impl LoadError {
-    /// `{ name: "ConfigInvalidError", data: { path, message } }` when applicable.
+    /// The named error a failed location load reports.
     pub fn to_named_error(&self) -> Value {
         match self {
-            LoadError::Invalid(e) => serde_json::json!({
-                "name": "ConfigInvalidError",
-                "data": { "path": e.path, "message": e.message },
-            }),
             LoadError::Io { path, source } => serde_json::json!({
                 "name": "UnknownError",
                 "data": { "message": format!("failed to read {}: {}", path.display(), source) },
@@ -117,7 +110,7 @@ pub fn load_file(path: &Path) -> Result<Option<Entry>, LoadError> {
     let source = path.to_string_lossy().to_string();
     let dir = path.parent().unwrap_or(Path::new("/"));
     let substituted =
-        oc_util::variable::substitute(oc_util::variable::Input { text: &text, dir, source: &source, env: None })?;
+        oc_util::variable::substitute(oc_util::variable::Input { text: &text, dir, source: &source, env: None });
     Ok(parse_info(&substituted, &source).map(|info| Entry::Document { path: Some(path.to_path_buf()), info }))
 }
 
@@ -133,11 +126,38 @@ pub fn load_directory(directory: &Path) -> Result<Vec<Entry>, LoadError> {
     Ok(out)
 }
 
+/// `Config.loadPreferences`: a macOS MDM managed preferences plist converted with
+/// `plutil -convert json -o - <plist>` (10 s), MDM payload metadata stripped.
+pub async fn load_preferences(plist: &Path) -> Vec<Entry> {
+    let source = plist.to_string_lossy().to_string();
+    let run = tokio::process::Command::new("plutil")
+        .args(["-convert", "json", "-o", "-"])
+        .arg(plist)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let output = match tokio::time::timeout(std::time::Duration::from_secs(10), run).await {
+        Ok(Ok(output)) if output.status.success() => output.stdout,
+        _ => {
+            tracing::warn!(source = %source, "failed to convert managed preferences");
+            return vec![];
+        }
+    };
+    let text = crate::discovery::strip_preference_metadata(&String::from_utf8_lossy(&output));
+    let dir = plist.parent().unwrap_or(Path::new("/"));
+    let text = oc_util::variable::substitute(oc_util::variable::Input { text: &text, dir, source: &source, env: None });
+    parse_info(&text, &source)
+        .map(|info| Entry::Document { path: Some(plist.to_path_buf()), info })
+        .into_iter()
+        .collect()
+}
+
 /// Inline content (`OPENCODE_CONFIG_CONTENT`) document; `{file:}` base dir = location directory.
 pub fn load_content(content: &str, directory: &Path) -> Result<Option<Entry>, LoadError> {
     let source = "OPENCODE_CONFIG_CONTENT";
     let text =
-        oc_util::variable::substitute(oc_util::variable::Input { text: content, dir: directory, source, env: None })?;
+        oc_util::variable::substitute(oc_util::variable::Input { text: content, dir: directory, source, env: None });
     Ok(parse_info(&text, source).map(|info| Entry::Document { path: None, info }))
 }
 
@@ -207,7 +227,7 @@ impl Loader {
                     dir: Path::new(&entry.origin),
                     source: &entry.origin,
                     env: variables.as_ref(),
-                })?;
+                });
                 if let Some(info) = parse_info(&substituted, &entry.origin) {
                     out.push(Entry::Document { path: None, info });
                 }
@@ -216,13 +236,45 @@ impl Loader {
         Ok(out)
     }
 
-    /// `Config.load(sources)`: wellknown, global dir, explicit, direct, `.opencode` dirs, content.
+    /// `Config.load(sources)`: managed policies, wellknown, global dir, explicit, direct, `.opencode`
+    /// dirs, content, then managed settings.
     pub async fn load(&self, sources: &Sources) -> Result<Vec<Entry>, LoadError> {
+        // Managed settings load last so they override everything, and MDM preferences outrank the
+        // system directory as in V1. Policies evaluate in reverse load order, so managed policies split
+        // off and load first to keep final file-based authority.
+        let mut managed = match sources.system.as_ref().filter(|s| s.present) {
+            Some(system) => load_directory(&system.path)?,
+            None => vec![],
+        };
+        if let Some(plist) = &sources.preferences {
+            managed.extend(load_preferences(plist).await);
+        }
+        let mut managed_policies: Vec<Entry> = managed
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Document { path, info } if info.policies.is_some() => Some(Entry::Document {
+                    path: path.clone(),
+                    info: Info { policies: info.policies.clone(), ..Default::default() },
+                }),
+                _ => None,
+            })
+            .collect();
+        managed_policies.reverse();
+        let managed_settings: Vec<Entry> = managed
+            .into_iter()
+            .map(|entry| match entry {
+                Entry::Document { path, mut info } if info.policies.is_some() => {
+                    info.policies = None;
+                    Entry::Document { path, info }
+                }
+                other => other,
+            })
+            .collect();
         let wellknown = self.load_wellknown().await?;
-        Ok([wellknown, self.load_local(sources)?].concat())
+        Ok([managed_policies, wellknown, self.load_local(sources)?, managed_settings].concat())
     }
 
-    /// Everything except wellknown documents, in priority order.
+    /// Wellknown-less, managed-less local entries, in priority order.
     pub fn load_local(&self, sources: &Sources) -> Result<Vec<Entry>, LoadError> {
         let mut direct = Vec::new();
         for file in &sources.direct {

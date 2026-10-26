@@ -22,7 +22,7 @@ pub fn provider_id(input: &str) -> String {
 /// Map v1 permission/tool keys onto their renamed v2 tool actions.
 pub fn normalize_action(action: &str) -> String {
     match action {
-        "write" | "patch" => "edit".into(),
+        "write" | "patch" | "apply_patch" => "edit".into(),
         "task" => "subagent".into(),
         "bash" => "shell".into(),
         other => other.into(),
@@ -391,10 +391,15 @@ pub fn decode_mcp(value: &Value) -> Option<Map<String, Value>> {
     }
 }
 
+/// V1 had a single MCP timeout, so a bare number bounds every phase (`migrateMcpTimeout`).
+pub fn migrate_mcp_timeout(timeout: &Value) -> Value {
+    json!({ "startup": timeout, "catalog": timeout, "execution": timeout })
+}
+
 /// `ConfigMigrateV1.migrateMcp` (not yet canonicalized).
 pub fn migrate_mcp(info: &Map<String, Value>) -> Value {
     let disabled = info.get("enabled").and_then(Value::as_bool).map(|e| Value::Bool(!e));
-    let timeout = info.get("timeout").map(|t| json!({ "catalog": t, "execution": t }));
+    let timeout = info.get("timeout").map(migrate_mcp_timeout);
     let mut out = Map::new();
     out.insert("type".into(), info["type"].clone());
     if info["type"] == "local" {

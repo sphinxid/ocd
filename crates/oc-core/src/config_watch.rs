@@ -18,8 +18,11 @@ pub struct ConfigWatch {
     targets: Arc<parking_lot::RwLock<Vec<WatchTarget>>>,
 }
 
+/// `FSUtil.ignoreGlobs`: a path inside an ignored directory (`node_modules`, `.git`, `.venv`, `venv`,
+/// `__pycache__`) at any depth.
 fn ignored(path: &Path) -> bool {
-    path.components().any(|c| matches!(c.as_os_str().to_str(), Some("node_modules" | ".git")))
+    path.components()
+        .any(|c| c.as_os_str().to_str().is_some_and(|name| oc_config::discovery::IGNORED_DIRECTORIES.contains(&name)))
 }
 
 /// Whether a changed path is reported by `target`.
@@ -110,6 +113,8 @@ mod tests {
         let dir = WatchTarget::Directory { path: "/p/.opencode".into(), kind: DirectoryKind::Directory, ignore: vec![] };
         assert!(reports(&dir, Path::new("/p/.opencode/agent/x.md")));
         assert!(!reports(&dir, Path::new("/p/.opencode/node_modules/a/b.js")));
+        assert!(!reports(&dir, Path::new("/p/.opencode/skills/x/.venv/lib/a.py")));
+        assert!(!reports(&dir, Path::new("/p/.opencode/__pycache__/a.pyc")));
         assert!(!reports(&dir, Path::new("/p/other")));
         let entries = WatchTarget::Entries {
             path: "/p".into(),

@@ -96,13 +96,22 @@ fn is_source(entries: &[Entry], file: &Path, names: &[&str]) -> bool {
         .any(|dir| names.iter().any(|name| contains(&dir.join(name), file)))
 }
 
+/// Agent fields only V2 understands (`nativeKeys` in `config/plugin/agent.ts`).
+const NATIVE_AGENT_KEYS: [&str; 4] = ["permissions", "request", "system", "disabled"];
+
 /// Decode one Markdown agent file into a `Document` (`decode` in `config/plugin/agent.ts`).
 pub fn decode_agent_file(directory: &Path, file: &Path, primary: bool, content: &str) -> Option<Entry> {
     let markdown = markdown::parse_option(content)?;
     let name = relative_name(directory, file, &AGENT_SOURCE_DIRECTORIES);
     let body = crate::schema::js_trim(&markdown.content).to_string();
     let data = markdown.data;
-    let is_legacy = data.keys().any(|k| k != "variant" && !AGENT_FIELDS.contains(&k.as_str()));
+    let unsupported: Vec<&String> =
+        data.keys().filter(|k| k.as_str() != "variant" && !AGENT_FIELDS.contains(&k.as_str())).collect();
+    // Fields only V2 understands. A file that uses any of them is read as V2, whatever else it contains.
+    let is_legacy = !unsupported.is_empty() && !data.keys().any(|k| NATIVE_AGENT_KEYS.contains(&k.as_str()));
+    if !is_legacy && !unsupported.is_empty() {
+        tracing::warn!(path = %file.display(), fields = ?unsupported, "ignored unsupported agent fields");
+    }
     let agent: Value = if is_legacy {
         let mut input = Map::new();
         input.insert("name".into(), Value::String(name.clone()));

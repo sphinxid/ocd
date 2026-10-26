@@ -62,7 +62,7 @@ pub fn statements(entries: &[Entry], organization: &ManagedState) -> Vec<Stateme
         .iter()
         .rev()
         .filter_map(Entry::info)
-        .flat_map(|i| i.experimental.iter().flat_map(|e| e.policies.iter().flatten()))
+        .flat_map(|i| i.policies.iter().flatten())
         .map(|p| Statement {
             action: p.action,
             resource: p.resource.clone(),
@@ -148,7 +148,7 @@ pub fn read_update_policy(global_config: &Path) -> UpdatePolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{Experimental, Info};
+    use crate::schema::Info;
 
     #[test]
     fn wildcard() {
@@ -167,7 +167,7 @@ mod tests {
     fn doc(policies: Vec<Policy>) -> Entry {
         Entry::Document {
             path: None,
-            info: Info { experimental: Some(Experimental { policies: Some(policies), ..Default::default() }), ..Default::default() },
+            info: Info { policies: Some(policies), ..Default::default() },
         }
     }
 

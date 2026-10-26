@@ -93,16 +93,20 @@ impl PermissionContext for PermCtx {
         let key = plugins.session_key(session_id);
         Box::pin(async move {
             let Some(key) = key else { return event };
-            if !plugins.has_hook(&key, "permission.evaluate", None) {
-                return event;
-            }
-            match plugins.trigger(&key, "permission.evaluate", event.clone()).await {
-                Ok(out) => out,
-                Err(error) => {
-                    tracing::error!(%error, "permission.evaluate hook failed");
-                    event
+            let mut out = if !plugins.has_hook(&key, "permission.evaluate", None) {
+                event
+            } else {
+                match plugins.trigger(&key, "permission.evaluate", event.clone()).await {
+                    Ok(out) => out,
+                    Err(error) => {
+                        tracing::error!(%error, "permission.evaluate hook failed");
+                        event
+                    }
                 }
-            }
+            };
+            // opencode.config.policy registers its hook last (a `post` plugin): policies deny last.
+            crate::policy::evaluate(&plugins.policies_at(&key), &mut out);
+            out
         })
     }
 
