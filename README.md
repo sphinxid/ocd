@@ -57,7 +57,8 @@ suite, many replaying recorded upstream data.
   shows the same progress badge.
 - **Chat providers:** Anthropic, OpenAI, Google, Bedrock, Mistral, Cohere, OpenAI-compatible, OpenCode Zen and
   every models.dev provider that uses those protocols. 229 recorded upstream streams decode identically.
-- **Sign-in:** API keys, OAuth, ChatGPT, GitHub Copilot and the Azure CLI.
+- **Sign-in:** API keys, OAuth, ChatGPT (token sharing and the Codex browser and device-code logins, with
+  upstream's model list, endpoints and request headers for each), GitHub Copilot and the Azure CLI.
 - **GitHub Copilot models:** the account's model list, routing between the AI SDK, Responses, Chat and native
   Anthropic routes, and Copilot's request headers. Upstream's in-house Copilot AI SDK provider runs in the Bun helper.
 - **OpenAI Responses over WebSocket** for OpenAI, Azure and xAI: one socket per session, incremental turns with
@@ -70,7 +71,8 @@ suite, many replaying recorded upstream data.
   - the full TUI;
   - the web UI served by `ocd serve`: 88 of 88 compared requests are identical;
   - the HTTP API (142 endpoints) and the event stream;
-  - the background service (`ocd service start/stop/status/restart`).
+  - the background service (`ocd service start/stop/status/restart`) on port 49374, or 28894 on Windows,
+    like upstream 2.1.
 - **Git:** status, diffs, branches, snapshots and worktrees.
 
 ### Works, with a small difference
