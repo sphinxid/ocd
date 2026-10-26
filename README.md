@@ -29,7 +29,8 @@ Measured on Linux x86_64, release builds of both, same mock model, isolated fold
 ## Status: what works and what doesn't
 
 This status is against opencode 2.0.26. Upstream has since released 2.1.4; what ocd needs to catch up is listed
-in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md).
+in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md). Batches 1 to 4 of that catch-up (data, providers, sessions and
+tools, platform and config) are ported; its progress table lists what each one checked.
 
 How the comparison is done: both binaries run the same 61 scenarios side by side and their outputs are diffed
 (`scripts/parity.py`, see [docs/PARITY.md](docs/PARITY.md)). These cover the agent loop, sessions, permissions,
@@ -52,7 +53,8 @@ suite, many replaying recorded upstream data.
   replay identically; one of the others changed on purpose in 2.1 and is checked against 2.1.4 instead.
 - **Project setup:**
   - agents, commands, skills (including remote skill discovery), `AGENTS.md` instructions and references;
-  - config files and live reload.
+  - config files and live reload, configured `instructions` (files, globs and URLs), `policies` and managed
+    system config (`/etc/opencode` and its platform equivalents).
 - **Import of opencode v1 history** into the v2 tables. The result is byte-identical to upstream, and the TUI
   shows the same progress badge.
 - **Chat providers:** Anthropic, OpenAI, Google, Bedrock, Mistral, Cohere, OpenAI-compatible, OpenCode Zen and
@@ -190,10 +192,11 @@ At runtime ocd looks for the web UI in this order:
 ### Optional: rebuild the plugin helper
 
 `crates/oc-plugin/host/dist/host.js` is committed, so building ocd never needs Bun. If you change the helper's
-TypeScript (`crates/oc-plugin/host/src/`), rebuild the bundle:
+TypeScript (`crates/oc-plugin/host/src/`), rebuild the bundle from an upstream checkout at `v2.1.4` (with
+`bun install` run) using Bun 1.4.4:
 
 ```sh
-scripts/build-plugin-host.sh ../opencode
+BUN=/path/to/bun-1.4.4 scripts/build-plugin-host.sh ../opencode
 ```
 
 ## Running
