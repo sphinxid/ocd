@@ -90,8 +90,10 @@ impl Location {
     pub fn agents_from(&self, builtin: Agents, home: &Path, browser: bool) -> Agents {
         let existing: IndexMap<String, AgentState> =
             builtin.items.iter().map(|(id, a)| (id.clone(), to_state(a))).collect();
-        let mut docs = self.entries.clone();
-        docs.extend(oc_config::sources::agent_documents(&self.entries));
+        // Config documents and each config directory's Markdown agents, in entry order. `agent_documents`
+        // already includes every document; adding the entries again applied top-level and agent
+        // permissions twice.
+        let docs = oc_config::sources::agent_documents(&self.entries);
         let folded = fold::agents(&docs, home, existing);
         let mut out = Agents { items: IndexMap::new(), default: folded.default_agent.clone().or(builtin.default.clone()) };
         for (id, mut state) in folded.agents {
@@ -139,5 +141,38 @@ impl Location {
             );
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // Config documents went into the agent fold twice (once directly, once through `agent_documents`), so
+    // top-level and agent permissions were applied twice.
+    #[test]
+    fn config_permissions_apply_once() {
+        let info = oc_config::schema::Info::from_value(&json!({
+            "permissions": [{ "action": "edit", "resource": "*", "effect": "ask" }],
+            "agents": { "custom": { "permissions": [{ "action": "read", "resource": "*", "effect": "deny" }] } },
+        }))
+        .unwrap();
+        let location = Location {
+            key: "/p".into(),
+            directory: "/p".into(),
+            project: Resolved { id: "global".into(), previous: None, directory: "/p".into(), canonical: "/p".into(), vcs: None },
+            entries: vec![Entry::Document { path: None, info }],
+            sources: Default::default(),
+            remote_instructions: Default::default(),
+            closed: Default::default(),
+        };
+        let agents = location.agents(Path::new("/home/u"));
+        let count = |id: &str, action: &str| {
+            agents.items[id].permissions.iter().filter(|r| r.action == action && r.resource == "*").count()
+        };
+        assert_eq!(count("build", "edit"), 1);
+        assert_eq!(count("custom", "edit"), 1);
+        assert_eq!(count("custom", "read"), 1);
     }
 }
