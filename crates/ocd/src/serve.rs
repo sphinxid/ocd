@@ -171,7 +171,10 @@ async fn run_service(
     cors: Option<Vec<String>>,
     web_ui: WebUiSource,
 ) -> anyhow::Result<i32> {
-    let _ = std::env::set_current_dir(&global.home);
+    // A sandbox may deny $HOME; the service then keeps the cwd it was launched from (63c1a27af).
+    if let Err(cause) = std::env::set_current_dir(&global.home) {
+        tracing::warn!(cause = %cause, "failed to change service directory to home");
+    }
     let config = ServiceConfig::new(global);
     let options = config.options(false);
     let info = config.read();

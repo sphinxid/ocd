@@ -63,6 +63,18 @@ fn main() {
         "cli starting"
     );
 
+    // `serve --service` loads the service's saved environment itself (723a2f689): Desktop, systemd and
+    // direct launches start it without the variables a CLI-spawned service inherits. Upstream merges it
+    // after the incumbent check; nothing before that check reads these variables (its probe ignores
+    // proxy settings, and an incumbent ends the process), so merging it here, before the runtime's
+    // threads start, is equivalent.
+    if inv.name == "serve" && inv.input.flag("service") && !inv.input.flag("stdio") {
+        for (key, value) in service::ServiceConfig::new(&global).read().env.unwrap_or_default() {
+            // SAFETY: single-threaded here except the log-trim thread, which never reads the environment.
+            unsafe { std::env::set_var(key, value) };
+        }
+    }
+
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime");
     let code = rt.block_on(async move {
         match commands::dispatch(&global, &inv).await {
