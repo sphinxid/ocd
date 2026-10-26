@@ -381,6 +381,8 @@ pub struct ConfigInfoEncoded {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<PermissionRuleset>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policies: Option<Vec<ConfigInfoEncodedPoliciesItem>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agents: Option<indexmap::IndexMap<String, ConfigAgentEncoded>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshots: Option<bool>,
@@ -488,6 +490,52 @@ impl ConfigInfoEncodedShare {
 pub struct ConfigInfoEncodedEnterprise {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigInfoEncodedPoliciesItem {
+    pub action: ConfigInfoEncodedPoliciesItemAction,
+    pub resource: String,
+    pub effect: ConfigInfoEncodedPoliciesItemEffect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ConfigInfoEncodedPoliciesItemAction {
+    #[serde(rename = "provider.use")]
+    ProviderUse,
+    #[serde(rename = "tool.use")]
+    ToolUse,
+    #[serde(rename = "integration.use")]
+    IntegrationUse,
+}
+
+impl ConfigInfoEncodedPoliciesItemAction {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ProviderUse => "provider.use",
+            Self::ToolUse => "tool.use",
+            Self::IntegrationUse => "integration.use",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ConfigInfoEncodedPoliciesItemEffect {
+    #[serde(rename = "allow")]
+    Allow,
+    #[serde(rename = "deny")]
+    Deny,
+}
+
+impl ConfigInfoEncodedPoliciesItemEffect {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -683,9 +731,28 @@ pub struct ConfigInfoEncodedExperimental {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub portable_shell_scanner: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todo: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_compaction: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_depth: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location_idle_timeout: Option<ConfigInfoEncodedExperimentalLocationIdleTimeout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policies: Option<Vec<ConfigInfoEncodedExperimentalPoliciesItem>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigInfoEncodedExperimentalLocationIdleTimeout {
+    String(String),
+    Literal(LitFalse),
+}
+
+impl From<LitFalse> for ConfigInfoEncodedExperimentalLocationIdleTimeout {
+    fn from(value: LitFalse) -> Self {
+        Self::Literal(value)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
