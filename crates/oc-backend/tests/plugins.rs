@@ -381,8 +381,7 @@ async fn promise_plugin_asserts_permissions_and_rethrown_declines_stay_declines(
         .messages(&session)
         .iter()
         .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
-        .filter(|c| c["type"] == "tool" && c["name"] == "read")
-        .next_back()
+        .rfind(|c| c["type"] == "tool" && c["name"] == "read")
         .expect("read call");
     assert_eq!(read["state"]["status"], "error", "{read}");
     assert_eq!(read["state"]["error"]["message"], "The user declined this tool call");

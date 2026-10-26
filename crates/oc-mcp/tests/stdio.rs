@@ -122,6 +122,10 @@ fn run_fake_server() {
             Err((code, message)) => write(&mut stdout, json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})),
         }
     }
+    // A server that ignores the closed stdin for a while (stopped by the grace-period kill).
+    if std::env::var("FAKE_SLOW_EXIT").is_ok() {
+        std::thread::sleep(Duration::from_secs(6));
+    }
 }
 
 #[test]
@@ -439,4 +443,24 @@ async fn stdio_handshake_declares_capabilities() {
         transport.send(json!({}), Default::default()).await.unwrap_err().to_string(),
         "Not connected"
     );
+}
+
+// 7b14ad4be: servers stop in parallel on shutdown, so one slow server's stop grace does not delay the rest.
+#[tokio::test]
+async fn slow_servers_stop_in_parallel() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(dir.path().to_path_buf());
+    let mut servers = IndexMap::new();
+    for name in ["slow1", "slow2", "slow3"] {
+        servers.insert(name.to_string(), server_config(&[("FAKE_SLOW_EXIT", "1")], None));
+    }
+    manager.set_servers(servers).await;
+    for name in ["slow1", "slow2", "slow3"] {
+        connected(&manager, name).await;
+    }
+    let started = std::time::Instant::now();
+    manager.shutdown().await;
+    let elapsed = started.elapsed();
+    // Each server waits out the close grace; one after another would take three of them.
+    assert!(elapsed < oc_mcp::transport::stdio::CLOSE_GRACE * 2, "{elapsed:?}");
 }
