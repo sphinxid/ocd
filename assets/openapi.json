@@ -14122,6 +14122,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "temperature": {
+            "type": "boolean"
+          },
+          "reasoning": {
+            "$ref": "#/components/schemas/Config.Model.Reasoning"
           }
         },
         "additionalProperties": false
@@ -14165,11 +14171,61 @@
         "required": ["input", "output"],
         "additionalProperties": false
       },
+      "Config.Model.Reasoning": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "supported": {
+                "type": "boolean",
+                "enum": [false]
+              }
+            },
+            "required": ["supported"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "supported": {
+                "type": "boolean",
+                "enum": [true]
+              },
+              "toggle": {
+                "type": "boolean"
+              },
+              "effort": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "budget": {
+                "type": "object",
+                "properties": {
+                  "min": {
+                    "type": "integer"
+                  },
+                  "max": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": ["supported"],
+            "additionalProperties": false
+          }
+        ]
+      },
       "Config.Model.Settings": {
         "type": "object",
         "properties": {
           "compaction": {
             "$ref": "#/components/schemas/Provider.Compaction"
+          },
+          "encoding": {
+            "$ref": "#/components/schemas/Provider.Encoding"
           }
         },
         "allOf": [
@@ -14197,6 +14253,11 @@
           },
           "name": {
             "type": "string"
+          },
+          "releaseDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}(-\\d{2})?$",
+            "description": "Release date as YYYY-MM-DD or YYYY-MM"
           },
           "compatibility": {
             "$ref": "#/components/schemas/Model.Compatibility"
@@ -14349,6 +14410,9 @@
           },
           "transport": {
             "$ref": "#/components/schemas/Provider.Transport"
+          },
+          "encoding": {
+            "$ref": "#/components/schemas/Provider.Encoding"
           }
         },
         "allOf": [
@@ -14382,6 +14446,9 @@
           },
           "package": {
             "type": "string"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/Provider.Compatibility"
           },
           "settings": {
             "$ref": "#/components/schemas/Config.Provider.Settings"
@@ -16568,6 +16635,10 @@
         "required": ["_tag", "sessionID", "messageID", "message"],
         "additionalProperties": false
       },
+      "Model.CacheFormat": {
+        "type": "string",
+        "enum": ["anthropic", "alibaba"]
+      },
       "Model.Capabilities": {
         "type": "object",
         "properties": {
@@ -16585,6 +16656,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "temperature": {
+            "type": "boolean"
           }
         },
         "required": ["tools", "input", "output"],
@@ -16610,6 +16684,12 @@
           },
           "supportsPromptCacheKey": {
             "type": "boolean"
+          },
+          "streamUsage": {
+            "type": "boolean"
+          },
+          "cacheFormat": {
+            "$ref": "#/components/schemas/Model.CacheFormat"
           },
           "supportsThinkingBlockBinding": {
             "type": "boolean"
@@ -16799,6 +16879,9 @@
         "properties": {
           "compaction": {
             "$ref": "#/components/schemas/Provider.Compaction"
+          },
+          "encoding": {
+            "$ref": "#/components/schemas/Provider.Encoding"
           }
         },
         "allOf": [
@@ -17685,6 +17768,40 @@
           }
         ]
       },
+      "Provider.Compatibility": {
+        "type": "object",
+        "properties": {
+          "reasoningField": {
+            "$ref": "#/components/schemas/Model.ReasoningField"
+          },
+          "requireReasoning": {
+            "type": "boolean"
+          },
+          "maxTokensField": {
+            "$ref": "#/components/schemas/Model.MaxTokensField"
+          },
+          "requireFinishReason": {
+            "type": "boolean"
+          },
+          "requireAssistantAfterTool": {
+            "type": "boolean"
+          },
+          "supportsPromptCacheKey": {
+            "type": "boolean"
+          },
+          "streamUsage": {
+            "type": "boolean"
+          },
+          "cacheFormat": {
+            "$ref": "#/components/schemas/Model.CacheFormat"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Provider.Encoding": {
+        "type": "string",
+        "enum": ["zstd", "gzip", "none"]
+      },
       "Provider.ID": {
         "type": "string"
       },
@@ -17709,6 +17826,9 @@
           },
           "package": {
             "type": "string"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/Provider.Compatibility"
           },
           "settings": {
             "$ref": "#/components/schemas/Provider.Settings"
@@ -17786,6 +17906,9 @@
           },
           "transport": {
             "$ref": "#/components/schemas/Provider.Transport"
+          },
+          "encoding": {
+            "$ref": "#/components/schemas/Provider.Encoding"
           }
         },
         "allOf": [

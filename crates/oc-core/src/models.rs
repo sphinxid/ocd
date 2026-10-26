@@ -203,9 +203,6 @@ struct LocationIntegrations {
     integrations: Arc<Integrations>,
     /// The provider plugins' OAuth implementations are registered once per instance.
     oauth: std::sync::Once,
-    /// The Azure plugin lists the `az login` account's resources once per location, in the background.
-    azure_started: std::sync::atomic::AtomicBool,
-    azure_resources: Arc<parking_lot::RwLock<Option<Vec<Value>>>>,
     /// The last built catalog and the fingerprint of its inputs (upstream keeps the `Provider` and
     /// `Model` states and rebuilds them only when they are invalidated).
     /// The models.dev data it was built from is held so its identity cannot be reused.
@@ -222,8 +219,6 @@ impl LocationIntegrations {
         Arc::new(LocationIntegrations {
             integrations,
             oauth: std::sync::Once::new(),
-            azure_started: std::sync::atomic::AtomicBool::new(false),
-            azure_resources: Arc::new(parking_lot::RwLock::new(None)),
             catalog: parking_lot::Mutex::new(None),
             building: tokio::sync::Mutex::new(()),
             builds: std::sync::atomic::AtomicU64::new(0),
@@ -268,8 +263,6 @@ pub struct Models {
     default_location: Arc<LocationIntegrations>,
     by_location: parking_lot::Mutex<HashMap<String, Arc<LocationIntegrations>>>,
     store: Arc<dyn CredentialStore>,
-    /// Azure Resource Manager base URL for the resource listing (tests point it at a mock).
-    azure_management: parking_lot::RwLock<String>,
     pub models_dev: Arc<ModelsDev>,
     db: Database,
     user_agent: String,
@@ -321,7 +314,6 @@ impl Models {
             default_location: LocationIntegrations::new(integrations),
             by_location: parking_lot::Mutex::new(HashMap::new()),
             store,
-            azure_management: parking_lot::RwLock::new(crate::integrations::AZURE_MANAGEMENT.into()),
             models_dev: Arc::new(ModelsDev::with_reqwest(ModelsDevOptions::from_env(ua.clone()), Arc::new(KvCatalogCache(db.clone())))),
             db,
             user_agent: ua,
@@ -343,11 +335,6 @@ impl Models {
             Some(key) => self.location_integrations(key).integrations.clone(),
             None => self.integrations.clone(),
         }
-    }
-
-    /// Points the Azure resource listing at another Resource Manager base URL (tests).
-    pub fn set_azure_management(&self, url: impl Into<String>) {
-        *self.azure_management.write() = url.into();
     }
 
     /// Drops the registry of a closed location (its attempts end with it, like upstream's scope).
@@ -380,33 +367,8 @@ impl Models {
             home: crate::integrations::global_home(),
             settings: crate::integrations::settings(initial, sections),
             azure_cli: which::which("az").is_ok(),
-            azure_resources: state.azure_resources.read().clone(),
         };
         crate::integrations::register(integrations, &environment);
-        // azure.ts:404-408: list the `az login` account's resources in the background, once.
-        if environment.azure_cli
-            && !crate::integrations::azure_resource_configured(&environment)
-            && !state.azure_started.swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
-            let (weak, resources) = (Arc::downgrade(integrations), state.azure_resources.clone());
-            let (home, env) = (environment.home.clone(), environment.env.clone());
-            let (management, user_agent) = (self.azure_management.read().clone(), self.user_agent.clone());
-            tokio::spawn(async move {
-                let tokens = oc_ai::credentials::azure::AzureCliTokens::new(Arc::new(oc_ai::credentials::azure::SystemAz));
-                let http = oc_util::http::client();
-                match crate::integrations::list_azure_resources(&home, &env, &tokens, &http, &management, &user_agent).await {
-                    Ok(Some(list)) => {
-                        *resources.write() = Some(list.clone());
-                        // `ctx.integration.reload()`: the method now offers the resources.
-                        if let Some(integrations) = weak.upgrade() {
-                            integrations.register_method("azure", crate::integrations::azure_cli_method(false, Some(&list)));
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(cause) => tracing::debug!(%cause, "failed to list Azure resources"),
-                }
-            });
-        }
         state.oauth.call_once(|| {
             // chatgpt.ts:218-237: the saved client of the `openai` integration's active connection.
             let chatgpt_client_id = oc_ai::credentials::flows::chatgpt::active_connection_client_id(Arc::downgrade(integrations));

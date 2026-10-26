@@ -77,6 +77,14 @@ literal_enum!(AgentMode { Subagent = "subagent", Primary = "primary", All = "all
 literal_enum!(McpProtocol { Legacy = "legacy", Auto = "auto", V20260728 = "2026-07-28" });
 literal_enum!(Transport { Http = "http", Websocket = "websocket" });
 literal_enum!(MaxTokensField { MaxCompletionTokens = "max_completion_tokens", MaxTokens = "max_tokens" });
+literal_enum!(
+    /// `Provider.Encoding`: HTTP request body compression; only endpoints known to decode it should enable it.
+    Encoding { Zstd = "zstd", Gzip = "gzip", None = "none" }
+);
+literal_enum!(
+    /// `Model.CacheFormat`: prompt-cache marker syntax the endpoint accepts.
+    CacheFormat { Anthropic = "anthropic", Alibaba = "alibaba" }
+);
 literal_enum!(PolicyAction { ProviderUse = "provider.use", ToolUse = "tool.use", IntegrationUse = "integration.use" });
 literal_enum!(PolicyEffect { Allow = "allow", Deny = "deny" });
 
@@ -229,12 +237,8 @@ pub const AGENT_FIELDS: &[&str] =
 impl Decode for Agent {
     fn decode(value: &Value) -> Option<Self> {
         let o = record(value)?;
-        let color: Option<String> = opt(o, "color")?;
-        if let Some(c) = &color
-            && !is_hex_color(c)
-        {
-            return None;
-        }
+        // An unsupported color, such as a V1 theme name, should not drop the whole agent.
+        let color = o.get("color").and_then(Value::as_str).filter(|c| is_hex_color(c)).map(String::from);
         Some(Agent {
             model: opt(o, "model")?,
             request: opt(o, "request")?,
@@ -1048,11 +1052,13 @@ pub struct Settings {
     pub compaction: Option<ProviderCompaction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<Transport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<Encoding>,
     #[serde(flatten)]
     pub rest: JsonRecord,
 }
 
-const SETTINGS_FIELDS: &[&str] = &["timeout", "headerTimeout", "chunkTimeout", "compaction", "transport"];
+const SETTINGS_FIELDS: &[&str] = &["timeout", "headerTimeout", "chunkTimeout", "compaction", "transport", "encoding"];
 
 fn rest_of(o: &crate::decode::Object, known: &[&str]) -> JsonRecord {
     o.iter().filter(|(k, _)| !known.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
@@ -1067,6 +1073,7 @@ impl Decode for Settings {
             chunk_timeout: opt(o, "chunkTimeout")?,
             compaction: opt(o, "compaction")?,
             transport: opt(o, "transport")?,
+            encoding: opt(o, "encoding")?,
             rest: rest_of(o, SETTINGS_FIELDS),
         })
     }
@@ -1077,6 +1084,8 @@ impl Decode for Settings {
 pub struct ModelSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<Encoding>,
     #[serde(flatten)]
     pub rest: JsonRecord,
 }
@@ -1084,7 +1093,11 @@ pub struct ModelSettings {
 impl Decode for ModelSettings {
     fn decode(value: &Value) -> Option<Self> {
         let o = record(value)?;
-        Some(ModelSettings { compaction: opt(o, "compaction")?, rest: rest_of(o, &["compaction"]) })
+        Some(ModelSettings {
+            compaction: opt(o, "compaction")?,
+            encoding: opt(o, "encoding")?,
+            rest: rest_of(o, &["compaction", "encoding"]),
+        })
     }
 }
 
@@ -1103,6 +1116,13 @@ pub struct Compatibility {
     pub require_assistant_after_tool: Option<bool>,
     #[serde(rename = "supportsPromptCacheKey", skip_serializing_if = "Option::is_none")]
     pub supports_prompt_cache_key: Option<bool>,
+    /// Request usage in the stream with `stream_options.include_usage`. Defaults to true.
+    #[serde(rename = "streamUsage", skip_serializing_if = "Option::is_none")]
+    pub stream_usage: Option<bool>,
+    /// Prompt-cache marker syntax the endpoint accepts. Overrides the route default; both send
+    /// `cache_control`, and `alibaba` skips tool definitions.
+    #[serde(rename = "cacheFormat", skip_serializing_if = "Option::is_none")]
+    pub cache_format: Option<CacheFormat>,
     #[serde(rename = "supportsThinkingBlockBinding", skip_serializing_if = "Option::is_none")]
     pub supports_thinking_block_binding: Option<bool>,
     #[serde(rename = "supportsEffortUpdates", skip_serializing_if = "Option::is_none")]
@@ -1119,9 +1139,26 @@ impl Decode for Compatibility {
             require_finish_reason: opt(o, "requireFinishReason")?,
             require_assistant_after_tool: opt(o, "requireAssistantAfterTool")?,
             supports_prompt_cache_key: opt(o, "supportsPromptCacheKey")?,
+            stream_usage: opt(o, "streamUsage")?,
+            cache_format: opt(o, "cacheFormat")?,
             supports_thinking_block_binding: opt(o, "supportsThinkingBlockBinding")?,
             supports_effort_updates: opt(o, "supportsEffortUpdates")?,
         })
+    }
+}
+
+/// `Provider.Compatibility`: provider defaults inherited by its models. Model-version features
+/// (`supportsThinkingBlockBinding`, `supportsEffortUpdates`) stay model-only.
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[serde(transparent)]
+pub struct ProviderCompatibility(pub Compatibility);
+
+impl Decode for ProviderCompatibility {
+    fn decode(value: &Value) -> Option<Self> {
+        let mut decoded = Compatibility::decode(value)?;
+        decoded.supports_thinking_block_binding = None;
+        decoded.supports_effort_updates = None;
+        Some(ProviderCompatibility(decoded))
     }
 }
 
@@ -1138,6 +1175,8 @@ impl Compatibility {
             require_finish_reason,
             require_assistant_after_tool,
             supports_prompt_cache_key,
+            stream_usage,
+            cache_format,
             supports_thinking_block_binding,
             supports_effort_updates
         );
@@ -1153,13 +1192,87 @@ pub struct Capabilities {
     pub input: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<Vec<String>>,
+    /// Whether the model accepts a sampling temperature. Unknown when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<Reasoning>,
 }
 
 impl Decode for Capabilities {
     fn decode(value: &Value) -> Option<Self> {
         let o = record(value)?;
-        Some(Capabilities { tools: opt(o, "tools")?, input: opt(o, "input")?, output: opt(o, "output")? })
+        Some(Capabilities {
+            tools: opt(o, "tools")?,
+            input: opt(o, "input")?,
+            output: opt(o, "output")?,
+            temperature: opt(o, "temperature")?,
+            reasoning: opt(o, "reasoning")?,
+        })
     }
+}
+
+/// `Config.Model.Reasoning.budget`
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub struct ReasoningBudget {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<i64>,
+}
+
+impl Decode for ReasoningBudget {
+    fn decode(value: &Value) -> Option<Self> {
+        let o = record(value)?;
+        Some(ReasoningBudget { min: opt_with(o, "min", int)?, max: opt_with(o, "max", int)? })
+    }
+}
+
+/// `Config.Model.Reasoning`: models.dev v2's `capabilities.reasoning`. OpenCode builds the model's
+/// variants from it; no control means none.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum Reasoning {
+    Unsupported {
+        supported: bool,
+    },
+    Supported {
+        supported: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        toggle: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        effort: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        budget: Option<ReasoningBudget>,
+    },
+}
+
+impl Decode for Reasoning {
+    fn decode(value: &Value) -> Option<Self> {
+        let o = record(value)?;
+        match o.get("supported")?.as_bool()? {
+            false => Some(Reasoning::Unsupported { supported: false }),
+            true => Some(Reasoning::Supported {
+                supported: true,
+                toggle: opt(o, "toggle")?,
+                effort: opt(o, "effort")?,
+                budget: opt(o, "budget")?,
+            }),
+        }
+    }
+}
+
+/// `releaseDate`: `YYYY-MM-DD` or `YYYY-MM`.
+fn release_date(value: &Value) -> Option<String> {
+    let text = value.as_str()?;
+    let bytes = text.as_bytes();
+    let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+    let ok = match bytes.len() {
+        7 => digits(0..4) && bytes[4] == b'-' && digits(5..7),
+        10 => digits(0..4) && bytes[4] == b'-' && digits(5..7) && bytes[7] == b'-' && digits(8..10),
+        _ => false,
+    };
+    ok.then(|| text.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1288,6 +1401,9 @@ pub struct ProviderModel {
     pub family: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Release date as YYYY-MM-DD or YYYY-MM
+    #[serde(rename = "releaseDate", skip_serializing_if = "Option::is_none")]
+    pub release_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compatibility: Option<Compatibility>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1317,6 +1433,7 @@ impl Decode for ProviderModel {
             model_id: opt(o, "modelID")?,
             family: opt(o, "family")?,
             name: opt(o, "name")?,
+            release_date: opt_with(o, "releaseDate", release_date)?,
             compatibility: opt(o, "compatibility")?,
             package: opt(o, "package")?,
             settings: opt(o, "settings")?,
@@ -1343,6 +1460,9 @@ pub struct Provider {
     pub env: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    /// Defaults for every model of this provider; model compatibility overrides individual fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<ProviderCompatibility>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<Settings>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1361,6 +1481,7 @@ impl Decode for Provider {
             name: opt(o, "name")?,
             env: opt(o, "env")?,
             package: opt(o, "package")?,
+            compatibility: opt(o, "compatibility")?,
             settings: opt(o, "settings")?,
             headers: opt(o, "headers")?,
             body: opt(o, "body")?,

@@ -386,12 +386,18 @@ fn markdown_agent_model_variant_forms() {
 }
 
 #[test]
-fn named_color_tokens_are_rejected_natively_but_migrated_for_v1() {
-    assert!(Info::from_value(&json!({ "agents": { "r": { "color": "warning" } } })).is_none());
+fn named_color_tokens_are_ignored_natively_but_migrated_for_v1() {
+    // An unsupported color, such as a V1 theme name, drops only the color (6a5f15ad5).
+    let info = Info::from_value(&json!({ "agents": { "r": { "description": "Reviews", "color": "warning" } } })).unwrap();
+    let agent = &info.agents.as_ref().unwrap()["r"];
+    assert_eq!((agent.description.as_deref(), agent.color.as_deref()), (Some("Reviews"), None));
+    let info = Info::from_value(&json!({ "agents": { "r": { "color": 42 } } })).unwrap();
+    assert_eq!(info.agents.as_ref().unwrap()["r"].color, None);
     let tmp = Tmp::new();
     let file = tmp.write("agent/r.md", "---\ncolor: warning\nhidden: true\n---\nx");
-    // `color` + `hidden` are native fields, so the native decode rejects the named token.
-    assert!(sources::decode_agent_file(tmp.path(), &file, false, "---\ncolor: warning\n---\nx").is_none());
+    // `color` + `hidden` are native fields, so the native decode keeps the agent without the named token.
+    let native = sources::decode_agent_file(tmp.path(), &file, false, "---\ncolor: warning\n---\nx").unwrap();
+    assert_eq!(native.info().unwrap().agents.as_ref().unwrap()["r"].color, None);
     let legacy = sources::decode_agent_file(tmp.path(), &file, false, "---\ncolor: warning\ntemperature: 1\n---\nx").unwrap();
     assert_eq!(legacy.info().unwrap().agents.as_ref().unwrap()["r"].color.as_deref(), Some("#aaaaaa"));
 }

@@ -757,6 +757,10 @@ pub struct ConfigModelCapabilities {
     pub input: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ConfigModelReasoning>,
 }
 
 /// Component schema `Config.Model.CostEncoded`.
@@ -786,11 +790,57 @@ pub struct ConfigModelCostEncodedCache {
     pub write: Option<MoneyUSDPerMillionTokens>,
 }
 
+/// Component schema `Config.Model.Reasoning`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigModelReasoning {
+    False(ConfigModelReasoningFalse),
+    True(ConfigModelReasoningTrue),
+}
+
+impl From<ConfigModelReasoningFalse> for ConfigModelReasoning {
+    fn from(value: ConfigModelReasoningFalse) -> Self {
+        Self::False(value)
+    }
+}
+
+impl From<ConfigModelReasoningTrue> for ConfigModelReasoning {
+    fn from(value: ConfigModelReasoningTrue) -> Self {
+        Self::True(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ConfigModelReasoningFalse {
+    pub supported: LitFalse,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ConfigModelReasoningTrue {
+    pub supported: LitTrue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toggle: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<ConfigModelReasoningTrueBudget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ConfigModelReasoningTrueBudget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<i64>,
+}
+
 /// Component schema `Config.Model.Settings`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ConfigModelSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<ProviderEncoding>,
     /// Additional properties.
     #[serde(flatten)]
     pub extra: indexmap::IndexMap<String, serde_json::Value>,
@@ -805,6 +855,9 @@ pub struct ConfigModelEncoded {
     pub family: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Release date as YYYY-MM-DD or YYYY-MM
+    #[serde(rename = "releaseDate", default, skip_serializing_if = "Option::is_none")]
+    pub release_date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compatibility: Option<ModelCompatibility>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -889,6 +942,8 @@ pub struct ConfigProviderSettings {
     pub compaction: Option<ProviderCompaction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<ProviderTransport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<ProviderEncoding>,
     /// Additional properties.
     #[serde(flatten)]
     pub extra: indexmap::IndexMap<String, serde_json::Value>,
@@ -944,6 +999,8 @@ pub struct ConfigProviderEncoded {
     pub env: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<ProviderCompatibility>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<ConfigProviderSettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2364,12 +2421,33 @@ pub struct MessageNotFoundErrorEncoded {
     pub message: String,
 }
 
+/// Component schema `Model.CacheFormat`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ModelCacheFormat {
+    #[serde(rename = "anthropic")]
+    Anthropic,
+    #[serde(rename = "alibaba")]
+    Alibaba,
+}
+
+impl ModelCacheFormat {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Anthropic => "anthropic",
+            Self::Alibaba => "alibaba",
+        }
+    }
+}
+
 /// Component schema `Model.Capabilities`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ModelCapabilities {
     pub tools: bool,
     pub input: Vec<String>,
     pub output: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<bool>,
 }
 
 /// Component schema `Model.Compatibility`.
@@ -2387,6 +2465,10 @@ pub struct ModelCompatibility {
     pub require_assistant_after_tool: Option<bool>,
     #[serde(rename = "supportsPromptCacheKey", default, skip_serializing_if = "Option::is_none")]
     pub supports_prompt_cache_key: Option<bool>,
+    #[serde(rename = "streamUsage", default, skip_serializing_if = "Option::is_none")]
+    pub stream_usage: Option<bool>,
+    #[serde(rename = "cacheFormat", default, skip_serializing_if = "Option::is_none")]
+    pub cache_format: Option<ModelCacheFormat>,
     #[serde(rename = "supportsThinkingBlockBinding", default, skip_serializing_if = "Option::is_none")]
     pub supports_thinking_block_binding: Option<bool>,
     #[serde(rename = "supportsEffortUpdates", default, skip_serializing_if = "Option::is_none")]
@@ -2558,6 +2640,8 @@ pub struct ModelRef {
 pub struct ModelSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<ProviderEncoding>,
     /// Additional properties.
     #[serde(flatten)]
     pub extra: indexmap::IndexMap<String, serde_json::Value>,
@@ -3155,6 +3239,49 @@ pub struct ProviderCompactionNative {
     pub r#type: LitNative,
 }
 
+/// Component schema `Provider.Compatibility`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProviderCompatibility {
+    #[serde(rename = "reasoningField", default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_field: Option<ModelReasoningField>,
+    #[serde(rename = "requireReasoning", default, skip_serializing_if = "Option::is_none")]
+    pub require_reasoning: Option<bool>,
+    #[serde(rename = "maxTokensField", default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens_field: Option<ModelMaxTokensField>,
+    #[serde(rename = "requireFinishReason", default, skip_serializing_if = "Option::is_none")]
+    pub require_finish_reason: Option<bool>,
+    #[serde(rename = "requireAssistantAfterTool", default, skip_serializing_if = "Option::is_none")]
+    pub require_assistant_after_tool: Option<bool>,
+    #[serde(rename = "supportsPromptCacheKey", default, skip_serializing_if = "Option::is_none")]
+    pub supports_prompt_cache_key: Option<bool>,
+    #[serde(rename = "streamUsage", default, skip_serializing_if = "Option::is_none")]
+    pub stream_usage: Option<bool>,
+    #[serde(rename = "cacheFormat", default, skip_serializing_if = "Option::is_none")]
+    pub cache_format: Option<ModelCacheFormat>,
+}
+
+/// Component schema `Provider.Encoding`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ProviderEncoding {
+    #[serde(rename = "zstd")]
+    Zstd,
+    #[serde(rename = "gzip")]
+    Gzip,
+    #[serde(rename = "none")]
+    None,
+}
+
+impl ProviderEncoding {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Zstd => "zstd",
+            Self::Gzip => "gzip",
+            Self::None => "none",
+        }
+    }
+}
+
 /// Component schema `Provider.ID`.
 pub type ProviderID = String;
 
@@ -3169,6 +3296,8 @@ pub struct ProviderInfo {
     pub name: String,
     pub activation: ProviderInfoActivation,
     pub package: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<ProviderCompatibility>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<ProviderSettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3219,6 +3348,8 @@ pub struct ProviderSettings {
     pub compaction: Option<ProviderCompaction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<ProviderTransport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<ProviderEncoding>,
     /// Additional properties.
     #[serde(flatten)]
     pub extra: indexmap::IndexMap<String, serde_json::Value>,

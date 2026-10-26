@@ -48,14 +48,20 @@ pub fn normalize_server(input: Option<&Value>) -> FlowResult<String> {
     Ok(format!("{}{}", url.origin().ascii_serialization(), url.path().trim_end_matches('/')))
 }
 
+/// Credentials saved before August 2026 store the retired `console.opencode.ai` host, which maps
+/// path-for-path onto the default server; rewriting it lets that host be shut down without forcing
+/// those users to reconnect.
+pub fn rewrite_legacy_server(server: &str) -> String {
+    const LEGACY: &str = "https://console.opencode.ai";
+    match server.strip_prefix(LEGACY) {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{DEFAULT_SERVER}{rest}"),
+        _ => server.to_string(),
+    }
+}
+
 /// `metadata.server` or the default server.
 pub fn server_url(value: &CredentialValue) -> String {
-    value
-        .metadata()
-        .and_then(|m| m.get("server"))
-        .and_then(Value::as_str)
-        .unwrap_or(DEFAULT_SERVER)
-        .to_string()
+    rewrite_legacy_server(value.metadata().and_then(|m| m.get("server")).and_then(Value::as_str).unwrap_or(DEFAULT_SERVER))
 }
 
 /// Request headers for Console calls: `authorization: Bearer <token>` and `x-org-id` when known.

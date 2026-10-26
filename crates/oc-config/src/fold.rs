@@ -605,6 +605,11 @@ pub fn providers(entries: &[Entry]) -> IndexMap<String, Provider> {
         if item.package.is_some() {
             current.package = item.package.clone();
         }
+        if let Some(c) = &item.compatibility {
+            let mut merged = current.compatibility.clone().unwrap_or_default();
+            merged.0.overlay(&c.0);
+            current.compatibility = Some(merged);
+        }
         if item.settings.is_some() {
             let merged = merge_overlay(settings_map(&current.settings).as_ref(), settings_map(&item.settings).as_ref());
             current.settings = merged.and_then(|m| crate::decode::Decode::decode(&Value::Object(m)));
@@ -636,6 +641,9 @@ pub fn overlay_model(model: &mut ProviderModel, config: &ProviderModel) {
     if config.model_id.is_some() {
         model.model_id = config.model_id.clone();
     }
+    if config.release_date.is_some() {
+        model.release_date = config.release_date.clone();
+    }
     if let Some(c) = &config.compatibility {
         let mut merged = model.compatibility.clone().unwrap_or_else(Compatibility::default);
         merged.overlay(c);
@@ -661,6 +669,8 @@ pub fn overlay_model(model: &mut ProviderModel, config: &ProviderModel) {
             tools: c.tools.or(base.tools),
             input: c.input.clone().or(base.input),
             output: c.output.clone().or(base.output),
+            temperature: c.temperature.or(base.temperature),
+            reasoning: c.reasoning.clone().or(base.reasoning),
         });
     }
     if let Some(variants) = &config.variants {

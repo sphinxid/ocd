@@ -55,6 +55,21 @@ def _chunk(obj):
     return ("data: " + json.dumps(obj) + "\n\n").encode()
 
 
+def decompress(raw, encoding):
+    """Decode a `content-encoding` request body (gzip, or zstd through the `zstd` command)."""
+    if encoding == "gzip":
+        import gzip
+        return gzip.decompress(raw)
+    if encoding == "zstd":
+        try:
+            from compression import zstd  # Python 3.14+
+            return zstd.decompress(raw)
+        except ImportError:
+            import subprocess
+            return subprocess.run(["zstd", "-dc"], input=raw, capture_output=True, check=True).stdout
+    return raw
+
+
 def classify(body):
     text = json.dumps(body)
     if "title generator" in text:
@@ -107,6 +122,9 @@ class Mock:
 
             def do_POST(self):
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
+                # `encoding` (zstd/gzip) compresses request bodies; the recorded body is the decoded JSON and the
+                # recorded headers keep `content-encoding`.
+                raw = decompress(raw, (self.headers.get("content-encoding") or "").lower())
                 try:
                     body = json.loads(raw)
                 except Exception:

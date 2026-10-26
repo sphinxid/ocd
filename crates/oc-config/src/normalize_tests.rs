@@ -815,3 +815,130 @@ fn legacy_agent_options_exclude_schema_fields_and_name() {
     assert_eq!(Value::Object(agent.options), json!({ "existing": true, "custom": "preserved" }));
     assert_eq!(agent.steps, Some(10));
 }
+
+#[test]
+fn migrates_the_legacy_set_cache_key_provider_option_into_provider_compatibility() {
+    let (encoded, _) = normalized(json!({
+        "provider": {
+            "proxy": { "npm": "@ai-sdk/openai-compatible", "options": { "baseURL": "https://proxy.test/v1", "setCacheKey": true } },
+            "openai": { "options": { "setCacheKey": false } },
+            "untouched": { "options": { "baseURL": "https://untouched.test/v1" } }
+        }
+    }));
+    let providers = &encoded["providers"];
+    assert_eq!(providers["proxy"]["compatibility"], json!({ "supportsPromptCacheKey": true }));
+    assert_eq!(providers["proxy"]["settings"], json!({ "baseURL": "https://proxy.test/v1" }));
+    assert_eq!(providers["openai"]["compatibility"], json!({ "supportsPromptCacheKey": false }));
+    assert!(providers["openai"]["settings"].get("setCacheKey").is_none());
+    assert!(providers["untouched"].get("compatibility").is_none());
+    // Schema order: compatibility follows package.
+    let keys: Vec<&str> = providers["proxy"].as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(keys, ["package", "compatibility", "settings"]);
+}
+
+#[test]
+fn moves_openai_compatible_options_the_package_does_not_read_into_the_body() {
+    use crate::legacy::compatible_model;
+    let options = json!({
+        "reasoningEffort": "high",
+        "timeout": 1000,
+        "allowed_openai_params": ["reasoning_effort"],
+        "chat_template_kwargs": { "enable_thinking": true }
+    });
+    let (settings, body) = compatible_model(options.as_object().unwrap());
+    assert_eq!(Value::Object(settings), json!({ "reasoningEffort": "high", "timeout": 1000 }));
+    assert_eq!(
+        body.map(Value::Object),
+        Some(json!({ "allowed_openai_params": ["reasoning_effort"], "chat_template_kwargs": { "enable_thinking": true } }))
+    );
+    let (settings, body) = compatible_model(json!({ "reasoningEffort": "low" }).as_object().unwrap());
+    assert_eq!(Value::Object(settings), json!({ "reasoningEffort": "low" }));
+    assert_eq!(body, None);
+
+    let (encoded, _) = normalized(json!({
+        "provider": {
+            "local": {
+                "npm": "@ai-sdk/openai-compatible",
+                "models": {
+                    "qwen": {
+                        "options": { "reasoningEffort": "high", "chat_template_kwargs": { "enable_thinking": true } },
+                        "variants": { "fast": { "chat_template_kwargs": { "enable_thinking": false } } }
+                    }
+                }
+            },
+            "other": { "npm": "@ai-sdk/openai", "models": { "gpt": { "options": { "custom": 1 } } } }
+        }
+    }));
+    let qwen = &encoded["providers"]["local"]["models"]["qwen"];
+    assert_eq!(qwen["settings"], json!({ "reasoningEffort": "high" }));
+    assert_eq!(qwen["body"], json!({ "chat_template_kwargs": { "enable_thinking": true } }));
+    assert_eq!(qwen["variants"], json!([{ "id": "fast", "settings": {}, "body": { "chat_template_kwargs": { "enable_thinking": false } } }]));
+    assert_eq!(encoded["providers"]["other"]["models"]["gpt"]["settings"], json!({ "custom": 1 }));
+}
+
+#[test]
+fn keeps_built_in_provider_routes_native_when_migrating() {
+    let (encoded, _) = normalized(json!({
+        "provider": {
+            "google-vertex": {
+                "npm": "@opencode/ai/providers/google-vertex",
+                "options": { "project": "my-project", "location": "europe-west4" },
+                "models": { "chat": { "provider": { "npm": "@opencode-ai/ai/providers/google-vertex/mistral" } } }
+            },
+            "sdk": { "npm": "@ai-sdk/openai" }
+        }
+    }));
+    assert_eq!(
+        encoded["providers"]["google-vertex"],
+        json!({
+            "package": "@opencode/ai/providers/google-vertex",
+            "settings": { "project": "my-project", "location": "europe-west4" },
+            "models": { "chat": { "package": "@opencode/ai/providers/google-vertex/mistral" } }
+        })
+    );
+    assert_eq!(encoded["providers"]["sdk"]["package"], "aisdk:@ai-sdk/openai");
+}
+
+#[test]
+fn accepts_the_2_1_provider_and_model_fields() {
+    let input = json!({
+        "providers": {
+            "custom": {
+                "package": "@opencode/ai/providers/openai-compatible",
+                "compatibility": { "streamUsage": false, "cacheFormat": "anthropic", "supportsEffortUpdates": false },
+                "settings": { "baseURL": "https://custom.test/v1", "encoding": "zstd" },
+                "models": {
+                    "m": {
+                        "name": "M",
+                        "releaseDate": "2026-02",
+                        "settings": { "encoding": "gzip" },
+                        "capabilities": { "temperature": false, "reasoning": { "supported": true, "effort": ["low"], "budget": { "min": 1024 } } }
+                    },
+                    "n": { "capabilities": { "reasoning": { "supported": false, "effort": ["ignored"] } } }
+                }
+            }
+        }
+    });
+    let (encoded, d) = normalized(input);
+    assert!(d.is_empty(), "{d:?}");
+    let custom = &encoded["providers"]["custom"];
+    // Model-version features are model-only and not accepted on the provider.
+    assert_eq!(custom["compatibility"], json!({ "streamUsage": false, "cacheFormat": "anthropic" }));
+    assert_eq!(custom["settings"], json!({ "encoding": "zstd", "baseURL": "https://custom.test/v1" }));
+    assert_eq!(custom["models"]["m"]["releaseDate"], "2026-02");
+    assert_eq!(custom["models"]["m"]["settings"], json!({ "encoding": "gzip" }));
+    assert_eq!(
+        custom["models"]["m"]["capabilities"],
+        json!({ "temperature": false, "reasoning": { "supported": true, "effort": ["low"], "budget": { "min": 1024 } } })
+    );
+    assert_eq!(custom["models"]["n"]["capabilities"], json!({ "reasoning": { "supported": false } }));
+    for invalid in [
+        json!({ "providers": { "bad": { "models": { "m": { "releaseDate": "Feb 2026" } } } } }),
+        json!({ "providers": { "bad": { "settings": { "encoding": "brotli" } } } }),
+        json!({ "providers": { "bad": { "compatibility": { "cacheFormat": "openai" } } } }),
+    ] {
+        let (encoded, d) = normalized(invalid);
+        assert!(encoded["providers"].get("bad").is_none());
+        assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["providers", "bad"]]));
+    }
+}

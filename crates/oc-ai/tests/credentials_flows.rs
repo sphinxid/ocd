@@ -862,3 +862,14 @@ async fn azure_cli_tokens() {
     assert_eq!(parse_token(r#"{"accessToken":"a","expiresOn":"nonsense"}"#).unwrap_err(), "Azure CLI returned an invalid token expiration");
     assert!(parse_token(r#"{"accessToken":"a","expiresOn":"2030-01-01 10:00:00.000000"}"#).is_ok());
 }
+
+/// Credentials saved with the retired `console.opencode.ai` host go to the default Console (7d3752c14).
+#[test]
+fn rewrites_the_retired_console_host() {
+    use oc_ai::credentials::flows::console::rewrite_legacy_server;
+    assert_eq!(rewrite_legacy_server("https://console.opencode.ai"), "https://opencode.ai/console");
+    assert_eq!(rewrite_legacy_server("https://console.opencode.ai/api"), "https://opencode.ai/console/api");
+    assert_eq!(rewrite_legacy_server("https://console.opencode.ai.example"), "https://console.opencode.ai.example");
+    assert_eq!(rewrite_legacy_server("https://opencode.ai/console"), "https://opencode.ai/console");
+    assert_eq!(rewrite_legacy_server("http://console.opencode.ai"), "http://console.opencode.ai");
+}

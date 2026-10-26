@@ -32,9 +32,6 @@ pub struct Environment {
     pub settings: HashMap<String, Map<String, Value>>,
     /// Whether the Azure CLI (`az`) is on `PATH` (`which("az")`).
     pub azure_cli: bool,
-    /// The Azure resources the `az login` account can reach ([`list_azure_resources`]): `None`
-    /// until the listing answered (or when it failed), else the form options.
-    pub azure_resources: Option<Vec<Value>>,
 }
 
 impl Environment {
@@ -136,7 +133,7 @@ pub fn register(integrations: &Integrations, environment: &Environment) {
         ),
     );
     if environment.azure_cli {
-        integrations.register_method("azure", azure_cli_method(azure_resource, environment.azure_resources.as_deref()));
+        integrations.register_method("azure", azure_cli_method(azure_resource));
     }
 
     // opencode.provider.cloudflare.ai.gateway (cloudflare-ai-gateway.ts:29-48)
@@ -284,98 +281,27 @@ pub fn azure_resource_configured(environment: &Environment) -> bool {
     setting || env.is_some_and(|v| !v.is_empty()) || environment.setting("azure", "baseURL").is_some_and(Value::is_string)
 }
 
-/// The `azure-cli` external method (azure.ts:162-188). Without a listing the resource field is
-/// plain text; with one it offers the resources (or says none were found).
-pub fn azure_cli_method(configured_resource: bool, resources: Option<&[Value]>) -> Method {
+/// The `azure-cli` external method (azure.ts:146-166). The resource field is free text.
+pub fn azure_cli_method(configured_resource: bool) -> Method {
     Method::External {
         id: "azure-cli".into(),
         label: "Microsoft Entra ID (Azure CLI)".into(),
         form: (!configured_resource).then(|| {
-            let mut field = json!({
+            vec![json!({
                 "type": "string",
                 "key": "resourceName",
                 "title": "Azure resource",
                 "placeholder": "e.g. my-models",
                 "required": true,
                 "pattern": AZURE_RESOURCE_PATTERN,
-            });
-            match resources {
-                None => field["description"] = json!("Requests use your `az login` session."),
-                Some([]) => field["description"] = json!("No Azure OpenAI or AI Services resources found for your `az login` account."),
-                Some(options) => {
-                    field["custom"] = json!(true);
-                    field["options"] = Value::Array(options.to_vec());
-                }
-            }
-            vec![field]
+                "description": "Enter the name of your Azure OpenAI or AI Services resource.",
+            })]
         }),
     }
 }
 
 /// `resourcePattern` (azure.ts).
 pub const AZURE_RESOURCE_PATTERN: &str = "^[a-zA-Z0-9][a-zA-Z0-9-]*$";
-
-/// Azure Resource Manager base URL (`endpoints.management`).
-pub const AZURE_MANAGEMENT: &str = "https://management.azure.com";
-
-/// `resourceListQuery` (azure.ts:558-565).
-const AZURE_RESOURCE_LIST_QUERY: &str = "resources | where type =~ 'microsoft.cognitiveservices/accounts' and kind in~ ('AIServices', 'OpenAI') | extend resourceName = tostring(properties.customSubDomainName) | where isnotempty(resourceName) | project resourceName, resourceGroup, location | order by resourceName asc";
-
-/// `listResources` (azure.ts:377-402): with a signed-in Azure CLI profile
-/// (`$AZURE_CONFIG_DIR|<home>/.azure/azureProfile.json` with subscriptions), asks Azure Resource
-/// Graph for the Azure OpenAI / AI Services resources (a management token from
-/// `az account get-access-token`) and returns them as form options. `Ok(None)` when no account is
-/// signed in (no `az` call); `Err` for any failure (upstream logs it at debug level and keeps the
-/// plain-text field).
-pub async fn list_azure_resources(
-    home: &Path,
-    env: &EnvSource,
-    tokens: &oc_ai::credentials::azure::AzureCliTokens,
-    http: &reqwest::Client,
-    management: &str,
-    user_agent: &str,
-) -> Result<Option<Vec<Value>>, String> {
-    let dir = env("AZURE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|| home.join(".azure"));
-    let Ok(profile) = std::fs::read_to_string(dir.join("azureProfile.json")) else { return Ok(None) };
-    // The Azure CLI writes the profile with a byte order mark.
-    let profile: Option<Value> = serde_json::from_str(profile.strip_prefix('\u{FEFF}').unwrap_or(&profile)).ok();
-    if !profile.as_ref().and_then(|p| p.get("subscriptions")).and_then(Value::as_array).is_some_and(|s| !s.is_empty()) {
-        return Ok(None);
-    }
-    let run = async {
-        let token = tokens.token(oc_ai::credentials::azure::MANAGEMENT_SCOPE).await?;
-        let mut request = http
-            .post(format!("{management}/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01"))
-            .header("content-type", "application/json")
-            .header("authorization", format!("Bearer {}", token.access))
-            .header("accept", "application/json")
-            .header("User-Agent", user_agent)
-            .body(json!({ "query": AZURE_RESOURCE_LIST_QUERY, "options": { "$top": 1000 } }).to_string());
-        for (k, v) in oc_util::trace::headers() {
-            request = request.header(k, v);
-        }
-        let response = request.send().await.map_err(|e| e.to_string())?;
-        if !response.status().is_success() {
-            return Err(format!("StatusCode: non 2xx status code ({})", response.status().as_u16()));
-        }
-        let body: Value = response.json().await.map_err(|e| e.to_string())?;
-        let data = body.get("data").and_then(Value::as_array).ok_or("Expected an array at [\"data\"]")?;
-        let pattern = regex::Regex::new(AZURE_RESOURCE_PATTERN).expect("valid pattern");
-        Ok(data
-            .iter()
-            .filter_map(|raw| {
-                let name = raw.get("resourceName")?.as_str().filter(|n| !n.is_empty())?;
-                let group = raw.get("resourceGroup")?.as_str()?;
-                let location = raw.get("location")?.as_str()?;
-                pattern.is_match(name).then(|| json!({ "value": name, "label": name, "description": format!("{group} · {location}") }))
-            })
-            .collect())
-    };
-    match tokio::time::timeout(std::time::Duration::from_secs(10), run).await {
-        Ok(result) => result.map(Some),
-        Err(_) => Err("TimeoutError".into()),
-    }
-}
 
 /// What the OAuth flows need.
 pub struct OAuthDeps {
@@ -542,7 +468,6 @@ mod tests {
             home: home.clone(),
             settings: HashMap::new(),
             azure_cli: false,
-            azure_resources: None,
         };
         register(&integrations, &environment);
         register_oauth(
@@ -608,7 +533,7 @@ mod tests {
         std::fs::create_dir_all(home.join(".aws")).unwrap();
         std::fs::write(home.join(".aws/config"), "[default]\n[profile work]\n[sso-session x]\n").unwrap();
         std::fs::write(home.join(".aws/credentials"), "[personal]\n[default]\n").unwrap();
-        let environment = Environment { env: Arc::new(|_: &str| None), home: home.clone(), settings: HashMap::new(), azure_cli: false, azure_resources: None };
+        let environment = Environment { env: Arc::new(|_: &str| None), home: home.clone(), settings: HashMap::new(), azure_cli: false };
         assert_eq!(aws_profiles(&environment), vec!["default", "personal", "work"]);
         let _ = std::fs::remove_dir_all(home);
     }

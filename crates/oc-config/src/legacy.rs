@@ -635,7 +635,45 @@ fn provider_options(options: &Map<String, Value>) -> (Map<String, Value>, Option
     (settings, headers, body)
 }
 
-fn migrate_model(info: &ModelV1) -> Map<String, Value> {
+/// Model options read before the request is built; v1's `@ai-sdk/openai-compatible` sent every other
+/// one verbatim in the request body (`ConfigProviderOptionsV1.compatibleModel`).
+const COMPATIBLE_KEYS: &[&str] = &[
+    "apiKey",
+    "baseURL",
+    "headers",
+    "body",
+    "extraBody",
+    "timeout",
+    "chunkTimeout",
+    "headerTimeout",
+    "disabled",
+    "reasoningEffort",
+    "textVerbosity",
+    "user",
+    "strictJsonSchema",
+];
+
+/// `compatibleModel`: the read options as settings, the rest as the request body (`None` when empty).
+pub fn compatible_model(options: &Map<String, Value>) -> (Map<String, Value>, Option<Map<String, Value>>) {
+    let settings: Map<String, Value> =
+        options.iter().filter(|(k, _)| COMPATIBLE_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let body: Map<String, Value> =
+        options.iter().filter(|(k, _)| !COMPATIBLE_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    (settings, (!body.is_empty()).then_some(body))
+}
+
+/// `packageSpecifier`: built-in provider routes are already native package specifiers; only npm
+/// packages load through the AI SDK.
+fn package_specifier(npm: &str) -> String {
+    let name = if let Some(rest) = npm.strip_prefix("@opencode-ai/ai/") {
+        format!("@opencode/ai/{rest}")
+    } else {
+        npm.strip_prefix("aisdk:").unwrap_or(npm).to_string()
+    };
+    if name.starts_with("@opencode/ai/") { name } else { aisdk(npm) }
+}
+
+fn migrate_model(info: &ModelV1, npm: Option<&str>) -> Map<String, Value> {
     let binding_off = |key: &str| {
         info.options
             .as_ref()
@@ -663,7 +701,13 @@ fn migrate_model(info: &ModelV1) -> Map<String, Value> {
             options.shift_remove(key);
         }
     }
-    let settings = options;
+    let compatible = info.provider_npm.as_deref().or(npm) == Some("@ai-sdk/openai-compatible");
+    let split = |input: &Map<String, Value>| -> (Map<String, Value>, Option<Map<String, Value>>) {
+        if compatible { compatible_model(input) } else { (input.clone(), None) }
+    };
+    let migrated = options.as_ref().map(split);
+    let settings = migrated.as_ref().map(|(s, _)| s.clone());
+    let body = migrated.and_then(|(_, b)| b);
     // Model.compatibility(interleaved)
     let compatibility = match &info.interleaved {
         Some(Value::String(s)) => Some(json!({ "reasoningField": s })),
@@ -715,15 +759,31 @@ fn migrate_model(info: &ModelV1) -> Map<String, Value> {
     insert_opt(&mut out, "family", info.family.clone().map(Value::String));
     insert_opt(&mut out, "name", info.name.clone().map(Value::String));
     insert_opt(&mut out, "compatibility", compatibility);
-    insert_opt(&mut out, "package", info.provider_npm.as_deref().filter(|n| !n.is_empty()).map(|n| json!(aisdk(n))));
+    insert_opt(
+        &mut out,
+        "package",
+        info.provider_npm.as_deref().filter(|n| !n.is_empty()).map(|n| json!(package_specifier(n))),
+    );
     insert_opt(&mut out, "settings", settings);
     insert_opt(&mut out, "capabilities", capabilities);
     insert_opt(&mut out, "headers", info.headers.as_ref().map(|h| json!(h)));
+    insert_opt(&mut out, "body", body.map(Value::Object));
     insert_opt(
         &mut out,
         "variants",
         info.variants.as_ref().map(|v| {
-            Value::Array(v.iter().map(|(id, options)| json!({ "id": id, "settings": options })).collect())
+            Value::Array(
+                v.iter()
+                    .map(|(id, options)| {
+                        let (settings, body) = split(options);
+                        let mut variant = Map::new();
+                        variant.insert("id".into(), json!(id));
+                        variant.insert("settings".into(), Value::Object(settings));
+                        insert_opt(&mut variant, "body", body.map(Value::Object));
+                        Value::Object(variant)
+                    })
+                    .collect(),
+            )
         }),
     );
     insert_opt(&mut out, "cost", cost);
@@ -751,11 +811,15 @@ fn trunc_int(n: &Number) -> i64 {
 }
 
 fn migrate_standard_provider(info: &ProviderV1) -> Map<String, Value> {
-    let (settings, headers, body) = provider_options(info.options.as_ref().unwrap_or(&Map::new()));
+    // V1 `setCacheKey` toggled `prompt_cache_key` for the whole provider; it is not a provider package setting.
+    let mut rest = info.options.clone().unwrap_or_default();
+    let set_cache_key = rest.shift_remove("setCacheKey");
+    let (settings, headers, body) = provider_options(&rest);
     let mut out = Map::new();
     insert_opt(&mut out, "name", info.name.clone().map(Value::String));
     insert_opt(&mut out, "env", info.env.as_ref().map(|e| json!(e)));
-    insert_opt(&mut out, "package", info.npm.as_deref().filter(|n| !n.is_empty()).map(|n| json!(aisdk(n))));
+    insert_opt(&mut out, "package", info.npm.as_deref().filter(|n| !n.is_empty()).map(|n| json!(package_specifier(n))));
+    insert_opt(&mut out, "compatibility", set_cache_key.map(|v| json!({ "supportsPromptCacheKey": v })));
     let settings = match (&info.api, &info.options) {
         (Some(api), _) if !api.is_empty() => {
             let mut s = settings;
@@ -774,7 +838,11 @@ fn migrate_standard_provider(info: &ProviderV1) -> Map<String, Value> {
         &mut out,
         "models",
         info.models.as_ref().map(|m| {
-            Value::Object(m.iter().map(|(name, model)| (name.clone(), Value::Object(migrate_model(model)))).collect())
+            Value::Object(
+                m.iter()
+                    .map(|(name, model)| (name.clone(), Value::Object(migrate_model(model, info.npm.as_deref()))))
+                    .collect(),
+            )
         }),
     );
     out

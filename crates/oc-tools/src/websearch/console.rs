@@ -48,6 +48,15 @@ pub fn normalize_server(input: &str) -> Result<String, String> {
     Ok(format!("{}{}", url.origin().ascii_serialization(), url.path().trim_end_matches('/')))
 }
 
+/// The retired `console.opencode.ai` host maps path-for-path onto the default server (`serverUrl`).
+pub fn rewrite_legacy_server(server: &str) -> String {
+    const LEGACY: &str = "https://console.opencode.ai";
+    match server.strip_prefix(LEGACY) {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{DEFAULT_SERVER}{rest}"),
+        _ => server.to_string(),
+    }
+}
+
 #[async_trait]
 impl SearchProvider for ConsoleProvider {
     fn info(&self) -> ProviderInfo {
@@ -56,7 +65,8 @@ impl SearchProvider for ConsoleProvider {
 
     async fn execute(&self, query: &str) -> Result<Vec<SearchResult>, ProviderError> {
         let credential = (self.credential)().await.map_err(ProviderError::new)?;
-        let server = normalize_server(credential.server.as_deref().unwrap_or(DEFAULT_SERVER)).map_err(ProviderError::new)?;
+        let server = normalize_server(&rewrite_legacy_server(credential.server.as_deref().unwrap_or(DEFAULT_SERVER)))
+            .map_err(ProviderError::new)?;
         let url = format!("{server}/api/websearch");
         let mut request = self
             .client
