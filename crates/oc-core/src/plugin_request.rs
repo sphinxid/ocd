@@ -84,6 +84,7 @@ pub async fn shape(
 ) -> Result<Shaped, HookError> {
     let mut shaped = Shaped::default();
     let hook = kind.hook();
+    omit_openai_output_limit(plugins, key, kind, model, req);
     if plugins.has_hook(key, hook, Some(&model.provider_id)) {
         let mut event = Map::new();
         event.insert("sessionID".into(), json!(session_id));
@@ -166,6 +167,70 @@ pub async fn shape(
     model_request(plugins, key, kind, session_id, agent, model, req).await?;
     shaped.http = http_hooks(plugins, key, kind, session_id, agent, model);
     Ok(shaped)
+}
+
+/// The OpenAI plugin's `session.context` / `session.compaction` hooks (openai.ts): provider `openai`
+/// requests carry no output limit. The ChatGPT backend rejects one, and OpenAI counts one against
+/// rate limits. Built-in plugins run before plugin hooks.
+fn omit_openai_output_limit(plugins: &Arc<Plugins>, key: &str, kind: Kind, model: &ModelRef, req: &mut LLMRequest) {
+    if !matches!(kind, Kind::Primary | Kind::Compaction)
+        || model.provider_id != oc_ai::catalog::openai::PROVIDER_ID
+        || !plugins.builtin_enabled(key, oc_ai::catalog::openai::OPENAI_PLUGIN_ID)
+    {
+        return;
+    }
+    if let Some(generation) = req.generation.as_mut() {
+        generation.max_tokens = None;
+        if generation.is_empty() {
+            req.generation = None;
+        }
+    }
+}
+
+/// The OpenAI and ChatGPT plugins' `session.model.request` hooks for the location's sign-in.
+fn openai_model_request(plugins: &Arc<Plugins>, key: &str, session_id: &str, model: &ModelRef, req: &mut LLMRequest) {
+    use oc_ai::catalog::openai::{self, SignIn};
+    if model.provider_id != openai::PROVIDER_ID {
+        return;
+    }
+    let sign_in = plugins.openai.get(key);
+    let chatgpt = matches!(sign_in, SignIn::TokenSharing { .. }) && plugins.builtin_enabled(key, openai::CHATGPT_PLUGIN_ID);
+    let codex = matches!(sign_in, SignIn::Codex { .. }) && plugins.builtin_enabled(key, openai::OPENAI_PLUGIN_ID);
+    if !chatgpt && !codex {
+        return;
+    }
+    let mut http = req.http.clone().unwrap_or_default();
+    let mut headers = http.headers.clone().unwrap_or_default();
+    // `SessionAffinity.get(session)`: the request was assembled with it as `x-session-affinity`.
+    let affinity = headers.get("x-session-affinity").cloned().unwrap_or_else(|| session_id.to_string());
+    if chatgpt {
+        openai::token_sharing_model_request(&mut headers, session_id, &affinity);
+    }
+    if codex {
+        let base_url = req.model.route.endpoint.base_url.clone();
+        if let Some(next) = openai::codex_model_request(base_url.as_deref(), &mut headers, &affinity)
+            && Some(&next) != base_url.as_ref()
+        {
+            let mut route = (*req.model.route).clone();
+            route.endpoint.base_url = Some(next);
+            req.model.route = Arc::new(route);
+        }
+    }
+    http.headers = Some(headers);
+    req.http = Some(http);
+}
+
+/// Whether a `session.retry` hook runs for the model: a plugin registered one, or the ChatGPT
+/// plugin's built-in hook applies (token sharing).
+pub fn has_retry_hook(plugins: &Arc<Plugins>, key: &str, provider_id: &str) -> bool {
+    plugins.has_hook(key, "session.retry", Some(provider_id)) || chatgpt_retry_applies(plugins, key, provider_id)
+}
+
+fn chatgpt_retry_applies(plugins: &Arc<Plugins>, key: &str, provider_id: &str) -> bool {
+    use oc_ai::catalog::openai;
+    provider_id == openai::PROVIDER_ID
+        && matches!(plugins.openai.get(key), openai::SignIn::TokenSharing { .. })
+        && plugins.builtin_enabled(key, openai::CHATGPT_PLUGIN_ID)
 }
 
 /// `session.http.request` / `session.http.response` around every HTTP request of the call
@@ -347,6 +412,7 @@ pub async fn model_request(
         http.headers = Some(headers);
         req.http = Some(http);
     }
+    openai_model_request(plugins, key, session_id, model, req);
     if !plugins.has_hook(key, "session.model.request", Some(&model.provider_id)) {
         return Ok(());
     }
@@ -391,6 +457,14 @@ pub async fn retry(
     attempt: u32,
     decision: Value,
 ) -> Value {
+    // The ChatGPT plugin's hook (chatgpt.ts): token-sharing failures that will not clear by
+    // themselves stop retrying.
+    let mut decision = decision;
+    if chatgpt_retry_applies(plugins, key, &model.provider_id)
+        && oc_ai::catalog::openai::token_sharing_forbids_retry(error.response.as_ref().map(|r| r.body.as_str()))
+    {
+        decision = json!({ "retry": false });
+    }
     if !plugins.has_hook(key, "session.retry", Some(&model.provider_id)) {
         return decision;
     }

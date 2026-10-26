@@ -779,7 +779,7 @@ impl Engine {
                 let idle = crate::model_transport::IdleTimeout::from_chunk_timeout(loaded.resolved.chunk_timeout);
                 self.app.model_transport.bind(&session_id, interceptor, idle)
             });
-            let retry_hook: Option<step::RetryHook> = self.app.plugins.has_hook(&key, "session.retry", Some(&loaded.resolved.model.provider_id)).then(|| {
+            let retry_hook: Option<step::RetryHook> = crate::plugin_request::has_retry_hook(&self.app.plugins, &key, &loaded.resolved.model.provider_id).then(|| {
                 let plugins = self.app.plugins.clone();
                 let (session, agent, model) = (session_id.clone(), loaded.sel.agent.id.clone(), loaded.resolved.model_ref());
                 let hook: step::RetryHook = Arc::new(move |error, attempt, decision| {
