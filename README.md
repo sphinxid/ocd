@@ -56,7 +56,7 @@ suite, many replaying recorded upstream data.
 - **Import of opencode v1 history** into the v2 tables. The result is byte-identical to upstream, and the TUI
   shows the same progress badge.
 - **Chat providers:** Anthropic, OpenAI, Google, Bedrock, Mistral, Cohere, OpenAI-compatible, OpenCode Zen and
-  every models.dev provider that uses those protocols. 226 recorded upstream streams decode identically.
+  every models.dev provider that uses those protocols. 229 recorded upstream streams decode identically.
 - **Sign-in:** API keys, OAuth, ChatGPT, GitHub Copilot and the Azure CLI.
 - **GitHub Copilot models:** the account's model list, routing between the AI SDK, Responses, Chat and native
   Anthropic routes, and Copilot's request headers. Upstream's in-house Copilot AI SDK provider runs in the Bun helper.

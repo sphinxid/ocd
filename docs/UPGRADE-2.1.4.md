@@ -1,6 +1,6 @@
 # Catching up with opencode 2.1.4
 
-Status: analysis only (2026-10-25). Nothing in this document has been ported yet.
+Status: in progress (analysis 2026-10-25). The [progress table](#progress) lists the batches ported so far.
 
 ocd replicates upstream commit `4617210` (version 2.0.26, the head of upstream's `v2` branch). That branch has
 not moved since; v2 development continued on `dev` and was released as v2.1.0 to v2.1.4 (Oct 20 to 23). From
@@ -17,6 +17,7 @@ rather than as a schedule. The detailed findings, one table per area, are in the
 | Batch | Status |
 |---|---|
 | 1. Data compatibility | Done: the v2.1 data rename with upgrade-on-read (sessions, events, imports, credentials), the project migration, and `remoteAccepted` in the service file. A database written by 2.0.26, 2.1.4 or ocd reads identically in 2.1.4 and ocd, and ocd writes the same rows and events as 2.1.4. |
+| 2. Provider and catalog fixes | Done: rows 1–8, 12–27, 29, 30 and 39 of the [providers table](#ai-providers-model-catalog-and-cli), with the overlapping core rows (session 16–21, platform 23–27 and 30) and the agent `color` half of platform row 12. That is `store` only for OpenAI/Azure (fixtures re-copied, OpenRouter recordings added), the v2.1.4 snapshot, the background models.dev refresh with `models-dev.refreshed`, the 15-minute chunk timeout, tolerant stream decoding, more overflow patterns, retryable `MALFORMED_RESPONSE`, Gemini continuation, the Bedrock status, cache breakpoints, provider `baseURL`, Copilot packages, native entrypoints and aliases, the config model edit order, free-model defaults, Bedrock profile IDs, the free-text Azure resource, the Console URL rewrite, both V1 migration copies, agent `color`, `retryAfterMs`/`QuotaExceeded`, `prompt_cache_key` and provider `compatibility`, `streamUsage`, `cacheFormat`, `encoding`, `releaseDate`/capabilities and `OPENCODE_DISABLE_FREE_MODELS`, plus the OpenAPI schemas they change. Upstream's tests for them are ported (Gemini continuation included). Checked against the 2.1.4 build with the mock provider: the request envelopes (no `store` on compatible gateways, no `stream_options` with `streamUsage: false`, `Content-Encoding` gzip/zstd, provider compatibility) are identical except the OpenAI gap below, and `/api/provider`, `/api/model` and `models` are identical with the config overlays; the refresh fetches once and publishes `models-dev.refreshed` without a location (its first refresh usually lands inside upstream's slower location boot batch, so upstream's reload notifications merge with the boot ones). Not done: row 9 (Windows port, pending a decision), rows 10, 11 (batch 4), the ChatGPT parts of rows 28 and 40 (need the Codex base), rows 33–38 and 41–43; Snowflake's `cacheFormat` default (ocd has no Snowflake model transform); `encoding` on compaction posts (ocd has no Responses compaction endpoint); the session side of `retryAfterMs` (batch 5). |
 
 ## Size at a glance
 
@@ -89,7 +90,7 @@ These are not part of 2.1, but they turned up during the review.
 | Gap | Effect | Size |
 |---|---|---|
 | ChatGPT/Codex sign-in has no catalog and request rules (Codex base URL, `chatgpt-account-id` and `originator` headers, model filter, cost zeroing, token-sharing transport) | Signing in with ChatGPT works, but requests don't go to the Codex endpoint. Confirmed: upstream's `plugin/provider/openai.ts` sets these and ocd has no equivalent. | about 4 days |
-| The models.dev background refresh is never started (`spawn_refresh_loop` has no caller) | A cached model list never picks up new models until restart | S to M |
+| ~~The models.dev background refresh is never started~~ | Fixed in batch 2 | — |
 | Config `instructions` entries (files, globs, URLs) are parsed but never loaded | Instructions configured that way are ignored | M |
 | MCP elicitation forms may be published without a location | Clients may never see the form (needs a live check) | S |
 | Console remote config (`/api/v2/config`) | Organization policies and Console-provided settings are missing | not sized |
@@ -98,6 +99,10 @@ These are not part of 2.1, but they turned up during the review.
 | Stored JSON writes whole floats as `0.0` (for example `"cost":0.0`); upstream writes `0` | Same values, different bytes in `opencode.db` | S to M (all storage writes) |
 | `run` output: the `> agent · model` header repeats on a second step, and `--format json` step events and part IDs differ from upstream | Found once the parity harness passed the right `PWD` (it inherited the parent's, so `run` never saw the test config) | S to M, compare against 2.1.4 |
 | Re-titling an already titled session ("Original request / Recent conversation") | Titles are only generated from the first message | S |
+| OpenAI provider requests send `max_completion_tokens`; upstream's OpenAI plugin removes the output limit for provider `openai` (`context`/`compaction` hooks in `plugin/provider/openai.ts`, "OpenAI counts one against rate limits") | Found in the batch 2 black-box check; 2.0.26 behaves like 2.1.4. Part of the missing OpenAI/ChatGPT plugin effects | S |
+| Snowflake Cortex model transform (`maxTokensField: "max_completion_tokens"`, account `baseURL`, `cacheFormat: "anthropic"` for its Claude models) | Snowflake requests use the generic defaults | S |
+| A `session.http.request` hook sees the uncompressed body when `encoding` is set (upstream hands it the compressed bytes) | Only visible to plugins that read request bodies of compressed providers | S |
+| A config `releaseDate` that matches the pattern but is not a date (`2026-13`) gives `time.released: 0`; upstream gives `NaN` (`null` in JSON) | Cosmetic | S |
 
 ## Proposed order
 
