@@ -48,8 +48,8 @@ suite, many replaying recorded upstream data.
   - forms: the question tool.
 - **Built-in tools:** read, write, edit, patch, glob, grep, shell, webfetch, websearch, todo, task and others.
   Output limits and scanners were checked against 81,787 upstream cases.
-- **Code Mode:** the JavaScript `execute` tool has its own interpreter. 1,705 of 1,707 recorded upstream programs
-  replay identically.
+- **Code Mode:** the JavaScript `execute` tool has its own interpreter. 1,704 of 1,707 recorded upstream programs
+  replay identically; one of the others changed on purpose in 2.1 and is checked against 2.1.4 instead.
 - **Project setup:**
   - agents, commands, skills (including remote skill discovery), `AGENTS.md` instructions and references;
   - config files and live reload.

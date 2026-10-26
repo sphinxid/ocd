@@ -6,14 +6,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{body::Body, response::Response, routing::post, Router};
+use axum::{Router, body::Body, response::Response, routing::post};
 use oc_core::compaction::*;
 use oc_core::{app::App, runner::Engine, session::CreateInput};
+use oc_schema::Message;
 use oc_schema::event::SessionEvent;
 use oc_schema::message::CompactionReason;
 use oc_schema::types::LocationRef;
-use oc_schema::Message;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 const SUMMARY: &str = "## Objective\n- Recovered";
@@ -24,7 +24,10 @@ fn sse(chunks: &[Value]) -> Response {
         body.push_str(&format!("data: {c}\n\n"));
     }
     body.push_str("data: [DONE]\n\n");
-    Response::builder().header("content-type", "text/event-stream").body(Body::from(body)).unwrap()
+    Response::builder()
+        .header("content-type", "text/event-stream")
+        .body(Body::from(body))
+        .unwrap()
 }
 
 fn text_reply(text: &str) -> Response {
@@ -53,7 +56,9 @@ fn msg(v: Value) -> Message {
 }
 
 fn user(text: &str) -> Message {
-    msg(json!({"type": "user", "id": oc_schema::id::message(), "time": {"created": 1}, "text": text}))
+    msg(
+        json!({"type": "user", "id": oc_schema::id::message(), "time": {"created": 1}, "text": text}),
+    )
 }
 
 fn summary(text: &str, recent: Option<&str>) -> Message {
@@ -77,11 +82,17 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Harness {
-        let root = std::env::temp_dir().join(format!("oc-compaction-window-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("oc-compaction-window-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let project = root.join("project");
         std::fs::create_dir_all(&project).unwrap();
-        for (k, v) in [("XDG_DATA_HOME", "data"), ("XDG_CONFIG_HOME", "config"), ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")] {
+        for (k, v) in [
+            ("XDG_DATA_HOME", "data"),
+            ("XDG_CONFIG_HOME", "config"),
+            ("XDG_STATE_HOME", "state"),
+            ("XDG_CACHE_HOME", "cache"),
+        ] {
             unsafe { std::env::set_var(k, root.join(v)) };
         }
         unsafe {
@@ -123,21 +134,39 @@ impl Harness {
         let app = App::new(global, db, "2.1.4");
         let services = oc_tools::tools::Services {
             formatter: Arc::new(oc_tools::formatter::Formatter::new()),
-            ripgrep: Arc::new(oc_tools::ripgrep::Ripgrep::new(app.global.bin.clone(), reqwest::Client::new())),
+            ripgrep: Arc::new(oc_tools::ripgrep::Ripgrep::new(
+                app.global.bin.clone(),
+                reqwest::Client::new(),
+            )),
             shell: oc_tools::shell::service::ShellService::new(app.global.data.clone(), None),
-            websearch: Arc::new(oc_tools::websearch::WebSearch::new(Arc::new(NoStore), reqwest::Client::new())),
+            websearch: Arc::new(oc_tools::websearch::WebSearch::new(
+                Arc::new(NoStore),
+                reqwest::Client::new(),
+            )),
             http: reqwest::Client::new(),
         };
         let engine = Engine::new(app.clone(), &services);
         engine.install();
         let s = app
             .sessions
-            .create(CreateInput { location: Some(LocationRef { directory: project.display().to_string(), workspace_id: None }), ..Default::default() })
+            .create(CreateInput {
+                location: Some(LocationRef {
+                    directory: project.display().to_string(),
+                    workspace_id: None,
+                }),
+                ..Default::default()
+            })
             .await
             .unwrap();
         let sel = engine.select(&s.id).await.unwrap();
         oc_core::instruction_state::prepare(&app.bus, &sel.sources, &s.id).unwrap();
-        Harness { app, engine, session: s.id, bodies, root }
+        Harness {
+            app,
+            engine,
+            session: s.id,
+            bodies,
+            root,
+        }
     }
 
     /// A manual compaction over `messages` as the loaded history.
@@ -152,11 +181,19 @@ impl Harness {
                 input_id: Some(input_id.clone()),
             })
             .unwrap();
-        let mut loaded = self.engine.load(self.engine.select(&self.session).await.unwrap()).await.unwrap();
+        let mut loaded = self
+            .engine
+            .load(self.engine.select(&self.session).await.unwrap())
+            .await
+            .unwrap();
         loaded.messages = messages;
         tokio::time::timeout(
             Duration::from_secs(30),
-            self.engine.compact(&loaded, Trigger::Manual { input_id }, CancellationToken::new()),
+            self.engine.compact(
+                &loaded,
+                Trigger::Manual { input_id },
+                CancellationToken::new(),
+            ),
         )
         .await
         .unwrap()
@@ -170,13 +207,23 @@ impl Harness {
 
 /// The chat messages after the system prompt.
 fn conversation(body: &Value) -> Vec<Value> {
-    body["messages"].as_array().unwrap().iter().filter(|m| m["role"] != "system").cloned().collect()
+    body["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["role"] != "system")
+        .cloned()
+        .collect()
 }
 
 fn text(message: &Value) -> String {
     match &message["content"] {
         Value::String(s) => s.clone(),
-        Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join(""),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| p["text"].as_str())
+            .collect::<Vec<_>>()
+            .join(""),
         _ => String::new(),
     }
 }
@@ -186,22 +233,43 @@ async fn compaction_requests_near_the_window() {
     let h = Harness::new().await;
 
     // "summary updates include the retained tail in compaction hooks and the model request"
-    let previous = summary("## Objective\n- Previous objective", Some("[User]: Previous exact request"));
+    let previous = summary(
+        "## Objective\n- Previous objective",
+        Some("[User]: Previous exact request"),
+    );
     let latest = user("The latest request supersedes the previous objective.");
     let latest_id = latest.id().to_string();
-    assert_eq!(h.compact_manually(vec![previous, latest]).await, CompactOutcome::Completed);
+    assert_eq!(
+        h.compact_manually(vec![previous, latest]).await,
+        CompactOutcome::Completed
+    );
     let requests = h.requests();
     assert_eq!(requests.len(), 1);
     let messages = conversation(&requests[0]);
     assert_eq!(messages.len(), 3, "{messages:#?}");
     assert!(text(&messages[0]).contains("<conversation-checkpoint>"));
     assert!(text(&messages[0]).contains("[User]: Previous exact request"));
-    assert_eq!(text(&messages[1]), "The latest request supersedes the previous objective.");
+    assert_eq!(
+        text(&messages[1]),
+        "The latest request supersedes the previous objective."
+    );
     assert_eq!(text(&messages[2]), build_prompt(true, false));
-    let Message::Compaction(c) = h.app.db.session_messages(&h.session).unwrap().into_iter().map(|(_, m)| m).last().unwrap() else {
+    let Message::Compaction(c) = h
+        .app
+        .db
+        .session_messages(&h.session)
+        .unwrap()
+        .into_iter()
+        .map(|(_, m)| m)
+        .last()
+        .unwrap()
+    else {
         panic!()
     };
-    assert_eq!(c.metadata.as_ref().and_then(|m| m.get("keepID")), Some(&json!(latest_id)));
+    assert_eq!(
+        c.metadata.as_ref().and_then(|m| m.get("keepID")),
+        Some(&json!(latest_id))
+    );
     // 200k window, 170k ceiling: room for 30k of the 32k output.
     assert_eq!(requests[0]["max_completion_tokens"], 30_000);
 
@@ -209,7 +277,10 @@ async fn compaction_requests_near_the_window() {
     // estimated tokens, past the 170k ceiling but within the 184k left after reserving room for the summary.
     let first = format!("first {}", "x".repeat(364_000));
     let second = format!("second {}", "x".repeat(364_000));
-    assert_eq!(h.compact_manually(vec![user(&first), user(&second)]).await, CompactOutcome::Completed);
+    assert_eq!(
+        h.compact_manually(vec![user(&first), user(&second)]).await,
+        CompactOutcome::Completed
+    );
     let requests = h.requests();
     assert_eq!(requests.len(), 1);
     let messages = conversation(&requests[0]);
@@ -221,7 +292,10 @@ async fn compaction_requests_near_the_window() {
     // about 190k in total, past the 184k left for the summary; the 160k before the retained 30k fits the ceiling.
     let older = format!("older {}", "x".repeat(640_000));
     let newest = format!("latest {}", "x".repeat(120_000));
-    assert_eq!(h.compact_manually(vec![user(&older), user(&newest)]).await, CompactOutcome::Completed);
+    assert_eq!(
+        h.compact_manually(vec![user(&older), user(&newest)]).await,
+        CompactOutcome::Completed
+    );
     let requests = h.requests();
     assert_eq!(requests.len(), 1);
     let messages = conversation(&requests[0]);
@@ -232,25 +306,56 @@ async fn compaction_requests_near_the_window() {
     // "compaction lowers the output limit when it sends a request it could not shrink": a previous summary of
     // about 250k tokens, past the 200k window, always stays whole.
     let huge = summary(&"x".repeat(1_000_000), None);
-    assert_eq!(h.compact_manually(vec![huge, user("Next question")]).await, CompactOutcome::Completed);
+    assert_eq!(
+        h.compact_manually(vec![huge, user("Next question")]).await,
+        CompactOutcome::Completed
+    );
     let requests = h.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["max_completion_tokens"], 1_024);
 
     // "compaction keeps the output limit for a request that fits its target": about 160k, under the 170k target.
-    assert_eq!(h.compact_manually(vec![user(&"x".repeat(640_000))]).await, CompactOutcome::Completed);
+    assert_eq!(
+        h.compact_manually(vec![user(&"x".repeat(640_000))]).await,
+        CompactOutcome::Completed
+    );
     let requests = h.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["max_completion_tokens"], 30_000);
 
     // Automatic compaction publishes `compaction.started` before anything else, so a compaction that has nothing to
     // compact still shows as one that started and failed.
-    let mut loaded = h.engine.load(h.engine.select(&h.session).await.unwrap()).await.unwrap();
+    let mut loaded = h
+        .engine
+        .load(h.engine.select(&h.session).await.unwrap())
+        .await
+        .unwrap();
     loaded.messages = vec![];
-    let out = h.engine.compact(&loaded, Trigger::Overflow, CancellationToken::new()).await.unwrap();
-    assert_eq!(out, CompactOutcome::Failed(oc_schema::types::SessionError::new("compaction.unavailable", "Nothing to compact yet")));
-    let last = h.app.db.session_messages(&h.session).unwrap().into_iter().map(|(_, m)| m).last().unwrap();
-    assert!(matches!(&last, Message::Compaction(c) if matches!(c.status, oc_schema::message::CompactionStatus::Failed { .. })), "{last:#?}");
+    let out = h
+        .engine
+        .compact(&loaded, Trigger::Overflow, CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        out,
+        CompactOutcome::Failed(oc_schema::types::SessionError::new(
+            "compaction.unavailable",
+            "Nothing to compact yet"
+        ))
+    );
+    let last = h
+        .app
+        .db
+        .session_messages(&h.session)
+        .unwrap()
+        .into_iter()
+        .map(|(_, m)| m)
+        .last()
+        .unwrap();
+    assert!(
+        matches!(&last, Message::Compaction(c) if matches!(c.status, oc_schema::message::CompactionStatus::Failed { .. })),
+        "{last:#?}"
+    );
 
     std::fs::remove_dir_all(&h.root).ok();
 }

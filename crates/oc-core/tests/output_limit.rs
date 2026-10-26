@@ -6,14 +6,19 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{body::Body, response::Response, routing::post, Router};
+use axum::{Router, body::Body, response::Response, routing::post};
 use oc_core::runner::CONTINUE_AFTER_OUTPUT_LIMIT;
-use oc_core::{app::App, inbox::Scope, runner::Engine, session::{CreateInput, PromptInput}};
+use oc_core::{
+    app::App,
+    inbox::Scope,
+    runner::Engine,
+    session::{CreateInput, PromptInput},
+};
+use oc_schema::Message;
 use oc_schema::message::{AssistantContent, ToolState};
 use oc_schema::types::{FinishReason, LocationRef};
-use oc_schema::Message;
 use parking_lot::Mutex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn sse(chunks: &[Value]) -> Response {
     let mut body = String::new();
@@ -21,7 +26,10 @@ fn sse(chunks: &[Value]) -> Response {
         body.push_str(&format!("data: {c}\n\n"));
     }
     body.push_str("data: [DONE]\n\n");
-    Response::builder().header("content-type", "text/event-stream").body(Body::from(body)).unwrap()
+    Response::builder()
+        .header("content-type", "text/event-stream")
+        .body(Body::from(body))
+        .unwrap()
 }
 
 fn finish(reason: &str) -> Value {
@@ -29,7 +37,10 @@ fn finish(reason: &str) -> Value {
 }
 
 fn text(t: &str, reason: &str) -> Vec<Value> {
-    vec![json!({"id":"c","choices":[{"index":0,"delta":{"role":"assistant","content":t}}]}), finish(reason)]
+    vec![
+        json!({"id":"c","choices":[{"index":0,"delta":{"role":"assistant","content":t}}]}),
+        finish(reason),
+    ]
 }
 
 fn tool_args(args: &str, reason: &str) -> Vec<Value> {
@@ -67,7 +78,12 @@ impl Harness {
         let _ = std::fs::remove_dir_all(&root);
         let project = root.join("project");
         std::fs::create_dir_all(&project).unwrap();
-        for (k, v) in [("XDG_DATA_HOME", "data"), ("XDG_CONFIG_HOME", "config"), ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")] {
+        for (k, v) in [
+            ("XDG_DATA_HOME", "data"),
+            ("XDG_CONFIG_HOME", "config"),
+            ("XDG_STATE_HOME", "state"),
+            ("XDG_CACHE_HOME", "cache"),
+        ] {
             unsafe { std::env::set_var(k, root.join(v)) };
         }
         unsafe {
@@ -84,7 +100,9 @@ impl Harness {
                     text("Title", "stop")
                 } else {
                     r2.lock().push(body.0.clone());
-                    s2.lock().pop_front().unwrap_or_else(|| text("unscripted", "stop"))
+                    s2.lock()
+                        .pop_front()
+                        .unwrap_or_else(|| text("unscripted", "stop"))
                 };
                 async move { sse(&chunks) }
             }),
@@ -116,19 +134,38 @@ impl Harness {
         let app = App::new(global, db, "2.1.4");
         let services = oc_tools::tools::Services {
             formatter: Arc::new(oc_tools::formatter::Formatter::new()),
-            ripgrep: Arc::new(oc_tools::ripgrep::Ripgrep::new(app.global.bin.clone(), reqwest::Client::new())),
+            ripgrep: Arc::new(oc_tools::ripgrep::Ripgrep::new(
+                app.global.bin.clone(),
+                reqwest::Client::new(),
+            )),
             shell: oc_tools::shell::service::ShellService::new(app.global.data.clone(), None),
-            websearch: Arc::new(oc_tools::websearch::WebSearch::new(Arc::new(NoStore), reqwest::Client::new())),
+            websearch: Arc::new(oc_tools::websearch::WebSearch::new(
+                Arc::new(NoStore),
+                reqwest::Client::new(),
+            )),
             http: reqwest::Client::new(),
         };
         let engine = Engine::new(app.clone(), &services);
         engine.install();
         let s = app
             .sessions
-            .create(CreateInput { location: Some(LocationRef { directory: project.display().to_string(), workspace_id: None }), ..Default::default() })
+            .create(CreateInput {
+                location: Some(LocationRef {
+                    directory: project.display().to_string(),
+                    workspace_id: None,
+                }),
+                ..Default::default()
+            })
             .await
             .unwrap();
-        Harness { app, _engine: engine, session: s.id, script, requests, root }
+        Harness {
+            app,
+            _engine: engine,
+            session: s.id,
+            script,
+            requests,
+            root,
+        }
     }
 
     fn push(&self, responses: Vec<Vec<Value>>) {
@@ -136,30 +173,61 @@ impl Harness {
     }
 
     async fn prompt(&self, text: &str) {
-        self.app.sessions.prompt(&self.session, PromptInput { text: text.into(), ..Default::default() }).await.unwrap();
+        self.app
+            .sessions
+            .prompt(
+                &self.session,
+                PromptInput {
+                    text: text.into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         self.app.coordinator().wake(&self.session, Scope::Input);
         tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::timeout(Duration::from_secs(30), self.app.coordinator().await_idle(&self.session)).await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            self.app.coordinator().await_idle(&self.session),
+        )
+        .await
+        .unwrap();
     }
 
     fn messages(&self) -> Vec<Message> {
-        self.app.db.session_messages(&self.session).unwrap().into_iter().map(|(_, m)| m).collect()
+        self.app
+            .db
+            .session_messages(&self.session)
+            .unwrap()
+            .into_iter()
+            .map(|(_, m)| m)
+            .collect()
     }
 
     fn synthetic(&self) -> usize {
-        self.messages().iter().filter(|m| matches!(m, Message::Synthetic { .. })).count()
+        self.messages()
+            .iter()
+            .filter(|m| matches!(m, Message::Synthetic { .. }))
+            .count()
     }
 }
 
 fn last_two(body: &Value) -> (Value, Value) {
     let messages = body["messages"].as_array().unwrap();
-    (messages[messages.len() - 2].clone(), messages[messages.len() - 1].clone())
+    (
+        messages[messages.len() - 2].clone(),
+        messages[messages.len() - 1].clone(),
+    )
 }
 
 fn content_text(message: &Value) -> String {
     match &message["content"] {
         Value::String(s) => s.clone(),
-        Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join(""),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| p["text"].as_str())
+            .collect::<Vec<_>>()
+            .join(""),
         _ => String::new(),
     }
 }
@@ -167,7 +235,10 @@ fn content_text(message: &Value) -> String {
 fn tool_error(messages: &[Message]) -> Option<oc_schema::types::SessionError> {
     messages.iter().rev().find_map(|m| match m {
         Message::Assistant(a) => a.content.iter().find_map(|c| match c {
-            AssistantContent::Tool { state: ToolState::Error { error, .. }, .. } => Some(error.clone()),
+            AssistantContent::Tool {
+                state: ToolState::Error { error, .. },
+                ..
+            } => Some(error.clone()),
             _ => None,
         }),
         _ => None,
@@ -196,7 +267,9 @@ async fn continues_after_output_limits() {
         .map(|m| match m {
             Message::User { .. } => "user".into(),
             Message::Assistant(a) => format!("assistant:{:?}", a.finish),
-            Message::Synthetic { text, .. } => format!("synthetic:{}", text == CONTINUE_AFTER_OUTPUT_LIMIT),
+            Message::Synthetic { text, .. } => {
+                format!("synthetic:{}", text == CONTINUE_AFTER_OUTPUT_LIMIT)
+            }
             other => other.kind().to_string(),
         })
         .filter(|k| k != "idle")
@@ -215,7 +288,11 @@ async fn continues_after_output_limits() {
     // "caps output token limit continuations and resets for new input": three `length` finishes in a row fail.
     h.requests.lock().clear();
     let before = h.synthetic();
-    h.push(vec![text("Partial", "length"), text("Partial", "length"), text("Partial", "length")]);
+    h.push(vec![
+        text("Partial", "length"),
+        text("Partial", "length"),
+        text("Partial", "length"),
+    ]);
     h.prompt("Keep going").await;
     assert_eq!(h.requests.lock().len(), 3);
     assert_eq!(h.synthetic() - before, 2);
@@ -224,7 +301,12 @@ async fn continues_after_output_limits() {
         Message::Idle { error, .. } => error,
         _ => None,
     });
-    assert_eq!(failed.as_ref().map(|e| e.kind.as_str()), Some("output-limit"), "{:#?}", h.messages());
+    assert_eq!(
+        failed.as_ref().map(|e| e.kind.as_str()),
+        Some("output-limit"),
+        "{:#?}",
+        h.messages()
+    );
     assert_eq!(
         failed.unwrap().message,
         "Response still truncated after two output token limit continuations"
@@ -239,7 +321,10 @@ async fn continues_after_output_limits() {
     // fail with the length guidance and an excerpt, and the run continues without a nudge.
     h.requests.lock().clear();
     let before = h.synthetic();
-    h.push(vec![tool_args("{\"path\":\"partial", "length"), text("Recovered", "stop")]);
+    h.push(vec![
+        tool_args("{\"path\":\"partial", "length"),
+        text("Recovered", "stop"),
+    ]);
     h.prompt("Recover unfinished tool input").await;
     assert_eq!(h.requests.lock().len(), 2);
     assert_eq!(h.synthetic(), before);
@@ -252,8 +337,14 @@ async fn continues_after_output_limits() {
 
     // "continues malformed local tool input with a bounded excerpt (tool-calls)"
     h.requests.lock().clear();
-    let raw = format!("{{\"path\":\"raw-malformed-marker{}omitted-marker", "x".repeat(3000));
-    h.push(vec![tool_args(&raw, "tool_calls"), text("Recovered", "stop")]);
+    let raw = format!(
+        "{{\"path\":\"raw-malformed-marker{}omitted-marker",
+        "x".repeat(3000)
+    );
+    h.push(vec![
+        tool_args(&raw, "tool_calls"),
+        text("Recovered", "stop"),
+    ]);
     h.prompt("Recover malformed tool input").await;
     assert_eq!(h.requests.lock().len(), 2);
     let error = tool_error(&h.messages()).expect("failed tool");
@@ -278,19 +369,41 @@ async fn continues_after_output_limits() {
             .app
             .sessions
             .create(CreateInput {
-                location: Some(LocationRef { directory: h.root.join("project").display().to_string(), workspace_id: None }),
+                location: Some(LocationRef {
+                    directory: h.root.join("project").display().to_string(),
+                    workspace_id: None,
+                }),
                 agent: Some("reviewer".into()),
-                model: model.map(|id| oc_schema::types::ModelRef { id: id.into(), provider_id: "mock".into(), variant: None }),
+                model: model.map(|id| oc_schema::types::ModelRef {
+                    id: id.into(),
+                    provider_id: "mock".into(),
+                    variant: None,
+                }),
                 ..Default::default()
             })
             .await
             .unwrap();
         h.requests.lock().clear();
         h.push(vec![text("Reviewed", "stop")]);
-        h.app.sessions.prompt(&s.id, PromptInput { text: "Review it".into(), ..Default::default() }).await.unwrap();
+        h.app
+            .sessions
+            .prompt(
+                &s.id,
+                PromptInput {
+                    text: "Review it".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         h.app.coordinator().wake(&s.id, Scope::Input);
         tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::timeout(Duration::from_secs(30), h.app.coordinator().await_idle(&s.id)).await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            h.app.coordinator().await_idle(&s.id),
+        )
+        .await
+        .unwrap();
         assert_eq!(h.requests.lock()[0]["model"], expected);
     }
 
