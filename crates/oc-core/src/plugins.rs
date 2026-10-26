@@ -1524,11 +1524,7 @@ impl Plugins {
                     let ctx = plugins.inflight.lock().get(&call).cloned().ok_or_else(|| ApiError::new(format!("Tool call context is unavailable: {name}")))?;
                     match oc_tools::registry::run(tool.as_ref(), &name, input, ctx).await {
                         Ok(result) => Ok(result_json(&result)),
-                        Err(error) => {
-                            let mut e = ApiError::named("Tool.Error", error.model_message());
-                            e.data = error.metadata.map(|m| Value::Object(m.into_iter().collect()));
-                            Err(e)
-                        }
+                        Err(error) => Err(native_tool_error(error)),
                     }
                 })
             });
@@ -1891,12 +1887,41 @@ impl Tool for PluginTool {
                 Ok(ToolResult { output: value.get("output").cloned(), content, metadata: metadata_of(value.get("metadata")) })
             }
             Err(error) => {
+                if let Some(decline) = error.declined {
+                    return Err(declined_tool_error(decline));
+                }
                 let mut e = ToolError::new(error.message);
                 if let Some(m) = metadata_of(error.metadata.as_ref()) {
                     e = e.with_metadata(m);
                 }
                 Err(e)
             }
+        }
+    }
+}
+
+/// The session-side failure of a decline that crossed the sidecar.
+pub fn declined_tool_error(decline: oc_plugin::Decline) -> ToolError {
+    match decline {
+        oc_plugin::Decline::Permission => ToolError::declined(),
+        oc_plugin::Decline::Question => ToolError::question_dismissed(),
+    }
+}
+
+/// How a native tool failure crosses to a plugin that called the tool: a decline keeps its name so
+/// the plugin host turns it back into the defect upstream's tools die with.
+fn native_tool_error(error: ToolError) -> ApiError {
+    match error.kind {
+        oc_tools::tool::ToolErrorKind::Declined | oc_tools::tool::ToolErrorKind::LocationClosed => {
+            ApiError::named(oc_plugin::Decline::Permission.name(), oc_plugin::Decline::Permission.message())
+        }
+        oc_tools::tool::ToolErrorKind::QuestionDismissed => {
+            ApiError::named(oc_plugin::Decline::Question.name(), oc_plugin::Decline::Question.message())
+        }
+        _ => {
+            let mut e = ApiError::named("Tool.Error", error.model_message());
+            e.data = error.metadata.map(|m| Value::Object(m.into_iter().collect()));
+            e
         }
     }
 }

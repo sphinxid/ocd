@@ -138,6 +138,11 @@ impl Setup {
 
 /// A backend with the session runner, a mock provider and `plugins` configured at the location.
 async fn setup(plugins: Value, turns: Vec<Turn>) -> Setup {
+    setup_with(plugins, turns, json!({})).await
+}
+
+/// [`setup`] with `extra` top-level config keys.
+async fn setup_with(plugins: Value, turns: Vec<Turn>, extra: Value) -> Setup {
     let mock = mock(turns).await;
     // SAFETY: tests only ever set this to the same value.
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
@@ -145,21 +150,20 @@ async fn setup(plugins: Value, turns: Vec<Turn>) -> Setup {
     let root_path = std::fs::canonicalize(root.path()).unwrap();
     let cwd = root_path.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
-    std::fs::write(
-        cwd.join("opencode.json"),
-        json!({
-            "model": "mock/m1",
-            "plugins": plugins,
-            "providers": {"mock": {
-                "name": "Mock",
-                "package": "@opencode/ai/providers/openai-compatible",
-                "settings": {"baseURL": format!("http://127.0.0.1:{}/v1", mock.port), "apiKey": "test"},
-                "models": {"m1": {"name": "Mock One", "limit": {"context": 100000, "output": 4096}}}
-            }}
-        })
-        .to_string(),
-    )
-    .unwrap();
+    let mut config = json!({
+        "model": "mock/m1",
+        "plugins": plugins,
+        "providers": {"mock": {
+            "name": "Mock",
+            "package": "@opencode/ai/providers/openai-compatible",
+            "settings": {"baseURL": format!("http://127.0.0.1:{}/v1", mock.port), "apiKey": "test"},
+            "models": {"m1": {"name": "Mock One", "limit": {"context": 100000, "output": 4096}}}
+        }}
+    });
+    for (key, value) in extra.as_object().cloned().unwrap_or_default() {
+        config[key] = value;
+    }
+    std::fs::write(cwd.join("opencode.json"), config.to_string()).unwrap();
     let db = oc_storage::Database::memory().unwrap();
     let app = oc_core::app::App::new(global(&root_path), db, "1.2.3");
     let services = oc_core::services::default_services(&app);
@@ -263,6 +267,123 @@ async fn promise_tool_throws_become_tool_failures() {
     assert_eq!(typed["metadata"]["code"], 7, "{typed}");
     // The run went on to the final answer.
     assert_eq!(s.mock.bodies.lock().len(), 3);
+    s.shutdown().await;
+}
+
+impl Setup {
+    /// Prompts the session, answers each permission request it raises with the next of `replies`
+    /// (`{decision, message?}` bodies), then waits until it is idle.
+    async fn run_answering(&self, session: &str, text: &str, replies: Vec<Value>) {
+        let r = self.h.post(&format!("/api/session/{session}/prompt"), json!({ "text": text })).await;
+        assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));
+        for reply in replies {
+            let id = tokio::time::timeout(Duration::from_secs(30), async {
+                loop {
+                    let list = self.h.get(&format!("/api/session/{session}/permission")).await.json();
+                    if let Some(id) = list["data"][0]["id"].as_str() {
+                        return id.to_string();
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("permission request");
+            let r = self.h.post(&format!("/api/session/{session}/permission/{id}/reply"), reply).await;
+            assert_eq!(r.status, 204, "{:?}", String::from_utf8_lossy(&r.body));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::timeout(Duration::from_secs(60), self.h.app.coordinator().await_idle(session)).await.unwrap();
+    }
+}
+
+// permission-assert.test.ts, session-list.test.ts and promise-tool.test.ts (143807327): a Promise plugin asserts
+// permissions (a deny rule and feedback fail the call, a plain rejection rethrown by the tool stays a decline
+// that ends the step), lists sessions with cursors, reaches `credential.activate`, and a decline from a native
+// tool it wraps and rethrows stays a decline too.
+#[tokio::test]
+async fn promise_plugin_asserts_permissions_and_rethrown_declines_stay_declines() {
+    require_bun!();
+    let s = setup_with(
+        json!([{ "package": fixture("assert-plugin") }]),
+        vec![
+            Turn::Tool("deploy", json!({ "target": "blocked" })),
+            Turn::Tool("deploy", json!({ "target": "prod" })),
+            Turn::Tool("sessions", json!({})),
+            Turn::Tool("activate", json!({ "credentialID": "cred_fixture_first" })),
+            Turn::Tool("deploy", json!({ "target": "prod" })),
+            // The second prompt: reading a .env file asks first.
+            Turn::Tool("read", json!({ "path": "secret.env" })),
+        ],
+        json!({ "permissions": [
+            { "action": "deploy", "resource": "*", "effect": "ask" },
+            { "action": "deploy", "resource": "blocked", "effect": "deny" },
+        ] }),
+    )
+    .await;
+    let other = s.h.session().await;
+    let session = s.h.session().await;
+    // plugin.test.ts "activates a saved credential through the context": the second credential is active first.
+    for (id, key) in [("cred_fixture_first", "first"), ("cred_fixture_second", "second")] {
+        let body = json!({ "id": id, "integrationID": "activate-fixture", "value": { "type": "key", "key": key } });
+        assert_eq!(s.h.post("/api/credential", body).await.status, 200);
+    }
+    let active = |list: Value| -> Vec<String> {
+        list["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["integrationID"] == "activate-fixture" && c["active"] == true)
+            .map(|c| c["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(active(s.h.get("/api/credential").await.json()), vec!["cred_fixture_second"]);
+    s.run_answering(
+        &session,
+        "deploy",
+        vec![json!({ "decision": "reject", "message": "Use staging" }), json!({ "decision": "reject" })],
+    )
+    .await;
+    let tools: Vec<Value> = s
+        .messages(&session)
+        .iter()
+        .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+        .filter(|c| c["type"] == "tool")
+        .collect();
+    assert_eq!(tools.len(), 5, "{tools:?}");
+    assert_eq!(tools[0]["state"]["status"], "error", "{}", tools[0]);
+    assert_eq!(tools[0]["state"]["error"]["message"], "Permission denied: deploy");
+    assert_eq!(tools[1]["state"]["error"]["message"], "Use staging");
+    assert_eq!(tools[2]["state"]["status"], "completed", "{}", tools[2]);
+    let listed: Value = serde_json::from_str(tools[2]["state"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    let mut ids: Vec<String> = listed["ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    ids.sort();
+    let mut expected = vec![other.clone(), session.clone()];
+    expected.sort();
+    assert_eq!(ids, expected, "{listed}");
+    assert_eq!(listed["invalid"], "rejected");
+    // Like upstream's `Credential.activate`, activating an unknown credential is a no-op.
+    assert_eq!(listed["activate"], "resolved");
+    assert_eq!(tools[3]["state"]["status"], "completed", "{}", tools[3]);
+    assert_eq!(active(s.h.get("/api/credential").await.json()), vec!["cred_fixture_first"]);
+    // The rethrown plain rejection is a decline: the step ends without another model request.
+    assert_eq!(tools[4]["state"]["status"], "error", "{}", tools[4]);
+    assert_eq!(tools[4]["state"]["error"]["message"], "The user declined this tool call");
+    assert_eq!(s.mock.bodies.lock().len(), 5);
+
+    // A native tool the plugin wraps declines through the wrapper too.
+    std::fs::write(s.h.cwd.join("secret.env"), "TOKEN=secret").unwrap();
+    let before = s.mock.bodies.lock().len();
+    s.run_answering(&session, "read the env file", vec![json!({ "decision": "reject" })]).await;
+    let read = s
+        .messages(&session)
+        .iter()
+        .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+        .filter(|c| c["type"] == "tool" && c["name"] == "read")
+        .next_back()
+        .expect("read call");
+    assert_eq!(read["state"]["status"], "error", "{read}");
+    assert_eq!(read["state"]["error"]["message"], "The user declined this tool call");
+    assert_eq!(s.mock.bodies.lock().len(), before + 1);
     s.shutdown().await;
 }
 

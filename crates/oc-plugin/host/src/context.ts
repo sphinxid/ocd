@@ -7,7 +7,9 @@
 
 import type { Plugin } from "@opencode/plugin/effect"
 import { Effect, Scope, Stream } from "effect"
+import { Tool } from "@opencode/schema/tool"
 import { method } from "./api.js"
+import { declineDefect } from "./decline.js"
 import type { Domain } from "./domains.js"
 import { decodeTool } from "./domains.js"
 import { log } from "./peer.js"
@@ -47,6 +49,20 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
   const raw = (name: string) => (input?: unknown) =>
     call(name, input ?? {}).pipe(Effect.map((value) => (value === null ? undefined : value)))
 
+  // `PermissionDomain.assert` (core/src/plugin/host.ts): a deny rule, a rejection with feedback and a missing
+  // session fail with a Tool.Error carrying the reason; a plain rejection stays a defect that ends the step.
+  const assertPermission = (input: unknown) =>
+    call("permission.assert", JSON.parse(JSON.stringify(input ?? {}))).pipe(
+      Effect.asVoid,
+      Effect.catch((error): Effect.Effect<void, Tool.Error> => {
+        const defect = declineDefect(error)
+        if (defect) return Effect.die(defect)
+        if (["Permission.BlockedError", "Permission.CorrectedError", "Session.NotFoundError"].includes(error.name))
+          return Effect.fail(new Tool.Error({ message: error.message, error }))
+        return Effect.die(error)
+      }),
+    )
+
   const context = {
     app: runtime.app,
     location: runtime.location,
@@ -78,6 +94,9 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
       list: api("command.list"),
       reload: reload("command"),
       transform: transform("command"),
+    },
+    credential: {
+      activate: api("credential.activate"),
     },
     event: {
       subscribe: () => runtime.subscribe(),
@@ -126,6 +145,7 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
       list: api("session.permission.list"),
       get: api("session.permission.get"),
       reply: api("session.permission.reply"),
+      assert: assertPermission,
     },
     plugin: {
       list: api("plugin.list"),
@@ -193,6 +213,7 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
     },
     session: {
       hook: hook("session"),
+      list: api("session.list"),
       create: api("session.create"),
       get: api("session.get"),
       remove: api("session.remove"),

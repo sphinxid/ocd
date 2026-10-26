@@ -17,7 +17,11 @@ What is out of scope:
 
 Upstream references used throughout: `packages/plugin/src/*` (public API, adapter, host, runtime)
 and `packages/core/src/plugin/{host,hooks,module,supervisor}.ts`, `packages/core/src/plugin.ts`,
-`packages/core/src/rpc.ts` and `packages/util/src/npm.ts` at commit `4617210822bd`.
+`packages/core/src/rpc.ts` and `packages/util/src/npm.ts` at commit `4617210822bd`. The bundled
+plugin-facing packages (`@opencode/plugin`, schema, protocol, `effect`) are upstream's v2.1.4, so
+Promise plugins get 2.1's adapter: `ctx.permission.assert`, `ctx.credential.activate`,
+`ctx.session.list`, and thrown tool errors and rejected `tool.execute.before` hooks failing only that
+call.
 
 ## Architecture
 
@@ -107,9 +111,9 @@ The protocol is newline-delimited JSON-RPC 2.0 (`src/protocol.rs`, `host/src/pee
 | `module.load` | `{operation: {type:"add", target, options, mtime?}, install?: {directory, name, version?, revision?}}` | `{id, revision, features, source}` or `{error, ref}` |
 | `location.activate` | `{location, ref, info, plugins: [{target, revision}], failures}` | `{inventory, hooks, domains, rpc}` |
 | `location.close` / `location.list` | `{location}` | `null` / inventory |
-| `hook.trigger` | `{location, key, event}` | `{event}`; or an error with `type` `tool.error` (+`metadata`) or `defect` |
+| `hook.trigger` | `{location, key, event}` | `{event}`; or an error with `type` `tool.error` (+`metadata`), `declined` (`data.kind` `permission` or `question`) or `defect` |
 | `transform` | `{location, domain, value}` | `{value}` |
-| `tool.execute` | `{location, handle, input, context}` | `{output?, content, metadata?}`; or an error with `type` `tool.error` or `defect` |
+| `tool.execute` | `{location, handle, input, context}` | `{output?, content, metadata?}`; or an error with `type` `tool.error`, `declined` or `defect` |
 | `invoke` | `{location, handle, args, scope?}` | JSON result (returned functions become new `js:` handles) |
 | `scope.close` | `{location, scope}` | `null` |
 | `rpc.call` | `{location, rpcID, method, input}` | `{output}`; or an error with `type` = RPC failure type, plus `data` |
@@ -376,7 +380,12 @@ streaming `Response`); see docs/PARITY.md "Remaining".
    internals. Rebuild when `domain_revision`, `DomainsChanged` or `Restarted` says to.
 7. **Tools and functions.**
    - Plugin tools: use `execute_tool` and route progress to the call's metadata. Map
-     `ToolError{tool_error: true}` to a model-visible `Tool.Error`.
+     `ToolError{tool_error: true}` to a model-visible `Tool.Error`, and `ToolError{declined: Some(_)}`
+     (or `HookError::Declined`) to a decline that ends the step.
+   - Declines cross the sidecar by name: a native tool a plugin calls fails with an `ApiError` named
+     `Permission.DeclinedError` or `QuestionTool.CancelledError`, which the host turns into the defect
+     upstream's tools die with. A Promise tool that rethrows it gets it attached to its `Tool.Error`,
+     and the host reports the call as `declined` either way (upstream 143807327).
    - Commands, websearch, vcs and worktree functions, integration OAuth: use `invoke`. For an OAuth
      attempt, pass a per-attempt `scope` and `close_scope` when the attempt ends.
 8. **RPC.** `POST /api/rpc/:rpcID/:method`: when `rpc_ids(location)` contains the id, call
@@ -522,10 +531,11 @@ Without an override, Bun 1.4.2 is downloaded from the release for this platform:
 ## Rebuilding the bundle
 
 ```sh
-BUN=/path/to/bun-1.4.2 scripts/build-plugin-host.sh /path/to/opencode-checkout
+BUN=/path/to/bun-1.4.4 scripts/build-plugin-host.sh /path/to/opencode-checkout
 ```
 
-The checkout must be at the pinned upstream commit, with `bun install` run at its root.
+The checkout must be at upstream's `v2.1.4` tag, with `bun install` run at its root (the committed
+bundle was built that way with Bun 1.4.4; the sidecar still runs on the pinned Bun 1.4.2).
 `host/build.ts` bundles `host/src/main.ts` with `Bun.build` into `host/dist/host.js` (about 2 MiB):
 
 - target bun, ESM, minified;

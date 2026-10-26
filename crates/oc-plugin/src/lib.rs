@@ -16,7 +16,7 @@ mod zip;
 
 pub use aisdk::{AisdkError, AisdkHttp, AisdkParts, AisdkStreamRequest};
 pub use api::{ApiError, ApiRequest, PluginApi, StorageEntry, StorageScan};
-pub use host::{BlockedFn, HookError, ProgressFn, HostEvent, HostOptions, LoadRequest, LoadResult, PluginHost, RpcFailure, ToolError};
+pub use host::{BlockedFn, Decline, HookError, ProgressFn, HostEvent, HostOptions, LoadRequest, LoadResult, PluginHost, RpcFailure, ToolError};
 pub use process::CallError;
 pub use protocol::{HookSpec, Installed, LocationRef, Operation};
 pub use supervisor::{Entry, InternalPlugins, Loaded, Resolution};

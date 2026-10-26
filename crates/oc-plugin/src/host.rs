@@ -127,9 +127,51 @@ pub enum HookError {
     /// `tool.execute.before` rejected the call with a `Tool.Error`.
     #[error("{message}")]
     Tool { message: String, metadata: Option<Value> },
+    /// A hook declined (a permission it asserted was rejected, or a question was dismissed).
+    #[error("{}", .0.message())]
+    Declined(Decline),
     /// A hook defect (or the sidecar failed): upstream fails the operation.
     #[error("{0}")]
     Failed(String),
+}
+
+/// A decline that crossed the sidecar: upstream's `Permission.DeclinedError` or
+/// `QuestionTool.CancelledError`, thrown directly or rethrown by a plugin wrapper and attached to the
+/// `Tool.Error` it failed with (143807327). The session treats it as a decline, not a tool failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decline {
+    /// The user rejected a permission request.
+    Permission,
+    /// The user dismissed a question.
+    Question,
+}
+
+impl Decline {
+    /// The error name a decline crosses the boundary with.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Decline::Permission => "Permission.DeclinedError",
+            Decline::Question => "QuestionTool.CancelledError",
+        }
+    }
+
+    pub fn message(&self) -> &'static str {
+        match self {
+            Decline::Permission => "The user declined this tool call",
+            Decline::Question => "The user dismissed this question",
+        }
+    }
+
+    /// A sidecar failure of type `declined` (`data.kind`).
+    fn from_wire(kind: Option<&str>, data: Option<&Value>) -> Option<Decline> {
+        if kind != Some("declined") {
+            return None;
+        }
+        Some(match data.and_then(|d| d.get("kind")).and_then(Value::as_str) {
+            Some("question") => Decline::Question,
+            _ => Decline::Permission,
+        })
+    }
 }
 
 /// A plugin tool failure (`Tool.Error`), or a defect.
@@ -140,6 +182,8 @@ pub struct ToolError {
     pub metadata: Option<Value>,
     /// True for `Tool.Error` (model-visible); false for defects and host failures.
     pub tool_error: bool,
+    /// Set when the tool (or a native tool it wrapped) declined.
+    pub declined: Option<Decline>,
 }
 
 /// An RPC failure `{type, message, data?}`.
@@ -304,6 +348,9 @@ impl PluginHost {
             Err(CallError::Remote(error)) if error.kind.as_deref() == Some("tool.error") => {
                 Err(HookError::Tool { message: error.message, metadata: error.metadata })
             }
+            Err(CallError::Remote(error)) if Decline::from_wire(error.kind.as_deref(), error.data.as_ref()).is_some() => {
+                Err(HookError::Declined(Decline::from_wire(error.kind.as_deref(), error.data.as_ref()).unwrap()))
+            }
             // The sidecar died while the hook ran: like a sidecar that is not running (above), no plugin hook
             // applies. Failing here would end the session's run over a crash that upstream (plugins in-process)
             // cannot have; the restarted sidecar serves the next call.
@@ -401,7 +448,12 @@ impl PluginHost {
         context: Value,
         progress: Option<ProgressFn>,
     ) -> Result<Value, ToolError> {
-        let sidecar = self.inner.current().ok_or_else(|| ToolError { message: "Plugin host is not running".into(), metadata: None, tool_error: false })?;
+        let sidecar = self.inner.current().ok_or_else(|| ToolError {
+            message: "Plugin host is not running".into(),
+            metadata: None,
+            tool_error: false,
+            declined: None,
+        })?;
         let call = context.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
         let key = (location.key(), call);
         if let Some(progress) = progress {
@@ -412,8 +464,13 @@ impl PluginHost {
             .await;
         self.inner.progress.lock().remove(&key);
         result.map_err(|error| match error {
-            CallError::Remote(e) => ToolError { tool_error: e.kind.as_deref() == Some("tool.error"), message: e.message, metadata: e.metadata },
-            other => ToolError { message: other.to_string(), metadata: None, tool_error: false },
+            CallError::Remote(e) => ToolError {
+                tool_error: e.kind.as_deref() == Some("tool.error"),
+                declined: Decline::from_wire(e.kind.as_deref(), e.data.as_ref()),
+                message: e.message,
+                metadata: e.metadata,
+            },
+            other => ToolError { message: other.to_string(), metadata: None, tool_error: false, declined: None },
         })
     }
 

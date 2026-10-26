@@ -151,6 +151,44 @@ impl BackendApi {
         })
     }
 
+    /// `ctx.permission.assert` (core/src/plugin/host.ts): evaluates the session's rules and, when approval is
+    /// required, asks and waits. Failures carry the upstream error tag as the name; the plugin host turns a
+    /// deny rule, feedback or a missing session into a `Tool.Error` and a plain rejection into a defect.
+    async fn permission_assert(&self, request: &ApiRequest) -> Result<Value, ApiError> {
+        let engine = self.engine()?;
+        let input = &request.input;
+        let string = |key: &str| input.get(key).and_then(Value::as_str).map(String::from);
+        let strings = |key: &str| -> Option<Vec<String>> {
+            input.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        };
+        let session_id = string("sessionID").unwrap_or_default();
+        if engine.app.sessions.get(&session_id).is_err() {
+            return Err(ApiError::named("Session.NotFoundError", format!("Session not found: {session_id}")));
+        }
+        let assert = oc_core::permission::AssertInput {
+            id: None,
+            session_id,
+            action: string("action").unwrap_or_default(),
+            resources: strings("resources").unwrap_or_default(),
+            save: strings("save"),
+            metadata: input.get("metadata").and_then(Value::as_object).cloned(),
+            source: input.get("source").cloned().and_then(|s| serde_json::from_value(s).ok()),
+            agent: string("agent"),
+        };
+        match engine.app.permissions.assert(assert).await {
+            Ok(()) => Ok(Value::Null),
+            Err(error @ oc_core::permission::PermissionError::Blocked { .. }) => {
+                Err(ApiError::named("Permission.BlockedError", error.to_string()))
+            }
+            Err(oc_core::permission::PermissionError::Corrected { feedback }) => {
+                Err(ApiError::named("Permission.CorrectedError", feedback))
+            }
+            Err(oc_core::permission::PermissionError::Declined) => {
+                Err(ApiError::named(oc_plugin::Decline::Permission.name(), oc_plugin::Decline::Permission.message()))
+            }
+        }
+    }
+
     async fn integration_connection(&self, request: &ApiRequest) -> Result<Value, ApiError> {
         let engine = self.engine()?;
         // The calling plugin's location registry (upstream binds `ctx.integration` per location).
@@ -184,6 +222,9 @@ impl PluginApi for BackendApi {
     async fn call(&self, request: ApiRequest) -> Result<Value, ApiError> {
         if request.method.starts_with("integration.connection.") {
             return self.integration_connection(&request).await;
+        }
+        if request.method == "permission.assert" {
+            return self.permission_assert(&request).await;
         }
         if let Some(engine) = self.engine.upgrade()
             && let Some(result) = engine.app.plugins.core_call(&request).await

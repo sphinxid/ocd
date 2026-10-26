@@ -18,6 +18,7 @@ import { SPECS, type Codec, type Domain } from "./domains.js"
 import { log, RemoteError } from "./peer.js"
 import { makeRpc, type RpcFailure } from "./rpc.js"
 import { pluginHook, type AISDKService } from "./aisdk.js"
+import { declineOf } from "./decline.js"
 
 export interface HostIO {
   request(method: string, params: unknown, signal?: AbortSignal): Promise<any>
@@ -559,6 +560,9 @@ function isToolError(error: unknown): error is Tool.Error {
 }
 
 function toolError(error: unknown) {
+  // A decline, or a decline a tool rethrew and its wrapper attached to a Tool.Error, stays a decline.
+  const decline = declineOf(error)
+  if (decline) return new RemoteError({ message: decline.message, type: "declined", data: { kind: decline.kind } })
   if (isToolError(error)) {
     const failure = new RemoteError({
       message: error.message,
@@ -575,7 +579,7 @@ function toolError(error: unknown) {
 
 function hookFailure(cause: Cause.Cause<unknown>) {
   const error = Cause.squash(cause)
-  if (isToolError(error)) return toolError(error)
+  if (isToolError(error) || declineOf(error)) return toolError(error)
   return new RemoteError({ message: error instanceof Error ? error.message : String(error), type: "defect" })
 }
 

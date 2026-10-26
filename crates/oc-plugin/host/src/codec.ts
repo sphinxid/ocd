@@ -6,6 +6,8 @@
 // the same handle when it crosses again, so untouched native entries stay native.
 
 import { Effect } from "effect"
+import { Tool } from "@opencode/schema/tool"
+import { declineDefect } from "./decline.js"
 
 export const FN = "$fn"
 
@@ -83,13 +85,31 @@ export interface Remote {
   invoke(handle: string, args: unknown[], signal?: AbortSignal): Promise<unknown>
 }
 
-/** A stub that calls a Rust-owned function and returns an Effect of its JSON result. */
+/**
+ * A stub that calls a Rust-owned function and returns an Effect of its JSON result. A native tool's
+ * `Tool.Error` fails as a `Tool.Error`, and a decline dies with the defect upstream's native tools die with.
+ */
 export function stub(handle: string, remote: Remote): (...args: unknown[]) => Effect.Effect<unknown, Error> {
   const fn = (...args: unknown[]) =>
     Effect.tryPromise({
       try: (signal) => remote.invoke(handle, args.map((arg) => toWire(arg, undefined)), signal),
       catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
-    })
+    }).pipe(
+      Effect.catch((error): Effect.Effect<never, Error> => {
+        const defect = declineDefect(error)
+        if (defect) return Effect.die(defect)
+        if (error.name === "Tool.Error") {
+          const metadata = (error as { data?: unknown }).data
+          return Effect.fail(
+            new Tool.Error({
+              message: error.message,
+              ...(metadata && typeof metadata === "object" ? { metadata: metadata as Record<string, unknown> } : {}),
+            }) as unknown as Error,
+          )
+        }
+        return Effect.fail(error)
+      }),
+    )
   stubs.set(fn, handle)
   return fn
 }

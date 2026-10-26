@@ -25,7 +25,8 @@
 //! | `plugin.list` | `plugin.list` | `GET /api/plugin` |
 //! | `provider.list/get` | `provider.list`, `provider.get` | `GET /api/provider[/:providerID]` |
 //! | `reference.list` | `reference.list` | `GET /api/reference` |
-//! | `session.*` | `session.{create,get,remove,switchAgent,switchModel,prompt,generate,command,compact,synthetic,interrupt,update,move,wait,context}` | `/api/session/...` |
+//! | `credential.activate` | `credential.activate` | `POST /api/credential/:credentialID/activate` |
+//! | `session.*` | `session.{list,create,get,remove,switchAgent,switchModel,prompt,generate,command,compact,synthetic,interrupt,update,move,wait,context}` | `/api/session/...` |
 //! | `skill.list` | `skill.list` | `GET /api/skill` |
 //! | `vcs.get/base/branch.list/status/diff` | `vcs.{get,base,branch.list,status,diff}` | `/api/vcs/...` |
 //! | `websearch.providers/query` | `websearch.providers`, `websearch.query` | `/api/websearch[...]` |
@@ -40,6 +41,7 @@
 //! | `integration.connection.active` | `{integrationID}` | `ConnectionInfo` or `null` |
 //! | `integration.connection.resolve` | `{connection}` | `Credential.Value` or `null` |
 //! | `integration.connection.status` | `{integrationID, connection, status?}` | `null` |
+//! | `permission.assert` | `Permission.AssertInput` (`{sessionID, agent?, action, resources, save?, metadata?, source?}`) | `null`; or an error named `Permission.BlockedError`, `Permission.CorrectedError` (message = feedback), `Session.NotFoundError` or `Permission.DeclinedError` |
 //! | `event.publish` | `{type, data}` | `null`; publish an ephemeral bus event of that type with id/created and the location attached |
 //! | `rpc.call` | `{rpcID, method, input}` | output, or an error whose `name` is the RPC failure `type` (e.g. `rpc.unavailable`) — only for RPCs not owned by the sidecar |
 //!

@@ -1153,6 +1153,7 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
                 }
                 Err(e)
             }
+            Err(oc_plugin::HookError::Declined(decline)) => Err(crate::plugins::declined_tool_error(decline)),
             Err(oc_plugin::HookError::Failed(message)) => Err(oc_tools::ToolError::new(message)),
         }
     }
