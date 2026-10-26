@@ -833,7 +833,7 @@ async fn tavily_keyless_and_keyed() {
 async fn tinyfish_keyless_and_keyed() {
     let inner = serde_json::json!({"query":"effect typescript","results":[{"position":1,"site_name":"effect.website","snippet":"Effect documentation","title":"Effect","url":"https://effect.website"}],"total_results":1,"page":0}).to_string();
     let body = serde_json::json!({"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":inner}]}}).to_string();
-    let server = mock(200, body, "").await;
+    let server = mock(200, body, "mcp-session-id: ses_tinyfish\r\n").await;
     let store = Arc::new(FakeStore::default());
     let provider = TinyFishProvider::new(reqwest::Client::new(), store.clone(), ua()).with_endpoint(server.url.clone());
     assert_eq!(
@@ -851,8 +851,28 @@ async fn tinyfish_keyless_and_keyed() {
     assert_eq!(requests[0].headers["x-tinyfish-access-mode"], "keyless");
     assert!(!requests[0].headers.contains_key("authorization"));
     assert_eq!(requests[0].body["params"]["name"], "search");
+    assert!(!requests[0].headers.contains_key("mcp-session-id"));
+    // Keyed searches initialize an MCP session first (86755e1ce).
+    assert_eq!(requests[1].body["method"], "initialize");
+    assert_eq!(requests[1].body["params"]["protocolVersion"], "2025-06-18");
     assert_eq!(requests[1].headers["x-api-key"], "tinyfish-secret");
-    assert!(!requests[1].headers.contains_key("x-tinyfish-access-mode"));
+    assert_eq!(requests[2].body, serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
+    assert_eq!(requests[2].headers["mcp-session-id"], "ses_tinyfish");
+    assert_eq!(requests[3].body["method"], "tools/call");
+    assert_eq!(requests[3].headers["x-api-key"], "tinyfish-secret");
+    assert_eq!(requests[3].headers["mcp-session-id"], "ses_tinyfish");
+    assert!(!requests[3].headers.contains_key("x-tinyfish-access-mode"));
+}
+
+#[tokio::test]
+async fn tinyfish_keyed_search_needs_a_session_id() {
+    let server = mock(200, "{}".into(), "").await;
+    let store = Arc::new(FakeStore::default());
+    store.keys.lock().insert("tinyfish".into(), "tinyfish-secret".into());
+    let provider = TinyFishProvider::new(reqwest::Client::new(), store, ua()).with_endpoint(server.url.clone());
+    let error = provider.execute("effect typescript").await.unwrap_err();
+    assert!(error.to_string().contains("TinyFish MCP initialize did not return an Mcp-Session-Id header"), "{error}");
+    assert_eq!(server.requests.lock().len(), 1);
 }
 
 #[tokio::test]

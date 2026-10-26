@@ -133,6 +133,10 @@ impl ShellService {
         if running {
             kill_tree(command.pid);
         }
+        // Every shell reports exactly one exit; removing a running one ends it as killed (ce15cd882).
+        if running {
+            self.emit(ShellEvent::Exited { id: id.to_string(), exit: None, status: ShellStatus::Killed });
+        }
         command.done.send_if_modified(|done| {
             if done.is_none() {
                 *done = Some(Err(NotFound { id: id.to_string() }));
@@ -314,7 +318,9 @@ impl ShellService {
         let manager_active = active.clone();
         tokio::spawn(async move {
             let active = manager_active;
-            let mut timed_out = false;
+            // The process exit and the timeout race to record how the command ended; the first wins. The
+            // terminal status is applied only once captured output is complete (3bdab634e).
+            let mut timed_out: Option<u64> = None;
             let status = loop {
                 let deadline = *deadline_rx.borrow();
                 tokio::select! {
@@ -325,15 +331,8 @@ impl ShellService {
                             None => std::future::pending::<()>().await,
                         }
                     } => {
-                        // Timeout: mark, kill the process group, keep waiting for exit.
-                        timed_out = true;
-                        {
-                            let mut info = active.info.lock();
-                            if info.status == ShellStatus::Running {
-                                info.status = ShellStatus::Timeout;
-                                info.time.completed = Some(crate::util::now_ms());
-                            }
-                        }
+                        // Timeout: record it, kill the process group, keep waiting for exit.
+                        timed_out = Some(crate::util::now_ms());
                         kill_tree(active.pid);
                         let _ = active.deadline.send(None);
                         let status = child.wait().await.ok();
@@ -346,10 +345,14 @@ impl ShellService {
                     }
                 }
             };
+            let exited_at = crate::util::now_ms();
             let _ = output_task.await;
             let snapshot = {
                 let mut info = active.info.lock();
-                if !timed_out && info.status == ShellStatus::Running {
+                if let Some(completed) = timed_out.filter(|_| info.status == ShellStatus::Running) {
+                    info.status = ShellStatus::Timeout;
+                    info.time.completed = Some(completed);
+                } else if info.status == ShellStatus::Running {
                     info.status = ShellStatus::Exited;
                     if let Some(status) = status {
                         match status.code() {
@@ -363,7 +366,7 @@ impl ShellService {
                             }
                         }
                     }
-                    info.time.completed = Some(crate::util::now_ms());
+                    info.time.completed = Some(exited_at);
                 }
                 info.clone()
             };
@@ -478,5 +481,47 @@ mod tests {
         let result = service.result(&info, 2000, 51200).await;
         assert_eq!(result.info.status, ShellStatus::Killed);
         assert!(result.capture.is_none());
+    }
+
+    // ce15cd882: removing a running command publishes its exit as killed before the deletion; an exited one
+    // only publishes the deletion.
+    #[tokio::test]
+    async fn removal_publishes_killed_before_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let events: Arc<Mutex<Vec<ShellEvent>>> = Arc::default();
+        let sink = events.clone();
+        let service = ShellService::new(dir.path().to_path_buf(), Some(Arc::new(move |e| sink.lock().push(e))));
+        let running = service.spawn(&invocation("sleep 5", dir.path(), 0), Metadata::new(), "p").await.unwrap();
+        service.remove(&running.id).unwrap();
+        let done = service.spawn(&invocation("true", dir.path(), 0), Metadata::new(), "p").await.unwrap();
+        service.wait(&done.id).await.unwrap();
+        service.remove(&done.id).unwrap();
+        let kinds: Vec<String> = events
+            .lock()
+            .iter()
+            .map(|e| match e {
+                ShellEvent::Created { info } => format!("created {}", info.id == running.id),
+                ShellEvent::Exited { id, status, .. } => format!("exited {} {status:?}", *id == running.id),
+                ShellEvent::Deleted { id } => format!("deleted {}", *id == running.id),
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            vec!["created true", "exited true Killed", "deleted true", "created false", "exited false Exited", "deleted false"]
+        );
+    }
+
+    // 3bdab634e: a timed-out command reports its terminal status (and keeps the time it timed out) only once
+    // output capture is complete, and retiming it after the end is ignored.
+    #[tokio::test]
+    async fn timeout_is_recorded_when_the_command_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ShellService::new(dir.path().to_path_buf(), None);
+        let info = service.spawn(&invocation("echo start; sleep 5", dir.path(), 100), Metadata::new(), "p").await.unwrap();
+        let ended = service.wait(&info.id).await.unwrap();
+        assert_eq!(ended.status, ShellStatus::Timeout);
+        assert!(ended.time.completed.is_some());
+        assert_eq!(service.timeout(&info.id, 60_000).unwrap().status, ShellStatus::Timeout);
+        assert_eq!(service.get(&info.id).unwrap(), ended);
     }
 }
