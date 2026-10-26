@@ -100,6 +100,104 @@ async fn edit_tool_flow() {
     );
 }
 
+fn edit_ctx() -> (tempfile::TempDir, Arc<MockHost>, ToolContext, tools::edit::EditTool) {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let ctx = context(dir.path(), host.clone());
+    (dir, host, ctx, tools::edit::EditTool::new(Arc::new(Formatter::new())))
+}
+
+// tool-edit.test.ts "uses non-overlapping trailing-whitespace matches and preserves CRLF"
+#[tokio::test]
+async fn edit_trailing_whitespace_matches_preserve_crlf() {
+    let (dir, _host, ctx, tool) = edit_ctx();
+    std::fs::write(dir.path().join("overlap.txt"), "a  \na  \na  \n").unwrap();
+    std::fs::write(dir.path().join("windows.txt"), "a  \r\nb\t\r\n").unwrap();
+    let ok = run(&tool, json!({"path": "overlap.txt", "oldString": "a\na", "newString": "x", "replaceAll": true}), ctx.clone()).await.unwrap();
+    assert_eq!(ok.output.as_ref().unwrap()["replacements"], json!(1));
+    run(&tool, json!({"path": "windows.txt", "oldString": "a\nb", "newString": "x"}), ctx.clone()).await.unwrap();
+    assert_eq!(std::fs::read_to_string(dir.path().join("overlap.txt")).unwrap(), "x\na  \n");
+    assert_eq!(std::fs::read_to_string(dir.path().join("windows.txt")).unwrap(), "x\r\n");
+}
+
+// "matches across mixed line endings and keeps each region's endings"
+#[tokio::test]
+async fn edit_mixed_line_endings_keep_region_endings() {
+    let (dir, _host, ctx, tool) = edit_ctx();
+    std::fs::write(dir.path().join("mostly-lf.txt"), "head\r\nAAA OLD BBB\ntail\n").unwrap();
+    std::fs::write(dir.path().join("mostly-crlf.txt"), "one\r\ntwo\r\nthree\nfour\r\n").unwrap();
+    for input in [
+        json!({"path": "mostly-lf.txt", "oldString": "AAA OLD BBB", "newString": "AAA NEW\nLINE2"}),
+        json!({"path": "mostly-lf.txt", "oldString": "LINE2\ntail", "newString": "LINE2\nTAIL"}),
+        json!({"path": "mostly-crlf.txt", "oldString": "o\nthree\nfo", "newString": "O\nTHREE\nFO"}),
+        json!({"path": "mostly-crlf.txt", "oldString": "one", "newString": "ONE\nUNO"}),
+    ] {
+        run(&tool, input, ctx.clone()).await.unwrap();
+    }
+    assert_eq!(std::fs::read_to_string(dir.path().join("mostly-lf.txt")).unwrap(), "head\r\nAAA NEW\nLINE2\nTAIL\n");
+    assert_eq!(std::fs::read_to_string(dir.path().join("mostly-crlf.txt")).unwrap(), "ONE\r\nUNO\r\ntwO\r\nTHREE\nFOur\r\n");
+}
+
+// "keeps the endings of unchanged and in-place lines inside a multi-line match"
+#[tokio::test]
+async fn edit_keeps_endings_inside_multiline_match() {
+    let (dir, _host, ctx, tool) = edit_ctx();
+    let target = dir.path().join("store.cs");
+    std::fs::write(&target, "All(item.Sku);\r\n\r\nFind(sku);\r\n\r\nvoid Add()\n{\n  _items[item.Sku] = item;\n}\r\n").unwrap();
+    run(
+        &tool,
+        json!({
+            "path": "store.cs",
+            "oldString": "All(item.Sku);\n\nFind(sku);\n\nvoid Add()\n{\n  _items[item.Sku] = item;\n}",
+            "newString": "All(item.Code);\n\nFind(code);\n\nvoid Add()\n{\n  _items[item.Code] = item;\n}\n\nbool Remove(string code)\n{\n}",
+        }),
+        ctx.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "All(item.Code);\r\n\r\nFind(code);\r\n\r\nvoid Add()\n{\n  _items[item.Code] = item;\n}\r\n\r\nbool Remove(string code)\r\n{\r\n}\r\n"
+    );
+}
+
+// "applies edits that differ only in \r to the exact bytes"
+#[tokio::test]
+async fn edit_endings_only_applies_exact_bytes() {
+    let (dir, _host, ctx, tool) = edit_ctx();
+    std::fs::write(dir.path().join("strip.sh"), "a\r\nb\r\n").unwrap();
+    std::fs::write(dir.path().join("whole.sh"), "x\r\ny\r\n").unwrap();
+    std::fs::write(dir.path().join("add.bat"), "p\nq\n").unwrap();
+    let ok = run(&tool, json!({"path": "strip.sh", "oldString": "\r", "newString": "", "replaceAll": true}), ctx.clone()).await.unwrap();
+    assert_eq!(ok.output.as_ref().unwrap()["replacements"], json!(2));
+    run(&tool, json!({"path": "whole.sh", "oldString": "x\r\ny\r\n", "newString": "x\ny\n"}), ctx.clone()).await.unwrap();
+    run(&tool, json!({"path": "add.bat", "oldString": "p\nq", "newString": "p\r\nq"}), ctx.clone()).await.unwrap();
+    // The exact bytes are gone now, so the same edit finds nothing.
+    let err = run(&tool, json!({"path": "add.bat", "oldString": "p\nq", "newString": "p\r\nq"}), ctx.clone()).await.unwrap_err();
+    assert_eq!(err.message, "Could not find oldString in add.bat. It must match exactly, including whitespace and indentation.");
+    assert_eq!(std::fs::read_to_string(dir.path().join("strip.sh")).unwrap(), "a\nb\n");
+    assert_eq!(std::fs::read_to_string(dir.path().join("whole.sh")).unwrap(), "x\ny\n");
+    assert_eq!(std::fs::read_to_string(dir.path().join("add.bat")).unwrap(), "p\r\nq\n");
+}
+
+// "fails instead of reporting success when the edit leaves the file unchanged"
+#[tokio::test]
+async fn edit_unchanged_result_fails() {
+    let (dir, _host, ctx, tool) = edit_ctx();
+    let target = dir.path().join("quote.txt");
+    std::fs::write(&target, "it\u{2019}s here\n").unwrap();
+    let before = std::fs::metadata(&target).unwrap().modified().unwrap();
+    // The typography tier matches the curly quote, and the replacement writes the same bytes back.
+    let err = run(&tool, json!({"path": "quote.txt", "oldString": "it's here", "newString": "it\u{2019}s here"}), ctx.clone()).await.unwrap_err();
+    assert_eq!(
+        err.message,
+        "No changes to apply: the edit leaves quote.txt unchanged. Line endings follow the file; to change them, write \\r explicitly in oldString or newString."
+    );
+    assert_eq!(err.to_session_error().kind, "tool.execution");
+    assert_eq!(std::fs::metadata(&target).unwrap().modified().unwrap(), before);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "it\u{2019}s here\n");
+}
+
 #[tokio::test]
 async fn permission_outcomes() {
     let dir = tempfile::tempdir().unwrap();

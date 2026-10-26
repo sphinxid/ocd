@@ -22,6 +22,15 @@ pub fn directory(data: &Path) -> PathBuf {
     data.join(DIRECTORY)
 }
 
+/// `ToolOutput.save`: writes bytes the model cannot receive inline to a retained file and returns its path.
+pub fn save(data: &Path, bytes: &[u8], extension: &str) -> std::io::Result<PathBuf> {
+    let dir = directory(data);
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join(format!("{}{extension}", file_name()));
+    std::fs::write(&file, bytes)?;
+    Ok(file)
+}
+
 /// `ToolOutput.truncate`. Applied by the session runner after every local tool execution.
 pub fn truncate(result: ToolResult, max_lines: usize, max_bytes: usize, data: &Path) -> std::io::Result<ToolResult> {
     if result.metadata.as_ref().is_some_and(|m| m.contains_key("truncated")) {

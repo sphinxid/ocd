@@ -58,6 +58,27 @@ pub fn detect(bytes: &[u8]) -> &'static str {
     if is_text(bytes) { "text/plain" } else { "application/octet-stream" }
 }
 
+/// `Mime.isTextual`: text the model can read as-is (shared by webfetch and MCP results).
+pub fn is_textual(mime: &str) -> bool {
+    mime.is_empty()
+        || mime.starts_with("text/")
+        || mime == "application/json"
+        || mime.ends_with("+json")
+        || mime == "application/xml"
+        || mime.ends_with("+xml")
+        || mime == "application/javascript"
+        || mime == "application/x-javascript"
+}
+
+/// `mime-types.extension(type)`: the first extension mime-db lists for the type (parameters and case
+/// ignored), or `None` when it lists none.
+pub fn extension(mime: &str) -> Option<&'static str> {
+    let trimmed = mime.trim_start();
+    let end = trimmed.find(|c: char| c == ';' || c.is_whitespace()).unwrap_or(trimmed.len());
+    let key = trimmed[..end].to_lowercase();
+    crate::mime_db::EXTENSIONS.binary_search_by(|(k, _)| (*k).cmp(key.as_str())).ok().map(|i| crate::mime_db::EXTENSIONS[i].1)
+}
+
 /// `lookup(path) || "application/octet-stream"` (npm `mime-types@3.0.2`, the table in `mime_db.rs`).
 pub fn lookup(path: &Path) -> String {
     lookup_str(&path.to_string_lossy()).unwrap_or("application/octet-stream").to_string()
@@ -94,6 +115,21 @@ mod tests {
         assert_eq!(detect(&[1, 2, 3, b'a']), "application/octet-stream");
         assert_eq!(lookup(Path::new("a.unknownext")), "application/octet-stream");
         assert_eq!(lookup(Path::new("a.html")), "text/html");
+    }
+
+    #[test]
+    fn textual_and_extensions() {
+        for mime in ["", "text/markdown", "application/json", "application/ld+json", "application/xml", "image/svg+xml", "application/javascript", "application/x-javascript"] {
+            assert!(is_textual(mime), "{mime}");
+        }
+        for mime in ["application/pdf", "image/png", "application/octet-stream", "application/vnd.apache.parquet"] {
+            assert!(!is_textual(mime), "{mime}");
+        }
+        assert_eq!(extension("text/markdown"), Some("md"));
+        assert_eq!(extension("audio/mpeg"), Some("mpga"));
+        assert_eq!(extension("Application/Octet-Stream; x=1"), Some("bin"));
+        assert_eq!(extension("application/vnd.apache.parquet"), None);
+        assert_eq!(extension("x/unknown"), None);
     }
 
     #[test]

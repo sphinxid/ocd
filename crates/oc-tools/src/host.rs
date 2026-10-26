@@ -270,8 +270,8 @@ pub enum WorktreeRemoveError {
 #[derive(Debug, Clone, PartialEq)]
 pub enum McpContent {
     Text(String),
-    /// image/audio/blob data (base64) with its mime.
-    Data { data: String, mime: String },
+    /// image/audio/blob data (base64) with its mime; `uri` names an embedded resource's blob.
+    Data { data: String, mime: String, uri: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -32,14 +32,7 @@ pub fn is_image_attachment(mime: &str) -> bool {
 }
 
 pub fn is_textual_mime(mime: &str) -> bool {
-    mime.is_empty()
-        || mime.starts_with("text/")
-        || mime == "application/json"
-        || mime.ends_with("+json")
-        || mime == "application/xml"
-        || mime.ends_with("+xml")
-        || mime == "application/javascript"
-        || mime == "application/x-javascript"
+    crate::mime::is_textual(mime)
 }
 
 /// Convert by format when the content type is HTML.

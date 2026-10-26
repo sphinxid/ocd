@@ -144,7 +144,7 @@ impl ToolHost for CoreHost {
                     .into_iter()
                     .map(|c| match c {
                         oc_mcp::types::CallToolContent::Text { text } => McpContent::Text(text),
-                        oc_mcp::types::CallToolContent::Media { data, mime_type } => McpContent::Data { data, mime: mime_type },
+                        oc_mcp::types::CallToolContent::Media { data, mime_type, uri } => McpContent::Data { data, mime: mime_type, uri },
                     })
                     .collect(),
                 structured: r.structured,

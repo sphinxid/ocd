@@ -215,6 +215,9 @@ pub enum CallToolContent {
         data: String,
         #[serde(rename = "mimeType")]
         mime_type: String,
+        /// The embedded resource's URI (`resource.uri`), for blobs of `resource` parts.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        uri: Option<String>,
     },
 }
 
@@ -256,6 +259,7 @@ fn map_content_part(part: &Value) -> Vec<CallToolContent> {
         Some("image") | Some("audio") => vec![CallToolContent::Media {
             data: s(part, "data").unwrap_or_default(),
             mime_type: s(part, "mimeType").unwrap_or_default(),
+            uri: None,
         }],
         Some("resource_link") => vec![CallToolContent::Text { text: s(part, "uri").unwrap_or_default() }],
         Some("resource") => {
@@ -266,7 +270,11 @@ fn map_content_part(part: &Value) -> Vec<CallToolContent> {
             if let (Some(blob), Some(mime)) =
                 (resource.get("blob").and_then(Value::as_str), resource.get("mimeType").and_then(Value::as_str))
             {
-                return vec![CallToolContent::Media { data: blob.to_string(), mime_type: mime.to_string() }];
+                return vec![CallToolContent::Media {
+                    data: blob.to_string(),
+                    mime_type: mime.to_string(),
+                    uri: s(&resource, "uri"),
+                }];
             }
             vec![CallToolContent::Text { text: s(&resource, "uri").unwrap_or_default() }]
         }
@@ -368,7 +376,7 @@ mod tests {
                 {"type":"media","data":"BBB","mimeType":"audio/wav"},
                 {"type":"text","text":"file:///x"},
                 {"type":"text","text":"embedded"},
-                {"type":"media","data":"CCC","mimeType":"application/pdf"},
+                {"type":"media","data":"CCC","mimeType":"application/pdf","uri":"a://b"},
                 {"type":"text","text":"a://c"}
             ])
         );

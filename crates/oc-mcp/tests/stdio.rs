@@ -232,7 +232,7 @@ async fn stdio_lifecycle_tools_and_calls() {
     assert_eq!(
         result.content,
         vec![
-            CallToolContent::Media { data: "AAAA".into(), mime_type: "image/png".into() },
+            CallToolContent::Media { data: "AAAA".into(), mime_type: "image/png".into(), uri: None },
             CallToolContent::Text { text: "embedded".into() }
         ]
     );

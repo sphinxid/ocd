@@ -113,7 +113,7 @@ impl Tool for ReadMcpResource {
                     .filter_map(|part| {
                         let mime = part.get("mimeType").and_then(Value::as_str)?;
                         let blob = part.get("blob").and_then(Value::as_str)?;
-                        if part.get("type").and_then(Value::as_str) != Some("blob") || !(mime.starts_with("image/") || mime == "application/pdf") {
+                        if part.get("type").and_then(Value::as_str) != Some("blob") || !crate::tools::read::MEDIA_MIMES.contains(&mime) {
                             return None;
                         }
                         Some(ToolContent::File { uri: format!("data:{mime};base64,{blob}"), mime: mime.to_string(), name: None })

@@ -140,7 +140,7 @@ pub fn tool_output(result: &ToolResult, output_schema: Option<&Value>) -> Result
         .iter()
         .map(|part| match part {
             CallToolContent::Text { text } => ToolContentPart::Text { text: text.clone() },
-            CallToolContent::Media { data, mime_type } => ToolContentPart::File {
+            CallToolContent::Media { data, mime_type, .. } => ToolContentPart::File {
                 uri: format!("data:{mime_type};base64,{data}"),
                 mime: mime_type.clone(),
             },
@@ -181,14 +181,16 @@ pub fn resource_read_failed(server: &str, uri: &str, message: &str) -> String {
     format!("Unable to read MCP resource {server}:{uri}: {message}")
 }
 
-/// File attachments for `read_mcp_resource`: blob parts that are images or PDFs.
+/// Media types the read tool accepts inline (`ReadToolFileSystem.MEDIA_MIMES`).
+pub const MEDIA_MIMES: [&str; 5] = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"];
+
+/// File attachments for `read_mcp_resource`: blob parts of a media type the read tool accepts.
 pub fn resource_files(resource: &ResourceContent) -> Vec<ToolContentPart> {
     resource
         .contents
         .iter()
         .filter_map(|part| match part {
-            ResourceContentPart::Blob { blob, mime_type: Some(mime), .. }
-                if mime.starts_with("image/") || mime == "application/pdf" =>
+            ResourceContentPart::Blob { blob, mime_type: Some(mime), .. } if MEDIA_MIMES.contains(&mime.as_str()) =>
             {
                 Some(ToolContentPart::File { uri: format!("data:{mime};base64,{blob}"), mime: mime.clone() })
             }
@@ -321,7 +323,7 @@ mod tests {
         assert_eq!(ok.output, Value::Null);
         assert!(ok.content.is_none());
         let ok = tool_output(
-            &result(vec![CallToolContent::Media { data: "AA".into(), mime_type: "image/png".into() }], Some(json!(1)), false),
+            &result(vec![CallToolContent::Media { data: "AA".into(), mime_type: "image/png".into(), uri: None }], Some(json!(1)), false),
             None,
         )
         .unwrap();

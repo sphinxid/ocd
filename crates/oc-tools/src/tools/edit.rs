@@ -15,7 +15,7 @@ use crate::patch::normalize_unicode;
 use crate::tool::{DefinitionContext, ErrorCause, Tool, ToolContext, ToolDefinition, ToolError, ToolOptions, ToolResult, decode, meta};
 use crate::util::{bom, js};
 
-pub const DESCRIPTION: &str = "Edit the contents of a file by finding and replacing exact text. When editing text from Read output, preserve the exact indentation (tabs or spaces) and omit the line-number prefix, such as `1: `. Never include the prefix in oldString or newString. The edit fails if oldString is not found. By default, oldString must identify a UNIQUE location. Multiple matches FAIL unless replaceAll is true. Add more surrounding context to disambiguate, or set replaceAll to true to replace every occurrence. Use replaceAll when the change should apply to every occurrence, such as renaming a variable.";
+pub const DESCRIPTION: &str = "Edit the contents of a file by finding and replacing exact text. When editing text from Read output, preserve the exact indentation (tabs or spaces) and omit the line-number prefix, such as `1: `. Never include the prefix in oldString or newString. Write line breaks as \\n; the file's existing CRLF or LF line endings are matched and preserved. To change line endings themselves, make oldString and newString differ only in \\r; that edit applies to the exact bytes. If there is no exact match, the edit retries while ignoring typographic quote, dash, and space variants, then trailing whitespace on each line. The edit fails if oldString is not found. By default, oldString must identify a UNIQUE location. Multiple matches FAIL unless replaceAll is true. Add more surrounding context to disambiguate, or set replaceAll to true to replace every occurrence. Use replaceAll when the change should apply to every occurrence, such as renaming a variable.";
 
 /// A match as byte offsets into the source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,6 +139,141 @@ pub fn apply(source: &str, matches: &[Match], replacement: &str, all: bool) -> S
     content
 }
 
+/// `lineEnding`: the dominant line ending in `text`, or `fallback` when there is none (or a tie).
+pub fn line_ending<'a>(text: &str, fallback: &'a str) -> &'a str {
+    let crlf = text.matches("\r\n").count();
+    let lf = text.matches('\n').count() - crlf;
+    if crlf == lf {
+        fallback
+    } else if crlf > lf {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
+/// `alignLines`: for each line of `after`, the index of the `before` line it keeps (longest common
+/// subsequence) or, between kept lines, the line it takes the place of; `None` for lines with no counterpart.
+pub fn align_lines(before: &[String], after: &[String]) -> Vec<Option<usize>> {
+    let width = after.len() + 1;
+    let mut table = vec![0u32; (before.len() + 1) * width];
+    for i in (0..before.len()).rev() {
+        for j in (0..after.len()).rev() {
+            table[i * width + j] = if before[i] == after[j] {
+                table[(i + 1) * width + j + 1] + 1
+            } else {
+                table[(i + 1) * width + j].max(table[i * width + j + 1])
+            };
+        }
+    }
+    let mut result: Vec<Option<usize>> = vec![None; after.len()];
+    let mut gap_before: Vec<usize> = Vec::new();
+    let mut gap_after: Vec<usize> = Vec::new();
+    let flush = |result: &mut Vec<Option<usize>>, gap_before: &mut Vec<usize>, gap_after: &mut Vec<usize>| {
+        for (k, j) in gap_after.iter().enumerate() {
+            result[*j] = gap_before.get(k).copied();
+        }
+        gap_before.clear();
+        gap_after.clear();
+    };
+    let (mut i, mut j) = (0, 0);
+    while i < before.len() && j < after.len() {
+        if before[i] == after[j] {
+            flush(&mut result, &mut gap_before, &mut gap_after);
+            result[j] = Some(i);
+            i += 1;
+            j += 1;
+            continue;
+        }
+        if table[(i + 1) * width + j] >= table[i * width + j + 1] {
+            gap_before.push(i);
+            i += 1;
+        } else {
+            gap_after.push(j);
+            j += 1;
+        }
+    }
+    gap_before.extend(i..before.len());
+    gap_after.extend(j..after.len());
+    flush(&mut result, &mut gap_before, &mut gap_after);
+    result
+}
+
+/// `withRegionEndings`: joins the replacement's lines with line endings taken from the matched source region.
+/// A replacement line that keeps a region line (compared like the trailing-whitespace tier) reuses that line's
+/// ending; a line that changes in place reuses the ending of the line it replaces; only lines beyond those take
+/// `fallback`. Unchanged context inside a match therefore keeps its bytes even in a mixed-ending file.
+pub fn with_region_endings(region: &str, replacement: &str, fallback: &str) -> String {
+    let mut before: Vec<&str> = Vec::new();
+    let mut endings: Vec<&str> = Vec::new();
+    let mut start = 0;
+    while let Some(i) = region[start..].find('\n') {
+        let nl = start + i;
+        let crlf = nl > start && region.as_bytes()[nl - 1] == b'\r';
+        before.push(&region[start..if crlf { nl - 1 } else { nl }]);
+        endings.push(if crlf { "\r\n" } else { "\n" });
+        start = nl + 1;
+    }
+    before.push(&region[start..]);
+    let after: Vec<&str> = replacement.split('\n').collect();
+    let key = |line: &str| normalize_unicode(js::trim_end(line));
+    let source = align_lines(
+        &before.iter().map(|l| key(l)).collect::<Vec<_>>(),
+        &after.iter().map(|l| key(l)).collect::<Vec<_>>(),
+    );
+    let mut out = String::with_capacity(replacement.len());
+    for (index, line) in after.iter().enumerate() {
+        out.push_str(line);
+        if index + 1 < after.len() {
+            out.push_str(source[index].and_then(|s| endings.get(s).copied()).unwrap_or(fallback));
+        }
+    }
+    out
+}
+
+/// `countBefore`: number of sorted positions strictly before `offset`.
+fn count_before(positions: &[usize], offset: usize) -> usize {
+    positions.partition_point(|p| *p < offset)
+}
+
+/// `matchView`: matches against the LF view Read shows the model, then maps offsets back to the source, so
+/// CRLF and mixed line endings neither block matches nor leak into untouched regions. Returns each match in
+/// source offsets with its replacement text.
+pub fn match_view(source: &str, old: &str, new: &str) -> Vec<(Match, String)> {
+    let view = source.replace("\r\n", "\n");
+    let removed: Vec<usize> = source.match_indices("\r\n").enumerate().map(|(index, (at, _))| at - index).collect();
+    let file_ending = line_ending(source, "\n");
+    let search = old.replace("\r\n", "\n");
+    let replacement = new.replace("\r\n", "\n");
+    find_matches(&view, &search)
+        .into_iter()
+        .map(|m| {
+            let m = Match { start: m.start + count_before(&removed, m.start), end: m.end + count_before(&removed, m.end) };
+            let region = &source[m.start..m.end];
+            (m, with_region_endings(region, &replacement, line_ending(region, file_ending)))
+        })
+        .collect()
+}
+
+/// The edit's matches with their replacements, and whether it only changes line endings: strings that differ
+/// only in `\r` apply to the exact bytes; every other edit goes through [`match_view`].
+pub fn plan(source: &str, old: &str, new: &str) -> (bool, Vec<(Match, String)>) {
+    if old.replace('\r', "") == new.replace('\r', "") {
+        return (true, find_occurrences(source, old).into_iter().map(|m| (m, new.to_string())).collect());
+    }
+    (false, match_view(source, old, new))
+}
+
+/// Apply the first planned replacement (or all) right-to-left.
+pub fn apply_planned(source: &str, planned: &[(Match, String)], all: bool) -> String {
+    let selected = if all { planned } else { &planned[..planned.len().min(1)] };
+    let mut content = source.to_string();
+    for (m, replacement) in selected.iter().rev() {
+        content = format!("{}{}{}", &content[..m.start], replacement, &content[m.end..]);
+    }
+    content
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Input {
@@ -182,13 +317,12 @@ impl EditTool {
             Err(error) => return Err(file_failure(&leaf, error)),
         };
         let source = &original.text;
-        let ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
-        let old = input.old_string.replace("\r\n", "\n").replace('\n', ending);
-        let new = input.new_string.replace("\r\n", "\n").replace('\n', ending);
-        let matches = find_matches(source, &old);
-        let replacements = matches.len();
+        // Strings that differ only in \r ask to change line endings themselves, so they apply to the exact
+        // bytes. Every other edit matches the LF view Read shows the model and keeps the file's endings.
+        let (endings_only, planned) = plan(source, &input.old_string, &input.new_string);
+        let replacements = planned.len();
         let replace_all = input.replace_all == Some(true);
-        let replaced = apply(source, &matches, &new, replace_all);
+        let replaced = apply_planned(source, &planned, replace_all);
         let preview = (replacements > 0 && (replacements == 1 || replace_all)).then(|| file_diff(&target.resource, source, &replaced, "modified"));
         super::assert(
             ctx,
@@ -209,6 +343,16 @@ impl EditTool {
             return Err(ToolError::new(format!(
                 "Found {replacements} matches for oldString, but expected exactly one. Add more surrounding context to make oldString unique, or set replaceAll to true to replace every occurrence."
             )));
+        }
+        if replaced == *source {
+            return Err(ToolError::new(if endings_only {
+                format!("No changes to apply: {} already has those line endings.", input.path)
+            } else {
+                format!(
+                    "No changes to apply: the edit leaves {} unchanged. Line endings follow the file; to change them, write \\r explicitly in oldString or newString.",
+                    input.path
+                )
+            }));
         }
         let keep_bom = original.bom || replaced.starts_with('\u{FEFF}');
         let result = file_mutation::write(&target.absolute, &target.resource, bom::join(&replaced, keep_bom).as_bytes())
