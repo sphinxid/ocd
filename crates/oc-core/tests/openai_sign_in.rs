@@ -209,6 +209,7 @@ async fn token_sharing_routes_over_http_with_fallback_models_and_session_headers
         message: "Rate limit exceeded".into(),
         status: Some(429),
         response: Some(ErrorResponse { body: body.into() }),
+        retry_after_ms: None,
     };
     let decision = json!({"retry": true, "delay": 1000});
     let limit = error(r#"{"error":{"code":"subscription_sharing_usage_limit_exceeded"}}"#);
