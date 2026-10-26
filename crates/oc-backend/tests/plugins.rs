@@ -261,9 +261,12 @@ async fn promise_tool_throws_become_tool_failures() {
     let plain = state("plain");
     assert_eq!(plain["status"], "error", "{plain}");
     assert_eq!(plain["error"]["message"], "plain failure");
+    // The adapter attaches the thrown Error to its Tool.Error, so the session error is `unknown` (toSessionError).
+    assert_eq!(plain["error"]["type"], "unknown");
     let typed = state("typed");
     assert_eq!(typed["status"], "error", "{typed}");
     assert_eq!(typed["error"]["message"], "typed failure");
+    assert_eq!(typed["error"]["type"], "tool.execution");
     assert_eq!(typed["metadata"]["code"], 7, "{typed}");
     // The run went on to the final answer.
     assert_eq!(s.mock.bodies.lock().len(), 3);
@@ -351,8 +354,8 @@ async fn promise_plugin_asserts_permissions_and_rethrown_declines_stay_declines(
         .collect();
     assert_eq!(tools.len(), 5, "{tools:?}");
     assert_eq!(tools[0]["state"]["status"], "error", "{}", tools[0]);
-    assert_eq!(tools[0]["state"]["error"]["message"], "Permission denied: deploy");
-    assert_eq!(tools[1]["state"]["error"]["message"], "Use staging");
+    assert_eq!(tools[0]["state"]["error"], json!({ "type": "permission.rejected", "message": "Permission denied: deploy" }));
+    assert_eq!(tools[1]["state"]["error"], json!({ "type": "permission.rejected", "message": "Use staging" }));
     assert_eq!(tools[2]["state"]["status"], "completed", "{}", tools[2]);
     let listed: Value = serde_json::from_str(tools[2]["state"]["content"][0]["text"].as_str().unwrap()).unwrap();
     let mut ids: Vec<String> = listed["ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();

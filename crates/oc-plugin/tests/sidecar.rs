@@ -285,7 +285,7 @@ async fn effect_plugin_transforms_and_hooks() {
     // A Tool.Error from tool.execute.before rejects the call.
     let event = json!({ "tool": "forbidden", "sessionID": "ses_test", "agent": "build", "messageID": "msg_test", "id": "call_1", "input": {} });
     match s.host.trigger_hook(&s.location, "tool.execute.before", event).await {
-        Err(HookError::Tool { message, metadata }) => {
+        Err(HookError::Tool { message, metadata, .. }) => {
             assert_eq!(message, "forbidden by fixture");
             assert_eq!(metadata, Some(json!({ "reason": "test" })));
         }

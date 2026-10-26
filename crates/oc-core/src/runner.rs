@@ -1146,8 +1146,8 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
                 *input = out.get("input").cloned().unwrap_or(serde_json::Value::Null);
                 Ok(())
             }
-            Err(oc_plugin::HookError::Tool { message, metadata }) => {
-                let mut e = oc_tools::ToolError::new(message);
+            Err(oc_plugin::HookError::Tool { message, metadata, cause }) => {
+                let mut e = crate::plugins::with_cause(oc_tools::ToolError::new(message), cause);
                 if let Some(m) = metadata.and_then(|m| m.as_object().cloned()) {
                     e = e.with_metadata(m.into_iter().collect());
                 }

@@ -1890,7 +1890,7 @@ impl Tool for PluginTool {
                 if let Some(decline) = error.declined {
                     return Err(declined_tool_error(decline));
                 }
-                let mut e = ToolError::new(error.message);
+                let mut e = with_cause(ToolError::new(error.message), error.cause);
                 if let Some(m) = metadata_of(error.metadata.as_ref()) {
                     e = e.with_metadata(m);
                 }
@@ -1898,6 +1898,18 @@ impl Tool for PluginTool {
             }
         }
     }
+}
+
+/// Attaches the cause of a plugin `Tool.Error` (see [`oc_plugin::ToolError::cause`]) so the session error has
+/// upstream's type.
+pub fn with_cause(error: ToolError, cause: Option<(String, String)>) -> ToolError {
+    let Some((kind, message)) = cause else { return error };
+    let cause = match kind.as_str() {
+        "permission.rejected" => oc_tools::tool::ErrorCause::PermissionRejected(message),
+        "tool.execution" => oc_tools::tool::ErrorCause::Tool(Box::new(ToolError::new(message))),
+        _ => oc_tools::tool::ErrorCause::Error(message),
+    };
+    ToolError { cause: Some(cause), ..error }
 }
 
 /// The session-side failure of a decline that crossed the sidecar.

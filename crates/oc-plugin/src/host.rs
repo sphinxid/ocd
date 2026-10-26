@@ -126,7 +126,7 @@ impl LoadResult {
 pub enum HookError {
     /// `tool.execute.before` rejected the call with a `Tool.Error`.
     #[error("{message}")]
-    Tool { message: String, metadata: Option<Value> },
+    Tool { message: String, metadata: Option<Value>, cause: Option<(String, String)> },
     /// A hook declined (a permission it asserted was rejected, or a question was dismissed).
     #[error("{}", .0.message())]
     Declined(Decline),
@@ -184,6 +184,15 @@ pub struct ToolError {
     pub tool_error: bool,
     /// Set when the tool (or a native tool it wrapped) declined.
     pub declined: Option<Decline>,
+    /// The session error upstream's `toSessionError` derives from the `Tool.Error`'s `error` cause, when it has
+    /// one: `(type, message)` with type `permission.rejected`, `tool.execution` or `unknown`.
+    pub cause: Option<(String, String)>,
+}
+
+/// The `data.cause` of a `tool.error` failure.
+fn wire_cause(data: Option<&Value>) -> Option<(String, String)> {
+    let cause = data?.get("cause")?;
+    Some((cause.get("type")?.as_str()?.to_string(), cause.get("message")?.as_str()?.to_string()))
 }
 
 /// An RPC failure `{type, message, data?}`.
@@ -346,7 +355,7 @@ impl PluginHost {
         match sidecar.request_with("hook.trigger", &params).await {
             Ok(result) => Ok(result.get("event").cloned().unwrap_or(Value::Null)),
             Err(CallError::Remote(error)) if error.kind.as_deref() == Some("tool.error") => {
-                Err(HookError::Tool { message: error.message, metadata: error.metadata })
+                Err(HookError::Tool { cause: wire_cause(error.data.as_ref()), message: error.message, metadata: error.metadata })
             }
             Err(CallError::Remote(error)) if Decline::from_wire(error.kind.as_deref(), error.data.as_ref()).is_some() => {
                 Err(HookError::Declined(Decline::from_wire(error.kind.as_deref(), error.data.as_ref()).unwrap()))
@@ -453,6 +462,7 @@ impl PluginHost {
             metadata: None,
             tool_error: false,
             declined: None,
+            cause: None,
         })?;
         let call = context.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
         let key = (location.key(), call);
@@ -467,10 +477,11 @@ impl PluginHost {
             CallError::Remote(e) => ToolError {
                 tool_error: e.kind.as_deref() == Some("tool.error"),
                 declined: Decline::from_wire(e.kind.as_deref(), e.data.as_ref()),
+                cause: wire_cause(e.data.as_ref()).filter(|_| e.kind.as_deref() == Some("tool.error")),
                 message: e.message,
                 metadata: e.metadata,
             },
-            other => ToolError { message: other.to_string(), metadata: None, tool_error: false, declined: None },
+            other => ToolError { message: other.to_string(), metadata: None, tool_error: false, declined: None, cause: None },
         })
     }
 

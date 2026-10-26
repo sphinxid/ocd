@@ -559,6 +559,23 @@ function isToolError(error: unknown): error is Tool.Error {
   return error instanceof Tool.Error || (typeof error === "object" && error !== null && (error as { _tag?: unknown })._tag === "Tool.Error")
 }
 
+// What upstream's toSessionError makes of a Tool.Error's `error` cause: permission rejections keep their type,
+// nested tool failures unwrap, anything else is `unknown` (packages/core/src/session/to-session-error.ts).
+function sessionCause(value: unknown): { type: string; message: string } {
+  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined
+  const tag = typeof record?._tag === "string" ? record._tag : typeof record?.name === "string" ? record.name : undefined
+  const message = value instanceof Error ? value.message : typeof record?.message === "string" ? record.message : String(value)
+  if (tag === "Permission.BlockedError") return { type: "permission.rejected", message }
+  if (tag === "Permission.CorrectedError")
+    return { type: "permission.rejected", message: typeof record?.feedback === "string" ? record.feedback : message }
+  if (isToolError(value)) {
+    if (value.error === undefined) return { type: "tool.execution", message: value.message }
+    const unwrapped = sessionCause(value.error)
+    return unwrapped.message === "" ? { type: "tool.execution", message: value.message } : unwrapped
+  }
+  return { type: "unknown", message }
+}
+
 function toolError(error: unknown) {
   // A decline, or a decline a tool rethrew and its wrapper attached to a Tool.Error, stays a decline.
   const decline = declineOf(error)
@@ -568,6 +585,7 @@ function toolError(error: unknown) {
       message: error.message,
       type: "tool.error",
       ...(error.metadata === undefined ? {} : { metadata: toWire(error.metadata, undefined) }),
+      ...(error.error === undefined ? {} : { data: { cause: sessionCause(error.error) } }),
     })
     return failure
   }
