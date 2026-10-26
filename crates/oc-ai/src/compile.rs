@@ -224,46 +224,71 @@ fn mark_last_tool(tools: &mut [ToolEntry], hint: &CacheHint, budget: &mut i64) {
     }
 }
 
+/// Compaction and effort parts never carry a cache breakpoint.
+fn is_cacheable_part(part: &ContentPart) -> bool {
+    !matches!(part, ContentPart::Compaction(_) | ContentPart::Effort(_))
+}
+
+/// Mark the last text part of `messages[index]`. If no text part exists, mark the last cacheable
+/// content part: that's the breakpoint position in tool-result-only messages too.
 fn mark_message_at(messages: &mut [Message], index: Option<usize>, hint: &CacheHint, budget: &mut i64) {
     let Some(index) = index else { return };
     let Some(target) = messages.get_mut(index) else { return };
     if target.content.is_empty() {
         return;
     }
-    let mark_at = target
-        .content
-        .iter()
-        .rposition(|p| matches!(p, ContentPart::Text(_)))
-        .unwrap_or(target.content.len() - 1);
+    let mark_at = match target.content.iter().rposition(|p| matches!(p, ContentPart::Text(_))) {
+        Some(i) => i,
+        None => match target.content.iter().rposition(is_cacheable_part) {
+            Some(i) => i,
+            None => return,
+        },
+    };
     let existing = &target.content[mark_at];
-    if existing.cache().is_some() || *budget == 0 {
+    if !is_cacheable_part(existing) || existing.cache().is_some() || *budget == 0 {
         return;
     }
     *budget -= 1;
     target.content[mark_at].set_cache(hint.clone());
 }
 
+/// `selectPolicy`: a declared cache format overrides the route allowlist and its model-ID heuristics.
+fn select_policy(request: &LLMRequest) -> CachePolicyObject {
+    let format = request.compat().cache_format.clone();
+    let route = request.model.route.id.as_str();
+    let auto = request.cache.as_ref().map(|c| c.is_auto()).unwrap_or(true);
+    match format.as_deref() {
+        Some("alibaba") => {
+            return if auto { qwen_policy() } else { CachePolicyObject { tools: Some(false), ..resolve_policy(request.cache.as_ref()) } };
+        }
+        Some("anthropic") => return resolve_policy(request.cache.as_ref()),
+        _ => {}
+    }
+    if !RESPECTS_INLINE_HINTS.contains(&route) {
+        return CachePolicyObject::default();
+    }
+    if !auto {
+        return resolve_policy(request.cache.as_ref());
+    }
+    if route == "openrouter" || route == "vercel-ai-gateway-messages" {
+        return gateway_policy(&request.model.id);
+    }
+    if route == "alibaba-chat" {
+        return if request.model.id.to_lowercase().starts_with("qwen") { qwen_policy() } else { CachePolicyObject::default() };
+    }
+    auto_policy()
+}
+
 /// `applyCachePolicy`.
 pub fn apply_cache_policy(request: &mut LLMRequest) {
-    let route = request.model.route.id.clone();
-    if !RESPECTS_INLINE_HINTS.contains(&route.as_str()) {
-        return;
-    }
-    let auto_or_unset = request.cache.as_ref().map(|c| c.is_auto()).unwrap_or(true);
-    let policy = if (route == "openrouter" || route == "vercel-ai-gateway-messages") && auto_or_unset {
-        gateway_policy(&request.model.id)
-    } else if route == "alibaba-chat" && auto_or_unset {
-        if request.model.id.to_lowercase().starts_with("qwen") { qwen_policy() } else { CachePolicyObject::default() }
-    } else {
-        resolve_policy(request.cache.as_ref())
-    };
+    let policy = select_policy(request);
     if !policy.tools.unwrap_or(false) && !policy.system.unwrap_or(false) && policy.messages.is_none() {
         return;
     }
     let hint = CacheHint::with_ttl(policy.ttl_seconds);
     let existing = count_tool_hints(&request.tools)
         + request.system.iter().filter(|p| p.cache.is_some()).count() as i64
-        + request.messages.iter().flat_map(|m| m.content.iter()).filter(|p| p.cache().is_some()).count() as i64;
+        + request.messages.iter().flat_map(|m| m.content.iter()).filter(|p| is_cacheable_part(p) && p.cache().is_some()).count() as i64;
     let mut budget = (BREAKPOINT_CAP - existing).max(0);
     if policy.tools.unwrap_or(false) {
         mark_last_tool(&mut request.tools, &hint, &mut budget);

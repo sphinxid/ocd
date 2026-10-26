@@ -3,7 +3,7 @@
 use super::{auth, normalize_headers, set_query, Headers};
 use crate::error::{http_failure, http_status_message, AIError, HttpContext, TransportOperation};
 use crate::json::{encode, is_record};
-use crate::types::{HttpTimeout, LLMRequest, DEFAULT_HTTP_TIMEOUT_MS};
+use crate::types::{HttpTimeout, LLMRequest, RequestEncoding, DEFAULT_CHUNK_TIMEOUT_MS, DEFAULT_HTTP_TIMEOUT_MS};
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -22,6 +22,23 @@ pub struct PreparedRequest {
     pub body: String,
     /// JSON body after overlay.
     pub json_body: Value,
+    /// `http.encoding`: compress the body when it is sent (`jsonPost`'s `encoding`).
+    pub encoding: Option<RequestEncoding>,
+}
+
+/// `compressBody`: a `zstd` or `gzip` body with its `content-encoding`. Compression is an
+/// optimization, so a failure (or `none`) sends plain JSON instead of failing the request.
+pub fn compress_body(text: &str, encoding: Option<RequestEncoding>) -> Option<(&'static str, Vec<u8>)> {
+    use std::io::Write;
+    match encoding? {
+        RequestEncoding::None => None,
+        RequestEncoding::Zstd => zstd::bulk::compress(text.as_bytes(), 3).ok().map(|body| ("zstd", body)),
+        RequestEncoding::Gzip => {
+            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(text.as_bytes()).ok()?;
+            encoder.finish().ok().map(|body| ("gzip", body))
+        }
+    }
 }
 
 /// Hook wrapping every outgoing HTTP request (core `http.request` hooks, Copilot/Azure header injection).
@@ -95,6 +112,7 @@ pub fn body_with_overlay(body: Value, request: &LLMRequest) -> Result<(Value, St
 pub async fn prepare_json(request: &LLMRequest, body: Value) -> Result<PreparedRequest, AIError> {
     let mut prepared = json_request_parts(request, body).await?;
     prepared.headers.insert("content-type".into(), "application/json".into());
+    prepared.encoding = request.http.as_ref().and_then(|h| h.encoding);
     Ok(prepared)
 }
 
@@ -117,7 +135,7 @@ pub async fn json_request_parts(request: &LLMRequest, body: Value) -> Result<Pre
         auth::AuthInput { method: "POST", url: &url, body: &body_text, headers },
     )
     .await?;
-    Ok(PreparedRequest { method: "POST".into(), url, headers, body: body_text, json_body })
+    Ok(PreparedRequest { method: "POST".into(), url, headers, body: body_text, json_body, encoding: None })
 }
 
 /// Executed response: HTTP context and raw byte stream.
@@ -126,11 +144,11 @@ pub struct HttpExecution {
     pub body: BoxStream<'static, Result<Bytes, AIError>>,
 }
 
-fn duration(value: Option<HttpTimeout>) -> Option<Duration> {
+fn duration(value: Option<HttpTimeout>, default_ms: f64) -> Option<Duration> {
     match value {
         Some(HttpTimeout::Disabled(_)) => None,
         Some(HttpTimeout::Millis(ms)) => Some(Duration::from_millis(ms as u64)),
-        None => Some(Duration::from_millis(DEFAULT_HTTP_TIMEOUT_MS as u64)),
+        None => Some(Duration::from_millis(default_ms as u64)),
     }
 }
 
@@ -146,12 +164,12 @@ impl Timeouts {
     pub fn from_request(request: &LLMRequest) -> Self {
         let http = request.http.as_ref();
         let total = http.and_then(|h| h.timeout).and_then(|t| t.millis()).map(|ms| Duration::from_millis(ms as u64));
-        let header = duration(http.and_then(|h| h.header_timeout));
+        let header = duration(http.and_then(|h| h.header_timeout), DEFAULT_HTTP_TIMEOUT_MS);
         let header = match (header, total) {
             (Some(h), Some(t)) => Some(h.min(t)),
             (h, t) => h.or(t),
         };
-        Self { header, chunk: duration(http.and_then(|h| h.chunk_timeout)), total }
+        Self { header, chunk: duration(http.and_then(|h| h.chunk_timeout), DEFAULT_CHUNK_TIMEOUT_MS), total }
     }
 }
 
@@ -214,7 +232,10 @@ pub async fn execute_with(
             if let Some(body) = &w.body
                 && !matches!(w.method.as_str(), "GET" | "HEAD")
             {
-                builder = builder.body(body.clone());
+                builder = match compress_body(body, prepared.encoding) {
+                    Some((encoding, bytes)) => builder.header("content-encoding", encoding).body(bytes),
+                    None => builder.body(body.clone()),
+                };
             }
         }
         None => {
@@ -223,7 +244,10 @@ pub async fn execute_with(
                     builder = builder.header(k, v);
                 }
             }
-            builder = builder.body(prepared.body.clone());
+            builder = match compress_body(&prepared.body, prepared.encoding) {
+                Some((encoding, bytes)) => builder.header("content-encoding", encoding).body(bytes),
+                None => builder.body(prepared.body.clone()),
+            };
         }
     }
     for (k, v) in oc_util::trace::headers() {

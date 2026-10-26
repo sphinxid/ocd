@@ -50,12 +50,16 @@ struct CacheBudget {
 }
 
 impl CacheBudget {
-    fn new(model_id: &str) -> Self {
+    fn new(model_id: &str, cache_format: Option<&str>) -> Self {
         let short = CLAUDE_5M.iter().any(|id| model_id.contains(id));
         Self {
             remaining: CAP,
             dropped: 0,
-            supported: model_id.contains("anthropic.claude-") && (short || !LEGACY_CLAUDE.iter().any(|id| model_id.contains(id))),
+            // An explicit Anthropic cache format opts opaque IDs such as application inference profile
+            // ARNs in. Assume modern Claude releases retain caching support; older generations need an
+            // explicit exception. Other model families use implicit caching where available.
+            supported: cache_format == Some("anthropic")
+                || (model_id.contains("anthropic.claude-") && (short || !LEGACY_CLAUDE.iter().any(|id| model_id.contains(id)))),
             ttl1h: !short,
         }
     }
@@ -364,7 +368,7 @@ pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
         t.insert("block_binding".into(), json!({"prefix_mismatch_behavior": "drop_block"}));
         thinking = Some(t);
     }
-    let mut cache = CacheBudget::new(&request.model.id);
+    let mut cache = CacheBudget::new(&request.model.id, request.compat().cache_format.as_deref());
     let tool_config = if tools.is_empty() {
         None
     } else {
@@ -654,7 +658,13 @@ impl Parser {
             if let Some(o) = clean.as_object_mut() {
                 o.shift_remove("rawBody");
             }
-            return Err(classify_provider_failure(ProviderFailure::new(message).raw_body(encode(&clean))).with_body(raw(event)));
+            // The original HTTP status lets throttling and server errors classify like HTTP failures.
+            let status = details
+                .and_then(|d| d.get("originalStatusCode"))
+                .and_then(Value::as_f64)
+                .filter(|s| s.fract() == 0.0 && (0.0..=f64::from(u16::MAX)).contains(s))
+                .map(|s| s as u16);
+            return Err(classify_provider_failure(ProviderFailure::new(message).status(status).raw_body(encode(&clean))).with_body(raw(event)));
         }
         Ok(events)
     }

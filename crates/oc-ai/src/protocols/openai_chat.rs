@@ -68,25 +68,18 @@ pub fn detect_max_tokens_field(provider: &str, base_url: &str) -> &'static str {
     if max_tokens { "max_tokens" } else { "max_completion_tokens" }
 }
 
+/// `store` defaults to false on OpenAI and Azure, but org-level logging can still store requests that
+/// omit it, so send an explicit `store: false` there. Strict OpenAI-style APIs reject the field with a
+/// 400, so omit it everywhere else.
 pub fn detect_supports_store(provider: &str, base_url: &str) -> bool {
     let p = provider.to_lowercase();
     let url = base_url.to_lowercase();
-    let is = |ids: &[&str], hosts: &[&str]| ids.contains(&p.as_str()) || hosts.iter().any(|h| url.contains(h));
-    let non_standard = url.contains("generativelanguage.googleapis.com")
-        || is(&["nvidia"], &["integrate.api.nvidia.com"])
-        || is(&["cerebras"], &["cerebras.ai"])
-        || is(&["xai"], &["api.x.ai"])
-        || is(&["togetherai", "together"], &["api.together."])
-        || is(&["chutes"], &["chutes.ai"])
-        || is(&["deepseek"], &["deepseek.com"])
-        || is(&["zai", "zai-coding-plan", "zhipuai", "zhipuai-coding-plan"], &["api.z.ai", "open.bigmodel.cn"])
-        || is(&["moonshotai", "moonshotai-cn"], &["api.moonshot."])
-        || is(&["opencode"], &["opencode.ai"])
-        || is(&["cloudflare-workers-ai"], &["api.cloudflare.com"])
-        || is(&["cloudflare-ai-gateway"], &["gateway.ai.cloudflare.com"])
-        || is(&["vercel-ai-gateway"], &["ai-gateway.vercel.sh", "vercel.sh"])
-        || is(&["ant-ling"], &["api.ant-ling.com"]);
-    !non_standard
+    p == "openai"
+        || p == "azure"
+        || url.contains("api.openai.com")
+        || url.contains(".openai.azure.com")
+        || url.contains(".cognitiveservices.azure.com")
+        || url.contains(".services.ai.azure.com")
 }
 
 pub fn detect_supports_strict_mode(provider: &str, base_url: &str) -> bool {
@@ -508,14 +501,16 @@ pub fn body_fields(request: &LLMRequest, opts: &ChatOptions) -> Result<Fields, A
     let base_url = request.base_url();
     let max_tokens_field = compat.max_tokens_field.clone().unwrap_or_else(|| detect_max_tokens_field(&provider, &base_url).into());
     let supports_store = compat.supports_store.unwrap_or_else(|| detect_supports_store(&provider, &base_url));
-    let supports_usage = compat.supports_usage_in_streaming.unwrap_or(true);
+    let supports_usage = compat.stream_usage.unwrap_or(true);
     let supports_strict = compat.supports_strict_mode.unwrap_or_else(|| detect_supports_strict_mode(&provider, &base_url));
     let zai_tool_stream = compat.zai_tool_stream.unwrap_or_else(|| detect_zai_tool_stream(&provider, &base_url, &request.model.id));
     let has_history = has_tool_history(&request.messages);
     let active = !tools_flat.is_empty();
     let model_lower = request.model.id.to_lowercase();
     let mut l = Lowering {
-        cc: if opts.cache_control { Some(CacheControl::default()) } else { None },
+        // Provider wrappers that pass their own marker writer keep it; otherwise a declared cache
+        // format adds one.
+        cc: if opts.cache_control || compat.cache_format.is_some() { Some(CacheControl::default()) } else { None },
         key: request.metadata_key(),
         mistral: MISTRAL_FAMILIES.iter().any(|f| model_lower.contains(f)),
         model_lower,

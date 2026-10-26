@@ -173,8 +173,40 @@ impl HttpTimeout {
     }
 }
 
-/// Applied to `headerTimeout` and `chunkTimeout` when a request leaves them unset.
+/// Applied to `headerTimeout` when a request leaves it unset.
 pub const DEFAULT_HTTP_TIMEOUT_MS: f64 = 300_000.0;
+
+/// Applied to `chunkTimeout` when a request leaves it unset. Some providers, such as DeepSeek, have
+/// asked clients to allow at least 15 minutes, because their models can stream nothing for minutes
+/// while they reason.
+pub const DEFAULT_CHUNK_TIMEOUT_MS: f64 = 900_000.0;
+
+/// `RequestEncoding`: `Content-Encoding` for JSON request bodies; `none` sends plain JSON.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RequestEncoding {
+    Zstd,
+    Gzip,
+    None,
+}
+
+impl RequestEncoding {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "zstd" => Some(Self::Zstd),
+            "gzip" => Some(Self::Gzip),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Zstd => "zstd",
+            Self::Gzip => "gzip",
+            Self::None => "none",
+        }
+    }
+}
 
 /// `HttpOptions`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -192,6 +224,9 @@ pub struct HttpOptions {
     pub header_timeout: Option<HttpTimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chunk_timeout: Option<HttpTimeout>,
+    /// Compression for JSON request bodies. Only set it for endpoints known to decode it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<RequestEncoding>,
 }
 
 fn merge_string_maps(items: &[Option<&IndexMap<String, String>>]) -> Option<IndexMap<String, String>> {
@@ -225,10 +260,18 @@ impl HttpOptions {
         let timeout = last(|h| h.timeout);
         let header_timeout = last(|h| h.header_timeout);
         let chunk_timeout = last(|h| h.chunk_timeout);
-        if body.is_none() && headers.is_none() && query.is_none() && timeout.is_none() && header_timeout.is_none() && chunk_timeout.is_none() {
+        let encoding = items.iter().rev().flatten().find_map(|h| h.encoding);
+        if body.is_none()
+            && headers.is_none()
+            && query.is_none()
+            && timeout.is_none()
+            && header_timeout.is_none()
+            && chunk_timeout.is_none()
+            && encoding.is_none()
+        {
             return None;
         }
-        Some(HttpOptions { body, headers, query, timeout, header_timeout, chunk_timeout })
+        Some(HttpOptions { body, headers, query, timeout, header_timeout, chunk_timeout, encoding })
     }
 }
 
@@ -252,12 +295,19 @@ pub struct Compatibility {
     pub require_assistant_after_tool: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_store: Option<bool>,
+    /// Request usage in the stream with `stream_options.include_usage`. Defaults to true.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub supports_usage_in_streaming: Option<bool>,
+    pub stream_usage: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_strict_mode: Option<bool>,
+    /// Accepts `prompt_cache_key` in the request body. Chat omits the key unless this is true; other
+    /// protocols omit it only when this is false. Session-affinity headers still flow regardless.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_prompt_cache_key: Option<bool>,
+    /// `"anthropic" | "alibaba"`: prompt-cache marker syntax the endpoint accepts. Overrides the route
+    /// default; both send `cache_control`, and `alibaba` skips tool definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_format: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zai_tool_stream: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -282,9 +332,10 @@ impl Compatibility {
             require_finish_reason,
             require_assistant_after_tool,
             supports_store,
-            supports_usage_in_streaming,
+            stream_usage,
             supports_strict_mode,
             supports_prompt_cache_key,
+            cache_format,
             zai_tool_stream,
             require_signature,
             supports_thinking_block_binding,

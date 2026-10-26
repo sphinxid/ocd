@@ -356,6 +356,7 @@ pub fn route() -> Route {
         Framing::Sse,
     )
     .initial_provider("google", Some("google"))
+    .continuation()
 }
 
 /// Vertex Gemini body: `serviceTier` removed, `labels` (string values) appended.
@@ -468,6 +469,7 @@ pub fn vertex_route() -> Route {
         Framing::Sse,
     )
     .initial_provider("google-vertex", Some("vertex"))
+    .continuation()
     .headers_fn(|request| {
         let mut h = Headers::new();
         if let Some(tier) = request.po_str("serviceTier") {
@@ -531,6 +533,11 @@ fn map_finish(reason: Option<&str>, has_tool_calls: bool) -> Option<FinishReason
 }
 
 fn map_usage(usage: &Value, key: &str) -> Option<Usage> {
+    map_usage_with(usage, key, usage)
+}
+
+/// `mapUsage(usage, key, metadata)`: the token counts of `usage`, with `metadata` as provider metadata.
+fn map_usage_with(usage: &Value, key: &str, metadata: &Value) -> Option<Usage> {
     if !usage.is_object() {
         return None;
     }
@@ -541,7 +548,7 @@ fn map_usage(usage: &Value, key: &str) -> Option<Usage> {
     let visible = u("candidatesTokenCount");
     let output = visible.map(|v| v + thoughts.unwrap_or(0));
     let mut pm = Object::new();
-    pm.insert(key.into(), usage.clone());
+    pm.insert(key.into(), metadata.clone());
     Some(Usage {
         context_tokens: None,
         input_tokens: prompt,
@@ -553,6 +560,38 @@ fn map_usage(usage: &Value, key: &str) -> Option<Usage> {
         total_tokens: shared::total_tokens(prompt, output, u("totalTokenCount")),
         provider_metadata: Some(pm),
     })
+}
+
+/// `mapContinuedUsage`: each continued request re-bills the output so far as input. Reporting the
+/// first request's input with all output keeps input plus output equal to the response's final
+/// context size, under-reporting billed input; the summed billed counts remain in provider metadata.
+fn map_continued_usage(requests: &[Value], key: &str) -> Option<Usage> {
+    let sum = |field: &str| shared::sum_tokens(&requests.iter().map(|u| crate::json::get_u64(u, field)).collect::<Vec<_>>());
+    let first = |field: &str| requests.first().and_then(|u| crate::json::get_u64(u, field));
+    let object = |fields: &[(&str, Option<u64>)]| {
+        let mut o = Object::new();
+        for (k, v) in fields {
+            if let Some(v) = v {
+                o.insert((*k).into(), json!(v));
+            }
+        }
+        o
+    };
+    let usage = object(&[
+        ("promptTokenCount", first("promptTokenCount")),
+        ("cachedContentTokenCount", first("cachedContentTokenCount")),
+        ("candidatesTokenCount", sum("candidatesTokenCount")),
+        ("thoughtsTokenCount", sum("thoughtsTokenCount")),
+    ]);
+    let mut metadata = object(&[
+        ("promptTokenCount", sum("promptTokenCount")),
+        ("cachedContentTokenCount", sum("cachedContentTokenCount")),
+        ("candidatesTokenCount", sum("candidatesTokenCount")),
+        ("thoughtsTokenCount", sum("thoughtsTokenCount")),
+        ("totalTokenCount", sum("totalTokenCount")),
+    ]);
+    metadata.insert("requests".into(), json!(requests.len()));
+    map_usage_with(&Value::Object(usage), key, &Value::Object(metadata))
 }
 
 pub struct GeminiParser {
@@ -568,7 +607,10 @@ pub struct GeminiParser {
     text_sig: Option<String>,
     seen_call_ids: HashSet<String>,
     finish_reason: Option<String>,
-    usage: Option<Usage>,
+    /// The latest `usageMetadata` of the current request (cumulative within one request).
+    usage: Option<Value>,
+    /// Usage of the earlier requests of a response Gemini continued across requests.
+    continued_usage: Option<Vec<Value>>,
     prompt_feedback: Option<Value>,
 }
 
@@ -588,6 +630,7 @@ impl GeminiParser {
             seen_call_ids: HashSet::new(),
             finish_reason: None,
             usage: None,
+            continued_usage: None,
             prompt_feedback: None,
         }
     }
@@ -625,7 +668,7 @@ impl GeminiParser {
                     .filter(|s| !s.is_empty())
                     .or_else(|| e.get("status").and_then(Value::as_str).filter(|s| !s.is_empty()))
                     .unwrap_or("Gemini provider error");
-                let status = e.get("code").and_then(Value::as_u64).map(|c| c as u16);
+                let status = e.get("code").and_then(Value::as_f64).filter(|c| c.fract() == 0.0 && (0.0..=65535.0).contains(c)).map(|c| c as u16);
                 return Err(classify_provider_failure(ProviderFailure { message: message.into(), status, raw_body: Some(encode(event)), ..Default::default() }));
             }
             return Err(AIError::invalid_output(&self.route, format!("Invalid {} stream event", self.route)).with_body(encode(event)));
@@ -633,13 +676,16 @@ impl GeminiParser {
         if let Some(pf) = event.get("promptFeedback").filter(|v| !v.is_null()) {
             self.prompt_feedback = Some(pf.clone());
         }
-        if let Some(usage) = event.get("usageMetadata").filter(|v| !v.is_null()) {
-            if let Some(u) = map_usage(usage, &self.key) {
-                self.usage = Some(u);
-            }
+        if let Some(usage) = event.get("usageMetadata").filter(|v| v.is_object()) {
+            self.usage = Some(usage.clone());
         }
         let candidate = event.get("candidates").and_then(Value::as_array).and_then(|c| c.first());
         let finish = candidate.and_then(|c| c.get("finishReason")).and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from);
+        // Gemini sporadically ends a valid request with MALFORMED_RESPONSE; continuing or resending it
+        // recovers, so it is a retryable incomplete stream.
+        if finish.as_deref() == Some("MALFORMED_RESPONSE") {
+            return Err(AIError::incomplete_stream(&self.route, "Gemini stopped with MALFORMED_RESPONSE").with_body(encode(event)));
+        }
         if let Some(f) = &finish {
             if map_finish(Some(f), self.has_tool_calls).is_none() {
                 return Err(AIError::invalid_output(&self.route, format!("Gemini stopped with {f}")).with_body(encode(event)));
@@ -744,7 +790,7 @@ impl GeminiParser {
             None
         };
         let reason = self.finish_reason.clone().or_else(|| block.clone());
-        if reason.is_none() && self.usage.is_none() {
+        if reason.is_none() && self.usage.is_none() && self.continued_usage.is_none() {
             return vec![];
         }
         let mut events = vec![];
@@ -760,7 +806,15 @@ impl GeminiParser {
             o.insert(self.key.clone(), json!({"promptFeedback": pf}));
             o
         });
-        self.lifecycle.finish(&mut events, FinishReasonDetails::raw(normalized, reason), self.usage.clone(), metadata);
+        let usage = match &self.continued_usage {
+            None => self.usage.as_ref().and_then(|u| map_usage(u, &self.key)),
+            Some(continued) => {
+                let mut requests = continued.clone();
+                requests.push(self.usage.clone().unwrap_or_else(|| json!({})));
+                map_continued_usage(&requests, &self.key)
+            }
+        };
+        self.lifecycle.finish(&mut events, FinishReasonDetails::raw(normalized, reason), usage, metadata);
         events
     }
 }
@@ -772,5 +826,12 @@ impl StreamParser for GeminiParser {
     }
     fn on_halt(&mut self) -> Result<Vec<LLMEvent>, AIError> {
         Ok(self.finish())
+    }
+    /// Usage is cumulative within one request, so the next request of the same response counts from zero.
+    fn next_request(&mut self) {
+        self.finish_reason = None;
+        self.prompt_feedback = None;
+        let usage = self.usage.take().unwrap_or_else(|| json!({}));
+        self.continued_usage.get_or_insert_with(Vec::new).push(usage);
     }
 }

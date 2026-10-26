@@ -19,7 +19,7 @@ pub fn from_ai(e: &AIError) -> SessionError {
     let kind = match &e.kind {
         ErrorKind::RateLimit { .. } => "provider.rate-limit",
         ErrorKind::Authentication => "provider.auth",
-        ErrorKind::QuotaExceeded => "provider.quota",
+        ErrorKind::QuotaExceeded { .. } => "provider.quota",
         ErrorKind::ContentPolicy => "provider.content-filter",
         ErrorKind::Transport { .. } => "provider.transport",
         ErrorKind::ProviderInternal { .. } => "provider.internal",

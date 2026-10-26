@@ -158,18 +158,18 @@ pub fn language_model(package: &str, model_id: &str, settings: &Object) -> Resul
         }
         "cohere" | "cohere/chat" => cohere(model_id, &mut s, name == "cohere/chat"),
         "xai" => xai(model_id, &mut s),
-        "groq" => simple_chat(model_id, &mut s, "groq-chat", "groq", "https://api.groq.com/openai/v1", &["GROQ_API_KEY"], Arc::new(wrappers::GroqChat), compat(json!({"maxTokensField": "max_completion_tokens", "reasoningField": "reasoning", "requireReasoning": false, "supportsStore": false, "supportsStrictMode": false}))),
-        "deepseek" => simple_chat(model_id, &mut s, "deepseek-chat", "deepseek", "https://api.deepseek.com/v1", &["DEEPSEEK_API_KEY"], oc::protocol(), compat(json!({"maxTokensField": "max_tokens", "supportsStore": false}))),
-        "cerebras" => simple_chat(model_id, &mut s, "cerebras-chat", "cerebras", "https://api.cerebras.ai/v1", &["CEREBRAS_API_KEY"], oc::protocol(), compat(json!({"maxTokensField": "max_tokens", "reasoningField": "reasoning", "supportsStore": false, "supportsPromptCacheKey": true}))),
+        "groq" => simple_chat(model_id, &mut s, "groq-chat", "groq", "https://api.groq.com/openai/v1", &["GROQ_API_KEY"], Arc::new(wrappers::GroqChat), compat(json!({"maxTokensField": "max_completion_tokens", "reasoningField": "reasoning", "requireReasoning": false, "supportsStrictMode": false}))),
+        "deepseek" => simple_chat(model_id, &mut s, "deepseek-chat", "deepseek", "https://api.deepseek.com/v1", &["DEEPSEEK_API_KEY"], oc::protocol(), compat(json!({"maxTokensField": "max_tokens"}))),
+        "cerebras" => simple_chat(model_id, &mut s, "cerebras-chat", "cerebras", "https://api.cerebras.ai/v1", &["CEREBRAS_API_KEY"], oc::protocol(), compat(json!({"maxTokensField": "max_tokens", "reasoningField": "reasoning", "supportsPromptCacheKey": true}))),
         "deepinfra" => {
             if let Some(Value::String(b)) = s.rest.get("baseURL").cloned() {
                 let root = b.trim_end_matches('/').to_string();
                 let fixed = if root.ends_with("/openai") { root } else { format!("{root}/openai") };
                 s.rest.insert("baseURL".into(), json!(fixed));
             }
-            simple_chat(model_id, &mut s, "deepinfra-chat", "deepinfra", "https://api.deepinfra.com/v1/openai", &["DEEPINFRA_API_KEY"], oc::protocol(), compat(json!({"maxTokensField": "max_tokens", "reasoningField": "reasoning_content", "supportsStore": false, "supportsPromptCacheKey": true})))
+            simple_chat(model_id, &mut s, "deepinfra-chat", "deepinfra", "https://api.deepinfra.com/v1/openai", &["DEEPINFRA_API_KEY"], oc::protocol(), compat(json!({"maxTokensField": "max_tokens", "reasoningField": "reasoning_content", "supportsPromptCacheKey": true})))
         }
-        "togetherai" => simple_chat(model_id, &mut s, "togetherai-chat", "togetherai", "https://api.together.xyz/v1", &["TOGETHER_API_KEY", "TOGETHER_AI_API_KEY"], oc::protocol(), compat(json!({"maxTokensField": "max_tokens", "supportsStore": false, "supportsStrictMode": false}))),
+        "togetherai" => simple_chat(model_id, &mut s, "togetherai-chat", "togetherai", "https://api.together.xyz/v1", &["TOGETHER_API_KEY", "TOGETHER_AI_API_KEY"], oc::protocol(), compat(json!({"maxTokensField": "max_tokens", "supportsStrictMode": false}))),
         "fireworks" => simple_chat(model_id, &mut s, "fireworks-chat", "fireworks", "https://api.fireworks.ai/inference/v1", &["FIREWORKS_API_KEY"], oc::protocol(), compat(json!({"supportsPromptCacheKey": true}))),
         "baseten" => simple_chat(model_id, &mut s, "baseten-chat", "baseten", "https://inference.baseten.co/v1", &["BASETEN_API_KEY"], oc::protocol(), Compatibility::default()),
         "digitalocean" => {
@@ -615,7 +615,7 @@ fn cohere(model_id: &str, s: &mut Settings, chat: bool) -> Result<LanguageModel>
         let route = d.apply(route).base_url(Some(base.unwrap_or_else(|| "https://api.cohere.ai/compatibility/v1".into()))).auth(auth);
         return Ok(with_compat(
             model(route, model_id)?,
-            compat(json!({"maxTokensField": "max_tokens", "supportsStore": false, "supportsUsageInStreaming": true, "reasoningField": "reasoning_content", "supportsStrictMode": false})),
+            compat(json!({"maxTokensField": "max_tokens", "reasoningField": "reasoning_content", "supportsStrictMode": false})),
         ));
     }
     let route = d.apply(cohere_chat::route()).base_url(Some(base.unwrap_or_else(|| cohere_chat::DEFAULT_BASE_URL.into()))).auth(auth);
@@ -707,7 +707,7 @@ fn moonshot(model_id: &str, s: &mut Settings, name: &str) -> Result<LanguageMode
             let route = chat_route("moonshot-chat", "moonshotai", "moonshot", Some("https://api.moonshot.ai/v1"), Arc::new(wrappers::MoonshotChat));
             Ok(with_compat(
                 model(d.apply(route).base_url(base).auth(auth), model_id)?,
-                compat(json!({"maxTokensField": "max_tokens", "supportsStore": false, "supportsStrictMode": false, "supportsPromptCacheKey": true, "sanitizer": "moonshot", "reasoningField": "reasoning_content"})),
+                compat(json!({"maxTokensField": "max_tokens", "supportsStrictMode": false, "supportsPromptCacheKey": true, "sanitizer": "moonshot", "reasoningField": "reasoning_content"})),
             ))
         }
     }
@@ -722,7 +722,7 @@ fn minimax(model_id: &str, s: &mut Settings, name: &str) -> Result<LanguageModel
     match name {
         "minimax/chat" => {
             let route = chat_route("minimax-chat", "minimax", "minimax", Some("https://api.minimax.io/v1"), Arc::new(wrappers::MinimaxChat));
-            Ok(with_compat(model(d.apply(route).base_url(base).auth(auth), model_id)?, compat(json!({"supportsStore": false, "supportsStrictMode": false}))))
+            Ok(with_compat(model(d.apply(route).base_url(base).auth(auth), model_id)?, compat(json!({"supportsStrictMode": false}))))
         }
         "minimax/responses" => {
             let route = responses_route("minimax-responses", "minimax", "minimax", Some("https://api.minimax.io/v1"), orp::protocol());
@@ -748,7 +748,7 @@ fn meta(model_id: &str, s: &mut Settings, name: &str) -> Result<LanguageModel> {
             let route = chat_route("meta-chat", "meta", "meta", None, oc::protocol());
             Ok(with_compat(
                 model(d.apply(route).base_url(Some(base)).auth(auth), model_id)?,
-                compat(json!({"maxTokensField": "max_completion_tokens", "supportsStore": false, "supportsPromptCacheKey": true})),
+                compat(json!({"maxTokensField": "max_completion_tokens", "supportsPromptCacheKey": true})),
             ))
         }
         "meta/messages" => {

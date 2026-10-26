@@ -5,7 +5,7 @@
 //! schema-encoded upstream output key for key.
 
 use crate::json::Object;
-use crate::types::{Compatibility, HttpOptions, HttpTimeout, DEFAULT_HTTP_TIMEOUT_MS};
+use crate::types::{Compatibility, HttpOptions, HttpTimeout, RequestEncoding, DEFAULT_CHUNK_TIMEOUT_MS as HTTP_CHUNK_TIMEOUT_MS, DEFAULT_HTTP_TIMEOUT_MS};
 use indexmap::IndexMap;
 use oc_schema::types::ModelRef;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -504,7 +504,7 @@ pub fn merge_headers(base: Option<&HeaderMap>, overlay: Option<&HeaderMap>) -> O
 }
 
 /// Settings consumed by Core; native packages never receive them.
-pub const CORE_KEYS: &[&str] = &["chunkTimeout", "compaction", "fetch", "headerTimeout", "timeout", "transport"];
+pub const CORE_KEYS: &[&str] = &["chunkTimeout", "compaction", "encoding", "fetch", "headerTimeout", "timeout", "transport"];
 /// Provider-only settings that models do not inherit.
 pub const PROVIDER_ONLY_KEYS: &[&str] = &["chunkTimeout", "headerTimeout", "timeout", "transport"];
 
@@ -522,22 +522,30 @@ pub fn model_settings(settings: Option<&Object>) -> Option<Object> {
     settings.map(|s| omit(s, PROVIDER_ONLY_KEYS))
 }
 
-/// `Provider.DEFAULT_TIMEOUT_MS`.
+/// `Provider.DEFAULT_TIMEOUT_MS`: applied to `headerTimeout` when settings leave it unset or invalid.
 pub const DEFAULT_TIMEOUT_MS: f64 = DEFAULT_HTTP_TIMEOUT_MS;
+
+/// `Provider.DEFAULT_CHUNK_TIMEOUT_MS`: applied to `chunkTimeout` when settings leave it unset or invalid.
+pub const DEFAULT_CHUNK_TIMEOUT_MS: f64 = HTTP_CHUNK_TIMEOUT_MS;
 
 /// `Provider.timeout`: one timeout setting; invalid values are dropped.
 pub fn timeout(value: Option<&Value>) -> Option<HttpTimeout> {
     value.and_then(HttpTimeout::from_value)
 }
 
-/// `Provider.timeouts`: `{timeout?, headerTimeout ?? 300000, chunkTimeout ?? 300000}`.
+/// `Provider.timeouts`: `{timeout?, headerTimeout ?? 300000, chunkTimeout ?? 900000}`.
 pub fn timeouts(settings: &Object) -> HttpOptions {
     HttpOptions {
         timeout: timeout(settings.get("timeout")),
         header_timeout: Some(timeout(settings.get("headerTimeout")).unwrap_or(HttpTimeout::Millis(DEFAULT_TIMEOUT_MS))),
-        chunk_timeout: Some(timeout(settings.get("chunkTimeout")).unwrap_or(HttpTimeout::Millis(DEFAULT_TIMEOUT_MS))),
+        chunk_timeout: Some(timeout(settings.get("chunkTimeout")).unwrap_or(HttpTimeout::Millis(DEFAULT_CHUNK_TIMEOUT_MS))),
         ..Default::default()
     }
+}
+
+/// `Provider.encoding`: request body encoding from provider or model settings; invalid values are dropped.
+pub fn encoding(settings: &Object) -> Option<RequestEncoding> {
+    settings.get("encoding").and_then(Value::as_str).and_then(RequestEncoding::parse)
 }
 
 /// Convert a header map to a JSON object (for `settings.headers`).

@@ -170,7 +170,7 @@ pub fn session_error_type(error: &AIError) -> &'static str {
     match &error.kind {
         ErrorKind::RateLimit { .. } => "provider.rate-limit",
         ErrorKind::Authentication => "provider.auth",
-        ErrorKind::QuotaExceeded => "provider.quota",
+        ErrorKind::QuotaExceeded { .. } => "provider.quota",
         ErrorKind::ContentPolicy => "provider.content-filter",
         ErrorKind::Transport { .. } => "provider.transport",
         ErrorKind::ProviderInternal { .. } => "provider.internal",

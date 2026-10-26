@@ -49,6 +49,8 @@ pub trait StreamParser: Send {
     fn on_halt(&mut self) -> Result<Vec<LLMEvent>, AIError> {
         Ok(vec![])
     }
+    /// The transport starts another request for the same response (Gemini continuation).
+    fn next_request(&mut self) {}
 }
 
 /// The semantic API contract of one model server family.

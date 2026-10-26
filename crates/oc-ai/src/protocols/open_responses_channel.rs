@@ -139,16 +139,11 @@ fn event_error(route: &str, message: impl Into<String>, frame: &str) -> AIError 
     AIError::invalid_output(route, message).with_body(frame)
 }
 
-/// `OpenResponses.decodeChannelEvent`: one JSON frame; a bare `{error}` envelope reads as an `error`
-/// event. Returns `None` when the frame is not an Open Responses event.
+/// `OpenResponses.decodeChannelEvent`: one JSON frame through the event schema; an untyped frame
+/// reads as an `error` event when it carries one and is ignored otherwise. Returns `None` when the
+/// frame is not an Open Responses event.
 pub fn decode_channel_event(frame: &str) -> Option<Value> {
-    let mut value: Value = serde_json::from_str(frame).ok()?;
-    if let Value::Object(o) = &mut value
-        && !o.contains_key("type")
-        && o.get("error").is_some_and(|e| !e.is_null())
-    {
-        o.insert("type".into(), Value::String("error".into()));
-    }
+    let value = super::open_responses::decode_event(serde_json::from_str(frame).ok()?);
     valid_event(&value).then_some(value)
 }
 

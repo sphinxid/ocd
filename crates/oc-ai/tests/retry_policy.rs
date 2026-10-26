@@ -123,7 +123,7 @@ fn session_error_mapping() {
     let cases = [
         (rate_limit(None), "provider.rate-limit"),
         (AIError::authentication("x"), "provider.auth"),
-        (AIError::new(ErrorKind::QuotaExceeded, "x"), "provider.quota"),
+        (AIError::new(ErrorKind::QuotaExceeded { retry_after_ms: None }, "x"), "provider.quota"),
         (AIError::new(ErrorKind::ContentPolicy, "x"), "provider.content-filter"),
         (timeout(), "provider.transport"),
         (AIError::provider_internal("x"), "provider.internal"),
@@ -140,7 +140,7 @@ fn session_error_mapping() {
     for (error, expected) in cases {
         assert_eq!(session_error_type(&error), expected);
     }
-    let error = AIError::new(ErrorKind::QuotaExceeded, "Provider request failed with HTTP 429")
+    let error = AIError::new(ErrorKind::QuotaExceeded { retry_after_ms: None }, "Provider request failed with HTTP 429")
         .with_body(r#"{"error":{"code":"subscription_sharing_usage_limit_exceeded"}}"#)
         .with_http(Some(HttpContext { url: "u".into(), status: 429, headers: IndexMap::new() }));
     assert_eq!(

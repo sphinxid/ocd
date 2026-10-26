@@ -98,6 +98,12 @@ impl StreamDriver {
         Ok(())
     }
 
+    /// The transport starts another request for the same response: the parser keeps its state
+    /// (`NextRequest`), the next response body gets a fresh framer.
+    pub fn next_request(&mut self) {
+        self.parser.next_request();
+    }
+
     /// Feed one already-framed frame (WebSocket text frames).
     pub fn push_frame(&mut self, frame: Frame) -> Result<Vec<LLMEvent>, AIError> {
         let mut out = vec![];
@@ -261,6 +267,7 @@ impl Client {
             let parts = transport::json_request_parts(&resolved, body.clone()).await?;
             let mut prepared = parts.clone();
             prepared.headers.insert("content-type".into(), "application/json".into());
+            prepared.encoding = resolved.http.as_ref().and_then(|h| h.encoding);
             for m in &self.middleware {
                 m.on_request(&resolved, &mut prepared).await?;
             }
@@ -277,6 +284,9 @@ impl Client {
     }
 
     async fn http_stream(&self, compiled: Compiled, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMStream, AIError> {
+        if compiled.request.model.route.continuation {
+            return self.continued_stream(compiled, cancel, hook).await;
+        }
         let timeouts = Timeouts::from_request(&compiled.request);
         let url = compiled.prepared.url.clone();
         let started = tokio::time::Instant::now();
@@ -307,6 +317,103 @@ impl Client {
             if let Some(e) = failure { yield Err(e); }
         };
         Ok(Box::pin(stream))
+    }
+
+    /// `Gemini.transport`: SSE that continues responses Gemini splits across requests. Chunks carry
+    /// `continuationToken` checkpoints, and a request that reaches its output cap finishes with
+    /// `CONTINUATION`. The transport resends the original body with the latest token, which also
+    /// resumes a request that ended or dropped (not timed out) before finishing.
+    async fn continued_stream(&self, compiled: Compiled, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMStream, AIError> {
+        const CONTINUATION: &str = "CONTINUATION";
+        let timeouts = Timeouts::from_request(&compiled.request);
+        let url = compiled.prepared.url.clone();
+        let started = tokio::time::Instant::now();
+        let first = tokio::select! {
+            _ = cancel.cancelled() => {
+                return Err(AIError::transport(TransportOperation::Request, "Request aborted", Some("Aborted"), Some(&url)));
+            }
+            result = transport::execute_with(&self.http, &compiled.prepared, timeouts, hook.as_deref()) => result?,
+        };
+        let mut driver = StreamDriver::new(&compiled.request);
+        driver.http = Some(first.http.clone());
+        let label = route_label(&compiled.request);
+        let client = self.clone();
+        let stream = async_stream::stream! {
+            let mut execution = first;
+            let mut started = started;
+            loop {
+                let mut framer = Framer::new(&compiled.request.model.route.framing);
+                let mut body = body_stream(execution, timeouts, started, cancel.clone());
+                let mut token: Option<String> = None;
+                let mut finish_reason: Option<String> = None;
+                let mut dropped: Option<AIError> = None;
+                loop {
+                    let (frames, end) = match body.next().await {
+                        None => match framer.finish() {
+                            Ok(frames) => (frames, true),
+                            Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
+                        },
+                        // A connection failure may resume; a timeout keeps its meaning and ends the response.
+                        Some(Err(e)) if matches!(&e.kind, crate::error::ErrorKind::Transport { code, .. } if !matches!(code.as_deref(), Some("Timeout" | "Aborted"))) => {
+                            dropped = Some(e);
+                            break;
+                        }
+                        Some(Err(e)) => { yield Err(e.with_http(driver.http.clone())); return; }
+                        Some(Ok(bytes)) => match framer.push(&bytes) {
+                            Ok(frames) => (frames, false),
+                            Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
+                        },
+                    };
+                    for frame in frames {
+                        observe_checkpoint(&frame, &mut token, &mut finish_reason);
+                        match driver.push_frame(frame) {
+                            Ok(events) => for e in events { yield Ok(e); },
+                            Err(e) => { yield Err(e); return; }
+                        }
+                    }
+                    if end { break; }
+                }
+                if token.is_some() && (finish_reason.is_none() || finish_reason.as_deref() == Some(CONTINUATION)) {
+                    driver.next_request();
+                    let mut body = compiled.body.clone();
+                    if let Some(o) = body.as_object_mut() {
+                        o.insert("continuationToken".into(), serde_json::Value::String(token.unwrap_or_default()));
+                    }
+                    let prepared = match client.prepare(&compiled.request, body).await {
+                        Ok(prepared) => prepared,
+                        Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
+                    };
+                    started = tokio::time::Instant::now();
+                    let next = tokio::select! {
+                        _ = cancel.cancelled() => Err(AIError::transport(TransportOperation::Request, "Request aborted", Some("Aborted"), Some(&prepared.url))),
+                        result = transport::execute_with(&client.http, &prepared, timeouts, hook.as_deref()) => result,
+                    };
+                    match next {
+                        Ok(next) => { execution = next; continue; }
+                        Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
+                    }
+                }
+                if let Some(e) = dropped { yield Err(e.with_http(driver.http.clone())); return; }
+                if finish_reason.as_deref() == Some(CONTINUATION) {
+                    yield Err(AIError::invalid_output(&label, "Gemini continued the response without a token").with_http(driver.http.clone()));
+                    return;
+                }
+                break;
+            }
+            let (events, failure) = driver.finish_events();
+            for e in events { yield Ok(e); }
+            if let Some(e) = failure { yield Err(e); }
+        };
+        Ok(Box::pin(stream))
+    }
+
+    /// `jsonRequestParts` + `jsonPost` and the client middleware for a body the client builds itself.
+    async fn prepare(&self, request: &LLMRequest, body: serde_json::Value) -> Result<PreparedRequest, AIError> {
+        let mut prepared = transport::prepare_json(request, body).await?;
+        for m in &self.middleware {
+            m.on_request(request, &mut prepared).await?;
+        }
+        Ok(prepared)
     }
 
     /// The channel half of `OpenResponsesChannel.transport.execute`: the executor carries the exchange,
@@ -397,6 +504,50 @@ pub struct StreamOptions {
     pub http: Option<Arc<dyn HttpHook>>,
     /// The executor that carries the call over a route's WebSocket channel.
     pub web_socket: Option<Arc<dyn ChannelExecutor>>,
+}
+
+/// `GeminiCheckpoint`: the first candidate's `continuationToken` and `finishReason` of one frame. A
+/// finish without a token clears the token; a frame that does not decode leaves both unchanged.
+fn observe_checkpoint(frame: &Frame, token: &mut Option<String>, finish_reason: &mut Option<String>) {
+    use serde_json::Value;
+    let parsed;
+    let event = match frame {
+        Frame::Json(value) => value,
+        Frame::Text(text) => match serde_json::from_str::<Value>(text) {
+            Ok(value) => {
+                parsed = value;
+                &parsed
+            }
+            Err(_) => return,
+        },
+    };
+    let nullable_string = |v: Option<&Value>| match v {
+        None | Some(Value::Null) => Some(None),
+        Some(Value::String(s)) => Some(Some(s.clone())),
+        Some(_) => None,
+    };
+    let candidates = match event.get("candidates") {
+        Some(Value::Array(candidates)) => candidates,
+        _ => return,
+    };
+    // Every candidate must decode for the checkpoint to decode.
+    let mut decoded = vec![];
+    for candidate in candidates {
+        let Some(o) = candidate.as_object() else { return };
+        let (Some(reason), Some(continuation)) = (nullable_string(o.get("finishReason")), nullable_string(o.get("continuationToken"))) else {
+            return;
+        };
+        decoded.push((reason, continuation));
+    }
+    let Some((reason, continuation)) = decoded.into_iter().next() else { return };
+    *token = match continuation {
+        Some(t) => Some(t),
+        None if reason.as_deref().is_some_and(|r| !r.is_empty()) => None,
+        None => token.take(),
+    };
+    if let Some(reason) = reason {
+        *finish_reason = Some(reason);
+    }
 }
 
 /// The response body with the chunk timeout, the whole-request deadline and cancellation applied.

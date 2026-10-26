@@ -107,7 +107,6 @@ pub fn zai_protocol() -> Arc<dyn Protocol> {
 pub fn zai_compatibility() -> Compatibility {
     Compatibility {
         max_tokens_field: Some("max_tokens".into()),
-        supports_store: Some(false),
         supports_strict_mode: Some(false),
         reasoning_field: Some("reasoning_content".into()),
         zai_tool_stream: Some(false),
@@ -177,7 +176,6 @@ pub fn alibaba_protocol() -> Arc<dyn Protocol> {
 pub fn alibaba_compatibility() -> Compatibility {
     Compatibility {
         max_tokens_field: Some("max_completion_tokens".into()),
-        supports_store: Some(false),
         supports_strict_mode: Some(false),
         reasoning_field: Some("reasoning_content".into()),
         zai_tool_stream: Some(false),
@@ -324,7 +322,6 @@ pub fn venice_protocol() -> Arc<dyn Protocol> {
 pub fn venice_compatibility() -> Compatibility {
     Compatibility {
         max_tokens_field: Some("max_completion_tokens".into()),
-        supports_store: Some(false),
         supports_prompt_cache_key: Some(true),
         ..Default::default()
     }

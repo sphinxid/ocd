@@ -33,6 +33,61 @@ pub fn finalize(fields: Fields) -> Value {
     Value::Object(fields.into_iter().filter_map(|(k, v)| v.map(|v| (k, v))).collect())
 }
 
+/// Remove the keys whose value is `null` (`optionalNullish`: an explicit `null` means absent).
+fn drop_nulls(o: &mut Object, keys: &[&str]) {
+    for key in keys {
+        if o.get(*key).is_some_and(Value::is_null) {
+            o.shift_remove(*key);
+        }
+    }
+}
+
+/// `lenient(Schema.Number)`: a malformed value decodes as absent.
+fn drop_non_numbers(o: &mut Object, keys: &[&str]) {
+    for key in keys {
+        if o.get(*key).is_some_and(|v| !v.is_number()) {
+            o.shift_remove(*key);
+        }
+    }
+}
+
+fn decode_stream_item(item: &mut Value) {
+    if let Some(o) = item.as_object_mut() {
+        drop_nulls(o, &["id", "call_id", "name", "namespace", "arguments"]);
+    }
+}
+
+/// The decode half of the `OpenResponses.Event` schema: untyped frames become `ignored` (or `error`
+/// when they carry one), `null` in the nullish fields reads as absent, and malformed usage token
+/// counts are dropped. Shared by the SSE parser and the WebSocket channel.
+pub fn decode_event(value: Value) -> Value {
+    let mut value = shared::with_untyped_frame(value);
+    let Some(o) = value.as_object_mut() else { return value };
+    drop_nulls(o, &["delta", "arguments", "text", "output_index", "summary_index", "response"]);
+    if let Some(item) = o.get_mut("item") {
+        decode_stream_item(item);
+    }
+    if let Some(r) = o.get_mut("response").and_then(Value::as_object_mut) {
+        drop_nulls(r, &["id", "output"]);
+        if let Some(d) = r.get_mut("incomplete_details").and_then(Value::as_object_mut) {
+            drop_nulls(d, &["reason"]);
+        }
+        if let Some(Value::Array(items)) = r.get_mut("output") {
+            items.iter_mut().for_each(decode_stream_item);
+        }
+        if let Some(u) = r.get_mut("usage").and_then(Value::as_object_mut) {
+            drop_non_numbers(u, &["input_tokens", "output_tokens", "total_tokens"]);
+            if let Some(d) = u.get_mut("input_tokens_details").and_then(Value::as_object_mut) {
+                drop_non_numbers(d, &["cached_tokens", "cache_write_tokens"]);
+            }
+            if let Some(d) = u.get_mut("output_tokens_details").and_then(Value::as_object_mut) {
+                drop_non_numbers(d, &["reasoning_tokens"]);
+            }
+        }
+    }
+    value
+}
+
 /// A provider-executed tool item handled on `response.output_item.done`.
 #[derive(Clone)]
 pub struct HostedTool {
@@ -1386,7 +1441,7 @@ impl ResponsesParser {
 
 impl StreamParser for ResponsesParser {
     fn step(&mut self, frame: &Frame) -> Result<Step, AIError> {
-        let event = decode_json_frame(&self.id, &self.label, frame)?;
+        let event = decode_event(decode_json_frame(&self.id, &self.label, frame)?);
         if !event.get("type").map(Value::is_string).unwrap_or(false) {
             return Err(AIError::invalid_output(&self.id, format!("Invalid {} stream event", self.label)).with_body(encode(&event)));
         }

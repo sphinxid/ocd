@@ -3,7 +3,7 @@
 use super::registry::Catalog;
 use super::types::{
     headers_to_object, is_aisdk, merge_headers, merge_overlay, model_settings, native_settings, omit, package_name,
-    timeout, timeouts, Activation, Capabilities, Cost, Limit, ModelInfo, ProviderInfo, BUILTIN_PACKAGES,
+    encoding, timeout, timeouts, Activation, Capabilities, Cost, Limit, ModelInfo, ProviderInfo, BUILTIN_PACKAGES,
 };
 use crate::credentials::CredentialValue;
 use crate::error::ProviderConfigurationError;
@@ -378,7 +378,10 @@ pub fn from_catalog_model(
         runtime = runtime.with_compatibility(compatibility.clone());
     }
     let defaults = runtime.defaults.clone().unwrap_or_default();
-    let http = HttpOptions::merge(&[defaults.http.as_ref(), Some(&timeouts(&configured))]);
+    // Timeouts and body encoding are transport policy, so they land on the route's HTTP defaults
+    // instead of package settings.
+    let transport = HttpOptions { encoding: encoding(&configured), ..timeouts(&configured) };
+    let http = HttpOptions::merge(&[defaults.http.as_ref(), Some(&transport)]);
     let runtime = runtime.with_defaults(ModelDefaults { http, ..defaults });
 
     if let Some(base_url) = runtime.route.endpoint.base_url.as_deref() {

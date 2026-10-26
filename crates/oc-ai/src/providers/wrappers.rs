@@ -117,71 +117,68 @@ impl Protocol for MinimaxChat {
 
 pub struct OpenRouter;
 
-const OPENROUTER_HANDLED: &[&str] = &["usage", "models", "provider", "plugins", "web_search_options", "debug", "user", "reasoning", "promptCacheKey"];
+/// The provider options OpenRouter decodes itself (`Options.fields`); everything else except
+/// `promptCacheKey` passes through.
+const OPENROUTER_KNOWN: &[&str] = &["usage", "models", "provider", "plugins", "web_search_options", "debug", "user", "reasoning"];
+
+/// Project OpenRouter's reasoning fields onto a lowered assistant message.
+fn openrouter_assistant(source: &Message, o: &mut Object) {
+    let reasoning: String =
+        source.content.iter().filter_map(|p| if let ContentPart::Reasoning(r) = p { Some(r.text.as_str()) } else { None }).collect();
+    let details = o.get("reasoning_details").and_then(Value::as_array).cloned();
+    o.shift_remove("reasoning_content");
+    o.shift_remove("reasoning_text");
+    let keep = !reasoning.is_empty() && details.as_ref().map(|d| !d.is_empty()).unwrap_or(false);
+    if keep {
+        o.insert("reasoning".into(), json!(reasoning));
+    } else {
+        o.shift_remove("reasoning");
+    }
+    match details {
+        Some(d) => {
+            o.insert("reasoning_details".into(), Value::Array(d));
+        }
+        None => {
+            o.shift_remove("reasoning_details");
+        }
+    }
+}
 
 impl Protocol for OpenRouter {
     fn id(&self) -> &str {
         "openrouter-chat"
     }
     fn body(&self, request: &LLMRequest) -> Result<Value, AIError> {
-        let mut f = body_fields(request, &ChatOptions { cache_control: true, assistant: None })?;
-        let sources: Vec<&Message> = request.messages.iter().filter(|m| m.role == Role::Assistant).collect();
-        let mut index = 0;
-        if let Some(Some(Value::Array(messages))) = f.get_mut("messages") {
-            for message in messages.iter_mut() {
-                if message.get("role").and_then(Value::as_str) != Some("assistant") {
-                    continue;
-                }
-                let source = sources.get(index).copied();
-                index += 1;
-                let reasoning: String = source
-                    .map(|s| s.content.iter().filter_map(|p| if let ContentPart::Reasoning(r) = p { Some(r.text.as_str()) } else { None }).collect())
-                    .unwrap_or_default();
-                let o = message.as_object_mut().unwrap();
-                let details = o.get("reasoning_details").and_then(Value::as_array).cloned();
-                o.shift_remove("reasoning_content");
-                o.shift_remove("reasoning_text");
-                let keep = !reasoning.is_empty() && details.as_ref().map(|d| !d.is_empty()).unwrap_or(false);
-                if keep {
-                    o.insert("reasoning".into(), json!(reasoning));
-                } else {
-                    o.shift_remove("reasoning");
-                }
-                match details {
-                    Some(d) => {
-                        o.insert("reasoning_details".into(), Value::Array(d));
-                    }
-                    None => {
-                        o.shift_remove("reasoning_details");
-                    }
-                }
-            }
-        }
+        let body = body_fields(request, &ChatOptions { cache_control: true, assistant: Some(Arc::new(openrouter_assistant)) })?;
         let po = request.provider_options.clone().unwrap_or_default();
-        for (k, v) in &po {
-            if !OPENROUTER_HANDLED.contains(&k.as_str()) {
-                f.insert(k.clone(), Some(v.clone()));
-            }
+        // Pass-through options come first, so they can never override protocol fields.
+        let mut f: openai_chat::Fields = po
+            .iter()
+            .filter(|(k, _)| !OPENROUTER_KNOWN.contains(&k.as_str()) && k.as_str() != "promptCacheKey")
+            .map(|(k, v)| (k.clone(), Some(v.clone())))
+            .collect();
+        for (k, v) in body {
+            f.insert(k, v);
         }
-        match po.get("usage") {
-            None | Some(Value::Bool(true)) => {
-                f.insert("usage".into(), Some(json!({"include": true})));
-            }
-            Some(Value::Bool(false)) => {
-                f.insert("usage".into(), Some(json!({"include": false})));
-            }
-            Some(v @ Value::Object(_)) => {
-                f.insert("usage".into(), Some(v.clone()));
-            }
-            _ => {}
+        // The known options decode leniently: a malformed value is dropped.
+        let usage = match po.get("usage") {
+            None | Some(Value::Bool(true)) => Some(json!({"include": true})),
+            Some(Value::Bool(false)) => Some(json!({"include": false})),
+            Some(v @ Value::Object(_)) => Some(v.clone()),
+            _ => None,
+        };
+        if let Some(usage) = usage {
+            f.insert("usage".into(), Some(usage));
         }
+        let strings = |v: &Value| v.as_array().is_some_and(|a| a.iter().all(Value::is_string));
+        let objects = |v: &Value| v.as_array().is_some_and(|a| a.iter().all(Value::is_object));
         for (k, check) in [
-            ("models", Value::is_array as fn(&Value) -> bool),
-            ("provider", Value::is_object),
-            ("plugins", Value::is_array),
-            ("web_search_options", Value::is_object),
-            ("debug", Value::is_object),
-            ("user", Value::is_string),
+            ("models", &strings as &dyn Fn(&Value) -> bool),
+            ("provider", &Value::is_object),
+            ("plugins", &objects),
+            ("web_search_options", &Value::is_object),
+            ("debug", &Value::is_object),
+            ("user", &Value::is_string),
         ] {
             if let Some(v) = po.get(k).filter(|v| check(v)) {
                 f.insert(k.into(), Some(v.clone()));

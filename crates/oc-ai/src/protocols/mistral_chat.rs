@@ -233,8 +233,8 @@ pub fn body_fields(request: &LLMRequest) -> Result<IndexMap<String, Option<Value
     f.insert("frequency_penalty".into(), g.frequency_penalty.map(num));
     f.insert("presence_penalty".into(), g.presence_penalty.map(num));
     f.insert("stop".into(), g.stop.clone().map(|s| json!(s)));
-    let cache_none = request.cache.as_ref().map(|c| c.is_none()).unwrap_or(false);
-    f.insert("prompt_cache_key".into(), if cache_none { None } else { cache_key.or_else(|| request.prompt_cache_key.clone().map(Value::String)) });
+    let sends = super::shared::sends_prompt_cache_key(request);
+    f.insert("prompt_cache_key".into(), if sends { cache_key.or_else(|| request.prompt_cache_key.clone().map(Value::String)) } else { None });
     f.insert("safe_prompt".into(), safe_prompt);
     f.insert("document_image_limit".into(), image_limit);
     f.insert("document_page_limit".into(), page_limit);

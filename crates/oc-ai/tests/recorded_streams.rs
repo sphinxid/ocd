@@ -47,6 +47,7 @@ fn package_for(dir: &str, path: &str) -> Option<&'static str> {
         ("gemini-cache", _) => "google",
         ("anthropic-messages-cache", _) => "anthropic",
         ("bedrock-converse-cache", _) => "amazon-bedrock",
+        ("openrouter", "chat") => "openrouter",
         _ => return None,
     })
 }
@@ -59,11 +60,16 @@ fn recorded_streams_decode() {
     let mut dirs: Vec<_> = std::fs::read_dir(&root).unwrap().flatten().collect();
     dirs.sort_by_key(|d| d.file_name());
     for dir in dirs {
-        let dir_name = dir.file_name().to_string_lossy().to_string();
-        let mut files: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().collect();
-        files.sort_by_key(|f| f.file_name());
+        let entry_name = dir.file_name().to_string_lossy().to_string();
+        // Upstream keeps a few recordings at the top level (`openrouter-reasoning*.json`).
+        let (dir_name, mut files) = if dir.path().is_dir() {
+            (entry_name, std::fs::read_dir(dir.path()).unwrap().flatten().map(|f| f.path()).collect::<Vec<_>>())
+        } else {
+            (entry_name.split('-').next().unwrap_or_default().to_string(), vec![dir.path()])
+        };
+        files.sort();
         for file in files {
-            let rec = recording(&std::fs::read_to_string(file.path()).unwrap());
+            let rec = recording(&std::fs::read_to_string(&file).unwrap());
             for (i, interaction) in rec.interactions.iter().enumerate() {
                 if interaction.response.status != 200 || interaction.response.body.len() < 10 {
                     continue;
@@ -87,7 +93,7 @@ fn recorded_streams_decode() {
                 let req = LLMRequest::new(model);
                 let out = decode(&req, &interaction.response.bytes());
                 checked += 1;
-                let name = format!("{dir_name}/{}#{i}", file.file_name().to_string_lossy());
+                let name = format!("{dir_name}/{}#{i}", file.file_name().unwrap_or_default().to_string_lossy());
                 match out.last() {
                     Some(Ok(LLMEvent::Finish { .. })) => {}
                     Some(Err(e)) => failures.push(format!("{name}: {} ({})", e.message, e.tag())),

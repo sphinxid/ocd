@@ -137,6 +137,9 @@ pub struct Route {
     /// The Open Responses WebSocket channel (`OpenResponsesChannel.transport`): used when the caller
     /// passes a channel executor (`StreamOptions.webSocket`); `None` = HTTP only.
     pub channel: Option<Arc<crate::protocols::open_responses_channel::ChannelOptions>>,
+    /// `Gemini.transport`: SSE that continues responses Gemini splits across requests
+    /// (`continuationToken` checkpoints, `CONTINUATION` finishes, resumed dropped connections).
+    pub continuation: bool,
 }
 
 impl fmt::Debug for Route {
@@ -166,6 +169,7 @@ impl Route {
             defaults: ModelDefaults::default(),
             stream: None,
             channel: None,
+            continuation: false,
         }
     }
 
@@ -222,6 +226,12 @@ impl Route {
     /// Set (or clear) the WebSocket channel transport.
     pub fn channel(mut self, channel: Option<crate::protocols::open_responses_channel::ChannelOptions>) -> Self {
         self.channel = channel.map(Arc::new);
+        self
+    }
+
+    /// Use the Gemini continuation transport.
+    pub fn continuation(mut self) -> Self {
+        self.continuation = true;
         self
     }
 

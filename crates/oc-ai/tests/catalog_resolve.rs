@@ -130,7 +130,7 @@ fn passes_flat_settings_with_headers_body_and_api_model_id() {
     let http = lm.defaults.as_ref().unwrap().http.as_ref().unwrap();
     assert_eq!(http.timeout, Some(HttpTimeout::Millis(5.0)));
     assert_eq!(http.header_timeout, Some(HttpTimeout::Millis(300_000.0)));
-    assert_eq!(http.chunk_timeout, Some(HttpTimeout::Millis(300_000.0)));
+    assert_eq!(http.chunk_timeout, Some(HttpTimeout::Millis(900_000.0)));
 }
 
 #[test]

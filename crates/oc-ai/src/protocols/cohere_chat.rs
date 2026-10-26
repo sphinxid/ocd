@@ -263,10 +263,12 @@ const EVENT_TYPES: &[&str] = &[
 impl StreamParser for CohereParser {
     fn step(&mut self, frame: &Frame) -> Result<Step, AIError> {
         let event = decode_json_frame(ADAPTER, &self.label, frame)?;
-        let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
         let invalid = || AIError::invalid_output(ADAPTER, format!("Invalid {} stream event", self.label)).with_body(encode(&event));
+        let kind = event.get("type").and_then(Value::as_str).ok_or_else(invalid)?;
+        // Cohere may add stream event types. Unknown types are ignored, while a malformed known type
+        // still fails decoding.
         if !EVENT_TYPES.contains(&kind) {
-            return Err(invalid());
+            return Ok(Step::events(vec![]));
         }
         let index = event.get("index").and_then(Value::as_i64);
         let mut events = vec![];

@@ -348,6 +348,23 @@ impl Parser {
                 let step_type = step.get("type").and_then(Value::as_str).unwrap_or("");
                 let id = index.to_string();
                 let dtype = delta["type"].as_str().unwrap();
+                // A known delta must have its fields; an unknown one fails explicitly below, so new
+                // output modalities never disappear from a successful response.
+                let is_str = |v: Option<&Value>| v.map(Value::is_string).unwrap_or(false);
+                let well_formed = match dtype {
+                    "text" => is_str(delta.get("text")),
+                    "arguments_delta" => is_str(delta.get("arguments")),
+                    "thought_signature" => is_str(delta.get("signature")),
+                    "thought_summary" => delta
+                        .get("content")
+                        .is_some_and(|c| c.get("type").and_then(Value::as_str) == Some("text") && is_str(c.get("text"))),
+                    other => {
+                        return Err(Self::err(format!("Unsupported Interactions delta: {other}"), &json!({"type": "unknown", "rawType": other})));
+                    }
+                };
+                if !well_formed {
+                    return Err(invalid());
+                }
                 match dtype {
                     "text" if step_type == "model_output" && delta.get("text").map(Value::is_string).unwrap_or(false) => {
                         self.lifecycle.text_delta(&mut events, &id, delta["text"].as_str().unwrap(), None);
@@ -387,6 +404,8 @@ impl Parser {
                     }
                 }
             }
+            // Google may add stream event types: unknown ones are ignored, while a malformed known
+            // one still fails.
             "interaction.created" | "interaction.status_update" => {}
             "error" => {
                 let raw = encode(event);
@@ -422,7 +441,7 @@ impl Parser {
                 self.completed = true;
                 return Ok(Step::terminal(events));
             }
-            _ => return Err(invalid()),
+            _ => {}
         }
         Ok(Step::events(events))
     }

@@ -90,7 +90,10 @@ pub enum ErrorKind {
         #[serde(rename = "rateLimit", skip_serializing_if = "Option::is_none")]
         rate_limit: Option<HttpRateLimitDetails>,
     },
-    QuotaExceeded,
+    QuotaExceeded {
+        #[serde(rename = "retryAfterMs", skip_serializing_if = "Option::is_none")]
+        retry_after_ms: Option<f64>,
+    },
     ContentPolicy,
     ProviderInternal {
         #[serde(rename = "retryAfterMs", skip_serializing_if = "Option::is_none")]
@@ -132,7 +135,7 @@ impl ErrorKind {
             Self::NoRoute { .. } => "NoRoute",
             Self::Authentication => "Authentication",
             Self::RateLimit { .. } => "RateLimit",
-            Self::QuotaExceeded => "QuotaExceeded",
+            Self::QuotaExceeded { .. } => "QuotaExceeded",
             Self::ContentPolicy => "ContentPolicy",
             Self::ProviderInternal { .. } => "ProviderInternal",
             Self::Transport { .. } => "Transport",
@@ -258,7 +261,8 @@ impl AIError {
         self.classification() == Some(FailureClassification::ContextOverflow)
     }
 
-    /// `retryAfterMs` for `RateLimit` / `ProviderInternal` reasons.
+    /// `retryAfterMs` for `RateLimit` / `ProviderInternal` reasons (the ones retries wait for; a
+    /// `QuotaExceeded` reason also carries it, for the session error).
     pub fn retry_after_ms(&self) -> Option<f64> {
         match &self.kind {
             ErrorKind::RateLimit { retry_after_ms, .. } | ErrorKind::ProviderInternal { retry_after_ms } => {
@@ -328,7 +332,9 @@ fn re(pattern: &str) -> Regex {
 static OVERFLOW_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     [
         r"(?i)prompt is too long",
-        r"(?i)input is too long for requested model",
+        r"(?i)input is too long for (?:the )?(?:requested|selected) model",
+        // OpenCode Go
+        r"(?i)too large for the model'?s configured input limit",
         r"(?i)exceeded this model context window limit",
         r"(?i)exceeds the context window",
         r"(?i)exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))",
@@ -350,7 +356,8 @@ static OVERFLOW_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         r"(?i)context[_ ]length[_ ]exceeded",
         r"(?i)context length is only \d+ tokens",
         r"(?i)input length.*exceeds.*context length",
-        r"(?i)prompt (?:too long|超长)",
+        // Z.ai code 1261 arrives as `Prompt too long`, `Prompt exceeds max length` or `Prompt 超长`.
+        r"(?i)prompt (?:too long|exceeds max length|超长)",
         r"(?i)too large for model with \d+ maximum context length",
         r"(?i)prompt has [\d,]+ tokens?, but the configured context size is [\d,]+ tokens?",
         r"(?i)model_context_window_exceeded",
@@ -554,7 +561,7 @@ pub fn classify_provider_failure(input: ProviderFailure) -> AIError {
         return make(ErrorKind::ContentPolicy);
     }
     if status == Some(402) || has(QUOTA_CODES) || (status == Some(429) && QUOTA_TEXT.is_match(&text)) {
-        return make(ErrorKind::QuotaExceeded);
+        return make(ErrorKind::QuotaExceeded { retry_after_ms: input.retry_after_ms });
     }
     if status == Some(401) || status == Some(403) || has(AUTH_CODES) || (status == Some(400) && AUTH_TEXT.is_match(&text)) {
         return make(ErrorKind::Authentication);
@@ -619,11 +626,16 @@ pub fn provider_error_message(body: &str) -> Option<String> {
 // HTTP failure helpers (`route/executor.ts`)
 // ---------------------------------------------------------------------------------------------
 
+/// A non-negative whole number of milliseconds (`Math.min(MAX_SAFE_INTEGER, Math.max(0, Math.ceil(ms)))`).
+fn clamp_retry_after_ms(millis: f64) -> f64 {
+    millis.ceil().max(0.0).min(9_007_199_254_740_991.0)
+}
+
 /// Parse `retry-after-ms` / `retry-after` (seconds or HTTP date) from lower-cased headers.
 pub fn retry_after_ms(headers: &IndexMap<String, String>) -> Option<f64> {
     if let Some(ms) = headers.get("retry-after-ms").and_then(|v| v.trim().parse::<f64>().ok()) {
         if ms.is_finite() {
-            return Some(ms.max(0.0));
+            return Some(clamp_retry_after_ms(ms));
         }
     }
     let value = headers.get("retry-after")?;
@@ -632,12 +644,12 @@ pub fn retry_after_ms(headers: &IndexMap<String, String>) -> Option<f64> {
     }
     if let Ok(seconds) = value.trim().parse::<f64>() {
         if seconds.is_finite() {
-            return Some((seconds * 1000.0).max(0.0));
+            return Some(clamp_retry_after_ms(seconds * 1000.0));
         }
     }
     if let Ok(date) = chrono::DateTime::parse_from_rfc2822(value.trim()) {
         let diff = date.timestamp_millis() - chrono::Utc::now().timestamp_millis();
-        return Some((diff as f64).max(0.0));
+        return Some(clamp_retry_after_ms(diff as f64));
     }
     None
 }
@@ -788,5 +800,40 @@ mod tests {
         let d = rate_limit_details(&h, retry_after_ms(&h)).unwrap();
         assert_eq!(d.retry_after_ms, Some(2000.0));
         assert_eq!(d.remaining.unwrap().get("requests").unwrap(), "0");
+    }
+
+    #[test]
+    fn overflow_messages_added_in_2_1() {
+        for message in [
+            "Prompt exceeds max length",
+            "The input is too long for the selected model.",
+            "This text request is too large for the model's configured input limit.",
+            "input is too long for requested model",
+        ] {
+            assert!(is_context_overflow(message), "{message}");
+        }
+    }
+
+    #[test]
+    fn retry_after_is_a_clamped_whole_number() {
+        let mut h = IndexMap::new();
+        h.insert("Retry-After".to_string(), "1e20".to_string());
+        let e = http_failure("Huge retry-after".into(), Some("https://example.test"), Some(429), &h, None);
+        assert!(matches!(e.kind, ErrorKind::RateLimit { retry_after_ms: Some(ms), .. } if ms == 9_007_199_254_740_991.0));
+        let mut h = IndexMap::new();
+        h.insert("retry-after-ms".to_string(), "1500.2".to_string());
+        assert_eq!(retry_after_ms(&h), Some(1501.0));
+        h.insert("retry-after-ms".to_string(), "-5".to_string());
+        assert_eq!(retry_after_ms(&h), Some(0.0));
+    }
+
+    #[test]
+    fn quota_exceeded_carries_retry_after() {
+        let mut h = IndexMap::new();
+        h.insert("retry-after".to_string(), "30".to_string());
+        let body = r#"{"error":{"code":"insufficient_quota","message":"quota"}}"#;
+        let e = http_failure("quota".into(), Some("https://example.test"), Some(429), &h, Some(body.into()));
+        assert!(matches!(e.kind, ErrorKind::QuotaExceeded { retry_after_ms: Some(ms) } if ms == 30_000.0));
+        assert_eq!(e.retry_after_ms(), None);
     }
 }

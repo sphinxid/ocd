@@ -1607,7 +1607,7 @@ impl Parser {
 
 impl StreamParser for Parser {
     fn step(&mut self, frame: &Frame) -> Result<Step, AIError> {
-        let event = decode_json_frame(ADAPTER, &self.label, frame)?;
+        let event = shared::with_untyped_frame(decode_json_frame(ADAPTER, &self.label, frame)?);
         if !event.is_object() || !event.get("type").map(Value::is_string).unwrap_or(false) {
             return Err(AIError::invalid_output(ADAPTER, format!("Invalid {} stream event", self.label)));
         }

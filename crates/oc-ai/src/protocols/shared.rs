@@ -15,9 +15,29 @@ use serde_json::Value;
 
 pub const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH: usize = 64;
 
-/// `promptCacheKey(request)`: undefined when `cache == "none"`; truncated to 64 code points.
+/// `withUntypedFrames`: an object frame without a `type` key (gateways inject them as keep-alives)
+/// decodes as an ignored event, or as an `error` event when it carries a non-null `error`. Any other
+/// value is returned unchanged for the protocol to validate.
+pub fn with_untyped_frame(mut frame: Value) -> Value {
+    if let Some(o) = frame.as_object_mut()
+        && !o.contains_key("type")
+    {
+        let kind = if o.get("error").is_some_and(|e| !e.is_null()) { "error" } else { "ignored" };
+        o.insert("type".into(), Value::String(kind.into()));
+    }
+    frame
+}
+
+/// `sendsPromptCacheKey`: body-level `prompt_cache_key` is off when caching is disabled or the model
+/// explicitly rejects the field. Header-based affinity is unaffected.
+pub fn sends_prompt_cache_key(request: &LLMRequest) -> bool {
+    !request.cache.as_ref().map(|c| c.is_none()).unwrap_or(false)
+        && request.model.compatibility.as_ref().and_then(|c| c.supports_prompt_cache_key) != Some(false)
+}
+
+/// `promptCacheKey(request)`: undefined unless [`sends_prompt_cache_key`]; truncated to 64 code points.
 pub fn prompt_cache_key(request: &LLMRequest) -> Option<String> {
-    if request.cache.as_ref().map(|c| c.is_none()).unwrap_or(false) {
+    if !sends_prompt_cache_key(request) {
         return None;
     }
     let key = request.prompt_cache_key.as_ref()?;
