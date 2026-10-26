@@ -258,6 +258,9 @@ pub struct Plugins {
     pub copilot: Arc<crate::copilot::Copilot>,
     /// The built-in OpenAI provider plugins' loaded sign-in state.
     pub openai: Arc<crate::openai::OpenAi>,
+    /// Each location's latest model catalog, for built-in hooks that look up the request's model
+    /// (`Model.Service.get` in upstream's plugins).
+    catalogs: Mutex<HashMap<String, oc_ai::catalog::Catalog>>,
     api: RwLock<Option<Arc<dyn PluginApi>>>,
     host: OnceLock<PluginHost>,
     locations: Mutex<HashMap<String, LocState>>,
@@ -291,6 +294,7 @@ impl Plugins {
             db,
             copilot: crate::copilot::Copilot::new(bus.clone(), version),
             openai: Arc::new(crate::openai::OpenAi::new()),
+            catalogs: Mutex::new(HashMap::new()),
             bus,
             // `App.Info` of the server (`App.configured(options.app)`: the CLI names itself "cli").
             app_info: json!({ "name": oc_util::version::ARTIFACT, "version": version, "channel": oc_util::version::CHANNEL }),
@@ -748,6 +752,19 @@ impl Plugins {
     /// The server version (`App.Info.version`).
     pub fn version(&self) -> &str {
         self.app_info["version"].as_str().unwrap_or_default()
+    }
+
+    /// Records the catalog location `key` serves (`None`: the location closed).
+    pub fn set_catalog(&self, key: &str, catalog: Option<oc_ai::catalog::Catalog>) {
+        match catalog {
+            Some(catalog) => self.catalogs.lock().insert(key.to_string(), catalog),
+            None => self.catalogs.lock().remove(key),
+        };
+    }
+
+    /// The latest catalog of location `key`.
+    pub fn catalog(&self, key: &str) -> Option<oc_ai::catalog::Catalog> {
+        self.catalogs.lock().get(key).cloned()
     }
 
     /// Whether the built-in GitHub Copilot plugin runs at the location.

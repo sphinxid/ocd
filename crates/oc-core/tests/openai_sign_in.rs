@@ -265,6 +265,36 @@ async fn api_keys_keep_the_full_catalog_and_retries_but_drop_the_openai_output_l
     assert!(!plugin_request::has_retry_hook(&env.plugins, KEY, "openai"));
 }
 
+/// The verbosity plugin (`verbosity.ts`) on requests: known OpenAI Responses models answer with low
+/// verbosity on every request kind; other models are left alone.
+#[tokio::test]
+async fn known_openai_responses_models_default_to_low_text_verbosity() {
+    let env = setup();
+    let config = entries(json!({
+        "providers": {
+            "mock": {
+                "package": "@opencode/ai/providers/openai-compatible",
+                "settings": {"baseURL": "http://127.0.0.1:9/v1", "apiKey": "test"},
+                "models": {"m1": {}}
+            },
+            "openai": {"models": {"gpt-5.5": {"settings": {"textVerbosity": "medium"}}}}
+        }
+    }));
+    create(&env, CredentialValue::key("sk-fake")).await;
+    for kind in [Kind::Primary, Kind::Compaction, Kind::Generate, Kind::Title] {
+        let req = request(&env, &config, "openai", "gpt-6.1-sol", kind).await;
+        assert_eq!(req.provider_options.as_ref().and_then(|o| o.get("textVerbosity")), Some(&json!("low")), "{kind:?}");
+        let body = oc_ai::testing::compile_body(&req).await.unwrap();
+        assert_eq!(body["text"]["verbosity"], "low", "{kind:?}");
+    }
+    for (provider, model) in [("openai", "gpt-4.1"), ("openai", "gpt-5.5"), ("mock", "m1")] {
+        let req = request(&env, &config, provider, model, Kind::Primary).await;
+        assert!(req.provider_options.as_ref().is_none_or(|o| !o.contains_key("textVerbosity")), "{provider}/{model}");
+    }
+    let configured = request(&env, &config, "openai", "gpt-5.5", Kind::Primary).await;
+    assert_eq!(oc_ai::testing::compile_body(&configured).await.unwrap()["text"]["verbosity"], "medium");
+}
+
 #[tokio::test]
 async fn switches_between_token_sharing_and_codex_credentials_without_mixing_their_routes() {
     let env = setup();

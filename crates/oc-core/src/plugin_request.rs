@@ -85,6 +85,7 @@ pub async fn shape(
     let mut shaped = Shaped::default();
     let hook = kind.hook();
     omit_openai_output_limit(plugins, key, kind, model, req);
+    default_text_verbosity(plugins, key, model, req);
     if plugins.has_hook(key, hook, Some(&model.provider_id)) {
         let mut event = Map::new();
         event.insert("sessionID".into(), json!(session_id));
@@ -99,6 +100,10 @@ pub async fn shape(
             && let Some(max) = req.generation.as_ref().and_then(|g| g.max_tokens)
         {
             options.insert("maxTokens".into(), json!(max));
+        }
+        // Options an earlier built-in hook set (`textVerbosity`).
+        for (k, v) in req.provider_options.iter().flatten() {
+            options.insert(k.clone(), v.clone());
         }
         event.insert("options".into(), Value::Object(options));
         // A result an internal hook already set (the Copilot utility title).
@@ -131,9 +136,7 @@ pub async fn shape(
         let generation: Map<String, Value> = options.iter().filter(|(k, _)| GENERATION_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
         let provider: Map<String, Value> = options.iter().filter(|(k, _)| !GENERATION_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
         req.generation = if generation.is_empty() { None } else { serde_json::from_value::<GenerationOptions>(Value::Object(generation)).ok() };
-        if !provider.is_empty() {
-            req.provider_options = Some(provider);
-        }
+        req.provider_options = if provider.is_empty() { None } else { Some(provider) };
         if kind != Kind::Title {
             // Match by identity first (an unchanged definition moved to a new key), then by key;
             // entries matching neither were invented by a hook and are dropped.
@@ -184,6 +187,22 @@ fn omit_openai_output_limit(plugins: &Arc<Plugins>, key: &str, kind: Kind, model
         if generation.is_empty() {
             req.generation = None;
         }
+    }
+}
+
+/// The verbosity plugin's `session.context` / `session.compaction` / `session.generate` /
+/// `session.title` hook (verbosity.ts): known OpenAI Responses models default to
+/// `textVerbosity: "low"`.
+fn default_text_verbosity(plugins: &Arc<Plugins>, key: &str, model: &ModelRef, req: &mut LLMRequest) {
+    if req.provider_options.as_ref().is_some_and(|o| o.get("textVerbosity").is_some_and(|v| !v.is_null()))
+        || !plugins.builtin_enabled(key, crate::verbosity::PLUGIN_ID)
+    {
+        return;
+    }
+    let Some(catalog) = plugins.catalog(key) else { return };
+    let Some(info) = catalog.model(&model.provider_id, &model.id) else { return };
+    if crate::verbosity::defaults_to_low(info, model.variant.as_deref()) {
+        req.provider_options.get_or_insert_default().insert("textVerbosity".into(), json!("low"));
     }
 }
 

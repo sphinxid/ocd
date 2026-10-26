@@ -349,6 +349,7 @@ impl Models {
         self.by_location.lock().remove(key);
         if let Some(plugins) = self.plugins.read().as_ref() {
             plugins.openai.remove(key);
+            plugins.set_catalog(key, None);
         }
     }
 
@@ -458,6 +459,15 @@ impl Models {
     /// [`Models::catalog`] of the plugin location `key`: plugin `provider` and `model` transforms
     /// run after the internal provider plugins, before the configured-provider plugin.
     pub async fn catalog_at(&self, entries: &[Entry], key: Option<&str>) -> anyhow::Result<Catalog> {
+        let catalog = self.build_catalog_at(entries, key).await?;
+        // Built-in session hooks look up the request's model in the location's catalog.
+        if let (Some(plugins), Some(key)) = (self.plugins.read().clone(), key) {
+            plugins.set_catalog(key, Some(catalog.clone()));
+        }
+        Ok(catalog)
+    }
+
+    async fn build_catalog_at(&self, entries: &[Entry], key: Option<&str>) -> anyhow::Result<Catalog> {
         let snapshots = self.models_dev.get().await.map_err(|e| anyhow::anyhow!("{e}"))?;
         let sections: Vec<Value> = entries
             .iter()
