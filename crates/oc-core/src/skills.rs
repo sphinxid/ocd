@@ -55,7 +55,14 @@ fn report_content(version: &str, channel: &str, plugins: &[String]) -> String {
         String::new(),
         format!("- opencode version: {version}"),
         format!("- install/channel: {channel}"),
-        format!("- OS: {} {} ({} {})", os_type(), os_release(), crate::instructions::js_platform(), arch()),
+        format!(
+            "- OS: {} {} ({} {}{})",
+            os_type(),
+            os_release(),
+            crate::instructions::js_platform(),
+            arch(),
+            if emulated_on_arm64() { ", emulated on ARM64" } else { "" }
+        ),
         format!("- Terminal: {terminal}"),
         format!("- Shell: {shell}"),
         format!("- Active plugins: {}", if sorted.is_empty() { "None found in config".to_string() } else { sorted.join(", ") }),
@@ -118,4 +125,10 @@ pub async fn with_sources(skills: Vec<Skill>, location: &Location, global: &oc_u
         }
     }
     out.into_values().collect()
+}
+
+/// Under emulation on Windows ARM64, `os.arch()` reads x64 but `PROCESSOR_IDENTIFIER` still names the
+/// ARM host.
+fn emulated_on_arm64() -> bool {
+    cfg!(windows) && arch() == "x64" && std::env::var("PROCESSOR_IDENTIFIER").is_ok_and(|p| p.starts_with("ARM"))
 }

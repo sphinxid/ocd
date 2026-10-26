@@ -707,6 +707,33 @@ fn skill_sources_and_scanning() {
     assert_eq!(compat.len(), 1);
 }
 
+// SkillScan (config/plugin/skill-scan.ts): bounded breadth-first discovery.
+#[test]
+fn skill_scan_is_bounded() {
+    let tmp = Tmp::new();
+    let root = tmp.mkdir("skills");
+    tmp.write("skills/top.md", "top");
+    tmp.write("skills/notes.txt", "x");
+    tmp.write("skills/a/SKILL.md", "a");
+    // A directory holding SKILL.md is one skill: nothing below it is scanned.
+    tmp.write("skills/a/nested/SKILL.md", "nested");
+    tmp.write("skills/a/readme.md", "not a skill");
+    tmp.write("skills/b/c/d/e/f/SKILL.md", "depth 5");
+    tmp.write("skills/b/c/d/e/f/g/h/SKILL.md", "depth 7");
+    tmp.write("skills/node_modules/pkg/SKILL.md", "ignored");
+    tmp.write("skills/.hidden/SKILL.md", "ignored");
+    tmp.write("skills/venv/x/SKILL.md", "ignored");
+    tmp.write("skills/deep/notes.md", "nested markdown is not a skill");
+    let files: Vec<String> = sources::scan_skill_files(&root)
+        .into_iter()
+        .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(files, vec!["a/SKILL.md", "b/c/d/e/f/SKILL.md", "top.md"]);
+    // A SKILL.md at the root is the root's skill; top-level markdown is then not scanned.
+    tmp.write("skills/SKILL.md", "root");
+    assert_eq!(sources::scan_skill_files(&root), vec![root.join("SKILL.md")]);
+}
+
 // --- Plugins ----------------------------------------------------------------------------------------
 
 #[test]

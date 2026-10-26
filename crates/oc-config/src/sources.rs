@@ -295,18 +295,58 @@ pub fn parse_skill(directory: &Path, file: &Path, content: &str) -> Result<Skill
     })
 }
 
-/// Files matching `{*.md,**/SKILL.md}` under `directory`, sorted.
+/// Maximum directory depth of the skill scan (`SkillScan`).
+const SKILL_SCAN_MAX_DEPTH: usize = 6;
+
+/// `SkillScan.scan`: a breadth-first scan to depth 6 that stops descending at a directory holding a
+/// `SKILL.md` (that file is the directory's skill). Top-level `*.md` files are skills too. Dot
+/// directories and files, `node_modules`, `.git`, `.venv`, `venv` and `__pycache__` are skipped.
+/// Symlinks are followed. Sorted.
 pub fn scan_skill_files(directory: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let mut top = Vec::new();
-    scan(directory, false, &md, &mut top, &mut HashSet::new());
-    out.extend(top);
-    let mut nested = Vec::new();
-    scan(directory, true, &|p: &Path| p.file_name().is_some_and(|n| n == "SKILL.md"), &mut nested, &mut HashSet::new());
-    out.extend(nested);
-    out.sort();
-    out.dedup();
-    out
+    #[derive(PartialEq)]
+    enum Kind {
+        Directory,
+        File,
+        Other,
+    }
+    let mut files = Vec::new();
+    let mut queue: std::collections::VecDeque<(PathBuf, usize)> = std::collections::VecDeque::from([(directory.to_path_buf(), 0)]);
+    while let Some((dir, depth)) = queue.pop_front() {
+        let Ok(read) = std::fs::read_dir(&dir) else { continue };
+        let children: Vec<(String, PathBuf, Kind)> = read
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || crate::discovery::IGNORED_DIRECTORIES.contains(&name.as_str()) {
+                    return None;
+                }
+                let path = entry.path();
+                let kind = match entry.file_type() {
+                    Ok(t) if t.is_symlink() => match std::fs::metadata(&path) {
+                        Ok(m) if m.is_dir() => Kind::Directory,
+                        Ok(m) if m.is_file() => Kind::File,
+                        _ => Kind::Other,
+                    },
+                    Ok(t) if t.is_dir() => Kind::Directory,
+                    Ok(t) if t.is_file() => Kind::File,
+                    _ => Kind::Other,
+                };
+                Some((name, path, kind))
+            })
+            .collect();
+        if let Some((_, skill, _)) = children.iter().find(|(name, _, kind)| *kind == Kind::File && name == "SKILL.md") {
+            files.push(skill.clone());
+            continue;
+        }
+        if depth == 0 {
+            files.extend(children.iter().filter(|(name, _, kind)| *kind == Kind::File && name.ends_with(".md")).map(|(_, p, _)| p.clone()));
+        }
+        if depth < SKILL_SCAN_MAX_DEPTH {
+            queue.extend(children.into_iter().filter(|(_, _, kind)| *kind == Kind::Directory).map(|(_, p, _)| (p, depth + 1)));
+        }
+    }
+    files.sort();
+    files
 }
 
 /// Parse every skill in a directory (later ids replace earlier ones, keeping first position).

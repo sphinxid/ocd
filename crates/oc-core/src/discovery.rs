@@ -370,6 +370,7 @@ pub fn skill_block(name: &str, skill_path: &Path, content: &str) -> String {
     lines.join("\n")
 }
 
+/// `fs.scan("**/*", { include: "file", dot: true, ignore: FSUtil.ignoreGlobs })`.
 fn walk_files(dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -378,7 +379,11 @@ fn walk_files(dir: &Path) -> Vec<String> {
         for e in rd.flatten() {
             let p = e.path();
             match e.file_type() {
-                Ok(t) if t.is_dir() => stack.push(p),
+                Ok(t) if t.is_dir() => {
+                    if !oc_config::discovery::IGNORED_DIRECTORIES.contains(&e.file_name().to_string_lossy().as_ref()) {
+                        stack.push(p)
+                    }
+                }
                 Ok(t) if t.is_file() => out.push(p.display().to_string()),
                 _ => {}
             }
