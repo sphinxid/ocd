@@ -1,6 +1,7 @@
 //! Shared utilities for the opencode Rust port (mirrors `packages/util`).
 
 pub mod flock;
+pub mod fs;
 pub mod global;
 pub mod hash;
 pub mod http;

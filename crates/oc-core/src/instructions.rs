@@ -329,7 +329,8 @@ pub fn skill_source(mut skills: Vec<SkillSummary>) -> Source {
                 |s| s.id.clone(),
                 |a, b| a.name != b.name || a.description != b.description,
             );
-            if !changed.is_empty() || (added.is_empty() && removed.is_empty()) {
+            // Added, changed, and removed skills render as deltas; the full list is restated only when no entry differs.
+            if added.is_empty() && changed.is_empty() && removed.is_empty() {
                 return Some(format!(
                     "The available skills have changed. This list supersedes the previous available skills list.\n{}",
                     render_skills(&current)
@@ -339,6 +340,13 @@ pub fn skill_source(mut skills: Vec<SkillSummary>) -> Source {
             if !added.is_empty() {
                 lines.push("New skills are available in addition to those previously listed:".to_string());
                 lines.extend(skill_entries(&added));
+            }
+            if !changed.is_empty() {
+                lines.push(
+                    "The following skills have changed. Each entry replaces the previously listed skill with the same ID:"
+                        .to_string(),
+                );
+                lines.extend(skill_entries(&changed.iter().map(|(_, c)| *c).collect::<Vec<_>>()));
             }
             if !removed.is_empty() {
                 lines.push(format!(
@@ -387,6 +395,25 @@ mod tests {
     fn canonical_sorted() {
         let v = serde_json::json!({"b": 1, "a": [true, null, "x"], "B": 2.5});
         assert_eq!(canonical(&v), r#"{"B":2.5,"a":[true,null,"x"],"b":1}"#);
+    }
+    // skill/instructions.test.ts "renders only the changed skill when a description changes"
+    #[test]
+    fn renders_only_the_changed_skill_when_a_description_changes() {
+        let skill = |description: &str| SkillSummary { id: "effect".into(), name: "Effect".into(), description: description.into() };
+        let value = |d: &str| serde_json::to_value(vec![skill(d)]).unwrap();
+        let source = skill_source(vec![skill("Build applications with Effect")]);
+        assert_eq!(
+            (source.changed)(&value("Build applications with Effect"), &value("Build applications with Effect v4")).unwrap(),
+            [
+                "The following skills have changed. Each entry replaces the previously listed skill with the same ID:",
+                "  <skill>",
+                "    <id>effect</id>",
+                "    <name>Effect</name>",
+                "    <description>Build applications with Effect v4</description>",
+                "  </skill>",
+            ]
+            .join("\n")
+        );
     }
     #[test]
     fn date_format() {

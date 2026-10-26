@@ -18,6 +18,8 @@ pub struct Location {
     pub project: Resolved,
     pub entries: Vec<Entry>,
     pub sources: oc_config::discovery::Sources,
+    /// The last fetched copy of each configured instruction URL (`ConfigInstructionPlugin` `remote`).
+    pub remote_instructions: parking_lot::Mutex<std::collections::HashMap<String, crate::instructions::File>>,
     /// Set once the location is shut down (`LocationLifecycle.isClosed`): steps that borrowed it hand off to a
     /// fresh load at their next boundary.
     closed: std::sync::atomic::AtomicBool,
@@ -54,7 +56,19 @@ impl Location {
         let project = project::resolve_and_persist(bus, &directory).await?;
         let loader = oc_config::load::Loader::new(global, directory.clone(), oc_config::discovery::Options::from_env());
         let (sources, entries) = loader.entries().await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(Location { key, directory, project, entries, sources, closed: Default::default() })
+        Ok(Location { key, directory, project, entries, sources, remote_instructions: Default::default(), closed: Default::default() })
+    }
+
+    /// `ConfigInstructionPlugin.reconfigure`: fetch the configured instruction URLs, keeping the
+    /// last good copy from `previous` (the location this one replaces) when a fetch fails.
+    pub async fn fetch_instructions(&self, previous: Option<&Location>) {
+        let sources = crate::discovery::configured_sources(&self.entries);
+        if !sources.iter().any(|s| crate::discovery::is_url(s)) {
+            return;
+        }
+        let last = previous.map(|p| p.remote_instructions.lock().clone()).unwrap_or_default();
+        let fetched = crate::discovery::fetch_remote(&sources, &last).await;
+        *self.remote_instructions.lock() = fetched;
     }
 
     /// `LocationLifecycle.isClosed()`

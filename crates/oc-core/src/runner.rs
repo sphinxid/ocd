@@ -156,6 +156,7 @@ impl Engine {
             return Ok(l);
         }
         let loc = Arc::new(Location::load(&self.app.global, &self.app.bus, std::path::Path::new(directory)).await?);
+        loc.fetch_instructions(None).await;
         crate::reference::refresh(&self.app, crate::reference::list(&loc, &self.app.global));
         let loc = {
             let mut locations = self.locations.lock();
@@ -234,6 +235,8 @@ impl Engine {
             return Ok(previous.clone());
         }
         let next = Arc::new(next);
+        // Configured instruction URLs are fetched again on every config update.
+        next.fetch_instructions(previous.as_deref()).await;
         crate::reference::refresh(&self.app, crate::reference::list(&next, &self.app.global));
         self.locations.lock().insert(directory.to_string(), next.clone());
         self.app.plugins.ensure(&next);
@@ -392,14 +395,22 @@ impl Engine {
                 Some(instructions::SkillSummary { id: s.id.clone(), name: s.name.clone(), description: s.description.clone()? })
             })
             .collect();
-        let discovery = crate::discovery::discover(&crate::discovery::DiscoveryInput {
-            directory: std::path::Path::new(&session.location.directory),
-            project_directory: &location.project.canonical,
-            home: &g.home,
-            global_config: &g.config,
-            project: oc_config::discovery::Options::from_env().project != Some(false),
-            global: true,
-        });
+        let configured = crate::discovery::configured_sources(&location.entries);
+        let remote = location.remote_instructions.lock().clone();
+        let discovery = if self.app.plugins.builtin_enabled(&location.key, "opencode.config.instruction") {
+            crate::discovery::discover(&crate::discovery::DiscoveryInput {
+                directory: std::path::Path::new(&session.location.directory),
+                project_directory: &location.project.canonical,
+                home: &g.home,
+                global_config: &g.config,
+                project: oc_config::discovery::Options::from_env().project != Some(false),
+                global: true,
+                instructions: &configured,
+                remote: &remote,
+            })
+        } else {
+            Some(vec![])
+        };
         let mut list = vec![
             instructions::skill_source(skills),
             instructions::discovery_source(discovery),

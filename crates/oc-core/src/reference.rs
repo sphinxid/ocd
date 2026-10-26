@@ -137,13 +137,18 @@ pub fn source(refs: &[Info]) -> Source {
             let cur = decode(c)?;
             let Some(prev) = decode(p) else { return Some(render(&cur)) };
             let (added, removed, changed) = instructions::diff_by_key(&prev, &cur, |r| r.name.clone(), |a, b| a.path != b.path || a.description != b.description);
-            if !changed.is_empty() || (added.is_empty() && removed.is_empty()) {
+            // Added, changed, and removed references render as deltas; the full list is restated only when no entry differs.
+            if added.is_empty() && changed.is_empty() && removed.is_empty() {
                 return Some(format!("The available project references have changed. This list supersedes the previous reference list.\n{}", render(&cur)));
             }
             let mut l = Vec::new();
             if !added.is_empty() {
                 l.push("New project references are available in addition to those previously listed:".to_string());
                 l.extend(entries(&added));
+            }
+            if !changed.is_empty() {
+                l.push("The following project references have changed. Each entry replaces the previously listed reference with the same name:".to_string());
+                l.extend(entries(&changed.iter().map(|(_, c)| *c).collect::<Vec<_>>()));
             }
             if !removed.is_empty() {
                 l.push(format!(
@@ -154,5 +159,51 @@ pub fn source(refs: &[Info]) -> Source {
             Some(l.join("\n"))
         }),
         removed: Box::new(|_| Some("Project reference guidance is no longer available. Do not use previously listed references.".into())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reference(name: &str, description: &str) -> Info {
+        Info {
+            name: name.into(),
+            source: ReferenceSource::Local { path: format!("/{name}").into(), description: Some(description.into()), hidden: None },
+            description: Some(description.into()),
+            hidden: None,
+            path: format!("/{name}"),
+        }
+    }
+
+    // reference-instructions.test.ts "announces added, changed, and removed references in one delta"
+    #[test]
+    fn announces_added_changed_and_removed_references_in_one_delta() {
+        let before = [reference("docs", "Use for product documentation"), reference("legacy", "Use for old code")];
+        let after = [reference("docs", "Use for API documentation"), reference("examples", "Use for examples")];
+        let value = |refs: &[Info]| match source(refs).read {
+            crate::instructions::Read::Value(v) => v,
+            _ => panic!("expected references"),
+        };
+        let text = (source(&after).changed)(&value(&before), &value(&after)).unwrap();
+        assert_eq!(
+            text,
+            [
+                "New project references are available in addition to those previously listed:",
+                "  <reference>",
+                "    <name>examples</name>",
+                "    <path>/examples</path>",
+                "    <description>Use for examples</description>",
+                "  </reference>",
+                "The following project references have changed. Each entry replaces the previously listed reference with the same name:",
+                "  <reference>",
+                "    <name>docs</name>",
+                "    <path>/docs</path>",
+                "    <description>Use for API documentation</description>",
+                "  </reference>",
+                "The following project references are no longer available and must not be used: legacy.",
+            ]
+            .join("\n")
+        );
     }
 }

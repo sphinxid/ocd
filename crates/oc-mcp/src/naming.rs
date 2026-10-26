@@ -238,13 +238,18 @@ pub fn render_instructions_update(previous: &[InstructionSummary], current: &[In
         current.iter().filter(|c| !previous.iter().any(|p| p.server == c.server)).cloned().collect();
     let removed: Vec<&InstructionSummary> =
         previous.iter().filter(|p| !current.iter().any(|c| c.server == p.server)).collect();
-    let changed = current.iter().any(|c| {
-        previous
-            .iter()
-            .find(|p| p.server == c.server)
-            .is_some_and(|p| p.instructions != c.instructions || p.codemode != c.codemode)
-    });
-    if changed || (added.is_empty() && removed.is_empty()) {
+    let changed: Vec<InstructionSummary> = current
+        .iter()
+        .filter(|c| {
+            previous
+                .iter()
+                .find(|p| p.server == c.server)
+                .is_some_and(|p| p.instructions != c.instructions || p.codemode != c.codemode)
+        })
+        .cloned()
+        .collect();
+    // Added, changed, and removed servers render as deltas; the full list is restated only when no entry differs.
+    if added.is_empty() && changed.is_empty() && removed.is_empty() {
         return [
             "The available MCP server instructions have changed. This list supersedes the previous one.".to_string(),
             render_instructions(current),
@@ -255,6 +260,13 @@ pub fn render_instructions_update(previous: &[InstructionSummary], current: &[In
     if !added.is_empty() {
         lines.push("New MCP server instructions are available in addition to those previously listed:".to_string());
         lines.extend(instruction_entries(&added));
+    }
+    if !changed.is_empty() {
+        lines.push(
+            "The following MCP server instructions have changed. Each entry replaces the previously listed server with the same name:"
+                .to_string(),
+        );
+        lines.extend(instruction_entries(&changed));
     }
     if !removed.is_empty() {
         lines.push(format!(
@@ -351,5 +363,11 @@ mod tests {
             "Instructions for the following MCP servers are no longer available: c."
         );
         assert!(render_instructions_update(&[a.clone()], &[a.clone()]).starts_with("The available MCP server"));
+        // mcp-instructions.test.ts "replaces a server entry when Code Mode is disabled for it"
+        let direct = InstructionSummary { codemode: false, ..a.clone() };
+        assert_eq!(
+            render_instructions_update(&[a.clone(), b.clone()], &[direct, b.clone()]),
+            "The following MCP server instructions have changed. Each entry replaces the previously listed server with the same name:\n  <server name=\"a.b\">\n    line1\n    line2\n  </server>"
+        );
     }
 }
