@@ -197,7 +197,9 @@ impl Connection {
                 let fetch = Fetcher::new(server.to_string());
                 // Servers that bundle their own Code Mode expose raw tools with ?codemode=false.
                 let mut url = configured.clone();
-                let added_codemode = remote.codemode != Some(false) && !url.query_pairs().any(|(k, _)| k == "codemode");
+                let added_codemode = remote.codemode != Some(false)
+                    && !url.query_pairs().any(|(k, _)| k == "codemode")
+                    && !rejects_unknown_query(&url);
                 if added_codemode {
                     let mut pairs: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
                     pairs.push(("codemode".into(), "false".into()));
@@ -445,5 +447,54 @@ impl Connection {
             }
         }
         self.client.close().await;
+    }
+}
+
+/// Hosts that reject any unknown query parameter and have no Code Mode of their own, so adding
+/// `?codemode=false` only costs a failed request before the retry at the configured URL
+/// (`rejectsUnknownQuery`).
+pub fn rejects_unknown_query(url: &Url) -> bool {
+    let host = match url.host() {
+        Some(url::Host::Domain(domain)) => domain.to_string(),
+        Some(url::Host::Ipv4(ip)) => ip.to_string(),
+        Some(url::Host::Ipv6(ip)) => format!("[{ip}]"),
+        None => String::new(),
+    };
+    // Google Workspace MCP (gmailmcp, drivemcp, calendarmcp, ...) returns 404.
+    if host.ends_with(".googleapis.com") {
+        return true;
+    }
+    // Zoho MCP gateways (zohomcp.com, zohomcp.eu, ...) return 400.
+    static ZOHO: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(^|\.)zohomcp\.[a-z.]+$").unwrap());
+    if ZOHO.is_match(&host) {
+        return true;
+    }
+    // Loopback servers run on this machine (Figma Desktop's Dev Mode MCP returns 404), so they are not
+    // hosted Code Mode servers.
+    static LOOPBACK: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^127(\.\d+){3}$").unwrap());
+    host == "localhost" || host == "[::1]" || LOOPBACK.is_match(&host)
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::*;
+
+    #[test]
+    fn hosts_that_reject_unknown_query_parameters() {
+        for url in [
+            "https://gmailmcp.googleapis.com/mcp/v1",
+            "https://mcp.zohomcp.com/x",
+            "https://zohomcp.eu/x",
+            "http://localhost:3845/mcp",
+            "http://127.0.0.1:3845/mcp",
+            "http://[::1]:3845/mcp",
+        ] {
+            assert!(rejects_unknown_query(&Url::parse(url).unwrap()), "{url}");
+        }
+        for url in ["https://mcp.example.com/mcp", "https://googleapis.com.evil.example/x", "http://10.0.0.1/mcp", "https://notzohomcp.com/x"] {
+            assert!(!rejects_unknown_query(&Url::parse(url).unwrap()), "{url}");
+        }
     }
 }

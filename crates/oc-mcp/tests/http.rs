@@ -234,7 +234,8 @@ async fn http_handshake_sse_session_and_expiry() {
     {
         let fake = fake.lock();
         let (uri, headers, body) = &fake.requests[0];
-        assert_eq!(uri, "/mcp?codemode=false");
+        // Loopback servers never get `?codemode=false` (7b5f1bd9e).
+        assert_eq!(uri, "/mcp");
         assert_eq!(body["method"], "initialize");
         assert_eq!(body["params"]["clientInfo"], json!({"name": "opencode", "version": "test"}));
         assert_eq!(body["params"]["protocolVersion"], "2025-11-25");
@@ -264,16 +265,17 @@ async fn http_handshake_sse_session_and_expiry() {
     assert_eq!(fake.lock().deleted, vec!["sess-2".to_string()]);
 }
 
+// Loopback hosts reject unknown query parameters like Figma Desktop does, so the server is reached at the
+// configured URL on the first attempt (7b5f1bd9e; upstream dropped its loopback fallback tests).
 #[tokio::test]
-async fn http_codemode_param_fallback() {
+async fn http_loopback_servers_get_no_codemode_param() {
     let (fake, port) = start_fake(|f| f.reject_codemode_param = true).await;
     let manager = manager(None);
     load(&manager, "web", remote(port, Some(OAuthSetting::Disabled))).await;
     assert_eq!(manager.status("web"), Some(Status::Connected), "{:?}", manager.servers());
     assert!(manager.servers()[0].integration_id.is_none());
     let uris: Vec<String> = fake.lock().requests.iter().map(|r| r.0.clone()).collect();
-    assert_eq!(uris[0], "/mcp?codemode=false");
-    assert_eq!(uris[1], "/mcp");
+    assert!(uris.iter().all(|u| u == "/mcp"), "{uris:?}");
     manager.shutdown().await;
 }
 
@@ -436,6 +438,13 @@ async fn oauth_callback_state_mismatch() {
     let handle = manager.auth_start("secure").await.unwrap();
     let auth_url = url::Url::parse(&handle.url).unwrap();
     let redirect = auth_url.query_pairs().find(|(k, _)| k == "redirect_uri").unwrap().1.into_owned();
+    // mcp-oauth.test.ts: callback requests without OAuth parameters (preflights, prefetches, reloads)
+    // get a 400 page and the login keeps waiting for the redirect.
+    let client = reqwest::Client::new();
+    assert_eq!(client.request(Method::OPTIONS, &redirect).send().await.unwrap().status(), StatusCode::BAD_REQUEST);
+    let response = client.get(&redirect).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(response.text().await.unwrap().contains(">Missing authorization code</pre>"));
     let response = reqwest::get(format!("{redirect}?code=abc&state=wrong")).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let html = response.text().await.unwrap();

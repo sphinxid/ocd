@@ -430,7 +430,7 @@ async fn stdio_handshake_declares_capabilities() {
     assert_eq!(client.server_info().unwrap()["name"], "fake");
     assert_eq!(
         client.capabilities(),
-        &json!({"elicitation": {"form": {"applyDefaults": true}, "url": {}}, "roots": {}})
+        &json!({"elicitation": {"form": {}, "url": {}}, "roots": {}})
     );
     // Starting twice is rejected.
     assert_eq!(transport.start().await.unwrap_err().to_string(), "Stdio transport already started");

@@ -116,7 +116,8 @@ impl Client {
     ) -> Arc<Self> {
         let mut capabilities = Map::new();
         if config.elicitation.is_some() {
-            capabilities.insert("elicitation".into(), json!({"form": {"applyDefaults": true}, "url": {}}));
+            // Spec-shaped capability: the client no longer fills schema defaults into accepted content.
+            capabilities.insert("elicitation".into(), json!({"form": {}, "url": {}}));
         }
         // Legacy era only: some legacy servers refuse to run without roots.
         capabilities.insert("roots".into(), json!({}));
@@ -386,18 +387,13 @@ impl Client {
         if mode == "url" && !params.get("url").is_some_and(Value::is_string) {
             return Err((codes::INVALID_PARAMS, "Invalid elicitation request: url is required".into()));
         }
-        let mut result = handler
+        let result = handler
             .create(&self.config.server, params.clone(), cancel)
             .await
             .map_err(|message| (codes::INTERNAL_ERROR, message))?;
         let action = result.get("action").and_then(Value::as_str).unwrap_or("");
         if !matches!(action, "accept" | "decline" | "cancel") {
             return Err((codes::INVALID_PARAMS, format!("Invalid elicitation result: invalid action {action:?}")));
-        }
-        if mode == "form" && action == "accept" {
-            if let Some(content) = result.get_mut("content") {
-                apply_elicitation_defaults(&params["requestedSchema"], content);
-            }
         }
         Ok(result)
     }
@@ -1074,48 +1070,9 @@ fn classify_rpc(
     if fallback { Ok(Verdict::Legacy) } else { Err(error) }
 }
 
-/// `applyElicitationDefaults`.
-pub fn apply_elicitation_defaults(schema: &Value, data: &mut Value) {
-    if !data.is_object() {
-        return;
-    }
-    if schema.get("type").and_then(Value::as_str) == Some("object") {
-        if let Some(props) = schema.get("properties").and_then(Value::as_object) {
-            for (key, prop) in props {
-                let obj = data.as_object_mut().unwrap();
-                if !obj.contains_key(key) {
-                    if let Some(default) = prop.get("default") {
-                        obj.insert(key.clone(), default.clone());
-                    }
-                }
-                if let Some(value) = obj.get_mut(key) {
-                    apply_elicitation_defaults(prop, value);
-                }
-            }
-        }
-    }
-    for key in ["anyOf", "oneOf"] {
-        if let Some(subs) = schema.get(key).and_then(Value::as_array) {
-            for sub in subs {
-                if !sub.is_boolean() {
-                    apply_elicitation_defaults(sub, data);
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn elicitation_defaults() {
-        let schema = json!({"type":"object","properties":{"a":{"type":"string","default":"x"},"b":{"type":"number"}}});
-        let mut data = json!({"b": 1});
-        apply_elicitation_defaults(&schema, &mut data);
-        assert_eq!(data, json!({"b": 1, "a": "x"}));
-    }
 
     #[test]
     fn probe_classification() {

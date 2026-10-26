@@ -244,6 +244,11 @@ impl McpManager {
                 let this = self.clone();
                 tokio::spawn(async move {
                     let _guard = this.inner.locks.lock(&name).await;
+                    // connect() or disconnect() may have settled the server while this startup waited to run.
+                    if entry.status() != Status::Pending {
+                        entry.open_startup();
+                        return;
+                    }
                     this.start_server(&name, &entry).await;
                 });
             }
@@ -822,13 +827,16 @@ impl McpManager {
     }
 
     /// Stops every server (Location disposal).
+    /// Stops every server. Servers stop in parallel, so one slow server's stop grace does not delay
+    /// the rest past a service restart's kill deadline and leave them orphaned.
     pub async fn shutdown(&self) {
         let entries: Vec<(String, Arc<Entry>)> =
             self.inner.entries.lock().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        for (name, entry) in entries {
+        futures::future::join_all(entries.into_iter().map(|(name, entry)| async move {
             let _guard = self.inner.locks.lock(&name).await;
             self.stop_server(&name, &entry).await;
-        }
+        }))
+        .await;
     }
 
     /// The `{server}` payload helper for bus bridges.

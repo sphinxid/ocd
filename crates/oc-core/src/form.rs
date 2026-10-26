@@ -48,6 +48,9 @@ struct Entry {
     form: Value,
     state: watch::Sender<State>,
     settled_at: Option<Instant>,
+    /// The Location the form's events are published in, when its owner session has no row (MCP
+    /// elicitations owned by the `"global"` sentinel session).
+    location: Option<oc_schema::types::LocationRef>,
 }
 
 #[derive(Clone)]
@@ -244,6 +247,24 @@ impl Forms {
 
     /// `create`: input `{id?, sessionID, title, metadata?, fields}`.
     pub fn create(&self, input: &Value) -> Result<Value, FormError> {
+        self.create_at(input, None)
+    }
+
+    /// Publishes a form event in the form's Location, or the owner session's.
+    fn publish(&self, location: Option<&oc_schema::types::LocationRef>, session: &str, kind: &str, data: Value) {
+        match location {
+            Some(location) => {
+                self.bus.publish(kind, data, Some(location.clone()));
+            }
+            None => {
+                self.bus.publish_session_ephemeral(session, kind, data);
+            }
+        }
+    }
+
+    /// `create` inside a Location (`location`): the form's events carry it, so clients that drop
+    /// unlocated events still see forms whose owner session has no row.
+    pub fn create_at(&self, input: &Value, location: Option<oc_schema::types::LocationRef>) -> Result<Value, FormError> {
         self.sweep();
         let id = s(input, "id").map(str::to_string).unwrap_or_else(oc_schema::id::form);
         if self.forms.lock().contains_key(&id) {
@@ -262,9 +283,12 @@ impl Forms {
         }
         form.insert("fields".into(), Value::Array(fields));
         let form = Value::Object(form);
-        self.forms.lock().insert(id.clone(), Entry { form: form.clone(), state: watch::channel(State::Pending).0, settled_at: None });
+        self.forms.lock().insert(
+            id.clone(),
+            Entry { form: form.clone(), state: watch::channel(State::Pending).0, settled_at: None, location: location.clone() },
+        );
         let session = s(&form, "sessionID").unwrap_or_default().to_string();
-        self.bus.publish_session_ephemeral(&session, "form.created", json!({"form": form}));
+        self.publish(location.as_ref(), &session, "form.created", json!({"form": form}));
         if *self.closed.lock() {
             let _ = self.cancel(&id, None);
         }
@@ -273,7 +297,12 @@ impl Forms {
 
     /// `ask`: create and wait for a terminal state; dropping the future cancels the form.
     pub async fn ask(&self, input: &Value) -> Result<State, FormError> {
-        let form = self.create(input)?;
+        self.ask_at(input, None).await
+    }
+
+    /// [`Forms::ask`] inside a Location (see [`Forms::create_at`]).
+    pub async fn ask_at(&self, input: &Value, location: Option<oc_schema::types::LocationRef>) -> Result<State, FormError> {
+        let form = self.create_at(input, location)?;
         let id = s(&form, "id").unwrap().to_string();
         let mut rx = self.forms.lock()[&id].state.subscribe();
         struct Guard<'a>(&'a Forms, String, bool);
@@ -327,7 +356,7 @@ impl Forms {
             return Err(FormError::InvalidAnswer { id: id.into(), message });
         }
         let session = s(&entry.form, "sessionID").unwrap_or_default().to_string();
-        self.bus.publish_session_ephemeral(&session, "form.replied", json!({"id": id, "sessionID": session, "answer": answer}));
+        self.publish(entry.location.as_ref(), &session, "form.replied", json!({"id": id, "sessionID": session, "answer": answer}));
         entry.settled_at = Some(Instant::now());
         let _ = entry.state.send_replace(State::Answered(answer));
         Ok(())
@@ -340,7 +369,7 @@ impl Forms {
             return Err(FormError::AlreadySettled(id.into()));
         }
         let session = s(&entry.form, "sessionID").unwrap_or_default().to_string();
-        self.bus.publish_session_ephemeral(&session, "form.cancelled", json!({"id": id, "sessionID": session}));
+        self.publish(entry.location.as_ref(), &session, "form.cancelled", json!({"id": id, "sessionID": session}));
         entry.settled_at = Some(Instant::now());
         let _ = entry.state.send_replace(State::Cancelled(message));
         Ok(())

@@ -102,7 +102,13 @@ async fn handle_callback(State(state): State<Arc<CallbackState>>, uri: Uri) -> R
     if let Some(error) = param("error_description").or_else(|| param("error")) {
         return fail(error, "authorization_error");
     }
-    if param("state").as_deref() != Some(state.state.as_str()) {
+    let returned = param("state");
+    // Browsers can reach the callback without any OAuth parameters (preflights, prefetches, reloads). Only a
+    // redirect from the authorization server may end the login, so keep waiting for it.
+    if returned.is_none() && param("code").is_none_or(|c| c.is_empty()) {
+        return html_response(400, page::error("Missing authorization code", &options));
+    }
+    if returned.as_deref() != Some(state.state.as_str()) {
         return fail("OAuth state mismatch".into(), "state_mismatch");
     }
     let Some(code) = param("code").filter(|c| !c.is_empty()) else {

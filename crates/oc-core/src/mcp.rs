@@ -99,7 +99,10 @@ pub async fn manager(db: &Database, forms: &Forms, location: &Location, version:
         directory: location.directory.clone(),
         client_info: ClientInfo { name: "opencode".into(), version: version.into() },
         credentials: Some(Arc::new(McpCreds(db.clone()))),
-        elicitation: Some(Arc::new(Elicitation::new(forms.clone()))),
+        elicitation: Some(Arc::new(Elicitation::new(
+            forms.clone(),
+            Some(oc_schema::types::LocationRef { directory: location.key.clone(), workspace_id: None }),
+        ))),
     }));
     manager.set_servers(servers(plugins, location).await).await;
     manager
@@ -112,18 +115,21 @@ pub const URL_ELICITATION_FIELD_KEY: &str = "elicitation";
 /// `elicitation/create` → Forms (`core/src/mcp/index.ts` `elicitation`).
 pub struct Elicitation {
     forms: Forms,
+    /// The server's Location: elicitation forms are published in it. Clients drop unlocated
+    /// `form.created` events, and the elicitation then hangs (889abb465).
+    location: Option<oc_schema::types::LocationRef>,
     /// `server\0elicitationId` → form id (legacy URL-mode completion).
     urls: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Elicitation {
-    pub fn new(forms: Forms) -> Self {
-        Elicitation { forms, urls: Arc::default() }
+    pub fn new(forms: Forms, location: Option<oc_schema::types::LocationRef>) -> Self {
+        Elicitation { forms, location, urls: Arc::default() }
     }
 
     async fn ask(&self, input: Value, cancel: CancellationToken) -> Result<State, String> {
         tokio::select! {
-            state = self.forms.ask(&input) => state.map_err(|e| e.to_string()),
+            state = self.forms.ask_at(&input, self.location.clone()) => state.map_err(|e| e.to_string()),
             _ = cancel.cancelled() => Ok(State::Cancelled(None)),
         }
     }
@@ -285,6 +291,42 @@ mod elicitation_tests {
         assert_eq!(f, json!({"key": "email", "title": "email", "required": true, "type": "string", "format": "email"}));
         let f = elicitation_field("n", &json!({"type": "integer", "title": "Count", "description": "How many", "minimum": 1}), false);
         assert_eq!(f, json!({"key": "n", "title": "Count", "description": "How many", "type": "integer", "minimum": 1}));
+    }
+
+    // mcp.test.ts: clients drop `form.created` events without a Location, so the form must be
+    // published inside the server's Location (889abb465).
+    #[tokio::test]
+    async fn elicitation_forms_are_published_in_the_server_location() {
+        use oc_mcp::ElicitationHandler;
+        let bus = crate::bus::Bus::new(oc_storage::Database::memory().unwrap());
+        let forms = Forms::new(bus.clone());
+        let mut events = bus.subscribe();
+        let location = oc_schema::types::LocationRef { directory: "/project".into(), workspace_id: None };
+        let elicitation = Arc::new(Elicitation::new(forms.clone(), Some(location.clone())));
+        let params = json!({"mode": "form", "message": "Name?", "requestedSchema": {"type": "object", "properties": {"name": {"type": "string"}}}});
+        let pending = tokio::spawn({
+            let elicitation = elicitation.clone();
+            async move { elicitation.create("srv", params, CancellationToken::new()).await }
+        });
+        let created = loop {
+            let event = events.recv().await.unwrap();
+            if event.kind == "form.created" {
+                break event;
+            }
+        };
+        assert_eq!(created.location.as_ref(), Some(&location));
+        let id = created.data["form"]["id"].as_str().unwrap().to_string();
+        let mut answer = serde_json::Map::new();
+        answer.insert("name".into(), json!("Ada"));
+        forms.reply(&id, answer).unwrap();
+        let replied = loop {
+            let event = events.recv().await.unwrap();
+            if event.kind == "form.replied" {
+                break event;
+            }
+        };
+        assert_eq!(replied.location.as_ref(), Some(&location));
+        assert_eq!(pending.await.unwrap().unwrap(), json!({"action": "accept", "content": {"name": "Ada"}}));
     }
 
     #[test]
