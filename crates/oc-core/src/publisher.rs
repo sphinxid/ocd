@@ -39,6 +39,56 @@ struct ToolSt {
     settled: bool,
     provider_executed: bool,
     progress: Option<Metadata>,
+    /// A bounded excerpt of the streamed arguments, for recovery errors.
+    input: Option<InputExcerpt>,
+    /// The parser rejected the arguments; the call fails at the next flush.
+    malformed: bool,
+}
+
+const INPUT_EXCERPT_LIMIT: usize = 2048;
+
+/// `InputExcerpt`: the first `INPUT_EXCERPT_LIMIT` UTF-16 units of the arguments and their full length.
+struct InputExcerpt {
+    text: String,
+    length: usize,
+}
+
+fn input_excerpt(value: &str) -> InputExcerpt {
+    let units: Vec<u16> = value.encode_utf16().collect();
+    let text = if units.len() <= INPUT_EXCERPT_LIMIT { value.to_string() } else { String::from_utf16_lossy(&units[..INPUT_EXCERPT_LIMIT]) };
+    InputExcerpt { text, length: units.len() }
+}
+
+#[derive(Clone, Copy)]
+enum InputFailure {
+    Malformed,
+    Length,
+    Incomplete,
+}
+
+/// `inputFailure`: the error for a tool call whose arguments were not executed, with an excerpt of them.
+fn input_failure(input: Option<&InputExcerpt>, reason: InputFailure) -> SessionError {
+    let (kind, message) = match reason {
+        InputFailure::Malformed => (
+            "tool.input-json",
+            "The tool input could not be parsed as JSON, so the call was not executed. Reissue the call with valid JSON arguments.",
+        ),
+        InputFailure::Length => (
+            "tool.input-incomplete",
+            "The tool call was not executed because the output token limit (stop reason: length) was reached before you could complete the arguments. Break large payloads into smaller tool calls and reissue the call with complete arguments.",
+        ),
+        InputFailure::Incomplete => (
+            "tool.input-incomplete",
+            "Tool call arguments were not completed and were not executed. Reissue the call with complete arguments.",
+        ),
+    };
+    let Some(input) = input.filter(|i| i.length > 0) else { return SessionError::new(kind, message) };
+    let shown = input.text.encode_utf16().count();
+    let truncated = if input.length > shown { "\n[truncated]" } else { "" };
+    SessionError::new(
+        kind,
+        format!("{message}\n\nInput excerpt (first {shown} of {} characters):\n{}{truncated}", input.length, input.text),
+    )
 }
 
 struct Fragment {
@@ -356,8 +406,10 @@ impl Publisher {
                 native,
             }),
             Kind::ToolInput => {
-                if !self.inner.lock().tools.contains_key(id) {
-                    return Err(die(format!("Tool input end before start: {id}")));
+                match self.inner.lock().tools.get_mut(id) {
+                    None => return Err(die(format!("Tool input end before start: {id}"))),
+                    // Keep a bounded excerpt for recovery errors; the full argument text is persisted below.
+                    Some(t) => t.input = Some(input_excerpt(&text)),
                 }
                 self.commit(SessionEvent::ToolInputEnded {
                     session_id: self.session_id.clone(),
@@ -393,12 +445,43 @@ impl Publisher {
         self.publish_pending(Kind::Reasoning)
     }
 
-    pub fn flush(&self) -> anyhow::Result<()> {
+    fn flush_fragments(&self) -> anyhow::Result<()> {
         for k in [Kind::Text, Kind::Reasoning, Kind::ToolInput] {
             let ids: Vec<String> = self.inner.lock().frags(k).chunks.keys().cloned().collect();
             for id in ids {
                 self.frag_end(k, &id, None, None)?;
             }
+        }
+        Ok(())
+    }
+
+    /// Ends open fragments, then fails calls whose arguments did not parse. The finish reason distinguishes
+    /// invalid JSON from arguments cut off by the output limit.
+    pub fn flush(&self) -> anyhow::Result<()> {
+        self.flush_fragments()?;
+        let ids: Vec<String> =
+            self.inner.lock().tools.iter().filter(|(_, t)| t.malformed && !t.settled).map(|(k, _)| k.clone()).collect();
+        for id in ids {
+            self.fail_tool_input(&id, InputFailure::Malformed)?;
+        }
+        Ok(())
+    }
+
+    fn fail_tool_input(&self, id: &str, reason: InputFailure) -> anyhow::Result<bool> {
+        let error = {
+            let g = self.inner.lock();
+            let length = g.settlement.as_ref().is_some_and(|s| s.finish == FinishReason::Length);
+            input_failure(g.tools.get(id).and_then(|t| t.input.as_ref()), if length { InputFailure::Length } else { reason })
+        };
+        self.fail_tool(id, error, None)
+    }
+
+    /// `failIncompleteTools`: calls whose arguments never completed.
+    pub fn fail_incomplete_tools(&self) -> anyhow::Result<()> {
+        let ids: Vec<String> =
+            self.inner.lock().tools.iter().filter(|(_, t)| !t.called && !t.settled).map(|(k, _)| k.clone()).collect();
+        for id in ids {
+            self.fail_tool_input(&id, InputFailure::Incomplete)?;
         }
         Ok(())
     }
@@ -412,7 +495,7 @@ impl Publisher {
         self.start_assistant().await?;
         self.inner.lock().tools.insert(
             id.into(),
-            ToolSt { name: name.into(), called: false, settled: false, provider_executed, progress: None },
+            ToolSt { name: name.into(), called: false, settled: false, provider_executed, progress: None, input: None, malformed: false },
         );
         self.frag_start(Kind::ToolInput, id, None)?;
         self.publish_pending_deltas()?;
@@ -666,25 +749,12 @@ impl Publisher {
                 if self.frag_has(Kind::ToolInput, id) {
                     self.end_tool_input(id, name, Some(raw.clone()))?;
                 }
-                let progress = {
-                    let mut g = self.inner.lock();
-                    let t = g.tools.get_mut(id).unwrap();
-                    t.settled = true;
-                    t.progress.clone()
-                };
-                self.commit(SessionEvent::ToolFailed {
-                    session_id: self.session_id.clone(),
-                    assistant_message_id: self.assistant_message_id.clone(),
-                    id: id.clone(),
-                    error: SessionError::new(
-                        "tool.input-json",
-                        "Tool call arguments were malformed JSON and were not executed. Retry with valid JSON.",
-                    ),
-                    content: None,
-                    metadata: progress,
-                    executed: false,
-                    native: None,
-                })?;
+                // The parser's final raw input may differ from streamed deltas; use it for the recovery excerpt.
+                // The call fails at the next flush, once the finish reason tells a cut-off from invalid JSON.
+                let mut g = self.inner.lock();
+                let t = g.tools.get_mut(id).unwrap();
+                t.input = Some(input_excerpt(raw));
+                t.malformed = true;
             }
             LLMEvent::ToolCall { id, name, input, provider_executed, provider_metadata, .. } => {
                 self.inner.lock().output_started = true;
@@ -794,7 +864,7 @@ impl Publisher {
                 })?;
             }
             LLMEvent::StepFinish { reason, usage, provider_metadata, .. } => {
-                self.flush()?;
+                self.flush_fragments()?;
                 {
                     let mut g = self.inner.lock();
                     if g.settlement.is_some() {

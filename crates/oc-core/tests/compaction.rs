@@ -774,7 +774,7 @@ async fn compacts_against_mock_provider() {
         "/v1/chat/completions",
         post(move |body: axum::Json<serde_json::Value>| {
             let raw = body.0.to_string();
-            let reply = if raw.contains("You are a title generator") {
+            let reply = if raw.contains("You name conversations") {
                 text_reply("t", "Title", 3)
             } else if raw.contains("You MUST summarize the conversation above") || raw.contains("Update the existing checkpoint") {
                 c2.lock().push(body.0.clone());

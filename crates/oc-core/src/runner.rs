@@ -33,6 +33,8 @@ use crate::step::{self, Outcome, StepError, ToolCall, ToolRun, ToolRunner};
 pub const CONTINUE_AFTER_INCOMPLETE_STREAM: &str =
     "The previous response was interrupted. Continue from where you left off without repeating completed content.";
 
+pub const CONTINUE_AFTER_OUTPUT_LIMIT: &str = "Your last response hit the output token limit (stop reason: length). Do not apologize, recap, or repeat yourself. Break the remaining work into smaller pieces.";
+
 pub struct Engine {
     pub app: Arc<App>,
     pub models: Models,
@@ -65,6 +67,17 @@ pub struct Loaded {
     pub resolved: oc_ai::catalog::ResolvedModel,
     pub messages: Vec<Message>,
     pub initial: String,
+}
+
+/// `SessionRunnerModel.resolve` for a session without a model: the selected agent's configured model (and
+/// variant) when it is available, before the default.
+pub(crate) fn agent_model(catalog: &oc_ai::catalog::Catalog, agent: &Agent) -> Option<ModelRef> {
+    let m = agent.model.as_ref()?;
+    catalog
+        .available_models()
+        .iter()
+        .any(|info| info.provider_id == m.provider_id && info.id == m.id)
+        .then(|| m.clone())
 }
 
 fn agent_not_found(id: &str) -> anyhow::Error {
@@ -417,9 +430,10 @@ impl Engine {
             provider_id: m.provider_id.clone(),
             variant: m.variant.clone(),
         });
+        let session_model = sel.session.model.clone().or_else(|| agent_model(&catalog, &sel.agent));
         let resolved = self
             .models
-            .resolve_for_session(Some(&sel.location.key), &catalog, &sel.session.id, sel.session.model.as_ref(), config_model.as_ref())
+            .resolve_for_session(Some(&sel.location.key), &catalog, &sel.session.id, session_model.as_ref(), config_model.as_ref())
             .await
             .map_err(|e| crate::errors::StepFailed(SessionError::new("provider.no-route", e.to_string())))?;
         let messages = history_for_runner(&self.app.bus, &sel.session.id, &resolved.model_ref())?;
@@ -860,6 +874,28 @@ impl Engine {
                     })?;
                     assistant = oc_schema::id::message();
                 }
+                Ok(Outcome::OutputLimit { needs_continuation }) => {
+                    // The current response is included. User input or any other finish breaks the streak.
+                    if self.output_limit_exhausted(&session_id).map_err(DrainError::Failed)? {
+                        return Err(DrainError::Failed(
+                            crate::errors::StepFailed(SessionError::new(
+                                "output-limit",
+                                "Response still truncated after two output token limit continuations",
+                            ))
+                            .into(),
+                        ));
+                    }
+                    if needs_continuation {
+                        return Ok(true);
+                    }
+                    self.app.bus.commit_one(SessionEvent::Synthetic {
+                        session_id: session_id.clone(),
+                        text: CONTINUE_AFTER_OUTPUT_LIMIT.into(),
+                        description: None,
+                        metadata: None,
+                    })?;
+                    assistant = oc_schema::id::message();
+                }
                 Ok(Outcome::Compacted) => {
                     recover_overflow = false;
                     assistant = oc_schema::id::message();
@@ -873,6 +909,25 @@ impl Engine {
                 return Err(DrainError::Interrupted);
             }
         }
+    }
+}
+
+impl Engine {
+    /// Whether the three newest user/assistant messages are all assistant responses that finished with `length`.
+    fn output_limit_exhausted(&self, session_id: &str) -> anyhow::Result<bool> {
+        let rows: Vec<(String, String, String)> = self.app.db.with(|c| {
+            let mut s = c.prepare(
+                "SELECT id, type, data FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant') ORDER BY seq DESC LIMIT 3",
+            )?;
+            let r = s.query_map([session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect();
+            r
+        })?;
+        let mut recent = Vec::with_capacity(rows.len());
+        for (id, kind, data) in rows {
+            recent.push(Message::from_row(&id, &kind, &data)?);
+        }
+        Ok(recent.len() == 3
+            && recent.iter().all(|m| matches!(m, Message::Assistant(a) if a.finish == Some(oc_schema::types::FinishReason::Length))))
     }
 }
 

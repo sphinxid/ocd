@@ -33,7 +33,7 @@ fn start_mock() -> (u16, Arc<Mutex<Vec<&'static str>>>) {
         "/v1/chat/completions",
         post(move |body: axum::Json<Value>| async move {
             let text = body.0.to_string();
-            let title = text.contains("title generator");
+            let title = text.contains("You name conversations");
             log.lock().unwrap().push(if title { "title" } else { "step" });
             if title {
                 return sse(&[

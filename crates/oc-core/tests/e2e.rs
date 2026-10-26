@@ -42,7 +42,7 @@ async fn prompt_runs_tool_then_answers() {
     let app = Router::new().route(
         "/v1/chat/completions",
         post(move |body: axum::Json<serde_json::Value>| {
-            let is_title = body.0.to_string().contains("You are a title generator");
+            let is_title = body.0.to_string().contains("You name conversations");
             let n = if is_title { usize::MAX } else { c2.fetch_add(1, Ordering::SeqCst) };
             if !is_title {
                 b2.lock().push(body.0.clone());

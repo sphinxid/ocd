@@ -75,7 +75,7 @@ async fn mock(turns: Vec<Turn>) -> Mock {
     let app = Router::new().route(
         "/v1/chat/completions",
         post(move |body: axum::Json<Value>| {
-            let is_title = body.0.to_string().contains("You are a title generator");
+            let is_title = body.0.to_string().contains("You name conversations");
             let turn = if is_title {
                 None
             } else {

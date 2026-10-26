@@ -55,6 +55,8 @@ pub enum Outcome {
     Continue { error: SessionError, decision: Decision },
     RecoverFull,
     Compacted,
+    /// The step finished with `length`.
+    OutputLimit { needs_continuation: bool },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -350,13 +352,7 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
         if any && llm_error.is_none() && recorded.finish.is_none() {
             publisher.fail_assistant(missing).await?;
         }
-        publisher.fail_unsettled_tools(
-            &SessionError::new(
-                "tool.input-incomplete",
-                "Tool call arguments were not completed and were not executed. Re-issue the tool call with complete arguments.",
-            ),
-            "uncalled",
-        )?;
+        publisher.fail_incomplete_tools()?;
     }
 
     let record = publisher.record();
@@ -419,6 +415,10 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
     if stream_interrupted {
         return Err(StepError::Interrupted);
     }
-    Ok(Outcome::Completed { needs_continuation: !input.tool_choice_none && record.needs_continuation })
+    let needs_continuation = !input.tool_choice_none && record.needs_continuation;
+    if record.finish.as_ref().is_some_and(|f| f.finish == oc_schema::types::FinishReason::Length) {
+        return Ok(Outcome::OutputLimit { needs_continuation });
+    }
+    Ok(Outcome::Completed { needs_continuation })
 }
 

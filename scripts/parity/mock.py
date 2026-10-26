@@ -2,7 +2,7 @@
 
 A script is a list of *turns*. Every non-title request consumes the first unconsumed turn whose optional `match`
 substring occurs in the request body (turns without `match` match anything). Title-generation requests (system prompt
-contains "title generator") are answered with `title` and never consume a turn. When the script is exhausted the mock
+contains "title generator", or 2.1's "You name conversations") are answered with `title` and never consume a turn. When the script is exhausted the mock
 answers "(script exhausted)" so over-calls show up in the dumps.
 
 Turn fields (all optional):
@@ -72,7 +72,7 @@ def decompress(raw, encoding):
 
 def classify(body):
     text = json.dumps(body)
-    if "title generator" in text:
+    if "title generator" in text or "You name conversations" in text:
         return "title"
     return "main"
 

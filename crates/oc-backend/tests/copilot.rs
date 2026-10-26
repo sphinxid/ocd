@@ -147,7 +147,7 @@ fn messages_stream(text: &str) -> Response {
 
 async fn answer(State(mock): State<Mock>, UrlPath(path): UrlPath<String>, headers: HeaderMap, body: axum::Json<Value>) -> Response {
     let path = format!("/{path}");
-    let title = body.0.to_string().contains("title generator");
+    let title = body.0.to_string().contains("You name conversations");
     mock.requests.lock().push(Recorded { path: path.clone(), headers, body: body.0.clone() });
     if body.0["stream"] == json!(false) {
         let completion = json!({"id": "c", "object": "chat.completion", "choices": [{"index": 0, "message": {"role": "assistant", "content": "  Utility title \n"}, "finish_reason": "stop"}]});

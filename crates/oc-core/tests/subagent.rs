@@ -46,7 +46,7 @@ async fn subagent_runs_child_session() {
             let _ = (&c2, &b2, &file);
             b2.lock().push(body.0.clone());
             async move {
-                if text.contains("You are a title generator") {
+                if text.contains("You name conversations") {
                     return sse(&[
                         serde_json::json!({"id":"t","choices":[{"index":0,"delta":{"role":"assistant","content":"Title"}}]}),
                         serde_json::json!({"id":"t","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),

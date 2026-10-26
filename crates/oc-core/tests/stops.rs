@@ -88,7 +88,7 @@ async fn runs_do_not_stop_early() {
     let mock = Router::new().route(
         "/v1/chat/completions",
         post(move |headers: axum::http::HeaderMap, body: axum::Json<serde_json::Value>| {
-            let title = body.0.to_string().contains("title generator");
+            let title = body.0.to_string().contains("You name conversations");
             let session = headers.get("x-opencode-session-id").and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
             let case = if title { None } else { k2.lock().get(&session).copied() };
             let n = case.map(|c| {
