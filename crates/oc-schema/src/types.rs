@@ -62,11 +62,14 @@ pub struct SessionError {
     pub status: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response: Option<ErrorResponse>,
+    /// How long the provider asked to wait before trying again, counted from when the failure was recorded.
+    #[serde(rename = "retryAfterMs", default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u64>,
 }
 
 impl SessionError {
     pub fn new(kind: impl Into<String>, message: impl Into<String>) -> Self {
-        SessionError { kind: kind.into(), message: message.into(), status: None, response: None }
+        SessionError { kind: kind.into(), message: message.into(), status: None, response: None, retry_after_ms: None }
     }
 }
 

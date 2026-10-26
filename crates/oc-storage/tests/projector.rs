@@ -146,3 +146,36 @@ fn full_turn_projects_messages() {
         .unwrap();
     assert_eq!(data, r#"{"time":{"created":1200},"text":"hi"}"#);
 }
+
+// a5bf17164: a committed revert keeps the instruction baseline unless it removed the update it was folded
+// through (or the epoch start), so the prompt cache survives.
+#[test]
+fn committed_revert_keeps_instruction_baseline() {
+    let through = |db: &Database, sid: &str| -> Option<i64> {
+        db.with(|c| {
+            use rusqlite::OptionalExtension;
+            c.query_row("SELECT through_seq FROM instruction_state WHERE session_id = ?", [sid], |r| r.get(0)).optional()
+        })
+        .unwrap()
+    };
+    for (fold_through, survives) in [(5, true), (10, false), (12, false)] {
+        let (db, sid) = setup();
+        db.with(|c| {
+            for (id, seq) in [("msg_a", 3), ("msg_b", 10), ("msg_c", 14)] {
+                c.execute(
+                    "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, 'user', ?, 0, 0, '{\"time\":{\"created\":0},\"text\":\"x\"}')",
+                    rusqlite::params![id, sid, seq],
+                )?;
+            }
+            c.execute(
+                "INSERT INTO instruction_state (session_id, epoch_start, through_seq, initial_values, current_values) VALUES (?, 0, ?, '{}', '{}')",
+                rusqlite::params![sid, fold_through],
+            )
+        })
+        .unwrap();
+        commit(&db, SessionEvent::RevertCommitted { session_id: sid.clone(), to: "msg_b".into() }, 2000);
+        assert_eq!(through(&db, &sid), survives.then_some(fold_through), "folded through {fold_through}");
+        let left: i64 = db.with(|c| c.query_row("SELECT count(*) FROM session_message", [], |r| r.get(0))).unwrap();
+        assert_eq!(left, 1);
+    }
+}

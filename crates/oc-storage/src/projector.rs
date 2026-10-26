@@ -381,7 +381,12 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             c.execute("DELETE FROM session_message WHERE session_id = ? AND seq >= ?", params![session_id, boundary])?;
             c.execute("DELETE FROM session_inbox WHERE session_id = ? AND enqueued_seq >= ?", params![session_id, boundary])?;
             c.execute("UPDATE session_v2 SET revert = NULL, time_updated = ? WHERE id = ?", params![created as i64, session_id])?;
-            c.execute("DELETE FROM instruction_state WHERE session_id = ?", [session_id])?;
+            // `InstructionState.rewind`: the fold is cleared only when the revert removed an update or the
+            // epoch start; otherwise its baseline still matches the surviving history and keeps the prompt cache.
+            c.execute(
+                "DELETE FROM instruction_state WHERE session_id = ? AND through_seq >= ?",
+                params![session_id, boundary],
+            )?;
         }
         E::ExecutionStarted { .. } => {}
         _ => run(c, e, seq)?,

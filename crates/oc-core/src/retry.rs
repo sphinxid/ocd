@@ -66,6 +66,25 @@ impl Policy {
     }
 }
 
+/// `ModelRetry.retry`: retries a buffered model call (session generate, `Generate.text`) from scratch under
+/// the shared policy; failed attempts never contribute to its output.
+pub async fn buffered<T, F, Fut>(mut call: F) -> Result<T, AIError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, AIError>>,
+{
+    let mut policy = Policy::default();
+    loop {
+        match call().await {
+            Ok(value) => return Ok(value),
+            Err(cause) => {
+                let Some(decision) = policy.decide(&cause, cause.is_retryable()) else { return Err(cause) };
+                tokio::time::sleep(Duration::from_millis(decision.delay)).await;
+            }
+        }
+    }
+}
+
 /// Publish `session.retry.scheduled` and sleep until `at`, or until the execution is interrupted (the
 /// caller checks `cancel` afterwards; upstream interrupts the sleeping fiber).
 pub async fn wait(
@@ -90,5 +109,65 @@ pub async fn wait(
         _ = cancel.cancelled() => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // generate.test.ts: a buffered generation that fails retryably is regenerated from scratch with the same
+    // request; one that cannot be retried fails after a single attempt.
+    #[tokio::test]
+    async fn buffered_generations_retry() {
+        let calls = AtomicUsize::new(0);
+        let started = std::time::Instant::now();
+        let out = buffered(|| {
+            let n = calls.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if n == 0 { Err(AIError::new(ErrorKind::ProviderInternal { retry_after_ms: None }, "busy")) } else { Ok("Fresh answer") }
+            }
+        })
+        .await;
+        assert_eq!(out.unwrap(), "Fresh answer");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        // The first gap is 2s with ±20% jitter.
+        assert!(started.elapsed() >= Duration::from_millis(1_600));
+
+        let calls = AtomicUsize::new(0);
+        let out: Result<(), AIError> = buffered(|| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async { Err(AIError::new(ErrorKind::Authentication, "bad key")) }
+        })
+        .await;
+        assert_eq!(out.unwrap_err().message, "bad key");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn timeouts_retry_at_most_three_times() {
+        let timeout = AIError::new(
+            ErrorKind::Transport {
+                transport: oc_ai::error::TransportType::Http,
+                operation: oc_ai::error::TransportOperation::Request,
+                code: Some("Timeout".into()),
+                url: None,
+                phase: None,
+                delivery: None,
+                recovery: None,
+            },
+            "timed out",
+        );
+        let mut policy = Policy::default();
+        let retries: Vec<bool> = (0..5).map(|_| policy.decide(&timeout, true).is_some()).collect();
+        assert_eq!(retries, vec![true, true, true, false, false]);
+        // At most ten retries in all.
+        let mut policy = Policy::default();
+        let busy = AIError::new(ErrorKind::ProviderInternal { retry_after_ms: Some(60_000.0) }, "busy");
+        let decisions: Vec<_> = std::iter::from_fn(|| policy.decide(&busy, true)).take(20).collect();
+        assert_eq!(decisions.len(), 10);
+        // Retry-After raises the delay.
+        assert!(decisions.iter().all(|d| d.delay >= 60_000));
+    }
 }
 

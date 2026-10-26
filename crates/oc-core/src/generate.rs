@@ -41,7 +41,7 @@ impl Engine {
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
         tracing::info!(sessionID = session_id, providerID = %loaded.resolved.model.provider_id, modelID = %loaded.resolved.model.id, "sending session generation request");
-        let response = self.client.generate_with(req, CancellationToken::new(), shaped.http).await?;
+        let response = crate::retry::buffered(|| self.client.generate_with(req.clone(), CancellationToken::new(), shaped.http.clone())).await?;
         Ok(response.text())
     }
 
@@ -72,9 +72,7 @@ impl Engine {
         let mut headers = indexmap::IndexMap::new();
         headers.insert("x-opencode-session".to_string(), oc_schema::id::session());
         req.http = Some(oc_ai::types::HttpOptions { headers: Some(headers), ..Default::default() });
-        let response = self
-            .client
-            .generate(req, CancellationToken::new())
+        let response = crate::retry::buffered(|| self.client.generate(req.clone(), CancellationToken::new()))
             .await
             .map_err(|e| GenerateError::Unavailable { message: e.message.clone(), service: Some(r.provider_id.clone()) })?;
         Ok(response.text())

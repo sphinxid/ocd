@@ -239,6 +239,33 @@ async fn plugin_tool_offered_and_runs_with_before_hook() {
     s.shutdown().await;
 }
 
+// promise-tool.test.ts (143807327): a Promise tool that throws fails only its call, with the thrown message
+// and, for a Tool.Error, its metadata.
+#[tokio::test]
+async fn promise_tool_throws_become_tool_failures() {
+    require_bun!();
+    let s = setup(
+        json!([{ "package": fixture("throwing-tools") }]),
+        vec![Turn::Tool("plain", json!({})), Turn::Tool("typed", json!({})), Turn::Text("done")],
+    )
+    .await;
+    let session = s.h.session().await;
+    s.run(&session, "throw please").await;
+    let messages = s.messages(&session);
+    let tools: Vec<Value> = messages.iter().flat_map(|m| m["content"].as_array().cloned().unwrap_or_default()).filter(|c| c["type"] == "tool").collect();
+    let state = |name: &str| tools.iter().find(|t| t["name"] == name).map(|t| t["state"].clone()).unwrap_or_else(|| panic!("{name}: {tools:?}"));
+    let plain = state("plain");
+    assert_eq!(plain["status"], "error", "{plain}");
+    assert_eq!(plain["error"]["message"], "plain failure");
+    let typed = state("typed");
+    assert_eq!(typed["status"], "error", "{typed}");
+    assert_eq!(typed["error"]["message"], "typed failure");
+    assert_eq!(typed["metadata"]["code"], 7, "{typed}");
+    // The run went on to the final answer.
+    assert_eq!(s.mock.bodies.lock().len(), 3);
+    s.shutdown().await;
+}
+
 #[tokio::test]
 async fn effect_plugin_agents_skills_and_rejecting_hook() {
     require_bun!();

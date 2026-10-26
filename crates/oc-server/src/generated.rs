@@ -4646,6 +4646,8 @@ pub struct SessionStructuredError {
     pub status: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response: Option<SessionStructuredErrorResponse>,
+    #[serde(rename = "retryAfterMs", default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
