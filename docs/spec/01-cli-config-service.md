@@ -1325,6 +1325,10 @@ Two registrations are the **same** instance iff `id`, `version`, `url`, `pid` ar
 | `local` | `0xC0DF` = 49375 |
 | other | `10000 + (parseInt(sha1hex(channel)[0..8], 16) % 50000)` |
 
+On Windows (`service-config.ts` `defaultPort`, 2.1) a port of `0x8000` or more becomes
+`0x7000 | (port & 0xfff)`, below the ranges Windows, Hyper-V, WinNAT and WSL mirrored networking
+reserve: `latest` 28894, `local` 28895. A port saved in the service config is kept.
+
 ### 7.3 Service-mode server startup (`serve --service`) — the election
 
 `cli/src/server-process.ts:47-204`. Single-instance election is done by **binding the fixed port**,

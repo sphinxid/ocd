@@ -17,7 +17,7 @@ not forward stdin, so `-F -` silently does nothing). `.gitignore` blocks databas
 The user has opencode **1.18.31 (v1)** installed with real data in `~/.local/share/opencode/opencode.db` (505 sessions).
 ocd uses the same paths by design. **Every** manual or scripted run of an ocd binary (or upstream v2 build) MUST set
 isolated `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` (and `OPENCODE_TEST_HOME`), and prefer
-`--standalone` (plain `ocd` starts a long-lived background service on port 49374). Incident 2026-10-12: a stray
+`--standalone` (plain `ocd` starts a long-lived background service on port 49374, 28894 on Windows). Incident 2026-10-12: a stray
 `target/release/opencode serve --service` with real dirs applied the 11 newest v2 migrations to the real DB (v1 still
 works on it — verified on a copy; backup of the post-incident state in `~/.local/share/opencode-backup-20261012-2315/`).
 

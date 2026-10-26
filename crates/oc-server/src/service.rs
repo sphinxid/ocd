@@ -11,9 +11,27 @@ fn is_release(channel: &str) -> bool {
     matches!(channel, "latest" | "dev" | "beta" | "next")
 }
 
-/// Default service port: `0xC0DE` for latest/dev/beta/next, `0xC0DF` for local, else
-/// `10000 + (parseInt(sha1hex(channel)[0..8], 16) % 50000)`.
+/// Default service port (`service-config.ts` `defaultPort`) on this platform: see
+/// [`default_service_port_for`].
 pub fn default_service_port(channel: &str) -> u16 {
+    default_service_port_for(channel, cfg!(windows))
+}
+
+/// Default service port: `0xC0DE` for latest/dev/beta/next, `0xC0DF` for local, else
+/// `10000 + (parseInt(sha1hex(channel)[0..8], 16) % 50000)`. On Windows a port at or above
+/// `0x8000` moves into the `0x7000` block keeping its low 12 bits (`0xC0DE` becomes `0x70DE`):
+/// Windows hands out `0xC000-0xFFFF` for outgoing connections, Hyper-V and WinNAT reserve blocks of
+/// that range at boot and WSL mirrored networking reserves a 4096-port block, and a reserved port
+/// fails as in use while nothing listens on it. Saved ports are not migrated.
+pub fn default_service_port_for(channel: &str, windows: bool) -> u16 {
+    let port = channel_port(channel);
+    if windows && port >= 0x8000 {
+        return 0x7000 | (port & 0xfff);
+    }
+    port
+}
+
+fn channel_port(channel: &str) -> u16 {
     if is_release(channel) {
         return 0xC0DE;
     }
@@ -146,9 +164,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn managed_service_ports_are_stable_per_installation_channel() {
+        for channel in ["latest", "dev", "beta", "next"] {
+            assert_eq!(default_service_port_for(channel, false), 0xC0DE);
+        }
+        assert_eq!(default_service_port_for("local", false), 0xC0DF);
+        assert_eq!(default_service_port_for("preview-a", false), default_service_port_for("preview-a", false));
+        assert_ne!(default_service_port_for("preview-a", false), default_service_port_for("preview-b", false));
+    }
+
+    #[test]
+    fn managed_service_ports_on_windows_stay_below_the_ranges_windows_and_wsl_reserve() {
+        assert_eq!(default_service_port_for("latest", true), 0x70DE);
+        assert_eq!(default_service_port_for("latest", true), 28894);
+        assert_eq!(default_service_port_for("dev", true), 0x70DE);
+        assert_eq!(default_service_port_for("local", true), 0x70DF);
+        assert_eq!(default_service_port_for("local", true), 28895);
+        let ports: Vec<(u16, u16)> = (0..200)
+            .map(|i| {
+                let channel = format!("preview-{i}");
+                (default_service_port_for(&channel, true), default_service_port_for(&channel, false))
+            })
+            .collect();
+        assert!(ports.iter().any(|(_, linux)| *linux >= 0x8000));
+        assert!(ports.iter().all(|(windows, _)| (10_000..0x8000).contains(windows)));
+        assert!(ports.iter().all(|(windows, linux)| *linux >= 0x8000 || windows == linux));
+    }
+
+    #[test]
     fn ports_and_names() {
-        assert_eq!(default_service_port("latest"), 49374);
-        assert_eq!(default_service_port("local"), 49375);
+        let (latest, local) = if cfg!(windows) { (28894, 28895) } else { (49374, 49375) };
+        assert_eq!(default_service_port("latest"), latest);
+        assert_eq!(default_service_port("local"), local);
         let p = default_service_port("preview/a");
         assert!((10_000..60_000).contains(&p));
         assert_eq!(service_file_name("dev"), "service.json");

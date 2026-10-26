@@ -2027,7 +2027,7 @@ Inbound:
 * Port: explicit `P` binds exactly (0 = ephemeral). Otherwise (default/stdio mode) try 4096 and
   increment on `EADDRINUSE` up to 65535 (process.ts:142-149). Service mode default port
   (`packages/cli/src/services/service-config.ts:115-119`): `0xC0DE` (49374) for channels
-  `latest|dev|beta|next`, `0xC0DF` (49375) for `local`, else `10000 + (parseInt(hash(channel)[0..8],16) % 50000)`.
+  `latest|dev|beta|next`, `0xC0DF` (49375) for `local`, else `10000 + (parseInt(hash(channel)[0..8],16) % 50000)`; on Windows a port of `0x8000` or more becomes `0x7000 | (port & 0xfff)` (28894 for `latest`).
   Service-mode values may come from the service config file (`hostname`, `port`, `password`, `cors`).
 * Stdout: default mode `server listening on http://H:P` then `server password <pw>` if the
   password was generated; stdio mode prints one JSON line `{"url":"http://H:P"}` and exits when

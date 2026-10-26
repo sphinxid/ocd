@@ -44,7 +44,8 @@ server.shutdown().await;            // or server.wait().await
 * `router(backend, &opts) -> (axum::Router, RouterHandle)` builds the same application without
   binding (tests / embedding). `RouterHandle` has `set_ready/set_failed/set_stopping/meta/issue_session`.
 * `oc_server::service` — service-mode helpers: `default_service_port(channel)` (`0xC0DE`
-  latest/dev/beta/next, `0xC0DF` local, else sha1-derived), `service_file_name`,
+  latest/dev/beta/next, `0xC0DF` local, else sha1-derived; on Windows a port of `0x8000` or more
+  becomes `0x7000 | (port & 0xfff)`, so 28894/28895), `service_file_name`,
   `default_registration_path`, `Registration` + `write_registration` (atomic, 0600) /
   `read_registration` / `remove_registration_if_owned` / `watch_registration` (5 s watchdog),
   `generate_password()` (32 random bytes, base64url). The election/incumbent probing itself is
