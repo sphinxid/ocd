@@ -3,9 +3,9 @@
 # (crates/ocd/web-ui/app-archive.bin, not committed).
 #
 # Usage: scripts/build-web-ui.sh <upstream-opencode-checkout> [output]
-#   (or set OPENCODE_UPSTREAM). The checkout must be the pinned upstream commit with its
+#   (or set OPENCODE_UPSTREAM). The checkout must be the pinned upstream commit (tag v2.1.4, 68bc26b) with its
 #   dependencies installed (`bun install` at its root). BUN selects the bun binary (default: `bun`
-#   on PATH; upstream pins bun 1.4.2). OPENCODE_CHANNEL selects the channel the app is built for
+#   on PATH; upstream v2.1.4 pins bun 1.4.4). OPENCODE_CHANNEL selects the channel the app is built for
 #   (default `latest`, ocd's default channel, which the app reads as `prod`).
 #
 # Like upstream's `packages/cli/script/build.ts`, this runs the app's own `vite build`, which writes
