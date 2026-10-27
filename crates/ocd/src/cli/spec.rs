@@ -168,6 +168,11 @@ fn with(mut a: Vec<Param>, b: Vec<Param>) -> Vec<Param> {
 /// The executable's own name (`OPENCODE_CLI_NAME` build constant upstream).
 pub const CLI_NAME: &str = "ocd";
 
+/// ocd's own `upgrade` texts (upstream upgrades through an install method; ocd installs its GitHub releases).
+pub const UPGRADE_DESCRIPTION: &str = "Upgrade ocd to the latest GitHub release, or to the given version";
+pub const METHOD_DESCRIPTION: &str = "Ignored: ocd installs only from its GitHub releases";
+pub const YES_DESCRIPTION: &str = "Replace a local build without asking (required without an interactive terminal)";
+
 pub const UPDATER_METHODS: &[&str] = &["curl", "npm", "pnpm", "bun", "yarn", "vp", "brew", "winget"];
 pub const PATH_NAMES: &[&str] = &["db", "home", "data", "config", "cache", "state", "tmp", "bin", "log", "repos"];
 
@@ -212,13 +217,14 @@ pub fn root() -> Cmd {
     );
     let mut upgrade = cmd(
         "upgrade",
-        "Show how to upgrade ocd (it is built from source)",
+        UPGRADE_DESCRIPTION,
         vec![
             arg("target", "target", "Version to upgrade to (with or without a leading v)", ArgMode::Optional),
             flag("method", "method", Prim::Choice(UPDATER_METHODS), Arity::Optional)
                 .alias("m")
-                .desc("Installation method to use")
+                .desc(METHOD_DESCRIPTION)
                 .p(),
+            boolean("yes", "yes").alias("y").desc(YES_DESCRIPTION).p(),
         ],
     );
     upgrade.alias = Some("update");

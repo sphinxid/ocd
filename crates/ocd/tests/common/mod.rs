@@ -4,6 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+pub mod releases;
+
 pub struct Env {
     pub root: tempfile::TempDir,
 }

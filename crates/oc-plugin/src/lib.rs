@@ -12,7 +12,7 @@ pub mod process;
 pub mod protocol;
 pub mod storage;
 pub mod supervisor;
-mod zip;
+pub mod zip;
 
 pub use aisdk::{AisdkError, AisdkHttp, AisdkParts, AisdkStreamRequest};
 pub use api::{ApiError, ApiRequest, PluginApi, StorageEntry, StorageScan};

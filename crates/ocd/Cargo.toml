@@ -19,6 +19,7 @@ oc-mcp = { path = "../oc-mcp" }
 oc-plugin = { path = "../oc-plugin" }
 oc-tui = { path = "../oc-tui" }
 oc-tunnel = { path = "../oc-tunnel" }
+oc-persistent-pty = { path = "../oc-persistent-pty" }
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
@@ -45,6 +46,7 @@ sha1 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 percent-encoding = "2"
+flate2 = "1"
 
 [build-dependencies]
 serde_json.workspace = true

@@ -219,14 +219,16 @@ _ocd_upgrade()
       ;;
   esac
 
-  local _used_0=""
+  local _used_0="" _used_1=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
       --method|-m) _used_0=1 ;;
+      --yes|-y|--no-yes) _used_1=1 ;;
     esac
   done
   local _filtered_flags=""
   [[ -n "$_used_0" ]] || _filtered_flags+=" --method -m"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --yes -y --no-yes"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -250,14 +252,16 @@ _ocd_update()
       ;;
   esac
 
-  local _used_0=""
+  local _used_0="" _used_1=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
       --method|-m) _used_0=1 ;;
+      --yes|-y|--no-yes) _used_1=1 ;;
     esac
   done
   local _filtered_flags=""
   [[ -n "$_used_0" ]] || _filtered_flags+=" --method -m"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --yes -y --no-yes"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then

@@ -14,8 +14,8 @@ _ocd() {
 
   local -a commands
   commands=(
-    'upgrade:Show how to upgrade ocd (it is built from source)'
-    'update:Show how to upgrade ocd (it is built from source)'
+    'upgrade:Upgrade ocd to the latest GitHub release, or to the given version'
+    'update:Upgrade ocd to the latest GitHub release, or to the given version'
     'uninstall:Uninstall OpenCode, keeping session data, configuration, and state'
     'acp:Start an Agent Client Protocol server'
     'api:Make a request to the running server'
@@ -126,8 +126,11 @@ _ocd() {
 _ocd_upgrade() {
   local -a specs
   specs=(
-    '(--method -m)--method[Installation method to use]:value:(curl npm pnpm bun yarn vp brew winget)'
-    '(--method -m)-m[Installation method to use]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)--method[Ignored: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)-m[Ignored: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--yes -y --no-yes)--yes[Replace a local build without asking (required without an interactive terminal)]'
+    '(--yes -y --no-yes)-y[Replace a local build without asking (required without an interactive terminal)]'
+    '(--yes -y --no-yes)--no-yes[Disable yes]'
     ':Version to upgrade to (with or without a leading v):'
   )
   _arguments "${specs[@]}"
@@ -136,8 +139,11 @@ _ocd_upgrade() {
 _ocd_update() {
   local -a specs
   specs=(
-    '(--method -m)--method[Installation method to use]:value:(curl npm pnpm bun yarn vp brew winget)'
-    '(--method -m)-m[Installation method to use]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)--method[Ignored: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)-m[Ignored: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--yes -y --no-yes)--yes[Replace a local build without asking (required without an interactive terminal)]'
+    '(--yes -y --no-yes)-y[Replace a local build without asking (required without an interactive terminal)]'
+    '(--yes -y --no-yes)--no-yes[Disable yes]'
     ':Version to upgrade to (with or without a leading v):'
   )
   _arguments "${specs[@]}"

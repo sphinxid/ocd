@@ -173,10 +173,66 @@ async fn default_command(global: &Global, input: &Input) -> anyhow::Result<i32> 
         Args { server: requested.clone(), standalone: input.flag("standalone"), mismatch: Some(Mismatch::Replace), on_start: Some(&cb) },
     )
     .await?;
-    let opts = tui_options(input, &server, requested.is_some());
+    let mut opts = tui_options(input, &server, requested.is_some());
+    opts.updater = Some(updater_hooks(global));
     let code = oc_tui::run(opts).await?;
     drop(server);
     Ok(code)
+}
+
+/// `updater` for the TUI (`handlers/default.ts`): the background check runs now and every 10 minutes (the
+/// release lookup itself happens at most once a day), and `/update` checks and installs on demand. Checks and
+/// installs take turns.
+fn updater_hooks(global: &Global) -> oc_tui::UpdaterHooks {
+    use crate::release::{self, Outcome};
+    let (tx, notices) = tokio::sync::watch::channel(None);
+    let turn = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+    let source = release::Source::from_env();
+    {
+        let (global, source, turn) = (global.clone(), source.clone(), turn.clone());
+        tokio::spawn(async move {
+            loop {
+                let result = {
+                    let _turn = turn.lock().await;
+                    release::run(&global, &source, |_| {}).await
+                };
+                let notice = match result {
+                    Some(Outcome::Available(v)) => Some(oc_tui::UpdateNotice::Available(v)),
+                    Some(Outcome::Installed(v)) => Some(oc_tui::UpdateNotice::Installed(v)),
+                    _ => None,
+                };
+                if notice.is_some() && *tx.borrow() != notice {
+                    let _ = tx.send(notice);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(10 * 60)).await;
+            }
+        });
+    }
+    let error = |e: release::UpgradeError| anyhow::anyhow!("{}. {}", e.title.trim_end_matches('.'), e.detail);
+    let (check_source, check_turn) = (source.clone(), turn.clone());
+    let (apply_global, apply_turn) = (global.clone(), turn);
+    oc_tui::UpdaterHooks {
+        notices,
+        check: std::sync::Arc::new(move || {
+            let (source, turn) = (check_source.clone(), check_turn.clone());
+            Box::pin(async move {
+                let _turn = turn.lock().await;
+                Ok(match release::check(&source).await.map_err(error)? {
+                    Some(Outcome::Available(v)) => Some(oc_tui::UpdateCheck::Available(v)),
+                    Some(Outcome::Installed(v)) => Some(oc_tui::UpdateCheck::Installed(v)),
+                    Some(Outcome::Unavailable(m)) => Some(oc_tui::UpdateCheck::Unavailable(m)),
+                    None => None,
+                })
+            })
+        }),
+        apply: std::sync::Arc::new(move |version| {
+            let (global, source, turn) = (apply_global.clone(), source.clone(), apply_turn.clone());
+            Box::pin(async move {
+                let _turn = turn.lock().await;
+                release::apply(&global, &source, &version).await.map_err(error)
+            })
+        }),
+    }
 }
 
 async fn mini(global: &Global, input: &Input) -> anyhow::Result<i32> {
@@ -761,12 +817,16 @@ async fn service_stop(global: &Global) -> anyhow::Result<i32> {
 }
 
 async fn service_restart(global: &Global) -> anyhow::Result<i32> {
-    let options = ServiceConfig::new(global).options(false);
-    service::shutdown_persistent_pty(&options.file).await;
-    service::stop(&options.file, Pty::Clear).await?;
-    let endpoint = service::ensure(&options, None).await?;
+    let endpoint = restart_service(&ServiceConfig::new(global).options(false)).await?;
     write_stdout(&format!("{}{EOL}", endpoint.url));
     Ok(0)
+}
+
+/// `service restart`: stop the service (and its persistent terminals), then start it again.
+pub(crate) async fn restart_service(options: &service::EnsureOptions) -> anyhow::Result<crate::client::Endpoint> {
+    service::shutdown_persistent_pty(&options.file).await;
+    service::stop(&options.file, Pty::Clear).await?;
+    service::ensure(options, None).await
 }
 
 /// `disableRemote`: forgets the route; having had remote access on counts as accepting it.

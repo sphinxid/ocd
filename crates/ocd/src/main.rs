@@ -6,6 +6,7 @@ mod cli;
 mod client;
 mod commands;
 mod connection;
+mod release;
 mod remote_tunnel;
 mod run;
 mod runtime;
@@ -53,6 +54,8 @@ fn main() {
         }
     };
 
+    // Executables a Windows upgrade moved aside (no-op elsewhere).
+    release::cleanup_old();
     let inv = match outcome {
         Outcome::Run(inv) => inv,
         other => std::process::exit(cli::emit(&root, &other)),

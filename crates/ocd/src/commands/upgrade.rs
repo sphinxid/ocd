@@ -3,7 +3,8 @@
 //! Native-binary adaptation: method detection recognises the curl install location
 //! (`~/.opencode/bin/opencode`), Homebrew cellars and an npm-style `package.json` next to the
 //! executable; anything else (e.g. a `cargo build` binary) is "unknown" and needs `--method`.
-//! The release lookup, package-manager commands and error formatting follow upstream.
+//! `upgrade` itself installs ocd's GitHub releases (`crate::release`); `uninstall` keeps upstream's package-manager
+//! commands and error formatting.
 
 use std::path::{Path, PathBuf};
 
@@ -12,6 +13,7 @@ use serde_json::Value;
 
 use super::auth::{Flow, handle};
 use crate::cli::parse::Input;
+use crate::release;
 use crate::service;
 use crate::ui;
 
@@ -141,14 +143,98 @@ fn detail_of(o: &std::process::Output) -> String {
     format!("The command exited with code {} without any error output.", o.status.code().unwrap_or(1))
 }
 
-/// ocd is built from source, so it never downloads an upstream opencode release over itself.
-pub const UPGRADE_FROM_SOURCE: &str = "ocd is built from source; rebuild it to upgrade (cargo build --release -p ocd).";
+/// `handlers/upgrade.ts`, for ocd's GitHub releases (`crate::release`): the latest release or `target`,
+/// "already installed" when there is nothing to do, a confirmation before replacing a local build, then the
+/// download, checksum, `--version` check and the swap of the executable. A running background service is
+/// restarted on the new binary; a stopped one stays stopped.
+pub async fn upgrade(global: &Global, input: &Input) -> anyhow::Result<i32> {
+    Ok(handle(
+        async {
+            ui::intro("Upgrade");
+            if let Some(method) = input.str("method") {
+                ui::log::warn(&format!("ocd installs only from its GitHub releases; ignoring --method {method}"));
+            }
+            release::cleanup_old();
+            let platform = release::PLATFORM.ok_or_else(release::unsupported_platform)?;
+            let source = release::Source::from_env();
+            let exe = source.executable()?;
+            let target = input.str("target");
+            if let Some(t) = &target
+                && release::Version::parse(t).is_none()
+            {
+                return Err(Flow::Error(anyhow::anyhow!("Invalid version: {t}")));
+            }
+            let installed = source.installed.clone();
+            let found = release::fetch(&source, target.as_deref(), std::time::Duration::from_secs(10)).await?;
+            let version = &found.version;
+            match &installed {
+                release::Installed::Release { version: current, .. } => {
+                    if current == version {
+                        ui::log::warn(&format!("ocd upgrade skipped: {version} is already installed"));
+                        ui::outro("Done");
+                        return Ok(());
+                    }
+                    if current > version && target.is_none() {
+                        ui::log::warn(&format!(
+                            "ocd upgrade skipped: {current} is already installed, newer than the latest release ({version})"
+                        ));
+                        ui::outro("Done");
+                        return Ok(());
+                    }
+                }
+                release::Installed::Local { build } => {
+                    let build = build.as_deref().map(|b| format!(" ({b})")).unwrap_or_default();
+                    ui::log::warn(&format!("This ocd is a local build{build}, not a release."));
+                    if !input.flag("yes") {
+                        if !ui::interactive() {
+                            return Err(Flow::Error(anyhow::anyhow!(
+                                "Pass --yes to replace a local build without an interactive terminal."
+                            )));
+                        }
+                        if !ui::confirm(&format!("Replace it with ocd {version}?"), false)? {
+                            ui::outro("Cancelled");
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            ui::log::info(&format!("From {} → {version}", installed.build().unwrap_or("a local build")));
+            // Before downloading anything.
+            release::check_writable(&exe, &found.page)?;
+            let progress = ui::Spinner::start("Upgrading...");
+            if let Err(e) = release::install(global, &found, platform, &exe).await {
+                progress.stop("Upgrade failed", 1);
+                return Err(Flow::Error(e.into()));
+            }
+            progress.stop("Upgrade complete", 0);
+            restart_running_service(global, &exe).await;
+            ui::outro("Done");
+            Ok::<(), Flow>(())
+        }
+        .await,
+    ))
+}
 
-pub async fn upgrade(_global: &Global, _input: &Input) -> anyhow::Result<i32> {
-    ui::intro("Upgrade");
-    ui::log::info(UPGRADE_FROM_SOURCE);
-    ui::outro("Done");
-    Ok(0)
+/// Restarts the background service of this channel on the new executable if it is running (the code path of
+/// `ocd service restart`). A stopped service is left stopped.
+async fn restart_running_service(global: &Global, exe: &Path) {
+    let mut options = service::ServiceConfig::new(global).options(false);
+    if service::discover(&options.file, None).await.is_none() {
+        return;
+    }
+    // After the swap the running executable's own path no longer names it on Linux (`/proc/self/exe` reads
+    // "… (deleted)"), so start the service from the path that was replaced.
+    if let Some(first) = options.command.first_mut() {
+        *first = exe.display().to_string();
+    }
+    let progress = ui::Spinner::start("Restarting the background service...");
+    match super::restart_service(&options).await {
+        Ok(_) => progress.stop("Background service restarted", 0),
+        Err(e) => {
+            progress.stop("Could not restart the background service", 1);
+            ui::log::warn(&format!("{e}\nRun ocd service restart to use the new version."));
+        }
+    }
 }
 
 fn removal(method: Option<&str>) -> Option<Vec<String>> {

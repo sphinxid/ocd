@@ -7,8 +7,8 @@
 #
 
 complete -c ocd -n '__fish_use_subcommand' -f
-complete -c ocd -n '__fish_use_subcommand' -f -a 'upgrade' -d 'Show how to upgrade ocd (it is built from source)'
-complete -c ocd -n '__fish_use_subcommand' -f -a 'update' -d 'Show how to upgrade ocd (it is built from source)'
+complete -c ocd -n '__fish_use_subcommand' -f -a 'upgrade' -d 'Upgrade ocd to the latest GitHub release, or to the given version'
+complete -c ocd -n '__fish_use_subcommand' -f -a 'update' -d 'Upgrade ocd to the latest GitHub release, or to the given version'
 complete -c ocd -n '__fish_use_subcommand' -f -a 'uninstall' -d 'Uninstall OpenCode, keeping session data, configuration, and state'
 complete -c ocd -n '__fish_use_subcommand' -f -a 'acp' -d 'Start an Agent Client Protocol server'
 complete -c ocd -n '__fish_use_subcommand' -f -a 'api' -d 'Make a request to the running server'
@@ -44,11 +44,19 @@ complete -c ocd -n '__fish_use_subcommand; and not string match -q -- "-*" (comm
 complete -c ocd -n '__fish_use_subcommand; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s s session' -f -a '--session' -d 'Session ID to continue, or to create if it does not exist'
 complete -c ocd -n '__fish_use_subcommand; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt prompt' -f -a '--prompt' -d 'Prompt to use'
 complete -c ocd -n '__fish_seen_subcommand_from upgrade' -f
-complete -c ocd -n '__fish_seen_subcommand_from upgrade; and begin; not __fish_contains_opt -s m method; or contains -- (commandline -poc)[-1] --method -m; end' -l method -s m -d 'Installation method to use' -r -f -a 'curl npm pnpm bun yarn vp brew winget'
-complete -c ocd -n '__fish_seen_subcommand_from upgrade; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s m method' -f -a '--method' -d 'Installation method to use'
+complete -c ocd -n '__fish_seen_subcommand_from upgrade; and begin; not __fish_contains_opt -s m method; or contains -- (commandline -poc)[-1] --method -m; end' -l method -s m -d 'Ignored: ocd installs only from its GitHub releases' -r -f -a 'curl npm pnpm bun yarn vp brew winget'
+complete -c ocd -n '__fish_seen_subcommand_from upgrade; and not __fish_contains_opt -s y yes no-yes' -l yes -s y -d 'Replace a local build without asking (required without an interactive terminal)'
+complete -c ocd -n '__fish_seen_subcommand_from upgrade; and not __fish_contains_opt -s y yes no-yes' -l no-yes -d 'Disable yes'
+complete -c ocd -n '__fish_seen_subcommand_from upgrade; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s m method' -f -a '--method' -d 'Ignored: ocd installs only from its GitHub releases'
+complete -c ocd -n '__fish_seen_subcommand_from upgrade; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s y yes no-yes' -f -a '--yes' -d 'Replace a local build without asking (required without an interactive terminal)'
+complete -c ocd -n '__fish_seen_subcommand_from upgrade; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s y yes no-yes' -f -a '--no-yes' -d 'Disable yes'
 complete -c ocd -n '__fish_seen_subcommand_from update' -f
-complete -c ocd -n '__fish_seen_subcommand_from update; and begin; not __fish_contains_opt -s m method; or contains -- (commandline -poc)[-1] --method -m; end' -l method -s m -d 'Installation method to use' -r -f -a 'curl npm pnpm bun yarn vp brew winget'
-complete -c ocd -n '__fish_seen_subcommand_from update; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s m method' -f -a '--method' -d 'Installation method to use'
+complete -c ocd -n '__fish_seen_subcommand_from update; and begin; not __fish_contains_opt -s m method; or contains -- (commandline -poc)[-1] --method -m; end' -l method -s m -d 'Ignored: ocd installs only from its GitHub releases' -r -f -a 'curl npm pnpm bun yarn vp brew winget'
+complete -c ocd -n '__fish_seen_subcommand_from update; and not __fish_contains_opt -s y yes no-yes' -l yes -s y -d 'Replace a local build without asking (required without an interactive terminal)'
+complete -c ocd -n '__fish_seen_subcommand_from update; and not __fish_contains_opt -s y yes no-yes' -l no-yes -d 'Disable yes'
+complete -c ocd -n '__fish_seen_subcommand_from update; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s m method' -f -a '--method' -d 'Ignored: ocd installs only from its GitHub releases'
+complete -c ocd -n '__fish_seen_subcommand_from update; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s y yes no-yes' -f -a '--yes' -d 'Replace a local build without asking (required without an interactive terminal)'
+complete -c ocd -n '__fish_seen_subcommand_from update; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s y yes no-yes' -f -a '--no-yes' -d 'Disable yes'
 complete -c ocd -n '__fish_seen_subcommand_from uninstall' -f
 complete -c ocd -n '__fish_seen_subcommand_from uninstall; and not __fish_contains_opt dry-run no-dry-run' -l dry-run -d 'Show what would be removed without removing'
 complete -c ocd -n '__fish_seen_subcommand_from uninstall; and not __fish_contains_opt dry-run no-dry-run' -l no-dry-run -d 'Disable dry-run'

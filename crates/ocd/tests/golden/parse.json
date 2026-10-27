@@ -72,7 +72,7 @@
   "args": [
    "upgrade"
   ],
-  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"yes\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -83,7 +83,7 @@
    "-m",
    "npm"
   ],
-  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"v1.2.3\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"npm\"}}\n",
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"v1.2.3\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"npm\"},\"yes\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -92,7 +92,7 @@
    "update",
    "1.0.0"
   ],
-  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"1.0.0\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"1.0.0\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"yes\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -893,7 +893,7 @@
    "-m",
    "winget"
   ],
-  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"winget\"}}\n",
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"winget\"},\"yes\":false}\n",
   "stderr": "",
   "code": 0
  }
