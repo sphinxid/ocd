@@ -2110,6 +2110,44 @@ mod schema {
 mod tests {
     use super::*;
 
+    /// `v1-migration.test.ts`: the legacy tool notice, `todowrite` among the removed tools.
+    #[test]
+    fn legacy_tool_notice_lists_todowrite_as_removed() {
+        let row = |r#type: &str, data: Value| MessageRow {
+            id: "msg_1".into(),
+            session_id: "ses_test".into(),
+            r#type: r#type.into(),
+            seq: 0,
+            time_created: 1,
+            time_updated: 1,
+            data,
+        };
+        let calls: Vec<Value> = ["bash", "read", "glob", "todowrite", "task", "apply_patch"]
+            .iter()
+            .map(|name| serde_json::json!({ "type": "tool", "id": name, "name": name }))
+            .collect();
+        let notice = legacy_tool_notice(&[row("user", serde_json::json!({})), row("assistant", serde_json::json!({ "content": calls }))]);
+        assert_eq!(
+            notice.as_deref(),
+            Some(
+                [
+                    "The available tools have changed.",
+                    "The following tools were renamed and must be called by their new names: `bash` is now `shell`; `task` is now `subagent`; `apply_patch` is now `patch`.",
+                    "The `subagent` tool takes `agent` instead of `subagent_type` and `sessionID` instead of `task_id`.",
+                    "The `read` tool now takes `path` instead of `filePath`.",
+                    "The `todowrite` tool is no longer available by default. Only call it if it is in your tool list.",
+                ]
+                .join("\n\n")
+                .as_str()
+            )
+        );
+        let todo = [row("assistant", serde_json::json!({ "content": [{ "type": "tool", "id": "t", "name": "todowrite" }] }))];
+        assert_eq!(
+            legacy_tool_notice(&todo).as_deref(),
+            Some("The available tools have changed.\n\nThe `todowrite` tool is no longer available by default. Only call it if it is in your tool list.")
+        );
+    }
+
     #[test]
     fn js_numbers() {
         let n = |s: &str| js_number(&serde_json::from_str::<serde_json::Number>(s).unwrap());
