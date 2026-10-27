@@ -2,7 +2,7 @@
 
 Client side of opencode's persistent terminals, a port of `packages/core/src/persistent-pty/**`
 (plus the handoff sidecar from `packages/client/src/pty-handoff.ts`). The terminals live in the
-external MIT Rust daemon `opencode-pty` (npm `@opencode-ai/pty@0.2.0`, protocol 7), so they
+external MIT Rust daemon `opencode-pty` (npm `@opencode-ai/pty@0.3.1`, protocol 7), so they
 survive server restarts. Spec: `docs/spec/08-mcp-pty-plugins-misc.md` §2.5–§2.9.
 
 ## Modules
@@ -52,7 +52,8 @@ Other methods:
 - `subscribe_events()` returns a `broadcast::Receiver<BusEvent>`. Use `BusEvent::event_type()`
   (`persistent-pty.added` or `persistent-pty.removed`) and `properties()` (`{sessionID, terminal}` or
   `{sessionID, ptyID}`) to forward to the bus or SSE.
-- `available()` returns `false` on Windows, which is the value of `GET /api/info` → `capabilities.persistentPty`.
+- `available()` returns `true` on every platform (since 2.1; `false` on Windows before), which is the value of
+  `GET /api/info` → `capabilities.persistentPty`.
 - `close()` drops the owner connection (the scope finalizer). The daemon then stops unless a
   handoff was prepared. Dropping the last clone has the same effect.
 - `daemon()` gives access to the `DaemonTransport` (`id()`, `directory()`, `is_owner()`, `discover()`).
@@ -92,16 +93,17 @@ An `exited` event seen by any attachment removes the terminal in the background
 `BinaryResolver::resolve()`:
 
 1. A non-empty `OPENCODE_PTY_BIN` wins.
-2. Windows and unsupported targets fall back to `opencode-pty` on `PATH`.
-3. Otherwise the crate installs into `<global.bin>/opencode-pty/0.2.0-<sha256[0..16]>/opencode-pty`. This is
+2. Unsupported targets fall back to `opencode-pty` on `PATH`.
+3. Otherwise the crate installs into `<global.bin>/opencode-pty/0.3.1-<sha256[0..16]>/opencode-pty` (`opencode-pty.exe`
+   on Windows). This is
    the same layout and validation as upstream's embedded asset: 0700 private dirs, no symlinks, owned by
    the current uid, sha256-verified, chmod 755, atomic `opencode-pty.<pid>.<uuid>.tmp` + rename, and the
    same error strings.
 
 When the binary isn't cached, the crate downloads
-`<registry>/@opencode-ai/pty-<os>-<arch>[-gnu|-musl]/-/pty-…-0.2.0.tgz`. The registry is `$npm_config_registry`
-or the public registry. The download is checked against the pinned npm `integrity` (sha512), `package/bin/opencode-pty`
-is extracted in memory, and its pinned sha256 is checked before install. The platform is chosen from the
+`<registry>/@opencode-ai/pty-<os>-<arch>[-gnu|-musl]/-/pty-…-0.3.1.tgz` (`<os>` is `darwin`, `linux` or `win32`). The
+registry is `$npm_config_registry` or the public registry. The download is checked against the pinned npm `integrity`
+(sha512), `package/bin/opencode-pty` (`opencode-pty.exe` on Windows) is extracted in memory, and its pinned sha256 is checked before install. The platform is chosen from the
 build target, the same as upstream (musl targets use `-musl`).
 
 ## Restart handoff
@@ -136,9 +138,10 @@ build target, the same as upstream (musl targets use `-musl`).
 - Upstream embeds the binary in its executable. This port downloads it once instead.
 - `write` takes bytes, not a JS string. The HTTP handlers only use `input` and `control`.
 - I/O error texts come from Rust's `std::io::Error`, not Node's `ENOENT: …` messages.
-- Windows: `available()` is `false`, and socket operations fail with
-  `Persistent PTYs are unavailable on this platform`, so `list` returns `[]` and `create` fails. The
-  non-Unix code paths are written but have not been compiled locally (no Windows target installed).
+- Windows: the daemon listens on a named pipe (`\\.\pipe\opencode-pty-…`), which the client opens with tokio's
+  named-pipe client (a busy pipe is retried for up to 30 s, like libuv), and the daemon is spawned detached
+  (`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, no window), like Node's `detached: true, windowsHide: true`.
+  This compiles for `x86_64-pc-windows-gnu` but has not been run on Windows.
 
 ## Tests
 

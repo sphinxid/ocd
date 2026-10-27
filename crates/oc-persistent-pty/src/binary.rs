@@ -1,82 +1,95 @@
 //! `opencode-pty` executable resolution (`persistent-pty/binary.bun.ts`).
 //!
-//! Upstream's compiled build embeds the platform binary from npm `@opencode-ai/pty-<suffix>@0.2.0`
+//! Upstream's compiled build embeds the platform binary from npm `@opencode-ai/pty-<suffix>@0.3.1`
 //! as `{path, version, sha256}` and installs it into
-//! `<global.bin>/opencode-pty/<version>-<sha256[0..16]>/opencode-pty`. The Rust port cannot embed
+//! `<global.bin>/opencode-pty/<version>-<sha256[0..16]>/opencode-pty[.exe]`. The Rust port cannot embed
 //! it, so the same bytes are fetched from the npm registry tarball (pinned sha512 `integrity`
 //! and pinned binary sha256) and installed with exactly the same layout and validation.
 //! `OPENCODE_PTY_BIN` overrides everything; unsupported platforms fall back to `opencode-pty`
-//! on `PATH`.
+//! on `PATH`. Since 0.3.1 Windows has binaries too (`opencode-pty.exe`, served over named pipes).
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256, Sha512};
 
-/// `available` — `opencode-pty` does not ship Windows binaries.
-pub const AVAILABLE: bool = !cfg!(windows);
+/// `available`: `opencode-pty` ships binaries for every platform since 0.3.1.
+pub const AVAILABLE: bool = true;
 
-/// `process.platform !== "win32"`.
+/// `available` (`true` since 2.1).
 pub fn available() -> bool {
     AVAILABLE
 }
 
-/// Pinned `@opencode-ai/pty` version (`packages/core/package.json:109`).
-pub const VERSION: &str = "0.2.0";
+/// Pinned `@opencode-ai/pty` version (`packages/core/package.json:110`).
+pub const VERSION: &str = "0.3.1";
 pub const DEFAULT_REGISTRY: &str = "https://registry.npmjs.org";
-/// Path of the executable inside a platform package tarball.
-pub const TARBALL_ENTRY: &str = "package/bin/opencode-pty";
+/// Name of the executable (Windows only launches executables with their extension).
+pub const EXECUTABLE: &str = if cfg!(windows) { "opencode-pty.exe" } else { "opencode-pty" };
+/// Path of the executable inside this platform's package tarball.
+pub const TARBALL_ENTRY: &str = if cfg!(windows) { "package/bin/opencode-pty.exe" } else { "package/bin/opencode-pty" };
 
-/// One `@opencode-ai/pty-<suffix>@0.2.0` platform package.
+/// One `@opencode-ai/pty-<suffix>@0.3.1` platform package.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlatformPackage {
     pub suffix: &'static str,
     /// npm `dist.integrity` of the tarball.
     pub integrity: &'static str,
-    /// sha256 of `bin/opencode-pty` (what upstream's build embeds as `sha256`).
+    /// sha256 of `bin/opencode-pty[.exe]` (what upstream's build embeds as `sha256`).
     pub sha256: &'static str,
 }
 
-/// Values read from the npm registry for version 0.2.0 (tarballs verified against `integrity`).
+/// Values read from the npm registry for version 0.3.1 (tarballs verified against `integrity`).
 pub const PACKAGES: &[PlatformPackage] = &[
     PlatformPackage {
         suffix: "darwin-arm64",
-        integrity: "sha512-2y6xrktb2J7rRk+mzAJHA8cCbWhC4Lo2zJ66t9ad59qFhL5nzAPfpEOwnyvvFqhxebHNvL08Mp64M9IHnM0aiA==",
-        sha256: "becb3b8b346d0d20b898a229ed42b107f1f0e179f50e5de52636bc26a07004fb",
+        integrity: "sha512-pn3dqOX9F4HZ9Vzjb9UTm4B0dz5w9c8jBsy8/Dp1WzrLOjg91cjx/LzPqXG7rrzD39ygyxnHZE4694f7lh9kuQ==",
+        sha256: "b54a98832ec070c22383f8b1695a4850a44d753e8ea99751ccec659b4a598927",
     },
     PlatformPackage {
         suffix: "darwin-x64",
-        integrity: "sha512-XVQwK9+KgVGYunCYPCCBf1Or0z6zSkzjgfdJd7dEe/LOFg5vmMkOfSB9dCXnoRCWGviWYk7xd07iFIFOgyj5Ig==",
-        sha256: "68986ebed4d52d040df67a3b46e4c8eb427967cf42dc83c239e2985dda3efd3e",
+        integrity: "sha512-uBzxgFUxfGew7yR60YW5ng8is571AHWBg4MqytwDVAwlmkEaAzIvja/nxD+dWaszOq+PtJIaYnNqf4ybmG1JXg==",
+        sha256: "5ed35c398df49cea6c95af79a7e9d61ff37698b537c38676e49448235e2ec85c",
     },
     PlatformPackage {
         suffix: "linux-arm64-gnu",
-        integrity: "sha512-TPVGCQk5E65IY3ipcpd17rwKehdvXcXEYRhhGzok/6Dske69ei2S+ERz7NXZ8cKFAvbiiT771HHM+XyVYAl+7A==",
-        sha256: "d387f8c9ea902558c605e24e0469bdd9035a89641f2960420c11f53f47da28f7",
+        integrity: "sha512-/8GK/hfnHa4O5vvVuFOd/SMr07n19dLmoILjsn8BmTBlBEU5oZClssKoeCDiPigFsVuL2cMBTqb2bONuD5SyDg==",
+        sha256: "716c079de14270d24154e8b4237ece5643671ee687235d1b4b92c4885b0ffd99",
     },
     PlatformPackage {
         suffix: "linux-arm64-musl",
-        integrity: "sha512-iH6/liY7xN1OXVD9eGzdH11BVGvnpPsH5Z1Unz0Pn9EzkPFf28oDNKNyeXV0xIAP53oiYp8gpRq2PADNwbVsTg==",
-        sha256: "389a6e86417176c15d0d18f0486e9f0d669ed8c08f8e9c7fbfb727b41f55f8b4",
+        integrity: "sha512-jemE95Tw4tVPUpmHGqDtTKlSnxFexZT6+R05esxdT9uiVnflK9mR0fLlgZpsgSDEQIZPywo5scA4wgqZaPIWKw==",
+        sha256: "68da5fa91a0938cd00adf90dbe4ba2d33f3da402cd3633e3afbc22bd321fa5d8",
     },
     PlatformPackage {
         suffix: "linux-x64-gnu",
-        integrity: "sha512-GhdrmbUzxGHRfWvt1qutgVD4HLb7aSBsgWGjFsc6k8HjO5ZbdaC3ScRyd512YAAG5KAROLKZ6+0SEBsm5xFYlA==",
-        sha256: "a02e0cf5a03cf78364ba903d16cfd64b37178128839393f0e84b967f9caeeb84",
+        integrity: "sha512-DfU49EkQrE/G+HQZmWg7jvwCTdOkYcFvXFts6MNRycnrtm/K7Qq0SKVGYmZC0J2LN4SmgqCUILzmS+rDNkyw8g==",
+        sha256: "7d617cf2fd494775cc4ed29e87c05c5550e66f4f6bd9c9b603654973852c4536",
     },
     PlatformPackage {
         suffix: "linux-x64-musl",
-        integrity: "sha512-EbHchDsMmL5aOReIoo8NvQkKnyhyKmoL2RleF2JYF76va3FKuksmwsOBgQJh54i+QA4Fd0+9x54Q+2fJOzPiRQ==",
-        sha256: "8ee05afcf13d2c13e5e1c354fc81290169e66d738caa8e17930705f22e9bd603",
+        integrity: "sha512-P+/oP0Xkfjecd/NmD+dwYQE+l/cUjhevONBauzjfOWSqd32ltznEpKqbfJW0RldR+Gztr9sJdkAATjRHURX1RQ==",
+        sha256: "c242f41099a4a96b3c900501e402f61ae1c2f17205a4d755768f3fa9a3bfb019",
+    },
+    PlatformPackage {
+        suffix: "win32-arm64",
+        integrity: "sha512-HM2t9xYnFU2NYbFowVINKiVzbTdRtnIf/1kPC5lulLcqWf5g+N/O+uXy4dGqErdun49vJ+MP8EydG52whkE/xQ==",
+        sha256: "6caf0b0a746a9cbd315157d609ee687de4d33d7834beffff473d3c3cd4971274",
+    },
+    PlatformPackage {
+        suffix: "win32-x64",
+        integrity: "sha512-xUpe+TApPY81AII9EXb9MdN2/WyDJB0t3C/vMsSxBQZSvh6mfML7mqt2kK9lQntQn5wz1kmKi05NRr9bHtkzoQ==",
+        sha256: "d097e3435cfff862772f2238f820d0ab5083a6ca2d53f16672cd84c4fe68a2ea",
     },
 ];
 
 /// Package suffix for a target (`resolveOpencodePty`, `cli/script/opencode-pty.ts:21-29`):
-/// darwin/linux × arm64/x64, Linux adds `-gnu`/`-musl`.
+/// darwin/linux/win32 × arm64/x64, Linux adds `-gnu`/`-musl`.
 pub fn suffix_for(os: &str, arch: &str, musl: bool) -> Option<String> {
     let platform = match os {
         "macos" | "darwin" => "darwin",
         "linux" => "linux",
+        "windows" | "win32" => "win32",
         _ => return None,
     };
     let arch = match arch {
@@ -112,9 +125,9 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-/// Install directory for a binary (`<bin>/opencode-pty/<version>-<sha256[0..16]>/opencode-pty`).
+/// Install directory for a binary (`<bin>/opencode-pty/<version>-<sha256[0..16]>/opencode-pty[.exe]`).
 pub fn install_path(bin: &Path, version: &str, sha256: &str) -> PathBuf {
-    bin.join("opencode-pty").join(format!("{version}-{}", &sha256[..16.min(sha256.len())])).join("opencode-pty")
+    bin.join("opencode-pty").join(format!("{version}-{}", &sha256[..16.min(sha256.len())])).join(EXECUTABLE)
 }
 
 /// Resolves (and if needed downloads + installs) the daemon executable.
@@ -154,7 +167,7 @@ impl BinaryResolver {
         private_directory(&root)?;
         let directory = root.join(format!("{VERSION}-{}", &package.sha256[..16]));
         private_directory(&directory)?;
-        let destination = directory.join("opencode-pty");
+        let destination = directory.join(EXECUTABLE);
         if validate_if_present(&destination, package.sha256)? {
             return Ok(destination);
         }
@@ -166,7 +179,7 @@ impl BinaryResolver {
         validate(&destination, package.sha256)
     }
 
-    /// Download the platform tarball, verify its integrity, and extract `bin/opencode-pty`.
+    /// Download the platform tarball, verify its integrity, and extract `bin/opencode-pty[.exe]`.
     pub async fn download(&self, package: &PlatformPackage) -> Result<Vec<u8>, String> {
         let url = tarball_url(&self.registry, package.suffix, VERSION);
         tracing::info!(url = %url, "downloading opencode-pty");
@@ -385,7 +398,9 @@ mod tests {
         assert_eq!(suffix_for("linux", "aarch64", true).as_deref(), Some("linux-arm64-musl"));
         assert_eq!(suffix_for("macos", "aarch64", false).as_deref(), Some("darwin-arm64"));
         assert_eq!(suffix_for("macos", "x86_64", true).as_deref(), Some("darwin-x64"));
-        assert_eq!(suffix_for("windows", "x86_64", false), None);
+        assert_eq!(suffix_for("windows", "x86_64", false).as_deref(), Some("win32-x64"));
+        assert_eq!(suffix_for("windows", "aarch64", false).as_deref(), Some("win32-arm64"));
+        assert_eq!(suffix_for("freebsd", "x86_64", false), None);
         assert_eq!(suffix_for("linux", "riscv64", false), None);
         for p in PACKAGES {
             assert!(p.integrity.starts_with("sha512-"));
@@ -397,12 +412,13 @@ mod tests {
     fn urls_and_paths() {
         assert_eq!(
             tarball_url("https://registry.npmjs.org/", "linux-x64-gnu", VERSION),
-            "https://registry.npmjs.org/@opencode-ai/pty-linux-x64-gnu/-/pty-linux-x64-gnu-0.2.0.tgz"
+            "https://registry.npmjs.org/@opencode-ai/pty-linux-x64-gnu/-/pty-linux-x64-gnu-0.3.1.tgz"
         );
         assert_eq!(
             install_path(Path::new("/c/bin"), VERSION, PACKAGES[4].sha256),
-            PathBuf::from("/c/bin/opencode-pty/0.2.0-a02e0cf5a03cf783/opencode-pty")
+            PathBuf::from("/c/bin/opencode-pty/0.3.1-7d617cf2fd494775").join(EXECUTABLE)
         );
+        assert_eq!(PACKAGES.len(), 8);
     }
 
     #[test]
@@ -415,10 +431,10 @@ mod tests {
 
     #[test]
     fn tar_extraction() {
-        let tar = tar_with(&[("package/LICENSE", b"MIT"), ("package/bin/opencode-pty", b"\x7fELFbinary")]);
+        let tar = tar_with(&[("package/LICENSE", b"MIT"), (TARBALL_ENTRY, b"\x7fELFbinary")]);
         let entries = tar_entries(&tar).unwrap();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[1].0, "package/bin/opencode-pty");
+        assert_eq!(entries[1].0, TARBALL_ENTRY);
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         std::io::Write::write_all(&mut gz, &tar).unwrap();
         let tgz = gz.finish().unwrap();

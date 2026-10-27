@@ -169,7 +169,7 @@ impl PersistentPty {
         }
     }
 
-    /// `available` (false on Windows; reported as `capabilities.persistentPty`).
+    /// `available` (true on every platform since 2.1; reported as `capabilities.persistentPty`).
     pub fn available(&self) -> bool {
         AVAILABLE
     }

@@ -65,9 +65,26 @@ type Stream = tokio::net::UnixStream;
 async fn connect_socket(path: &str) -> std::io::Result<Stream> {
     tokio::net::UnixStream::connect(path).await
 }
-#[cfg(not(unix))]
+/// On Windows the daemon listens on a named pipe (`\\.\pipe\opencode-pty-…`), which is what Node's
+/// `net.createConnection({ path })` opens there. Like libuv, a busy pipe is retried for up to 30 s.
+#[cfg(windows)]
+type Stream = tokio::net::windows::named_pipe::NamedPipeClient;
+#[cfg(windows)]
+async fn connect_socket(path: &str) -> std::io::Result<Stream> {
+    const ERROR_PIPE_BUSY: i32 = 231;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match tokio::net::windows::named_pipe::ClientOptions::new().open(path) {
+            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && Instant::now() < deadline => {
+                tokio::time::sleep(POLL).await;
+            }
+            other => return other,
+        }
+    }
+}
+#[cfg(not(any(unix, windows)))]
 type Stream = tokio::io::DuplexStream;
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 async fn connect_socket(_path: &str) -> std::io::Result<Stream> {
     Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "Persistent PTYs are unavailable on this platform"))
 }
@@ -322,6 +339,14 @@ impl DaemonTransport {
                 libc::setsid();
                 Ok(())
             });
+        }
+        // Node's `detached: true, windowsHide: true`: its own process group, no console window.
+        #[cfg(windows)]
+        {
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
         }
         let mut child = command.spawn().map_err(|e| DaemonError::new(ErrorKind::Spawn, e.to_string()))?;
         let result = async {
