@@ -36,6 +36,9 @@ pub struct SessionListQuery {
     /// `Some(ParentFilter::Root)` = root sessions only (`parentID=null`).
     #[serde(rename = "parentID", default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<ParentFilter>,
+    /// Archive state filter, `"true"`/`"false"` on the wire (query and cursor JSON).
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "bool_string")]
+    pub archived: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub directory: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,6 +48,26 @@ pub struct SessionListQuery {
     /// Present when paging from a cursor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<SessionListAnchor>,
+}
+
+/// `Schema.Literals(["true", "false"])` decoded to a boolean.
+mod bool_string {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &Option<bool>, s: S) -> Result<S::Ok, S::Error> {
+        match v {
+            Some(b) => s.serialize_str(if *b { "true" } else { "false" }),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
+        match String::deserialize(d)?.as_str() {
+            "true" => Ok(Some(true)),
+            "false" => Ok(Some(false)),
+            _ => Err(serde::de::Error::custom("expected \"true\" or \"false\"")),
+        }
+    }
 }
 
 /// `parentID` filter: a session ID, or the literal `"null"` meaning "root sessions only".

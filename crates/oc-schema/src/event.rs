@@ -141,6 +141,16 @@ pub enum SessionEvent {
         session_id: String,
         idle: u64,
     },
+    #[serde(rename = "session.archived")]
+    Archived {
+        #[serde(rename = "sessionID")]
+        session_id: String,
+    },
+    #[serde(rename = "session.unarchived")]
+    Unarchived {
+        #[serde(rename = "sessionID")]
+        session_id: String,
+    },
     #[serde(rename = "session.message.content.updated")]
     MessageContentUpdated {
         #[serde(rename = "sessionID")]
@@ -542,6 +552,8 @@ fn session_id_of(e: &SessionEvent) -> &str {
         | MetadataUpdated { session_id, .. }
         | Permissions { session_id, .. }
         | Viewed { session_id, .. }
+        | Archived { session_id }
+        | Unarchived { session_id }
         | MessageContentUpdated { session_id, .. }
         | UsageRecorded { session_id, .. }
         | Deleted { session_id }

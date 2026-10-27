@@ -164,6 +164,7 @@ async fn session_list(app: &App, call: &Call) -> Result<Response, ApiError> {
             ApiError::schema("Query", "Expected a string starting with \"ses\"\n  at [\"parentID\"]")
         })?),
     };
+    let archived = call.query_bool("archived")?;
     let directory = call.query_str("directory", None)?;
     // `AbsolutePath` has no check: upstream fails later with a defect (500, empty body).
     if directory.as_deref().is_some_and(|d| !std::path::Path::new(d).is_absolute()) {
@@ -174,7 +175,7 @@ async fn session_list(app: &App, call: &Call) -> Result<Response, ApiError> {
     let cursor = call.query_str("cursor", None)?;
     let query = match cursor {
         Some(c) => decode_sessions_cursor(&c).ok_or_else(|| ApiError::invalid_cursor("Invalid cursor"))?,
-        None => SessionListQuery { order, search, parent_id, directory, project, subpath, anchor: None },
+        None => SessionListQuery { order, search, parent_id, archived, directory, project, subpath, anchor: None },
     };
     let sessions = app.backend.session_list(&call.ctx, SessionListRequest { limit, query: query.clone() }).await?;
     let mut base = query;

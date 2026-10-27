@@ -233,6 +233,18 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 params![*idle as i64, session_id],
             )?;
         }
+        E::Archived { session_id } => {
+            c.execute(
+                "UPDATE session_v2 SET time_archived = ?1, time_updated = ?1 WHERE id = ?2",
+                params![created as i64, session_id],
+            )?;
+        }
+        E::Unarchived { session_id } => {
+            c.execute(
+                "UPDATE session_v2 SET time_archived = NULL, time_updated = ? WHERE id = ?",
+                params![created as i64, session_id],
+            )?;
+        }
         E::MessageContentUpdated { .. } => run(c, e, seq)?,
         E::UsageRecorded { session_id, cost, tokens, .. } => apply_usage(c, session_id, *cost, tokens, None)?,
         E::Forked { .. } => project_fork(c, e, seq)?,

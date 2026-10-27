@@ -91,7 +91,7 @@ pub fn session_from_row(r: &Row) -> rusqlite::Result<SessionInfo> {
             updated: r.get::<_, i64>(22)? as u64,
             idle: r.get::<_, Option<i64>>(23)?.map(|v| v as u64),
             viewed: r.get::<_, Option<i64>>(24)?.map(|v| v as u64),
-            archived: archived.filter(|a| *a != 0).map(|v| v as u64),
+            archived: archived.map(|v| v as u64),
         },
         title: r.get(2)?,
         location: LocationRef { directory: r.get(14)?, workspace_id: workspace.filter(|w| !w.is_empty()) },

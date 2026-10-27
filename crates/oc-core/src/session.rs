@@ -247,6 +247,26 @@ impl Sessions {
         Ok(())
     }
 
+    /// `Session.archive`: publishes `session.archived` unless the session is already archived.
+    pub fn archive(&self, session_id: &str) -> Result<(), SessionError> {
+        let s = self.get(session_id)?;
+        if s.time.archived.is_some() {
+            return Ok(());
+        }
+        self.bus.commit_one(SessionEvent::Archived { session_id: session_id.into() })?;
+        Ok(())
+    }
+
+    /// `Session.unarchive`: publishes `session.unarchived` unless the session is not archived.
+    pub fn unarchive(&self, session_id: &str) -> Result<(), SessionError> {
+        let s = self.get(session_id)?;
+        if s.time.archived.is_none() {
+            return Ok(());
+        }
+        self.bus.commit_one(SessionEvent::Unarchived { session_id: session_id.into() })?;
+        Ok(())
+    }
+
     pub fn set_metadata(&self, session_id: &str, metadata: Metadata) -> Result<(), SessionError> {
         self.get(session_id)?;
         self.bus.commit_one(SessionEvent::MetadataUpdated { session_id: session_id.into(), metadata })?;

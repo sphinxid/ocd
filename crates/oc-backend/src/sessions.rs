@@ -120,6 +120,10 @@ impl Engine {
         if let Some(p) = body.permissions {
             self.app.sessions.set_permissions(id, conv(p)?).map_err(session_error)?;
         }
+        if let Some(archived) = body.archived {
+            let result = if archived { self.app.sessions.archive(id) } else { self.app.sessions.unarchive(id) };
+            result.map_err(session_error)?;
+        }
         Ok(())
     }
 

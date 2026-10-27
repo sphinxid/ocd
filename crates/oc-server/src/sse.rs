@@ -41,6 +41,8 @@ pub const PUBLIC_EVENT_TYPES: &[&str] = &[
     "session.metadata.updated",
     "session.permissions",
     "session.viewed",
+    "session.archived",
+    "session.unarchived",
     "session.usage.updated",
     "session.deleted",
     "session.forked",

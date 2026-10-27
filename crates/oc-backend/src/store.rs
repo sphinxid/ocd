@@ -46,6 +46,11 @@ pub fn list_sessions(db: &Database, q: &SessionListQuery, limit: Option<i64>) ->
         }
         None => {}
     }
+    match q.archived {
+        Some(true) => cond.push("time_archived IS NOT NULL".into()),
+        Some(false) => cond.push("time_archived IS NULL".into()),
+        None => {}
+    }
     if let Some(a) = &q.anchor {
         let op = if asc { ">" } else { "<" };
         cond.push(format!("(time_updated {op} ? OR (time_updated = ? AND id {op} ?))"));
