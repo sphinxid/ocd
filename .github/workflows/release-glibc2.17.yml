@@ -51,7 +51,7 @@ jobs:
             v*) echo "tag=$tag" >> "$GITHUB_OUTPUT" ;;
             *) echo "::error::no release tag in '$tag'"; exit 1 ;;
           esac
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ steps.tag.outputs.tag }}
       - id: meta
@@ -69,12 +69,14 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.tag }}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
+          # No dependency cache in a release build.
+          package-manager-cache: false
       - name: Install bun
         shell: bash
         run: |
@@ -93,7 +95,7 @@ jobs:
       - name: Build the web UI archive
         shell: bash
         run: scripts/build-web-ui.sh "$RUNNER_TEMP/opencode" "$RUNNER_TEMP/app-archive.bin"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web-ui-glibc2.17
           path: ${{ runner.temp }}/app-archive.bin
@@ -114,7 +116,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.tag }}
       - name: Install Rust
@@ -122,7 +124,7 @@ jobs:
         run: |
           rustup toolchain install "$RUST_VERSION" --profile minimal --target ${{ matrix.target }}
           rustup default "$RUST_VERSION"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install cargo-zigbuild
@@ -132,7 +134,7 @@ jobs:
           "$RUNNER_TEMP/zig/bin/pip" install -q "cargo-zigbuild==$CARGO_ZIGBUILD_VERSION" "ziglang==$ZIG_VERSION"
           echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
       - name: Download the web UI
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: web-ui-glibc2.17
@@ -171,7 +173,7 @@ jobs:
           cd dist
           tar -czf "$name.tar.gz" "$name"
           rm -rf "$name"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ocd-${{ matrix.name }}
           path: dist/*
@@ -183,7 +185,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: ocd-*-glibc2.17
           path: dist
