@@ -99,7 +99,10 @@ impl App {
         self.spawn(async move { c.projects().await }, |app, r| {
             match r {
                 // Archived projects stay out of the project list.
-                Ok(p) => app.refresh_open_options(p.into_iter().filter(|p| p.pointer("/time/archived").is_none_or(|a| a.is_null())).collect()),
+                Ok(p) => {
+                    app.remember_project_names(&p);
+                    app.refresh_open_options(p.into_iter().filter(|p| p.pointer("/time/archived").is_none_or(|a| a.is_null())).collect())
+                }
                 Err(_) => {
                     if let Some(sel) = app.dialogs.last_mut().filter(|d| d.purpose == "open").and_then(|d| d.sel()) {
                         sel.footer_text = Some(("Could not refresh projects.".into(), app.themes.current.dialog().text.feedback.error.base));

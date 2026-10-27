@@ -12,6 +12,7 @@ pub mod input;
 pub mod migration;
 pub mod highlights;
 pub mod location;
+pub mod session_list;
 pub mod panel;
 pub mod program_status;
 pub mod mini;
@@ -303,6 +304,10 @@ pub struct App {
     pub program_status: program_status::ProgramStatus,
     /// The location last synced and whether the server reported it missing.
     pub location: location::LocationState,
+    /// The session list dialog's server search.
+    pub session_search: session_list::SessionSearch,
+    /// Project names by ID (`data.project`), from project listings.
+    pub project_names: HashMap<String, String>,
 }
 
 impl App {
@@ -417,6 +422,8 @@ impl App {
             go_upsell_memory: (None, false),
             program_status: Default::default(),
             location: Default::default(),
+            session_search: Default::default(),
+            project_names: HashMap::new(),
             config,
             opts,
         };
@@ -1311,6 +1318,8 @@ mod free_limit_tests;
 mod data_tests;
 #[cfg(test)]
 mod location_tests;
+#[cfg(test)]
+mod session_list_tests;
 #[cfg(test)]
 mod fuzz_tests;
 #[cfg(test)]

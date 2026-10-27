@@ -1208,39 +1208,6 @@ impl App {
         }
     }
 
-    pub fn open_session_list(&mut self) {
-        let current = self.session_id().map(|s| s.to_string());
-        let tabs = self.config.tabs_enabled();
-        let mut opts = Vec::new();
-        let today = locale::date_string(locale::now_ms());
-        for s in self.store.session_list() {
-            if s.parent_id.is_some() || s.id.starts_with("dummy") {
-                continue;
-            }
-            let date = locale::date_string(s.time.updated);
-            let cat = if !tabs && self.pins.pinned.contains(&s.id) { "Pinned".to_string() } else if date == today { "Today".to_string() } else { date };
-            let mut o = Opt::new(s.display_title(), s.id.clone()).cat(cat);
-            if self.store.is_running(&s.id) {
-                o.gutter = Some(crate::ui::text::seg(crate::ui::text::SPINNER_GLYPH.to_string(), crate::ui::text::fg(self.theme().text.muted)));
-            }
-            if self.store.permissions.get(&s.id).is_some_and(|p| !p.is_empty()) {
-                o.gutter = Some(crate::ui::text::seg("!", crate::ui::text::bold(crate::ui::text::fg(self.theme().text.feedback.warning.base))));
-            }
-            opts.push(o);
-        }
-        let mut sel = Select::new("Sessions", opts);
-        sel.current = current;
-        sel.skip_filter = false;
-        sel.empty = Some("No sessions available".into());
-        sel.no_match = Some("No sessions found".into());
-        sel.actions = vec![
-            Action::new("session.pin.toggle", "pin/unpin").hidden(tabs),
-            Action::new("session.delete", "delete"),
-            Action::new("session.rename", "rename"),
-        ];
-        self.open_dialog(Dialog::select("session", sel, Size::Large));
-    }
-
     fn open_timeline(&mut self) {
         let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
         let opts: Vec<Opt> = self

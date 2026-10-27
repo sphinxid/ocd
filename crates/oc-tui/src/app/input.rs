@@ -1238,6 +1238,9 @@ impl App {
             }
             Outcome::Close | Outcome::Back => self.close_dialog(),
             Outcome::Filter(f) => {
+                if purpose == "session" {
+                    self.session_filter_changed(&f);
+                }
                 if purpose == "palette"
                     && let Some(sel) = self.dialogs.last_mut().and_then(|d| d.sel())
                 {
@@ -1295,6 +1298,9 @@ impl App {
                 }
                 if purpose == "session" || purpose == "stash" {
                     self.reset_confirm();
+                }
+                if purpose == "session" {
+                    self.refresh_session_list();
                 }
                 if purpose == "worktrees"
                     && let Some(d) = self.dialogs.last_mut()
@@ -1573,6 +1579,7 @@ impl App {
                 self.open_open_dialog();
             }
             ("open-worktrees", "key:ctrl+n") => self.open_new_worktree_prompt(),
+            ("session", "key:ctrl+a") => self.toggle_session_scope(),
             ("worktrees", _) => self.worktree_action(id, v),
             ("model", "model.dialog.favorite") => {
                 if let Some((p, m)) = v.as_deref().map(|v| v.strip_prefix("section:").unwrap_or(v)).and_then(|v| v.split_once('/')) {
@@ -1616,6 +1623,13 @@ impl App {
                 let Some(v) = v else { return };
                 let key = self.keybinds.shortcut(id);
                 let armed = self.dialogs.last().map(|d| d.data.as_str() == Some(v.as_str())).unwrap_or(false);
+                if !armed && purpose == "session" {
+                    if let Some(d) = self.dialogs.last_mut() {
+                        d.data = json!(v);
+                    }
+                    self.refresh_session_list();
+                    return;
+                }
                 if !armed {
                     let t = self.theme().clone();
                     if let Some(d) = self.dialogs.last_mut() {
@@ -1644,11 +1658,15 @@ impl App {
                         app.store.remove_session(&v);
                         app.tabs.retain(|t| *t != v);
                         app.save_tabs();
-                        if app.dialogs.last().is_some_and(|d| d.purpose == "session") {
-                            app.open_session_list();
-                        }
+                        app.session_list_removed(&v);
                     }
-                    Err(e) => app.toast(Toast::new("error", format!("Failed to delete session: {}", crate::api::error_message(&e)))),
+                    Err(e) => {
+                        if let Some(d) = app.dialogs.last_mut().filter(|d| d.purpose == "session") {
+                            d.data = Value::Null;
+                        }
+                        app.refresh_session_list();
+                        app.toast(Toast::new("error", format!("Failed to delete session: {}", crate::api::error_message(&e))).duration(5000));
+                    }
                 });
             }
             ("queued", "queued_prompt.delete") => {
