@@ -78,7 +78,17 @@ jobs:
           bun install
       - name: Build the web UI archive
         shell: bash
-        run: scripts/build-web-ui.sh "$RUNNER_TEMP/opencode" "$RUNNER_TEMP/app-archive.bin"
+        run: |
+          log="$RUNNER_TEMP/web-ui.log"
+          if ! scripts/build-web-ui.sh "$RUNNER_TEMP/opencode" "$RUNNER_TEMP/app-archive.bin" 2>&1 | tee "$log"; then
+            # Repeat the end of the output as an annotation, readable on the run page without the log.
+            msg="$(tail -n 40 "$log" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g')"
+            msg="${msg//'%'/'%25'}"
+            msg="${msg//$'\r'/'%0D'}"
+            msg="${msg//$'\n'/'%0A'}"
+            echo "::error title=Web UI build failed::$msg"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: web-ui
