@@ -872,14 +872,28 @@ impl App {
             self.store.loaded.insert(format!("session.pending:{id}"));
             self.fetch_pending(id);
         }
-        // Children (family) and permissions/forms.
+        // Children (family): every direct subagent, paged 200 at a time, so a root's family cost
+        // counts all of them. Then permissions/forms.
         let c = self.client.clone();
         let sid = id.to_string();
         self.spawn(
-            async move { c.session_list(&[("parentID", sid.clone()), ("order", "desc".into())]).await },
+            async move {
+                let mut all = Vec::new();
+                let mut page = c.session_list(&[("parentID", sid.clone()), ("order", "desc".into()), ("limit", "200".into())]).await?;
+                loop {
+                    let full = page.data.len() >= 200;
+                    let next = page.cursor.next.clone();
+                    all.extend(page.data);
+                    match next.filter(|_| full) {
+                        Some(cursor) => page = c.session_list(&[("cursor", cursor), ("limit", "200".into())]).await?,
+                        None => break,
+                    }
+                }
+                Ok(all)
+            },
             |app, r| {
-                if let Ok(page) = r {
-                    for s in page.data {
+                if let Ok(list) = r {
+                    for s in list {
                         app.store.remember(s);
                     }
                     app.dirty = true;
@@ -1291,6 +1305,8 @@ mod dialog_tests;
 mod panel_tests;
 #[cfg(test)]
 mod free_limit_tests;
+#[cfg(test)]
+mod data_tests;
 #[cfg(test)]
 mod fuzz_tests;
 #[cfg(test)]

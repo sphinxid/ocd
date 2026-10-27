@@ -1120,7 +1120,7 @@ impl App {
         });
         let msg_id = crate::util::message_id();
         if !shell && server_cmd.is_none() {
-            self.store.admit_prompt(&sid, &msg_id, &input_text, json!(agents), delivery);
+            self.store.admit_prompt_files(&sid, &msg_id, &input_text, json!(agents), &files, delivery);
         }
         self.turn_begin(&sid);
         let delivery = delivery.to_string();

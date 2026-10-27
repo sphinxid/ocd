@@ -399,6 +399,17 @@ impl Store {
                 self.loaded.insert(format!("session.message:{sid}"));
             }
             "session.deleted" => self.remove_session(&sid),
+            // Session archiving (2.1): only the archive time changes.
+            "session.archived" => {
+                if let Some(info) = self.sessions.get_mut(&sid) {
+                    info.time.archived = Some(ev.created);
+                }
+            }
+            "session.unarchived" => {
+                if let Some(info) = self.sessions.get_mut(&sid) {
+                    info.time.archived = None;
+                }
+            }
             "session.usage.updated" => {
                 if let Some(info) = self.sessions.get_mut(&sid) {
                     info.cost = d.get("cost").and_then(|v| v.as_f64()).unwrap_or(info.cost);
@@ -424,6 +435,8 @@ impl Store {
             }
             "session.model.selected" => {
                 let model: Option<ModelRef> = d.get("model").and_then(|m| serde_json::from_value(m.clone()).ok());
+                // The model it switched from: the event's `previous`, else the session's model so far.
+                let previous = d.get("previous").filter(|p| !p.is_null()).cloned().or_else(|| self.sessions.get(&sid).and_then(|s| s.model.as_ref()).map(|m| json!(m)));
                 if let Some(info) = self.sessions.get_mut(&sid) {
                     info.model = model.clone();
                 }
@@ -434,6 +447,7 @@ impl Store {
                     id: ev.message_id(),
                     kind: "model-switched".into(),
                     model,
+                    previous,
                     time: MessageTime { created: ev.created, ..Default::default() },
                     ..Default::default()
                 };
@@ -458,9 +472,7 @@ impl Store {
                     });
                     let info = self.sessions.get_mut(&sid).unwrap();
                     info.location = location.clone();
-                    if let Some(p) = d.get("projectID").and_then(|p| p.as_str()) {
-                        info.project_id = p.to_string();
-                    }
+                    info.project_id = d.get("projectID").and_then(|p| p.as_str()).unwrap_or("").to_string();
                     info.subpath = d.get("subpath").and_then(|p| p.as_str()).map(|s| s.to_string());
                     let m = Message {
                         id: ev.message_id(),
@@ -1053,6 +1065,12 @@ impl Store {
 
     /// Optimistic prompt admission (`data.session.prompt`).
     pub fn admit_prompt(&mut self, sid: &str, id: &str, text: &str, agents: Value, delivery: &str) {
+        self.admit_prompt_files(sid, id, text, agents, &[], delivery);
+    }
+
+    /// [`Store::admit_prompt`] with the prompt's attachments: inline `data:` base64 files render at
+    /// once (`optimisticFiles`); file URIs wait for the server's echo.
+    pub fn admit_prompt_files(&mut self, sid: &str, id: &str, text: &str, agents: Value, files: &[Value], delivery: &str) {
         if self.messages(sid).iter().any(|m| m.id == id) {
             return;
         }
@@ -1060,6 +1078,10 @@ impl Store {
         let mut payload = json!({ "text": text });
         if agents.as_array().is_some_and(|a| !a.is_empty()) {
             payload["agents"] = agents;
+        }
+        let inline: Vec<Value> = files.iter().filter_map(optimistic_file).collect();
+        if !inline.is_empty() {
+            payload["files"] = json!(inline);
         }
         self.admit_local(InboxItem {
             id: id.to_string(),
@@ -1099,6 +1121,25 @@ impl Store {
         self.loaded.insert(format!("session.pending:{id}"));
         self.loaded.insert(format!("session.message:{id}"));
     }
+}
+
+/// `optimisticFiles`: an inline `data:<mime>;base64,` attachment as a projected file.
+fn optimistic_file(file: &Value) -> Option<Value> {
+    let uri = file.get("uri")?.as_str()?;
+    let rest = uri.strip_prefix("data:")?;
+    let (header, data) = rest.split_once(',')?;
+    let mut parts = header.split(';');
+    let mime = parts.next().filter(|m| !m.is_empty()).unwrap_or("application/octet-stream");
+    if !parts.any(|p| p.eq_ignore_ascii_case("base64")) {
+        return None;
+    }
+    let mut item = json!({ "data": data, "mime": mime, "source": { "type": "inline" } });
+    for k in ["name", "description", "mention"] {
+        if let Some(v) = file.get(k).filter(|v| !v.is_null()) {
+            item[k] = v.clone();
+        }
+    }
+    Some(item)
 }
 
 #[cfg(test)]
