@@ -705,7 +705,12 @@ impl Models {
         session_model: Option<&ModelRef>,
         config_model: Option<&ModelRef>,
     ) -> anyhow::Result<ResolvedModel> {
-        let pick = session_model.or(config_model).cloned().or_else(|| {
+        // Without a session model, `ModelResolver.resolve()` takes `Model.default`: the configured model only when
+        // the catalog has it enabled (with a package), else the first available text model. A configured model that
+        // is missing (a stale config, a provider's model that went away) falls back instead of failing the step.
+        let configured = config_model
+            .filter(|c| catalog.model(&c.provider_id, &c.id).is_some_and(|m| m.enabled && m.has_package()));
+        let pick = session_model.or(configured).cloned().or_else(|| {
             catalog.select(None).map(|m| ModelRef { id: m.id.clone(), provider_id: m.provider_id.clone(), variant: None })
         });
         let Some(r) = pick else { return Err(ModelError::NotSelected(session_id.into()).into()) };
