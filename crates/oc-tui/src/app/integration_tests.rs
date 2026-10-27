@@ -714,7 +714,13 @@ async fn switches_rename_and_delete_accounts() {
     a.on_key(Stroke::ctrl("d"));
     drive_until(&mut a, &mut rx, 2000, |_| requests(&state).iter().any(|r| r.0 == "DELETE")).await;
     a.on_event(event("credential.updated", json!({})));
-    drive_until(&mut a, &mut rx, 2000, |a| !titles(a).iter().any(|t| t.starts_with("Work"))).await;
+    // Under load the list can reload once more after the entry is gone, so also wait for the selection to settle.
+    drive_until(&mut a, &mut rx, 5000, |a| {
+        !titles(a).iter().any(|t| t.starts_with("Work"))
+            && matches!(a.dialogs.last().map(|d| &d.body), Some(crate::ui::dialog::Body::Select(s))
+                if s.selected_value().as_deref() == Some("cred_personal"))
+    })
+    .await;
     let shown = render(&mut a, 100, 30).join("\n");
     assert!(shown.contains("Add account") && shown.contains("Personal") && !shown.contains("Work"), "{shown}");
 
