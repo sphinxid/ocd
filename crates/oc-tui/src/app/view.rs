@@ -868,32 +868,43 @@ impl App {
             Some((label, _)) => format!("› {label}"),
             None => "x".into(),
         };
+        // The toast shrinks to its content (up to the max width): the message, or the title row, with
+        // the affordance two cells after the text.
+        let more = (!self.toast_queue.is_empty()).then(|| format!("+{} more", self.toast_queue.len()));
+        let more_w = more.as_deref().map(sw).unwrap_or(0);
+        let aw = sw(&affordance);
         let mut body: Vec<SLine> = Vec::new();
+        let content_w;
         if let Some(title) = &toast.title {
-            let tw = inner.saturating_sub(sw(&affordance) + 2);
+            let tw = inner.saturating_sub(aw + 2);
             let title = locale::truncate_width(title, tw);
-            let gap = inner.saturating_sub(sw(&title) + sw(&affordance));
+            let message: Vec<SLine> = wrap(&[s(toast.message.clone(), t.text.base)], inner, Wrap::Word).into_iter().map(SLine::new).collect();
+            let message_w = message.iter().map(|l| l.width()).max().unwrap_or(0);
+            content_w = (sw(&title) + 2 + aw).max(message_w).max(more_w).min(inner);
+            let gap = content_w.saturating_sub(sw(&title) + aw);
             body.push(SLine::new(vec![Seg::new(title, bold(fg(t.text.base))), pad(gap), s(affordance.clone(), t.text.muted)]));
             body.push(SLine::blank());
-            body.extend(wrap(&[s(toast.message.clone(), t.text.base)], inner, Wrap::Word).into_iter().map(SLine::new));
+            body.extend(message);
         } else {
-            let mw = inner.saturating_sub(sw(&affordance) + 2).max(1);
+            let mw = inner.saturating_sub(aw + 2).max(1);
             let lines = wrap(&[s(toast.message.clone(), t.text.base)], mw, Wrap::Word);
+            let text_w = lines.iter().map(|l| l.iter().map(|x| x.width()).sum::<usize>()).max().unwrap_or(0);
+            content_w = (text_w + 2 + aw).max(more_w).min(inner);
             for (i, l) in lines.into_iter().enumerate() {
                 let mut l = SLine::new(l);
                 if i == 0 {
                     let used = l.width();
-                    l.segs.push(pad(inner.saturating_sub(used + sw(&affordance))));
+                    l.segs.push(pad(content_w.saturating_sub(used + aw)));
                     l.segs.push(s(affordance.clone(), t.text.muted));
                 }
                 body.push(l);
             }
         }
-        if !self.toast_queue.is_empty() {
+        if let Some(more) = more {
             body.push(SLine::blank());
-            body.push(SLine::new(vec![s(format!("+{} more", self.toast_queue.len()), t.text.muted)]));
+            body.push(SLine::new(vec![s(more, t.text.muted)]));
         }
-        let content_w = body.iter().map(|l| l.width()).max().unwrap_or(1).min(inner);
+        let content_w = content_w.max(1);
         let w = (content_w + 6) as u16;
         let h = (body.len() + 2) as u16;
         let x = area.right().saturating_sub(w + 2);
