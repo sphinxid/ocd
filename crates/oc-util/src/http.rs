@@ -1,6 +1,6 @@
 //! Outgoing HTTPS and WSS clients with the certificate trust of upstream's runtime.
 //!
-//! Upstream runs on Bun 1.4.2, compiled with `--use-system-ca`. Its fetch and WebSocket clients trust, together:
+//! Upstream runs on Bun 1.4.4 (1.4.2 before 2.1), compiled with `--use-system-ca`. Its fetch and WebSocket clients trust, together:
 //!
 //! - Bun's bundled Mozilla roots (here: `webpki-roots`);
 //! - the system store: every PEM certificate in the bundle files of [`SYSTEM_FILES`] (or only `$SSL_CERT_FILE` when

@@ -10,7 +10,7 @@ from parity.registry import scenario
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FIXTURES = os.path.join(ROOT, "crates", "oc-plugin", "tests", "fixtures")
 BUN = os.environ.get("OCD_BUN_PATH") or os.environ.get("OCD_TEST_BUN") or \
-    os.path.join(os.environ.get("OCD_SCRATCH", "/tmp/ocd-scratch"), "bun142/bun-linux-x64/bun")
+    os.path.join(os.environ.get("OCD_SCRATCH", "/tmp/ocd-scratch"), "bun144/bun-linux-x64/bun")
 
 
 def plugin_files(*names):

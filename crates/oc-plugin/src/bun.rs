@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// Bun version upstream pins (`packageManager: bun@1.4.2`).
-pub const VERSION: &str = "1.4.2";
+/// Bun version upstream pins (`packageManager: bun@1.4.4`).
+pub const VERSION: &str = "1.4.4";
 pub const DEFAULT_MIRROR: &str = "https://github.com/oven-sh/bun/releases/download";
 
 /// A release archive and its SHA-256 (from the release's `SHASUMS256.txt`).
@@ -23,20 +23,20 @@ pub struct Archive {
     pub sha256: &'static str,
 }
 
-/// Pinned archives of bun-v1.4.2.
+/// Pinned archives of bun-v1.4.4.
 pub const ARCHIVES: &[Archive] = &[
-    Archive { name: "bun-darwin-aarch64", sha256: "90987a3a16d7db556d886ac3d551e7b6d3edf0a1cf43acaed622e8676be1d12f" },
-    Archive { name: "bun-darwin-x64", sha256: "80520d7e17526308c9185d261679ac6d27798d3803a0e9f7ff9121ab8affb012" },
-    Archive { name: "bun-darwin-x64-baseline", sha256: "bad5bbd6cf14d0980d115f5954c9ff904df619d5e994d2da1ffccd3f316300b0" },
-    Archive { name: "bun-linux-aarch64", sha256: "54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7" },
-    Archive { name: "bun-linux-aarch64-musl", sha256: "71760b6c8ea30623b81a4907cb815d48e2ea266f2e73e751534a44a0607950df" },
-    Archive { name: "bun-linux-x64", sha256: "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913" },
-    Archive { name: "bun-linux-x64-baseline", sha256: "c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f" },
-    Archive { name: "bun-linux-x64-musl", sha256: "4835eca59d6da70f4674f5642f6e459dcadab773695b2ed9922d131057989742" },
-    Archive { name: "bun-linux-x64-musl-baseline", sha256: "76e1db84e98f22f78de0a87e309bfbbf297732847f9720db36750646c85c8c18" },
-    Archive { name: "bun-windows-aarch64", sha256: "a7a16b876a305fd1029c66dbd27007b4f6112ae896532f675878731a21e50cfd" },
-    Archive { name: "bun-windows-x64", sha256: "ce4c17497b2f29712a99d3d53f028de28cd42e3bacb8589599e7f000e49b6405" },
-    Archive { name: "bun-windows-x64-baseline", sha256: "78c221c2376f79731ccf4e4af0b3bb46d81fefa3296c5abee09ad8a1b21e68c6" },
+    Archive { name: "bun-darwin-aarch64", sha256: "c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510" },
+    Archive { name: "bun-darwin-x64", sha256: "50a3491f73abc2fe81673171a85762d3bc2cc1680ccecadd983de99adf77977e" },
+    Archive { name: "bun-darwin-x64-baseline", sha256: "d4a155adfbfd09155eb3ba05c9e3a544f39297d7a68616d3c7759f67ab5c47dc" },
+    Archive { name: "bun-linux-aarch64", sha256: "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e" },
+    Archive { name: "bun-linux-aarch64-musl", sha256: "57f01b02ac7113c61c935f28f38c2eab849e3c970dab21f8b640a87b1ef65009" },
+    Archive { name: "bun-linux-x64", sha256: "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c" },
+    Archive { name: "bun-linux-x64-baseline", sha256: "e0446eb55995772eb9894bebae9a6be368d985a8b9271ee124486f9946eedd76" },
+    Archive { name: "bun-linux-x64-musl", sha256: "a5a8ccc5e74dcb883fe974f125a7bdb3b41e5195ed1b870e73f17effd3eb2b2d" },
+    Archive { name: "bun-linux-x64-musl-baseline", sha256: "6e9c37098b293920aed28bfb51ab240e26d23bfdd9bbfecb3ad428ac166549bc" },
+    Archive { name: "bun-windows-aarch64", sha256: "2d57a0eec0cb44d95c918c3f9734f60455a1306ae5085d76fc68f44e3ee30d09" },
+    Archive { name: "bun-windows-x64", sha256: "cd2c0fccc78f3ede1f50ca827a15f063eda13d4d150a3d0674f4f6e323d864a5" },
+    Archive { name: "bun-windows-x64-baseline", sha256: "0f20ce6674d4f2dbcc8c5d59fdf99f7ba45f8c3b367e0f5781cbfa30a1c78d99" },
 ];
 
 /// Archive name for a target (`os` / `arch` as in `std::env::consts`).

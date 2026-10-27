@@ -1,6 +1,6 @@
 //! Integration tests against the real Bun sidecar and the committed bundle.
 //!
-//! Bun: `OCD_BUN_PATH` if set, otherwise `OCD_TEST_BUN`, otherwise `bun` 1.4.2 found on `PATH`
+//! Bun: `OCD_BUN_PATH` if set, otherwise `OCD_TEST_BUN`, otherwise `bun` 1.4.4 found on `PATH`
 //! is not assumed — the tests are skipped (with a message) when no Bun is configured.
 
 use std::collections::BTreeMap;
@@ -16,9 +16,9 @@ use oc_plugin::{
 use parking_lot::Mutex;
 use serde_json::{Map, Value, json};
 
-/// bun 1.4.2 in the dev scratch folder (`$OCD_SCRATCH/bun142/bun-linux-x64/bun`), when `OCD_SCRATCH` is set.
+/// bun 1.4.4 in the dev scratch folder (`$OCD_SCRATCH/bun144/bun-linux-x64/bun`), when `OCD_SCRATCH` is set.
 fn scratch_bun() -> Option<PathBuf> {
-    std::env::var_os("OCD_SCRATCH").map(|dir| PathBuf::from(dir).join("bun142/bun-linux-x64/bun"))
+    std::env::var_os("OCD_SCRATCH").map(|dir| PathBuf::from(dir).join("bun144/bun-linux-x64/bun"))
 }
 
 fn bun() -> Option<PathBuf> {
@@ -38,7 +38,7 @@ fn bun() -> Option<PathBuf> {
 macro_rules! require_bun {
     () => {
         if bun().is_none() {
-            eprintln!("skipping: set OCD_BUN_PATH or OCD_TEST_BUN to a bun 1.4.2 binary");
+            eprintln!("skipping: set OCD_BUN_PATH or OCD_TEST_BUN to a bun 1.4.4 binary");
             return;
         }
     };

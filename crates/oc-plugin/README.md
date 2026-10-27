@@ -26,7 +26,7 @@ call.
 ## Architecture
 
 ```
-          oc-core (implements PluginApi)                     Bun 1.4.2 sidecar (host/dist/host.js)
+          oc-core (implements PluginApi)                     Bun 1.4.4 sidecar (host/dist/host.js)
  ┌───────────────────────────────────────┐   stdin  ┌──────────────────────────────────────────────┐
  │ PluginHost                            │ ───────▶ │ upstream @opencode/plugin + effect (bundled)  │
  │  load / trigger_hook / transform /    │          │ ensurePluginRuntime(): plugins share them     │
@@ -519,13 +519,13 @@ Plugin hooks see `{model, package, options, sdk?}` / `{model, sdk, options, lang
 | `OCD_PLUGIN_HOST_JS` | run this host bundle instead of the embedded one (development) |
 | `OCD_TEST_BUN` | tests only: Bun used by `tests/sidecar.rs` when `OCD_BUN_PATH` is unset |
 
-Without an override, Bun 1.4.2 is downloaded from the release for this platform:
+Without an override, Bun 1.4.4 is downloaded from the release for this platform:
 
 - archives are `bun-<os>-<arch>[-musl][-baseline].zip`, and `-baseline` is picked on x64 CPUs
   without AVX2;
 - each archive is checked against the SHA-256 pinned in `src/bun.rs` (from the release's
   `SHASUMS256.txt`);
-- the binary is installed at `<Global.bin>/bun/1.4.2-<sha16>/bun`, with a digest stamp that is
+- the binary is installed at `<Global.bin>/bun/1.4.4-<sha16>/bun`, with a digest stamp that is
   re-verified on use.
 
 ## Rebuilding the bundle
@@ -535,7 +535,7 @@ BUN=/path/to/bun-1.4.4 scripts/build-plugin-host.sh /path/to/opencode-checkout
 ```
 
 The checkout must be at upstream's `v2.1.4` tag, with `bun install` run at its root (the committed
-bundle was built that way with Bun 1.4.4; the sidecar still runs on the pinned Bun 1.4.2).
+bundle was built that way with Bun 1.4.4, the version the sidecar runs on).
 `host/build.ts` bundles `host/src/main.ts` with `Bun.build` into `host/dist/host.js` (about 2 MiB):
 
 - target bun, ESM, minified;

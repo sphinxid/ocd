@@ -22,7 +22,7 @@ fn bun() -> Option<PathBuf> {
         let path = std::env::var_os("OCD_BUN_PATH")
             .or_else(|| std::env::var_os("OCD_TEST_BUN"))
             .map(PathBuf::from)
-            .or_else(|| std::env::var_os("OCD_SCRATCH").map(|d| PathBuf::from(d).join("bun142/bun-linux-x64/bun")).filter(|p| p.exists()))?;
+            .or_else(|| std::env::var_os("OCD_SCRATCH").map(|d| PathBuf::from(d).join("bun144/bun-linux-x64/bun")).filter(|p| p.exists()))?;
         // SAFETY: set once, before any sidecar is spawned, to the same value in every test.
         unsafe { std::env::set_var("OCD_BUN_PATH", &path) };
         Some(path)
@@ -33,7 +33,7 @@ fn bun() -> Option<PathBuf> {
 macro_rules! require_bun {
     () => {
         if bun().is_none() {
-            eprintln!("skipping: set OCD_BUN_PATH or OCD_TEST_BUN to a bun 1.4.2 binary");
+            eprintln!("skipping: set OCD_BUN_PATH or OCD_TEST_BUN to a bun 1.4.4 binary");
             return;
         }
     };
