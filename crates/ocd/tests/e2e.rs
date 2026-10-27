@@ -122,7 +122,7 @@ fn debug_paths_lists_global_paths_without_a_server() {
 fn version_and_parse_errors() {
     let env = common::Env::new();
     let out = env.run(&["--version"]);
-    assert_eq!(common::text(&out.stdout), "ocd v2.1.4\n");
+    assert_eq!(common::text(&out.stdout), common::version_line());
     let out = env.run(&["run", "--format", "xml"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(common::text(&out.stdout).starts_with("DESCRIPTION\n  Run OpenCode with a message\n"));

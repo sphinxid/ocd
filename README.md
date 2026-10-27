@@ -164,7 +164,7 @@ The macOS binary isn't signed. After unpacking, clear the download quarantine on
 git clone https://github.com/sphinxid/ocd.git
 cd ocd
 cargo build --release -p ocd
-./target/release/ocd --version     # ocd v2.1.4
+./target/release/ocd --version     # ocd v0.2.0+e80344b (opencode 2.1.4)
 ```
 
 The release build is optimised and stripped. The binary is self-contained: it holds the plugin helper and,
@@ -172,8 +172,12 @@ optionally, the web UI. It links only against the system C library, so another L
 glibc of the same version or newer. A binary built on Ubuntu 24.04 needs glibc 2.39, which means Ubuntu 24.04,
 Debian 13, Fedora 40 or newer.
 
-To stamp your own version into `ocd --version`, set `OCD_BUILD_VERSION` when building, for example
-`OCD_BUILD_VERSION=1.0.0+$(git rev-parse --short HEAD) cargo build --release -p ocd`.
+`ocd --version` shows the ocd version next to the opencode version it is compatible with. The build works it
+out from the git tags the same way the release workflow does: a checkout of tag `v0.2.0` reports
+`0.2.0+<commit>`, exactly like the release binary of that tag, and three commits later it reports
+`0.2.0+3.<commit>`. Run `git fetch --tags` first so the latest tag is there; without a `v*` tag (or outside a
+git checkout) only the opencode version is shown. To set the version yourself, build with `OCD_BUILD_VERSION`,
+for example `OCD_BUILD_VERSION=1.0.0+$(git rev-parse --short HEAD) cargo build --release -p ocd`.
 
 ### Optional: include the web UI
 

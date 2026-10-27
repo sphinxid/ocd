@@ -152,7 +152,7 @@ pub fn emit(root: &Cmd, outcome: &Outcome) -> i32 {
             1
         }
         Outcome::Version => {
-            match oc_util::version::BUILD {
+            match crate::BUILD {
                 Some(build) => println!("{} (opencode {})", help::version(root.name, build, c), oc_util::version::VERSION),
                 None => println!("{}", help::version(root.name, oc_util::version::VERSION, c)),
             }

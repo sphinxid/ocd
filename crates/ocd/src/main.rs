@@ -16,6 +16,14 @@ mod web_ui;
 
 use cli::Outcome;
 
+/// The ocd build, e.g. `1.2.0+abc1234` (release tag and commit): `OCD_BUILD_VERSION`, set by the release
+/// workflow or worked out from `git describe` by build.rs. Only `--version` and the log show it; everything
+/// opencode-compatible (user agent, plugins, service registration) keeps `oc_util::version::VERSION`.
+pub const BUILD: Option<&str> = match option_env!("OCD_BUILD_VERSION") {
+    Some(v) if !v.is_empty() => Some(v),
+    _ => None,
+};
+
 fn main() {
     // SSH askpass helper mode never parses CLI args (`index.ts:23-26`).
     if std::env::var_os("OPENCODE_SSH_ASKPASS_PORT").is_some_and(|v| !v.is_empty()) {
@@ -56,7 +64,7 @@ fn main() {
     oc_util::panic::install();
     tracing::info!(
         version = oc_util::version::VERSION,
-        build = oc_util::version::BUILD.unwrap_or(""),
+        build = BUILD.unwrap_or(""),
         channel = oc_util::version::CHANNEL,
         local = oc_util::version::local(),
         args = %serde_json::to_string(&argv).unwrap_or_default(),
