@@ -1385,6 +1385,8 @@ impl Backend for Engine {
 
     async fn websearch_query(&self, ctx: &RequestContext, req: WebsearchQueryRequest) -> Result<WebSearchResponseEncoded, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
+        // A cold location must finish activating plugins before their providers can be resolved.
+        self.await_plugins(&loc).await?;
         let websearch = self.configure_websearch(&loc);
         use oc_tools::websearch::WebSearchError as W;
         match websearch.query(&req.body.query, req.body.provider_id.as_deref(), None, &|_| {}).await {
@@ -1577,6 +1579,14 @@ impl Engine {
             let _ = self.locations.get(&dir).await;
         }
         oc_core::worktree::strategies(&self.app.plugins, &self.app.bus, project_id).await
+    }
+
+    /// `awaitPlugins` (server/src/location.ts): `Plugin.awaitActivation` for at most 5 seconds, then
+    /// `503 ServiceUnavailableError`.
+    async fn await_plugins(&self, loc: &crate::locations::Loc) -> Result<(), ApiError> {
+        tokio::time::timeout(std::time::Duration::from_secs(5), self.app.plugins.await_activation(&loc.key))
+            .await
+            .map_err(|_| ApiError::service_unavailable("Location plugins did not finish activating", Some("plugin".into())))
     }
 
     /// The location's web search service with its config `websearch` selection applied
