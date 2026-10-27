@@ -92,6 +92,13 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-27: 2.1.4 CATCH-UP BATCH 8a (experimental todo list): the `todowrite` tool (`oc-tools/src/tools/todo.rs`,
+  `assets/tool/todowrite.txt`) behind `experimental.todo` (gated per location in `Engine::base_registry`), the
+  `opencode.tool.todo` built-in plugin listed in upstream's position with the flag on or off, the TUI sidebar section
+  (`oc-tui/src/app/sidebar_todo.rs`, `util/todo.rs`) and the transcript's "# Todos" block and inline rows. Parity
+  group `todo` (3 scenarios) and the four plugin-listing scenarios are identical to the 2.1.4 build. Mini mode keeps
+  the full transcript's rendering (upstream mini hides tools by default and draws its own card). Details:
+  `docs/UPGRADE-2.1.4.md` progress row 8a.
 - 2026-10-27: 2.1.4 CATCH-UP BATCH 7 (release): ocd reports 2.1.4 (workspace version); the golden CLI help,
   completions and parse fixtures come from v2.1.4's `commands.ts` (`pair --yes`, `upgrade -m winget`, the `mcp auth`
   example) and match the upstream 2.1.4 binary; uninstall detects WinGet installs; the plugin sidecar runs on Bun

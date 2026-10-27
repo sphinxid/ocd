@@ -118,7 +118,7 @@ Each method has a default that reports the capability as unavailable. The except
 
 | module | upstream |
 |---|---|
-| `tools::{read, edit, write, patch, grep, glob, shell, webfetch, websearch, question, skill, subagent}` | `core/src/tool/plugin/*.ts` |
+| `tools::{read, edit, write, patch, grep, glob, shell, webfetch, websearch, question, skill, subagent, todo}` | `core/src/tool/plugin/*.ts` (`todo`: `todowrite`, which oc-core keeps only where `experimental.todo` is on) |
 | `tools::opencode` (6 tools + namespace + `SYSTEM_HINT`), `tools::mcp_resource`, `tools::mcp::McpTool` | `opencode.ts`, `mcp-resource.ts`, `tool/mcp.ts` |
 | `file_access`, `file_mutation`, `file_diff`, `jsdiff` (byte-exact jsdiff 8.0.4 port) | `file-access.ts`, `file-mutation.ts`, `file-diff.ts` |
 | `patch` (grammar, 4-pass seek), `validate` (Effect-compatible issues) | `util/src/patch.ts`, `tool/runtime.ts` |

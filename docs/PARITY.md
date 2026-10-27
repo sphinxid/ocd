@@ -13,7 +13,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -29,7 +29,7 @@ Layout:
 | `scripts/parity.py` | runner: selection, per-binary runs, diff, summary |
 | `scripts/parity/harness.py` | `Server` (isolated `serve --port 0`, SSE capture), `Ctx` (per-run API used by scenarios), the normalizer, the dump format |
 | `scripts/parity/mock.py` | scriptable provider: chat completions, Responses and Anthropic Messages SSE streams by request path, Open Responses over WebSocket, non-streaming completions, GET routes (also behind `scripts/mock_provider.py`) |
-| `scripts/parity/{loop,sessions,readonly,errors,cli,plugins,copilot,websocket,stops}.py` | scenarios, one function each, registered with `@scenario(group)` |
+| `scripts/parity/{loop,sessions,readonly,errors,cli,plugins,copilot,websocket,stops,todo}.py` | scenarios, one function each, registered with `@scenario(group)` |
 
 How a scenario runs, for each binary in turn: the project directory and the XDG state root are recreated at the
 **same paths** (so path-derived values such as project IDs are directly comparable), the mock starts on one
@@ -86,7 +86,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (69)
+## Scenarios (72)
 
 | group | scenarios |
 |---|---|
@@ -100,8 +100,11 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | cli | `--help` for the root and all 17 subcommands and 29 nested ones, `--version`, unknown flag, bash completions; `run` default and `--format json` with a tool call, `run` without a message; `models`, `stats` (+`--json`, `--all`), `session list`, `debug paths/config/agents`, `mcp list`, `plugin list`, `auth list`, `service status/get` |
 | websocket | a configured provider on the native OpenAI package with `transport: "websocket"` against the mock's Open Responses endpoint; every upgrade (headers without the random key, host and Bun's `permessage-deflate` offer), frame (body with instructions/tool schemas as digests, key order) and close is compared. `ws_session`: five prompts on one session, a read tool round trip and the answer as continuation frames (`previous_response_id` + only the new input) over one socket, a `previous_response_not_found` error frame (rejected → step retried in full on a new socket), a server error frame (retry on a new socket), a socket dropped mid-answer (`WebSocket closed with code 1006`, continue), a close frame 1011 before any output (retry). `ws_interrupt`: an interrupt while the socket waits closes it; the next prompt reconnects in full. `ws_fallback`: a refused upgrade pins the session to HTTP (both steps POST with tracing headers), a second session gets its own socket, a provider with `transport: "http"` never opens one. `ws_plugin_hooks`: oc-plugin's `ws-plugin` fixture (`experimental.ws.handshake/send/receive` rewriting the upgrade URL and headers, each sent frame and the received text; `session.http.request` marking HTTP requests): the title and, after an error frame and a refused reconnect, the HTTP fallback carry the HTTP hook's header, the socket traffic carries only the ws hooks' marks |
 | plugin | oc-plugin's fixture plugins (`crates/oc-plugin/tests/fixtures`) copied into the project and configured as local plugins; the port runs them in its Bun sidecar (`OCD_BUN_PATH`, default `$OCD_SCRATCH/bun144/bun-linux-x64/bun`), upstream in-process. `plugin_inventory`: Promise + Effect + invalid + failing-transform plugins → `plugin.list` (order, sources, failures, the `skill.transform` failure disabling its plugin), `command.list`, `agent.list`, `skill.list`, boot and failure events. `plugin_tool`: a plugin tool offered to the model (tool names and full definitions of the first request) and executed with `tool.execute.before` rewriting its input, tool progress, a plugin command writing storage, the storage rows. `plugin_hooks`: `permission.evaluate` allowing/denying `.env` reads, `tool.execute.after` replacing a result, `session.prompt` rewriting the prompt, `session.context` adding a system part, `shell.create.before` adding an env variable. `plugin_effect`: agent/skill transforms and a rejecting `tool.execute.before`. `plugin_rpc_storage`: `rpc.call` (success, declared error, invalid input, unknown method, unknown RPC), storage incl. `ctx.event.subscribe` rows. `plugin_http_hooks`: `session.http.request` rewriting headers and body of every model request (title + steps; what the hook saw is echoed in a header) and `session.http.response` rewriting the streamed body. `plugin_vcs_worktree`: a plugin VCS provider selected with `default.set` (get/base/status/branches with search+limit/three diff modes incl. a failing one, `vcs.init` conflict) and a plugin worktree strategy (create, list, refresh, remove without and with `force`). `plugin_aisdk`: a configured provider whose package is oc-plugin's fixture AI SDK provider (`aisdk:file://.../aisdk-provider/index.js`, a LanguageModelV3 package talking to the mock through the SDK `fetch`): a read tool call, reasoning + text with cached/reasoning usage, an HTTP 400 (`APICallError`), a stream cut mid-way, then a model whose package does not exist (initialization failure); every request the provider sent (V3 prompt, tools, call headers, provider options, SDK options) is compared. `plugin_aisdk_hooks`: the same provider with plugin `aisdk.sdk` / `aisdk.language` hooks (wrapped SDK and language model) and `session.http.*` hooks around the SDK's fetch. `plugin_copilot`: the built-in GitHub Copilot plugin against the mock as a Copilot API (a fake OAuth credential created through the API, its `apiEndpoint` metadata = the mock; HTTPS goes to a dead proxy): the `/models` sync, the derived catalog, a `/responses` tool round trip (gpt-5.4), `/chat/completions` (gemini) and the native `/v1/messages` route (claude) after model switches, the utility-model title; every request the mock received (headers lowercased and sorted, transport headers dropped). `plugin_copilot_unsynced`: the same with a failing sync (404): every models.dev model through the in-tree AI SDK provider at the connection's API base |
+| todo | the experimental todo list (`experimental.todo`). `todo_loop`: the model writes a three-item list, sends an invalid status (input validation error), updates it (a completed long item, a cancelled one, quotes in the in-progress summary), clears it and answers; every full model request (the `todowrite` definition and description, the `execute` catalog without it), the tool results, stored parts, durable and ephemeral events and `plugin.list`. `todo_off`: with `todo: false` the tool is not offered and a call is an unknown tool while `opencode.tool.todo` stays listed; then the config file turns it on (file watching enabled for this scenario) and the next request offers and runs it. `todo_permission`: `permission: {todowrite: "ask"}`, the first ask rejected with feedback, the second answered `always` (saved `todowrite *`) |
 
 ## Results
+
+**Todo list run (batch 8a, debug build, 2026-10-27):** all 72 scenarios (the new group `todo` included) against the same local v2.1.4 build, both binaries through the isolation guard, ocd pointed at an empty web UI archive: **65 of 72 identical**. `todo_loop`, `todo_off`, `todo_permission` and the four plugin-listing scenarios (`readonly_server`, `plugin_inventory`, `plugin_effect`, `plugin_rpc_storage`, which differed only by `opencode.tool.todo`) are identical; the 7 left are the races, the intended help wording, `run`'s last step, `debug paths`/`debug agents` and the network error wording listed below.
 
 **2.1.4 release run (batch 7, debug build, 2026-10-27):** all 69 scenarios against the local v2.1.4 build, both
 binaries started through the isolation guard. **55 of 69 identical** in the full run; two diffs were real and are
@@ -111,7 +114,7 @@ one (identical with ocd pointed at an empty web UI archive, `OCD_WEB_UI`). After
 
 | scenario | cause |
 |---|---|
-| readonly_server, plugin_inventory, plugin_effect, plugin_rpc_storage | 2.1.4 lists the built-in plugin `opencode.tool.todo` (the experimental `todowrite` tool, batch 8 of the catch-up), which ocd does not have |
+| ~~readonly_server, plugin_inventory, plugin_effect, plugin_rpc_storage~~ | ~~2.1.4 lists the built-in plugin `opencode.tool.todo`, which ocd did not have~~; identical since batch 8a |
 | loop_tool_error, loop_http_400 | the known races (unknown-tool failure vs `step.streamed`; title rename vs failed step), both runs |
 | stop_retry_exhausted | the known extra ephemeral `project.updated` at the end of upstream's run (timing) |
 | cli_help | by design: ocd's root and `upgrade` descriptions, the version |

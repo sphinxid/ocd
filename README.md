@@ -31,15 +31,16 @@ Measured on Linux x86_64, release builds of both, same mock model, isolated fold
 
 This status is against opencode 2.1.4, and ocd reports version 2.1.4. It caught up from 2.0.26 in the batches
 listed in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md): data, providers, sessions and tools, platform and config,
-the HTTP API, the TUI and the release (version, CLI help, web UI, runtime pins) are done; the experimental 2.1
-features (batch 8) are not. Its progress table lists what each batch checked.
+the HTTP API, the TUI and the release (version, CLI help, web UI, runtime pins) are done; of the experimental 2.1
+features (batch 8) only the todo list is. Its progress table lists what each batch checked.
 
-How the comparison is done: both binaries run the same 69 scenarios side by side and their outputs are diffed
+How the comparison is done: both binaries run the same 72 scenarios side by side and their outputs are diffed
 (`scripts/parity.py`, see [docs/PARITY.md](docs/PARITY.md)). These cover the agent loop, sessions, permissions,
-forms, read-only endpoints, 74 error cases, the CLI, plugins, GitHub Copilot and the OpenAI WebSocket transport.
+forms, read-only endpoints, 74 error cases, the CLI, plugins, GitHub Copilot, the OpenAI WebSocket transport and
+the experimental todo list.
 Every request ocd sends to the model (system prompt, tool definitions, headers, prompt-cache markers) is compared
-too. Against the 2.1.4 build, 57 of the 69 scenarios are identical. The others differ by timing races that also
-vary between two runs of upstream, the intended renames, the experimental todo plugin, the wording of a network
+too. Against the 2.1.4 build, 65 of the 72 scenarios are identical. The others differ by timing races that also
+vary between two runs of upstream, the intended renames, the wording of a network
 error, and how `ocd run` prints the last step of a run (live, where upstream prints it afterwards); PARITY.md has
 the details. Each crate also has its own test suite, many replaying recorded upstream data.
 
@@ -107,7 +108,7 @@ the details. Each crate also has its own test suite, many replaying recorded ups
 | Remote access tunnel (OpenTunnel: `serve --remote`, `pair --remote`) | Prints that it's unsupported. |
 | `--wizard` mode | Prints an error. |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 (not implemented). |
-| Other experimental 2.1 features | The `todowrite` tool and todo sidebar, background compaction, `location_idle_timeout` and the new designs are not ported; their config keys are accepted and do nothing. |
+| Other experimental 2.1 features | Background compaction, `location_idle_timeout` and the new designs are not ported; their config keys are accepted and do nothing. The todo list (`experimental.todo`: the `todowrite` tool, the sidebar section and its transcript rendering) is ported. |
 | Some cloud credentials | AWS SSO, web identity and instance metadata, and Google workload identity federation, are missing. Env vars, shared config files, `credential_process` and ECS credentials work. |
 | Testing on macOS, Windows and Linux ARM | Release binaries are built for them, but only Linux x86_64 is tested. |
 
