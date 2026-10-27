@@ -58,13 +58,20 @@ trap 'rm -f "$tmp"' EXIT
 echo "building web UI with bun $("$bun" --version) (channel $channel) from $upstream"
 (cd "$upstream" && "$bun" "$root/scripts/build-web-ui.ts" "$upstream" "$tmp" "$channel")
 
-# The archive is embedded in the binary: it must not carry local paths.
-for needle in "$upstream" "$root" "$HOME"; do
-  if grep -rlaF --exclude='*.map' "$needle" "$upstream/packages/app/dist" >&2; then
+# The archive is embedded in the binary: it must not carry local paths. Prebuilt .wasm files come
+# from dependencies as published and can name their authors' build paths (on a GitHub runner,
+# /home/runner/.cargo/... is also $HOME here), so the $HOME check skips them.
+check_paths() {
+  local needle="$1"
+  shift
+  if grep -rlaF --exclude='*.map' "$@" "$needle" "$upstream/packages/app/dist" >&2; then
     echo "error: the files above mention $needle" >&2
     exit 1
   fi
-done
+}
+check_paths "$upstream"
+check_paths "$root"
+check_paths "$HOME" --exclude='*.wasm'
 mv "$tmp" "$output"
 trap - EXIT
 echo "web UI archive: $output ($(wc -c <"$output") bytes)"
