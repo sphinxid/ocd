@@ -73,6 +73,12 @@ fn ansi_logo_half(line: &str, fg: &str, shadow: &str, bg: &str) -> String {
 
 /// `sessionEpilogue({title, sessionID})`.
 pub fn session_epilogue(title: &str, session_id: &str) -> String {
+    epilogue(Some((title, session_id)), None)
+}
+
+/// `epilogue({session, updatedVersion})`: the wordmark, "Run ocd to use <version>" after an install, then the
+/// session and how to continue it.
+pub fn epilogue(session: Option<(&str, &str)>, updated_version: Option<&str>) -> String {
     let reset = "\x1b[0m";
     let bold = "\x1b[1m";
     let dim = "\x1b[90m";
@@ -83,9 +89,15 @@ pub fn session_epilogue(title: &str, session_id: &str) -> String {
         lines.push(format!("  {left} {right}"));
     }
     lines.push(String::new());
-    lines.push(format!("  {dim}{:<10}{reset}{bold}{title}{reset}", "Session"));
-    lines.push(format!("  {dim}{:<10}{reset}{bold}ocd -s {session_id}{reset}", "Continue"));
-    lines.push(String::new());
+    if let Some(v) = updated_version {
+        lines.push(format!("  {dim}Run {reset}{bold}ocd{reset}{dim} to use {reset}{bold}{v}{reset}"));
+        lines.push(String::new());
+    }
+    if let Some((title, session_id)) = session {
+        lines.push(format!("  {dim}{:<10}{reset}{bold}{title}{reset}", "Session"));
+        lines.push(format!("  {dim}{:<10}{reset}{bold}ocd -s {session_id}{reset}", "Continue"));
+        lines.push(String::new());
+    }
     lines.join("\n")
 }
 

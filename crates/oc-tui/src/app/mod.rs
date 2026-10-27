@@ -25,6 +25,7 @@ pub mod selection;
 pub mod tabs;
 pub mod tcache;
 pub mod terminal;
+pub mod update;
 pub mod view;
 pub mod workspace;
 
@@ -78,6 +79,8 @@ pub struct TuiOptions {
     /// Managed background service controls (`server.service`); `None` for `--server` and
     /// `--standalone`.
     pub service: Option<ServiceHooks>,
+    /// The CLI's update checks (`TuiInput.updater`); `None` hides `/update` and the update notice.
+    pub updater: Option<update::UpdaterHooks>,
 }
 
 /// An async endpoint resolution (`Service.ensure` behind a managed-service control).
@@ -260,6 +263,7 @@ pub struct App {
     pub editor_requested: bool,
     pub dialog_rect: Option<Rect>,
     pub render_rev: u64,
+    pub update: update::UpdateUi,
     pub tab_menu: Option<tabs::TabMenu>,
     pub rail_pref: u16,
     pub rail_scroll: u16,
@@ -397,6 +401,7 @@ impl App {
             transcript_lines: 0,
             frame: 0,
             dirty: true,
+            update: Default::default(),
             suspend_requested: false,
             editor_requested: false,
             dialog_rect: None,
@@ -1359,6 +1364,8 @@ mod location_tests;
 mod session_list_tests;
 #[cfg(test)]
 mod todo_tests;
+#[cfg(test)]
+mod update_tests;
 #[cfg(test)]
 mod fuzz_tests;
 #[cfg(test)]

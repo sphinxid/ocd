@@ -18,6 +18,7 @@ pub mod theme;
 pub mod ui;
 pub mod util;
 
+pub use app::update::{UpdateCheck, UpdateNotice, UpdaterHooks};
 pub use app::{App, AppMsg, EndpointHook, Route, ServiceHooks, TuiOptions};
 pub use mini::{MiniOptions, run_mini};
 
@@ -266,6 +267,7 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     });
 
     app.start_migration_poll();
+    app.start_update_watch();
 
     let mut events = app::escape::JoinEscapes::new(EventStream::new());
     let mut hooks = TermHooks { screen: &screen, term: &mut term, title: String::new() };
@@ -282,7 +284,7 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
         eprintln!("{e}");
         return Ok(1);
     }
-    if let Some(e) = &app.epilogue {
+    if let Some(e) = app.exit_epilogue() {
         println!("{e}");
     }
     Ok(0)

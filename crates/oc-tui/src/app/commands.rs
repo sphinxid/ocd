@@ -151,6 +151,9 @@ impl App {
         v.push(cmd("provider.connect", "Connect an integration", "Integration").slash("connect").suggested(!connected));
         v.push(cmd("opencode.settings", "Open settings", "System").slash("settings").suggested(true));
         v.push(cmd("opencode.status", "View status", "System").slash("status"));
+        if self.opts.updater.is_some() {
+            v.push(cmd("opencode.update", "Update ocd", "System").slash("update"));
+        }
         v.push(cmd("server.pair", "Pair device", "System").slash("pair").aliases(&["web"]));
         if self.opts.service.is_some() {
             v.push(cmd("service.restart", "Restart service", "System").slash("restart"));
@@ -383,6 +386,8 @@ impl App {
             "provider.connect" => self.open_integrations(true, None, false),
             "opencode.settings" => self.open_settings(None),
             "opencode.status" => self.open_status(),
+            "opencode.update" => self.open_update(false),
+            super::update::NOTIFICATION_CLICK => self.update_notification_click(),
             "opencode.debug" => self.open_debug(),
             "server.pair" | "location.reload" if id == "location.reload" => {
                 self.toast(Toast::new("info", "Reloading configuration…").duration(30000));

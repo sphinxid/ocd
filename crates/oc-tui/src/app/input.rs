@@ -1356,6 +1356,7 @@ impl App {
     fn dialog_key(&mut self, purpose: &str, key: &str, d: &dialog::Dialog) {
         match (purpose, key) {
             ("export-result", "return") => self.close_dialog(),
+            (super::update::PURPOSE, _) => self.update_dialog_key(key),
             ("execute", "c") => self.execute_copy("code"),
             ("plugin-error", "c" | "i") => self.error_details_key(key),
             ("execute", "o") => self.execute_copy("output"),

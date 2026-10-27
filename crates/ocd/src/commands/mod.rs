@@ -137,6 +137,7 @@ fn tui_options(input: &Input, server: &connection::Resolved, requested_server: b
         version: oc_util::version::VERSION.to_string(),
         environment: if requested_server { Default::default() } else { connection::session_env().into_iter().collect() },
         service: server.service.clone().map(service_hooks),
+        updater: None,
     }
 }
 

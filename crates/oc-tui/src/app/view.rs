@@ -103,7 +103,9 @@ impl App {
         let prompt_lines = self.prompt_lines(t, prompt_w as usize);
         let prompt_h = prompt_lines.0.len() as u16;
         let body_h = h.saturating_sub(footer_h);
-        let fixed = logo.len() as u16 + 1 + 1 + prompt_h;
+        // `UpdateNotification`: one row between the logo's spacer and the prompt.
+        let notice = self.update_notification_segs();
+        let fixed = logo.len() as u16 + 1 + 1 + prompt_h + u16::from(notice.is_some());
         let spacer3 = 3.min(body_h.saturating_sub(fixed));
         let free = body_h.saturating_sub(fixed + spacer3);
         let top = free / 2;
@@ -115,6 +117,14 @@ impl App {
             y += 1;
         }
         y += 1; // spacer
+        if let Some(segs) = notice {
+            let nw = (segs.iter().map(|x| x.width()).sum::<usize>() as u16).min(w);
+            let row_w = logo_w.min(w).max(nw);
+            let row_x = area.x + w.saturating_sub(row_w) / 2;
+            draw_lines(buf, Rect::new(row_x + row_w.saturating_sub(nw) / 2, y, nw, 1), &[SLine::new(segs)], 0, "");
+            self.hits.push((Rect::new(row_x, y, row_w, 1), Click::Custom(super::update::NOTIFICATION_CLICK.into())));
+            y += 1;
+        }
         y += 1; // prompt paddingTop
         // Yoga rounds the centered offset half up.
         let px = area.x + w.saturating_sub(prompt_w).div_ceil(2);
