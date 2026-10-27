@@ -241,10 +241,11 @@ pub fn project_json(r: &rusqlite::Row) -> rusqlite::Result<Value> {
             info.insert("commands".into(), c);
         }
     }
-    info.insert(
-        "time".into(),
-        json!({"created": r.get::<_, i64>("time_created")?, "updated": r.get::<_, i64>("time_updated")?, "active": r.get::<_, i64>("time_active")?}),
-    );
+    let mut time = json!({"created": r.get::<_, i64>("time_created")?, "updated": r.get::<_, i64>("time_updated")?, "active": r.get::<_, i64>("time_active")?});
+    if let Some(archived) = r.get::<_, Option<i64>>("time_archived")? {
+        time["archived"] = json!(archived);
+    }
+    info.insert("time".into(), time);
     let sandboxes: String = r.get("sandboxes")?;
     info.insert("sandboxes".into(), serde_json::from_str(&sandboxes).unwrap_or(json!([])));
     Ok(Value::Object(info))
@@ -254,12 +255,74 @@ pub fn get(bus: &Bus, id: &str) -> anyhow::Result<Option<Value>> {
     bus.db().with(|c| c.query_row("SELECT * FROM project WHERE id = ?", [id], project_json).optional())
 }
 
-pub fn list(bus: &Bus) -> anyhow::Result<Vec<Value>> {
+/// `Project.list`: archived Projects are left out unless `archived` is true.
+pub fn list(bus: &Bus, archived: bool) -> anyhow::Result<Vec<Value>> {
+    let filter = if archived { "" } else { " WHERE time_archived IS NULL" };
     bus.db().with(|c| {
-        let mut s = c.prepare("SELECT * FROM project ORDER BY time_active DESC, id ASC")?;
+        let mut s = c.prepare(&format!("SELECT * FROM project{filter} ORDER BY time_active DESC, id ASC"))?;
         let r = s.query_map([], project_json)?.collect();
         r
     })
+}
+
+/// How long a Project must be idle (no update, no activity) before the sweep looks at it, and how often the
+/// sweep runs (`SWEEP_INTERVAL`).
+pub const SWEEP_INTERVAL_MS: i64 = 60 * 60 * 1000;
+
+/// `Project.sweep`: archive idle Projects whose known directories are all gone. When the canonical directory is
+/// gone but another main checkout survives, the Project moves there instead; surviving linked worktrees alone
+/// leave it untouched. Each change publishes `project.updated`. Unreadable paths count as present.
+pub fn sweep(bus: &Bus) -> anyhow::Result<()> {
+    let db = bus.db();
+    let cutoff = oc_schema::id::now_ms() as i64 - SWEEP_INTERVAL_MS;
+    const IDLE: &str = "time_archived IS NULL AND time_updated < ?1 AND time_active < ?1";
+    let projects: Vec<(String, String)> = db.with(|c| {
+        let mut s = c.prepare(&format!("SELECT id, worktree FROM project WHERE {IDLE} AND id <> ?2"))?;
+        s.query_map(params![cutoff, GLOBAL], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
+    })?;
+    if projects.is_empty() {
+        return Ok(());
+    }
+    let worktrees: Vec<(String, String, Option<String>)> = db.with(|c| {
+        let mut s = c.prepare("SELECT project_id, directory, strategy FROM worktree")?;
+        s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect()
+    })?;
+    let exists = |directory: &str| Path::new(directory).try_exists().unwrap_or(true);
+    for (id, canonical) in projects {
+        if exists(&canonical) {
+            continue;
+        }
+        let surviving: Vec<&(String, String, Option<String>)> = worktrees
+            .iter()
+            .filter(|(project, directory, _)| *project == id && *directory != canonical && exists(directory))
+            .collect();
+        // Linked worktrees carry a strategy; only another main checkout can become the canonical directory.
+        let main = surviving.iter().find(|(_, _, strategy)| strategy.is_none());
+        if main.is_none() && !surviving.is_empty() {
+            continue;
+        }
+        let now = oc_schema::id::now_ms() as i64;
+        let row = db.with(|c| match main {
+            Some((_, directory, _)) => c
+                .query_row(
+                    &format!("UPDATE project SET worktree = ?3, time_updated = ?4 WHERE id = ?2 AND {IDLE} RETURNING *"),
+                    params![cutoff, id, directory, now],
+                    project_json,
+                )
+                .optional(),
+            None => c
+                .query_row(
+                    &format!("UPDATE project SET time_archived = ?3 WHERE id = ?2 AND {IDLE} RETURNING *"),
+                    params![cutoff, id, now],
+                    project_json,
+                )
+                .optional(),
+        })?;
+        if let Some(info) = row {
+            bus.publish("project.updated", info, None);
+        }
+    }
+    Ok(())
 }
 
 fn contains(parent: &Path, child: &Path) -> bool {
@@ -291,12 +354,22 @@ pub fn persist(bus: &Bus, project: &Resolved) -> anyhow::Result<()> {
             params![project.id, canonical, now],
         ),
     })?;
-    if let Some(prev) = previous.filter(|p| *p != canonical && !Path::new(p).exists()) {
-        let _ = prev;
-        db.with(|c| c.execute("UPDATE project SET worktree = ?, time_updated = ? WHERE id = ?", params![canonical, now, project.id]))?;
-        if let Some(info) = get(bus, &project.id)? {
-            bus.publish("project.updated", info, None);
+    // Resolving a Project unarchives it (time_updated kept).
+    let unarchived = db.with(|c| {
+        c.execute("UPDATE project SET time_archived = NULL WHERE id = ? AND time_archived IS NOT NULL", [&project.id])
+    })? > 0;
+    // Clones share a project ID; only replace a canonical directory that is gone.
+    let replaced = match previous.filter(|p| *p != canonical && !Path::new(p).try_exists().unwrap_or(true)) {
+        Some(_) => {
+            db.with(|c| c.execute("UPDATE project SET worktree = ?, time_updated = ? WHERE id = ?", params![canonical, now, project.id]))?
+                > 0
         }
+        None => false,
+    };
+    if (replaced || unarchived)
+        && let Some(info) = get(bus, &project.id)?
+    {
+        bus.publish("project.updated", info, None);
     }
     let Some(vcs) = &project.vcs else { return Ok(()) };
     let mut directories: Vec<(PathBuf, Option<&str>)> = vec![(project.canonical.clone(), None)];

@@ -721,11 +721,15 @@ impl Backend for Engine {
 
     // ---- project ------------------------------------------------------------------------------
 
-    async fn project_list(&self, _ctx: &RequestContext, _req: ProjectListRequest) -> Result<Vec<Project>, ApiError> {
-        oc_core::project::list(&self.app.bus).map_err(defect)?.into_iter().map(from_json).collect()
+    async fn project_list(&self, ctx: &RequestContext, req: ProjectListRequest) -> Result<Vec<Project>, ApiError> {
+        // The project group runs behind the location middleware, so the request's location boots (and its
+        // Project resolves, unarchiving it) first.
+        self.locations.get(&ctx.location.directory).await?;
+        oc_core::project::list(&self.app.bus, req.archived == Some(true)).map_err(defect)?.into_iter().map(from_json).collect()
     }
 
-    async fn project_update(&self, _ctx: &RequestContext, req: ProjectUpdateRequest) -> Result<Project, ApiError> {
+    async fn project_update(&self, ctx: &RequestContext, req: ProjectUpdateRequest) -> Result<Project, ApiError> {
+        self.locations.get(&ctx.location.directory).await?;
         let id = req.project_id.clone();
         let not_found = || ApiError::project_not_found(&id);
         let b = req.body;

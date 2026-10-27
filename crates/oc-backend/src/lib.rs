@@ -59,6 +59,7 @@ pub async fn start(
     server.set_ready();
     start_v1_import(&engine);
     start_models_refresh(&engine);
+    start_project_sweep(&engine);
     // Restart recovery: resume sessions whose execution claim survived the last process.
     if let Some(r) = engine.runner.clone() {
         tokio::spawn(async move {
@@ -107,6 +108,24 @@ pub fn start_models_refresh(engine: &Arc<Engine>) {
                     engine.app.bus.publish(kind, serde_json::json!({}), Some(at.clone()));
                 }
             }
+        }
+    });
+}
+
+/// Start the hourly project archive sweep (`Project.sweepNode`): once at startup, then an hour after each run.
+fn start_project_sweep(engine: &Arc<Engine>) {
+    let engine = Arc::downgrade(engine);
+    tokio::spawn(async move {
+        loop {
+            let Some(strong) = engine.upgrade() else { return };
+            let bus = strong.app.bus.clone();
+            drop(strong);
+            match tokio::task::spawn_blocking(move || oc_core::project::sweep(&bus)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::error!(error = %e, "Project archive sweep failed"),
+                Err(e) => tracing::error!(error = %e, "Project archive sweep failed"),
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(oc_core::project::SWEEP_INTERVAL_MS as u64)).await;
         }
     });
 }
