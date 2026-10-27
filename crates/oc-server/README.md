@@ -20,7 +20,7 @@ let server = serve(Arc::new(MyEngine::new()) as Arc<dyn Backend>, ServerOptions 
     port: None,                     // None: try 4096 and count up while busy; Some(0): ephemeral
     password: Some(pw),             // None/empty: unauthenticated mode
     cors: vec![],                   // extra allowed origins (`--cors`)
-    version: "2.0.26".into(),       // /api/info version ("unknown" if empty)
+    version: "2.1.4".into(),        // /api/info version ("unknown" if empty)
     tmp_dir: "/tmp/opencode".into(),// /api/info paths.tmp
     cwd: None,                      // default location (process cwd)
     web_ui: None,                   // Some(WebUiSource): SPA on non-API paths (see "Web UI")

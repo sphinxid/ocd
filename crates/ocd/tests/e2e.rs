@@ -122,7 +122,7 @@ fn debug_paths_lists_global_paths_without_a_server() {
 fn version_and_parse_errors() {
     let env = common::Env::new();
     let out = env.run(&["--version"]);
-    assert_eq!(common::text(&out.stdout), "ocd v2.0.26\n");
+    assert_eq!(common::text(&out.stdout), "ocd v2.1.4\n");
     let out = env.run(&["run", "--format", "xml"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(common::text(&out.stdout).starts_with("DESCRIPTION\n  Run OpenCode with a message\n"));
@@ -143,7 +143,7 @@ fn service_lifecycle_debug_config_and_models() {
     assert_eq!(common::text(&start.stdout), format!("http://127.0.0.1:{port}\n"), "{}", common::text(&start.stderr));
     let registration: Value = serde_json::from_str(&std::fs::read_to_string(env.path("state/opencode/service.json")).unwrap()).unwrap();
     assert_eq!(registration["url"], format!("http://127.0.0.1:{port}"));
-    assert_eq!(registration["version"], "2.0.26");
+    assert_eq!(registration["version"], "2.1.4");
     // the generated password was persisted in the service config
     let config: Value = serde_json::from_str(&std::fs::read_to_string(env.path("config/opencode/service.json")).unwrap()).unwrap();
     assert_eq!(config["password"], registration["password"]);
