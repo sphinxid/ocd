@@ -15,6 +15,7 @@ pub mod execute;
 pub mod highlights;
 pub mod location;
 pub mod session_list;
+pub mod sidebar_todo;
 pub mod panel;
 pub mod plugins;
 pub mod program_status;
@@ -1334,6 +1335,8 @@ mod data_tests;
 mod location_tests;
 #[cfg(test)]
 mod session_list_tests;
+#[cfg(test)]
+mod todo_tests;
 #[cfg(test)]
 mod fuzz_tests;
 #[cfg(test)]

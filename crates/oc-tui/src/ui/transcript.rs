@@ -1068,6 +1068,19 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
                 inline_tool(ctx, t, "→", "Asking questions…", n > 0, false, vec![s(format!("Asked {n} question{}", if n != 1 { "s" } else { "" }), th.text.muted)], None, None, None)
             }
         }
+        "todowrite" => {
+            // `TodoWrite`: the list as a "# Todos" block once completed, otherwise an inline row.
+            let todos = crate::util::todo::parse_todos(input.get("todos").unwrap_or(&Value::Null));
+            if status == "completed" && !todos.is_empty() {
+                let header = if ctx.permission_tool == Some(t.id.as_str()) { th.text.feedback.warning.base } else { th.text.muted };
+                let inner = ctx.width.saturating_sub(3).max(1);
+                let body = todos.iter().flat_map(|todo| crate::util::todo::todo_item(th, todo, inner)).collect();
+                block(ctx, vec![s("# Todos", header)], body, None, None)
+            } else {
+                let label = if status == "error" { "Todo update failed" } else { "Cleared todos" };
+                inline_tool(ctx, t, "⚙", "Updating todos…", status == "completed" || status == "error", false, vec![s(label, th.text.muted)], None, None, None)
+            }
+        }
         "skill" => {
             let name = str_of(&meta, "name").or(str_of(&input, "id"));
             inline_tool(ctx, t, "→", "Loading skill…", name.is_some(), false, vec![s(format!("Skill \"{}\"", name.unwrap_or("")), th.text.muted)], None, None, None)

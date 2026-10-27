@@ -2196,6 +2196,10 @@ impl App {
             self.recover_location();
             return;
         }
+        if matches!(&c, Click::Custom(x) if x == super::sidebar_todo::TOGGLE) {
+            self.toggle_sidebar_todo();
+            return;
+        }
         let Some(sid) = self.session_id().map(|s| s.to_string()) else {
             if let Click::Custom(x) = c {
                 self.run_command(&x, None);

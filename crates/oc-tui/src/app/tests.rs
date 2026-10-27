@@ -91,7 +91,7 @@ pub(super) fn session(app: &mut App) -> String {
             {"type":"tool","id":"t4","name":"edit","state":{"status":"completed","input":{"path":"src/parser.ts"},
               "metadata":{"files":[{"file":"src/parser.ts","status":"modified","additions":1,"deletions":1,"patch":"@@ -1,3 +1,3 @@\n a\n-b\n+c\n d\n"}]},
               "content":[{"type":"text","text":"ok"}]},"time":{"created":1500,"completed":1600}},
-            {"type":"tool","id":"t5","name":"todowrite","state":{"status":"completed","input":{"count":2},"content":[{"type":"text","text":"ok"}]},"time":{"created":1600,"completed":1700}},
+            {"type":"tool","id":"t5","name":"lint","state":{"status":"completed","input":{"count":2},"content":[{"type":"text","text":"ok"}]},"time":{"created":1600,"completed":1700}},
             {"type":"text","text":"I fixed the **bug**.\n\n- updated parser\n- added test"}
          ]},
         {"id":"msg_3","type":"idle","outcome":"succeeded","time":{"created":73200}}
@@ -158,7 +158,7 @@ fn session_transcript_narrow() {
     assert!(contains(&lines, "┃  ← Edit src/parser.ts"), "{joined}");
     assert!(contains(&lines, "2 - b"), "{joined}");
     assert!(contains(&lines, "2 + c"), "{joined}");
-    assert!(contains(&lines, "✓ todowrite [count=2]"), "{joined}");
+    assert!(contains(&lines, "✓ lint [count=2]"), "{joined}");
     assert!(contains(&lines, "I fixed the bug."), "{joined}");
     assert!(contains(&lines, "- updated parser"), "{joined}");
     assert!(contains(&lines, "Build · Claude Sonnet 4.5 · 1m 12s · 3000.0 tok/s"), "{joined}");

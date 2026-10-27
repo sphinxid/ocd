@@ -13,8 +13,7 @@ use crate::util::locale;
 use serde_json::{Value, json};
 
 /// ocd's built-in features, as upstream's built-in TUI plugins (without the plugin manager itself,
-/// and without `opencode.latex`, `opencode.merman` and the experimental `opencode.sidebar.todo`,
-/// which ocd does not have).
+/// and without `opencode.latex` and `opencode.merman`, which ocd does not have).
 pub const BUILTINS: &[&str] = &[
     "opencode.btw",
     "opencode.diffs",
@@ -24,6 +23,7 @@ pub const BUILTINS: &[&str] = &[
     "opencode.sidebar.context",
     "opencode.sidebar.footer",
     "opencode.sidebar.mcp",
+    "opencode.sidebar.todo",
     "opencode.stats",
 ];
 

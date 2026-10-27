@@ -825,7 +825,9 @@ impl App {
                     lines.push(SLine::new(vec![s(format!("{}% used", ((tokens / c) * 100.0).round() as i64), t.text.muted)]));
                 }
             }
-            lines.push(SLine::new(vec![s(format!("{} spent", locale::usd(s0.cost)), t.text.muted)]));
+            if s0.cost > 0.0 {
+                lines.push(SLine::new(vec![s(format!("{} spent", locale::usd(s0.cost)), t.text.muted)]));
+            }
             lines.push(SLine::blank());
         }
         // MCP block.
@@ -845,7 +847,12 @@ impl App {
                 lines.push(SLine::new(vec![s("• ", c), Seg::new(locale::truncate_width(&sv.name, w.saturating_sub(sw(label) + 3)), bold(fg(t.text.base))), s(format!(" {label}"), lc)]));
             }
         }
-        draw_lines(buf, inner, &lines, 0, "");
+        // Todo block (the `opencode.sidebar.todo` built-in), after MCP.
+        if self.builtin_active(super::sidebar_todo::ID) {
+            self.sidebar_todo(&mut lines, t, sid, w.saturating_sub(1));
+        }
+        let hits = draw_lines(buf, inner, &lines, 0, "");
+        self.hits.extend(hits);
         // Footer: location (the `opencode.sidebar.footer` built-in).
         if !self.builtin_active("opencode.sidebar.footer") {
             return;
