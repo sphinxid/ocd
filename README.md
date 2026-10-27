@@ -126,7 +126,9 @@ the details. Each crate also has its own test suite, many replaying recorded ups
 - **`ocd upgrade`:** prints how to rebuild from source instead of downloading a release.
 - **Heap snapshots:** ocd's server has no JavaScript heap, so `POST /api/debug/heap-dump` answers `500 UnknownError`.
   `ocd debug heap-dump --server URL` still captures one from an upstream server.
-- **Version and release channel:** a source build reports `2.1.4` on the `latest` channel.
+- **Version and release channel:** `ocd --version` shows ocd's own build (`<tag>+<commit>`, or the build time and
+  commit without a tag) next to the opencode version it is compatible with (2.1.4); clients, plugins and the service
+  registration see 2.1.4 on the `latest` channel.
 
 ## Releases
 
