@@ -56,8 +56,8 @@ pub fn exists(p: &Path) -> bool {
     p.exists()
 }
 
-/// What `ocd --version` prints: the opencode version, with the ocd build (`OCD_BUILD_VERSION`, set by build.rs
-/// from `git describe` when the checkout has a `v*` tag) before it.
+/// What `ocd --version` prints: the ocd build (`OCD_BUILD_VERSION`, always set by build.rs unless set empty) and
+/// the opencode version.
 pub fn version_line() -> String {
     match option_env!("OCD_BUILD_VERSION") {
         Some(build) if !build.is_empty() => format!("ocd v{build} (opencode {})\n", env!("CARGO_PKG_VERSION")),

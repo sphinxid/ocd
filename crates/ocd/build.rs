@@ -40,7 +40,8 @@ fn main() {
 
 /// `OCD_BUILD_VERSION` for `ocd --version`. The release workflow sets it to `<tag without v>+<commit>`; a build
 /// without it takes the same from `git describe`, so a local build of a tagged commit reports what the release
-/// does. Commits after the tag add their count (`0.2.0+3.abc1234`); with no `v*` tag or no git it stays unset.
+/// does. Commits after the tag add their count (`0.2.0+3.abc1234`). With no `v*` tag it is the build time (UTC)
+/// and the commit (`20261027.121545+abc1234`), or a random hash outside a git checkout.
 fn build_version(manifest: &Path) {
     println!("cargo:rerun-if-env-changed=OCD_BUILD_VERSION");
     if std::env::var_os("OCD_BUILD_VERSION").is_some() {
@@ -67,17 +68,53 @@ fn build_version(manifest: &Path) {
         watch(common.join("packed-refs"));
         watch(common.join("refs/tags"));
     }
-    let Some(described) = git(&["describe", "--tags", "--match", "v[0-9]*", "--long", "--abbrev=7"]) else {
-        return;
+    let version = match git(&["describe", "--tags", "--match", "v[0-9]*", "--long", "--abbrev=7"]) {
+        Some(described) => described_version(&described),
+        None => None,
     };
-    // `v0.2.0-3-gabc1234`
-    let mut parts = described.rsplitn(3, '-');
-    let (Some(hash), Some(count), Some(tag)) = (parts.next(), parts.next(), parts.next()) else {
-        return;
-    };
-    let (hash, tag) = (hash.strip_prefix('g').unwrap_or(hash), tag.strip_prefix('v').unwrap_or(tag));
-    let version = if count == "0" { format!("{tag}+{hash}") } else { format!("{tag}+{count}.{hash}") };
+    let version = version.unwrap_or_else(|| {
+        let hash = git(&["rev-parse", "--short=7", "HEAD"]).unwrap_or_else(|| {
+            // Not a git checkout: stamp again when the sources change.
+            watch(manifest.join("src"));
+            random_hash()
+        });
+        format!("{}+{hash}", utc_stamp())
+    });
     println!("cargo:rustc-env=OCD_BUILD_VERSION={version}");
+}
+
+/// `v0.2.0-3-gabc1234` → `0.2.0+3.abc1234` (`0.2.0+abc1234` on the tag itself).
+fn described_version(described: &str) -> Option<String> {
+    let mut parts = described.rsplitn(3, '-');
+    let (hash, count, tag) = (parts.next()?, parts.next()?, parts.next()?);
+    let (hash, tag) = (hash.strip_prefix('g').unwrap_or(hash), tag.strip_prefix('v').unwrap_or(tag));
+    Some(if count == "0" { format!("{tag}+{hash}") } else { format!("{tag}+{count}.{hash}") })
+}
+
+/// The build time in UTC as `YYYYMMDD.HHMMSS`.
+fn utc_stamp() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let (days, rest) = (secs / 86_400, secs % 86_400);
+    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}{month:02}{day:02}.{:02}{:02}{:02}", rest / 3_600, rest % 3_600 / 60, rest % 60)
+}
+
+/// Seven random hex digits, like a short commit hash.
+fn random_hash() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    hasher.write_u32(std::process::id());
+    format!("{:07x}", hasher.finish() & 0xfff_ffff)
 }
 
 /// The archive must decode: `[u32 LE indexLen][JSON {"path":[offset,size]}]`, entries within the body.

@@ -175,8 +175,9 @@ Debian 13, Fedora 40 or newer.
 `ocd --version` shows the ocd version next to the opencode version it is compatible with. The build works it
 out from the git tags the same way the release workflow does: a checkout of tag `v0.2.0` reports
 `0.2.0+<commit>`, exactly like the release binary of that tag, and three commits later it reports
-`0.2.0+3.<commit>`. Run `git fetch --tags` first so the latest tag is there; without a `v*` tag (or outside a
-git checkout) only the opencode version is shown. To set the version yourself, build with `OCD_BUILD_VERSION`,
+`0.2.0+3.<commit>`. Run `git fetch --tags` first so the latest tag is there. Without a `v*` tag the version is
+the build time in UTC and the commit (`20261027.124153+<commit>`), and outside a git checkout a random hash
+takes the commit's place. To set the version yourself, build with `OCD_BUILD_VERSION`,
 for example `OCD_BUILD_VERSION=1.0.0+$(git rev-parse --short HEAD) cargo build --release -p ocd`.
 
 ### Optional: include the web UI
