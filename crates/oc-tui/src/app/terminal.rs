@@ -320,6 +320,10 @@ impl App {
             };
         });
         if let Some(p) = pty {
+            // A selected terminal takes the right pane from a panel.
+            if self.active_panel().is_some() {
+                self.close_panel();
+            }
             self.attach_terminal(&p);
             self.right_focus = true;
         } else {

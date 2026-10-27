@@ -106,11 +106,21 @@ impl App {
 
     /// Whether the vertical rail is shown (`tabs.layout == vertical` and it fits).
     pub fn vertical_tabs(&self) -> bool {
-        let w = self.rail_width();
-        self.config.tabs_layout() == "vertical" && self.size.0 >= w + 64 && self.tabs_available()
+        self.vertical_tabs_fit() && self.tabs_available()
     }
 
+    /// `tabs.layout == vertical` and the rail fits beside the session's preferred width.
+    pub fn vertical_tabs_fit(&self) -> bool {
+        self.config.tabs_layout() == "vertical" && self.size.0 >= self.rail_width() + 64
+    }
+
+    /// Tabs are shown (`tabsVisible`): available, and no full-screen panel covers them.
     pub fn tabs_available(&self) -> bool {
+        self.tabs_available_base() && !self.panel_fullscreen()
+    }
+
+    /// `tabsAvailable`: tabs enabled with at least one tab, outside plugin routes.
+    pub fn tabs_available_base(&self) -> bool {
         self.config.tabs_enabled() && !self.tabs.is_empty() && !matches!(self.route, Route::Plugin(_))
     }
 

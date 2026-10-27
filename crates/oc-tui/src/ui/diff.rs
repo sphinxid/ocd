@@ -217,6 +217,157 @@ fn render_split(h: &Hunk, width: usize, nw: usize, o: &DiffOpts) -> Vec<SLine> {
     out
 }
 
+/// Rows of a diff-viewer card (`PatchDiff` with `showLineNumbers`): every row is exactly `width`
+/// cells. The gutter is `gutter_pad` cells, one cell, the line number right-aligned to the widest
+/// number of either side, a space and the sign, a space, then (split view) padding up to that width
+/// for the narrower side; it takes the line-number background, the code the line background. Split
+/// rows give the left side the odd cell. Hunks after the first start with their `@@` header. Also
+/// returns the row of each hunk start.
+pub fn render_viewer(hunks: &[Hunk], width: usize, split: bool, gutter_pad: usize, o: &DiffOpts) -> (Vec<SLine>, Vec<usize>) {
+    let d = &o.theme.diff;
+    let mut out: Vec<SLine> = Vec::new();
+    let mut starts = Vec::new();
+    // Line-number widths: unified shows old numbers on removals and new numbers otherwise.
+    let all = hunks.iter().flat_map(|h| h.lines.iter());
+    let (left_digits, right_digits, unified_digits) = {
+        let old = all.clone().filter_map(|l| if l.kind == Kind::Add { None } else { l.old }).max().unwrap_or(1);
+        let new = all.clone().filter_map(|l| if l.kind == Kind::Remove { None } else { l.new }).max().unwrap_or(1);
+        let uni = all.filter_map(|l| if l.kind == Kind::Remove { l.old } else { l.new }).max().unwrap_or(1);
+        (digits(old), digits(new), digits(uni))
+    };
+    let nw = if split { left_digits.max(right_digits) } else { unified_digits };
+    let gutter = |num: Option<usize>, kind: Option<&Kind>, extra: usize, first: bool| -> Vec<Seg> {
+        let (gbg, sign_fg, sign) = match kind {
+            Some(Kind::Add) => (d.line_number_bg_added, d.highlight_added, "+"),
+            Some(Kind::Remove) => (d.line_number_bg_removed, d.highlight_removed, "-"),
+            _ => (d.bg_context, d.line_number_text, " "),
+        };
+        let bg = gbg.tui();
+        let n = match num.filter(|_| first) {
+            Some(n) => format!("{}{n:>nw$}", " ".repeat(gutter_pad + 1)),
+            None => " ".repeat(gutter_pad + 1 + nw),
+        };
+        let sign = if first && kind.is_some() { sign } else { " " };
+        vec![
+            Seg::new(n, Style::default().fg(d.line_number_text.tui()).bg(bg)),
+            Seg::new(format!(" {sign}"), Style::default().fg(sign_fg.tui()).bg(bg)),
+            Seg::new(" ".repeat(1 + extra), Style::default().bg(bg)),
+        ]
+    };
+    let gutter_w = |extra: usize| gutter_pad + 1 + nw + 2 + 1 + extra;
+    let code_bg = |kind: &Kind| match kind {
+        Kind::Add => d.bg_added.tui(),
+        Kind::Remove => d.bg_removed.tui(),
+        Kind::Context => d.bg_context.tui(),
+    };
+    // One side of a row: gutter + wrapped code, padded to `w` cells per row.
+    let side = |line: Option<(&DLine, Vec<Seg>)>, num: Option<usize>, w: usize, extra: usize| -> Vec<Vec<Seg>> {
+        let Some((l, code)) = line else {
+            return vec![vec![Seg::new(" ".repeat(w), Style::default().bg(d.bg_context.tui()))]];
+        };
+        let bg = code_bg(&l.kind);
+        let code_w = w.saturating_sub(gutter_w(extra)).max(1);
+        let code = with_bg(code, bg);
+        let rows = wrap(&code, code_w, Wrap::Char);
+        rows.into_iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let mut segs = gutter(num, Some(&l.kind), extra, i == 0);
+                let used: usize = r.iter().map(|s| s.width()).sum();
+                segs.extend(r);
+                segs.push(Seg::new(" ".repeat(code_w.saturating_sub(used)), Style::default().bg(bg)));
+                super::text::clip(&segs, w)
+            })
+            .collect()
+    };
+    for (hi, h) in hunks.iter().enumerate() {
+        starts.push(out.len());
+        if hi > 0 {
+            let segs = vec![Seg::new(format!(" {}", h.header), Style::default().fg(d.text_hunk_header.tui()).bg(d.bg_context.tui()))];
+            let mut segs = super::text::clip(&segs, width);
+            let used: usize = segs.iter().map(|s| s.width()).sum();
+            segs.push(Seg::new(" ".repeat(width.saturating_sub(used)), Style::default().bg(d.bg_context.tui())));
+            out.push(SLine::new(segs));
+        }
+        if !split {
+            let lines: Vec<&DLine> = h.lines.iter().collect();
+            let hl = highlight_lines(&lines, o);
+            for (i, l) in lines.iter().enumerate() {
+                let num = if l.kind == Kind::Remove { l.old } else { l.new };
+                for r in side(Some((l, hl.get(i).cloned().unwrap_or_default())), num, width, 0) {
+                    out.push(SLine::new(r));
+                }
+            }
+            continue;
+        }
+        // Pair removals with additions within each change run.
+        let mut rows: Vec<(Option<&DLine>, Option<&DLine>)> = Vec::new();
+        let ls = &h.lines;
+        let mut i = 0;
+        while i < ls.len() {
+            if ls[i].kind == Kind::Context {
+                rows.push((Some(&ls[i]), Some(&ls[i])));
+                i += 1;
+                continue;
+            }
+            let mut dels = Vec::new();
+            let mut adds = Vec::new();
+            while i < ls.len() && ls[i].kind == Kind::Remove {
+                dels.push(&ls[i]);
+                i += 1;
+            }
+            while i < ls.len() && ls[i].kind == Kind::Add {
+                adds.push(&ls[i]);
+                i += 1;
+            }
+            for k in 0..dels.len().max(adds.len()) {
+                rows.push((dels.get(k).copied(), adds.get(k).copied()));
+            }
+        }
+        let left_w = width.div_ceil(2);
+        let right_w = width - left_w;
+        let left_lines: Vec<&DLine> = rows.iter().filter_map(|r| r.0).collect();
+        let right_lines: Vec<&DLine> = rows.iter().filter_map(|r| r.1).collect();
+        let lh = highlight_lines(&left_lines, o);
+        let rh = highlight_lines(&right_lines, o);
+        let (mut li, mut ri) = (0, 0);
+        for (l, r) in rows {
+            let left = side(
+                l.map(|x| {
+                    li += 1;
+                    (x, lh.get(li - 1).cloned().unwrap_or_default())
+                }),
+                l.and_then(|x| x.old),
+                left_w,
+                nw - left_digits,
+            );
+            let right = side(
+                r.map(|x| {
+                    ri += 1;
+                    (x, rh.get(ri - 1).cloned().unwrap_or_default())
+                }),
+                r.and_then(|x| x.new),
+                right_w,
+                nw - right_digits,
+            );
+            for k in 0..left.len().max(right.len()) {
+                let mut segs = left.get(k).cloned().unwrap_or_else(|| blank_side(left.first(), left_w, d.bg_context.tui()));
+                segs.extend(right.get(k).cloned().unwrap_or_else(|| blank_side(right.first(), right_w, d.bg_context.tui())));
+                out.push(SLine::new(segs));
+            }
+        }
+    }
+    (out, starts)
+}
+
+/// A continuation row for the shorter side of a wrapped split row: its gutter and code backgrounds.
+fn blank_side(first: Option<&Vec<Seg>>, w: usize, fallback: ratatui::style::Color) -> Vec<Seg> {
+    let gutter_bg = first.and_then(|s| s.first()).and_then(|s| s.style.bg).unwrap_or(fallback);
+    let code_bg = first.and_then(|s| s.last()).and_then(|s| s.style.bg).unwrap_or(fallback);
+    let gw: usize = first.map(|s| s.iter().take(3).map(|x| x.width()).sum()).unwrap_or(0).min(w);
+    vec![Seg::new(" ".repeat(gw), Style::default().bg(gutter_bg)), Seg::new(" ".repeat(w - gw), Style::default().bg(code_bg))]
+}
+
 /// Additions/deletions counts of a patch.
 pub fn counts(patch: &str) -> (usize, usize) {
     let mut a = 0;

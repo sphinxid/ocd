@@ -140,7 +140,8 @@ impl App {
     }
 
     fn prompt_active(&self) -> bool {
-        !self.composer_open()
+        !self.panel_has_focus()
+            && !self.composer_open()
             && self.dialogs.is_empty() && self.permission_ui.is_none() && self.form_ui.is_none() && self.active_permission().is_none() && self.active_form().is_none()
     }
 
@@ -222,9 +223,14 @@ impl App {
                 return;
             }
         }
-        // Plugin routes own the keyboard (diff viewer bindings beat app.exit).
+        // Plugin routes and a focused side panel own the keyboard (diff viewer bindings beat app.exit).
+        let keyboard_owner = match self.route.clone() {
+            Route::Plugin(name) => Some(name),
+            _ if self.panel_has_focus() => self.active_panel().map(|p| p.name.clone()),
+            _ => None,
+        };
         if self.dialogs.is_empty()
-            && let Route::Plugin(name) = self.route.clone()
+            && let Some(name) = keyboard_owner
         {
             match name.as_str() {
                 "diff" => match self.diff_key(&seq) {
@@ -2027,7 +2033,7 @@ impl App {
         if self.dialogs.is_empty() && self.tab_mouse(m.kind, m.column, m.row) {
             return;
         }
-        if self.dialogs.is_empty() && self.terminal_visible().is_some() && self.pane_mouse(m) {
+        if self.dialogs.is_empty() && (self.terminal_visible().is_some() || (self.active_panel().is_some() && !self.panel_fullscreen())) && self.pane_mouse(m) {
             return;
         }
         match m.kind {
@@ -2124,13 +2130,17 @@ impl App {
             }
             MouseEventKind::Down(MouseButton::Left) => {
                 self.right_focus = in_term;
+                self.dirty = true;
+                // A panel takes the focus and still handles the click itself.
+                if self.active_panel().is_some() {
+                    return false;
+                }
                 if in_term
                     && let Some(p) = self.terminal_visible()
                     && let Some(st) = self.terminal_states.get_mut(&p)
                 {
                     st.interact();
                 }
-                self.dirty = true;
                 return in_term;
             }
             _ => {}

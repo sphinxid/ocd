@@ -157,9 +157,13 @@ impl App {
 
     // ---- prompt ------------------------------------------------------------
 
+    /// The prompt reads as muted while a leader key is pending or a side pane has the focus.
+    pub(super) fn prompt_muted(&self) -> bool {
+        !self.pending_keys.is_empty() || (self.right_focus && self.session_id().is_some())
+    }
+
     pub(super) fn highlight(&self, t: &Theme) -> Rgba {
-        let leader = !self.pending_keys.is_empty();
-        if leader {
+        if self.prompt_muted() {
             return t.border;
         }
         if self.editor.shell {
@@ -177,7 +181,7 @@ impl App {
         let hl = self.highlight(t);
         let padx = if term_w < 44 { 1 } else { 2 };
         let inner = width.saturating_sub(1 + padx * 2).max(1);
-        let muted = !self.pending_keys.is_empty();
+        let muted = self.prompt_muted();
         let text_c = if muted { t.text.muted } else { t.text.base };
         // The border sits on the outer box, which has no background: the page shows behind the bar.
         let bar = Seg::new("┃", Style::default().fg(hl.tui()).bg(t.background.base.tui_or_reset()));
@@ -363,8 +367,9 @@ impl App {
     fn prompt_footer(&self, t: &Theme, width: usize) -> SLine {
         let term_w = self.size.0 as usize;
         let kb = &self.keybinds;
-        // Left: status.
+        // Left: status, or the location cut to the room the right side leaves (gap 2).
         let mut left: Vec<Seg> = Vec::new();
+        let mut location: Option<String> = None;
         if self.running() {
             left.push(pad(1));
             if self.config.animations() {
@@ -383,9 +388,13 @@ impl App {
             let dir = self.location_dir();
             let branch = self.loc().and_then(|l| l.vcs.as_ref()).and_then(|v| v.pointer("/branch/current")).and_then(|b| b.as_str()).map(|b| b.to_string());
             let label = format!("{}{}", locale::abbreviate_home(&dir), branch.map(|b| format!(":{b}")).unwrap_or_default());
-            left.push(s(locale::truncate_file_path(&label, width / 2), t.text.muted));
+            location = Some(label);
         }
-        // Right: PromptFooter.
+        // Right: PromptFooter. Its hints read as disabled while a side pane has the focus.
+        let interactive = !self.right_focus || self.session_id().is_none();
+        let dim = |c: crate::theme::Rgba| fg(c).add_modifier(ratatui::style::Modifier::DIM);
+        let hint_key = if interactive { fg(t.text.base) } else { dim(t.text.action.primary.disabled) };
+        let hint_label = if interactive { fg(t.text.muted) } else { dim(t.text.action.primary.disabled) };
         let show_details = self.interrupt == 0 || term_w >= 80;
         let mut right: Vec<Seg> = Vec::new();
         if self.editor.shell {
@@ -427,19 +436,23 @@ impl App {
                     right.push(s(status.join(" · "), t.text.muted));
                 }
             } else if show_details && shortcuts_ok {
-                right.push(s(kb.shortcut("agent.cycle"), t.text.base));
-                right.push(s(" agents", t.text.muted));
+                right.push(Seg::new(kb.shortcut("agent.cycle"), hint_key));
+                right.push(Seg::new(" agents", hint_label));
             }
             if show_details && shortcuts_ok {
                 if !right.is_empty() {
                     right.push(pad(2));
                 }
-                right.push(s(command, t.text.base));
-                right.push(s(" commands", t.text.muted));
+                right.push(Seg::new(command, hint_key));
+                right.push(Seg::new(" commands", hint_label));
             }
         }
-        let lw: usize = left.iter().map(|x| x.width()).sum();
         let rw: usize = right.iter().map(|x| x.width()).sum();
+        if let Some(label) = location {
+            let room = width.saturating_sub(rw + if rw > 0 { 2 } else { 0 });
+            left.push(s(locale::truncate_file_path(&label, room), t.text.muted));
+        }
+        let lw: usize = left.iter().map(|x| x.width()).sum();
         let mut segs = left;
         segs.push(pad(width.saturating_sub(lw + rw)));
         segs.extend(right);
@@ -551,7 +564,28 @@ impl App {
         let sidebar = self.sidebar_visible();
         let mut pane = area;
         let explicit_sidebar = self.views.get(sid).and_then(|v| v.sidebar_open) == Some(true);
-        if let Some(pty) = self.terminal_visible().filter(|_| !explicit_sidebar) {
+        if self.active_panel().is_some() {
+            if self.panel_fullscreen() {
+                // The session pane is hidden; the panel takes the frame and the keyboard.
+                self.right_focus = true;
+                self.terminal_rect = area;
+                let l = super::diffview::DiffLayout { width: area.width, docked: false, focused: true, panel: true };
+                self.draw_diff_in(buf, area, t, l);
+                return;
+            }
+            let size = self.pane_width(area.width);
+            pane = Rect::new(area.x, area.y, area.width - size, area.height);
+            let right = Rect::new(area.right() - size, area.y, size, area.height);
+            self.terminal_rect = right;
+            let l = super::diffview::DiffLayout { width: size, docked: true, focused: self.right_focus, panel: true };
+            self.draw_diff_in(buf, right, t, l);
+            if self.resizing == Some(super::tabs::Resizing::Pane) && area.width >= 3 {
+                let hx = right.x.saturating_sub(1);
+                for y in right.top()..right.bottom() {
+                    buf[(hx, y)].set_bg(t.background.raised.high.tui());
+                }
+            }
+        } else if let Some(pty) = self.terminal_visible().filter(|_| !explicit_sidebar) {
             let size = self.pane_width(area.width);
             pane = Rect::new(area.x, area.y, area.width - size, area.height);
             let right = Rect::new(area.right() - size, area.y, size, area.height);

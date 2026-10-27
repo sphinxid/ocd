@@ -9,6 +9,7 @@ pub mod event_loop;
 pub mod stats;
 pub mod input;
 pub mod migration;
+pub mod panel;
 pub mod mini;
 pub mod selection;
 pub mod tabs;
@@ -257,6 +258,9 @@ pub struct App {
     pub tab_hits: Vec<(Rect, Option<String>)>,
     pub previous_route: Option<Route>,
     pub diff: Option<diffview::DiffViewer>,
+    /// The session side panel (`/diff` inside a session) and its requested presentation.
+    pub panel: Option<panel::PanelTarget>,
+    pub panel_requested: panel::Presentation,
     pub diff_memory: Option<String>,
     pub stats: Option<stats::StatsState>,
     pub terminal_lists: HashMap<String, Vec<Value>>,
@@ -275,7 +279,8 @@ pub struct App {
     /// Fixed clock for tests (`now()` returns it when set).
     pub clock: Option<i64>,
     /// Rendered file diffs of the diff viewer, by content/width/theme hash.
-    pub diff_cache: std::cell::RefCell<HashMap<u64, Vec<crate::ui::text::SLine>>>,
+    #[allow(clippy::type_complexity)]
+    pub diff_cache: std::cell::RefCell<HashMap<u64, (Vec<crate::ui::text::SLine>, Vec<usize>)>>,
     /// Native-style mouse text selection over the rendered screen.
     pub selection: Option<selection::Selection>,
     /// Last rendered frame (selection text source).
@@ -374,6 +379,8 @@ impl App {
             tab_hits: Vec::new(),
             previous_route: None,
             diff: None,
+            panel: None,
+            panel_requested: panel::Presentation::Panel,
             diff_memory: None,
             stats: None,
             terminal_lists: HashMap::new(),
@@ -662,6 +669,10 @@ impl App {
         self.placeholder = rand::random_range(0..3);
         self.right_focus = false;
         self.composer = None;
+        // A panel belongs to its session: another route closes it.
+        if self.panel.as_ref().is_some_and(|p| Some(p.session_id.as_str()) != self.session_id()) {
+            self.close_panel();
+        }
         if let Route::Session(id) = self.route.clone() {
             if self.terminals_available {
                 self.refresh_terminals(&id);
@@ -1256,6 +1267,8 @@ impl App {
 mod tests;
 #[cfg(test)]
 mod dialog_tests;
+#[cfg(test)]
+mod panel_tests;
 #[cfg(test)]
 mod fuzz_tests;
 #[cfg(test)]

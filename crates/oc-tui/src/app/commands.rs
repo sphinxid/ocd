@@ -237,8 +237,8 @@ impl App {
         if in_session {
             let open = self.sidebar_visible();
             v.push(cmd("session.sidebar.toggle", if open { "Hide sidebar" } else { "Show sidebar" }, "Session"));
-            let right = self.terminal_visible().is_some();
-            if right {
+            let right = self.terminal_visible().is_some() && self.active_panel().is_none();
+            if right || self.active_panel().is_some() {
                 v.push(Cmd { id: "pane.focus.left".into(), title: "Focus session pane".into(), ..Default::default() });
                 v.push(Cmd { id: "pane.focus.right".into(), title: "Focus right pane".into(), ..Default::default() });
             }
@@ -639,10 +639,19 @@ impl App {
             }
             "session.interrupt" => return self.interrupt_key(),
             "pane.focus.left" | "pane.focus.right" => {
-                if self.terminal_visible().is_none() || !self.dialogs.is_empty() {
+                let panel = self.active_panel().is_some();
+                if (self.terminal_visible().is_none() && !panel) || !self.dialogs.is_empty() {
+                    return false;
+                }
+                // A full-screen panel has no session pane beside it to focus.
+                if id == "pane.focus.left" && self.panel_fullscreen() {
                     return false;
                 }
                 self.right_focus = id == "pane.focus.right";
+                if panel {
+                    self.dirty = true;
+                    return true;
+                }
                 if self.right_focus
                     && let Some(p) = self.terminal_visible()
                     && let Some(st) = self.terminal_states.get_mut(&p)
@@ -652,7 +661,10 @@ impl App {
             }
             "terminal.toggle" => {
                 let Some(s) = sid else { return false };
-                if self.terminal_visible().is_some() {
+                if self.active_panel().is_some() && self.terminal_visible().is_some() {
+                    self.close_panel();
+                }
+                if self.terminal_visible().is_some() && self.active_panel().is_none() {
                     self.terminal_open = false;
                     self.right_focus = false;
                 } else {
@@ -673,6 +685,9 @@ impl App {
             }
             "terminal.select" => {
                 let Some(s) = sid else { return false };
+                if self.panel_fullscreen() {
+                    self.close_panel();
+                }
                 let (list, selected) = self.session_terminals(&s);
                 let mut opts: Vec<Opt> = list
                     .iter()
@@ -697,7 +712,10 @@ impl App {
                 let Some(s) = sid else { return false };
                 self.terminal_open = false;
                 self.right_focus = false;
-                let visible = self.sidebar_visible();
+                let visible = self.sidebar_visible() && self.active_panel().is_none();
+                if !visible && self.active_panel().is_some() {
+                    self.close_panel();
+                }
                 self.view(&s).sidebar_open = Some(!visible);
                 self.config.set("session.sidebar", Some(json!(if visible { "hide" } else { "auto" })));
             }

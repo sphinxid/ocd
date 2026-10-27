@@ -453,8 +453,10 @@ fn vertical_rail_and_tab_menu() {
 fn diff_viewer_route() {
     let mut a = app();
     session(&mut a);
+    // Inside a session /diff opens the side panel; the route stays on the session.
     a.run_command("diff.open", None);
-    assert_eq!(a.route, Route::Plugin("diff".into()));
+    assert_eq!(a.route, Route::Session("ses_test".into()));
+    assert!(a.active_panel().is_some());
     let d = a.diff.as_mut().unwrap();
     d.loading = false;
     d.base = Some("main".into());
@@ -466,7 +468,7 @@ fn diff_viewer_route() {
     let joined = lines.join("\n");
     assert!(contains(&lines, "All · vs main"), "{joined}");
     assert!(contains(&lines, "0/2"), "{joined}");
-    assert!(contains(&lines, "≡ a.ts"), "{joined}");
+    assert!(contains(&lines, "src/a.ts"), "{joined}");
     assert!(contains(&lines, "+1 -1"), "{joined}");
     assert!(contains(&lines, "+ hello"), "{joined}");
     a.on_key(Stroke::key("m"));
@@ -477,6 +479,7 @@ fn diff_viewer_route() {
     assert_eq!(a.diff.as_ref().unwrap().scroll, 0);
     a.on_key(Stroke::key("q"));
     assert_eq!(a.route, Route::Session("ses_test".into()));
+    assert!(a.panel.is_none());
     // Narrow: header line instead of tree.
     a.run_command("diff.open", None);
     a.diff.as_mut().unwrap().loading = false;
@@ -687,7 +690,7 @@ async fn enter_key_submits_from_home() {
 
 // ---- v1 → v2 migration badge (upstream component/migration-overlay.tsx) ----
 
-fn render_buf(app: &mut App, w: u16, h: u16) -> ratatui::buffer::Buffer {
+pub(super) fn render_buf(app: &mut App, w: u16, h: u16) -> ratatui::buffer::Buffer {
     let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
     term.backend().buffer().clone()
