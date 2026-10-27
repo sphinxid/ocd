@@ -79,6 +79,7 @@ pub static DEFINITIONS: &[Definition] = &[
     Definition { name: "diff.single_patch", default: DefaultBinding::Str("s"), description: "Toggle single patch view" },
     Definition { name: "diff.switch_source", default: DefaultBinding::Str("d"), description: "Switch diff viewer source" },
     Definition { name: "diff.toggle_view", default: DefaultBinding::Str("v"), description: "Toggle diff viewer split or unified view" },
+    Definition { name: "diff.toggle_fullscreen", default: DefaultBinding::Str("f"), description: "Toggle diff viewer full screen" },
     Definition { name: "diff.mark_reviewed", default: DefaultBinding::Str("m"), description: "Toggle selected diff file reviewed" },
     Definition { name: "diff.help", default: DefaultBinding::Str("?,shift+?,shift+/"), description: "Show more diff viewer shortcuts" },
     Definition { name: "prompt.editor", default: DefaultBinding::Str("<leader>e"), description: "Open external editor" },
@@ -113,8 +114,8 @@ pub static DEFINITIONS: &[Definition] = &[
     Definition { name: "session.fork", default: DefaultBinding::Str("none"), description: "Fork session from message" },
     Definition { name: "session.rename", default: DefaultBinding::Str("ctrl+r"), description: "Rename session" },
     Definition { name: "session.delete", default: DefaultBinding::Str("ctrl+d"), description: "Delete session" },
-    Definition { name: "session.share", default: DefaultBinding::Str("none"), description: "Share current session" },
-    Definition { name: "session.unshare", default: DefaultBinding::Str("none"), description: "Unshare current session" },
+    Definition { name: "session.share", default: DefaultBinding::Str("none"), description: "Deprecated: session sharing was removed" },
+    Definition { name: "session.unshare", default: DefaultBinding::Str("none"), description: "Deprecated: session sharing was removed" },
     Definition { name: "session.interrupt", default: DefaultBinding::Str("escape"), description: "Interrupt current session" },
     Definition { name: "session.background", default: DefaultBinding::Str("ctrl+b"), description: "Background blocking session tools" },
     Definition { name: "session.compact", default: DefaultBinding::Str("<leader>c"), description: "Compact the session" },
@@ -434,7 +435,7 @@ mod tests {
 
     #[test]
     fn table_shape() {
-        assert_eq!(DEFINITIONS.len(), 241);
+        assert_eq!(DEFINITIONS.len(), 242);
         assert_eq!(DEFINITIONS[0].name, "leader");
         assert_eq!(default_value("leader"), Some(json!("ctrl+x")));
         assert_eq!(default_value("input.undo"), Some(json!("ctrl+-,super+z")));

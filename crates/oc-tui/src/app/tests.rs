@@ -400,7 +400,7 @@ fn model_and_settings_dialogs() {
     let joined = lines.join("\n");
     assert!(contains(&lines, "Settings"), "{joined}");
     assert!(contains(&lines, "Appearance"));
-    assert!(contains(&lines, "←/→ change"), "{joined}");
+    assert!(contains(&lines, "change ←/→"), "{joined}");
 }
 
 #[test]

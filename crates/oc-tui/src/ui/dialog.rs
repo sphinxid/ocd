@@ -1,13 +1,19 @@
-//! Dialog host and dialogs (`src/ui/dialog*.tsx`): generic fuzzy select list, alert, confirm,
-//! prompt and text dialogs, with the exact geometry from spec §2.
+//! Dialog host and dialogs (`src/ui/dialog*.tsx`): the shared layout (header, body, footer with
+//! `DIALOG_INSET` side padding), the generic fuzzy select list, alert, confirm, help, prompt,
+//! export and text dialogs, with the geometry of upstream's legacy (pre "new designs") layout.
 
 use super::text::*;
 use crate::keymap::{Keybinds, Match, Stroke};
-use crate::theme::Theme;
+use crate::theme::{Rgba, Theme};
 use crate::util::locale::{self, width as sw};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
+
+/// Side padding of every dialog (`DIALOG_INSET`).
+pub const DIALOG_INSET: usize = 3;
+/// List rows reserve a 1-cell gutter for the `●` marker (`DIALOG_LIST_INSET`).
+pub const DIALOG_LIST_INSET: usize = DIALOG_INSET + 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Size {
@@ -24,6 +30,11 @@ impl Size {
             Size::XLarge => 116,
         }
     }
+}
+
+/// `dialogSelectContentWidth`: scroll padding, row padding, the gutter, title padding, and the gap.
+pub fn select_content_width(dialog_width: usize) -> usize {
+    dialog_width.saturating_sub(DIALOG_LIST_INSET * 2 + 4)
 }
 
 /// `fuzzysort`-like score in 0..=1 (higher is better); `None` if not a subsequence.
@@ -68,6 +79,103 @@ pub fn fuzzy(needle: &str, hay: &str) -> Option<f64> {
     }
     Some((0.6 - 0.02 * gaps as f64).max(0.05))
 }
+
+// ---- footer ----------------------------------------------------------------
+
+/// One footer entry (`DialogFooterAction`): the title, then its key in muted text.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FooterItem {
+    pub title: String,
+    /// Literal key label, e.g. `enter`; `None` shows the title alone.
+    pub key: Option<String>,
+    /// Overrides the title and key color (e.g. a "✓ copied" confirmation).
+    pub color: Option<Rgba>,
+    pub disabled: bool,
+}
+
+impl FooterItem {
+    pub fn new(title: impl Into<String>, key: impl Into<String>) -> FooterItem {
+        let key: String = key.into();
+        FooterItem { title: title.into(), key: if key.is_empty() { None } else { Some(key) }, ..Default::default() }
+    }
+    pub fn color(mut self, c: Rgba) -> FooterItem {
+        self.color = Some(c);
+        self
+    }
+}
+
+/// `DialogFooter`: dialog-level content and actions on the left, actions on the selection (or
+/// the dialog's main action) on the right.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Footer {
+    /// Free content placed first in the left group (a muted note, for example).
+    pub children: Vec<Seg>,
+    pub secondary: Vec<FooterItem>,
+    pub primary: Vec<FooterItem>,
+}
+
+impl Footer {
+    pub fn is_empty(&self) -> bool {
+        self.children.is_empty() && self.secondary.is_empty() && self.primary.is_empty()
+    }
+}
+
+fn item_segs(i: &FooterItem, t: &Theme) -> Vec<Seg> {
+    let title_c = if i.disabled { t.text.action.primary.disabled } else { i.color.unwrap_or(t.text.base) };
+    let key_c = if i.disabled { t.text.action.primary.disabled } else { i.color.unwrap_or(t.text.muted) };
+    let mut v = vec![seg(i.title.clone(), fg(title_c))];
+    if let Some(k) = &i.key {
+        v.push(seg(format!(" {k}"), fg(key_c)));
+    }
+    v
+}
+
+/// Footer rows for a content width of `w` (the caller adds the side padding). Below 60 terminal
+/// columns the left group stacks into a column.
+pub fn footer_lines(f: &Footer, w: usize, narrow: bool, t: &Theme) -> Vec<SLine> {
+    let mut left: Vec<Vec<Seg>> = Vec::new();
+    if !f.children.is_empty() {
+        left.push(f.children.clone());
+    }
+    for i in &f.secondary {
+        left.push(item_segs(i, t));
+    }
+    let mut right: Vec<Seg> = Vec::new();
+    for (n, i) in f.primary.iter().enumerate() {
+        if n > 0 {
+            right.push(pad(2));
+        }
+        right.extend(item_segs(i, t));
+    }
+    let rw: usize = right.iter().map(|s| s.width()).sum();
+    let rows: Vec<Vec<Seg>> = if narrow {
+        if left.is_empty() { vec![vec![]] } else { left }
+    } else {
+        let mut row = Vec::new();
+        for (n, l) in left.into_iter().enumerate() {
+            if n > 0 {
+                row.push(pad(2));
+            }
+            row.extend(l);
+        }
+        vec![row]
+    };
+    rows.into_iter()
+        .enumerate()
+        .map(|(n, row)| {
+            if n > 0 || right.is_empty() {
+                return SLine::new(clip(&row, w));
+            }
+            let lw: usize = row.iter().map(|s| s.width()).sum();
+            let mut segs = clip(&row, w.saturating_sub(rw));
+            segs.push(pad(w.saturating_sub(lw.min(w.saturating_sub(rw)) + rw)));
+            segs.extend(right.clone());
+            SLine::new(segs)
+        })
+        .collect()
+}
+
+// ---- select ------------------------------------------------------------------
 
 #[derive(Clone, Debug, Default)]
 pub struct Opt {
@@ -115,6 +223,31 @@ pub struct Action {
     pub right: bool,
     pub disabled: bool,
     pub hidden: bool,
+    /// `selection: "none"`: a dialog-level action that works without a selected option. Other
+    /// actions are disabled while nothing is selected.
+    pub no_selection: bool,
+}
+
+impl Action {
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Action {
+        Action { id: id.into(), title: title.into(), right: false, disabled: false, hidden: false, no_selection: false }
+    }
+    /// A key handled by the dialog without a footer entry.
+    pub fn key(key: &str) -> Action {
+        Action { id: format!("key:{key}"), title: String::new(), right: false, disabled: false, hidden: true, no_selection: true }
+    }
+    pub fn dialog_level(mut self) -> Action {
+        self.no_selection = true;
+        self
+    }
+    pub fn hidden(mut self, h: bool) -> Action {
+        self.hidden = h;
+        self
+    }
+    pub fn right(mut self) -> Action {
+        self.right = true;
+        self
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -132,13 +265,18 @@ pub struct Select {
     pub skip_filter: bool,
     pub render_filter: bool,
     pub actions: Vec<Action>,
+    /// Footer hints `(title, key)` (`footerHints`), on the left unless in `hints_right`.
     pub hints: Vec<(String, String)>,
+    pub hints_right: Vec<(String, String)>,
+    /// Free footer content placed before the left group.
     pub footer_text: Option<(String, crate::theme::Rgba)>,
-    pub action_focus: Option<usize>,
     pub empty: Option<String>,
+    pub empty_color: Option<crate::theme::Rgba>,
     pub no_match: Option<String>,
     pub can_back: bool,
     pub focus_current: bool,
+    /// `locked`: input is ignored (e.g. while a dialog action runs).
+    pub locked: bool,
 }
 
 /// Display row of a select list.
@@ -227,7 +365,6 @@ impl Select {
             return;
         }
         self.selected = (((self.selected as isize + d) % n + n) % n) as usize;
-        self.action_focus = None;
     }
 
     pub fn move_to(&mut self, i: usize) {
@@ -241,7 +378,6 @@ impl Select {
         self.filter = f;
         self.selected = 0;
         self.scroll = 0;
-        self.action_focus = None;
     }
 
     /// Jump to the current option.
@@ -256,8 +392,29 @@ impl Select {
         }
     }
 
+    /// `isActionDisabled`: explicitly disabled, or needing a selection while there is none.
+    pub fn action_disabled(&self, a: &Action) -> bool {
+        a.disabled || (!a.no_selection && self.selected_opt().is_none())
+    }
+
     fn visible_actions(&self, kb: &Keybinds) -> Vec<usize> {
         (0..self.actions.len()).filter(|i| !self.actions[*i].hidden && !action_label(&self.actions[*i], kb).is_empty()).collect()
+    }
+
+    /// The legacy footer: actions and hints split by side.
+    pub fn footer(&self, kb: &Keybinds) -> Footer {
+        let mut f = Footer::default();
+        if let Some((text, c)) = &self.footer_text {
+            f.children = vec![seg(text.clone(), fg(*c))];
+        }
+        for i in self.visible_actions(kb) {
+            let a = &self.actions[i];
+            let item = FooterItem { title: a.title.clone(), key: Some(action_label(a, kb)), color: None, disabled: self.action_disabled(a) };
+            if a.right { f.primary.push(item) } else { f.secondary.push(item) }
+        }
+        f.secondary.extend(self.hints.iter().map(|(t, k)| FooterItem::new(t.clone(), k.clone())));
+        f.primary.extend(self.hints_right.iter().map(|(t, k)| FooterItem::new(t.clone(), k.clone())));
+        f
     }
 }
 
@@ -268,6 +425,8 @@ pub fn action_label(a: &Action, kb: &Keybinds) -> String {
     }
 }
 
+// ---- other dialogs -------------------------------------------------------------
+
 /// Single-line text input dialog (`DialogPrompt`).
 #[derive(Clone, Debug, Default)]
 pub struct PromptDialog {
@@ -276,7 +435,10 @@ pub struct PromptDialog {
     pub value: String,
     pub cursor: usize,
     pub description: Vec<(String, crate::theme::Rgba)>,
+    /// While set, the input is locked and the body shows a spinner with this text.
     pub busy: Option<String>,
+    /// Extra footer actions `(title, keybind id)` after "submit".
+    pub actions: Vec<(String, String)>,
 }
 
 impl PromptDialog {
@@ -317,6 +479,41 @@ impl ExportOptions {
     }
 }
 
+/// A text dialog in the shared layout: a header, free-form lines and an optional footer.
+#[derive(Clone, Debug, Default)]
+pub struct TextDialog {
+    pub title: String,
+    /// Text after the title (`DialogHeader` children), muted: `(text, grows)`. A growing text fills the
+    /// row and is clipped (the `/btw` question); otherwise it sits right-aligned before `esc` (a status).
+    pub title_extra: Option<(String, bool)>,
+    /// Header gap between title, extra text and the close label (`gap`, 2 for headers with extras).
+    pub header_gap: usize,
+    /// Close label, `esc` by default.
+    pub close_label: String,
+    /// Fixed rows above the scrolling body.
+    pub pre: Vec<SLine>,
+    pub lines: Vec<SLine>,
+    pub scroll: usize,
+    /// Fixed height of the scrolling body (else up to the terminal height - 10).
+    pub height: Option<usize>,
+    /// Raised band behind the body that bleeds over the side padding (`DialogBleed`), with one blank
+    /// row above and below the text.
+    pub band: Option<Rgba>,
+    pub footer: Option<Footer>,
+    /// A single right-aligned button in the legacy footer (`Close` in the export result).
+    pub button: Option<String>,
+}
+
+impl TextDialog {
+    pub fn new(title: impl Into<String>, lines: Vec<SLine>) -> TextDialog {
+        TextDialog { title: title.into(), lines, close_label: "esc".into(), header_gap: 0, ..Default::default() }
+    }
+    pub fn footer(mut self, f: Footer) -> TextDialog {
+        self.footer = Some(f);
+        self
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Body {
     Select(Box<Select>),
@@ -324,10 +521,10 @@ pub enum Body {
     Confirm { title: String, message: String, confirm: bool },
     Prompt(PromptDialog),
     Help,
-    /// `DialogExportOptions`.
+    /// `DialogExportOptions` (legacy layout).
     Export(ExportOptions),
-    /// Free-form lines with a title and optional hint footer.
-    Text { title: String, lines: Vec<SLine>, hints: Vec<(String, String)>, scroll: usize },
+    /// Free-form lines in the shared layout.
+    Text(Box<TextDialog>),
 }
 
 /// One dialog on the host stack.
@@ -351,9 +548,18 @@ impl Dialog {
     pub fn new(purpose: &str, body: Body) -> Dialog {
         Dialog { body, size: Size::Medium, centered: false, purpose: purpose.into(), data: serde_json::Value::Null }
     }
+    pub fn text(purpose: &str, t: TextDialog) -> Dialog {
+        Dialog::new(purpose, Body::Text(Box::new(t)))
+    }
     pub fn sel(&mut self) -> Option<&mut Select> {
         match &mut self.body {
             Body::Select(s) => Some(s),
+            _ => None,
+        }
+    }
+    pub fn text_body(&mut self) -> Option<&mut TextDialog> {
+        match &mut self.body {
+            Body::Text(t) => Some(t),
             _ => None,
         }
     }
@@ -371,6 +577,8 @@ pub enum Outcome {
     Action(String, Option<String>),
     Submit(String),
     Confirm(bool),
+    /// An unhandled key on a text dialog (purpose-specific bindings such as `c` to copy).
+    Key(String),
 }
 
 fn char_of(s: &Stroke) -> Option<char> {
@@ -393,9 +601,12 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
                 }
                 return Outcome::Close;
             }
+            if sel.locked {
+                return Outcome::Handled;
+            }
             // Footer action keys.
             for a in sel.actions.clone() {
-                if a.disabled || (a.hidden && !a.id.starts_with("key:")) {
+                if sel.action_disabled(&a) || (a.hidden && !a.id.starts_with("key:")) {
                     continue;
                 }
                 let hit = match a.id.strip_prefix("key:") {
@@ -404,26 +615,6 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
                 };
                 if hit {
                     return Outcome::Action(a.id.clone(), sel.selected_value());
-                }
-            }
-            if !sel.actions.is_empty() && name == "tab" {
-                let vis: Vec<usize> = sel.visible_actions(kb).into_iter().filter(|i| !sel.actions[*i].disabled).collect();
-                if !vis.is_empty() {
-                    let cur = sel.action_focus.and_then(|f| vis.iter().position(|x| *x == f));
-                    sel.action_focus = if s.shift {
-                        match cur {
-                            None => vis.last().copied(),
-                            Some(0) => None,
-                            Some(p) => Some(vis[p - 1]),
-                        }
-                    } else {
-                        match cur {
-                            None => vis.first().copied(),
-                            Some(p) if p + 1 >= vis.len() => None,
-                            Some(p) => Some(vis[p + 1]),
-                        }
-                    };
-                    return Outcome::Handled;
                 }
             }
             let moved = |sel: &mut Select| sel.selected_value().map(Outcome::Moved).unwrap_or(Outcome::Handled);
@@ -452,16 +643,12 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
                 return moved(sel);
             }
             if is("dialog.select.submit") {
-                if let Some(f) = sel.action_focus {
-                    let a = &sel.actions[f];
-                    return Outcome::Action(a.id.clone(), sel.selected_value());
-                }
                 return match sel.selected_value() {
                     Some(v) => Outcome::Select(v),
                     None => Outcome::Handled,
                 };
             }
-            if sel.render_filter && !sel.skip_filter || sel.render_filter {
+            if sel.render_filter {
                 if name == "backspace" && !s.ctrl {
                     let mut f = sel.filter.clone();
                     f.pop();
@@ -501,6 +688,11 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
             }
             if is("dialog.prompt.submit") {
                 return Outcome::Submit(p.value.clone());
+            }
+            for (_, id) in p.actions.clone() {
+                if is(&id) {
+                    return Outcome::Action(id, Some(p.value.clone()));
+                }
             }
             match name {
                 "escape" => Outcome::Back,
@@ -591,26 +783,34 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
             "c" if s.ctrl => Outcome::Close,
             _ => Outcome::Handled,
         },
-        Body::Text { scroll, .. } => match name {
-            "escape" | "return" => Outcome::Close,
+        Body::Text(td) => match name {
+            "escape" => Outcome::Close,
             "c" if s.ctrl => Outcome::Close,
-            "up" | "k" => {
-                *scroll = scroll.saturating_sub(1);
+            "up" | "k" if !s.ctrl => {
+                td.scroll = td.scroll.saturating_sub(1);
                 Outcome::Handled
             }
-            "down" | "j" => {
-                *scroll += 1;
+            "down" | "j" if !s.ctrl => {
+                td.scroll += 1;
                 Outcome::Handled
             }
             "pageup" => {
-                *scroll = scroll.saturating_sub(10);
+                td.scroll = td.scroll.saturating_sub(td.height.unwrap_or(10));
                 Outcome::Handled
             }
             "pagedown" => {
-                *scroll += 10;
+                td.scroll += td.height.unwrap_or(10);
                 Outcome::Handled
             }
-            _ => Outcome::None,
+            "home" => {
+                td.scroll = 0;
+                Outcome::Handled
+            }
+            "end" => {
+                td.scroll = usize::MAX / 2;
+                Outcome::Handled
+            }
+            _ => Outcome::Key(s.name.clone()),
         },
     }
 }
@@ -649,39 +849,47 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
     let x = area.x + area.width.saturating_sub(w) / 2;
     let mut hits = Vec::new();
     let mut cursor = None;
+    let wu = w as usize;
+    let inner = wu.saturating_sub(DIALOG_INSET * 2);
+    let narrow = area.width < 60;
+    let ins = |l: SLine| l.prefixed(&[pad(DIALOG_INSET)]);
+    // The legacy single focused button, right-aligned (`paddingLeft/Right` around the label).
+    let button = |label: &str, padding: usize| -> SLine {
+        let text = format!("{}{label}{}", " ".repeat(padding), " ".repeat(padding));
+        let bw = sw(&text);
+        SLine::new(vec![pad(DIALOG_INSET + inner.saturating_sub(bw)), Seg::new(text, fg_bg(t.text.action.primary.focused, t.background.action.primary.focused))])
+            .on_click(Some(Click::Custom("ok".into())))
+    };
     let lines: Vec<SLine> = match &mut d.body {
-        Body::Select(sel) => select_lines(sel, w as usize, area.height as usize, area.width as usize, t, base, kb, &mut cursor),
+        Body::Select(sel) => select_lines(sel, wu, area.height as usize, area.width as usize, d.size, t, kb, &mut cursor),
         Body::Alert { title, message } => {
-            let mut v = header(title, t, 2, w as usize);
+            let mut v = vec![header(title, "esc", t, wu)];
             v.push(SLine::blank());
-            for l in wrap(&[seg(message.clone(), fg(t.text.muted))], (w as usize).saturating_sub(4), Wrap::Word) {
-                v.push(SLine::new(l).prefixed(&[pad(2)]));
+            for l in wrap(&[seg(message.clone(), fg(t.text.muted))], inner, Wrap::Word) {
+                v.push(ins(SLine::new(l)));
             }
             v.push(SLine::blank());
-            let ok = Seg::new("   ok   ", fg_bg(t.text.action.primary.focused, t.background.action.primary.focused));
-            v.push(SLine::new(vec![pad((w as usize).saturating_sub(10)), ok]).on_click(Some(Click::Custom("ok".into()))));
+            v.push(button("ok", 3));
             v.push(SLine::blank());
             v
         }
         Body::Help => {
-            let mut v = header("Help", t, 2, w as usize);
-            v[0] = header_with("Help", "esc/enter", t, 2, w as usize);
+            let mut v = vec![header("Help", "esc/enter", t, wu)];
             v.push(SLine::blank());
             let text = format!("Press {} to see all available actions and commands in any context.", kb.shortcut("command.palette.show"));
-            for l in wrap(&[seg(text, fg(t.text.muted))], (w as usize).saturating_sub(4), Wrap::Word) {
-                v.push(SLine::new(l).prefixed(&[pad(2)]));
+            for l in wrap(&[seg(text, fg(t.text.muted))], inner, Wrap::Word) {
+                v.push(ins(SLine::new(l)));
             }
             v.push(SLine::blank());
-            let ok = Seg::new("   ok   ", fg_bg(t.text.action.primary.focused, t.background.action.primary.focused));
-            v.push(SLine::new(vec![pad((w as usize).saturating_sub(10)), ok]).on_click(Some(Click::Custom("ok".into()))));
+            v.push(button("ok", 3));
             v.push(SLine::blank());
             v
         }
         Body::Confirm { title, message, confirm } => {
-            let mut v = header(title, t, 2, w as usize);
+            let mut v = vec![header(title, "esc", t, wu)];
             v.push(SLine::blank());
-            for l in wrap(&[seg(message.clone(), fg(t.text.muted))], (w as usize).saturating_sub(4), Wrap::Word) {
-                v.push(SLine::new(l).prefixed(&[pad(2)]));
+            for l in wrap(&[seg(message.clone(), fg(t.text.muted))], inner, Wrap::Word) {
+                v.push(ins(SLine::new(l)));
             }
             v.push(SLine::blank());
             let btn = |label: &str, active: bool| {
@@ -694,104 +902,110 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
             let cancel = btn("Cancel", !*confirm);
             let ok = btn("Confirm", *confirm);
             let used = cancel.width() + ok.width();
-            v.push(SLine::new(vec![pad((w as usize).saturating_sub(used + 2)), cancel, ok]));
+            v.push(SLine::new(vec![pad(DIALOG_INSET + inner.saturating_sub(used)), cancel, ok]));
             v.push(SLine::blank());
             v
         }
         Body::Prompt(p) => {
-            let mut v = header(&p.title, t, 2, w as usize);
+            let mut v = vec![header(&p.title, "esc", t, wu)];
             v.push(SLine::blank());
             for (text, c) in &p.description {
-                for l in wrap(&[seg(text.clone(), fg(*c))], (w as usize).saturating_sub(4), Wrap::Word) {
-                    v.push(SLine::new(l).prefixed(&[pad(2)]));
+                for l in wrap(&[seg(text.clone(), fg(*c))], inner, Wrap::Word) {
+                    v.push(ins(SLine::new(l)));
                 }
             }
             if !p.description.is_empty() {
                 v.push(SLine::blank());
             }
-            let iw = (w as usize).saturating_sub(4);
+            let iw = inner;
             let line = if p.value.is_empty() {
-                vec![pad(2), seg(locale::take_width(&p.placeholder, iw), fg(t.text.muted))]
+                vec![pad(DIALOG_INSET), seg(locale::take_width(&p.placeholder, iw), fg(t.text.muted))]
             } else {
                 let start = sw(&p.value[..p.cursor]).saturating_sub(iw.saturating_sub(1));
                 let shown: String = locale::take_width(&p.value.chars().skip(start).collect::<String>(), iw);
-                vec![pad(2), seg(shown, fg(if p.busy.is_some() { t.text.formfield.disabled } else { t.text.formfield.base }))]
+                vec![pad(DIALOG_INSET), seg(shown, fg(if p.busy.is_some() { t.text.formfield.disabled } else { t.text.formfield.base }))]
             };
             let row = v.len();
             v.push(SLine::new(line));
-            cursor = Some((2 + sw(&p.value[..p.cursor]).min(iw.saturating_sub(1)) as u16, row as u16));
+            if p.busy.is_none() {
+                cursor = Some(((DIALOG_INSET + sw(&p.value[..p.cursor]).min(iw.saturating_sub(1))) as u16, row as u16));
+            }
+            if let Some(b) = &p.busy {
+                v.push(SLine::blank());
+                v.push(ins(SLine::new(vec![seg(format!("{SPINNER_GLYPH} {b}"), fg(t.text.muted))])));
+            }
             v.push(SLine::blank());
             match &p.busy {
-                Some(b) => v.push(SLine::new(vec![pad(2), seg(format!("{SPINNER_GLYPH} {b}"), fg(t.text.muted))])),
-                None => v.push(SLine::new(vec![pad(2), seg(kb.shortcut("dialog.prompt.submit"), fg(t.text.base)), seg(" submit", fg(t.text.muted))])),
+                Some(_) => v.push(ins(SLine::new(vec![seg("processing…", fg(t.text.muted))]))),
+                None => {
+                    let mut f = Footer::default();
+                    let submit = kb.shortcut("dialog.prompt.submit");
+                    if !submit.is_empty() {
+                        f.secondary.push(FooterItem::new("submit", submit));
+                    }
+                    for (title, id) in &p.actions {
+                        let key = kb.shortcut(id);
+                        if !key.is_empty() {
+                            f.secondary.push(FooterItem::new(title.clone(), key));
+                        }
+                    }
+                    v.extend(footer_lines(&f, inner, narrow, t).into_iter().map(ins));
+                }
             }
             v.push(SLine::blank());
             v
         }
         Body::Export(e) => {
-            let mut v = header("Export session", t, 2, w as usize);
+            let mut v = vec![header("Export session", "esc", t, wu)];
             v.push(SLine::blank());
             let ff = &t.text.formfield;
-            let bf = &t.background.formfield;
-            let ctl = |id: &str, label: String, checked: bool| -> Seg {
-                let (f, b) = if e.focused() == id { (ff.focused, bf.focused) } else if checked { (ff.selected, bf.selected) } else { (ff.base, bf.base) };
-                Seg::new(format!(" {label} "), fg_bg(f, b))
-            };
-            v.push(SLine::new(vec![
+            // Only the focused control is highlighted; the mark alone shows what is checked.
+            let mark = |id: &str, checked: bool| if e.focused() == id { ff.focused } else if checked { ff.selected } else { t.text.muted };
+            let label = |id: &str| if e.focused() == id { ff.focused } else { ff.base };
+            v.push(ins(SLine::new(vec![
+                seg("Export as:", fg(t.text.base)),
                 pad(2),
-                seg("Export as: ", fg(t.text.base)),
-                ctl("markdown", format!("{} Markdown", if e.json { "○" } else { "◉" }), !e.json),
+                seg(if e.json { "○" } else { "◉" }, fg(mark("markdown", !e.json))),
                 pad(1),
-                ctl("json", format!("{} JSON", if e.json { "◉" } else { "○" }), e.json),
-            ]));
-            v.push(SLine::blank());
+                seg("Markdown", fg(label("markdown"))),
+                pad(3),
+                seg(if e.json { "◉" } else { "○" }, fg(mark("json", e.json))),
+                pad(1),
+                seg("JSON", fg(label("json"))),
+            ])));
             let check = |b: bool| if b { "[x]" } else { "[ ]" };
+            let row = |id: &str, checked: bool, text: &str| ins(SLine::new(vec![seg(check(checked), fg(mark(id, checked))), pad(1), seg(text.to_string(), fg(label(id)))]));
             if e.json {
-                v.push(SLine::new(vec![pad(2), ctl("sanitize", format!("{} Sanitize sensitive data", check(e.sanitize)), e.sanitize)]));
-            } else {
-                v.push(SLine::new(vec![pad(2), ctl("thinking", format!("{} Include thinking", check(e.thinking)), e.thinking)]));
-                v.push(SLine::new(vec![pad(2), ctl("tools", format!("{} Include tools", check(e.tools)), e.tools)]));
-            }
-            v.push(SLine::blank());
-            let copy_focus = e.focused() == "copy";
-            let export_focus = e.focused() == "export";
-            let copy = Seg::new("    Copy    ", if copy_focus { fg_bg(t.text.action.primary.focused, t.background.action.primary.focused) } else { fg_bg(base.text.base, base.background.raised.high) });
-            let export = Seg::new("   Export   ", fg_bg(if export_focus { t.text.action.primary.focused } else { t.text.action.primary.base }, if export_focus { t.background.action.primary.focused } else { t.background.action.primary.base }));
-            v.push(SLine::new(vec![pad((w as usize).saturating_sub(12 + 1 + 12 + 2)), copy, pad(1), export]));
-            v.push(SLine::blank());
-            v
-        }
-        Body::Text { title, lines, hints, scroll } => {
-            let mut v = header(title, t, 2, w as usize);
-            v.push(SLine::blank());
-            let max = (area.height as usize).saturating_sub(10).max(3);
-            *scroll = (*scroll).min(lines.len().saturating_sub(max));
-            for l in lines.iter().skip(*scroll).take(max) {
-                v.push(l.clone().prefixed(&[pad(2)]));
-            }
-            if !hints.is_empty() {
                 v.push(SLine::blank());
-                let mut segs = vec![pad(2)];
-                for (i, (a, b)) in hints.iter().enumerate() {
-                    if i > 0 {
-                        segs.push(pad(2));
-                    }
-                    segs.push(seg(a.clone(), fg(t.text.base)));
-                    segs.push(seg(format!(" {b}"), fg(t.text.muted)));
-                }
-                v.push(SLine::new(segs));
+                v.push(row("sanitize", e.sanitize, "Sanitize sensitive data"));
+            } else {
+                v.push(SLine::blank());
+                v.push(row("thinking", e.thinking, "Include thinking"));
+                v.push(SLine::blank());
+                v.push(row("tools", e.tools, "Include tools"));
             }
+            v.push(SLine::blank());
+            let btn = |id: &str, text: &str| {
+                let focused = e.focused() == id;
+                let (f, b) = if focused { (t.text.action.primary.focused, t.background.action.primary.focused) } else { (t.text.action.primary.base, t.background.action.primary.base) };
+                Seg::new(format!("    {text}    "), fg_bg(f, b))
+            };
+            let copy = btn("copy", "Copy");
+            let export = btn("export", "Export");
+            let used = copy.width() + 1 + export.width();
+            v.push(SLine::new(vec![pad(DIALOG_INSET + inner.saturating_sub(used)), copy, pad(1), export]));
             v.push(SLine::blank());
             v
         }
+        Body::Text(td) => text_lines(td, wu, area, narrow, t),
     };
     let h = (lines.len() as u16 + 1).min(area.height);
     let y = if d.centered { area.y + area.height.saturating_sub(h) / 2 } else { area.y + ((area.height as f64) / 4.0).round() as u16 };
     let y = y.min(area.bottom().saturating_sub(h));
     let panel = Rect::new(x, y, w, h);
     fill(buf, panel, t.background.base.tui());
-    let inner = Rect::new(x, y + 1, w, h.saturating_sub(1));
-    for (rect, click) in draw_lines(buf, inner, &lines, 0, SPINNER_FRAMES[0]) {
+    let inner_rect = Rect::new(x, y + 1, w, h.saturating_sub(1));
+    for (rect, click) in draw_lines(buf, inner_rect, &lines, 0, SPINNER_FRAMES[0]) {
         let hit = match click {
             Click::Custom(c) if c == "ok" => DialogHit::Ok,
             Click::Custom(c) if c == "esc" => DialogHit::Close,
@@ -801,122 +1015,209 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
         };
         hits.push((rect, hit));
     }
-    let cursor = cursor.map(|(cx, cy)| (x + cx, inner.y + cy));
+    let cursor = cursor.map(|(cx, cy)| (x + cx, inner_rect.y + cy));
     (panel, hits, cursor)
+}
+
+fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme) -> Vec<SLine> {
+    let inner = w.saturating_sub(DIALOG_INSET * 2);
+    let mut v = vec![text_header(td, t, w)];
+    v.push(SLine::blank());
+    for l in &td.pre {
+        v.push(l.clone().prefixed(&[pad(DIALOG_INSET)]));
+    }
+    let max = td.height.unwrap_or_else(|| (area.height as usize).saturating_sub(10).max(3));
+    let total = td.lines.len();
+    td.scroll = td.scroll.min(total.saturating_sub(max));
+    let shown: Vec<SLine> = td.lines.iter().skip(td.scroll).take(max).cloned().collect();
+    match td.band {
+        Some(band) => {
+            let row = |l: SLine| l.prefixed(&[pad(DIALOG_INSET)]).with_bg(Some(band.tui()));
+            v.push(SLine::blank().with_bg(Some(band.tui())));
+            for l in shown {
+                v.push(row(l));
+            }
+            v.push(SLine::blank().with_bg(Some(band.tui())));
+        }
+        None => {
+            for l in shown {
+                v.push(l.prefixed(&[pad(DIALOG_INSET)]));
+            }
+            if let Some(h) = td.height {
+                for _ in total.saturating_sub(td.scroll).min(h)..h {
+                    v.push(SLine::blank());
+                }
+            }
+        }
+    }
+    if let Some(label) = &td.button {
+        v.push(SLine::blank());
+        let text = format!("   {label}   ");
+        let bw = sw(&text);
+        v.push(
+            SLine::new(vec![pad(DIALOG_INSET + inner.saturating_sub(bw)), Seg::new(text, fg_bg(t.text.action.primary.focused, t.background.action.primary.focused))])
+                .on_click(Some(Click::Custom("ok".into()))),
+        );
+    } else if let Some(f) = td.footer.as_ref().filter(|f| !f.is_empty()) {
+        v.push(SLine::blank());
+        v.extend(footer_lines(f, inner, narrow, t).into_iter().map(|l| l.prefixed(&[pad(DIALOG_INSET)])));
+    }
+    v.push(SLine::blank());
+    v
 }
 
 fn pad(n: usize) -> Seg {
     Seg::new(" ".repeat(n), Style::default())
 }
 
-fn header(title: &str, t: &Theme, padding: usize, w: usize) -> Vec<SLine> {
-    vec![header_with(title, "esc", t, padding, w)]
+/// `DialogHeader` at `DIALOG_INSET`: bold title, `esc` (or another close label) at the right.
+fn header(title: &str, right: &str, t: &Theme, w: usize) -> SLine {
+    header_at(title, right, t, w, DIALOG_INSET)
 }
 
-fn header_with(title: &str, right: &str, t: &Theme, padding: usize, w: usize) -> SLine {
-    let avail = w.saturating_sub(padding * 2 + sw(right) + 1);
-    let title = locale::truncate_width(title, avail);
-    let gap = w.saturating_sub(padding * 2 + sw(&title) + sw(right));
-    SLine::new(vec![pad(padding), Seg::new(title, bold(fg(t.text.base))), pad(gap), seg(right, fg(t.text.muted))]).on_click(Some(Click::Custom("esc".into())))
+fn header_at(title: &str, right: &str, t: &Theme, w: usize, inset: usize) -> SLine {
+    let avail = w.saturating_sub(inset * 2 + sw(right));
+    let title = locale::take_width(title, avail);
+    let gap = w.saturating_sub(inset * 2 + sw(&title) + sw(right));
+    SLine::new(vec![pad(inset), Seg::new(title, bold(fg(t.text.base))), pad(gap), seg(right, fg(t.text.muted))]).on_click(Some(Click::Custom("esc".into())))
+}
+
+fn text_header(td: &TextDialog, t: &Theme, w: usize) -> SLine {
+    let Some((extra, grows)) = &td.title_extra else {
+        return header(&td.title, &td.close_label, t, w);
+    };
+    let inner = w.saturating_sub(DIALOG_INSET * 2);
+    let gap = td.header_gap.max(1);
+    let close = td.close_label.as_str();
+    let tw = sw(&td.title);
+    let mut segs = vec![pad(DIALOG_INSET), Seg::new(td.title.clone(), bold(fg(t.text.base)))];
+    if *grows {
+        // Title, gap, the extra text clipped to the room left, gap, close label.
+        let room = inner.saturating_sub(tw + gap * 2 + sw(close));
+        let text = locale::take_width(extra, room);
+        segs.push(pad(gap));
+        segs.push(seg(text.clone(), fg(t.text.muted)));
+        segs.push(pad(gap + room.saturating_sub(sw(&text))));
+    } else {
+        let room = inner.saturating_sub(tw + gap * 2 + sw(close));
+        let text = locale::take_width(extra, room);
+        segs.push(pad(gap + room.saturating_sub(sw(&text))));
+        segs.push(seg(text, fg(t.text.muted)));
+        segs.push(pad(gap));
+    }
+    segs.push(seg(close, fg(t.text.muted)));
+    SLine::new(segs).on_click(Some(Click::Custom("esc".into())))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn select_lines(sel: &mut Select, w: usize, term_h: usize, term_w: usize, t: &Theme, base: &Theme, kb: &Keybinds, cursor: &mut Option<(u16, u16)>) -> Vec<SLine> {
+fn select_lines(sel: &mut Select, w: usize, term_h: usize, term_w: usize, size: Size, t: &Theme, kb: &Keybinds, cursor: &mut Option<(u16, u16)>) -> Vec<SLine> {
+    let li = DIALOG_LIST_INSET;
     let mut out = Vec::new();
-    // Title row (padding 4).
-    let mut title_segs = vec![pad(4), Seg::new(sel.title.clone(), bold(fg(t.text.base)))];
+    // Header: the title (and suffix) at the list inset, `esc` at the right.
+    let mut title_segs = vec![pad(li), Seg::new(sel.title.clone(), bold(fg(t.text.base)))];
     if let Some(sfx) = &sel.title_suffix {
         title_segs.push(seg(sfx.clone(), fg(t.text.muted)));
     }
     let used: usize = title_segs.iter().map(|s| s.width()).sum();
-    title_segs.push(pad(w.saturating_sub(used + 3 + 4)));
+    title_segs.push(pad(w.saturating_sub(used + 3 + li)));
     title_segs.push(seg("esc", fg(t.text.muted)));
     out.push(SLine::new(title_segs).on_click(Some(Click::Custom("esc".into()))));
     if sel.render_filter {
         out.push(SLine::blank());
-        let iw = w.saturating_sub(8);
+        let iw = w.saturating_sub(li * 2);
         let line = if sel.filter.is_empty() {
-            SLine::new(vec![pad(4), seg(locale::take_width(&sel.placeholder, iw), fg(t.text.muted))])
+            SLine::new(vec![pad(li), seg(locale::take_width(&sel.placeholder, iw), fg(t.text.muted))])
         } else {
-            SLine::new(vec![pad(4), seg(locale::take_width(&sel.filter, iw), fg(t.text.formfield.focused))])
+            SLine::new(vec![pad(li), seg(locale::take_width(&sel.filter, iw), fg(t.text.formfield.focused))])
         };
-        *cursor = Some(((4 + sw(&sel.filter).min(iw)) as u16, out.len() as u16));
+        *cursor = Some(((li + sw(&sel.filter).min(iw)) as u16, out.len() as u16));
         out.push(line);
     }
     out.push(SLine::blank());
     let items = sel.items();
     if items.is_empty() {
-        let text = if !sel.filter.is_empty() { sel.no_match.clone().unwrap_or_else(|| "No results found".into()) } else { sel.empty.clone().unwrap_or_else(|| "No items available".into()) };
-        out.push(SLine::new(vec![pad(4), seg(text, fg(t.text.muted))]));
+        let text = if !sel.filter.is_empty() && sel.render_filter { sel.no_match.clone().unwrap_or_else(|| "No results found".into()) } else { sel.empty.clone().unwrap_or_else(|| "No items available".into()) };
+        let c = sel.empty_color.unwrap_or(t.text.muted);
+        for l in wrap(&[seg(text, fg(c))], w.saturating_sub(li * 2).max(1), Wrap::Word) {
+            out.push(SLine::new(l).prefixed(&[pad(li)]));
+        }
     } else {
-        // Build all rows, then window to listHeight.
+        // Build all rows, then window to the list height.
         let mut rows: Vec<(SLine, Option<usize>)> = Vec::new();
         let vis = sel.visible();
         let selected_opt = vis.get(sel.selected).copied();
-        let muted_active = sel.action_focus.is_some();
         let flat = sel.flattened();
+        let details_w = select_content_width((size.width() as usize).min(term_w)).max(1);
         for item in &items {
             match item {
                 Item::Header(c, first) => {
                     if !first {
                         rows.push((SLine::blank(), None));
                     }
-                    rows.push((SLine::new(vec![pad(4), Seg::new(c.clone(), bold(fg(t.accent(200))))]), None));
+                    rows.push((SLine::new(vec![pad(li), Seg::new(c.clone(), bold(fg(t.accent(200))))]), None));
                 }
                 Item::Opt(i) => {
                     let o = &sel.options[*i];
                     let active = selected_opt == Some(*i);
                     let is_current = sel.current.as_deref() == Some(o.value.as_str());
-                    let (tfg, row_bg, b) = if active && !muted_active {
-                        (o.fg.unwrap_or(t.text.action.primary.focused), Some(o.bg.unwrap_or(t.background.action.primary.focused)), true)
-                    } else if active {
-                        (t.text.muted, Some(base.background.raised.high), false)
+                    let text_c = if active {
+                        o.fg.unwrap_or(t.text.action.primary.focused)
                     } else if is_current {
-                        (if muted_active { t.text.muted } else { t.text.formfield.selected }, None, false)
+                        t.text.formfield.selected
                     } else {
-                        (t.text.base, None, false)
+                        t.text.base
                     };
-                    let mut st = fg(tfg);
-                    if b {
+                    let secondary = if active { text_c } else { t.text.muted };
+                    let mut st = fg(text_c);
+                    if active {
                         st = st.add_modifier(Modifier::BOLD);
                     }
+                    // The row spans 1..w-1 (scroll padding); a marker or gutter takes its cell plus
+                    // the row gap out of the left padding, so titles line up at the list inset.
                     let mut segs = vec![pad(1)];
                     if let Some(g) = &o.gutter {
-                        segs.push(Seg::new(g.text.clone(), g.style.fg(if active && !muted_active { tfg.tui() } else { g.style.fg.unwrap_or(tfg.tui()) })));
+                        segs.push(pad(li - 3));
+                        let gs = if g.style.fg.is_none() { g.style.fg(text_c.tui()) } else { g.style };
+                        segs.push(Seg::new(g.text.clone(), if active { gs.fg(text_c.tui()) } else { gs }));
                         segs.push(pad(1));
                     } else if is_current {
-                        segs.push(Seg::new("●", st));
+                        segs.push(pad(li - 3));
+                        segs.push(Seg::new("●", fg(text_c)));
                         segs.push(pad(1));
                     } else {
-                        segs.push(pad(2));
+                        segs.push(pad(li - 1));
                     }
-                    segs.push(pad(3));
                     let footer = if flat { o.search_footer.clone().or(o.category.clone()).or(o.footer.clone()) } else { o.footer.clone() };
                     let footer_w = footer.as_deref().map(sw).unwrap_or(0);
-                    let avail = w.saturating_sub(2 + 6 + 3 + if footer_w > 0 { footer_w + 1 } else { 0 });
-                    let tw = o.title_width.unwrap_or(61).min(avail.max(1));
+                    let row_right = w.saturating_sub(1 + (li - 1));
+                    let used: usize = segs.iter().map(|s| s.width()).sum();
+                    let avail = row_right.saturating_sub(used + if footer_w > 0 { footer_w + 1 } else { 0 });
+                    let tw = o.title_width.unwrap_or(61);
                     let title = if o.truncate_left { locale::truncate_left(&o.title, tw) } else { locale::truncate(&o.title, tw) };
-                    let title = locale::truncate_width(&title, avail.max(1));
-                    let mut text_segs = vec![Seg::new(title.clone(), st)];
+                    let mut text = vec![Seg::new(title, st)];
                     if let Some(dsc) = &o.description
                         && Some(dsc) != o.category.as_ref()
                     {
-                        let dc = if active && !muted_active { tfg } else { t.text.muted };
-                        let room = avail.saturating_sub(sw(&title));
-                        if room > 1 {
-                            text_segs.push(Seg::new(locale::truncate_width(&format!(" {dsc}"), room), fg(dc)));
+                        // The description shares the title's text node, so it is bold on the active row too.
+                        let mut ds = fg(secondary);
+                        if active {
+                            ds = ds.add_modifier(Modifier::BOLD);
                         }
+                        text.push(seg(format!(" {dsc}"), ds));
                     }
-                    segs.extend(text_segs);
-                    let used: usize = segs.iter().map(|s| s.width()).sum();
+                    segs.extend(clip(&text, avail));
                     if let Some(f) = footer {
-                        let fc = if active && !muted_active { tfg } else if muted_active && (active || is_current) { t.text.muted } else { o.footer_color.unwrap_or(t.text.muted) };
-                        segs.push(pad(w.saturating_sub(used + footer_w + 4 + 1)));
+                        let fc = match o.footer_color {
+                            Some(c) if !active => c,
+                            _ => secondary,
+                        };
+                        let used: usize = segs.iter().map(|s| s.width()).sum();
+                        segs.push(pad(row_right.saturating_sub(used + footer_w)));
                         segs.push(seg(f, fg(fc)));
                     }
                     let mut line = SLine::new(segs).on_click(Some(Click::Custom(format!("opt:{}", vis.iter().position(|x| x == i).unwrap_or(0)))));
-                    if let Some(bgc) = row_bg {
-                        // Row spans x=1..W-2.
+                    if active {
+                        let bgc = o.bg.unwrap_or(t.background.action.primary.focused);
                         let mut ss: Vec<Seg> = line.segs.iter().skip(1).cloned().collect();
                         let used: usize = ss.iter().map(|s| s.width()).sum();
                         ss.push(pad(w.saturating_sub(used + 2)));
@@ -925,8 +1226,7 @@ fn select_lines(sel: &mut Select, w: usize, term_h: usize, term_w: usize, t: &Th
                     }
                     rows.push((line, Some(*i)));
                     for dline in &o.details {
-                        let max = 1.max(76.min(term_w.saturating_sub(12)));
-                        rows.push((SLine::new(vec![pad(4), seg(locale::truncate_middle(dline, max), fg(t.text.muted))]), None));
+                        rows.push((SLine::new(vec![pad(li), seg(locale::truncate_middle(dline, details_w), fg(t.text.muted))]), None));
                     }
                 }
             }
@@ -947,57 +1247,10 @@ fn select_lines(sel: &mut Select, w: usize, term_h: usize, term_w: usize, t: &Th
         out.extend(rows.into_iter().skip(sel.scroll).take(list_h).map(|(l, _)| l));
     }
     out.push(SLine::blank());
-    // Footer row.
-    let mut left: Vec<Seg> = Vec::new();
-    let mut right: Vec<Seg> = Vec::new();
-    if let Some((text, c)) = &sel.footer_text {
-        left.push(seg(text.clone(), fg(*c)));
-    }
-    for (title, label) in &sel.hints {
-        if !left.is_empty() {
-            left.push(pad(2));
-        }
-        left.push(Seg::new(title.clone(), bold(fg(t.text.base))));
-        left.push(seg(format!(" {label}"), fg(t.text.muted)));
-    }
-    let visible_actions = sel.visible_actions(kb);
-    for i in visible_actions {
-        let a = &sel.actions[i];
-        let label = action_label(a, kb);
-        let focused = sel.action_focus == Some(i);
-        let (tc, lc, bgc) = if a.disabled {
-            (t.text.action.primary.disabled, t.text.action.primary.disabled, None)
-        } else if focused {
-            (t.text.action.primary.focused, t.text.action.primary.focused, Some(t.background.action.primary.focused))
-        } else {
-            (t.text.base, t.text.muted, None)
-        };
-        let mut ts = fg(tc);
-        let mut ls = fg(lc);
-        if focused {
-            ts = ts.add_modifier(Modifier::BOLD);
-        }
-        if let Some(b) = bgc {
-            ts = ts.bg(b.tui());
-            ls = ls.bg(b.tui());
-        }
-        let target = if a.right { &mut right } else { &mut left };
-        if !target.is_empty() {
-            target.push(pad(2));
-        }
-        target.push(Seg::new(a.title.clone(), ts));
-        target.push(Seg::new(format!(" {label}"), ls));
-    }
-    if !left.is_empty() || !right.is_empty() {
-        let lw: usize = left.iter().map(|s| s.width()).sum();
-        let rw: usize = right.iter().map(|s| s.width()).sum();
-        let mut segs = vec![pad(4)];
-        segs.extend(left);
-        segs.push(pad(w.saturating_sub(4 + 2 + lw + rw)));
-        segs.extend(right);
-        out.push(SLine::new(segs));
-    } else {
-        out.push(SLine::blank());
+    // Footer row (`DialogFooter` at the list inset); without one, an empty box keeps the gap.
+    let footer = sel.footer(kb);
+    if !footer.is_empty() {
+        out.extend(footer_lines(&footer, w.saturating_sub(li * 2), term_w < 60, t).into_iter().map(|l| l.prefixed(&[pad(li)])));
     }
     out.push(SLine::blank());
     out
@@ -1031,5 +1284,16 @@ mod tests {
         s.move_by(1);
         s.move_by(1);
         assert_eq!(s.selected, 0);
+    }
+
+    #[test]
+    fn footer_label_first_and_sides() {
+        let t = Theme::default();
+        let f = Footer { children: vec![seg("note", Style::default())], secondary: vec![FooterItem::new("copy", "c")], primary: vec![FooterItem::new("all projects", "ctrl+a")] };
+        let rows = footer_lines(&f, 50, false, &t);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text(), format!("note  copy c{}all projects ctrl+a", " ".repeat(50 - 12 - 19)));
+        let rows = footer_lines(&f, 50, true, &t);
+        assert_eq!(rows.iter().map(|r| r.text().trim_end().to_string()).collect::<Vec<_>>(), vec![format!("note{}all projects ctrl+a", " ".repeat(50 - 4 - 19)), "copy c".to_string()]);
     }
 }

@@ -142,6 +142,7 @@ pub static INFO: LazyLock<Spec> = LazyLock::new(|| {
                 ("wrap", Spec::Lit(&["word", "none"])),
                 ("tree", Spec::Bool),
                 ("single", Spec::Bool),
+                ("fullscreen", Spec::Bool),
                 ("view", Spec::Lit(&["auto", "split", "unified"])),
             ]),
         ),
@@ -200,6 +201,7 @@ pub static INFO: LazyLock<Spec> = LazyLock::new(|| {
         ),
         ("experimental", Spec::Record(Box::new(Spec::Bool))),
         ("animations", Spec::Bool),
+        ("highlights", Spec::Bool),
         ("mouse", Spec::Bool),
         ("cursor", Spec::Custom(v1::decode_cursor)),
     ])

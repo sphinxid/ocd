@@ -534,6 +534,6 @@ mod tests {
         assert_eq!(kb.match_command("diff.help", &[ev]), Match::Full);
         let ev = stroke_from_event(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)).unwrap();
         assert_eq!(kb.match_command("diff.last", &[ev]), Match::Full);
-        assert_eq!(defs::DEFINITIONS.len(), 241);
+        assert_eq!(defs::DEFINITIONS.len(), 242);
     }
 }

@@ -1,6 +1,7 @@
 pub mod locale;
 pub mod jsonc_edit;
 pub mod paths;
+pub mod system;
 
 use parking_lot::Mutex;
 

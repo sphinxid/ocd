@@ -102,14 +102,35 @@ fn set_title(app: &App, last: &mut String) {
     }
 }
 
+/// Node's signal names for an editor killed by a signal.
+#[cfg(unix)]
+fn signal_name(n: i32) -> String {
+    match n {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        6 => "SIGABRT",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        15 => "SIGTERM",
+        _ => return format!("{n}"),
+    }
+    .to_string()
+}
+
 /// Run the external editor on the prompt text (`src/editor.ts`).
 fn external_editor(app: &mut App, screen: &Screen, term: &mut Term) {
     app.editor_requested = false;
+    let fail = |app: &mut App, msg: String| app.toast(app::Toast::new("error", msg).title("Failed to open editor"));
     let Some(cmd) = std::env::var("VISUAL").ok().filter(|v| !v.is_empty()).or_else(|| std::env::var("EDITOR").ok().filter(|v| !v.is_empty())) else {
+        fail(app, "Set $VISUAL or $EDITOR to open an external editor".into());
+        app.dirty = true;
         return;
     };
     let path = std::env::temp_dir().join(format!("{}.md", crate::util::locale::now_ms()));
-    if std::fs::write(&path, app.editor.input_text()).is_err() {
+    if let Err(e) = std::fs::write(&path, app.editor.input_text()) {
+        fail(app, e.to_string());
         return;
     }
     screen.leave();
@@ -133,11 +154,17 @@ fn external_editor(app: &mut App, screen: &Screen, term: &mut Term) {
         Ok(s) => {
             let msg = match s.code() {
                 Some(c) => format!("Editor exited with code {c}"),
-                None => "Editor exited with signal".to_string(),
+                None => {
+                    #[cfg(unix)]
+                    let sig = std::os::unix::process::ExitStatusExt::signal(&s).map(signal_name).unwrap_or_default();
+                    #[cfg(not(unix))]
+                    let sig = String::new();
+                    format!("Editor exited with signal {sig}")
+                }
             };
-            app.toast(app::Toast::new("error", msg));
+            fail(app, msg);
         }
-        Err(e) => app.toast(app::Toast::new("error", e.to_string())),
+        Err(e) => fail(app, e.to_string()),
     }
     let _ = std::fs::remove_file(&path);
     app.dirty = true;

@@ -112,7 +112,8 @@ impl App {
         }
         y += 1; // spacer
         y += 1; // prompt paddingTop
-        let px = area.x + (w.saturating_sub(prompt_w)) / 2;
+        // Yoga rounds the centered offset half up.
+        let px = area.x + w.saturating_sub(prompt_w).div_ceil(2);
         let prect = Rect::new(px, y.min(area.bottom().saturating_sub(prompt_h)), prompt_w, prompt_h.min(area.height));
         self.render_prompt(buf, prect, t, prompt_lines, cursor);
         // Home footer.
@@ -178,7 +179,8 @@ impl App {
         let inner = width.saturating_sub(1 + padx * 2).max(1);
         let muted = !self.pending_keys.is_empty();
         let text_c = if muted { t.text.muted } else { t.text.base };
-        let bar = Seg::new("┃", Style::default().fg(hl.tui()).bg(bg));
+        // The border sits on the outer box, which has no background: the page shows behind the bar.
+        let bar = Seg::new("┃", Style::default().fg(hl.tui()).bg(t.background.base.tui_or_reset()));
         let mut out = Vec::new();
         out.push(SLine::new(vec![bar.clone()]).with_bg(Some(bg)));
         let max_h = 6.max(term_h / 3);

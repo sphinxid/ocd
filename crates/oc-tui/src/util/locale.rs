@@ -26,13 +26,19 @@ pub fn titlecase(s: &str) -> String {
 
 /// `Locale.number`: 1.2K / 3.4M / integer.
 pub fn number(n: f64) -> String {
-    if n >= 1_000_000.0 {
+    // 999950+ would round to "1000.0K".
+    if n >= 999_950.0 {
         format!("{:.1}M", n / 1_000_000.0)
     } else if n >= 1000.0 {
         format!("{:.1}K", n / 1000.0)
     } else {
         js_number(n)
     }
+}
+
+/// `String.prototype.localeCompare` approximation: case-insensitive first, lowercase before uppercase on ties.
+pub fn compare(a: &str, b: &str) -> std::cmp::Ordering {
+    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| b.cmp(a))
 }
 
 /// JS `Number.prototype.toString` for typical values.

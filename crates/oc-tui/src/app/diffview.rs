@@ -4,7 +4,7 @@ use super::{App, Route, Toast};
 use crate::api::types::FileDiff;
 use crate::keymap::{Match, Stroke};
 use crate::theme::{Theme, tint};
-use crate::ui::dialog::{Body, Dialog, Opt, Select, Size};
+use crate::ui::dialog::{Dialog, Opt, Select, Size};
 use crate::ui::text::*;
 use crate::util::locale::{self, width as sw};
 use ratatui::buffer::Buffer;
@@ -478,7 +478,9 @@ impl App {
                 lines.push(SLine::new(vec![seg(format!("{k:<17}"), fg(t.text.base)), seg("  ", fg(t.text.base)), seg(label, fg(t.text.muted))]));
             }
         }
-        let mut d = Dialog::new("text", Body::Text { title: "Diff shortcuts".into(), lines, hints: vec![], scroll: 0 });
+        let mut td = crate::ui::dialog::TextDialog::new("Diff shortcuts", lines);
+        td.close_label = "esc close".into();
+        let mut d = Dialog::text("text", td);
         d.centered = true;
         self.open_dialog(d);
     }

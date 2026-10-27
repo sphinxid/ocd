@@ -54,6 +54,9 @@ pub struct SessionError {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<i64>,
+    /// Milliseconds until a rate or usage limit resets (`provider.free-limit`).
+    #[serde(rename = "retryAfterMs", default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

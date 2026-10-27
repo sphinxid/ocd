@@ -3,7 +3,7 @@
 use super::{App, Route, Toast};
 use crate::api::types::*;
 use crate::state::cycle_variant;
-use crate::ui::dialog::{Action, Body, Dialog, Opt, PromptDialog, Select, Size};
+use crate::ui::dialog::{Action, Body, DIALOG_INSET, Dialog, Footer, FooterItem, Opt, PromptDialog, Select, Size, TextDialog};
 use crate::util::locale::{self, titlecase};
 use serde_json::{Value, json};
 
@@ -54,7 +54,7 @@ pub fn settings() -> Vec<(&'static str, &'static str, &'static str, Vec<Value>, 
     v.push(("Appearance", "Theme", "theme.name", vec![], vec![], json!("opencode")));
     v.push(("Appearance", "Color mode", "theme.mode", vec![json!("system"), json!("dark"), json!("light")], vec![], json!("system")));
     let (a, b) = onoff();
-    v.push(("Appearance", "Animations", "animations", a, b, json!(true)));
+    v.push(("Appearance", "Animations", "animations", a, b, json!(false)));
     v.push(("Session", "Sidebar", "session.sidebar", vec![json!("hide"), json!("auto")], vec![], json!("auto")));
     let (a, b) = onoff();
     v.push(("Session", "Scrollbar", "session.scrollbar", a, b, json!(false)));
@@ -95,6 +95,8 @@ pub fn settings() -> Vec<(&'static str, &'static str, &'static str, Vec<Value>, 
     v.push(("Alerts", "Sounds", "attention.sound", a, b, json!(false)));
     v.push(("Alerts", "Volume", "attention.volume", vec![], vec![], json!(0.4)));
     let (a, b) = onoff();
+    v.push(("Alerts", "Release highlights", "highlights", a, b, json!(true)));
+    let (a, b) = onoff();
     v.push(("Terminal", "Window title", "terminal.title", a, b, json!(true)));
     v.push(("Terminal", "Copy behavior", "terminal.copy", vec![json!("manual"), json!("select")], vec![], json!(if cfg!(windows) { "manual" } else { "select" })));
     let (a, b) = onoff();
@@ -110,8 +112,68 @@ impl App {
         let session = self.session();
         let has_revert = session.is_some_and(|s| s.revert.is_some());
         let tabs = self.config.tabs_enabled();
+        // Registration order of the keymap layers: app, session route, prompt, session frame,
+        // feature plugins. The palette groups by first appearance, keeping this order within groups.
+        // App commands.
+        v.push(cmd("command.palette.show", "Show command palette", "System").hidden());
+        v.push(cmd("session.list", "Switch session", "Session").slash("sessions").aliases(&["resume", "continue"]).suggested(!self.store.sessions.is_empty()));
+        v.push(cmd("session.new", "New session", "Session").slash("new").suggested(in_session));
+        v.push(cmd("session.clear", "Clear session", "Session").slash("clear"));
+        v.push(cmd("open.menu", "Open session or project", "Session").slash("open").aliases(&["projects", "project"]));
+        if tabs {
+            v.push(cmd("session.tab.close", "Close tab", "Session"));
+            v.push(cmd("session.tab.reopen", "Reopen closed tab", "Session"));
+            v.push(cmd("session.tab.next", "Next tab", "Session").hidden());
+            v.push(cmd("session.tab.previous", "Previous tab", "Session").hidden());
+            for i in 1..=10 {
+                v.push(cmd(&format!("session.tab.select.{i}"), format!("Switch to tab {i}"), "Session").hidden());
+            }
+        } else {
+            for i in 1..=9 {
+                v.push(cmd(&format!("session.quick_switch.{i}"), format!("Switch to session in quick slot {i}"), "Session").hidden());
+            }
+        }
+        v.push(cmd("model.list", "Switch model", "Agent").slash("models").suggested(true));
+        v.push(cmd("model.cycle_recent", "Model cycle", "Agent").hidden());
+        v.push(cmd("model.cycle_recent_reverse", "Model cycle reverse", "Agent").hidden());
+        v.push(cmd("model.cycle_favorite", "Favorite cycle", "Agent").hidden());
+        v.push(cmd("model.cycle_favorite_reverse", "Favorite cycle reverse", "Agent").hidden());
+        v.push(cmd("agent.list", "Switch agent", "Agent").slash("agents"));
+        v.push(cmd("mcp.list", "MCP servers", "Agent").slash("mcps"));
+        v.push(cmd("agent.cycle", "Agent cycle", "Agent").hidden());
+        v.push(cmd("variant.cycle", "Variant cycle", "Agent"));
+        let has_variants = self.current_model_info().is_some_and(|m| !m.variants.is_empty());
+        let mut variant = cmd("variant.list", "Switch model variant", "Agent").slash("variants").aliases(&["thinking", "effort"]);
+        variant.palette = has_variants;
+        v.push(variant);
+        v.push(cmd("agent.cycle.reverse", "Agent cycle reverse", "Agent").hidden());
+        let connected = self.has_connected_provider();
+        v.push(cmd("provider.connect", "Connect an integration", "Integration").slash("connect").suggested(!connected));
+        v.push(cmd("opencode.settings", "Open settings", "System").slash("settings").suggested(true));
+        v.push(cmd("opencode.status", "View status", "System").slash("status"));
+        v.push(cmd("server.pair", "Pair device", "System").slash("pair").aliases(&["web"]));
+        if self.opts.service.is_some() {
+            v.push(cmd("service.restart", "Restart service", "System").slash("restart"));
+        }
+        v.push(cmd("location.reload", "Reload configuration", "System").slash("reload"));
+        v.push(cmd("opencode.debug", "View debug info", "System").slash("debug"));
+        v.push(cmd("theme.switch", "Switch theme", "System").slash("themes"));
+        let mode = self.themes.effective_mode();
+        v.push(cmd("theme.switch_mode", if mode == crate::theme::Mode::Dark { "Switch to light mode" } else { "Switch to dark mode" }, "System").hidden());
+        v.push(cmd("theme.mode.lock", if self.themes.lock.is_some() { "Unlock theme mode" } else { "Lock theme mode" }, "System").hidden());
+        v.push(cmd("help.show", "Help", "System").slash("help"));
+        v.push(cmd("docs.open", "Open docs", "System"));
+        v.push(cmd("app.exit", "Exit the app", "System").slash("exit").aliases(&["quit", "q"]));
+        v.push(cmd("app.console", "Toggle console", "System"));
+        if !cfg!(windows) {
+            v.push(cmd("terminal.suspend", "Suspend terminal", "System").hidden());
+        }
+        v.push(cmd("terminal.title.toggle", if self.config.terminal_title() { "Disable terminal title" } else { "Enable terminal title" }, "System").hidden());
+        v.push(cmd("app.toggle.animations", if self.config.animations() { "Disable animations" } else { "Enable animations" }, "System").hidden());
+        v.push(cmd("app.toggle.file_context", if self.config.prompt_editor() { "Disable file context" } else { "Enable file context" }, "System").hidden());
+        v.push(cmd("app.toggle.diffwrap", if self.config.diffs_wrap() != "none" { "Disable diff wrapping" } else { "Enable diff wrapping" }, "System").hidden());
+        v.push(cmd("app.toggle.paste_summary", if self.config.prompt_paste() != "full" { "Disable paste summary" } else { "Enable paste summary" }, "System").hidden());
         if in_session {
-            v.push(cmd("session.share", "Share session", "Session").slash("share").suggested(true));
             v.push(cmd("session.rename", "Rename session", "Session").slash("rename").args());
             v.push(cmd("session.timeline", "Jump to message", "Session").slash("timeline"));
             v.push(cmd("session.fork", "Fork session", "Session").slash("fork"));
@@ -131,9 +193,9 @@ impl App {
             v.push(cmd("session.message.previous", "Previous message", "Session").hidden());
             v.push(cmd("session.message.user.next", "Next user message", "Session").hidden());
             v.push(cmd("session.message.user.previous", "Previous user message", "Session").hidden());
-            v.push(cmd("messages.copy", "Copy last assistant message", "Session"));
+            v.push(cmd("messages.copy", "Copy last assistant message", "Session").slash("copy"));
             v.push(cmd("session.copy.id", "Copy session ID", "Session"));
-            v.push(cmd("session.copy", "Copy session transcript", "Session").slash("copy"));
+            v.push(cmd("session.copy", "Copy session transcript", "Session"));
             v.push(cmd("session.export", "Export session transcript", "Session").slash("export"));
             v.push(cmd("session.background", "Background blocking tools", "Session").hidden());
             v.push(cmd("session.child.first", "Toggle subagent picker", "Session"));
@@ -194,65 +256,6 @@ impl App {
         v.push(cmd("plugins.list", "Plugins", "System").slash("plugins"));
         v.push(cmd("diff.open", "Open diff viewer", "VCS").slash("diff"));
         v.push(cmd("stats.open", "Usage statistics", "System").slash("stats"));
-        // App commands.
-        v.push(cmd("command.palette.show", "Show command palette", "System").hidden());
-        v.push(cmd("session.list", "Switch session", "Session").slash("sessions").aliases(&["resume", "continue"]).suggested(!self.store.sessions.is_empty()));
-        v.push(cmd("session.new", "New session", "Session").slash("new").suggested(in_session));
-        v.push(cmd("session.clear", "Clear session", "Session").slash("clear"));
-        v.push(cmd("open.menu", "Open session or project", "Session").slash("open").aliases(&["projects", "project"]));
-        if tabs {
-            v.push(cmd("session.tab.close", "Close tab", "Session"));
-            v.push(cmd("session.tab.reopen", "Reopen closed tab", "Session"));
-            v.push(cmd("session.tab.next", "Next tab", "Session").hidden());
-            v.push(cmd("session.tab.previous", "Previous tab", "Session").hidden());
-            for i in 1..=10 {
-                v.push(cmd(&format!("session.tab.select.{i}"), format!("Switch to tab {i}"), "Session").hidden());
-            }
-        } else {
-            for i in 1..=9 {
-                v.push(cmd(&format!("session.quick_switch.{i}"), format!("Switch to session in quick slot {i}"), "Session").hidden());
-            }
-        }
-        v.push(cmd("model.list", "Switch model", "Agent").slash("models").suggested(true));
-        v.push(cmd("model.cycle_recent", "Model cycle", "Agent").hidden());
-        v.push(cmd("model.cycle_recent_reverse", "Model cycle reverse", "Agent").hidden());
-        v.push(cmd("model.cycle_favorite", "Favorite cycle", "Agent").hidden());
-        v.push(cmd("model.cycle_favorite_reverse", "Favorite cycle reverse", "Agent").hidden());
-        v.push(cmd("agent.list", "Switch agent", "Agent").slash("agents"));
-        v.push(cmd("mcp.list", "MCP servers", "Agent").slash("mcps"));
-        v.push(cmd("agent.cycle", "Agent cycle", "Agent").hidden());
-        v.push(cmd("variant.cycle", "Variant cycle", "Agent"));
-        let has_variants = self.current_model_info().is_some_and(|m| !m.variants.is_empty());
-        let mut variant = cmd("variant.list", "Switch model variant", "Agent").slash("variants").aliases(&["thinking", "effort"]);
-        variant.palette = has_variants;
-        v.push(variant);
-        v.push(cmd("agent.cycle.reverse", "Agent cycle reverse", "Agent").hidden());
-        let connected = !self.providers().is_empty();
-        v.push(cmd("provider.connect", "Connect an integration", "Integration").slash("connect").suggested(!connected));
-        v.push(cmd("opencode.settings", "Open settings", "System").slash("settings").suggested(true));
-        v.push(cmd("opencode.status", "View status", "System").slash("status"));
-        v.push(cmd("server.pair", "Pair device", "System").slash("pair").aliases(&["web"]));
-        if self.opts.service.is_some() {
-            v.push(cmd("service.restart", "Restart service", "System").slash("restart"));
-        }
-        v.push(cmd("location.reload", "Reload configuration", "System").slash("reload"));
-        v.push(cmd("opencode.debug", "View debug info", "System").slash("debug"));
-        v.push(cmd("theme.switch", "Switch theme", "System").slash("themes"));
-        let mode = self.themes.effective_mode();
-        v.push(cmd("theme.switch_mode", if mode == crate::theme::Mode::Dark { "Switch to light mode" } else { "Switch to dark mode" }, "System").hidden());
-        v.push(cmd("theme.mode.lock", if self.themes.lock.is_some() { "Unlock theme mode" } else { "Lock theme mode" }, "System").hidden());
-        v.push(cmd("help.show", "Help", "System").slash("help"));
-        v.push(cmd("docs.open", "Open docs", "System"));
-        v.push(cmd("app.exit", "Exit the app", "System").slash("exit").aliases(&["quit", "q"]));
-        v.push(cmd("app.console", "Toggle console", "System"));
-        if !cfg!(windows) {
-            v.push(cmd("terminal.suspend", "Suspend terminal", "System").hidden());
-        }
-        v.push(cmd("terminal.title.toggle", if self.config.terminal_title() { "Disable terminal title" } else { "Enable terminal title" }, "System").hidden());
-        v.push(cmd("app.toggle.animations", if self.config.animations() { "Disable animations" } else { "Enable animations" }, "System").hidden());
-        v.push(cmd("app.toggle.file_context", if self.config.prompt_editor() { "Disable file context" } else { "Enable file context" }, "System").hidden());
-        v.push(cmd("app.toggle.diffwrap", if self.config.diffs_wrap() != "none" { "Disable diff wrapping" } else { "Enable diff wrapping" }, "System").hidden());
-        v.push(cmd("app.toggle.paste_summary", if self.config.prompt_paste() != "full" { "Disable paste summary" } else { "Enable paste summary" }, "System").hidden());
         v
     }
 
@@ -426,7 +429,10 @@ impl App {
                 }
             }
             "help.show" => self.open_dialog(Dialog::new("help", Body::Help)),
-            "docs.open" => open_url("https://opencode.ai/docs"),
+            "docs.open" => {
+                open_url("https://opencode.ai/v2/docs");
+                self.dialogs.clear();
+            }
             "app.exit" => self.quit = true,
             "app.console" | "app.debug" => {}
             "terminal.suspend" => {
@@ -495,9 +501,6 @@ impl App {
                     None => return false,
                 }
             }
-            "session.share" => {
-                self.toast(Toast::new("error", "Sharing is not implemented for V2 sessions yet"));
-            }
             "session.rename" => {
                 let Some(s) = sid else { return false };
                 match args.as_deref().map(|a| a.trim()) {
@@ -562,33 +565,27 @@ impl App {
             }
             "messages.copy" => {
                 let Some(s) = sid else { return false };
-                let text = self
-                    .store
-                    .messages(&s)
-                    .iter()
-                    .rev()
-                    .find(|m| m.kind == "assistant" && m.content.iter().any(|c| matches!(c, Content::Text { text, .. } if !text.trim().is_empty())))
-                    .map(|m| {
-                        m.content
-                            .iter()
-                            .filter_map(|c| if let Content::Text { text, .. } = c { Some(text.trim().to_string()) } else { None })
-                            .filter(|t| !t.is_empty())
-                            .collect::<Vec<_>>()
-                            .join("\n\n")
-                    });
-                match text {
-                    Some(t) => self.copy(&t, "Message copied to clipboard!"),
-                    None => self.info("No assistant messages found"),
+                self.dialogs.clear();
+                match last_assistant_text(self.store.messages(&s), self.session().and_then(|x| x.revert.as_ref()).map(|r| r.message_id.as_str())) {
+                    None => self.toast(Toast::new("error", "No assistant messages found")),
+                    Some(t) if t.is_empty() => self.toast(Toast::new("error", "No text content found in last assistant message")),
+                    Some(t) => {
+                        crate::clipboard::write(&t);
+                        self.toast(Toast::new("success", "Message copied to clipboard!"));
+                    }
                 }
             }
             "session.copy.id" => {
                 let Some(s) = sid else { return false };
-                self.copy(&s, "Session ID copied to clipboard!");
+                self.dialogs.clear();
+                crate::clipboard::write(&s);
+                self.toast(Toast::new("success", "Session ID copied to clipboard!"));
             }
             "session.copy" => {
                 let Some(s) = sid else { return false };
                 let text = self.transcript_markdown(&s, true, true);
-                self.copy(&text, "Session transcript copied to clipboard!");
+                crate::clipboard::write(&text);
+                self.toast(Toast::new("success", "Session transcript copied to clipboard!"));
             }
             "session.export" => {
                 if sid.is_none() {
@@ -706,7 +703,7 @@ impl App {
             }
             "session.aside" => {
                 let Some(s) = sid else {
-                    self.info("Open a session first");
+                    self.toast(Toast::new("warning", "Open a session first"));
                     return true;
                 };
                 match args.filter(|a| !a.trim().is_empty()) {
@@ -898,7 +895,9 @@ impl App {
                 Ok(_) => {
                     let t = app.theme().dialog().clone();
                     let lines = vec![crate::ui::text::SLine::new(vec![crate::ui::text::seg(path.to_string_lossy().to_string(), crate::ui::text::fg(t.text.base))])];
-                    app.open_dialog(Dialog::new("text", Body::Text { title: "Session exported".into(), lines, hints: vec![("enter".into(), "close".into())], scroll: 0 }));
+                    let mut td = TextDialog::new("Session exported", lines);
+                    td.button = Some("Close".into());
+                    app.open_dialog(Dialog::text("export-result", td));
                 }
                 Err(e) => app.toast(Toast::new("error", e.to_string())),
             }
@@ -917,20 +916,16 @@ impl App {
     }
 
     fn side_question(&mut self, sid: &str, question: &str) {
-        const INSTRUCTIONS: &str = "Answer the user's side question using the current session context. Do not take actions, call tools, or modify the conversation. Keep the answer concise.";
+        // session.generate exposes the session's tools but runs no tool loop, so a
+        // tool call would surface as an empty answer.
+        const INSTRUCTIONS: &str = "The user is asking a quick side question about the conversation so far. Answer directly and concisely in markdown from what you already know. Do not call any tools and do not take any actions.";
         let c = self.client.clone();
         let s = sid.to_string();
         let q = question.to_string();
         let prompt = format!("{INSTRUCTIONS}\n\n{q}");
         self.call(async move { c.generate(&s, &prompt).await }, move |app, text| {
-            let t = app.theme().clone();
-            let st = crate::theme::SyntaxStyle::from_theme(&t);
-            let o = crate::ui::markdown::MdOpts { theme: &t, syntax: &st, conceal: true, fg: t.markdown.text, mono: false };
-            let lines = crate::ui::markdown::render(&text, 80, &o);
-            let mut d = Dialog::new("text", Body::Text { title: format!("/btw {}", locale::truncate(&q, 60)), lines, hints: vec![("c".into(), "copy".into()), ("j/k ↑/↓".into(), "scroll".into())], scroll: 0 });
-            d.size = Size::Large;
-            d.centered = true;
-            d.data = json!(text);
+            let text = text.trim().to_string();
+            let d = btw_answer(app, &q, &text, false);
             app.open_dialog(d);
         });
     }
@@ -1026,77 +1021,86 @@ impl App {
         self.open_dialog(Dialog::select("palette", s, Size::Medium));
     }
 
+    /// `hasConnectedProvider`: some integration has a connection.
+    pub fn has_connected_provider(&self) -> bool {
+        self.loc()
+            .and_then(|l| l.integrations.as_ref())
+            .is_some_and(|list| list.iter().any(|i| i.get("connections").and_then(|c| c.as_array()).is_some_and(|a| !a.is_empty())))
+    }
+
+    /// `DialogModel` (legacy layout): Favorites and Recent sections while not searching, then every
+    /// model in the server's order (grouped by provider when connected, free first).
     pub fn open_model_dialog(&mut self, provider: Option<String>) {
         let models: Vec<ModelInfo> = self.model_list().into_iter().filter(|m| m.status != "deprecated" && provider.as_ref().is_none_or(|p| &m.provider_id == p)).collect();
         let providers = self.providers();
         let pname = |id: &str| providers.iter().find(|p| p.id == id).map(|p| p.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string());
-        let connected = !providers.is_empty();
+        let connected = self.has_connected_provider();
         let show_extra = connected && provider.is_none();
         let key = |m: &ModelInfo| format!("{}/{}", m.provider_id, m.id);
         let mut opts: Vec<Opt> = Vec::new();
-        let mut shown: Vec<String> = Vec::new();
+        let mut sectioned: Vec<String> = Vec::new();
         if show_extra {
-            for f in &self.models.favorite {
+            let favorites = self.models.favorite.clone();
+            for f in &favorites {
                 if let Some(m) = models.iter().find(|m| m.provider_id == f.provider_id && m.id == f.model_id) {
-                    let mut o = Opt::new(m.name.clone(), key(m)).cat("Favorites").desc(pname(&m.provider_id));
+                    let mut o = Opt::new(m.name.clone(), format!("section:{}", key(m))).cat("Favorites").desc(pname(&m.provider_id));
                     if m.free() {
                         o.footer = Some("Free".into());
                     }
                     opts.push(o);
-                    shown.push(key(m));
+                    sectioned.push(key(m));
                 }
             }
             for r in &self.models.recent {
-                if self.models.is_favorite(&r.provider_id, &r.model_id) {
+                if favorites.iter().any(|f| f.provider_id == r.provider_id && f.model_id == r.model_id) {
                     continue;
                 }
                 if let Some(m) = models.iter().find(|m| m.provider_id == r.provider_id && m.id == r.model_id) {
-                    let mut o = Opt::new(m.name.clone(), key(m)).cat("Recent").desc(pname(&m.provider_id));
+                    let mut o = Opt::new(m.name.clone(), format!("section:{}", key(m))).cat("Recent").desc(pname(&m.provider_id));
                     if m.free() {
                         o.footer = Some("Free".into());
                     }
                     opts.push(o);
-                    shown.push(key(m));
+                    sectioned.push(key(m));
                 }
             }
         }
-        let mut rest: Vec<&ModelInfo> = models.iter().filter(|m| !shown.contains(&key(m))).collect();
-        let rank = |p: &str| match p {
-            "opencode-go" => 0,
-            "opencode" => 1,
-            _ => 2,
-        };
+        // `sortModelOptions`: a stable sort keeping the server's order within each group.
+        let mut rest: Vec<&ModelInfo> = models.iter().collect();
         rest.sort_by(|a, b| {
-            rank(&a.provider_id)
-                .cmp(&rank(&b.provider_id))
-                .then(pname(&a.provider_id).cmp(&pname(&b.provider_id)))
-                .then(b.free().cmp(&a.free()))
-                .then(b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal))
-                .then(a.name.cmp(&b.name))
+            let grouped = if connected {
+                (b.provider_id == "opencode-go").cmp(&(a.provider_id == "opencode-go")).then((b.provider_id == "opencode").cmp(&(a.provider_id == "opencode"))).then(locale::compare(&pname(&a.provider_id), &pname(&b.provider_id)))
+            } else {
+                std::cmp::Ordering::Equal
+            };
+            grouped.then(b.free().cmp(&a.free()))
         });
         for m in rest {
             let mut o = Opt::new(m.name.clone(), key(m));
             if connected {
                 o.category = Some(pname(&m.provider_id));
             }
-            if self.models.is_favorite(&m.provider_id, &m.id) {
+            if connected && self.models.is_favorite(&m.provider_id, &m.id) {
                 o.description = Some("(Favorite)".into());
             }
             if m.free() {
                 o.footer = Some("Free".into());
             }
+            // Shown in a section above; the full list holds it again only while searching.
+            o.disabled = sectioned.contains(&key(m));
             opts.push(o);
         }
         let title = provider.as_ref().map(|p| pname(p)).unwrap_or_else(|| "Select model".into());
         let mut s = Select::new(title, opts);
         s.flat = true;
         s.current = self.current_model().map(|m| format!("{}/{}", m.provider_id, m.id));
-        s.focus_current = false;
         s.actions = vec![
-            Action { id: "model.dialog.provider".into(), title: if connected { "Connect an integration".into() } else { "View all integrations".into() }, right: false, disabled: false, hidden: false },
-            Action { id: "model.dialog.favorite".into(), title: "Favorite".into(), right: false, disabled: false, hidden: !connected },
+            Action::new("model.dialog.provider", if connected { "Connect an integration" } else { "View all integrations" }).dialog_level(),
+            Action::new("model.dialog.favorite", "Favorite").hidden(!connected),
         ];
-        self.open_dialog(Dialog::select("model", s, Size::Medium));
+        let mut d = Dialog::select("model", s, Size::Medium);
+        d.data = json!({ "provider": provider });
+        self.open_dialog(d);
     }
 
     pub fn open_theme_dialog(&mut self) {
@@ -1129,10 +1133,10 @@ impl App {
         }
         let mut s = Select::new("Settings", opts);
         s.current = Some(focus.unwrap_or("theme.name").to_string());
-        s.hints = vec![("←/→".into(), "change".into())];
+        s.hints = vec![("change".into(), "←/→".into())];
         s.actions = vec![
-            Action { id: "key:left".into(), title: String::new(), right: false, disabled: false, hidden: true },
-            Action { id: "key:right".into(), title: String::new(), right: false, disabled: false, hidden: true },
+            Action::key("left"),
+            Action::key("right"),
         ];
         let mut d = Dialog::select("settings", s, Size::Medium);
         if let Some(sel) = d.sel() {
@@ -1212,9 +1216,9 @@ impl App {
         sel.empty = Some("No sessions available".into());
         sel.no_match = Some("No sessions found".into());
         sel.actions = vec![
-            Action { id: "session.pin.toggle".into(), title: "pin/unpin".into(), right: false, disabled: false, hidden: tabs },
-            Action { id: "session.delete".into(), title: "delete".into(), right: false, disabled: false, hidden: false },
-            Action { id: "session.rename".into(), title: "rename".into(), right: false, disabled: false, hidden: false },
+            Action::new("session.pin.toggle", "pin/unpin").hidden(tabs),
+            Action::new("session.delete", "delete"),
+            Action::new("session.rename", "rename"),
         ];
         self.open_dialog(Dialog::select("session", sel, Size::Large));
     }
@@ -1266,8 +1270,8 @@ impl App {
         let opts: Vec<Opt> = self.queued_prompts().iter().map(|i| Opt::new(i.payload.get("text").and_then(|t| t.as_str()).unwrap_or("").replace('\n', " "), i.id.clone())).collect();
         let mut s = Select::new("Queued prompts", opts);
         s.actions = vec![
-            Action { id: "queued_prompt.undo".into(), title: "undo".into(), right: false, disabled: false, hidden: false },
-            Action { id: "queued_prompt.delete".into(), title: "delete".into(), right: false, disabled: false, hidden: false },
+            Action::new("queued_prompt.undo", "undo"),
+            Action::new("queued_prompt.delete", "delete"),
         ];
         self.open_dialog(Dialog::select("queued", s, Size::Medium));
     }
@@ -1303,7 +1307,7 @@ impl App {
             })
             .collect();
         let mut s = Select::new("Stash", opts);
-        s.actions = vec![Action { id: "stash.delete".into(), title: "delete".into(), right: false, disabled: false, hidden: false }];
+        s.actions = vec![Action::new("stash.delete", "delete")];
         self.open_dialog(Dialog::select("stash", s, Size::Medium));
     }
 
@@ -1327,7 +1331,7 @@ impl App {
             })
             .collect();
         let mut sel = Select::new("MCP servers", opts);
-        sel.actions = vec![Action { id: "dialog.mcp.toggle".into(), title: "toggle".into(), right: false, disabled: false, hidden: false }];
+        sel.actions = vec![Action::new("dialog.mcp.toggle", "toggle")];
         self.open_dialog(Dialog::select("mcp", sel, Size::Medium));
     }
 
@@ -1351,30 +1355,95 @@ impl App {
                 lines.push(SLine::new(vec![seg("• ", fg(c)), Seg::new(s.name.clone(), bold(fg(t.text.base))), seg(format!(" {text}"), fg(t.text.muted))]));
             }
         }
-        self.open_dialog(Dialog::new("text", Body::Text { title: "Status".into(), lines, hints: vec![], scroll: 0 }));
+        self.open_dialog(Dialog::text("text", TextDialog::new("Status", lines)));
     }
 
-    fn open_debug(&mut self) {
-        let t = self.theme().clone();
-        use crate::ui::text::{SLine, fg, seg};
+    /// `DialogDebug` rows: (label, value).
+    pub fn debug_entries(&self) -> Vec<(&'static str, String)> {
         let model = self.current_model().map(|m| format!("{}/{}", m.provider_id, m.id));
-        let rows = vec![
-            ("Version", Some(self.opts.version.clone()).filter(|v| !v.is_empty())),
-            ("Date", Some(locale::iso(locale::now_ms()))),
-            ("OS", Some(format!("{} {}", std::env::consts::OS, std::env::consts::ARCH))),
-            ("Terminal", std::env::var("TERM_PROGRAM").ok().or_else(|| std::env::var("TERM").ok())),
-            ("Session ID", self.session_id().map(|s| s.to_string())),
-            ("Model", model),
-        ];
-        let text: String = rows.iter().map(|(k, v)| format!("{k}: {}", v.clone().unwrap_or_else(|| "n/a".into()))).collect::<Vec<_>>().join("\n");
-        let mut lines: Vec<SLine> = rows.into_iter().map(|(k, v)| SLine::new(vec![seg(format!("{k:<10}"), fg(t.text.muted)), seg(v.unwrap_or_else(|| "n/a".into()), fg(t.text.base))])).collect();
-        lines.push(SLine::blank());
-        lines.push(SLine::new(vec![seg("Share this when reporting an issue.", fg(t.text.muted))]));
-        let mut d = Dialog::new("debug", Body::Text { title: "Debug".into(), lines, hints: vec![("copy".into(), "enter".into())], scroll: 0 });
+        vec![
+            ("Version", format!("{} ({})", self.opts.version, self.opts.channel)),
+            ("Date", locale::iso(locale::now_ms())),
+            ("OS", crate::util::system::describe_os()),
+            ("Terminal", crate::util::system::describe_terminal()),
+            ("Session ID", self.session_id().map(|s| s.to_string()).unwrap_or_else(|| "n/a".into())),
+            ("Model", model.unwrap_or_else(|| "n/a".into())),
+        ]
+    }
+
+    pub fn open_debug(&mut self) {
+        let entries = self.debug_entries();
+        let text: String = entries.iter().map(|(k, v)| format!("{k}: {v}")).collect::<Vec<_>>().join("\n");
+        let mut d = Dialog::text("debug", debug_dialog(self, &entries, false));
         d.size = Size::Large;
-        d.data = json!(text);
+        d.data = json!({ "text": text, "entries": entries.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>() });
         self.open_dialog(d);
     }
+}
+
+/// `DialogDebug`: label column (10 + gap), word-wrapped values, the note and `copy enter` footer.
+pub fn debug_dialog(app: &App, entries: &[(&str, String)], copied: bool) -> TextDialog {
+    use crate::ui::text::{SLine, Wrap, fg, seg, wrap};
+    let t = app.theme().dialog().clone();
+    let w = (Size::Large.width() as usize).min(app.size.0.saturating_sub(2) as usize).saturating_sub(DIALOG_INSET * 2);
+    let mut lines = Vec::new();
+    for (k, v) in entries {
+        let rows = wrap(&[seg(v.clone(), fg(t.text.base))], w.saturating_sub(11).max(1), Wrap::Word);
+        for (i, r) in rows.into_iter().enumerate() {
+            let label = if i == 0 { format!("{k:<10} ") } else { " ".repeat(11) };
+            lines.push(SLine::new(r).prefixed(&[seg(label, fg(t.text.muted))]));
+        }
+    }
+    let copy = if copied { FooterItem::new("✓ copied", "enter").color(t.text.feedback.success.base) } else { FooterItem::new("copy", "enter") };
+    TextDialog::new("Debug", lines).footer(Footer { children: vec![seg("Share this when reporting an issue.", fg(t.text.muted))], secondary: vec![], primary: vec![copy] })
+}
+
+/// The `/btw` answer (`Answer` in `feature-plugins/prompt/btw.tsx`).
+pub fn btw_answer(app: &App, question: &str, answer: &str, copied: bool) -> Dialog {
+    let base = app.theme().clone();
+    let t = base.dialog().clone();
+    let width = (Size::Large.width() as usize).min(app.size.0.saturating_sub(2) as usize).saturating_sub(DIALOG_INSET * 2).max(1);
+    let st = crate::theme::SyntaxStyle::from_theme(&base);
+    let o = crate::ui::markdown::MdOpts { theme: &base, syntax: &st, conceal: true, fg: base.markdown.text, mono: false };
+    let lines = crate::ui::markdown::render(answer, width, &o);
+    let question_line = question.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut td = TextDialog::new("/btw", lines);
+    td.title_extra = Some((question_line, true));
+    td.header_gap = 2;
+    td.band = Some(base.background.raised.high);
+    // The scrollbox holds at most max(8, 60% of the terminal) rows, including its padding rows.
+    let max = ((app.size.1 as f64 * 0.6).floor() as usize).max(8).saturating_sub(2);
+    td.height = Some(max).filter(|m| td.lines.len() > *m);
+    let copy = if copied { FooterItem::new("✓ copied", "").color(t.text.feedback.success.base) } else { FooterItem::new("copy", "c") };
+    td.footer = Some(Footer { secondary: vec![copy, FooterItem::new("scroll", "j/k ↑/↓")], ..Default::default() });
+    let mut d = Dialog::text("btw-answer", td);
+    d.size = Size::Large;
+    d.centered = true;
+    d.data = json!({ "question": question, "answer": answer });
+    d
+}
+
+/// `/copy`: the text of the latest assistant message or completed compaction with a summary
+/// (whichever is later) before the revert point. `None` when there is none; empty text when the
+/// assistant message has no text parts.
+pub fn last_assistant_text(messages: &[Message], revert: Option<&str>) -> Option<String> {
+    let m = messages
+        .iter()
+        .filter(|m| revert.is_none_or(|b| m.id.as_str() < b))
+        .rev()
+        .find(|m| m.kind == "assistant" || (m.kind == "compaction" && m.status.as_deref() == Some("completed") && m.summary.as_deref().is_some_and(|s| !s.trim().is_empty())))?;
+    if m.kind == "compaction" {
+        return Some(m.summary.as_deref().unwrap_or("").trim().to_string());
+    }
+    Some(
+        m.content
+            .iter()
+            .filter_map(|c| if let Content::Text { text, .. } = c { Some(text.as_str()) } else { None })
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string(),
+    )
 }
 
 pub fn open_url(url: &str) {

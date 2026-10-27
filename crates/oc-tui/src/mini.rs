@@ -318,6 +318,7 @@ pub async fn run_mini(mut opts: TuiOptions, mini: MiniOptions) -> anyhow::Result
 
 fn run_editor(app: &mut App) {
     let Some(cmd) = std::env::var("VISUAL").ok().filter(|v| !v.is_empty()).or_else(|| std::env::var("EDITOR").ok().filter(|v| !v.is_empty())) else {
+        app.toast(crate::app::Toast::new("error", "failed to open editor"));
         return;
     };
     let path = std::env::temp_dir().join(format!("{}.md", crate::util::locale::now_ms()));

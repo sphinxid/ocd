@@ -603,7 +603,7 @@ impl App {
         if !self.prompt_active() {
             return;
         }
-        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        let normalized = crate::util::locale::strip_ansi(text).replace("\r\n", "\n").replace('\r', "\n");
         if self.paste_files(&normalized) {
             return;
         }
@@ -699,14 +699,13 @@ impl App {
             self.autocomplete = None;
             return;
         }
-        // `/` trigger.
-        if let Some(i) = before.rfind('/') {
-            let ok_start = i == 0 || before[..i].ends_with(char::is_whitespace);
-            let q = &before[i + 1..];
-            if ok_start && !q.contains(char::is_whitespace) && !q.contains('/') {
-                self.open_autocomplete("command", i, &q.to_string());
-                return;
-            }
+        // `/` trigger: only at the start of the prompt.
+        if let Some(q) = before.strip_prefix('/')
+            && !q.contains(char::is_whitespace)
+            && !q.contains('/')
+        {
+            self.open_autocomplete("command", 0, q);
+            return;
         }
         if let Some(i) = before.rfind('@') {
             let ok_start = i == 0 || before[..i].ends_with(char::is_whitespace);
@@ -1189,7 +1188,8 @@ impl App {
                             app.navigate(Route::Home);
                         }
                     }
-                    app.toast(Toast::new("error", crate::api::error_message(&e)).title("Failed to send prompt"));
+                    let title = if shell && !created { "Failed to run shell command" } else { "Failed to send prompt" };
+                    app.toast(Toast::new("error", crate::api::error_message(&e)).title(title));
                 }
             },
         );
@@ -1235,6 +1235,20 @@ impl App {
                             o.disabled = !f.is_empty();
                         }
                     }
+                }
+                if purpose == "model"
+                    && let Some(sel) = self.dialogs.last_mut().and_then(|d| d.sel())
+                {
+                    // Favorites and Recent sections only show without a search; the full list then holds them.
+                    let sectioned: Vec<String> = sel.options.iter().filter_map(|o| o.value.strip_prefix("section:").map(|v| v.to_string())).collect();
+                    for o in sel.options.iter_mut() {
+                        if o.value.starts_with("section:") {
+                            o.disabled = !f.is_empty();
+                        } else if sectioned.contains(&o.value) {
+                            o.disabled = f.is_empty();
+                        }
+                    }
+                    sel.focus_current_option();
                 }
                 if purpose == "theme" {
                     let first = self.dialogs.last_mut().and_then(|d| d.sel()).and_then(|s| s.selected_value());
@@ -1303,8 +1317,49 @@ impl App {
             }
             Outcome::Confirm(_) => self.close_dialog(),
             Outcome::Action(id, v) => self.dialog_action(&purpose, &id, v),
+            Outcome::Key(k) => self.dialog_key(&purpose, &k, &d),
         }
         self.dirty = true;
+    }
+
+    /// Purpose-specific keys of text dialogs (`Outcome::Key`).
+    fn dialog_key(&mut self, purpose: &str, key: &str, d: &dialog::Dialog) {
+        match (purpose, key) {
+            ("export-result", "return") => self.close_dialog(),
+            ("debug", "return") => {
+                let text = d.data.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                crate::clipboard::write(&text);
+                self.toast(Toast::new("info", "Debug info copied to clipboard"));
+                let entries: Vec<(String, String)> = d
+                    .data
+                    .get("entries")
+                    .and_then(|e| e.as_array())
+                    .map(|a| a.iter().filter_map(|p| Some((p.get(0)?.as_str()?.to_string(), p.get(1)?.as_str()?.to_string()))).collect())
+                    .unwrap_or_default();
+                let entries: Vec<(&str, String)> = entries.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+                let body = super::commands::debug_dialog(self, &entries, true);
+                if let Some(top) = self.dialogs.last_mut().filter(|x| x.purpose == "debug") {
+                    top.body = Body::Text(Box::new(body));
+                }
+            }
+            ("btw-answer", "c") => {
+                let answer = d.data.get("answer").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                let question = d.data.get("question").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                crate::clipboard::write(&answer);
+                let scroll = match &d.body {
+                    Body::Text(td) => td.scroll,
+                    _ => 0,
+                };
+                let mut nd = super::commands::btw_answer(self, &question, &answer, true);
+                if let Some(td) = nd.text_body() {
+                    td.scroll = scroll;
+                }
+                if let Some(top) = self.dialogs.last_mut().filter(|x| x.purpose == "btw-answer") {
+                    *top = nd;
+                }
+            }
+            _ => {}
+        }
     }
 
     fn reset_confirm(&mut self) {
@@ -1339,7 +1394,7 @@ impl App {
             }
             "model" => {
                 self.dialogs.clear();
-                if let Some((p, m)) = v.split_once('/') {
+                if let Some((p, m)) = v.strip_prefix("section:").unwrap_or(v).split_once('/') {
                     let mref = ModelRef { provider_id: p.into(), id: m.into(), variant: None };
                     self.set_model(mref, true);
                     let info = self.current_model_info();
@@ -1504,10 +1559,25 @@ impl App {
             ("open-worktrees", "key:ctrl+n") => self.open_new_worktree_prompt(),
             ("worktrees", _) => self.worktree_action(id, v),
             ("model", "model.dialog.favorite") => {
-                if let Some((p, m)) = v.as_deref().and_then(|v| v.split_once('/')) {
+                if let Some((p, m)) = v.as_deref().map(|v| v.strip_prefix("section:").unwrap_or(v)).and_then(|v| v.split_once('/')) {
                     let fav = self.models.is_favorite(p, m);
                     self.models.set_favorite(p, m, !fav);
-                    self.open_model_dialog(None);
+                    let provider = self.dialogs.last().and_then(|d| d.data.get("provider").and_then(|p| p.as_str()).map(|p| p.to_string()));
+                    let (filter, selected) = self.dialogs.last_mut().and_then(|d| d.sel()).map(|s| (s.filter.clone(), s.selected_value())).unwrap_or_default();
+                    self.open_model_dialog(provider);
+                    if let Some(sel) = self.dialogs.last_mut().and_then(|d| d.sel()) {
+                        if !filter.is_empty() {
+                            sel.set_filter(filter.clone());
+                        }
+                        if let Some(v) = selected
+                            && let Some(i) = sel.visible().iter().position(|i| sel.options[*i].value == v)
+                        {
+                            sel.selected = i;
+                        }
+                    }
+                    if !filter.is_empty() {
+                        self.dialog_outcome(Outcome::Filter(filter));
+                    }
                 }
             }
             ("model", "model.dialog.provider") => {

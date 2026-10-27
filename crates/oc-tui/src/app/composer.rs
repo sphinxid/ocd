@@ -262,15 +262,25 @@ impl App {
         let dir = self.location_dir();
         let shell = id.to_string();
         let cmd = command.to_string();
+        let running = self.loc().is_some_and(|l| l.shells.iter().any(|s| s.id == shell && s.status == "running"));
         self.spawn(async move { c.shell_output(&shell, 0, Some(&dir)).await }, move |app, r| {
+            use crate::ui::dialog::{Dialog, Footer, FooterItem, Size, TextDialog};
             let t = app.theme().dialog().clone();
-            let mut lines = vec![SLine::new(vec![seg(cmd.clone(), fg(t.text.muted))]), SLine::blank()];
+            // `DialogShellOutput`: the command (up to 3 rows), the omitted note, then the output.
+            let mut pre: Vec<SLine> = wrap(&[seg(cmd.clone(), fg(t.text.muted))], (Size::XLarge.width() as usize).min(app.size.0.saturating_sub(2) as usize).saturating_sub(6), crate::ui::text::Wrap::Word)
+                .into_iter()
+                .take(3)
+                .map(SLine::new)
+                .collect();
+            pre.push(SLine::blank());
+            let mut lines = Vec::new();
             match r {
                 Ok(o) => {
                     if o.truncated {
-                        lines.push(SLine::new(vec![seg("Earlier output omitted · showing recent output", fg(t.text.muted))]));
+                        pre.push(SLine::new(vec![seg("Earlier output omitted · showing recent output", fg(t.text.muted))]));
+                        pre.push(SLine::blank());
                     }
-                    let text = locale::strip_ansi(&o.output);
+                    let text = locale::strip_ansi(&o.output).replace("\r\n", "\n").replace('\r', "\n");
                     if text.trim().is_empty() {
                         lines.push(SLine::new(vec![seg("No captured output. Output redirected to files is not shown here.", fg(t.text.muted))]));
                     }
@@ -280,8 +290,16 @@ impl App {
                 }
                 Err(_) => lines.push(SLine::new(vec![seg("Shell output is no longer available.", fg(t.text.feedback.error.base))])),
             }
-            let mut d = crate::ui::dialog::Dialog::new("text", crate::ui::dialog::Body::Text { title: "Shell output".into(), lines, hints: vec![("↑/↓".into(), "scroll".into()), ("end".into(), "follow".into()), ("esc".into(), "back".into())], scroll: 0 });
-            d.size = crate::ui::dialog::Size::XLarge;
+            let height = ((app.size.1 as f64 * 0.6).floor() as usize).saturating_sub(6).max(3);
+            let mut td = TextDialog::new("Shell output", lines);
+            td.pre = pre;
+            td.title_extra = Some((if running { "Running".to_string() } else { "Exited".to_string() }, false));
+            td.header_gap = if app.size.0 < 60 { 1 } else { 2 };
+            td.height = Some(height);
+            td.scroll = usize::MAX / 2;
+            td.footer = Some(Footer { secondary: vec![FooterItem::new("scroll", "↑/↓"), FooterItem::new("follow", "end"), FooterItem::new("back", "esc")], ..Default::default() });
+            let mut d = Dialog::text("text", td);
+            d.size = Size::XLarge;
             d.centered = true;
             app.open_dialog(d);
         });

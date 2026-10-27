@@ -169,7 +169,7 @@ impl App {
             if !projects.is_empty() {
                 sel.footer_text = None;
             }
-            sel.actions = vec![Action { id: "key:right".into(), title: String::new(), right: false, disabled: false, hidden: true }];
+            sel.actions = vec![Action::key("right")];
         }
         if let Some(d) = self.dialogs.last_mut().filter(|d| d.purpose == "open") {
             d.data = json!(projects);
@@ -213,8 +213,8 @@ impl App {
         s.footer_text = Some(("Loading worktrees…".into(), self.theme().dialog().text.muted));
         s.hints = vec![("new worktree".into(), "ctrl+n".into())];
         s.actions = vec![
-            Action { id: "key:left".into(), title: String::new(), right: false, disabled: false, hidden: true },
-            Action { id: "key:ctrl+n".into(), title: String::new(), right: false, disabled: false, hidden: true },
+            Action::key("left"),
+            Action::key("ctrl+n"),
         ];
         let mut d = Dialog::select("open-worktrees", s, Size::Large);
         d.data = json!({ "project": project, "projects": projects, "id": id, "root": dir, "name": name });
@@ -310,10 +310,10 @@ impl App {
         s.no_match = Some("No worktrees found".into());
         let in_session = self.session_id().is_some();
         s.actions = vec![
-            Action { id: "dialog.move_session.move".into(), title: "move".into(), right: false, disabled: false, hidden: !in_session },
-            Action { id: "dialog.move_session.new".into(), title: "new".into(), right: false, disabled: false, hidden: false },
-            Action { id: "dialog.move_session.delete".into(), title: "delete".into(), right: false, disabled: false, hidden: false },
-            Action { id: "dialog.move_session.refresh".into(), title: "refresh".into(), right: false, disabled: false, hidden: false },
+            Action::new("dialog.move_session.move", "move").hidden(!in_session),
+            Action::new("dialog.move_session.new", "new").dialog_level(),
+            Action::new("dialog.move_session.delete", "delete"),
+            Action::new("dialog.move_session.refresh", "refresh").dialog_level(),
         ];
         let mut d = Dialog::select("worktrees", s, Size::XLarge);
         d.data = json!({ "id": project });
@@ -445,7 +445,7 @@ impl App {
     // ---- Pair --------------------------------------------------------------
 
     pub fn open_pair(&mut self) {
-        let mut d = Dialog::new("text", Body::Text { title: "Pair".into(), lines: vec![SLine::new(vec![seg("Loading server information…", fg(self.theme().dialog().text.muted))])], hints: vec![], scroll: 0 });
+        let mut d = Dialog::text("text", crate::ui::dialog::TextDialog::new("Pair", vec![SLine::new(vec![seg("Loading server information…", fg(self.theme().dialog().text.muted))])]));
         d.size = Size::Large;
         d.centered = true;
         d.purpose = "pair".into();
@@ -494,10 +494,8 @@ impl App {
                     SLine::new(vec![seg("Close and reopen Pair to try again.", fg(t.text.muted))]),
                 ],
             };
-            if let Some(d) = app.dialogs.last_mut().filter(|d| d.purpose == "pair")
-                && let Body::Text { lines: l, .. } = &mut d.body
-            {
-                *l = lines;
+            if let Some(td) = app.dialogs.last_mut().filter(|d| d.purpose == "pair").and_then(|d| d.text_body()) {
+                td.lines = lines;
             }
             app.dirty = true;
         });

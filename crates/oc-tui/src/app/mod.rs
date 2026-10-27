@@ -1255,6 +1255,8 @@ impl App {
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod dialog_tests;
+#[cfg(test)]
 mod fuzz_tests;
 #[cfg(test)]
 mod perf;

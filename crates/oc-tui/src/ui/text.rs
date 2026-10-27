@@ -314,6 +314,8 @@ pub fn fill(buf: &mut Buffer, area: Rect, bg: Color) {
     for y in area.top()..area.bottom() {
         for x in area.left()..area.right() {
             let c = &mut buf[(x, y)];
+            // An opaque box: nothing of the cell underneath (bold, underline) shows through.
+            c.reset();
             c.set_symbol(" ");
             c.set_style(Style::default().bg(bg).fg(bg));
         }

@@ -925,6 +925,7 @@ impl Store {
                     kind: "compaction.failed".into(),
                     message: "Compaction failed before recording an error".into(),
                     status: None,
+                    retry_after_ms: None,
                 });
                 let reason = d.get("reason").and_then(|v| v.as_str()).unwrap_or("manual").to_string();
                 let created = ev.created;
