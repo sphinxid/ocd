@@ -298,6 +298,34 @@ async fn question_flow() {
     assert!(request.save.is_none());
 }
 
+/// `tool-todo.test.ts`: "registers todowrite on the native tool list and summarizes the update".
+#[tokio::test]
+async fn todo_flow() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let ctx = context(dir.path(), host.clone());
+    let todos = json!([
+        { "content": "Write tests", "status": "in_progress" },
+        { "content": "Ship it", "status": "pending" },
+        { "content": "Read the code", "status": "completed" },
+        { "content": "Rewrite everything", "status": "cancelled" },
+    ]);
+    let ok = run(&tools::todo::TodoTool, json!({ "todos": todos }), ctx.clone()).await.unwrap();
+    assert_eq!(ok.output, Some(json!({ "todos": todos })));
+    assert_eq!(text(&ok), "Todos updated: 1/4 completed, 1 in progress, 1 pending, 1 cancelled. In progress: \"Write tests\"");
+    assert_eq!(ok.metadata.unwrap()["todos"], todos);
+    let request = host.requests.lock()[0].clone();
+    assert_eq!((request.action.as_str(), request.resources.clone(), request.save.clone()), ("todowrite", vec!["*".to_string()], Some(vec!["*".to_string()])));
+    let ok = run(&tools::todo::TodoTool, json!({ "todos": [] }), ctx.clone()).await.unwrap();
+    assert_eq!(text(&ok), "Todos cleared");
+    let err = run(&tools::todo::TodoTool, json!({ "todos": [{ "content": "x", "status": "done" }] }), ctx.clone()).await.unwrap_err();
+    assert!(err.message.starts_with("Invalid arguments for tool \"todowrite\":\n- todos[0].status: "), "{}", err.message);
+    *host.deny.lock() = Some(PermissionError::Corrected { feedback: "not now".into() });
+    let err = run(&tools::todo::TodoTool, json!({ "todos": [] }), ctx.clone()).await.unwrap_err();
+    assert_eq!(err.message, "Unable to update todos");
+    assert_eq!(err.model_message(), "not now");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn shell_tool_flow() {
@@ -346,7 +374,7 @@ async fn registry_snapshot_and_execute() {
     let rules = vec![PermissionRule { action: "webfetch".into(), resource: "*".into(), effect: Effect::Deny }];
     let snapshot = registry.snapshot(&rules);
     let names: Vec<String> = snapshot.registered_definitions().into_iter().map(|d| d.name).collect();
-    assert_eq!(names, vec!["edit", "glob", "grep", "patch", "question", "read", "shell", "skill", "subagent", "websearch", "write"]);
+    assert_eq!(names, vec!["edit", "glob", "grep", "patch", "question", "read", "shell", "skill", "subagent", "todowrite", "websearch", "write"]);
     assert_eq!(snapshot.codemode.len(), 8);
     let claude = DefinitionContext { model_id: Some("claude-sonnet".into()), shell: Some("/bin/bash".into()), ..Default::default() };
     let defs = snapshot.definitions(&claude, None);

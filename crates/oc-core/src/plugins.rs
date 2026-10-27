@@ -37,7 +37,7 @@ use crate::location::Location;
 
 /// Built-in (internal) plugin ids in activation order (`core/src/plugin/internal.ts` `pre`, the
 /// provider and web-search plugins, `post`), as `plugin.list` reports them.
-pub const BUILTIN_PLUGINS: [&str; 89] = [
+pub const BUILTIN_PLUGINS: [&str; 90] = [
     "opencode.tool.input.repair",
     "opencode.config.worktree",
     "opencode.config.mcp",
@@ -106,6 +106,7 @@ pub const BUILTIN_PLUGINS: [&str; 89] = [
     "opencode.tool.shell",
     "opencode.tool.skill",
     "opencode.tool.subagent",
+    "opencode.tool.todo",
     "opencode.tool.webfetch",
     "opencode.tool.websearch",
     "opencode.tool.write",
@@ -130,7 +131,7 @@ pub const BUILTIN_PLUGINS: [&str; 89] = [
 ];
 
 /// Index of the first `post` internal plugin in [`BUILTIN_PLUGINS`].
-const POST_START: usize = 72;
+const POST_START: usize = 73;
 
 /// The ocd-native internal plugins in upstream order.
 pub fn internal_plugins() -> InternalPlugins {
@@ -190,6 +191,7 @@ pub fn tool_plugin(tool: &dyn Tool) -> Option<&'static str> {
         "shell" => "opencode.tool.shell",
         "skill" => "opencode.tool.skill",
         "subagent" => "opencode.tool.subagent",
+        "todowrite" => "opencode.tool.todo",
         "webfetch" => "opencode.tool.webfetch",
         "websearch" => "opencode.tool.websearch",
         "write" => "opencode.tool.write",

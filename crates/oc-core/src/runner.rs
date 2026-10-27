@@ -327,7 +327,7 @@ impl Engine {
                 let _ = mcp.wait_ready(&server.name).await;
             }
         }
-        let registry = self.base_registry(&location.key, &mcp);
+        let registry = self.base_registry(&location, &mcp);
         let registry = self.app.plugins.tools(&location.key, registry).await;
         let snapshot = registry.snapshot(&permissions);
         let skills = self.app.plugins.skills(&location, &self.app.global, &self.app.version).await;
@@ -356,8 +356,13 @@ impl Engine {
     }
 
     /// The native tool registry of a location: built-ins plus its MCP tools.
-    pub fn base_registry(&self, key: &str, mcp: &oc_mcp::manager::McpManager) -> Registry {
+    pub fn base_registry(&self, location: &Location, mcp: &oc_mcp::manager::McpManager) -> Registry {
+        let key = location.key.as_str();
         let mut registry = self.registry.clone();
+        // `opencode.tool.todo` adds `todowrite` only while the latest `experimental` config entry sets `todo: true`.
+        if oc_config::fold::experimental(&location.entries).and_then(|e| e.todo) != Some(true) {
+            registry.remove(oc_tools::tools::todo::NAME);
+        }
         // Built-in tool plugins removed by configuration (`-opencode.tool.read`, `-*`, ...).
         if let Some(enabled) = self.app.plugins.enabled(key) {
             for (id, tool) in registry.list() {
@@ -1098,7 +1103,7 @@ impl crate::plugins::ToolSource for RunnerTools {
             let engine = engine?;
             let location = engine.location(&key).await.ok()?;
             let mcp = engine.mcp(&location).await;
-            let registry = engine.app.plugins.tools(&key, engine.base_registry(&key, &mcp)).await;
+            let registry = engine.app.plugins.tools(&key, engine.base_registry(&location, &mcp)).await;
             Some(crate::plugins::tool_value(&registry))
         })
     }

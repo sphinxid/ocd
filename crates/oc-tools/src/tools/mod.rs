@@ -12,6 +12,7 @@ pub mod read;
 pub mod shell;
 pub mod skill;
 pub mod subagent;
+pub mod todo;
 pub mod webfetch;
 pub mod websearch;
 pub mod write;
@@ -74,7 +75,7 @@ pub struct Services {
 
 /// Built-in tools in upstream registration order (`core/src/plugin/internal.ts`):
 /// patch, edit, glob, grep, opencode.*, MCP resource tools, question, read, shell, skill,
-/// subagent, webfetch, websearch, write.
+/// subagent, todowrite (kept only where `experimental.todo` is on, see oc-core), webfetch, websearch, write.
 pub fn builtin(services: &Services) -> (Vec<Arc<dyn crate::tool::Tool>>, Vec<crate::tool::Namespace>) {
     let mut tools: Vec<Arc<dyn crate::tool::Tool>> = vec![
         Arc::new(patch::PatchTool::new(services.formatter.clone())),
@@ -89,6 +90,7 @@ pub fn builtin(services: &Services) -> (Vec<Arc<dyn crate::tool::Tool>>, Vec<cra
     tools.push(Arc::new(shell::ShellTool::new(services.shell.clone())));
     tools.push(Arc::new(skill::SkillTool));
     tools.push(Arc::new(subagent::SubagentTool));
+    tools.push(Arc::new(todo::TodoTool));
     tools.push(Arc::new(webfetch::WebFetchTool::new(services.http.clone())));
     tools.push(Arc::new(websearch::WebSearchTool::new(services.websearch.clone())));
     tools.push(Arc::new(write::WriteTool::new(services.formatter.clone())));

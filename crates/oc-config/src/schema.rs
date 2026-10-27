@@ -1514,7 +1514,7 @@ pub struct Experimental {
     /// Enable the experimental portable shell permission scanner. Defaults to false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portable_shell_scanner: Option<bool>,
-    /// Enable the experimental todowrite tool. Defaults to false (accepted; ocd has no todowrite tool).
+    /// Enable the experimental todowrite tool. Defaults to false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub todo: Option<bool>,
     /// Enable experimental background compaction (accepted; not implemented by ocd).
