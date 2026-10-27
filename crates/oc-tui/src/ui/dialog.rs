@@ -277,6 +277,8 @@ pub struct Select {
     pub focus_current: bool,
     /// `locked`: input is ignored (e.g. while a dialog action runs).
     pub locked: bool,
+    /// `moveTo(next, true)`: the next render scrolls the selected row to the middle of the list.
+    pub center: bool,
 }
 
 /// Display row of a select list.
@@ -365,6 +367,7 @@ impl Select {
             return;
         }
         self.selected = (((self.selected as isize + d) % n + n) % n) as usize;
+        self.center = true;
     }
 
     pub fn move_to(&mut self, i: usize) {
@@ -389,6 +392,7 @@ impl Select {
             && let Some(p) = self.visible().iter().position(|i| &self.options[*i].value == cur)
         {
             self.selected = p;
+            self.center = true;
         }
     }
 
@@ -1022,7 +1026,10 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
     };
     let h = (lines.len() as u16 + 1).min(area.height);
     let y = if d.centered { area.y + area.height.saturating_sub(h) / 2 } else { area.y + ((area.height as f64) / 4.0).round() as u16 };
-    let y = y.min(area.bottom().saturating_sub(h));
+    // A dialog taller than the room below its top (a quarter down) runs off the bottom, as upstream's
+    // `paddingTop: height / 4` box does, rather than moving up.
+    let y = y.min(area.bottom().saturating_sub(1));
+    let h = h.min(area.bottom().saturating_sub(y));
     let panel = Rect::new(x, y, w, h);
     fill(buf, panel, t.background.base.tui());
     let inner_rect = Rect::new(x, y + 1, w, h.saturating_sub(1));
@@ -1264,7 +1271,10 @@ fn select_lines(sel: &mut Select, w: usize, term_h: usize, term_w: usize, size: 
         let list_h = rows.len().min((term_h / 2).saturating_sub(6).max(1));
         // Keep the selected row visible with minimal scrolling.
         let sel_row = rows.iter().position(|(_, i)| *i == selected_opt && i.is_some()).unwrap_or(0);
-        if sel.selected == 0 {
+        if std::mem::take(&mut sel.center) {
+            // `scrollToSelection(true)`: the selected row goes to the middle of the list.
+            sel.scroll = sel_row.saturating_sub(list_h / 2);
+        } else if sel.selected == 0 {
             sel.scroll = 0;
         }
         if sel_row < sel.scroll {
