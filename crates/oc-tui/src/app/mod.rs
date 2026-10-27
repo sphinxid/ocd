@@ -2,6 +2,7 @@
 
 pub mod busy;
 pub mod commands;
+pub mod config_watch;
 pub mod composer;
 pub mod diffview;
 pub mod escape;
@@ -314,6 +315,8 @@ pub struct App {
     pub plugins: plugins::PluginsState,
     /// Built-in features disabled from `/plugins` for this run.
     pub disabled_builtins: HashSet<String>,
+    /// Live reload of `cli.json`.
+    pub config_watch: config_watch::ConfigWatch,
 }
 
 impl App {
@@ -432,6 +435,7 @@ impl App {
             project_names: HashMap::new(),
             plugins: Default::default(),
             disabled_builtins: HashSet::new(),
+            config_watch: Default::default(),
             config,
             opts,
         };
@@ -1235,6 +1239,7 @@ impl App {
     /// Periodic work: toasts, leader timeout, interrupt reset, shell polling.
     pub fn tick(&mut self) {
         self.frame += 1;
+        self.watch_config();
         if let Some(t) = &self.toast
             && let Some(shown) = t.shown
             && shown.elapsed() >= Duration::from_millis(t.duration)

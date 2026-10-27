@@ -81,7 +81,11 @@ impl Config {
     }
 
     pub fn load() -> Config {
-        let path = Self::path();
+        Self::load_from(Self::path())
+    }
+
+    /// The config at `path`, with `OPENCODE_CLI_CONFIG_CONTENT` merged over it.
+    pub fn load_from(path: PathBuf) -> Config {
         let mut raw = std::fs::read_to_string(&path)
             .ok()
             .and_then(|t| parse_jsonc(&t))
