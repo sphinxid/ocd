@@ -505,7 +505,9 @@ def _cli_text(text, prog_name):
     if prog_name:
         text = _prog(text, prog_name)
     # Epoch-millisecond timestamps inside CLI JSON lines (`"timestamp":1791850080345`).
-    return re.sub(r"(?<![\d.])1[789]\d{11}(?!\d)", "<t>", text)
+    text = re.sub(r"(?<![\d.])1[789]\d{11}(?!\d)", "<t>", text)
+    # Local date-times in tables (`session list`: `10/27/2026, 8:56:41 AM`), which change with the run.
+    return re.sub(r"\b\d{1,2}/\d{1,2}/\d{4}, \d{1,2}:\d{2}:\d{2} [AP]M\b", "<datetime>", text)
 
 
 def _prog(text, prog_name):
