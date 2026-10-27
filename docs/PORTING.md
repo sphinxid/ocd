@@ -1,8 +1,9 @@
 # opencode v2 → Rust port ("ocd"): working rules
 
-Upstream reference: anomalyco/opencode branch `v2`, commit `4617210822bdbb31e5749751afbfb4584ccedac8` (MIT).
+Upstream reference: anomalyco/opencode tag `v2.1.4`, commit `68bc26b7da1990ce10ffecfbc1e09eb13aa5d824` (MIT); the
+port started from branch `v2` at `4617210822bdbb31e5749751afbfb4584ccedac8` (2.0.26), see `docs/UPGRADE-2.1.4.md`.
 Read-only checkout: `$OCD_SCRATCH/src/opencode`. `OCD_SCRATCH` is the local dev folder (outside the repo) that
-holds that checkout, the upstream build `up-dist/`, bun 1.4.2 (`bun142/`) and test output; tests and scripts
+holds that checkout, the upstream build `up-dist/`, bun 1.4.4 (`bun144/`) and test output; tests and scripts
 that need those read it from this variable (scripts default to `/tmp/ocd-scratch`, tests skip when it is unset)
 Specs: `docs/spec/01..08-*.md`. Verbatim assets: `assets/` (prompts, themes, models.dev snapshot, openapi.json).
 

@@ -1,8 +1,10 @@
 # Differential parity: upstream opencode v2 vs ocd
 
-Upstream reference: the shipped build of `anomalyco/opencode` branch `v2` at commit `4617210` (reports
-`0.0.0-v2-<timestamp>`, channel `v2`). Port: `target/debug/ocd` (workspace version 2.0.26, channel `latest`).
-Upstream sources cited below are relative to `packages/` of that commit.
+Upstream reference: since the 2.1.4 catch-up, a local build of `anomalyco/opencode` at tag `v2.1.4` (commit
+`68bc26b`, built with `--skip-web-ui`; reports `0.0.0-detached-<timestamp>`, channel `detached`). Port:
+`target/debug/ocd` (workspace version 2.1.4, channel `latest`). Results before 2026-10-27 were against the build of
+branch `v2` at commit `4617210` (reports `0.0.0-v2-<timestamp>`, channel `v2`; ocd then reported 2.0.26), and the
+upstream sources cited below are relative to `packages/` of that commit unless they say otherwise.
 
 ## Running the suite
 
@@ -66,12 +68,12 @@ upgrade while this is the first unused turn). The mock records every upgrade (he
   first appearance; UUIDs;
 - epoch-millisecond numbers (any key), ISO timestamps, `duration`/`elapsed`-style keys, `pid`;
 - session `slug`s;
-- the build version (`0.0.0-v2-…` upstream, `2.0.26` port) wherever it appears, the channel in the
-  User-Agent and in the report skill's diagnostics (`v2` vs `latest`);
+- the build version (`0.0.0-v2-…` or `0.0.0-detached-…` upstream, `2.0.26` or `2.1.4` port) wherever it appears,
+  the channel in the User-Agent and in the report skill's diagnostics (`v2`/`detached` vs `latest`);
 - the per-run project/state/server paths and URL (identical between runs; masked for readability);
 - pagination cursors are base64url-decoded and normalized instead of masked;
 - CLI output: the program name `ocd` → `opencode` in command position and in completion-script identifiers,
-  epoch-ms numbers in JSON lines;
+  epoch-ms numbers in JSON lines, local date-times (`session list`);
 - plugin failure references (`err_` + 8 random hex digits);
 - the importer named in a missing AI SDK module's message (`imported from <bundle>`: upstream's compiled chunk
   `/$bunfs/root/chunk-<hash>.js` vs ocd's sidecar bundle `.../ocd-plugin-host/<hash>/host.js`);
@@ -97,9 +99,36 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | errors | 25 not-found shapes, 42 validation cases (params, query, payload, invalid JSON, empty body, wrong content types), 7 auth cases |
 | cli | `--help` for the root and all 17 subcommands and 29 nested ones, `--version`, unknown flag, bash completions; `run` default and `--format json` with a tool call, `run` without a message; `models`, `stats` (+`--json`, `--all`), `session list`, `debug paths/config/agents`, `mcp list`, `plugin list`, `auth list`, `service status/get` |
 | websocket | a configured provider on the native OpenAI package with `transport: "websocket"` against the mock's Open Responses endpoint; every upgrade (headers without the random key, host and Bun's `permessage-deflate` offer), frame (body with instructions/tool schemas as digests, key order) and close is compared. `ws_session`: five prompts on one session, a read tool round trip and the answer as continuation frames (`previous_response_id` + only the new input) over one socket, a `previous_response_not_found` error frame (rejected → step retried in full on a new socket), a server error frame (retry on a new socket), a socket dropped mid-answer (`WebSocket closed with code 1006`, continue), a close frame 1011 before any output (retry). `ws_interrupt`: an interrupt while the socket waits closes it; the next prompt reconnects in full. `ws_fallback`: a refused upgrade pins the session to HTTP (both steps POST with tracing headers), a second session gets its own socket, a provider with `transport: "http"` never opens one. `ws_plugin_hooks`: oc-plugin's `ws-plugin` fixture (`experimental.ws.handshake/send/receive` rewriting the upgrade URL and headers, each sent frame and the received text; `session.http.request` marking HTTP requests): the title and, after an error frame and a refused reconnect, the HTTP fallback carry the HTTP hook's header, the socket traffic carries only the ws hooks' marks |
-| plugin | oc-plugin's fixture plugins (`crates/oc-plugin/tests/fixtures`) copied into the project and configured as local plugins; the port runs them in its Bun sidecar (`OCD_BUN_PATH`, default `$OCD_SCRATCH/bun142/bun-linux-x64/bun`), upstream in-process. `plugin_inventory`: Promise + Effect + invalid + failing-transform plugins → `plugin.list` (order, sources, failures, the `skill.transform` failure disabling its plugin), `command.list`, `agent.list`, `skill.list`, boot and failure events. `plugin_tool`: a plugin tool offered to the model (tool names and full definitions of the first request) and executed with `tool.execute.before` rewriting its input, tool progress, a plugin command writing storage, the storage rows. `plugin_hooks`: `permission.evaluate` allowing/denying `.env` reads, `tool.execute.after` replacing a result, `session.prompt` rewriting the prompt, `session.context` adding a system part, `shell.create.before` adding an env variable. `plugin_effect`: agent/skill transforms and a rejecting `tool.execute.before`. `plugin_rpc_storage`: `rpc.call` (success, declared error, invalid input, unknown method, unknown RPC), storage incl. `ctx.event.subscribe` rows. `plugin_http_hooks`: `session.http.request` rewriting headers and body of every model request (title + steps; what the hook saw is echoed in a header) and `session.http.response` rewriting the streamed body. `plugin_vcs_worktree`: a plugin VCS provider selected with `default.set` (get/base/status/branches with search+limit/three diff modes incl. a failing one, `vcs.init` conflict) and a plugin worktree strategy (create, list, refresh, remove without and with `force`). `plugin_aisdk`: a configured provider whose package is oc-plugin's fixture AI SDK provider (`aisdk:file://.../aisdk-provider/index.js`, a LanguageModelV3 package talking to the mock through the SDK `fetch`): a read tool call, reasoning + text with cached/reasoning usage, an HTTP 400 (`APICallError`), a stream cut mid-way, then a model whose package does not exist (initialization failure); every request the provider sent (V3 prompt, tools, call headers, provider options, SDK options) is compared. `plugin_aisdk_hooks`: the same provider with plugin `aisdk.sdk` / `aisdk.language` hooks (wrapped SDK and language model) and `session.http.*` hooks around the SDK's fetch. `plugin_copilot`: the built-in GitHub Copilot plugin against the mock as a Copilot API (a fake OAuth credential created through the API, its `apiEndpoint` metadata = the mock; HTTPS goes to a dead proxy): the `/models` sync, the derived catalog, a `/responses` tool round trip (gpt-5.4), `/chat/completions` (gemini) and the native `/v1/messages` route (claude) after model switches, the utility-model title; every request the mock received (headers lowercased and sorted, transport headers dropped). `plugin_copilot_unsynced`: the same with a failing sync (404): every models.dev model through the in-tree AI SDK provider at the connection's API base |
+| plugin | oc-plugin's fixture plugins (`crates/oc-plugin/tests/fixtures`) copied into the project and configured as local plugins; the port runs them in its Bun sidecar (`OCD_BUN_PATH`, default `$OCD_SCRATCH/bun144/bun-linux-x64/bun`), upstream in-process. `plugin_inventory`: Promise + Effect + invalid + failing-transform plugins → `plugin.list` (order, sources, failures, the `skill.transform` failure disabling its plugin), `command.list`, `agent.list`, `skill.list`, boot and failure events. `plugin_tool`: a plugin tool offered to the model (tool names and full definitions of the first request) and executed with `tool.execute.before` rewriting its input, tool progress, a plugin command writing storage, the storage rows. `plugin_hooks`: `permission.evaluate` allowing/denying `.env` reads, `tool.execute.after` replacing a result, `session.prompt` rewriting the prompt, `session.context` adding a system part, `shell.create.before` adding an env variable. `plugin_effect`: agent/skill transforms and a rejecting `tool.execute.before`. `plugin_rpc_storage`: `rpc.call` (success, declared error, invalid input, unknown method, unknown RPC), storage incl. `ctx.event.subscribe` rows. `plugin_http_hooks`: `session.http.request` rewriting headers and body of every model request (title + steps; what the hook saw is echoed in a header) and `session.http.response` rewriting the streamed body. `plugin_vcs_worktree`: a plugin VCS provider selected with `default.set` (get/base/status/branches with search+limit/three diff modes incl. a failing one, `vcs.init` conflict) and a plugin worktree strategy (create, list, refresh, remove without and with `force`). `plugin_aisdk`: a configured provider whose package is oc-plugin's fixture AI SDK provider (`aisdk:file://.../aisdk-provider/index.js`, a LanguageModelV3 package talking to the mock through the SDK `fetch`): a read tool call, reasoning + text with cached/reasoning usage, an HTTP 400 (`APICallError`), a stream cut mid-way, then a model whose package does not exist (initialization failure); every request the provider sent (V3 prompt, tools, call headers, provider options, SDK options) is compared. `plugin_aisdk_hooks`: the same provider with plugin `aisdk.sdk` / `aisdk.language` hooks (wrapped SDK and language model) and `session.http.*` hooks around the SDK's fetch. `plugin_copilot`: the built-in GitHub Copilot plugin against the mock as a Copilot API (a fake OAuth credential created through the API, its `apiEndpoint` metadata = the mock; HTTPS goes to a dead proxy): the `/models` sync, the derived catalog, a `/responses` tool round trip (gpt-5.4), `/chat/completions` (gemini) and the native `/v1/messages` route (claude) after model switches, the utility-model title; every request the mock received (headers lowercased and sorted, transport headers dropped). `plugin_copilot_unsynced`: the same with a failing sync (404): every models.dev model through the in-tree AI SDK provider at the connection's API base |
 
 ## Results
+
+**2.1.4 release run (batch 7, debug build, 2026-10-27):** all 69 scenarios against the local v2.1.4 build, both
+binaries started through the isolation guard. **55 of 69 identical** in the full run; two diffs were real and are
+fixed (#50, #51), and `errors_not_found` differed only because the upstream build has no web UI while ocd embeds
+one (identical with ocd pointed at an empty web UI archive, `OCD_WEB_UI`). After the fixes, **57 of 69 identical**
+(reruns of the differing scenarios). The 12 left:
+
+| scenario | cause |
+|---|---|
+| readonly_server, plugin_inventory, plugin_effect, plugin_rpc_storage | 2.1.4 lists the built-in plugin `opencode.tool.todo` (the experimental `todowrite` tool, batch 8 of the catch-up), which ocd does not have |
+| loop_tool_error, loop_http_400 | the known races (unknown-tool failure vs `step.streamed`; title rename vs failed step), both runs |
+| stop_retry_exhausted | the known extra ephemeral `project.updated` at the end of upstream's run (timing) |
+| cli_help | by design: ocd's root and `upgrade` descriptions, the version |
+| cli_run, cli_inventory | `run` output for the last step of a run (below), `debug paths` db name (channel), `debug agents` (upstream laziness race) |
+| plugin_copilot_unsynced | network error wording: Bun's `ECONNREFUSED: Unable to connect. …` vs reqwest's message for the same refused proxy connection (by design, see "Error texts" in the README) |
+
+`run` and the last step: upstream's `run` prints the `> agent · model` header and, with `--format json`, the
+`step_start`/`text`/`step_finish` events only for steps whose live events reach its event stream before
+`session.wait` answers. For the final step of a run they never do, even with the model's answer delayed by 1.5 s,
+so upstream prints that step's text from the projected messages afterwards (part ID `<message>_text-0`, no header,
+no `step_start`/`step_finish`), while ocd prints it live like the earlier steps. Both use the same
+wait-then-reconcile logic (`run/noninteractive.ts`); the difference is in when upstream's server delivers the
+final step's events. Not fixed: matching it would mean delaying ocd's event delivery.
+
+The CLI help, completions and parse errors of every `cli.json` golden case (help of every command, completion
+scripts, ~70 parse errors) were also compared directly against the 2.1.4 binary: identical apart from the version
+and the program name.
 
 Run-ending paths (debug build, 2026-10-13): group `stop` 6 of 6 identical after the fixes #37-#38
 (`stop_finish_reasons`, `stop_anthropic_finish`, `stop_stall_timeouts`, `stop_retry_exhausted`,
@@ -223,6 +252,8 @@ classified below; none is an unexplained behavioral difference.
 | 46 | Config documents went into the agent fold twice, so top-level and agent `permissions` were appended twice to every agent | core/src/config/plugin/agent.ts | oc-core `location.rs` `agents_from` folds `agent_documents(entries)` only; agent list identical to 2.1.4 |
 | 47 | `shell.exited` carried `"exit": null` for a command without an exit code (killed, timed out) | core/src/shell.ts `Exited` | oc-core `services.rs` omits `exit` when absent |
 | 48 | Plugin tool failures were always `tool.execution`; upstream takes the session error from the `Tool.Error` cause (`unknown` for a thrown Error, `permission.rejected` for a rejected `ctx.permission.assert`) | core/src/session/to-session-error.ts, plugin/src/promise/adapter.ts (v2.1.4) | oc-plugin host `location.ts` `sessionCause` sent as `data.cause`, oc-core `plugins.rs` `with_cause` |
+| 50 | A session without its own model failed with `Model unavailable: <config model>` when the configured model was not in the catalog (2.1.4's models.dev snapshot dropped `github-copilot/gpt-5.4`); upstream falls back to the first available text model | core/src/model.ts `Model.default`, model-resolver.ts `resolve` (v2.1.4) | oc-core `models.rs` `resolve_for_session` takes the configured model only when the catalog has it enabled with a package, else `Catalog::select(None)` |
+| 51 | A Responses WebSocket dropped without a close frame reported the body `Connection ended`; 2.1.4 (Bun 1.4.4) reports an empty close reason | ai/src/route/transport/websocket.ts `onClose` (`body: event.reason`) | oc-ai `route/websocket.rs` sends an empty reason for 1006 |
 | 49 | `project.list`/`project.update` did not boot the request's location, so `GET /api/project` neither resolved nor (2.1) unarchived the caller's project first | protocol/src/api.ts `ProjectGroup.middleware(locationMiddleware)` | `oc-backend` `project_list`/`project_update` call `locations.get` first. Checked against the 2.1.4 build (batch 5) |
 
 ### By design (not fixed)
@@ -230,10 +261,12 @@ classified below; none is an unexplained behavioral difference.
 | difference | reason |
 |---|---|
 | The GitHub Copilot plugin's own HTTP calls (the `/models` sync, the utility title) are sent by ocd's Rust HTTP client: lowercase header names, `accept-encoding: gzip,br`, no `Connection: keep-alive` (upstream: Bun's `fetch`); the first catalog build of a location waits for the initial model sync (at most 5 s), where upstream syncs in the background after activation and then reloads the providers (core/src/plugin/provider/github-copilot.ts:172-251) | same URLs, header values and bodies; the model requests go through Bun in both (AI SDK routes) or the native routes as for every provider |
-| `--version`, report-skill diagnostics, User-Agent channel/version | dev build `0.0.0-v2-…`/channel `v2` vs port 2.0.26/`latest`; masked |
-| `debug paths` db `opencode-v2.db` vs `opencode.db`; service config file name | derived from the channel (`v2` dev build) |
+| `--version`, report-skill diagnostics, User-Agent channel/version | local build `0.0.0-detached-…`/channel `detached` (before: `0.0.0-v2-…`/`v2`) vs port 2.1.4/`latest`; masked |
+| `debug paths` db `opencode-detached.db` (before: `opencode-v2.db`) vs `opencode.db`; service config file name | derived from the channel of the local build |
+| Web UI | the local upstream build is made with `--skip-web-ui` (404 for web pages); ocd embeds the UI built from v2.1.4, so the parity runs point ocd at an empty archive (`OCD_WEB_UI`) for `errors_not_found` |
 | Program name `ocd`: help `DESCRIPTION` reads `ocd command line interface` (upstream `OpenCode command line interface`), completion function names | rename; masked where it is just the name |
 | `upgrade` description ("Show how to upgrade opencode (it is built from source)") | the port is built from source |
+| `pair --yes` parses but has nothing to accept | ocd has no OpenTunnel, so `pair --remote` stops before upstream's consent prompt |
 | `POST /api/debug/heap-dump` writes a V8 heap snapshot upstream; ocd answers `500 UnknownError` ("Failed to write heap snapshot: ocd has no JavaScript heap, …"), after the same `400` for a relative directory | no JavaScript heap in ocd |
 | Upstream 500s on bad input reproduced on purpose (relative directories, `NaN` stats range) | deterministic upstream behavior kept |
 
@@ -282,14 +315,15 @@ Everything else in `cli_help` (root, 17 subcommands, 29 nested subcommands, unkn
 |---|---|---|---|
 | `--help` / `-h` DESCRIPTION | `OpenCode command line interface` | `ocd command line interface` | upstream prints the literal product name regardless of the binary name; by design if the port wants its own name, otherwise use the literal |
 | `upgrade --help` and the root SUBCOMMANDS line | `Upgrade OpenCode to the latest or a specific version` | `Show how to upgrade opencode (it is built from source)` | by design |
-| `--version` | `opencode v0.0.0-v2-…` | `opencode v2.0.26` | build version |
+| `--version` | `opencode v0.0.0-detached-…` | `opencode v2.1.4` | build version |
 | `--completions bash` | `_opencode…` identifiers | `_ocd…` identifiers | by design (derived from the program name; masked) |
-| `debug paths` | `db …/opencode-v2.db` | `db …/opencode.db` | channel (`v2` dev build vs `latest`) |
+| `debug paths` | `db …/opencode-detached.db` | `db …/opencode.db` | channel (`detached` local build vs `latest`) |
 | `debug agents` | `[]` | the agent list | upstream race: the first `agent.list` of a fresh standalone server answers `[]` (lazy Agent state); ocd's answer is the intended one |
 
 ## Safety notes
 
 All runs use isolated `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, `HOME` and
 `OPENCODE_TEST_HOME` under the scratchpad; servers bind `--port 0`; the background service is disabled in the
-isolated config (`service.json`, `service-v2.json`, `service-local.json` with `{"disabled": true}`) and
+isolated config (`service.json` and `service-<channel>.json` for `v2`, `local`, `detached`, `latest`, `dev` and `beta`,
+with `{"disabled": true}`) and
 server-backed CLI commands also get `--standalone`. The real `~/.local/share/opencode` is never touched.

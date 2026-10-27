@@ -6,7 +6,9 @@ citations are relative to the checkout root
 (`$OCD_SCRATCH/src/opencode`).
 
 > **Primary machine-readable source: `packages/protocol/openapi.json`** (OpenAPI 3.1, 575 KB,
-> 142 operations, 282 component schemas). It is generated from `packages/protocol/src/client.ts`
+> 142 operations, 282 component schemas at commit 4617210; since the 2.1.4 catch-up ocd ships
+> v2.1.4's document as `assets/openapi.json`, 608 KB, 149 operations, 293 component schemas, and
+> `docs/UPGRADE-2.1.4.md` lists what changed). It is generated from `packages/protocol/src/client.ts`
 > by `packages/protocol/script/generate-openapi.ts` and byte-identical copies live at
 > `services/www/openapi.json` and `services/www/public/openapi.json`. The generated TS clients
 > (`packages/client/src/promise/generated/{client,types}.ts`,
@@ -2087,7 +2089,8 @@ dispatch/auth for any path other than `/api`, `/api/*`, `/auth/*`, `/openapi.jso
 * Assets: embedded archive `virtual:opencode-app-assets` = `[u32 LE indexLen][JSON index
   {"<path>":[offset,len]}][concatenated brotli-compressed bodies]`
   (`packages/cli/src/app-archive.ts:1-36`, `packages/cli/src/app-assets.ts`); local dev builds
-  read `packages/app/dist` instead.
+  read `packages/app/dist` instead. ocd embeds the archive `scripts/build-web-ui.sh` builds from
+  upstream's v2.1.4 tag (68bc26b) with Bun 1.4.4 (the serving code is unchanged in 2.1.4).
 * Only `GET`/`HEAD` (else `405` empty). `HEAD` → 200 with headers, no body.
 * Lookup key = pathname without leading `/`. Missing key under `_assets/` or `icons/` → `404`
   with `cache-control: no-store`; any other missing key → `index.html` (SPA fallback).

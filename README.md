@@ -8,7 +8,8 @@ Only the program is renamed. The binary is `ocd` and the TUI logo reads `opencod
 opencode-compatible: `opencode.json`, `.opencode/`, `~/.config/opencode`, `~/.local/share/opencode`, `OPENCODE_*`
 environment variables, the HTTP API, plugin packages and the background service.
 
-Upstream reference: `anomalyco/opencode`, branch `v2`, commit `4617210` (version 2.0.26).
+Upstream reference: `anomalyco/opencode`, tag `v2.1.4` (commit `68bc26b`). ocd was first ported from branch `v2` at
+commit `4617210` (version 2.0.26) and has since caught up with 2.1.4 ([docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md)).
 
 > **Shared data warning.** Because ocd uses the same data folder as opencode, running `ocd` uses your real
 > opencode sessions and credentials and applies the v2 database migrations to them. To try it without touching
@@ -28,17 +29,19 @@ Measured on Linux x86_64, release builds of both, same mock model, isolated fold
 
 ## Status: what works and what doesn't
 
-This status is against opencode 2.0.26. Upstream has since released 2.1.4; what ocd needs to catch up is listed
-in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md). Batches 1 to 6 of that catch-up (data, providers, sessions and
-tools, platform and config, the HTTP API, the TUI) are ported; its progress table lists what each one checked.
+This status is against opencode 2.1.4, and ocd reports version 2.1.4. It caught up from 2.0.26 in the batches
+listed in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md): data, providers, sessions and tools, platform and config,
+the HTTP API, the TUI and the release (version, CLI help, web UI, runtime pins) are done; the experimental 2.1
+features (batch 8) are not. Its progress table lists what each batch checked.
 
-How the comparison is done: both binaries run the same 61 scenarios side by side and their outputs are diffed
+How the comparison is done: both binaries run the same 69 scenarios side by side and their outputs are diffed
 (`scripts/parity.py`, see [docs/PARITY.md](docs/PARITY.md)). These cover the agent loop, sessions, permissions,
 forms, read-only endpoints, 74 error cases, the CLI, plugins, GitHub Copilot and the OpenAI WebSocket transport.
 Every request ocd sends to the model (system prompt, tool definitions, headers, prompt-cache markers) is compared
-too. Every scenario is identical except for timing
-races that also vary between two runs of upstream, and the intended renames. Each crate also has its own test
-suite, many replaying recorded upstream data.
+too. Against the 2.1.4 build, 57 of the 69 scenarios are identical. The others differ by timing races that also
+vary between two runs of upstream, the intended renames, the experimental todo plugin, the wording of a network
+error, and how `ocd run` prints the last step of a run (live, where upstream prints it afterwards); PARITY.md has
+the details. Each crate also has its own test suite, many replaying recorded upstream data.
 
 ### Works the same as upstream
 
@@ -71,7 +74,8 @@ suite, many replaying recorded upstream data.
 - **AI SDK provider packages** such as `@ai-sdk/deepseek`, through the same Bun helper.
 - **Clients and API:**
   - the full TUI;
-  - the web UI served by `ocd serve`: 88 of 88 compared requests are identical;
+  - the web UI served by `ocd serve`, built from upstream's v2.1.4 app (88 of 88 compared requests were
+    identical with the 2.0.26 app; upstream's serving code is unchanged in 2.1.4);
   - the HTTP API (149 endpoints, from upstream 2.1.4's OpenAPI document) and the event stream;
   - the background service (`ocd service start/stop/status/restart`) on port 49374, or 28894 on Windows,
     like upstream 2.1.
@@ -81,11 +85,11 @@ suite, many replaying recorded upstream data.
 
 | Area | Difference |
 |---|---|
-| Plugins and AI SDK packages | Upstream runs them inside its own Bun-based binary. ocd runs them in a Bun helper process and downloads Bun 1.4.2 the first time a plugin or AI SDK package is used (or set `OCD_BUN_PATH`). |
+| Plugins and AI SDK packages | Upstream runs them inside its own Bun-based binary. ocd runs them in a Bun helper process and downloads Bun 1.4.4 the first time a plugin or AI SDK package is used (or set `OCD_BUN_PATH`). |
 | Built-in AI SDK packages | Upstream bundles `@ai-sdk/cohere`, `@ai-sdk/perplexity`, `@ai-sdk/vercel` and `gitlab-ai-provider`. ocd installs them from npm on first use, at the same versions. If an install fails, the error wording differs. |
 | `session.http.response` plugin hook | The hook receives the whole response body as text instead of a stream. |
 | Plugin worktree strategies | Worktree tools use plugin strategies only after the project's location has loaded. They otherwise fall back to git. |
-| Persistent terminals | Same `opencode-pty` helper. ocd downloads it once instead of carrying it inside the binary. |
+| Persistent terminals | Same `opencode-pty` helper (0.3.1). ocd downloads it once instead of carrying it inside the binary. On Windows it is enabled like upstream 2.1 but not yet tested there. |
 | Mini mode (`ocd mini`) | Works, but is simplified and not compared screen by screen. |
 | `ocd auth login` pickers | Multi-select asks for comma-separated values. |
 | Editor integration (ACP) | Works, but doesn't add the diff for a completed edit. |
@@ -103,6 +107,7 @@ suite, many replaying recorded upstream data.
 | Remote access tunnel (OpenTunnel: `serve --remote`, `pair --remote`) | Prints that it's unsupported. |
 | `--wizard` mode | Prints an error. |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 (not implemented). |
+| Other experimental 2.1 features | The `todowrite` tool and todo sidebar, background compaction, `location_idle_timeout` and the new designs are not ported; their config keys are accepted and do nothing. |
 | Some cloud credentials | AWS SSO, web identity and instance metadata, and Google workload identity federation, are missing. Env vars, shared config files, `credential_process` and ECS credentials work. |
 | Testing on macOS, Windows and Linux ARM | Release binaries are built for them, but only Linux x86_64 is tested. |
 
@@ -117,7 +122,7 @@ suite, many replaying recorded upstream data.
 - **`ocd upgrade`:** prints how to rebuild from source instead of downloading a release.
 - **Heap snapshots:** ocd's server has no JavaScript heap, so `POST /api/debug/heap-dump` answers `500 UnknownError`.
   `ocd debug heap-dump --server URL` still captures one from an upstream server.
-- **Version and release channel:** a source build reports `2.0.26` on the `latest` channel.
+- **Version and release channel:** a source build reports `2.1.4` on the `latest` channel.
 
 ## Releases
 
@@ -137,7 +142,7 @@ git push origin v1.0.0
 | `ocd-<tag>-darwin-arm64.tar.gz` | macOS on Apple silicon |
 
 `SHA256SUMS` lists the checksums. The binaries include the web UI. `ocd --version` shows the tag and commit,
-for example `ocd v1.0.0+1a2b3c4 (opencode 2.0.26)`; the opencode version is the one ocd reports to providers,
+for example `ocd v1.0.0+1a2b3c4 (opencode 2.1.4)`; the opencode version is the one ocd reports to providers,
 plugins and the service, so it stays compatible. To rebuild an existing tag, run the workflow from the Actions
 tab with the tag name.
 
@@ -159,7 +164,7 @@ The macOS binary isn't signed. After unpacking, clear the download quarantine on
 git clone https://github.com/sphinxid/ocd.git
 cd ocd
 cargo build --release -p ocd
-./target/release/ocd --version     # ocd v2.0.26
+./target/release/ocd --version     # ocd v2.1.4
 ```
 
 The release build is optimised and stripped. The binary is self-contained: it holds the plugin helper and,
@@ -175,13 +180,13 @@ To stamp your own version into `ocd --version`, set `OCD_BUILD_VERSION` when bui
 The web UI is upstream's web app, about 24 MB, so it isn't committed. Without it, `ocd serve` answers 404 for
 web pages, the same as an upstream build made with `--skip-web-ui`. The TUI and CLI don't need it.
 
-To include it, build it from an upstream checkout with Bun 1.4.2, then rebuild ocd. If `node` is on your PATH it
+To include it, build it from an upstream checkout at `v2.1.4` with Bun 1.4.4, then rebuild ocd. If `node` is on your PATH it
 must be Node 22.12 or newer (or 20.19+), because the app's bundler runs under it. The archive is embedded at
 compile time:
 
 ```sh
-git clone --branch v2 https://github.com/anomalyco/opencode.git ../opencode
-(cd ../opencode && git checkout 4617210 && bun install)
+git clone https://github.com/anomalyco/opencode.git ../opencode
+(cd ../opencode && git checkout v2.1.4 && bun install)
 BUN=bun scripts/build-web-ui.sh ../opencode     # writes crates/ocd/web-ui/app-archive.bin
 cargo build --release -p ocd
 ```
@@ -245,7 +250,7 @@ All upstream `OPENCODE_*` variables work as they do upstream.
 
 ### Certificates
 
-ocd trusts the same certificates as upstream's runtime (Bun 1.4.2, built with `--use-system-ca`), for HTTPS and
+ocd trusts the same certificates as upstream's runtime (Bun 1.4.4, built with `--use-system-ca`), for HTTPS and
 for the WebSocket transport:
 
 - the Mozilla root list;
@@ -283,7 +288,7 @@ So behind a TLS-inspecting proxy, or with a provider on a private certificate au
 When needed, ocd downloads these tools into the opencode cache folder, the same way upstream does:
 
 - `ripgrep`, used by glob and grep when `rg` isn't installed;
-- Bun 1.4.2, only for plugins or AI SDK packages;
+- Bun 1.4.4, only for plugins or AI SDK packages;
 - the `opencode-pty` helper, for persistent terminals;
 - npm packages for plugins and AI SDK providers.
 
@@ -293,18 +298,18 @@ When needed, ocd downloads these tools into the opencode cache folder, the same 
 cargo test --workspace --no-fail-fast
 ```
 
-Some tests need the upstream checkout, the upstream binary or Bun 1.4.2. They read these from a local working
+Some tests need the upstream checkout, the upstream binary or Bun 1.4.4. They read these from a local working
 folder named by `OCD_SCRATCH`, and are skipped when it's unset:
 
 ```
-$OCD_SCRATCH/src/opencode                    upstream checkout (commit 4617210, `bun install` done)
+$OCD_SCRATCH/src/opencode                    upstream checkout (tag v2.1.4, `bun install` done)
 $OCD_SCRATCH/up-dist/cli-linux-x64/bin/opencode   upstream binary built from that checkout
-$OCD_SCRATCH/bun142/bun-linux-x64/bun        bun 1.4.2
+$OCD_SCRATCH/bun144/bun-linux-x64/bun        bun 1.4.4
 ```
 
 ```sh
 export OCD_SCRATCH=$HOME/ocd-scratch
-export OCD_BUN_PATH=$OCD_SCRATCH/bun142/bun-linux-x64/bun
+export OCD_BUN_PATH=$OCD_SCRATCH/bun144/bun-linux-x64/bun
 cargo test --workspace --no-fail-fast
 python3 -B scripts/parity.py -q              # side-by-side comparison with upstream (~25 min)
 ```

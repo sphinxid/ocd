@@ -97,7 +97,7 @@ archive is ~24 MB (1 690 files, 87 MB unpacked: the Office preview engines and f
 so it is **not committed**:
 
 ```sh
-scripts/build-web-ui.sh <upstream-checkout>     # BUN=<bun 1.4.2>, OPENCODE_CHANNEL (default latest)
+scripts/build-web-ui.sh <upstream-checkout>     # BUN=<bun 1.4.4>, OPENCODE_CHANNEL (default latest)
 cargo build -p ocd                              # embeds crates/ocd/web-ui/app-archive.bin
 ```
 
