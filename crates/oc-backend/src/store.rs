@@ -285,6 +285,51 @@ pub fn saved_permissions(db: &Database, project: Option<&str>) -> anyhow::Result
     })
 }
 
+/// Outcome of `PermissionSaved.update`.
+pub enum SavedUpdate {
+    Updated(Value),
+    NotFound,
+    /// The unique index rejected the edit: `(action, resource)` of the duplicate.
+    Conflict(String, String),
+}
+
+/// `PermissionSaved.update`: change the action and/or resource of a saved permission. `time_updated` follows
+/// drizzle's `$onUpdate`.
+pub fn update_saved_permission(db: &Database, id: &str, action: Option<&str>, resource: Option<&str>) -> anyhow::Result<SavedUpdate> {
+    let now = oc_schema::id::now_ms() as i64;
+    db.with(|c| {
+        let current: Option<(String, String)> = c
+            .query_row("SELECT action, resource FROM permission WHERE id = ?", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        let Some((current_action, current_resource)) = current else { return Ok(SavedUpdate::NotFound) };
+        let action = action.map(str::to_string).unwrap_or(current_action);
+        let resource = resource.map(str::to_string).unwrap_or(current_resource);
+        let updated = c
+            .query_row(
+                "UPDATE permission SET action = ?, resource = ?, time_updated = ? WHERE id = ? RETURNING id, project_id, action, resource, time_created, time_updated",
+                rusqlite::params![action, resource, now, id],
+                |r| {
+                    Ok(serde_json::json!({
+                        "id": r.get::<_, String>(0)?,
+                        "projectID": r.get::<_, String>(1)?,
+                        "action": r.get::<_, String>(2)?,
+                        "resource": r.get::<_, String>(3)?,
+                        "time": {"created": r.get::<_, i64>(4)?, "updated": r.get::<_, i64>(5)?},
+                    }))
+                },
+            )
+            .optional();
+        match updated {
+            Ok(Some(v)) => Ok(SavedUpdate::Updated(v)),
+            Ok(None) => Ok(SavedUpdate::NotFound),
+            Err(rusqlite::Error::SqliteFailure(e, _)) if e.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE => {
+                Ok(SavedUpdate::Conflict(action, resource))
+            }
+            Err(e) => Err(e),
+        }
+    })
+}
+
 pub fn remove_saved_permission(db: &Database, id: &str) -> anyhow::Result<()> {
     db.with(|c| c.execute("DELETE FROM permission WHERE id = ?", [id]))?;
     Ok(())

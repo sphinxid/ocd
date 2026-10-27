@@ -798,6 +798,19 @@ impl Backend for Engine {
         store::saved_permissions(&self.app.db, Some(&project)).map_err(defect)?.into_iter().map(from_json).collect()
     }
 
+    async fn permission_saved_update(&self, ctx: &RequestContext, req: PermissionSavedUpdateRequest) -> Result<PermissionSavedInfo, ApiError> {
+        self.locations.get(&ctx.location.directory).await?;
+        let body = req.body;
+        match store::update_saved_permission(&self.app.db, &req.id, body.action.as_deref(), body.resource.as_deref()).map_err(defect)? {
+            store::SavedUpdate::Updated(v) => from_json(v),
+            store::SavedUpdate::NotFound => Err(ApiError::permission_saved_not_found(req.id)),
+            store::SavedUpdate::Conflict(action, resource) => Err(ApiError::conflict(
+                format!("A saved permission already allows {action} for {resource}"),
+                Some(req.id),
+            )),
+        }
+    }
+
     async fn permission_saved_remove(&self, ctx: &RequestContext, req: PermissionSavedRemoveRequest) -> Result<(), ApiError> {
         self.locations.get(&ctx.location.directory).await?;
         store::remove_saved_permission(&self.app.db, &req.id).map_err(defect)

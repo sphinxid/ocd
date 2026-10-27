@@ -276,6 +276,12 @@ impl ApiError {
         )
     }
 
+    /// `404 PermissionSavedNotFoundError` — `Saved permission not found: <id>`.
+    pub fn permission_saved_not_found(id: impl Into<String>) -> Self {
+        let id = id.into();
+        tagged(404, "PermissionSavedNotFoundError", json!({ "id": id, "message": format!("Saved permission not found: {id}") }))
+    }
+
     /// `404 FormNotFoundError` — `Form not found: <id>`.
     pub fn form_not_found(id: impl Into<String>) -> Self {
         let id = id.into();
