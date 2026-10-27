@@ -233,7 +233,9 @@ pub fn terminal_palette(t: &Theme, dark: bool) -> [Rgba; 16] {
 
 fn map_color(c: vt100::Color, palette: &[Rgba; 16], default: Rgba) -> Color {
     match c {
-        vt100::Color::Default => default.tui(),
+        // A fully transparent default (`background.raised.base` with alpha 0) leaves the terminal's own
+        // background showing (`transparentBackground`).
+        vt100::Color::Default => default.tui_or_reset(),
         vt100::Color::Idx(i) if i < 16 => palette[i as usize].tui(),
         vt100::Color::Idx(i) => crate::theme::color::ansi(i as i64).tui(),
         vt100::Color::Rgb(r, g, b) => Color::Rgb(r, g, b),
@@ -445,12 +447,12 @@ impl App {
 
     /// Draw the terminal pane into `area` (box bg raised.base, terminal at left=1).
     pub fn draw_terminal(&mut self, buf: &mut Buffer, area: Rect, t: &Theme, pty: &str) -> Option<(u16, u16)> {
-        fill(buf, area, t.background.raised.base.tui());
+        fill(buf, area, t.background.raised.base.tui_or_reset());
         let dark = self.themes.effective_mode() == crate::theme::Mode::Dark;
         let focused = self.right_focus;
         let st = self.terminal_states.get_mut(pty)?;
         if let Some(f) = &st.failure {
-            put(buf, area.x, area.y, f, fg(t.text.feedback.error.base).bg(t.background.raised.base.tui()), area.width as usize);
+            put(buf, area.x, area.y, f, fg(t.text.feedback.error.base).bg(t.background.raised.base.tui_or_reset()), area.width as usize);
             return None;
         }
         let cols = area.width.saturating_sub(2).max(1);
@@ -598,6 +600,22 @@ mod tests {
         assert_eq!(buf[(0, 0)].symbol(), "h");
         assert_eq!(buf[(3, 0)].fg, terminal_palette(&t, true)[1].tui());
         assert_eq!(terminal_palette(&t, true)[1].hex(), "#e06c75");
+        assert_eq!(buf[(1, 0)].bg, t.background.raised.base.tui());
+    }
+
+    #[test]
+    fn transparent_raised_background_keeps_the_terminal_background() {
+        let doc: serde_json::Value = serde_json::from_str(crate::theme::OPENCODE_V2).unwrap();
+        let mut t = crate::theme::resolve::resolve_document(&doc, crate::theme::Mode::Dark).unwrap();
+        t.background.raised.base.a = 0;
+        let mut p = vt100::Parser::new(3, 10, 0);
+        p.process(b"hi \x1b[41mred\x1b[0m");
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 3));
+        render_screen(&mut buf, Rect::new(0, 0, 10, 3), p.screen(), &t, true, false);
+        assert_eq!(buf[(0, 0)].bg, ratatui::style::Color::Reset);
+        assert_eq!(buf[(5, 2)].bg, ratatui::style::Color::Reset);
+        // Explicit cell colors still paint.
+        assert_eq!(buf[(3, 0)].bg, terminal_palette(&t, true)[1].tui());
     }
 }
 
