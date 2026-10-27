@@ -320,3 +320,57 @@ fn execute_detail_dialog() {
     a.on_key(Stroke::key("escape"));
     assert!(a.dialogs.is_empty());
 }
+
+#[test]
+fn plugins_dialog() {
+    let mut a = app();
+    a.run_command("plugins.list", None);
+    let lines = render(&mut a, 100, 30);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "No items available"), "{joined}");
+    assert!(row(&lines, "show internal").contains("show internal ctrl+a"), "{joined}");
+    // ctrl+a shows the built-in (internal) TUI entries.
+    a.on_key(Stroke::ctrl("a"));
+    let lines = render(&mut a, 100, 30);
+    let joined = lines.join("\n");
+    assert!(contains(&lines, "TUI") && contains(&lines, "opencode.btw") && contains(&lines, "opencode.sidebar.mcp"), "{joined}");
+    assert!(row(&lines, "hide internal ctrl+a").trim_end().ends_with("disable enter"), "{joined}");
+    // Enter disables the focused built-in for this run.
+    a.on_key(Stroke::key("return"));
+    assert!(!a.builtin_active("opencode.btw"));
+    let lines = render(&mut a, 100, 30);
+    assert!(row(&lines, "opencode.btw").trim_end().ends_with("inactive"), "{}", lines.join("\n"));
+    assert!(row(&lines, "hide internal ctrl+a").trim_end().ends_with("enable enter"));
+    assert!(!a.commands().iter().any(|c| c.id == "session.aside"));
+    a.on_key(Stroke::key("return"));
+    assert!(a.builtin_active("opencode.btw"));
+    // Server plugins: a failed one shows its error.
+    a.plugins.server = Some(vec![
+        json!({"id": "acme", "source": {"type": "package", "target": "acme@1.0.0", "version": "1.0.0", "outdated": true}, "features": {}, "state": {"status": "active"}}),
+        json!({"id": "broken", "source": {"type": "local", "path": "/work/proj/plugin.ts"}, "features": {}, "state": {"status": "failed", "error": "boom", "ref": "ref_1"}}),
+    ]);
+    a.on_key(Stroke::ctrl("a"));
+    let lines = render(&mut a, 100, 30);
+    let joined = lines.join("\n");
+    assert!(row(&lines, "acme").trim_end().ends_with("1.0.0, update available"), "{joined}");
+    assert!(row(&lines, "broken").trim_end().ends_with("failed, local"), "{joined}");
+    assert!(row(&lines, "check for updates").contains("check for updates ctrl+r"), "{joined}");
+    a.on_key(Stroke::key("down"));
+    let lines = render(&mut a, 100, 30);
+    assert!(row(&lines, "show internal ctrl+a").trim_end().ends_with("view error enter"), "{}", lines.join("\n"));
+    a.on_key(Stroke::key("return"));
+    let lines = render(&mut a, 100, 30);
+    let joined = lines.join("\n");
+    let y = lines.iter().position(|l| l.contains("Server plugin error")).unwrap_or_else(|| panic!("{joined}"));
+    assert!(lines[y].contains("esc"));
+    assert!(lines[y + 1].contains("plugin.ts"), "{joined}");
+    assert!(lines[y + 3].contains("boom"), "{joined}");
+    assert!(contains(&lines, "Reference: ref_1"), "{joined}");
+    assert!(contains(&lines, "investigate i  copy details c"), "{joined}");
+    a.on_key(Stroke::key("c"));
+    let copied = clipboard().unwrap();
+    assert!(copied.starts_with("Server plugin error\nPlugin: broken\nStatus: failed\nRuntime: server\nSource: "), "{copied}");
+    assert!(copied.ends_with("Error: boom\nReference: ref_1"), "{copied}");
+    a.on_key(Stroke::key("escape"));
+    assert_eq!(a.dialogs.last().map(|d| d.purpose.as_str()), Some("plugins"));
+}

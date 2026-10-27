@@ -506,6 +506,8 @@ pub struct TextDialog {
     pub inset: Option<usize>,
     /// The band's blank rows are part of `lines` and scroll with them (a scrollbox's padding).
     pub band_scrolls: bool,
+    /// Rows inside the header box, under the title row (a source path).
+    pub under_header: Vec<SLine>,
     /// Color of `title_extra` (muted by default).
     pub title_extra_color: Option<Rgba>,
 }
@@ -1042,6 +1044,9 @@ fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme
     let ins = td.inset.unwrap_or(DIALOG_INSET);
     let inner = w.saturating_sub(ins * 2);
     let mut v = vec![text_header(td, t, w)];
+    for l in &td.under_header {
+        v.push(l.clone().prefixed(&[pad(ins)]));
+    }
     v.push(SLine::blank());
     for l in &td.pre {
         v.push(l.clone().prefixed(&[pad(ins)]));

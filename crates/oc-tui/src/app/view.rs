@@ -118,8 +118,8 @@ impl App {
         let px = area.x + w.saturating_sub(prompt_w).div_ceil(2);
         let prect = Rect::new(px, y.min(area.bottom().saturating_sub(prompt_h)), prompt_w, prompt_h.min(area.height));
         self.render_prompt(buf, prect, t, prompt_lines, cursor);
-        // Home footer.
-        if footer_visible {
+        // Home footer (the `opencode.home.footer` built-in).
+        if footer_visible && self.builtin_active("opencode.home.footer") {
             let fy = area.bottom() - footer_h + if h < 16 { 0 } else { 1 };
             let mut left: Vec<Seg> = Vec::new();
             let servers = self.loc().and_then(|l| l.mcp.clone()).unwrap_or_default();
@@ -402,7 +402,7 @@ impl App {
         if self.editor.shell {
             right.push(s("esc", t.text.base));
             right.push(s(if term_w < 44 { " shell" } else { " exit shell mode" }, t.text.muted));
-        } else {
+        } else if self.builtin_active("opencode.prompt.footer") {
             let status = self.usage_status();
             let sid = self.session_id().map(|x| x.to_string());
             let subagents = sid.as_ref().map(|s| self.store.family_of(s).iter().filter(|id| *id != s && self.store.is_running(id)).count()).unwrap_or(0);
@@ -813,6 +813,7 @@ impl App {
         let status = self.usage_status();
         if let Some(s0) = self.store.session(sid)
             && (!status.is_empty() || s0.cost > 0.0)
+            && self.builtin_active("opencode.sidebar.context")
         {
             lines.push(SLine::new(vec![Seg::new("Context", bold(fg(t.text.base)))]));
             let last = self.store.messages(sid).iter().rev().find(|m| m.kind == "assistant" && m.tokens.as_ref().is_some_and(|t| t.total() > 0.0));
@@ -829,7 +830,7 @@ impl App {
         }
         // MCP block.
         let servers = self.loc().and_then(|l| l.mcp.clone()).unwrap_or_default();
-        if !servers.is_empty() {
+        if !servers.is_empty() && self.builtin_active("opencode.sidebar.mcp") {
             lines.push(SLine::new(vec![Seg::new("MCP", bold(fg(t.text.base)))]));
             for sv in &servers {
                 let (c, label) = match sv.status.status.as_str() {
@@ -845,7 +846,10 @@ impl App {
             }
         }
         draw_lines(buf, inner, &lines, 0, "");
-        // Footer: location.
+        // Footer: location (the `opencode.sidebar.footer` built-in).
+        if !self.builtin_active("opencode.sidebar.footer") {
+            return;
+        }
         let dir = self.location_dir();
         let branch = self.loc().and_then(|l| l.vcs.as_ref()).and_then(|v| v.pointer("/branch/current")).and_then(|b| b.as_str()).map(|b| b.to_string());
         let label = format!("{}{}", locale::abbreviate_home(&dir), branch.map(|b| format!(":{b}")).unwrap_or_default());

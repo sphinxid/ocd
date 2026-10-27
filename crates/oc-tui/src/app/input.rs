@@ -1302,6 +1302,9 @@ impl App {
                 if purpose == "session" {
                     self.refresh_session_list();
                 }
+                if purpose == "plugins" {
+                    self.plugins_moved(&v);
+                }
                 if purpose == "worktrees"
                     && let Some(d) = self.dialogs.last_mut()
                     && let Some(armed) = d.data.get("armed").and_then(|a| a.as_str()).map(|s| s.to_string())
@@ -1347,6 +1350,7 @@ impl App {
         match (purpose, key) {
             ("export-result", "return") => self.close_dialog(),
             ("execute", "c") => self.execute_copy("code"),
+            ("plugin-error", "c" | "i") => self.error_details_key(key),
             ("execute", "o") => self.execute_copy("output"),
             ("go-connect", "o" | "c") => self.go_connect_key(key),
             ("debug", "return") => {
@@ -1393,6 +1397,7 @@ impl App {
 
     fn dialog_select(&mut self, purpose: &str, v: &str, d: &dialog::Dialog) {
         match purpose {
+            "plugins" => self.plugins_select(v),
             "palette" => {
                 self.dialogs.clear();
                 if let Some(path) = v.strip_prefix("setting:") {
@@ -1571,6 +1576,7 @@ impl App {
     fn dialog_action(&mut self, purpose: &str, id: &str, v: Option<String>) {
         match (purpose, id) {
             ("go-upsell", _) => self.go_upsell_action(id),
+            ("plugins", _) => self.plugins_action(id, v),
             ("open", "key:right") => {
                 if let Some(v) = v {
                     self.open_project_worktrees(&v);

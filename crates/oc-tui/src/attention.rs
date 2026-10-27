@@ -42,6 +42,10 @@ fn play(path: &str, volume: f64) {
 
 /// Raise attention for `kind` (`default|question|permission|error|done|subagent_done`).
 pub fn notify(app: &mut App, kind: &str, message: &str, title: Option<&str>) {
+    // The `opencode.notifications` built-in, unless disabled in /plugins.
+    if !app.builtin_active("opencode.notifications") {
+        return;
+    }
     let notifications = app.config.notifications();
     let sound = app.config.sound();
     if !notifications && !sound {

@@ -157,6 +157,20 @@ impl Client {
         Ok(env.data)
     }
 
+    /// `plugin.list`: the location's server plugins.
+    pub async fn plugin_list(&self, dir: Option<&str>) -> anyhow::Result<Vec<Value>> {
+        self.list("/api/plugin", dir).await
+    }
+    /// `plugin.check`: re-check package sources; the fresh inventory.
+    pub async fn plugin_check(&self, dir: Option<&str>) -> anyhow::Result<Vec<Value>> {
+        let env: LocationEnvelope<Vec<Value>> = self.json(self.loc(self.request(Method::POST, "/api/plugin/check"), dir).json(&serde_json::json!({}))).await?;
+        Ok(env.data)
+    }
+    /// `plugin.update`: update package plugins by target.
+    pub async fn plugin_update(&self, targets: &[String], dir: Option<&str>) -> anyhow::Result<()> {
+        self.empty(self.loc(self.request(Method::POST, "/api/plugin/update"), dir).json(&serde_json::json!({ "targets": targets }))).await
+    }
+
     pub async fn agents(&self, dir: Option<&str>) -> anyhow::Result<Vec<AgentInfo>> {
         self.list("/api/agent", dir).await
     }

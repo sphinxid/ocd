@@ -252,10 +252,16 @@ impl App {
             }
         }
         // Plugins (built-in).
-        v.push(Cmd { description: Some("One-shot answer from the session's context without adding to the conversation".into()), ..cmd("session.aside", "Ask a side question", "Session").slash("btw").args() });
+        if self.builtin_active("opencode.btw") {
+            v.push(Cmd { description: Some("One-shot answer from the session's context without adding to the conversation".into()), ..cmd("session.aside", "Ask a side question", "Session").slash("btw").args() });
+        }
         v.push(cmd("plugins.list", "Plugins", "System").slash("plugins"));
-        v.push(cmd("diff.open", "Open diff viewer", "VCS").slash("diff"));
-        v.push(cmd("stats.open", "Usage statistics", "System").slash("stats"));
+        if self.builtin_active("opencode.diffs") {
+            v.push(cmd("diff.open", "Open diff viewer", "VCS").slash("diff"));
+        }
+        if self.builtin_active("opencode.stats") {
+            v.push(cmd("stats.open", "Usage statistics", "System").slash("stats"));
+        }
         v
     }
 
@@ -734,7 +740,7 @@ impl App {
                 }
             }
             "session.cd" => self.change_directory(args.unwrap_or_default()),
-            "plugins.list" => self.open_dialog(Dialog::new("alert", Body::Alert { title: "Plugins".into(), message: "Built-in plugins: home footer, prompt footer, /btw, sidebar context, sidebar MCP, sidebar footer, notifications.".into() })),
+            "plugins.list" => self.open_plugins(),
             "diff.open" => self.open_diff(),
             "stats.open" => self.open_stats(),
             "session.move" => self.open_worktrees_dialog(),

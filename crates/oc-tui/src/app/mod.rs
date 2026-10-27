@@ -15,6 +15,7 @@ pub mod highlights;
 pub mod location;
 pub mod session_list;
 pub mod panel;
+pub mod plugins;
 pub mod program_status;
 pub mod mini;
 pub mod selection;
@@ -309,6 +310,10 @@ pub struct App {
     pub session_search: session_list::SessionSearch,
     /// Project names by ID (`data.project`), from project listings.
     pub project_names: HashMap<String, String>,
+    /// The plugin manager dialog's state.
+    pub plugins: plugins::PluginsState,
+    /// Built-in features disabled from `/plugins` for this run.
+    pub disabled_builtins: HashSet<String>,
 }
 
 impl App {
@@ -425,6 +430,8 @@ impl App {
             location: Default::default(),
             session_search: Default::default(),
             project_names: HashMap::new(),
+            plugins: Default::default(),
+            disabled_builtins: HashSet::new(),
             config,
             opts,
         };
@@ -1071,6 +1078,7 @@ impl App {
                     self.navigate(Route::Session(id.to_string()));
                 }
             }
+            "plugin.updated" => self.plugins_updated(),
             "tui.prompt.append" if matches_dir => {
                 if let Some(text) = ev.data.get("text").and_then(|v| v.as_str()) {
                     self.editor.insert(text);
