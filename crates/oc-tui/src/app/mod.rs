@@ -5,6 +5,7 @@ pub mod commands;
 pub mod composer;
 pub mod diffview;
 pub mod escape;
+pub mod go_upsell;
 pub mod event_loop;
 pub mod stats;
 pub mod input;
@@ -291,6 +292,10 @@ pub struct App {
     pub migration: Option<(migration::MigrationProgress, Instant)>,
     /// Busy turns per session (status line above the prompt; an ocd addition).
     pub busy: HashMap<String, busy::Turn>,
+    /// Failed assistant messages whose free-limit notice was already handled.
+    pub free_limits_handled: HashSet<String>,
+    /// In-memory copy of the `go-upsell` storage: last time the offer opened, and "don't show again".
+    pub go_upsell_memory: (Option<i64>, bool),
 }
 
 impl App {
@@ -401,6 +406,8 @@ impl App {
             mini: false,
             migration: None,
             busy: HashMap::new(),
+            free_limits_handled: HashSet::new(),
+            go_upsell_memory: (None, false),
             config,
             opts,
         };
@@ -1079,11 +1086,16 @@ impl App {
             }
             "session.execution.failed" => {
                 let msg = ev.data.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("Session failed").to_string();
-                crate::attention::notify(self, "error", &msg, None);
-                if ev.session_id().and_then(|s| self.store.session(s)).is_none_or(|s| s.parent_id.is_none()) {
-                    self.toast(Toast::new("error", msg).title("Session failed"));
+                // The free-limit notice in the transcript replaces the toast and the notification.
+                let free_limit = ev.data.pointer("/error/type").and_then(|t| t.as_str()) == Some("provider.free-limit");
+                if !free_limit {
+                    crate::attention::notify(self, "error", &msg, None);
+                    if ev.session_id().and_then(|s| self.store.session(s)).is_none_or(|s| s.parent_id.is_none()) {
+                        self.toast(Toast::new("error", msg).title("Session failed"));
+                    }
                 }
             }
+            "session.step.failed" => self.free_limit_hit(&ev),
             "persistent-pty.added" | "persistent-pty.removed" => {
                 if let Some(sid) = ev.session_id() {
                     let sid = sid.to_string();
@@ -1251,6 +1263,10 @@ impl App {
             || self.store.active.values().any(|v| *v)
             || !self.busy.is_empty()
             || self.transcript_pending()
+            || self.dialogs.last().is_some_and(|d| match &d.body {
+                crate::ui::dialog::Body::GoUpsell(g) => crate::ui::go_upsell::animating(g, ratatui::layout::Rect::new(0, 0, self.size.0, self.size.1)),
+                _ => false,
+            })
     }
 
     pub fn spinner_frame(&self) -> &'static str {
@@ -1269,6 +1285,8 @@ mod tests;
 mod dialog_tests;
 #[cfg(test)]
 mod panel_tests;
+#[cfg(test)]
+mod free_limit_tests;
 #[cfg(test)]
 mod fuzz_tests;
 #[cfg(test)]

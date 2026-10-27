@@ -214,6 +214,14 @@ pub fn time(ms: i64) -> String {
     }
 }
 
+/// `freeLimitReset`: when a free allowance resets, `retry_after` ms after `base`: a time when that
+/// is today and under a day away, else a date and time; nothing beyond 7 days.
+pub fn free_limit_reset(retry_after: Option<f64>, base: i64, now: i64) -> Option<String> {
+    let delay = retry_after.filter(|d| d.is_finite() && *d >= 0.0 && *d <= 7.0 * 86_400_000.0)?;
+    let at = base + delay as i64;
+    if date_string(at) == date_string(now) && at - now < 86_400_000 { Some(time(at)) } else { Some(datetime(at)) }
+}
+
 /// `Locale.datetime`: `time · date`.
 pub fn datetime(ms: i64) -> String {
     use chrono::{Local, TimeZone};

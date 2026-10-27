@@ -525,6 +525,8 @@ pub enum Body {
     Export(ExportOptions),
     /// Free-form lines in the shared layout.
     Text(Box<TextDialog>),
+    /// The OpenCode Go offer (`DialogGoUpsell`).
+    GoUpsell(Box<super::go_upsell::GoUpsell>),
 }
 
 /// One dialog on the host stack.
@@ -783,6 +785,11 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
             "c" if s.ctrl => Outcome::Close,
             _ => Outcome::Handled,
         },
+        Body::GoUpsell(g) => match super::go_upsell::handle_key(g, s) {
+            super::go_upsell::Key::Close => Outcome::Close,
+            super::go_upsell::Key::Run(action) => Outcome::Action(action.to_string(), None),
+            super::go_upsell::Key::None => Outcome::Handled,
+        },
         Body::Text(td) => match name {
             "escape" => Outcome::Close,
             "c" if s.ctrl => Outcome::Close,
@@ -845,6 +852,11 @@ pub enum DialogHit {
 pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &Keybinds) -> (Rect, Vec<(Rect, DialogHit)>, Option<(u16, u16)>) {
     let t = base.dialog();
     dim(buf, area, 150, base.background.base);
+    if let Body::GoUpsell(g) = &d.body {
+        let (panel, buttons) = super::go_upsell::render(buf, area, g, base);
+        let hits = buttons.into_iter().map(|(r, i)| (r, DialogHit::Action(super::go_upsell::ACTIONS[i].to_string()))).collect();
+        return (panel, hits, None);
+    }
     let w = d.size.width().min(area.width.saturating_sub(2)).max(10);
     let x = area.x + area.width.saturating_sub(w) / 2;
     let mut hits = Vec::new();
@@ -998,6 +1010,7 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
             v
         }
         Body::Text(td) => text_lines(td, wu, area, narrow, t),
+        Body::GoUpsell(_) => Vec::new(),
     };
     let h = (lines.len() as u16 + 1).min(area.height);
     let y = if d.centered { area.y + area.height.saturating_sub(h) / 2 } else { area.y + ((area.height as f64) / 4.0).round() as u16 };

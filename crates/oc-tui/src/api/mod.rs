@@ -197,6 +197,27 @@ impl Client {
         Ok(env.data)
     }
 
+    /// `integration.oauth.connect`: start an OAuth attempt (`{attemptID, url, instructions, mode, time}`).
+    pub async fn integration_oauth_connect(&self, integration: &str, method: &str, answer: Option<Value>, dir: Option<&str>) -> anyhow::Result<Value> {
+        let path = format!("/api/integration/{}/connect/oauth", urlencode(integration));
+        let mut body = serde_json::json!({ "methodID": method });
+        if let Some(a) = answer {
+            body["answer"] = a;
+        }
+        let env: LocationEnvelope<Value> = self.json(self.loc(self.request(Method::POST, &path), dir).json(&body)).await?;
+        Ok(env.data)
+    }
+    /// `integration.oauth.status`: `{status: "pending" | "complete" | "failed" | "expired", ...}`.
+    pub async fn integration_oauth_status(&self, integration: &str, attempt: &str, dir: Option<&str>) -> anyhow::Result<Value> {
+        let path = format!("/api/integration/{}/connect/oauth/{}", urlencode(integration), urlencode(attempt));
+        let env: LocationEnvelope<Value> = self.json(self.loc(self.request(Method::GET, &path), dir)).await?;
+        Ok(env.data)
+    }
+    pub async fn integration_oauth_cancel(&self, integration: &str, attempt: &str, dir: Option<&str>) -> anyhow::Result<()> {
+        let path = format!("/api/integration/{}/connect/oauth/{}", urlencode(integration), urlencode(attempt));
+        self.empty(self.loc(self.request(Method::DELETE, &path), dir)).await
+    }
+
     pub async fn mcp_connect(&self, name: &str, connect: bool, dir: Option<&str>) -> anyhow::Result<()> {
         let action = if connect { "connect" } else { "disconnect" };
         let path = format!("/api/experimental/mcp/{}/{action}", urlencode(name));

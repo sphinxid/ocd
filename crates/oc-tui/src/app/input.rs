@@ -1210,11 +1210,15 @@ impl App {
     // ---- dialogs -----------------------------------------------------------
 
     pub fn close_dialog(&mut self) {
-        if let Some(d) = self.dialogs.pop()
-            && d.purpose == "theme"
-            && let Some(initial) = self.theme_preview_initial.take()
-        {
-            self.set_theme(&initial, false);
+        if let Some(d) = self.dialogs.pop() {
+            if d.purpose == "theme"
+                && let Some(initial) = self.theme_preview_initial.take()
+            {
+                self.set_theme(&initial, false);
+            }
+            if d.purpose == "go-connect" {
+                self.go_connect_closed(&d);
+            }
         }
         self.dirty = true;
     }
@@ -1332,6 +1336,7 @@ impl App {
     fn dialog_key(&mut self, purpose: &str, key: &str, d: &dialog::Dialog) {
         match (purpose, key) {
             ("export-result", "return") => self.close_dialog(),
+            ("go-connect", "o" | "c") => self.go_connect_key(key),
             ("debug", "return") => {
                 let text = d.data.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
                 crate::clipboard::write(&text);
@@ -1553,6 +1558,7 @@ impl App {
 
     fn dialog_action(&mut self, purpose: &str, id: &str, v: Option<String>) {
         match (purpose, id) {
+            ("go-upsell", _) => self.go_upsell_action(id),
             ("open", "key:right") => {
                 if let Some(v) = v {
                     self.open_project_worktrees(&v);

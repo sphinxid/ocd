@@ -172,11 +172,10 @@ pub fn build_rows_with(
         .collect();
     for m in ordered {
         if m.kind != "assistant" {
+            // Idle markers only close the turn (`reduceSessionRows`); a failed execution's error shows
+            // on its step or as the "Session failed" toast.
             if m.kind == "idle" {
                 flush(&mut entries, &mut steps);
-                if m.error.is_some() {
-                    entries.push(Proj { entry: Entry::Message(m.id.clone()), path: vec![], closes_previous: true, reasoning_done: None });
-                }
                 continue;
             }
             if m.kind == "synthetic" && m.description.as_deref().unwrap_or("").trim().is_empty() {
@@ -1286,8 +1285,21 @@ fn render_footer(ctx: &RCtx, id: &str) -> Vec<SLine> {
         && !interrupted
         && m.retry.is_none()
     {
-        for l in wrap(&[s(format!("Error: {}", e.message), th.text.feedback.error.base)], ctx.width.saturating_sub(3), Wrap::Word) {
-            out.push(SLine::new(l).prefixed(&[pad(3)]));
+        if e.kind == "provider.free-limit" {
+            // `FreeLimitNotice`: two muted lines instead of the error.
+            let reset = locale::free_limit_reset(e.retry_after_ms, m.time.completed.unwrap_or(m.time.created), ctx.now);
+            let first = format!("You've used today's free messages.{}", reset.map(|r| format!(" They reset at {r}.")).unwrap_or_default());
+            for l in wrap(&[s(first, th.text.muted)], ctx.width.saturating_sub(3), Wrap::Word) {
+                out.push(SLine::new(l).prefixed(&[pad(3)]));
+            }
+            let second = [s("Upgrade to OpenCode Go → ", th.text.muted), s("/connect", th.text.base), s(" · Switch model → ", th.text.muted), s("/models", th.text.base)];
+            for l in wrap(&second, ctx.width.saturating_sub(3), Wrap::Word) {
+                out.push(SLine::new(l).prefixed(&[pad(3)]));
+            }
+        } else {
+            for l in wrap(&[s(format!("Error: {}", e.message), th.text.feedback.error.base)], ctx.width.saturating_sub(3), Wrap::Word) {
+                out.push(SLine::new(l).prefixed(&[pad(3)]));
+            }
         }
     }
     if let Some(r) = &m.retry {
