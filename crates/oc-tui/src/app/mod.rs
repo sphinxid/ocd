@@ -10,6 +10,7 @@ pub mod event_loop;
 pub mod stats;
 pub mod input;
 pub mod migration;
+pub mod highlights;
 pub mod panel;
 pub mod program_status;
 pub mod mini;
@@ -1175,6 +1176,10 @@ impl App {
             return;
         }
         self.prompt_sent = true;
+        // Release highlights once after an update (none are embedded; the version is recorded).
+        if self.claim_highlights() {
+            self.dirty = true;
+        }
         if let Some(m) = &self.opts.model
             && !m.contains('/')
         {
