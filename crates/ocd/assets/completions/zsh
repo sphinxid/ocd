@@ -188,6 +188,7 @@ _ocd_debug() {
   commands=(
     'agents:List all agents'
     'config:List configuration sources'
+    'heap-dump:Write a heap snapshot of the running server and print its path'
     'paths:Show global paths (data, config, cache, state)'
   )
 
@@ -211,6 +212,9 @@ _ocd_debug() {
         config)
           _ocd_debug_config
           ;;
+        heap-dump)
+          _ocd_debug_heap_dump
+          ;;
         paths)
           _ocd_debug_paths
           ;;
@@ -223,6 +227,15 @@ _ocd_debug_agents() {
 }
 
 _ocd_debug_config() {
+}
+
+_ocd_debug_heap_dump() {
+  local -a specs
+  specs=(
+    '(--directory)--directory[Directory to write the snapshot into instead of the server'\''s log directory]:value:'
+    '(--server)--server[Connect to a server URL instead of the background service]:value:'
+  )
+  _arguments "${specs[@]}"
 }
 
 _ocd_debug_paths() {

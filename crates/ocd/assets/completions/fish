@@ -76,12 +76,18 @@ complete -c ocd -n '__fish_seen_subcommand_from api; and not string match -q -- 
 complete -c ocd -n '__fish_seen_subcommand_from api; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s d data' -f -a '--data' -d 'Request body'
 complete -c ocd -n '__fish_seen_subcommand_from api; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s H header' -f -a '--header' -d 'Request header in name:value form'
 complete -c ocd -n '__fish_seen_subcommand_from api; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt param' -f -a '--param' -d 'OpenAPI path or query parameter'
-complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config paths' -f
-complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config paths' -f -a 'agents' -d 'List all agents'
-complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config paths' -f -a 'config' -d 'List configuration sources'
-complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config paths' -f -a 'paths' -d 'Show global paths (data, config, cache, state)'
+complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config heap-dump paths' -f
+complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config heap-dump paths' -f -a 'agents' -d 'List all agents'
+complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config heap-dump paths' -f -a 'config' -d 'List configuration sources'
+complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config heap-dump paths' -f -a 'heap-dump' -d 'Write a heap snapshot of the running server and print its path'
+complete -c ocd -n '__fish_seen_subcommand_from debug; and not __fish_seen_subcommand_from agents config heap-dump paths' -f -a 'paths' -d 'Show global paths (data, config, cache, state)'
 complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from agents' -f
 complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from config' -f
+complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from heap-dump' -f
+complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from heap-dump; and begin; not __fish_contains_opt directory; or contains -- (commandline -poc)[-1] --directory; end' -l directory -d 'Directory to write the snapshot into instead of the server\'s log directory' -r -f
+complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from heap-dump; and begin; not __fish_contains_opt server; or contains -- (commandline -poc)[-1] --server; end' -l server -d 'Connect to a server URL instead of the background service' -r -f
+complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from heap-dump; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt directory' -f -a '--directory' -d 'Directory to write the snapshot into instead of the server\'s log directory'
+complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from heap-dump; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt server' -f -a '--server' -d 'Connect to a server URL instead of the background service'
 complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from paths' -f
 complete -c ocd -n '__fish_seen_subcommand_from debug; and __fish_seen_subcommand_from paths' -r -f -a 'db home data config cache state tmp bin log repos' -d 'Print only one path: db, home, data, config, cache, state, tmp, bin, log, repos'
 complete -c ocd -n '__fish_seen_subcommand_from auth; and not __fish_seen_subcommand_from list login logout export import switch' -f

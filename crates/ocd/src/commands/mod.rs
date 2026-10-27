@@ -55,6 +55,7 @@ pub async fn dispatch(global: &Global, inv: &Invocation) -> anyhow::Result<i32> 
         "debug paths" => debug_paths(global, input),
         "debug config" => debug_config(global).await,
         "debug agents" => debug_agents(global).await,
+        "debug heap-dump" => Ok(debug_heap_dump(global, input).await.unwrap_or_else(report)),
         "service start" => service_start(global).await,
         "service stop" => service_stop(global).await,
         "service restart" => service_restart(global).await,
@@ -228,6 +229,149 @@ fn debug_paths(global: &Global, input: &Input) -> anyhow::Result<i32> {
     }
     write_stdout(&out);
     Ok(0)
+}
+
+/// `debug heap-dump` (`handlers/debug/heap-dump.ts`): ask an already-running server for a heap snapshot and print
+/// its server-local path. It never starts, replaces or restarts the background service.
+async fn debug_heap_dump(global: &Global, input: &Input) -> anyhow::Result<i32> {
+    let endpoint = match input.str("server") {
+        Some(server) => {
+            let args = Args { server: Some(server), standalone: false, mismatch: None, on_start: None };
+            connection::resolve(global, args).await?.endpoint
+        }
+        None => {
+            let options = ServiceConfig::new(global).options(false);
+            service::discover(&options.file, None).await.ok_or_else(|| {
+                anyhow::anyhow!("No background server is running. Pass --server <url> to capture a server started another way.")
+            })?
+        }
+    };
+    let client = Client::new(&endpoint);
+    // The server writes the file, so a relative directory resolves against this shell. An absolute one passes
+    // through untouched, which keeps a POSIX path for a remote server intact on Windows.
+    let directory = input.str("directory").map(|value| if is_absolute(&value) { value } else { resolve_path(&value) });
+    let mut req = Req::new();
+    if let Some(d) = &directory {
+        req = req.query("directory", Value::String(d.clone()));
+    }
+    let snapshot = client.call("debug.heapDump", req).await.map_err(|e| match e {
+        crate::client::ClientError::Client { reason: "UnexpectedStatus", status: Some(404), .. } => {
+            anyhow::anyhow!("The server at {} does not support heap dumps. Update and restart it first.", endpoint.url)
+        }
+        other => anyhow::Error::new(other),
+    })?;
+    let path = snapshot.get("path").and_then(Value::as_str).unwrap_or_default().to_string();
+    // Servers released before `directory` existed ignore it and write into their log directory. Join the same way
+    // the server does, with the path style of the server's machine.
+    if let Some(d) = &directory
+        && heap_join(&path, d) != path
+    {
+        write_stderr(&format!("The server ignored --directory. Update and restart it to choose where snapshots go.{EOL}"));
+    }
+    write_stdout(&format!("{path}{EOL}"));
+    Ok(0)
+}
+
+/// `path.isAbsolute` for this platform.
+fn is_absolute(value: &str) -> bool {
+    std::path::Path::new(value).is_absolute()
+}
+
+/// `path.resolve(value)` against the process cwd.
+fn resolve_path(value: &str) -> String {
+    if cfg!(windows) {
+        return std::path::absolute(value).map(|p| p.display().to_string()).unwrap_or_else(|_| value.to_string());
+    }
+    posix_normalize(&format!("{}/{value}", cwd()))
+}
+
+/// `path.posix.normalize` of an absolute path, without a trailing separator (as `path.resolve` returns it).
+fn posix_normalize(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            p => parts.push(p),
+        }
+    }
+    format!("/{}", parts.join("/"))
+}
+
+/// `style.join(directory, style.basename(snapshot))` with `style` = win32 for a drive or UNC snapshot path, else posix.
+fn heap_join(snapshot: &str, directory: &str) -> String {
+    let win = {
+        let b = snapshot.as_bytes();
+        (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':') || snapshot.starts_with("\\\\")
+    };
+    if win {
+        let base = snapshot.trim_end_matches(['\\', '/']).rsplit(['\\', '/']).next().unwrap_or("");
+        return win32_join(directory, base);
+    }
+    let base = snapshot.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+    posix_join(directory, base)
+}
+
+/// `path.posix.join(a, b)`: join with `/` and normalize, keeping a trailing separator.
+fn posix_join(a: &str, b: &str) -> String {
+    let joined = [a, b].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join("/");
+    if joined.is_empty() {
+        return ".".into();
+    }
+    let absolute = joined.starts_with('/');
+    let trailing = joined.ends_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in joined.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.last().is_some_and(|p| *p != "..") {
+                    parts.pop();
+                } else if !absolute {
+                    parts.push("..");
+                }
+            }
+            p => parts.push(p),
+        }
+    }
+    let mut out = parts.join("/");
+    if absolute {
+        out.insert(0, '/');
+    }
+    if out.is_empty() {
+        out.push('.');
+    }
+    if trailing && !out.ends_with('/') {
+        out.push('/');
+    }
+    out
+}
+
+/// A close approximation of `path.win32.join(a, b)`: join with `\\`, forward slashes become backslashes and
+/// repeated separators collapse (a leading UNC `\\\\` is kept).
+fn win32_join(a: &str, b: &str) -> String {
+    let joined = [a, b].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join("\\").replace('/', "\\");
+    let unc = joined.starts_with("\\\\");
+    let mut parts: Vec<&str> = Vec::new();
+    for part in joined.split('\\') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            p => parts.push(p),
+        }
+    }
+    let body = parts.join("\\");
+    if unc {
+        format!("\\\\{body}")
+    } else if joined.starts_with('\\') {
+        format!("\\{body}")
+    } else {
+        body
+    }
 }
 
 async fn debug_config(global: &Global) -> anyhow::Result<i32> {
@@ -718,6 +862,15 @@ mod tests {
         p.insert("workspace".to_string(), "work".to_string());
         assert_eq!(interpolate("/api/session/{sessionID}", &p).unwrap(), "/api/session/ses%2Fa?workspace=work");
         assert!(interpolate("/x/{missing}", &p).unwrap_err().to_string().contains("Missing path parameter: missing"));
+    }
+
+    #[test]
+    fn heap_dump_paths() {
+        assert_eq!(posix_normalize("/a/b/../c/./d/"), "/a/c/d");
+        assert_eq!(posix_join("/tmp/dumps/", "x.heapsnapshot"), "/tmp/dumps/x.heapsnapshot");
+        assert_eq!(posix_join("/tmp//dumps", "x"), "/tmp/dumps/x");
+        assert_eq!(heap_join("/var/log/opencode/x.heapsnapshot", "/tmp/d"), "/tmp/d/x.heapsnapshot");
+        assert_eq!(heap_join("C:\\logs\\x.heapsnapshot", "D:/dumps/"), "D:\\dumps\\x.heapsnapshot");
     }
 
     #[test]

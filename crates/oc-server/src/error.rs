@@ -341,6 +341,14 @@ impl ApiError {
         )
     }
 
+    /// `500 UnknownError{message, ref}` with a caller-chosen message; `ref` is logged with it.
+    pub fn unknown_with_message(message: impl Into<String>) -> Self {
+        let r = format!("err_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        let message = message.into();
+        tracing::error!(r#ref = %r, %message, "request failed");
+        tagged(500, "UnknownError", json!({ "message": message, "ref": r }))
+    }
+
     /// `500 CommandExecutionError{command, message}`.
     pub fn command_execution(command: impl Into<String>, message: impl Into<String>) -> Self {
         tagged(500, "CommandExecutionError", json!({ "command": command.into(), "message": message.into() }))

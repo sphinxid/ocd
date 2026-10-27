@@ -269,6 +269,16 @@ pub fn root() -> Cmd {
             vec![
                 cmd("agents", "List all agents", vec![]),
                 cmd("config", "List configuration sources", vec![]),
+                cmd(
+                    "heap-dump",
+                    "Write a heap snapshot of the running server and print its path",
+                    vec![
+                        string("directory", "directory")
+                            .desc("Directory to write the snapshot into instead of the server's log directory")
+                            .p(),
+                        string("server", "server").desc("Connect to a server URL instead of the background service").p(),
+                    ],
+                ),
                 cmd("paths", "Show global paths (data, config, cache, state)", vec![paths_arg]),
             ],
         ),

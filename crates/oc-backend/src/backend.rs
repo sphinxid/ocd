@@ -719,6 +719,21 @@ impl Backend for Engine {
         self.credentials().activate(&req.credential_id).await.map_err(defect)
     }
 
+    // ---- debug --------------------------------------------------------------------------------
+
+    /// `debug.heapDump`. Upstream writes a V8 heap snapshot; ocd has no JavaScript heap, so after the same
+    /// directory check it fails the way upstream reports a snapshot it could not write (`500 UnknownError`).
+    async fn debug_heap_dump(&self, _ctx: &RequestContext, req: DebugHeapDumpRequest) -> Result<DebugHeapDumpResponse, ApiError> {
+        if let Some(directory) = &req.directory
+            && !std::path::Path::new(directory).is_absolute()
+        {
+            return Err(ApiError::invalid_request("directory must be an absolute path").with_field("directory"));
+        }
+        Err(ApiError::unknown_with_message(
+            "Failed to write heap snapshot: ocd has no JavaScript heap, so it does not support heap snapshots",
+        ))
+    }
+
     // ---- project ------------------------------------------------------------------------------
 
     async fn project_list(&self, ctx: &RequestContext, req: ProjectListRequest) -> Result<Vec<Project>, ApiError> {

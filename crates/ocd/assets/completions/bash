@@ -372,6 +372,10 @@ _ocd_debug()
         _ocd_debug_config "$i"
         return
         ;;
+      heap-dump)
+        _ocd_debug_heap_dump "$i"
+        return
+        ;;
       paths)
         _ocd_debug_paths "$i"
         return
@@ -384,7 +388,7 @@ _ocd_debug()
     return
   fi
 
-  COMPREPLY=( $(compgen -W 'agents config paths' -- "$cur") )
+  COMPREPLY=( $(compgen -W 'agents config heap-dump paths' -- "$cur") )
 }
 
 _ocd_debug_agents()
@@ -400,6 +404,35 @@ _ocd_debug_config()
   local cur prev words cword i
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
+
+}
+
+_ocd_debug_heap_dump()
+{
+  local cur prev words cword i
+  local _command_index="$1"
+  _init_completion -n "$COMP_WORDBREAKS" || return
+
+  # Flag value completions
+  case "$prev" in
+  esac
+
+  local _used_0="" _used_1=""
+  for ((i = 1; i < cword; i++)); do
+    case "${words[i]%%=*}" in
+      --directory) _used_0=1 ;;
+      --server) _used_1=1 ;;
+    esac
+  done
+  local _filtered_flags=""
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --directory"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
+
+  # Complete flags (filtered) and subcommands
+  if [[ "$cur" == -* ]]; then
+    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
+    return
+  fi
 
 }
 
