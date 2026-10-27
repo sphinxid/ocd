@@ -1006,6 +1006,20 @@ async fn wellknown_add() {
     assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));
     assert!(r.json()["data"]["methods"].to_string().contains("login"), "{}", r.json());
 
+    // The login command runs in the location's registry, which also answers the status polls.
+    let r = h.post(&format!("/api/integration/{}/connect/command", enc(&origin)), json!({"methodID": "login"})).await;
+    assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));
+    let attempt = r.json()["data"]["attemptID"].as_str().unwrap().to_string();
+    let mut status = json!(null);
+    for _ in 0..50 {
+        status = h.get(&format!("/api/integration/{}/connect/command/{attempt}", enc(&origin))).await.json()["data"].clone();
+        if status["status"] != "pending" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(status["status"], "complete", "{status}");
+
     let r = h.post("/api/experimental/integration/wellknown", json!({"url": "http://127.0.0.1:1"})).await;
     assert_eq!(r.status, 400);
     assert_eq!(r.json()["kind"], "well_known_discovery");

@@ -615,12 +615,8 @@ impl Backend for Engine {
         if !has {
             return Err(ApiError::integration_method_not_found(&req.integration_id, &req.body.method_id));
         }
-        let attempt = self
-            .models()
-            .integrations
-            .connect_command(&req.integration_id, &req.body.method_id, req.body.label)
-            .await
-            .map_err(authorization_error)?;
+        // The location's registry: it holds the wellknown login methods and answers the status polls.
+        let attempt = integrations.connect_command(&req.integration_id, &req.body.method_id, req.body.label).await.map_err(authorization_error)?;
         conv(attempt)
     }
 
