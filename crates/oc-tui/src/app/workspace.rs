@@ -43,34 +43,11 @@ pub fn random_slug() -> String {
 
 /// `uqr.renderUnicodeCompact(text, {border: 1})`: light modules are drawn filled.
 pub fn qr_compact(text: &str) -> Vec<String> {
-    let Ok(code) = qrcode::QrCode::new(text.as_bytes()) else { return vec![] };
-    let w = code.width();
-    let colors = code.to_colors();
-    let light = |x: isize, y: isize| -> bool {
-        if x < 0 || y < 0 || x >= w as isize || y >= w as isize {
-            return true;
-        }
-        colors[(y as usize) * w + x as usize] == qrcode::Color::Light
-    };
-    let size = w as isize + 2;
-    let mut out = Vec::new();
-    let mut y = 0;
-    while y < size {
-        let mut line = String::new();
-        for x in 0..size {
-            let top = light(x - 1, y - 1);
-            let bottom = if y + 1 < size { light(x - 1, y) } else { false };
-            line.push(match (top, bottom) {
-                (true, true) => '█',
-                (true, false) => '▀',
-                (false, true) => '▄',
-                (false, false) => ' ',
-            });
-        }
-        out.push(line);
-        y += 2;
+    let rendered = oc_util::qr::render_unicode_compact(text, 1);
+    if rendered.is_empty() {
+        return vec![];
     }
-    out
+    rendered.split('\n').map(String::from).collect()
 }
 
 fn content_width(w: usize) -> usize {

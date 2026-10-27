@@ -2771,7 +2771,6 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "pulldown-cmark",
- "qrcode",
  "rand 0.9.5",
  "ratatui",
  "regex",
@@ -2824,6 +2823,7 @@ dependencies = [
  "json5",
  "once_cell",
  "parking_lot",
+ "qrcodegen",
  "rand 0.9.5",
  "rcgen",
  "regex",
@@ -2873,7 +2873,6 @@ dependencies = [
  "oc-util",
  "parking_lot",
  "percent-encoding",
- "qrcode",
  "rand 0.9.5",
  "regex",
  "reqwest",
@@ -3341,10 +3340,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
-name = "qrcode"
-version = "0.14.1"
+name = "qrcodegen"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
 
 [[package]]
 name = "quick-error"

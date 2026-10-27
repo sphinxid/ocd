@@ -27,6 +27,7 @@ webpki-roots.workspace = true
 webpki.workspace = true
 sha1 = "0.10"
 uuid = { version = "1", features = ["v4"] }
+qrcodegen = "1.8"
 
 [dev-dependencies]
 rcgen.workspace = true

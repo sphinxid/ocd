@@ -524,34 +524,7 @@ fn is_loopback(hostname: &str) -> bool {
 
 /// `uqr.renderUnicodeCompact(data, {border: 2})`: two modules per character (`▀ ▄ █`).
 pub fn qr_compact(data: &str) -> String {
-    let Ok(code) = qrcode::QrCode::with_error_correction_level(data.as_bytes(), qrcode::EcLevel::M) else { return String::new() };
-    let width = code.width();
-    let border = 2usize;
-    let size = width + border * 2;
-    let dark = |x: usize, y: usize| -> bool {
-        if x < border || y < border || x >= width + border || y >= width + border {
-            return false;
-        }
-        code[(x - border, y - border)] == qrcode::Color::Dark
-    };
-    let mut rows = vec![];
-    let mut y = 0;
-    while y < size {
-        let mut line = String::new();
-        for x in 0..size {
-            let top = dark(x, y);
-            let bottom = y + 1 < size && dark(x, y + 1);
-            line.push(match (top, bottom) {
-                (true, true) => '█',
-                (true, false) => '▀',
-                (false, true) => '▄',
-                (false, false) => ' ',
-            });
-        }
-        rows.push(line);
-        y += 2;
-    }
-    rows.join("\n")
+    oc_util::qr::render_unicode_compact(data, 2)
 }
 
 async fn pair(global: &Global, input: &Input) -> anyhow::Result<i32> {

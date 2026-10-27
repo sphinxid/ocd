@@ -29,7 +29,6 @@ rand.workspace = true
 once_cell.workspace = true
 vt100 = "0.15"
 tokio-tungstenite = "0.29"
-qrcode = { version = "0.14", default-features = false }
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "regex-fancy", "parsing"] }
 
 [dev-dependencies]
