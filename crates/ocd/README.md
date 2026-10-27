@@ -1,13 +1,13 @@
 # ocd (CLI binary)
 
-`ocd` is the Rust port of upstream `packages/cli` (opencode v2, `@opencode/cli` 2.0.26), built as if
+`ocd` is the Rust port of upstream `packages/cli` (opencode v2, `@opencode/cli` 2.1.4), built as if
 upstream's `OPENCODE_CLI_NAME` build constant were `ocd`. Spec: `docs/spec/01-cli-config-service.md`
 §0–§5, §7–§16. Build/test: `cargo build -p ocd`, `cargo test -p ocd`.
 
 ## Identity vs. compatibility
 
 The program identity is `ocd`: root command name in help/usage/errors (`ocd <subcommand>`,
-`Unrecognized flag: --x in command ocd run`), `--version` (`ocd v2.0.26`), completion scripts
+`Unrecognized flag: --x in command ocd run`), `--version` (`ocd v2.1.4`), completion scripts
 (`###-begin-ocd-completions-###`), the root description (`ocd command line interface`), and every
 message naming the executable (`Usage: ocd service ...`, `` run `ocd service unset disabled` ``,
 `ocd acp: ...`, `ocd mini requires a TTY stdout`, `ocd upgrade` retries, `ocd stats` card heading,
@@ -50,8 +50,9 @@ so the parser is a direct port and is verified against the real framework.
 ## Verification against the real Effect CLI
 
 `tests/golden/*.json` were captured by running upstream's `commands.ts` + `framework/spec.ts`
-under `effect@4.0.1` (bun, `--define OPENCODE_CLI_NAME='"ocd"'`) for ~200 command lines (the root
-description was then substituted with ocd's):
+(v2.1.4) under `effect@4.0.1` (bun, `--define OPENCODE_CLI_NAME='"ocd"'`) for ~200 command lines (the
+root and `upgrade` descriptions were then substituted with ocd's). Apart from the version, the help,
+completions and parse errors match the upstream 2.1.4 binary with `opencode` read as `ocd`:
 
 * `cli.json`: `--help` of every command, `--version`, `--completions bash|zsh|fish|sh`, group commands
   without subcommand, and ~70 parse-error cases (stdout, stderr, exit code).
@@ -71,14 +72,14 @@ twice (parsed operands + upstream's own `process.argv` re-read), exactly like up
 | `mini` | TTY check before resolution, `oc_tui::run_mini` with `--replay/--no-replay/--replay-limit` |
 | `run` | complete (native path; the unused V1 bridge is not ported) |
 | `serve` | default / `--stdio` / `--service` complete; remote tunnel (OpenTunnel) not supported |
-| `service start/stop/restart/status/get/set/unset` | complete; `set remote true` and `pair --remote` report that OpenTunnel is unsupported |
+| `service start/stop/restart/status/get/set/unset` | complete; `set remote true` and `pair --remote` report that OpenTunnel is unsupported (so `pair --yes`, upstream's consent to expose the server, is parsed but has nothing to accept) |
 | `debug paths/config/agents` | complete |
 | `auth list/export/import/login/logout/switch` | complete; login supports key/external/oauth/command methods and form answers (`--answer`); interactive pickers use a simplified clack-style UI (multiselect asks for comma-separated values) |
 | `mcp list/add/auth/logout` | complete (strings from `oc_mcp::cli`; `add` uses `oc_config::jsonc_edit`) |
 | `plugin list/check/update/remove` | server plugins via the API; TUI package plugins from `cli.json` are inspected too (installed version from upstream's npm cache layout, update check with `oc_plugin::npm::Npm::check`, `update` reinstalls with `Npm::update`); `remove` edits the global config and `cli.json` |
 | `plugin add` | complete: installs with Bun into upstream's npm cache (`oc_plugin::npm`), resolves the `server`/root and `tui` entrypoints with Bun's module resolution (upstream `Host.resolve`) and writes the global config (`plugins`) or `cli.json`, with upstream's messages. Bun comes from `OCD_BUN_PATH`/`OPENCODE_BUN_PATH` or the pinned 1.4.2 download. TUI plugins are recorded but ocd's TUI does not run them (documented incompatibility) |
 | `models`, `reload`, `api`, `pair`, `session list/delete/export/import`, `stats` | complete (`pair` renders the QR code with the `qrcode` crate; module layout may differ from `uqr`) |
-| `upgrade` / `uninstall` | native adaptation: method detection recognises `~/.opencode/bin/opencode` (curl), Homebrew cellars and an npm `package.json` owning the executable; otherwise `--method` is required. Release lookup, package-manager commands, `UpgradeError` formatting and the uninstall plan (services, cache, shell PATH lines, package) follow upstream |
+| `upgrade` / `uninstall` | native adaptation: method detection recognises `~/.opencode/bin/opencode` (curl, compared after resolving links), Homebrew cellars, WinGet's `Anomaly.OpenCode` package directory and an npm `package.json` owning the executable (probing the package manager named in its path first); otherwise `--method` is required. Release lookup, package-manager commands, `UpgradeError` formatting and the uninstall plan (services, cache, shell PATH lines, package) follow upstream |
 | `acp` | see below |
 | `--wizard` | not supported (prints an error, exit 1) |
 

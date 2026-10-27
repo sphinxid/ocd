@@ -718,7 +718,7 @@
   "args": [
    "pair"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -728,7 +728,7 @@
    "--url",
    "http://example.com/base/"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://example.com/base\"},\"remote\":false}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://example.com/base\"},\"remote\":false,\"yes\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -737,7 +737,7 @@
    "pair",
    "--remote"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":true}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":true,\"yes\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -856,6 +856,44 @@
    "-5"
   ],
   "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"-5\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "pair",
+   "-y"
+  ],
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "pair",
+   "--remote",
+   "--yes"
+  ],
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":true,\"yes\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "pair",
+   "--no-yes"
+  ],
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "upgrade",
+   "-m",
+   "winget"
+  ],
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"winget\"}}\n",
   "stderr": "",
   "code": 0
  }

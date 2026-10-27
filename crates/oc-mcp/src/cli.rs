@@ -19,7 +19,7 @@ pub const AUTH_INTRO: &str = "Authenticate an MCP server";
 pub const AUTH_NONE: &str = "No OAuth-capable MCP servers configured";
 pub const AUTH_NONE_HINT: &str =
     "Remote MCP servers support OAuth by default. Add one with `opencode mcp add` or in opencode.json:";
-pub const AUTH_NONE_EXAMPLE: &str = "  \"mcp\": {\n    \"my-server\": {\n      \"type\": \"remote\",\n      \"url\": \"https://example.com/mcp\"\n    }\n  }";
+pub const AUTH_NONE_EXAMPLE: &str = "  \"mcp\": {\n    \"servers\": {\n      \"my-server\": {\n        \"type\": \"remote\",\n        \"url\": \"https://example.com/mcp\"\n      }\n    }\n  }";
 
 pub fn invalid_url(url: &str) -> String {
     format!("Invalid URL: {url}")

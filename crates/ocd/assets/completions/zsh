@@ -126,8 +126,8 @@ _ocd() {
 _ocd_upgrade() {
   local -a specs
   specs=(
-    '(--method -m)--method[Installation method to use]:value:(curl npm pnpm bun yarn vp brew)'
-    '(--method -m)-m[Installation method to use]:value:(curl npm pnpm bun yarn vp brew)'
+    '(--method -m)--method[Installation method to use]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)-m[Installation method to use]:value:(curl npm pnpm bun yarn vp brew winget)'
     ':Version to upgrade to (with or without a leading v):'
   )
   _arguments "${specs[@]}"
@@ -136,8 +136,8 @@ _ocd_upgrade() {
 _ocd_update() {
   local -a specs
   specs=(
-    '(--method -m)--method[Installation method to use]:value:(curl npm pnpm bun yarn vp brew)'
-    '(--method -m)-m[Installation method to use]:value:(curl npm pnpm bun yarn vp brew)'
+    '(--method -m)--method[Installation method to use]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)-m[Installation method to use]:value:(curl npm pnpm bun yarn vp brew winget)'
     ':Version to upgrade to (with or without a leading v):'
   )
   _arguments "${specs[@]}"
@@ -821,8 +821,11 @@ _ocd_pair() {
   local -a specs
   specs=(
     '(--url)--url[Use an external HTTP(S) server URL in pairing links]:value:'
-    '(--remote --no-remote)--remote[Pair through the OpenTunnel remote address, enabling remote access if needed]'
+    '(--remote --no-remote)--remote[Pair through the OpenTunnel remote address, enabling remote access if needed (exposes the server to the internet)]'
     '(--remote --no-remote)--no-remote[Disable remote]'
+    '(--yes -y --no-yes)--yes[Accept exposing the server to the internet when --remote enables remote access for the first time (required without an interactive terminal)]'
+    '(--yes -y --no-yes)-y[Accept exposing the server to the internet when --remote enables remote access for the first time (required without an interactive terminal)]'
+    '(--yes -y --no-yes)--no-yes[Disable yes]'
   )
   _arguments "${specs[@]}"
 }

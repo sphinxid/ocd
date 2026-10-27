@@ -214,7 +214,7 @@ _ocd_upgrade()
   # Flag value completions
   case "$prev" in
     --method|-m)
-      _ocd--choices "$cur" "$_comp_word" 'curl' 'npm' 'pnpm' 'bun' 'yarn' 'vp' 'brew'
+      _ocd--choices "$cur" "$_comp_word" 'curl' 'npm' 'pnpm' 'bun' 'yarn' 'vp' 'brew' 'winget'
       return
       ;;
   esac
@@ -245,7 +245,7 @@ _ocd_update()
   # Flag value completions
   case "$prev" in
     --method|-m)
-      _ocd--choices "$cur" "$_comp_word" 'curl' 'npm' 'pnpm' 'bun' 'yarn' 'vp' 'brew'
+      _ocd--choices "$cur" "$_comp_word" 'curl' 'npm' 'pnpm' 'bun' 'yarn' 'vp' 'brew' 'winget'
       return
       ;;
   esac
@@ -1391,16 +1391,18 @@ _ocd_pair()
   case "$prev" in
   esac
 
-  local _used_0="" _used_1=""
+  local _used_0="" _used_1="" _used_2=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
       --url) _used_0=1 ;;
       --remote|--no-remote) _used_1=1 ;;
+      --yes|-y|--no-yes) _used_2=1 ;;
     esac
   done
   local _filtered_flags=""
   [[ -n "$_used_0" ]] || _filtered_flags+=" --url"
   [[ -n "$_used_1" ]] || _filtered_flags+=" --remote --no-remote"
+  [[ -n "$_used_2" ]] || _filtered_flags+=" --yes -y --no-yes"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then

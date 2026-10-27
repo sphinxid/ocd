@@ -168,7 +168,7 @@ fn with(mut a: Vec<Param>, b: Vec<Param>) -> Vec<Param> {
 /// The executable's own name (`OPENCODE_CLI_NAME` build constant upstream).
 pub const CLI_NAME: &str = "ocd";
 
-pub const UPDATER_METHODS: &[&str] = &["curl", "npm", "pnpm", "bun", "yarn", "vp", "brew"];
+pub const UPDATER_METHODS: &[&str] = &["curl", "npm", "pnpm", "bun", "yarn", "vp", "brew", "winget"];
 pub const PATH_NAMES: &[&str] = &["db", "home", "data", "config", "cache", "state", "tmp", "bin", "log", "repos"];
 
 /// Global flags (`GlobalFlag.BuiltIns` + the app's `--print-logs`), in help order.
@@ -567,7 +567,11 @@ pub fn root() -> Cmd {
         cmd("pair", "Print one-time links to connect a browser or app", vec![
             flag("url", "url", Prim::PairUrl, Arity::Optional).desc("Use an external HTTP(S) server URL in pairing links").p(),
             boolean("remote", "remote")
-                .desc("Pair through the OpenTunnel remote address, enabling remote access if needed")
+                .desc("Pair through the OpenTunnel remote address, enabling remote access if needed (exposes the server to the internet)")
+                .p(),
+            boolean("yes", "yes")
+                .alias("y")
+                .desc("Accept exposing the server to the internet when --remote enables remote access for the first time (required without an interactive terminal)")
                 .p(),
         ]),
         cmd("serve", "Start the v2 API and web server", vec![

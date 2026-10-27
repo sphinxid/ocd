@@ -44,10 +44,10 @@ complete -c ocd -n '__fish_use_subcommand; and not string match -q -- "-*" (comm
 complete -c ocd -n '__fish_use_subcommand; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s s session' -f -a '--session' -d 'Session ID to continue, or to create if it does not exist'
 complete -c ocd -n '__fish_use_subcommand; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt prompt' -f -a '--prompt' -d 'Prompt to use'
 complete -c ocd -n '__fish_seen_subcommand_from upgrade' -f
-complete -c ocd -n '__fish_seen_subcommand_from upgrade; and begin; not __fish_contains_opt -s m method; or contains -- (commandline -poc)[-1] --method -m; end' -l method -s m -d 'Installation method to use' -r -f -a 'curl npm pnpm bun yarn vp brew'
+complete -c ocd -n '__fish_seen_subcommand_from upgrade; and begin; not __fish_contains_opt -s m method; or contains -- (commandline -poc)[-1] --method -m; end' -l method -s m -d 'Installation method to use' -r -f -a 'curl npm pnpm bun yarn vp brew winget'
 complete -c ocd -n '__fish_seen_subcommand_from upgrade; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s m method' -f -a '--method' -d 'Installation method to use'
 complete -c ocd -n '__fish_seen_subcommand_from update' -f
-complete -c ocd -n '__fish_seen_subcommand_from update; and begin; not __fish_contains_opt -s m method; or contains -- (commandline -poc)[-1] --method -m; end' -l method -s m -d 'Installation method to use' -r -f -a 'curl npm pnpm bun yarn vp brew'
+complete -c ocd -n '__fish_seen_subcommand_from update; and begin; not __fish_contains_opt -s m method; or contains -- (commandline -poc)[-1] --method -m; end' -l method -s m -d 'Installation method to use' -r -f -a 'curl npm pnpm bun yarn vp brew winget'
 complete -c ocd -n '__fish_seen_subcommand_from update; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s m method' -f -a '--method' -d 'Installation method to use'
 complete -c ocd -n '__fish_seen_subcommand_from uninstall' -f
 complete -c ocd -n '__fish_seen_subcommand_from uninstall; and not __fish_contains_opt dry-run no-dry-run' -l dry-run -d 'Show what would be removed without removing'
@@ -356,11 +356,15 @@ complete -c ocd -n '__fish_seen_subcommand_from reload; and not string match -q 
 complete -c ocd -n '__fish_seen_subcommand_from reload; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt server' -f -a '--server' -d 'Connect to a server URL instead of the background service'
 complete -c ocd -n '__fish_seen_subcommand_from pair' -f
 complete -c ocd -n '__fish_seen_subcommand_from pair; and begin; not __fish_contains_opt url; or contains -- (commandline -poc)[-1] --url; end' -l url -d 'Use an external HTTP(S) server URL in pairing links' -r -f
-complete -c ocd -n '__fish_seen_subcommand_from pair; and not __fish_contains_opt remote no-remote' -l remote -d 'Pair through the OpenTunnel remote address, enabling remote access if needed'
+complete -c ocd -n '__fish_seen_subcommand_from pair; and not __fish_contains_opt remote no-remote' -l remote -d 'Pair through the OpenTunnel remote address, enabling remote access if needed (exposes the server to the internet)'
 complete -c ocd -n '__fish_seen_subcommand_from pair; and not __fish_contains_opt remote no-remote' -l no-remote -d 'Disable remote'
+complete -c ocd -n '__fish_seen_subcommand_from pair; and not __fish_contains_opt -s y yes no-yes' -l yes -s y -d 'Accept exposing the server to the internet when --remote enables remote access for the first time (required without an interactive terminal)'
+complete -c ocd -n '__fish_seen_subcommand_from pair; and not __fish_contains_opt -s y yes no-yes' -l no-yes -d 'Disable yes'
 complete -c ocd -n '__fish_seen_subcommand_from pair; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt url' -f -a '--url' -d 'Use an external HTTP(S) server URL in pairing links'
-complete -c ocd -n '__fish_seen_subcommand_from pair; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt remote no-remote' -f -a '--remote' -d 'Pair through the OpenTunnel remote address, enabling remote access if needed'
+complete -c ocd -n '__fish_seen_subcommand_from pair; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt remote no-remote' -f -a '--remote' -d 'Pair through the OpenTunnel remote address, enabling remote access if needed (exposes the server to the internet)'
 complete -c ocd -n '__fish_seen_subcommand_from pair; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt remote no-remote' -f -a '--no-remote' -d 'Disable remote'
+complete -c ocd -n '__fish_seen_subcommand_from pair; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s y yes no-yes' -f -a '--yes' -d 'Accept exposing the server to the internet when --remote enables remote access for the first time (required without an interactive terminal)'
+complete -c ocd -n '__fish_seen_subcommand_from pair; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s y yes no-yes' -f -a '--no-yes' -d 'Disable yes'
 complete -c ocd -n '__fish_seen_subcommand_from serve' -f
 complete -c ocd -n '__fish_seen_subcommand_from serve; and begin; not __fish_contains_opt hostname; or contains -- (commandline -poc)[-1] --hostname; end' -l hostname -r -f
 complete -c ocd -n '__fish_seen_subcommand_from serve; and begin; not __fish_contains_opt port; or contains -- (commandline -poc)[-1] --port; end' -l port -r -f
@@ -369,4 +373,12 @@ complete -c ocd -n '__fish_seen_subcommand_from serve; and not __fish_contains_o
 complete -c ocd -n '__fish_seen_subcommand_from serve; and not __fish_contains_opt service no-service' -l no-service
 complete -c ocd -n '__fish_seen_subcommand_from serve; and not __fish_contains_opt stdio no-stdio' -l stdio
 complete -c ocd -n '__fish_seen_subcommand_from serve; and not __fish_contains_opt stdio no-stdio' -l no-stdio
-complete -c ocd -n '__fish_seen_subcommand_from serve; and not string match -q
+complete -c ocd -n '__fish_seen_subcommand_from serve; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt hostname' -f -a '--hostname'
+complete -c ocd -n '__fish_seen_subcommand_from serve; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt port' -f -a '--port'
+complete -c ocd -n '__fish_seen_subcommand_from serve; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt cors' -f -a '--cors' -d 'Additional allowed CORS origin (repeat for multiple origins)'
+complete -c ocd -n '__fish_seen_subcommand_from serve; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt service no-service' -f -a '--service'
+complete -c ocd -n '__fish_seen_subcommand_from serve; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt service no-service' -f -a '--no-service'
+complete -c ocd -n '__fish_seen_subcommand_from serve; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt stdio no-stdio' -f -a '--stdio'
+complete -c ocd -n '__fish_seen_subcommand_from serve; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt stdio no-stdio' -f -a '--no-stdio'
+
+###-end-ocd-completions-###
