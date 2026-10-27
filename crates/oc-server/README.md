@@ -1,7 +1,7 @@
 # oc-server
 
 The opencode v2 HTTP API server, wire-compatible with `assets/openapi.json` (OpenAPI 3.1,
-142 operations, 282 component schemas) so the upstream TypeScript client/SDK/TUI and the Rust
+149 operations, 293 component schemas; v2.1.4's document) so the upstream TypeScript client/SDK/TUI and the Rust
 TUI work unchanged. Behaviour follows `docs/spec/06-http-api.md`.
 
 The engine is **not** a dependency: everything it must do is expressed by the generated
@@ -56,8 +56,8 @@ server.shutdown().await;            // or server.wait().await
 
 Generated in `src/generated.rs`: **one async method per operationId** (snake_case of the dotted
 id, e.g. `session.revert.stage` → `session_revert_stage`,
-`server.experimental.persistentPty.read` → `server_experimental_persistent_pty_read`), 138 in
-total (142 operations minus 4 the server owns: `server.pair`, `server.connect`,
+`server.experimental.persistentPty.read` → `server_experimental_persistent_pty_read`), 145 in
+total (149 operations minus 4 the server owns: `server.pair`, `server.connect`,
 `pty.connect.token`, `server.experimental.persistentPty.connectToken`).
 
 ```rust

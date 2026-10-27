@@ -29,8 +29,8 @@ Measured on Linux x86_64, release builds of both, same mock model, isolated fold
 ## Status: what works and what doesn't
 
 This status is against opencode 2.0.26. Upstream has since released 2.1.4; what ocd needs to catch up is listed
-in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md). Batches 1 to 4 of that catch-up (data, providers, sessions and
-tools, platform and config) are ported; its progress table lists what each one checked.
+in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md). Batches 1 to 5 of that catch-up (data, providers, sessions and
+tools, platform and config, the HTTP API) are ported; its progress table lists what each one checked.
 
 How the comparison is done: both binaries run the same 61 scenarios side by side and their outputs are diffed
 (`scripts/parity.py`, see [docs/PARITY.md](docs/PARITY.md)). These cover the agent loop, sessions, permissions,
@@ -72,7 +72,7 @@ suite, many replaying recorded upstream data.
 - **Clients and API:**
   - the full TUI;
   - the web UI served by `ocd serve`: 88 of 88 compared requests are identical;
-  - the HTTP API (142 endpoints) and the event stream;
+  - the HTTP API (149 endpoints, from upstream 2.1.4's OpenAPI document) and the event stream;
   - the background service (`ocd service start/stop/status/restart`) on port 49374, or 28894 on Windows,
     like upstream 2.1.
 - **Git:** status, diffs, branches, snapshots and worktrees.
@@ -102,6 +102,7 @@ suite, many replaying recorded upstream data.
 | Mercurial repositories | Has no version-control provider, so its endpoints answer empty. |
 | Remote access tunnel (OpenTunnel: `serve --remote`, `pair --remote`) | Prints that it's unsupported. |
 | `--wizard` mode | Prints an error. |
+| Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 (not implemented). |
 | Some cloud credentials | AWS SSO, web identity and instance metadata, and Google workload identity federation, are missing. Env vars, shared config files, `credential_process` and ECS credentials work. |
 | Testing on macOS, Windows and Linux ARM | Release binaries are built for them, but only Linux x86_64 is tested. |
 
@@ -114,6 +115,8 @@ suite, many replaying recorded upstream data.
   out while the status line shows it.
 - **Name:** the program name, help text and logo say `ocd` / `opencode-d`.
 - **`ocd upgrade`:** prints how to rebuild from source instead of downloading a release.
+- **Heap snapshots:** ocd's server has no JavaScript heap, so `POST /api/debug/heap-dump` answers `500 UnknownError`.
+  `ocd debug heap-dump --server URL` still captures one from an upstream server.
 - **Version and release channel:** a source build reports `2.0.26` on the `latest` channel.
 
 ## Releases

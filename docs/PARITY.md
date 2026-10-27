@@ -223,6 +223,7 @@ classified below; none is an unexplained behavioral difference.
 | 46 | Config documents went into the agent fold twice, so top-level and agent `permissions` were appended twice to every agent | core/src/config/plugin/agent.ts | oc-core `location.rs` `agents_from` folds `agent_documents(entries)` only; agent list identical to 2.1.4 |
 | 47 | `shell.exited` carried `"exit": null` for a command without an exit code (killed, timed out) | core/src/shell.ts `Exited` | oc-core `services.rs` omits `exit` when absent |
 | 48 | Plugin tool failures were always `tool.execution`; upstream takes the session error from the `Tool.Error` cause (`unknown` for a thrown Error, `permission.rejected` for a rejected `ctx.permission.assert`) | core/src/session/to-session-error.ts, plugin/src/promise/adapter.ts (v2.1.4) | oc-plugin host `location.ts` `sessionCause` sent as `data.cause`, oc-core `plugins.rs` `with_cause` |
+| 49 | `project.list`/`project.update` did not boot the request's location, so `GET /api/project` neither resolved nor (2.1) unarchived the caller's project first | protocol/src/api.ts `ProjectGroup.middleware(locationMiddleware)` | `oc-backend` `project_list`/`project_update` call `locations.get` first. Checked against the 2.1.4 build (batch 5) |
 
 ### By design (not fixed)
 
@@ -233,6 +234,7 @@ classified below; none is an unexplained behavioral difference.
 | `debug paths` db `opencode-v2.db` vs `opencode.db`; service config file name | derived from the channel (`v2` dev build) |
 | Program name `ocd`: help `DESCRIPTION` reads `ocd command line interface` (upstream `OpenCode command line interface`), completion function names | rename; masked where it is just the name |
 | `upgrade` description ("Show how to upgrade opencode (it is built from source)") | the port is built from source |
+| `POST /api/debug/heap-dump` writes a V8 heap snapshot upstream; ocd answers `500 UnknownError` ("Failed to write heap snapshot: ocd has no JavaScript heap, …"), after the same `400` for a relative directory | no JavaScript heap in ocd |
 | Upstream 500s on bad input reproduced on purpose (relative directories, `NaN` stats range) | deterministic upstream behavior kept |
 
 ### Inherent races and upstream quirks (not fixed, worked around in the harness)
