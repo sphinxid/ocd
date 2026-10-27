@@ -39,6 +39,7 @@ works on it — verified on a copy; backup of the post-incident state in `~/.loc
 | oc-core | config, agents, permissions, session loop, compaction, MCP, PTY | 01 §6, 03, 08 |
 | oc-server | HTTP API (wire-compatible with `assets/openapi.json`) + SSE | 06 |
 | oc-tui | ratatui client of the HTTP API | 07 |
+| oc-tunnel | OpenTunnel client for remote access (`@opentunnel/client` 0.4.1 port) and a fake service for tests | — |
 | ocd | CLI binary `ocd` (crates/ocd) | 01 |
 
 ## Rules

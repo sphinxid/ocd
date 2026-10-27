@@ -29,11 +29,11 @@ Measured on Linux x86_64, release builds of both, same mock model, isolated fold
 
 ## Status: what works and what doesn't
 
-This status is against opencode 2.1.4, and ocd reports version 2.1.4. It caught up from 2.0.26 in the batches
-listed in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md): data, providers, sessions and tools, platform and config,
-the HTTP API, the TUI (with the `/connect` integration dialog) and the release (version, CLI help, web UI, runtime
-pins) are done; of the experimental 2.1 features (batch 8) only the todo list is. Its progress table lists what
-each batch checked.
+This status is against opencode 2.1.4, and ocd reports opencode version 2.1.4 wherever it must look like
+opencode. It caught up from 2.0.26 in the batches listed in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md): data,
+providers, sessions and tools, platform and config, the HTTP API, the TUI (with the `/connect` integration dialog),
+the release (version, CLI help, web UI, runtime pins) and `pair --remote` are done; of the experimental 2.1
+features (batch 8) only the todo list is. Its progress table lists what each batch checked.
 
 How the comparison is done: both binaries run the same 72 scenarios side by side and their outputs are diffed
 (`scripts/parity.py`, see [docs/PARITY.md](docs/PARITY.md)). These cover the agent loop, sessions, permissions,
@@ -99,6 +99,7 @@ the details. Each crate also has its own test suite, many replaying recorded ups
 | Editor integration (ACP) | Works, but doesn't add the diff for a completed edit. |
 | Error texts | A few come from Rust instead of Bun or Node: file-system errors, MCP JSON-schema validation and network errors. |
 | Start-up events | A new session's start-up notifications arrive about 0.5 s sooner. They are the same events in the same order. |
+| Remote access (`pair --remote`) | A native OpenTunnel client (`crates/oc-tunnel`) replaces upstream's JavaScript SDK. It keeps the tunnel in the same place, so ocd, upstream and the opentunnel CLI share a device's tunnel. Tested against a local stand-in for the service, not yet against opentunnel.xyz. |
 
 ### Not implemented yet
 
@@ -108,7 +109,6 @@ the details. Each crate also has its own test suite, many replaying recorded ups
 | Third-party packages for upstream's own model runtime (`@opencode/ai`) | AI SDK packages do work. |
 | Image, speech, video and transcription models | Upstream includes these only as library code that nothing in the app calls. |
 | Mercurial repositories | Has no version-control provider, so its endpoints answer empty. |
-| Remote access tunnel (OpenTunnel: `serve --remote`, `pair --remote`) | Prints that it's unsupported. |
 | `--wizard` mode | Prints an error. |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 (not implemented). |
 | Other experimental 2.1 features | Background compaction, `location_idle_timeout` and the new designs are not ported; their config keys are accepted and do nothing. The todo list (`experimental.todo`: the `todowrite` tool, the sidebar section and its transcript rendering) is ported. |
