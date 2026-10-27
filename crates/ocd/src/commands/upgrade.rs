@@ -23,6 +23,35 @@ fn exe() -> PathBuf {
     std::env::current_exe().unwrap_or_default()
 }
 
+/// `executable`: the real path of the running binary.
+fn executable() -> PathBuf {
+    let exe = exe();
+    std::fs::canonicalize(&exe).unwrap_or(exe)
+}
+
+/// WinGet's package identifier and the arguments every `winget` call passes.
+const WINGET_PACKAGE: &str = "Anomaly.OpenCode";
+const WINGET_ARGS: &[&str] =
+    &["--id", WINGET_PACKAGE, "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"];
+
+/// `installedWinget`: WinGet extracts portable packages into a directory named after the package identifier.
+fn installed_winget(executable: &Path) -> bool {
+    regex::Regex::new(r"(?i)[\\/]winget[\\/]packages[\\/]anomaly\.opencode_").unwrap().is_match(&executable.to_string_lossy())
+}
+
+/// The package-manager probes, the ones named in the executable's path first (`checks.sort`).
+fn probe_order(executable: &Path) -> Vec<&'static str> {
+    let parts: Vec<String> = executable
+        .to_string_lossy()
+        .to_lowercase()
+        .split(std::path::MAIN_SEPARATOR)
+        .map(|p| p.strip_prefix('.').unwrap_or(p).to_string())
+        .collect();
+    let mut order = vec!["npm", "pnpm", "bun", "yarn", "vp"];
+    order.sort_by_key(|m| !parts.iter().any(|p| p == m));
+    order
+}
+
 /// `installedPackage`: the npm package owning the executable, if any.
 fn installed_package() -> Option<String> {
     let real = std::fs::canonicalize(exe()).ok()?;
@@ -49,33 +78,37 @@ fn brew_formula() -> Option<String> {
 
 /// `updater.method()`
 pub fn detect_method() -> Option<String> {
-    let curl = home().join(".opencode").join("bin").join(if cfg!(windows) { "opencode.exe" } else { "opencode" });
-    if exe() == curl {
+    let executable = executable();
+    let curl_path = home().join(".opencode").join("bin").join(if cfg!(windows) { "opencode.exe" } else { "opencode" });
+    let curl = std::fs::canonicalize(&curl_path).unwrap_or(curl_path);
+    if executable == curl {
         return Some("curl".into());
     }
     if brew_formula().is_some() {
         return Some("brew".into());
+    }
+    if installed_winget(&executable) {
+        return Some("winget".into());
     }
     let pkg = installed_package()?;
     let check = |cmd: &str, args: &[&str]| -> Option<String> {
         let out = std::process::Command::new(cmd).args(args).stderr(std::process::Stdio::null()).output().ok()?;
         out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
     };
-    let candidates: [(&str, &str, Vec<&str>); 4] = [
-        ("npm", "npm", vec!["list", "-g", "--depth=0", &pkg]),
-        ("pnpm", "pnpm", vec!["list", "-g", "--depth=0", &pkg]),
-        ("bun", "bun", vec!["pm", "ls", "-g"]),
-        ("yarn", "yarn", vec!["global", "list"]),
-    ];
-    for (method, cmd, args) in candidates {
-        if check(cmd, &args).is_some_and(|o| o.contains(&pkg)) {
+    for method in probe_order(&executable) {
+        let found = match method {
+            "npm" | "pnpm" => check(method, &["list", "-g", "--depth=0", &pkg]).is_some_and(|o| o.contains(&pkg)),
+            "bun" => check("bun", &["pm", "ls", "-g"]).is_some_and(|o| o.contains(&pkg)),
+            "yarn" => check("yarn", &["global", "list"]).is_some_and(|o| o.contains(&pkg)),
+            _ => check("vp", &["list", "-g", "--json", &pkg]).is_some_and(|o| {
+                serde_json::from_str::<Vec<Value>>(&o)
+                    .ok()
+                    .is_some_and(|a| a.iter().any(|x| x.get("name").and_then(Value::as_str) == Some(&pkg)))
+            }),
+        };
+        if found {
             return Some(method.into());
         }
-    }
-    if let Some(o) = check("vp", &["list", "-g", "--json", &pkg])
-        && serde_json::from_str::<Vec<Value>>(&o).ok().is_some_and(|a| a.iter().any(|x| x.get("name").and_then(Value::as_str) == Some(&pkg)))
-    {
-        return Some("vp".into());
     }
     None
 }
@@ -119,6 +152,9 @@ pub async fn upgrade(_global: &Global, _input: &Input) -> anyhow::Result<i32> {
 }
 
 fn removal(method: Option<&str>) -> Option<Vec<String>> {
+    if method == Some("winget") {
+        return Some(["winget", "uninstall"].iter().chain(WINGET_ARGS).map(|a| a.to_string()).collect());
+    }
     let pkg = installed_package()?;
     let c: Vec<&str> = match method? {
         "npm" => vec!["npm", "uninstall", "--global"],
@@ -285,6 +321,29 @@ pub async fn uninstall(global: &Global, input: &Input) -> anyhow::Result<i32> {
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn winget_installs() {
+        let p = |s: &str| PathBuf::from(s);
+        assert!(installed_winget(&p(
+            r"C:\Users\u\AppData\Local\Microsoft\WinGet\Packages\Anomaly.OpenCode_Microsoft.Winget.Source_8wekyb3d8bbwe\opencode.exe"
+        )));
+        assert!(installed_winget(&p("/x/winget/packages/anomaly.opencode_abc/opencode")));
+        assert!(!installed_winget(&p("/usr/local/bin/opencode")));
+        assert_eq!(
+            removal(Some("winget")).unwrap().join(" "),
+            "winget uninstall --id Anomaly.OpenCode --exact --source winget --accept-source-agreements --disable-interactivity"
+        );
+    }
+
+    #[test]
+    fn probes_start_with_the_manager_in_the_path() {
+        let sep = std::path::MAIN_SEPARATOR;
+        let path = PathBuf::from(format!("{sep}home{sep}u{sep}.bun{sep}install{sep}global{sep}node_modules{sep}x{sep}bin{sep}opencode"));
+        assert_eq!(probe_order(&path), ["bun", "npm", "pnpm", "yarn", "vp"]);
+        let path = PathBuf::from(format!("{sep}usr{sep}lib{sep}node_modules{sep}opencode"));
+        assert_eq!(probe_order(&path), ["npm", "pnpm", "bun", "yarn", "vp"]);
+    }
 
     #[test]
     fn shell_cleanup() {
