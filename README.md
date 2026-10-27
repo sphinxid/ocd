@@ -31,8 +31,9 @@ Measured on Linux x86_64, release builds of both, same mock model, isolated fold
 
 This status is against opencode 2.1.4, and ocd reports version 2.1.4. It caught up from 2.0.26 in the batches
 listed in [docs/UPGRADE-2.1.4.md](docs/UPGRADE-2.1.4.md): data, providers, sessions and tools, platform and config,
-the HTTP API, the TUI and the release (version, CLI help, web UI, runtime pins) are done; of the experimental 2.1
-features (batch 8) only the todo list is. Its progress table lists what each batch checked.
+the HTTP API, the TUI (with the `/connect` integration dialog) and the release (version, CLI help, web UI, runtime
+pins) are done; of the experimental 2.1 features (batch 8) only the todo list is. Its progress table lists what
+each batch checked.
 
 How the comparison is done: both binaries run the same 72 scenarios side by side and their outputs are diffed
 (`scripts/parity.py`, see [docs/PARITY.md](docs/PARITY.md)). These cover the agent loop, sessions, permissions,
@@ -64,7 +65,9 @@ the details. Each crate also has its own test suite, many replaying recorded ups
 - **Chat providers:** Anthropic, OpenAI, Google, Bedrock, Mistral, Cohere, OpenAI-compatible, OpenCode Zen and
   every models.dev provider that uses those protocols. 229 recorded upstream streams decode identically.
 - **Sign-in:** API keys, OAuth, ChatGPT (token sharing and the Codex browser and device-code logins, with
-  upstream's model list, endpoints and request headers for each), GitHub Copilot and the Azure CLI.
+  upstream's model list, endpoints and request headers for each), GitHub Copilot and the Azure CLI, from
+  `ocd auth` or the TUI's `/connect` (accounts, sign-in forms, browser and device OAuth, pasted codes and login
+  commands).
 - **GitHub Copilot models:** the account's model list, routing between the AI SDK, Responses, Chat and native
   Anthropic routes, and Copilot's request headers. Upstream's in-house Copilot AI SDK provider runs in the Bun helper.
 - **OpenAI Responses over WebSocket** for OpenAI, Azure and xAI: one socket per session, incremental turns with

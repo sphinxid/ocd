@@ -92,6 +92,12 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-27: 2.1.4 CATCH-UP BATCH 8b (`/connect`): the TUI's integration dialog is ported (`oc-tui/src/app/integration.rs`,
+  `ui/choice.rs`): list, accounts (switch, rename, delete), sign-in forms, API keys, browser/device OAuth, pasted codes,
+  external sources and login commands, with every entry point (palette, model list, prompt without a model, MCP
+  sign-in, sidebar "Getting started"). Shared dialog fixes: centered keyboard scrolling, tall dialogs run off the
+  bottom, OpenTUI-style wrapping of links. Server fix: login commands run in the location's registry. Checked against
+  the 2.1.4 build in a pty (fake credentials, outbound requests fenced): `docs/UPGRADE-2.1.4.md` progress row 8b.
 - 2026-10-27: 2.1.4 CATCH-UP BATCH 8a (experimental todo list): the `todowrite` tool (`oc-tools/src/tools/todo.rs`,
   `assets/tool/todowrite.txt`) behind `experimental.todo` (gated per location in `Engine::base_registry`), the
   `opencode.tool.todo` built-in plugin listed in upstream's position with the flag on or off, the TUI sidebar section
