@@ -1032,10 +1032,29 @@ impl Store {
                 _ => {}
             }
         }
+        // `credential.updated` reloads every location's integrations; `credential.switched` moves the
+        // active credential to the front of its integration's connections and reloads the catalogs.
         if matches!(ev.kind.as_str(), "credential.updated" | "credential.switched") {
             let dirs: Vec<String> = self.locations.keys().cloned().collect();
+            let integration = d.get("integrationID").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let credential = d.get("credentialID").and_then(|v| v.as_str()).map(|s| s.to_string());
             for dir in dirs {
-                fx.push(Effect::Catalog(dir.clone(), Catalog::Integrations));
+                if ev.kind == "credential.updated" {
+                    fx.push(Effect::Catalog(dir, Catalog::Integrations));
+                    continue;
+                }
+                if let Some(list) = self.location_mut(&dir).integrations.as_mut() {
+                    for i in list.iter_mut().filter(|i| i.get("id").and_then(|x| x.as_str()) == integration.as_deref()) {
+                        let Some(connections) = i.get_mut("connections").and_then(|c| c.as_array_mut()) else { continue };
+                        let at = connections.iter().position(|c| {
+                            c.get("type").and_then(|t| t.as_str()) == Some("credential") && c.get("id").and_then(|x| x.as_str()) == credential.as_deref()
+                        });
+                        if let Some(at) = at {
+                            let active = connections.remove(at);
+                            connections.insert(0, active);
+                        }
+                    }
+                }
                 fx.push(Effect::Catalog(dir.clone(), Catalog::Models));
                 fx.push(Effect::Catalog(dir, Catalog::Providers));
             }

@@ -13,6 +13,7 @@ pub mod input;
 pub mod migration;
 pub mod execute;
 pub mod highlights;
+pub mod integration;
 pub mod location;
 pub mod session_list;
 pub mod sidebar_todo;
@@ -318,6 +319,8 @@ pub struct App {
     pub disabled_builtins: HashSet<String>,
     /// Live reload of `cli.json`.
     pub config_watch: config_watch::ConfigWatch,
+    /// The open `/connect` dialogs and their sign-in attempts.
+    pub integration: integration::Flows,
 }
 
 impl App {
@@ -437,6 +440,7 @@ impl App {
             plugins: Default::default(),
             disabled_builtins: HashSet::new(),
             config_watch: Default::default(),
+            integration: Default::default(),
             config,
             opts,
         };
@@ -1017,7 +1021,16 @@ impl App {
             Catalog::Skills => fetch!(skills, skills),
             Catalog::Mcp => fetch!(mcp, mcp),
             Catalog::References => fetch!(references, references),
-            Catalog::Integrations => fetch!(integrations, integrations),
+            Catalog::Integrations => {
+                let d2 = d.clone();
+                self.spawn(async move { c.integrations(Some(&d2)).await }, move |app, r| {
+                    if let Ok(v) = r {
+                        app.store.location_mut(&d).integrations = Some(v);
+                        app.integration_catalog_changed(&d);
+                        app.dirty = true;
+                    }
+                });
+            }
             Catalog::Vcs => fetch!(vcs, vcs),
             Catalog::Shells => {
                 let d2 = d.clone();
@@ -1133,6 +1146,13 @@ impl App {
                 }
             }
             "session.step.failed" => self.free_limit_hit(&ev),
+            "credential.switched" => {
+                // The active credential moved to the front: an open account manager follows.
+                let dirs: Vec<String> = self.store.locations.keys().cloned().collect();
+                for dir in dirs {
+                    self.integration_catalog_changed(&dir);
+                }
+            }
             "persistent-pty.added" | "persistent-pty.removed" => {
                 if let Some(sid) = ev.session_id() {
                     let sid = sid.to_string();
@@ -1329,6 +1349,8 @@ mod dialog_tests;
 mod panel_tests;
 #[cfg(test)]
 mod free_limit_tests;
+#[cfg(test)]
+mod integration_tests;
 #[cfg(test)]
 mod data_tests;
 #[cfg(test)]

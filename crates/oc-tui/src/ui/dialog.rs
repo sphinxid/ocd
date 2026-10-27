@@ -443,6 +443,8 @@ pub struct PromptDialog {
     pub busy: Option<String>,
     /// Extra footer actions `(title, keybind id)` after "submit".
     pub actions: Vec<(String, String)>,
+    /// The description is an (empty) box: it still takes a row above the input.
+    pub description_gap: bool,
 }
 
 impl PromptDialog {
@@ -514,6 +516,10 @@ pub struct TextDialog {
     pub under_header: Vec<SLine>,
     /// Color of `title_extra` (muted by default).
     pub title_extra_color: Option<Rgba>,
+    /// Fixed rows after the scrolling body (and its band), each group after a blank row.
+    pub post: Vec<SLine>,
+    /// A footer that renders nothing still takes its gap row (a legacy `DialogFooter` without actions).
+    pub empty_footer_gap: bool,
 }
 
 impl TextDialog {
@@ -539,6 +545,8 @@ pub enum Body {
     Text(Box<TextDialog>),
     /// The OpenCode Go offer (`DialogGoUpsell`).
     GoUpsell(Box<super::go_upsell::GoUpsell>),
+    /// A string form field with options and a typed answer (`StringChoiceField`).
+    Choice(Box<super::choice::ChoiceField>),
 }
 
 /// One dialog on the host stack.
@@ -802,6 +810,11 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
             super::go_upsell::Key::Run(action) => Outcome::Action(action.to_string(), None),
             super::go_upsell::Key::None => Outcome::Handled,
         },
+        Body::Choice(c) => match c.handle_key(s, kb) {
+            super::choice::ChoiceKey::Close => Outcome::Close,
+            super::choice::ChoiceKey::Submit(v) => Outcome::Submit(serde_json::to_string(&v).unwrap_or_default()),
+            super::choice::ChoiceKey::None => Outcome::Handled,
+        },
         Body::Text(td) => match name {
             "escape" => Outcome::Close,
             "c" if s.ctrl => Outcome::Close,
@@ -846,6 +859,7 @@ pub fn paste(d: &mut Dialog, text: &str) {
             p.value.insert_str(p.cursor, &text);
             p.cursor += text.len();
         }
+        Body::Choice(c) => c.paste(&text),
         _ => {}
     }
 }
@@ -938,7 +952,7 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
                     v.push(ins(SLine::new(l)));
                 }
             }
-            if !p.description.is_empty() {
+            if !p.description.is_empty() || p.description_gap {
                 v.push(SLine::blank());
             }
             let iw = inner;
@@ -1022,6 +1036,11 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
             v
         }
         Body::Text(td) => text_lines(td, wu, area, narrow, t),
+        Body::Choice(c) => {
+            let (lines, at) = super::choice::lines(c, wu, area.height as usize, narrow, t);
+            cursor = at;
+            lines
+        }
         Body::GoUpsell(_) => Vec::new(),
     };
     let h = (lines.len() as u16 + 1).min(area.height);
@@ -1086,6 +1105,12 @@ fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme
             }
         }
     }
+    if !td.post.is_empty() {
+        v.push(SLine::blank());
+        for l in &td.post {
+            v.push(l.clone().prefixed(&[pad(ins)]));
+        }
+    }
     if let Some(label) = &td.button {
         v.push(SLine::blank());
         let text = format!("   {label}   ");
@@ -1097,6 +1122,8 @@ fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme
     } else if let Some(f) = td.footer.as_ref().filter(|f| !f.is_empty()) {
         v.push(SLine::blank());
         v.extend(footer_lines(f, inner, narrow, t).into_iter().map(|l| l.prefixed(&[pad(ins)])));
+    } else if td.empty_footer_gap {
+        v.push(SLine::blank());
     }
     v.push(SLine::blank());
     v

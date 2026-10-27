@@ -380,12 +380,7 @@ impl App {
                 self.cycle_models(fav, id.ends_with("reverse"));
             }
             "mcp.list" => self.open_mcp_dialog(),
-            "provider.connect" => {
-                self.open_dialog(Dialog::new(
-                    "alert",
-                    Body::Alert { title: "Connect an integration".into(), message: "Run `opencode auth` or configure providers in your opencode config to connect an integration.".into() },
-                ));
-            }
+            "provider.connect" => self.open_integrations(true, None, false),
             "opencode.settings" => self.open_settings(None),
             "opencode.status" => self.open_status(),
             "opencode.debug" => self.open_debug(),

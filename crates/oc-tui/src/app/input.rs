@@ -1077,7 +1077,11 @@ impl App {
         };
         let model = self.current_model();
         if model.is_none() && !shell {
+            // `promptModelWarning`: with nothing connected, the integration list opens too.
             self.toast(Toast::new("warning", "Connect an integration to send prompts").duration(3000));
+            if !self.has_connected_provider() {
+                self.open_integrations(false, None, false);
+            }
             return;
         }
         if let Some(m) = &model
@@ -1230,6 +1234,9 @@ impl App {
     pub fn dialog_outcome(&mut self, o: Outcome) {
         let Some(d) = self.dialogs.last().cloned() else { return };
         let purpose = d.purpose.clone();
+        if purpose == "integration" && self.integration_outcome(&o) {
+            return;
+        }
         match o {
             Outcome::None | Outcome::Handled => {}
             Outcome::Back if purpose == "open-worktrees" => {
@@ -1518,7 +1525,9 @@ impl App {
                 let c = self.client.clone();
                 self.call(async move { c.inbox_update(&sid, &id, "steer").await }, |_, _| {});
             }
-            "mcp" => {}
+            "mcp" => {
+                self.mcp_sign_in(v);
+            }
             "diff-source" => self.diff_source_selected(v),
             "terminal" => {
                 self.dialogs.clear();
@@ -1697,6 +1706,9 @@ impl App {
             }
             ("mcp", "dialog.mcp.toggle") => {
                 let Some(name) = v else { return };
+                if self.mcp_sign_in(&name) {
+                    return;
+                }
                 let connected = self.loc().and_then(|l| l.mcp.clone()).unwrap_or_default().iter().any(|s| s.name == name && s.status.status == "connected");
                 let c = self.client.clone();
                 let dir = self.location_dir();
@@ -2103,7 +2115,20 @@ impl App {
                 if !self.dialogs.is_empty() {
                     let hit = self.dialog_hits.iter().find(|(r, _)| inside(r)).map(|(_, h)| h.clone());
                     match hit {
+                        // The header's `esc` while typing a choice goes back to the answers.
+                        Some(DialogHit::Close) if matches!(self.dialogs.last().map(|d| &d.body), Some(Body::Choice(c)) if c.editing) => {
+                            self.dialog_outcome(Outcome::Close);
+                        }
                         Some(DialogHit::Close) | Some(DialogHit::Ok) => self.close_dialog(),
+                        Some(DialogHit::Option(i)) if matches!(self.dialogs.last().map(|d| &d.body), Some(Body::Choice(_))) => {
+                            let r = match self.dialogs.last_mut().map(|d| &mut d.body) {
+                                Some(Body::Choice(c)) => c.select(i),
+                                _ => crate::ui::choice::ChoiceKey::None,
+                            };
+                            if let crate::ui::choice::ChoiceKey::Submit(v) = r {
+                                self.dialog_outcome(Outcome::Submit(serde_json::to_string(&v).unwrap_or_default()));
+                            }
+                        }
                         Some(DialogHit::Option(i)) => {
                             let v = self.dialogs.last_mut().and_then(|d| d.sel()).and_then(|s| {
                                 s.move_to(i);
@@ -2190,6 +2215,13 @@ impl App {
         {
             let x = x.clone();
             self.diff_click(&x);
+            return;
+        }
+        if let Click::Custom(x) = &c
+            && let Some(what) = x.strip_prefix("onboarding:")
+        {
+            let what = what.to_string();
+            self.onboarding_click(&what);
             return;
         }
         if matches!(&c, Click::Custom(x) if x == "location.move") {

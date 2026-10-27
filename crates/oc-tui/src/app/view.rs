@@ -30,6 +30,8 @@ fn s(text: impl Into<String>, c: Rgba) -> Seg {
 impl App {
     /// Render the whole UI.
     pub fn draw(&mut self, f: &mut Frame) {
+        // Integration dialogs that left the stack cancel their sign-in attempts.
+        self.integration_reconcile();
         let area = f.area();
         if self.dirty || (area.width, area.height) != self.size {
             self.render_rev += 1;
@@ -862,6 +864,14 @@ impl App {
         let label = format!("{}{}", locale::abbreviate_home(&dir), branch.map(|b| format!(":{b}")).unwrap_or_default());
         let y = inner.bottom().saturating_sub(1);
         put(buf, inner.x, y, &locale::truncate_file_path(&label, 38.min(w)), fg(t.text.muted).bg(bg), w);
+        // The getting-started card sits a row above the location.
+        if self.onboarding_visible() {
+            let card = self.onboarding_lines(w);
+            let h = card.len() as u16;
+            let top = y.saturating_sub(1 + h).max(inner.y);
+            let hits = draw_lines(buf, Rect::new(inner.x, top, inner.width, y.saturating_sub(1).saturating_sub(top)), &card, 0, "");
+            self.hits.extend(hits);
+        }
     }
 
     // ---- toasts & overlays -------------------------------------------------

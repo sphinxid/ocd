@@ -1,5 +1,6 @@
 //! Rendering: text primitives, markdown, highlighting, diffs, transcript and screens.
 
+pub mod choice;
 pub mod dialog;
 pub mod diff;
 pub mod form;

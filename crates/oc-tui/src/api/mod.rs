@@ -232,6 +232,58 @@ impl Client {
         self.empty(self.loc(self.request(Method::DELETE, &path), dir)).await
     }
 
+    /// `integration.oauth.complete`: finish a `code` attempt with the pasted authorization code.
+    pub async fn integration_oauth_complete(&self, integration: &str, attempt: &str, code: &str, dir: Option<&str>) -> anyhow::Result<()> {
+        let path = format!("/api/integration/{}/connect/oauth/{}/complete", urlencode(integration), urlencode(attempt));
+        self.empty(self.loc(self.request(Method::POST, &path), dir).json(&serde_json::json!({ "code": code }))).await
+    }
+    /// `integration.connect.key`: save an API key (with the method's form answer, if any).
+    pub async fn integration_connect_key(&self, integration: &str, key: &str, answer: Option<Value>, dir: Option<&str>) -> anyhow::Result<()> {
+        let path = format!("/api/integration/{}/connect/key", urlencode(integration));
+        let mut body = serde_json::json!({ "key": key });
+        if let Some(a) = answer {
+            body["answer"] = a;
+        }
+        self.empty(self.loc(self.request(Method::POST, &path), dir).json(&body)).await
+    }
+    /// `integration.connect.external`: connect through an external credential source.
+    pub async fn integration_connect_external(&self, integration: &str, method: &str, answer: Option<Value>, dir: Option<&str>) -> anyhow::Result<()> {
+        let path = format!("/api/integration/{}/connect/external", urlencode(integration));
+        let mut body = serde_json::json!({ "methodID": method });
+        if let Some(a) = answer {
+            body["answer"] = a;
+        }
+        self.empty(self.loc(self.request(Method::POST, &path), dir).json(&body)).await
+    }
+    /// `integration.command.connect`: run a login command (`{attemptID, time}`).
+    pub async fn integration_command_connect(&self, integration: &str, method: &str, dir: Option<&str>) -> anyhow::Result<Value> {
+        let path = format!("/api/integration/{}/connect/command", urlencode(integration));
+        let env: LocationEnvelope<Value> = self.json(self.loc(self.request(Method::POST, &path), dir).json(&serde_json::json!({ "methodID": method }))).await?;
+        Ok(env.data)
+    }
+    /// `integration.command.status`: `{status: "pending", message?} | {status: "complete"} | {status: "failed", message} | {status: "expired"}`.
+    pub async fn integration_command_status(&self, integration: &str, attempt: &str, dir: Option<&str>) -> anyhow::Result<Value> {
+        let path = format!("/api/integration/{}/connect/command/{}", urlencode(integration), urlencode(attempt));
+        let env: LocationEnvelope<Value> = self.json(self.loc(self.request(Method::GET, &path), dir)).await?;
+        Ok(env.data)
+    }
+    pub async fn integration_command_cancel(&self, integration: &str, attempt: &str, dir: Option<&str>) -> anyhow::Result<()> {
+        let path = format!("/api/integration/{}/connect/command/{}", urlencode(integration), urlencode(attempt));
+        self.empty(self.loc(self.request(Method::DELETE, &path), dir)).await
+    }
+    /// `credential.activate`: make a saved credential its integration's active connection.
+    pub async fn credential_activate(&self, credential: &str) -> anyhow::Result<()> {
+        self.empty(self.request(Method::POST, &format!("/api/credential/{}/activate", urlencode(credential)))).await
+    }
+    /// `credential.update`: rename a saved credential.
+    pub async fn credential_update(&self, credential: &str, label: &str) -> anyhow::Result<()> {
+        self.empty(self.request(Method::PATCH, &format!("/api/credential/{}", urlencode(credential))).json(&serde_json::json!({ "label": label }))).await
+    }
+    /// `credential.remove`.
+    pub async fn credential_remove(&self, credential: &str) -> anyhow::Result<()> {
+        self.empty(self.request(Method::DELETE, &format!("/api/credential/{}", urlencode(credential)))).await
+    }
+
     pub async fn mcp_connect(&self, name: &str, connect: bool, dir: Option<&str>) -> anyhow::Result<()> {
         let action = if connect { "connect" } else { "disconnect" };
         let path = format!("/api/experimental/mcp/{}/{action}", urlencode(name));
