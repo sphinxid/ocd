@@ -601,6 +601,8 @@ mod tests {
         assert_eq!(buf[(3, 0)].fg, terminal_palette(&t, true)[1].tui());
         assert_eq!(terminal_palette(&t, true)[1].hex(), "#e06c75");
         assert_eq!(buf[(1, 0)].bg, t.background.raised.base.tui());
+        // `text.faint` defaults to the muted text.
+        assert_eq!(t.text.faint, t.text.muted);
     }
 
     #[test]

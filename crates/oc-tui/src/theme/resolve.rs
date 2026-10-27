@@ -109,6 +109,10 @@ pub fn expand_tokens(def: &mut Value) {
         if text.get("muted").is_none_or(|m| m.is_null()) && has_base {
             text["muted"] = Value::String("$text.base".into());
         }
+        // `text.faint` (2.1) defaults to the muted text.
+        if text.get("faint").is_none_or(|m| m.is_null()) && text.get("muted").is_some_and(|m| !m.is_null()) {
+            text["faint"] = Value::String("$text.muted".into());
+        }
         if let Some(a) = text.get_mut("action") {
             expand_actions(a, "text.action");
         }
@@ -178,6 +182,8 @@ pub struct Actions {
 pub struct TextTokens {
     pub base: Rgba,
     pub muted: Rgba,
+    /// `text.faint` (2.1): fainter than muted; defaults to it.
+    pub faint: Rgba,
     pub action: Actions,
     pub formfield: Stateful,
     pub feedback: FeedbackSet,
@@ -553,6 +559,7 @@ fn build_view(tokens: &Value, hues: &[(String, [Rgba; 9])], categorical: &[[Rgba
         text: TextTokens {
             base: g("text.base")?,
             muted: g("text.muted")?,
+            faint: flat.get("text.faint").copied().unwrap_or(g("text.muted")?),
             action: Actions {
                 primary: stateful("text.action.primary")?,
                 secondary: stateful("text.action.secondary")?,
