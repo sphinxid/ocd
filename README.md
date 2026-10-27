@@ -123,7 +123,14 @@ the details. Each crate also has its own test suite, many replaying recorded ups
   only shows its moving progress bar, which ocd keeps, and a live "Thinking" row in the transcript, which ocd leaves
   out while the status line shows it.
 - **Name:** the program name, help text and logo say `ocd` / `opencode-d`.
-- **`ocd upgrade`:** prints how to rebuild from source instead of downloading a release.
+- **`ocd upgrade` and update checks:** ocd upgrades from its own GitHub releases instead of upstream's install
+  methods (`--method` is accepted and ignored). It verifies the download against the release's `SHA256SUMS`,
+  replaces its own executable and restarts a running background service. The TUI looks for a new release at most
+  once a day (upstream asks its update service every 10 minutes) and by default only shows `/update to install vX`
+  under the logo, like upstream. It installs on its own only with `"autoupdate": true` (or `"update": "auto"`) in
+  the global config, and then never restarts the service by itself. `"autoupdate": false` or
+  `OPENCODE_DISABLE_AUTOUPDATE=1` turns the check off. Only a newer release counts (upstream offers any other
+  version), and a local build (one not made from a release tag) never checks.
 - **Heap snapshots:** ocd's server has no JavaScript heap, so `POST /api/debug/heap-dump` answers `500 UnknownError`.
   `ocd debug heap-dump --server URL` still captures one from an upstream server.
 - **Version and release channel:** `ocd --version` shows ocd's own build (`<tag>+<commit>`, or the build time and
@@ -154,6 +161,17 @@ tab with the tag name.
 
 The macOS binary isn't signed. After unpacking, clear the download quarantine once:
 `xattr -d com.apple.quarantine ocd`.
+
+### Upgrading
+
+`ocd upgrade` installs the latest release, and `ocd upgrade 0.2.0` installs a given one, including an older one.
+It downloads the archive for your platform, checks it against `SHA256SUMS` and runs the new binary once before it
+replaces the running one. It writes the new file next to the old one, so it needs write access to that folder
+(for `/usr/local/bin`, run it with `sudo`). A running background service is restarted on the new version; a
+stopped one stays stopped. A local build (built without a release tag) asks before it replaces itself; pass
+`--yes` when there is no terminal to ask in. Set `GITHUB_TOKEN` (or `GH_TOKEN`) if GitHub's limit of 60 API
+requests an hour gets in the way. In the TUI, `/update` does the same check and install, but leaves the service
+alone; run `ocd service restart` afterwards.
 
 ## Building
 
@@ -256,6 +274,7 @@ scripts/ocd-sandbox --standalone
 | `OCD_BUN_MIRROR` | Download Bun from this mirror |
 | `OCD_PLUGIN_HOST_JS` | Use this plugin helper bundle instead of the embedded one |
 | `OCD_WEB_UI` | Serve the web UI from this archive or folder |
+| `GITHUB_TOKEN` (or `GH_TOKEN`) | Sent to the GitHub API by `ocd upgrade` and the update check, for a higher rate limit |
 
 All upstream `OPENCODE_*` variables work as they do upstream.
 
@@ -327,6 +346,11 @@ python3 -B scripts/parity.py -q              # side-by-side comparison with upst
 
 Run tests and parity runs with isolated `XDG_*_HOME` folders and `OPENCODE_TEST_HOME`, so they never touch your
 real opencode data. `docs/PORTING.md` has the details.
+
+The upgrade tests (`crates/ocd/tests/upgrade.rs`) point copies of the binary at a local stand-in for GitHub with
+`OCD_TEST_RELEASES_API`, and set the build they report with `OCD_TEST_BUILD_VERSION` (honoured only together with
+the first). Both are for tests only. With `$OCD_SCRATCH/releases/v0.1.1/` holding that release's `release.json`
+(the API's answer), `SHA256SUMS` and Linux x86_64 archive, they also replay the real release.
 
 ## Repository layout
 

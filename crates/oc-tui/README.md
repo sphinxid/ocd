@@ -24,6 +24,14 @@ pub struct TuiOptions {
     pub channel: String,                  // storage channel for <state>/<channel>/tui/*.json
     pub version: String,                  // version shown in the home footer and debug dialog
     pub environment: HashMap<String, String>, // env forwarded to new sessions
+    pub service: Option<ServiceHooks>,    // managed background service: reconnect / restart
+    pub updater: Option<UpdaterHooks>,    // update notice and `/update` (see below)
+}
+
+pub struct UpdaterHooks {
+    pub notices: tokio::sync::watch::Receiver<Option<UpdateNotice>>, // background check: Available / Installed
+    pub check: Arc<dyn Fn() -> BoxFuture<'static, anyhow::Result<Option<UpdateCheck>>> + Send + Sync>,
+    pub apply: Arc<dyn Fn(String) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>,
 }
 ```
 
@@ -31,7 +39,8 @@ pub struct TuiOptions {
 mode, mouse capture, bracketed paste and focus reporting, plus the Kitty keyboard
 flags when the terminal supports them. It returns the exit code: 0 on a normal exit,
 1 on a fatal I/O error. When the TUI exits from a session, it prints the session
-epilogue (the wordmark, `Session <title>` and `Continue opencode -s <id>`) to stdout.
+epilogue (the wordmark, `Session <title>` and `Continue ocd -s <id>`) to stdout. After an update was
+installed it also prints `Run ocd to use <version>`.
 
 A typical call from the CLI crate:
 
@@ -108,6 +117,16 @@ The modules below cover the main session and home screens and all dialogs. They 
   toast "Data migration failed" with the error text. The badge has no keybindings. On terminals too narrow for
   it, it uses the same layout as upstream's Yoga quirk: the box extends past the left edge and only the first
   wrapped line shows.
+- **Update notice and `/update`** (upstream `UpdateNotificationProvider`, `DialogUpdate`, the home
+  `UpdateNotification`; `app/update.rs`): with `TuiOptions.updater` set, the newest notice from `notices` shows
+  one row under the home logo, centered on it: `/update` (or `/exit`) in `text.action.primary.selected`, then
+  ` to install vX` (or ` restart to use vX` after an automatic install) in `text.muted`. Clicking it opens the
+  dialog, or quits after an install. `/update` (palette "Update ocd", after "View status") opens the dialog:
+  "Checking for updates…" while `check` runs, then "Update available", "ocd is already up to date.", the
+  unavailable message or the error. The footer is `skip` plus `update` or `restart`; Enter runs the last one.
+  `update` calls `apply` ("Updating ocd" / "Installing ocd X…"), then offers `restart` (quit). `skip` hides the
+  notice and records `client:<version>` in the `update-notifications` store (last 100), which keeps it hidden.
+  No fade-in animation; the footer items are not clickable.
 - **Busy status line** (intentional difference from upstream, `app/busy.rs`): upstream only shows the
   KnightRider bar in the prompt footer while a session runs, which stays the same whether the server is still
   setting up, the model has not sent its first token yet, or a tool is running. ocd adds one status line, like

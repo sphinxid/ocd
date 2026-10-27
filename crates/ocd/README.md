@@ -19,8 +19,10 @@ Everything that makes ocd interchangeable with opencode keeps the upstream value
 file (`opencode.db`), log file, service registration/config files (`service*.json`) and port, lock
 files, the HTTP API and `x-opencode-*` headers, Basic-auth username `opencode`, ACP protocol ids
 (`opencode-login`, `opencode/...` `_meta` keys and extension method), plugin package names, the
-`opencode-pty` daemon, and the upgrade/uninstall install-detection surface (`~/.opencode/bin/opencode`,
-Homebrew `opencode*` formulae, `@opencode/cli` npm packages, `opencode.ai` update API).
+`opencode-pty` daemon, the uninstall install-detection surface (`~/.opencode/bin/opencode`, Homebrew
+`opencode*` formulae, `@opencode/cli` npm packages), and the `update`/`autoupdate` config keys and
+`OPENCODE_DISABLE_AUTOUPDATE`. `ocd upgrade` and the update check use ocd's own GitHub releases instead of
+`opencode.ai/update` (`src/release.rs`).
 
 ## Layout
 
@@ -51,7 +53,8 @@ so the parser is a direct port and is verified against the real framework.
 
 `tests/golden/*.json` were captured by running upstream's `commands.ts` + `framework/spec.ts`
 (v2.1.4) under `effect@4.0.1` (bun, `--define OPENCODE_CLI_NAME='"ocd"'`) for ~200 command lines (the
-root and `upgrade` descriptions were then substituted with ocd's). Apart from the version, the help,
+root and `upgrade` descriptions were then substituted with ocd's, and `upgrade` gained ocd's `--yes` flag and
+`--method` description). Apart from the version, the help,
 completions and parse errors match the upstream 2.1.4 binary with `opencode` read as `ocd`:
 
 * `cli.json`: `--help` of every command, `--version`, `--completions bash|zsh|fish|sh`, group commands
@@ -79,7 +82,9 @@ twice (parsed operands + upstream's own `process.argv` re-read), exactly like up
 | `plugin list/check/update/remove` | server plugins via the API; TUI package plugins from `cli.json` are inspected too (installed version from upstream's npm cache layout, update check with `oc_plugin::npm::Npm::check`, `update` reinstalls with `Npm::update`); `remove` edits the global config and `cli.json` |
 | `plugin add` | complete: installs with Bun into upstream's npm cache (`oc_plugin::npm`), resolves the `server`/root and `tui` entrypoints with Bun's module resolution (upstream `Host.resolve`) and writes the global config (`plugins`) or `cli.json`, with upstream's messages. Bun comes from `OCD_BUN_PATH`/`OPENCODE_BUN_PATH` or the pinned 1.4.2 download. TUI plugins are recorded but ocd's TUI does not run them (documented incompatibility) |
 | `models`, `reload`, `api`, `pair`, `session list/delete/export/import`, `stats` | complete (`pair` renders the QR code with the `qrcode` crate; module layout may differ from `uqr`) |
-| `upgrade` / `uninstall` | native adaptation: method detection recognises `~/.opencode/bin/opencode` (curl, compared after resolving links), Homebrew cellars, WinGet's `Anomaly.OpenCode` package directory and an npm `package.json` owning the executable (probing the package manager named in its path first); otherwise `--method` is required. Release lookup, package-manager commands, `UpgradeError` formatting and the uninstall plan (services, cache, shell PATH lines, package) follow upstream |
+| `upgrade` | ocd's GitHub releases (`src/release.rs`): `GET /repos/sphinxid/ocd/releases/latest` or `/releases/tags/v<target>` (User-Agent, optional `GITHUB_TOKEN`/`GH_TOKEN`), semver comparison with the build's version part (`0.2.0+3.abc` counts as 0.2.0; a date-stamped or missing build is a local build and needs a confirmation or `--yes`), "already installed" skip, an explicit older target downgrades, the archive for `PLATFORM` checked against `SHA256SUMS` (and GitHub's `digest`), extracted in memory, written next to the real executable path with its permissions, run once (`--version`, empty directories) and renamed over it (Windows: the running exe moves to `ocd.exe.old`, removed on the next start). Fails before downloading when the folder is not writable. A running background service of the channel is restarted through `service restart`'s code path. `--method` is ignored with a warning. Errors use upstream's `UpgradeError` layout |
+| update check | `release::run`/`check`/`apply` behind the TUI's `UpdaterHooks` (`commands/mod.rs` `updater_hooks`): every 10 minutes, the release lookup cached a day in `<cache>/ocd-update.json` (an hour after a failure); policy from `update`/`autoupdate` in the global config (default `notify`; `auto` installs without restarting the service), `OPENCODE_DISABLE_AUTOUPDATE`; local builds never check |
+| `uninstall` | native adaptation: method detection recognises `~/.opencode/bin/opencode` (curl, compared after resolving links), Homebrew cellars, WinGet's `Anomaly.OpenCode` package directory and an npm `package.json` owning the executable (probing the package manager named in its path first). Package-manager commands and the uninstall plan (services, cache, shell PATH lines, package) follow upstream |
 | `acp` | see below |
 | `--wizard` | not supported (prints an error, exit 1) |
 
@@ -157,3 +162,9 @@ previews/diffs) and background following of child sessions after the root turn e
   fallback, headers, 404 `no-store`, API still 401) and rejects an unreadable override;
   `web_ui::tests` cover the lookup order;
 * `tests/acp.rs`: ACP initialize/authenticate/new/prompt/list/unknown-method and EOF exit over stdio.
+* `tests/upgrade.rs` (Unix): `ocd upgrade` of a copy of the binary against a local GitHub stand-in
+  (`tests/common/releases.rs`, `OCD_TEST_RELEASES_API` and `OCD_TEST_BUILD_VERSION`, both test only): same,
+  newer, older and explicit versions, local builds, checksum and missing-asset failures, a binary that does not
+  run, an unwritable folder, the service restart, and a replay of the real v0.1.1 release when
+  `$OCD_SCRATCH/releases/v0.1.1/` has it; `release::tests` cover parsing, ordering, archives, errors, the daily
+  cache and the notify/auto policy.

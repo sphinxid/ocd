@@ -117,7 +117,7 @@ one (identical with ocd pointed at an empty web UI archive, `OCD_WEB_UI`). After
 | ~~readonly_server, plugin_inventory, plugin_effect, plugin_rpc_storage~~ | ~~2.1.4 lists the built-in plugin `opencode.tool.todo`, which ocd did not have~~; identical since batch 8a |
 | loop_tool_error, loop_http_400 | the known races (unknown-tool failure vs `step.streamed`; title rename vs failed step), both runs |
 | stop_retry_exhausted | the known extra ephemeral `project.updated` at the end of upstream's run (timing) |
-| cli_help | by design: ocd's root and `upgrade` descriptions, the version |
+| cli_help | by design: ocd's root and `upgrade` descriptions, `upgrade --yes`, the version |
 | cli_run, cli_inventory | `run` output for the last step of a run (below), `debug paths` db name (channel), `debug agents` (upstream laziness race) |
 | plugin_copilot_unsynced | network error wording: Bun's `ECONNREFUSED: Unable to connect. …` vs reqwest's message for the same refused proxy connection (by design, see "Error texts" in the README) |
 
@@ -268,7 +268,7 @@ classified below; none is an unexplained behavioral difference.
 | `debug paths` db `opencode-detached.db` (before: `opencode-v2.db`) vs `opencode.db`; service config file name | derived from the channel of the local build |
 | Web UI | the local upstream build is made with `--skip-web-ui` (404 for web pages); ocd embeds the UI built from v2.1.4, so the parity runs point ocd at an empty archive (`OCD_WEB_UI`) for `errors_not_found` |
 | Program name `ocd`: help `DESCRIPTION` reads `ocd command line interface` (upstream `OpenCode command line interface`), completion function names | rename; masked where it is just the name |
-| `upgrade` description ("Show how to upgrade opencode (it is built from source)") | the port is built from source |
+| `upgrade` help: ocd's description ("Upgrade ocd to the latest GitHub release, or to the given version"), the `--method` description ("Ignored: ocd installs only from its GitHub releases") and the extra `--yes, -y` flag | ocd upgrades from its own GitHub releases, not through upstream's install methods |
 | `pair --yes` parses but has nothing to accept | ocd has no OpenTunnel, so `pair --remote` stops before upstream's consent prompt |
 | `POST /api/debug/heap-dump` writes a V8 heap snapshot upstream; ocd answers `500 UnknownError` ("Failed to write heap snapshot: ocd has no JavaScript heap, …"), after the same `400` for a relative directory | no JavaScript heap in ocd |
 | Upstream 500s on bad input reproduced on purpose (relative directories, `NaN` stats range) | deterministic upstream behavior kept |

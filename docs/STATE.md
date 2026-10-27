@@ -1,6 +1,6 @@
 # Port state / handoff (last updated 2026-10-27)
 
-**Name:** the Rust port is **ocd** (user: only the app + binary are ocd; everything else must stay backward-compatible with opencode). TUI logo reads "opencode-d" (oc-tui view_helpers LOGO_RIGHT, breakpoints 31/53). `ocd upgrade` only prints "ocd is built from source; rebuild it to upgrade" (exit 0); `uninstall` unchanged. (binary `ocd`, crate `crates/ocd`). Upstream compatibility surfaces (config/data dirs, opencode.json, .opencode/, OPENCODE_* env, HTTP API, x-opencode-* headers, plugin package names) keep the opencode names on purpose.
+**Name:** the Rust port is **ocd** (user: only the app + binary are ocd; everything else must stay backward-compatible with opencode). TUI logo reads "opencode-d" (oc-tui view_helpers LOGO_RIGHT, breakpoints 31/53). `ocd upgrade` installs ocd's own GitHub releases and the TUI shows an update notice (`crates/ocd/src/release.rs`); `uninstall` unchanged. (binary `ocd`, crate `crates/ocd`). Upstream compatibility surfaces (config/data dirs, opencode.json, .opencode/, OPENCODE_* env, HTTP API, x-opencode-* headers, plugin package names) keep the opencode names on purpose.
 
 Goal (user request): an exact behavioral replica of **opencode v2** in Rust — full CLI + server + **Rust TUI**
 (user chose "Full CLI + Rust TUI"). Project root: this repository. Working rules for every crate:
@@ -92,6 +92,14 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-27: `ocd upgrade` FROM GITHUB RELEASES + UPDATE NOTICE (`crates/ocd/src/release.rs`, `commands/upgrade.rs`,
+  `oc-tui/src/app/update.rs`): latest or `v<target>` from the GitHub API, semver against the build, "already
+  installed", local builds confirm or `--yes`, `SHA256SUMS` check, in-memory extraction, `--version` check, atomic
+  rename (Windows `ocd.exe.old`), sudo hint before downloading, running service restarted. TUI notice and `/update`
+  with a once-a-day check and upstream's `notify` default (`auto` installs, never restarts the service).
+  `OCD_TEST_RELEASES_API`/`OCD_TEST_BUILD_VERSION` are test only. Replayed the real v0.1.1 release
+  (`$OCD_SCRATCH/releases/v0.1.1/`) and ran a copy read-only against the real API. Workspace tests: 1,675 passed,
+  9 ignored. Details: `docs/UPGRADE-2.1.4.md` progress row 8d.
 - 2026-10-27: 2.1.4 CATCH-UP 8c (`pair --remote`): new crate `oc-tunnel`, a native OpenTunnel client
   (wire-compatible with `@opentunnel/client` 0.4.1, same XDG identity files, TLS ended locally with rustls, plus
   `oc_tunnel::fake` for tests); `ocd/src/remote_tunnel.rs` (service route, retries, fatal errors, logs);
