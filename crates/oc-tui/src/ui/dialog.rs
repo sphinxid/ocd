@@ -502,6 +502,8 @@ pub struct TextDialog {
     pub footer: Option<Footer>,
     /// A single right-aligned button in the legacy footer (`Close` in the export result).
     pub button: Option<String>,
+    /// Side padding, `DIALOG_INSET` by default (the fork dialog's pending view uses the list inset).
+    pub inset: Option<usize>,
 }
 
 impl TextDialog {
@@ -1033,11 +1035,12 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
 }
 
 fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme) -> Vec<SLine> {
-    let inner = w.saturating_sub(DIALOG_INSET * 2);
+    let ins = td.inset.unwrap_or(DIALOG_INSET);
+    let inner = w.saturating_sub(ins * 2);
     let mut v = vec![text_header(td, t, w)];
     v.push(SLine::blank());
     for l in &td.pre {
-        v.push(l.clone().prefixed(&[pad(DIALOG_INSET)]));
+        v.push(l.clone().prefixed(&[pad(ins)]));
     }
     let max = td.height.unwrap_or_else(|| (area.height as usize).saturating_sub(10).max(3));
     let total = td.lines.len();
@@ -1045,7 +1048,7 @@ fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme
     let shown: Vec<SLine> = td.lines.iter().skip(td.scroll).take(max).cloned().collect();
     match td.band {
         Some(band) => {
-            let row = |l: SLine| l.prefixed(&[pad(DIALOG_INSET)]).with_bg(Some(band.tui()));
+            let row = |l: SLine| l.prefixed(&[pad(ins)]).with_bg(Some(band.tui()));
             v.push(SLine::blank().with_bg(Some(band.tui())));
             for l in shown {
                 v.push(row(l));
@@ -1054,7 +1057,7 @@ fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme
         }
         None => {
             for l in shown {
-                v.push(l.prefixed(&[pad(DIALOG_INSET)]));
+                v.push(l.prefixed(&[pad(ins)]));
             }
             if let Some(h) = td.height {
                 for _ in total.saturating_sub(td.scroll).min(h)..h {
@@ -1068,12 +1071,12 @@ fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme
         let text = format!("   {label}   ");
         let bw = sw(&text);
         v.push(
-            SLine::new(vec![pad(DIALOG_INSET + inner.saturating_sub(bw)), Seg::new(text, fg_bg(t.text.action.primary.focused, t.background.action.primary.focused))])
+            SLine::new(vec![pad(ins + inner.saturating_sub(bw)), Seg::new(text, fg_bg(t.text.action.primary.focused, t.background.action.primary.focused))])
                 .on_click(Some(Click::Custom("ok".into()))),
         );
     } else if let Some(f) = td.footer.as_ref().filter(|f| !f.is_empty()) {
         v.push(SLine::blank());
-        v.extend(footer_lines(f, inner, narrow, t).into_iter().map(|l| l.prefixed(&[pad(DIALOG_INSET)])));
+        v.extend(footer_lines(f, inner, narrow, t).into_iter().map(|l| l.prefixed(&[pad(ins)])));
     }
     v.push(SLine::blank());
     v
@@ -1096,14 +1099,15 @@ fn header_at(title: &str, right: &str, t: &Theme, w: usize, inset: usize) -> SLi
 }
 
 fn text_header(td: &TextDialog, t: &Theme, w: usize) -> SLine {
+    let ins = td.inset.unwrap_or(DIALOG_INSET);
     let Some((extra, grows)) = &td.title_extra else {
-        return header(&td.title, &td.close_label, t, w);
+        return header_at(&td.title, &td.close_label, t, w, ins);
     };
-    let inner = w.saturating_sub(DIALOG_INSET * 2);
+    let inner = w.saturating_sub(ins * 2);
     let gap = td.header_gap.max(1);
     let close = td.close_label.as_str();
     let tw = sw(&td.title);
-    let mut segs = vec![pad(DIALOG_INSET), Seg::new(td.title.clone(), bold(fg(t.text.base)))];
+    let mut segs = vec![pad(ins), Seg::new(td.title.clone(), bold(fg(t.text.base)))];
     if *grows {
         // Title, gap, the extra text clipped to the room left, gap, close label.
         let room = inner.saturating_sub(tw + gap * 2 + sw(close));

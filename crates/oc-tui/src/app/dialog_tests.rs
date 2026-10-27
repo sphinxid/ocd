@@ -269,3 +269,20 @@ fn export_result_close_button() {
     a.on_key(Stroke::key("return"));
     assert!(a.dialogs.is_empty());
 }
+
+#[test]
+fn fork_pending_view_uses_the_list_inset() {
+    let mut a = app();
+    let _sid = session(&mut a);
+    a.open_fork(Some("msg_x".into()));
+    let lines = render(&mut a, 100, 30);
+    // Large dialog at x=6: "Fork session" and the spinner at the list inset of 4, `esc` 4 in from the right.
+    let title = row(&lines, "Fork session");
+    assert_eq!(col(title, "Fork session"), 10);
+    assert_eq!(col(title, "esc") + 3, 90);
+    let y = lines.iter().position(|l| l.contains("Fork session")).unwrap();
+    assert!(lines[y + 1].chars().skip(6).take(88).all(|c| c == ' '));
+    // Animations are off in tests, so the spinner is `⋯`.
+    assert_eq!(col(&lines[y + 2], "\u{22ef} Forking session\u{2026}"), 10, "{}", lines[y + 2]);
+    assert_eq!(a.dialogs.len(), 1);
+}

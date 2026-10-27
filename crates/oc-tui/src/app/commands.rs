@@ -1267,20 +1267,35 @@ impl App {
     }
 
     pub fn fork(&mut self, sid: &str, before: Option<String>) {
+        // The pending view (`DialogFork`): the "Fork session" header and a spinner at the list inset.
+        let spin = if self.config.animations() { format!("{} Forking session…", crate::ui::text::SPINNER_GLYPH) } else { "⋯ Forking session…".to_string() };
+        let muted = self.theme().text.muted;
+        let mut td = TextDialog::new("Fork session", vec![crate::ui::text::SLine::new(vec![crate::ui::text::seg(spin, crate::ui::text::fg(muted))])]);
+        td.inset = Some(crate::ui::dialog::DIALOG_LIST_INSET);
+        let mut d = Dialog::text("fork-pending", td);
+        d.size = Size::Large;
+        self.dialogs.clear();
+        self.open_dialog(d);
         let c = self.client.clone();
         let s = sid.to_string();
-        let text = before.as_ref().and_then(|b| self.store.messages(sid).iter().find(|m| &m.id == b).map(|m| m.text_str().to_string()));
-        self.call(async move { c.session_fork(&s, before.as_deref()).await }, move |app, info| {
+        let prompt = before.as_ref().and_then(|b| self.store.messages(sid).iter().find(|m| &m.id == b && m.kind == "user").map(super::go_upsell::projected_prompt));
+        self.spawn(async move { c.session_fork(&s, before.as_deref()).await }, move |app, r| {
+            let info = match r {
+                Ok(info) => info,
+                Err(e) => {
+                    app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000));
+                    app.dialogs.clear();
+                    return;
+                }
+            };
             let id = info.id.clone();
             app.store.remember(info);
-            app.dialogs.clear();
-            app.toast(Toast::new("info", "Forked session").duration(4000));
             app.navigate(Route::Session(id));
-            if let Some(t) = text {
-                let mut p = crate::state::PromptInfo::empty();
-                p.text = t;
+            if let Some(p) = prompt {
                 app.editor.set(&p);
             }
+            app.dialogs.clear();
+            app.toast(Toast::new("success", "Forked session").duration(4000));
         });
     }
 
