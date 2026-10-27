@@ -15,6 +15,40 @@ commit `4617210` (version 2.0.26) and has since caught up with 2.1.4 ([docs/UPGR
 > opencode sessions and credentials and applies the v2 database migrations to them. To try it without touching
 > your opencode data, use the sandbox launcher (see [Try it safely](#try-it-safely)).
 
+## Install
+
+On Linux (x86_64 or ARM64, glibc 2.35 or newer) or macOS on Apple silicon:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sphinxid/ocd/main/scripts/install.sh | bash
+```
+
+or, without curl:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/sphinxid/ocd/main/scripts/install.sh | bash
+```
+
+The script ([scripts/install.sh](scripts/install.sh)) needs no root. It picks the latest
+[release](https://github.com/sphinxid/ocd/releases) for your OS and CPU, checks it against the release's
+`SHA256SUMS` and installs it as `~/.local/bin/ocd`. If that folder isn't on your `PATH` yet, it adds it in your
+shell's startup file (`~/.bashrc`, `~/.zshrc`, fish's `config.fish`, or `~/.profile` for other shells); open a new
+shell afterwards. Run it again to update. If ocd was already installed, it restarts the background service
+(`ocd service restart`) on the new binary.
+
+Options go after `bash -s --`, for example
+`curl -fsSL https://raw.githubusercontent.com/sphinxid/ocd/main/scripts/install.sh | bash -s -- --version v0.2.1`:
+
+| Option | Environment variable | Effect |
+|---|---|---|
+| `--version <tag>` | `OCD_VERSION` | Install that release instead of the latest |
+| `--dir <dir>` | `OCD_INSTALL_DIR` | Install into `<dir>` instead of `~/.local/bin` |
+| `--no-modify-path` | `OCD_NO_MODIFY_PATH=1` | Leave shell startup files alone |
+| `--no-restart` | `OCD_NO_RESTART=1` | Don't restart the background service |
+
+On Windows, download `ocd-<tag>-windows-x64.zip` from the [releases](https://github.com/sphinxid/ocd/releases)
+page. Once installed, `ocd upgrade` keeps ocd up to date ([Upgrading](#upgrading)).
+
 ## Speed and size
 
 Measured on Linux x86_64, release builds of both, same mock model, isolated folders:
@@ -160,7 +194,7 @@ plugins and the service, so it stays compatible. To rebuild an existing tag, run
 tab with the tag name.
 
 The macOS binary isn't signed. After unpacking, clear the download quarantine once:
-`xattr -d com.apple.quarantine ocd`.
+`xattr -d com.apple.quarantine ocd` (the [install script](#install) does this for you).
 
 ### Upgrading
 
