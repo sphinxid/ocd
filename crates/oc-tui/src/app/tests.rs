@@ -331,7 +331,7 @@ fn permission_prompt() {
     let joined = lines.join("\n");
     assert!(contains(&lines, "△ Permission required"), "{joined}");
     assert!(contains(&lines, "$ rm -rf build"), "{joined}");
-    assert!(contains(&lines, " Allow once  Always allow  Reject "), "{joined}");
+    assert!(contains(&lines, " Allow once   Always allow   Reject "), "{joined}");
     assert!(contains(&lines, "ctrl+f fullscreen  ⇆ select  enter confirm"), "{joined}");
     a.on_key(Stroke::key("right"));
     let lines = render(&mut a, 100, 50);

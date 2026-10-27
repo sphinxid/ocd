@@ -305,6 +305,11 @@ impl App {
             self.toast(Toast::new("error", "Could not load worktrees"));
             return;
         };
+        self.open_worktrees_dialog_for(project);
+    }
+
+    /// The Worktrees dialog for a project (also the missing-folder screen's "Choose directory").
+    pub fn open_worktrees_dialog_for(&mut self, project: String) {
         let mut s = Select::new("Worktrees", vec![]);
         s.flat = true;
         s.empty = Some("Loading worktrees…".into());

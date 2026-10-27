@@ -11,6 +11,7 @@ pub mod stats;
 pub mod input;
 pub mod migration;
 pub mod highlights;
+pub mod location;
 pub mod panel;
 pub mod program_status;
 pub mod mini;
@@ -300,6 +301,8 @@ pub struct App {
     pub go_upsell_memory: (Option<i64>, bool),
     /// OSC 7501 records last sent to the terminal.
     pub program_status: program_status::ProgramStatus,
+    /// The location last synced and whether the server reported it missing.
+    pub location: location::LocationState,
 }
 
 impl App {
@@ -413,6 +416,7 @@ impl App {
             free_limits_handled: HashSet::new(),
             go_upsell_memory: (None, false),
             program_status: Default::default(),
+            location: Default::default(),
             config,
             opts,
         };
@@ -931,14 +935,7 @@ impl App {
 
     pub fn sync_location(&mut self) {
         let dir = self.location_dir();
-        let c = self.client.clone();
-        let d2 = dir.clone();
-        self.spawn(async move { c.location_get(Some(&d2)).await }, move |app, r| {
-            if let Ok(info) = r {
-                app.store.location_mut(&dir).info = Some(info);
-                app.dirty = true;
-            }
-        });
+        self.sync_location_info(dir);
         let dir = self.location_dir();
         for cat in [Catalog::Agents, Catalog::Models, Catalog::Providers, Catalog::Commands, Catalog::Skills, Catalog::Mcp, Catalog::References, Catalog::Vcs, Catalog::Shells, Catalog::Integrations] {
             self.fetch_catalog(&dir, cat);
@@ -1312,6 +1309,8 @@ mod panel_tests;
 mod free_limit_tests;
 #[cfg(test)]
 mod data_tests;
+#[cfg(test)]
+mod location_tests;
 #[cfg(test)]
 mod fuzz_tests;
 #[cfg(test)]

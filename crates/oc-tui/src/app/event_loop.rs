@@ -144,6 +144,8 @@ where
     loop {
         // Rows of a long transcript still rendering in the background also take frames.
         if (app.dirty || animate || hooks.wants_draw() || app.transcript_pending()) && last_draw.is_none_or(|t| t.elapsed() >= FRAME) {
+            // The location shown changed (another session's folder, a moved session): sync it.
+            app.reconcile_location();
             hooks.draw(app)?;
             app.dirty = false;
             animate = false;

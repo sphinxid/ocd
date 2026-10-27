@@ -488,7 +488,7 @@ impl App {
     }
 
     fn prompt_focusable(&self) -> bool {
-        self.active_permission().is_none() && self.active_form().is_none()
+        self.active_permission().is_none() && self.active_form().is_none() && self.location_missing().is_none()
     }
 
     fn draw_autocomplete(&mut self, buf: &mut Buffer, anchor: Rect, ac: &super::Autocomplete) {
@@ -632,6 +632,8 @@ impl App {
             dock.extend(self.permission_lines(t, width, p));
         } else if form.is_some() {
             dock.extend(self.form_lines(t, width));
+        } else if let Some(dir) = self.location_missing() {
+            dock.extend(self.location_missing_lines(t, width, &dir));
         } else {
             prompt_lines = Some(self.prompt_lines(t, width));
         }
@@ -944,13 +946,15 @@ impl App {
         let mut body: Vec<SLine> = Vec::new();
         let fmt = |p: &str| transcript::format_path(p, Some(&self.location_dir()));
         let (icon, title, lines, diff) = F::permission_presentation(&req.action, &req.resources, req.metadata.as_ref(), &fmt);
+        // The header sits in a box with its own 1-cell padding, one column right of the bar's padding.
         if ui.rejecting {
-            body.push(SLine::new(vec![s("△", t.text.feedback.error.base), s(" Reject permission", t.text.base)]));
-            body.push(SLine::new(vec![pad(2), s("Tell OpenCode what to do differently", t.text.muted)]));
+            body.push(SLine::new(vec![pad(1), s("△", t.text.feedback.error.base), s(" Reject permission", t.text.base)]));
+            body.push(SLine::blank());
+            body.push(SLine::new(vec![pad(1), s("Tell OpenCode what to do differently", t.text.muted)]));
         } else {
-            body.push(SLine::new(vec![s("△", t.text.feedback.warning.base), s(" Permission required", t.text.base)]));
+            body.push(SLine::new(vec![pad(1), s("△", t.text.feedback.warning.base), s(" Permission required", t.text.base)]));
             if req.action != "shell" {
-                body.push(SLine::new(vec![pad(2), s(format!("{icon} "), t.text.muted), s(title, t.text.base)]));
+                body.push(SLine::new(vec![pad(3), s(format!("{icon} "), t.text.muted), s(title, t.text.base)]));
             }
         }
         let options: Vec<&str> = if req.save.as_ref().is_some_and(|s| !s.is_empty()) { vec!["once", "always", "reject"] } else { vec!["once", "reject"] };
@@ -1009,6 +1013,10 @@ impl App {
                     "always" => "Always allow",
                     _ => "Reject",
                 };
+                // The choices sit one cell apart (`gap={1}`).
+                if i > 0 {
+                    left.push(pad(1));
+                }
                 if i == ui.selected {
                     left.push(Seg::new(format!(" {label} "), fg_bg(t.text.action.primary.focused, t.background.action.primary.focused)));
                 } else {

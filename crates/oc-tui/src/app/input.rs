@@ -139,10 +139,11 @@ impl App {
         base.saturating_sub(1 + pad * 2).max(1)
     }
 
-    fn prompt_active(&self) -> bool {
+    pub(super) fn prompt_active(&self) -> bool {
         !self.panel_has_focus()
             && !self.composer_open()
             && self.dialogs.is_empty() && self.permission_ui.is_none() && self.form_ui.is_none() && self.active_permission().is_none() && self.active_form().is_none()
+            && self.location_missing().is_none()
     }
 
     pub fn active_permission(&self) -> Option<PermissionRequest> {
@@ -271,6 +272,9 @@ impl App {
                 return;
             }
             if self.active_form().is_some() && self.form_key(&s) {
+                return;
+            }
+            if self.active_permission().is_none() && self.active_form().is_none() && self.location_missing().is_some() && self.location_missing_key(&s) {
                 return;
             }
             // Shell mode inline keys.
@@ -2160,6 +2164,10 @@ impl App {
         {
             let x = x.clone();
             self.diff_click(&x);
+            return;
+        }
+        if matches!(&c, Click::Custom(x) if x == "location.move") {
+            self.recover_location();
             return;
         }
         let Some(sid) = self.session_id().map(|s| s.to_string()) else {
