@@ -399,10 +399,11 @@ pub async fn open(url: &str, headers: &Headers) -> Result<WebSocketConnection, A
                     )));
                     return;
                 }
-                // The peer went away without a close frame: the runtime reports an abnormal closure.
+                // The peer went away without a close frame: the runtime reports an abnormal closure
+                // (Bun 1.4.4, which 2.1 runs on, gives it an empty reason; 1.4.2 said "Connection ended").
                 Some(Err(_)) | None => {
                     read_closed.store(true, std::sync::atomic::Ordering::SeqCst);
-                    let _ = tx.send(Err(close_error(1006, "Connection ended".into())));
+                    let _ = tx.send(Err(close_error(1006, String::new())));
                     return;
                 }
             }

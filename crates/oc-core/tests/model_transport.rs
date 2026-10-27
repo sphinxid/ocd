@@ -329,7 +329,7 @@ async fn provider_error_frames_and_dropped_sockets() {
     // A socket lost after the provider answered: abnormal closure, delivery accepted, retryable.
     let error = run(&mock.base, history.clone(), executor.clone()).await.unwrap_err();
     assert_eq!(error.message, "WebSocket closed with code 1006");
-    assert_eq!(error.body.as_deref(), Some("Connection ended"));
+    assert_eq!(error.body.as_deref(), Some(""));
     let (code, phase, delivery, _) = transport_fields(&error);
     assert_eq!((code.as_deref(), phase.as_deref(), delivery.as_deref()), (Some("1006"), Some("close"), Some("accepted")));
     assert!(error.is_retryable());

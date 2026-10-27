@@ -139,7 +139,7 @@ options and by `cloudflare-ai-gateway-responses`) and `xai-responses`; Meta Resp
   "<name> does not offer WebSocket for this endpoint; using HTTP" and uses HTTP.
 
 Errors on the socket are `Transport` errors with `transport: "websocket"` and upstream's `code`, `phase`,
-`delivery` and `recovery` (e.g. `WebSocket closed with code 1006`, body `Connection ended`, for a socket
+`delivery` and `recovery` (e.g. `WebSocket closed with code 1006` with an empty body, like Bun 1.4.4, for a socket
 lost without a close frame; `Timed out waiting for WebSocket data`). Error frames classify like SSE error
 events, with the raw frame as the body.
 
