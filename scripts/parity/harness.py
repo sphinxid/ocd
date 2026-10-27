@@ -35,13 +35,13 @@ PASSWORD = "parity"
 ID_RE = re.compile(r"\b([a-z]{2,6})_([0-9a-f]{12}[0-9A-Za-z]{14})(?![0-9A-Za-z])")
 UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 ISO_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?\b")
-VERSION_RE = re.compile(r"^(0\.0\.0-v2-\d+|0\.0\.0-[\w.-]+|2\.0\.\d+)$")
+VERSION_RE = re.compile(r"^(0\.0\.0-[\w.-]+|2\.[01]\.\d+)$")
 DURATION_KEYS = {"duration", "elapsed", "durationMs", "ms", "uptime"}
 VOLATILE_KEYS = {"pid"}  # OS process ids
-# User-Agent `opencode/<channel>/<version>/<app>`: channel and version come from the build (dev build "v2" +
-# 0.0.0-v2-<timestamp> upstream, "latest" + workspace version in the port).
-BUILD_RE = re.compile(r"\b(0\.0\.0-v2-\d{12}|2\.0\.26)\b")
-UA_RE = re.compile(r"opencode/(v2|latest|local|dev)/(0\.0\.0-[\w.-]+|2\.0\.\d+)/")
+# User-Agent `opencode/<channel>/<version>/<app>`: channel and version come from the build (a local upstream build:
+# channel "v2" or "detached" + 0.0.0-<channel>-<timestamp>; the port: "latest" + the workspace version).
+BUILD_RE = re.compile(r"\b(0\.0\.0-(?:v2|detached)-\d{12}|2\.0\.26|2\.1\.4)\b")
+UA_RE = re.compile(r"opencode/(v2|detached|latest|local|dev)/(0\.0\.0-[\w.-]+|2\.[01]\.\d+)/")
 # `b3: <trace>-<span>-<sampled>[-<parent>]` and `traceparent: 00-<trace>-<span>-<flags>` (HttpTraceContext.toHeaders).
 B3_RE = re.compile(r"^([0-9a-f]{32})-([0-9a-f]{16})-([01d])(?:-([0-9a-f]{16}))?$")
 TRACEPARENT_RE = re.compile(r"^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
@@ -93,7 +93,7 @@ class Normalizer:
         s = UA_RE.sub("opencode/<channel>/<version>/", s)
         # Build version/channel embedded in text (e.g. the built-in report skill's diagnostics).
         s = BUILD_RE.sub("<version>", s)
-        s = re.sub(r"install/channel: (v2|latest)", "install/channel: <channel>", s)
+        s = re.sub(r"install/channel: (v2|detached|latest)", "install/channel: <channel>", s)
         # Plugin failure references (`err_` + 8 random hex digits).
         s = re.sub(r"\berr_[0-9a-f]{8}\b", "<err-ref>", s)
         # The module that imported a missing AI SDK package: upstream's bundle chunk inside the compiled binary
@@ -150,7 +150,8 @@ def isolated_env(state_root, extra=None):
     # standalone server and never reach (or start) a service on the default port, which may be the user's.
     service_dir = os.path.join(env["XDG_CONFIG_HOME"], "opencode")
     os.makedirs(service_dir, exist_ok=True)
-    for name in ("service.json", "service-v2.json", "service-local.json"):
+    for name in ("service.json", "service-v2.json", "service-local.json", "service-detached.json", "service-latest.json",
+                 "service-dev.json", "service-beta.json"):
         with open(os.path.join(service_dir, name), "w") as f:
             f.write('{"disabled": true}\n')
     env.update({
