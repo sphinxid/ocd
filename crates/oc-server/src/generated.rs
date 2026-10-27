@@ -58,6 +58,7 @@ crate::lit_str!(LitMcpServerNotFoundError, "McpServerNotFoundError");
 crate::lit_str!(LitMessageNotFoundError, "MessageNotFoundError");
 crate::lit_str!(LitTool, "tool");
 crate::lit_str!(LitPermissionNotFoundError, "PermissionNotFoundError");
+crate::lit_str!(LitPermissionSavedNotFoundError, "PermissionSavedNotFoundError");
 crate::lit_str!(LitBuiltin, "builtin");
 crate::lit_str!(LitPackage, "package");
 crate::lit_str!(LitSdk, "sdk");
@@ -103,6 +104,8 @@ crate::lit_str!(LitFile, "file");
 crate::lit_str!(LitUnauthorizedError, "UnauthorizedError");
 crate::lit_str!(LitUnknownError, "UnknownError");
 crate::lit_str!(LitVcsInitNotSupportedError, "VcsInitNotSupportedError");
+crate::lit_str!(LitWebrtc, "webrtc");
+crate::lit_str!(LitWebsocket, "websocket");
 crate::lit_str!(LitWorktreeError, "WorktreeError");
 crate::lit_str!(LitNull, "null");
 
@@ -2864,6 +2867,15 @@ pub struct PermissionSavedInfoTime {
     pub updated: f64,
 }
 
+/// Component schema `PermissionSavedNotFoundErrorEncoded`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PermissionSavedNotFoundErrorEncoded {
+    #[serde(rename = "_tag")]
+    pub tag: LitPermissionSavedNotFoundError,
+    pub id: String,
+    pub message: String,
+}
+
 /// Component schema `PersistentPty.CreateInput`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PersistentPtyCreateInput {
@@ -3164,6 +3176,8 @@ pub struct ProjectTime {
     pub created: i64,
     pub updated: i64,
     pub active: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<i64>,
 }
 
 /// Component schema `Project.Vcs`. Pattern: `^[a-z][a-z0-9._-]*$`.
@@ -5202,6 +5216,141 @@ pub struct VcsInitNotSupportedErrorEncoded {
     pub message: String,
 }
 
+/// Component schema `VoiceModel`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VoiceModel {
+    pub model: String,
+    pub provider: String,
+    pub transports: Vec<VoiceTransportType>,
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integration: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+}
+
+/// Component schema `VoiceModelsResponse`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VoiceModelsResponse {
+    pub data: VoiceModelsResponseData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VoiceModelsResponseData {
+    pub models: Vec<VoiceModel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+/// Component schema `VoiceSessionResponse`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VoiceSessionResponse {
+    pub data: VoiceSessionResponseData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VoiceSessionResponseData {
+    pub transport: VoiceTransport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<VoiceSessionResponseDataSession>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VoiceSessionResponseDataSession {
+    pub id: String,
+}
+
+/// Component schema `VoiceTransport`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum VoiceTransport {
+    VoiceWebRTCTransport(VoiceWebRTCTransport),
+    VoiceWebSocketTransport(VoiceWebSocketTransport),
+}
+
+impl From<VoiceWebRTCTransport> for VoiceTransport {
+    fn from(value: VoiceWebRTCTransport) -> Self {
+        Self::VoiceWebRTCTransport(value)
+    }
+}
+
+impl From<VoiceWebSocketTransport> for VoiceTransport {
+    fn from(value: VoiceWebSocketTransport) -> Self {
+        Self::VoiceWebSocketTransport(value)
+    }
+}
+
+/// Component schema `VoiceTransportInput`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum VoiceTransportInput {
+    VoiceWebRTCTransportInput(VoiceWebRTCTransportInput),
+    VoiceWebSocketTransportInput(VoiceWebSocketTransportInput),
+}
+
+impl From<VoiceWebRTCTransportInput> for VoiceTransportInput {
+    fn from(value: VoiceWebRTCTransportInput) -> Self {
+        Self::VoiceWebRTCTransportInput(value)
+    }
+}
+
+impl From<VoiceWebSocketTransportInput> for VoiceTransportInput {
+    fn from(value: VoiceWebSocketTransportInput) -> Self {
+        Self::VoiceWebSocketTransportInput(value)
+    }
+}
+
+/// Component schema `VoiceTransportType`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum VoiceTransportType {
+    #[serde(rename = "webrtc")]
+    Webrtc,
+    #[serde(rename = "websocket")]
+    Websocket,
+}
+
+impl VoiceTransportType {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Webrtc => "webrtc",
+            Self::Websocket => "websocket",
+        }
+    }
+}
+
+/// Component schema `VoiceWebRTCTransport`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VoiceWebRTCTransport {
+    pub r#type: LitWebrtc,
+    pub sdp: String,
+}
+
+/// Component schema `VoiceWebRTCTransportInput`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VoiceWebRTCTransportInput {
+    pub r#type: LitWebrtc,
+    pub sdp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcid: Option<JsNumber>,
+}
+
+/// Component schema `VoiceWebSocketTransport`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VoiceWebSocketTransport {
+    pub r#type: LitWebsocket,
+    pub url: String,
+    pub token: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: JsNumber,
+}
+
+/// Component schema `VoiceWebSocketTransportInput`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VoiceWebSocketTransportInput {
+    pub r#type: LitWebsocket,
+}
+
 /// Component schema `WebSearch.ID`.
 pub type WebSearchID = String;
 
@@ -5399,6 +5548,9 @@ pub struct SessionUpdateBody {
     pub metadata: Option<SessionMetadata>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<PermissionRuleset>,
+    /// Archive the session with true or restore it with false. Repeating the current state is a no-op.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -5568,6 +5720,8 @@ pub enum SessionMessageListType {
     Assistant,
     #[serde(rename = "compaction")]
     Compaction,
+    #[serde(rename = "idle")]
+    Idle,
 }
 
 impl SessionMessageListType {
@@ -5584,6 +5738,7 @@ impl SessionMessageListType {
             Self::Shell => "shell",
             Self::Assistant => "assistant",
             Self::Compaction => "compaction",
+            Self::Idle => "idle",
         }
     }
 }
@@ -5593,6 +5748,19 @@ pub struct ExperimentalGenerateTextBody {
     pub prompt: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExperimentalVoiceSessionBody {
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<JsonObject>,
+    pub transport: VoiceTransportInput,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ExperimentalVoiceInstructionsBody {
+    pub instructions: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -5682,6 +5850,14 @@ pub struct ProjectUpdateBody {
     pub icon: Option<ProjectIcon>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commands: Option<ProjectCommands>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PermissionSavedUpdateBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5788,6 +5964,27 @@ pub struct ShellOutputData {
 pub struct WorktreeRefreshBody {
     #[serde(rename = "projectID")]
     pub project_id: ProjectID,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DebugHeapDumpResponse {
+    pub path: String,
+    pub pid: i64,
+    /// The server process's memory in bytes, read just before the snapshot (Node's process.memoryUsage()). rss covers native memory the snapshot cannot show.
+    pub memory: DebugHeapDumpResponseMemory,
+}
+
+/// The server process's memory in bytes, read just before the snapshot (Node's process.memoryUsage()). rss covers native memory the snapshot cannot show.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DebugHeapDumpResponseMemory {
+    pub rss: JsNumber,
+    #[serde(rename = "heapTotal")]
+    pub heap_total: JsNumber,
+    #[serde(rename = "heapUsed")]
+    pub heap_used: JsNumber,
+    pub external: JsNumber,
+    #[serde(rename = "arrayBuffers")]
+    pub array_buffers: JsNumber,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5972,6 +6169,11 @@ impl ErrorEncoded for PermissionNotFoundErrorEncoded {
     const STATUS: u16 = 404;
 }
 
+impl ErrorEncoded for PermissionSavedNotFoundErrorEncoded {
+    const TAG: &'static str = "PermissionSavedNotFoundError";
+    const STATUS: u16 = 404;
+}
+
 impl ErrorEncoded for ProjectNotFoundErrorEncoded {
     const TAG: &'static str = "ProjectNotFoundError";
     const STATUS: u16 = 404;
@@ -6065,6 +6267,7 @@ pub const ERROR_STATUS: &[(&str, u16)] = &[
     ("McpServerNotFoundError", 404),
     ("CommandNotFoundError", 404),
     ("PermissionNotFoundError", 404),
+    ("PermissionSavedNotFoundError", 404),
     ("FormNotFoundError", 404),
     ("PtyNotFoundError", 404),
     ("ShellNotFoundError", 404),
@@ -6514,6 +6717,27 @@ pub struct ExperimentalGenerateTextRequest {
     pub body: ExperimentalGenerateTextBody,
 }
 
+/// Request for `experimental.voice.models` (`GET /api/experimental/voice/models`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalVoiceModelsRequest {
+}
+
+/// Request for `experimental.voice.session` (`POST /api/experimental/voice/session`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExperimentalVoiceSessionRequest {
+    /// Request body.
+    pub body: ExperimentalVoiceSessionBody,
+}
+
+/// Request for `experimental.voice.instructions` (`POST /api/experimental/voice/session/{sessionID}/instructions`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalVoiceInstructionsRequest {
+    /// path parameter `sessionID`.
+    pub session_id: String,
+    /// Request body.
+    pub body: ExperimentalVoiceInstructionsBody,
+}
+
 /// Request for `provider.list` (`GET /api/provider`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProviderListRequest {
@@ -6668,6 +6892,22 @@ pub struct ExperimentalMcpDisconnectRequest {
 pub struct McpResourceCatalogRequest {
 }
 
+/// Request for `experimental.mcp.client.token` (`POST /api/experimental/client-mcp/token`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalMcpClientTokenRequest {
+    /// query parameter `name`.
+    pub name: String,
+}
+
+/// Request for `experimental.mcp.client` (`GET /api/experimental/client-mcp`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalMcpClientRequest {
+    /// query parameter `name`.
+    pub name: String,
+    /// query parameter `ticket`.
+    pub ticket: Option<String>,
+}
+
 /// Request for `credential.list` (`GET /api/credential`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CredentialListRequest {
@@ -6706,6 +6946,8 @@ pub struct CredentialActivateRequest {
 /// Request for `project.list` (`GET /api/project`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProjectListRequest {
+    /// query parameter `archived`.
+    pub archived: Option<bool>,
 }
 
 /// Request for `project.update` (`PATCH /api/project/{projectID}`).
@@ -6732,6 +6974,15 @@ pub struct PermissionRequestListRequest {
 pub struct PermissionSavedListRequest {
     /// query parameter `projectID`.
     pub project_id: Option<ProjectID>,
+}
+
+/// Request for `permission.saved.update` (`PATCH /api/permission/saved/{id}`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PermissionSavedUpdateRequest {
+    /// path parameter `id`.
+    pub id: PermissionSavedID,
+    /// Request body.
+    pub body: PermissionSavedUpdateBody,
 }
 
 /// Request for `permission.saved.remove` (`DELETE /api/permission/saved/{id}`).
@@ -7037,6 +7288,13 @@ pub struct VcsDiffRequest {
     pub context: Option<i64>,
 }
 
+/// Request for `debug.heapDump` (`POST /api/debug/heap-dump`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DebugHeapDumpRequest {
+    /// query parameter `directory`. Absolute server-local directory to write the snapshot into, created when missing. Defaults to the server's log directory.
+    pub directory: Option<String>,
+}
+
 /// Request for `debug.location.list` (`GET /api/debug/location`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DebugLocationListRequest {
@@ -7230,6 +7488,12 @@ pub enum Op {
     ModelDefault,
     /// `experimental.generate.text`
     ExperimentalGenerateText,
+    /// `experimental.voice.models`
+    ExperimentalVoiceModels,
+    /// `experimental.voice.session`
+    ExperimentalVoiceSession,
+    /// `experimental.voice.instructions`
+    ExperimentalVoiceInstructions,
     /// `provider.list`
     ProviderList,
     /// `provider.get`
@@ -7270,6 +7534,10 @@ pub enum Op {
     ExperimentalMcpDisconnect,
     /// `mcp.resource.catalog`
     McpResourceCatalog,
+    /// `experimental.mcp.client.token`
+    ExperimentalMcpClientToken,
+    /// `experimental.mcp.client`
+    ExperimentalMcpClient,
     /// `credential.list`
     CredentialList,
     /// `credential.create`
@@ -7290,6 +7558,8 @@ pub enum Op {
     PermissionRequestList,
     /// `permission.saved.list`
     PermissionSavedList,
+    /// `permission.saved.update`
+    PermissionSavedUpdate,
     /// `permission.saved.remove`
     PermissionSavedRemove,
     /// `session.permission.create`
@@ -7384,6 +7654,8 @@ pub enum Op {
     VcsBranchList,
     /// `vcs.diff`
     VcsDiff,
+    /// `debug.heapDump`
+    DebugHeapDump,
     /// `debug.location.list`
     DebugLocationList,
     /// `debug.location.evict`
@@ -7479,6 +7751,9 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::ModelList, id: "model.list", method: "GET", path: "/api/model", route: "/api/model", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ModelDefault, id: "model.default", method: "GET", path: "/api/model/default", route: "/api/model/default", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ExperimentalGenerateText, id: "experimental.generate.text", method: "POST", path: "/api/experimental/generate", route: "/api/experimental/generate", scope: Scope::G, envelope: Envelope::Bare, special: false },
+    OpMeta { op: Op::ExperimentalVoiceModels, id: "experimental.voice.models", method: "GET", path: "/api/experimental/voice/models", route: "/api/experimental/voice/models", scope: Scope::G, envelope: Envelope::Bare, special: false },
+    OpMeta { op: Op::ExperimentalVoiceSession, id: "experimental.voice.session", method: "POST", path: "/api/experimental/voice/session", route: "/api/experimental/voice/session", scope: Scope::G, envelope: Envelope::Bare, special: false },
+    OpMeta { op: Op::ExperimentalVoiceInstructions, id: "experimental.voice.instructions", method: "POST", path: "/api/experimental/voice/session/{sessionID}/instructions", route: "/api/experimental/voice/session/{sessionID}/instructions", scope: Scope::G, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::ProviderList, id: "provider.list", method: "GET", path: "/api/provider", route: "/api/provider", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ProviderGet, id: "provider.get", method: "GET", path: "/api/provider/{providerID}", route: "/api/provider/{providerID}", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::IntegrationList, id: "integration.list", method: "GET", path: "/api/integration", route: "/api/integration", scope: Scope::L, envelope: Envelope::Location, special: false },
@@ -7499,6 +7774,8 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::ExperimentalMcpConnect, id: "experimental.mcp.connect", method: "POST", path: "/api/experimental/mcp/{server}/connect", route: "/api/experimental/mcp/{server}/connect", scope: Scope::L, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::ExperimentalMcpDisconnect, id: "experimental.mcp.disconnect", method: "POST", path: "/api/experimental/mcp/{server}/disconnect", route: "/api/experimental/mcp/{server}/disconnect", scope: Scope::L, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::McpResourceCatalog, id: "mcp.resource.catalog", method: "GET", path: "/api/mcp/resource", route: "/api/mcp/resource", scope: Scope::L, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalMcpClientToken, id: "experimental.mcp.client.token", method: "POST", path: "/api/experimental/client-mcp/token", route: "/api/experimental/client-mcp/token", scope: Scope::L, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalMcpClient, id: "experimental.mcp.client", method: "GET", path: "/api/experimental/client-mcp", route: "/api/experimental/client-mcp", scope: Scope::L, envelope: Envelope::Raw, special: false },
     OpMeta { op: Op::CredentialList, id: "credential.list", method: "GET", path: "/api/credential", route: "/api/credential", scope: Scope::G, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::CredentialCreate, id: "credential.create", method: "POST", path: "/api/credential", route: "/api/credential", scope: Scope::G, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::CredentialUpdate, id: "credential.update", method: "PATCH", path: "/api/credential/{credentialID}", route: "/api/credential/{credentialID}", scope: Scope::G, envelope: Envelope::NoContent, special: false },
@@ -7509,6 +7786,7 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::FormList, id: "form.list", method: "GET", path: "/api/form", route: "/api/form", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::PermissionRequestList, id: "permission.request.list", method: "GET", path: "/api/permission/request", route: "/api/permission/request", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::PermissionSavedList, id: "permission.saved.list", method: "GET", path: "/api/permission/saved", route: "/api/permission/saved", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::PermissionSavedUpdate, id: "permission.saved.update", method: "PATCH", path: "/api/permission/saved/{id}", route: "/api/permission/saved/{id}", scope: Scope::G, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::PermissionSavedRemove, id: "permission.saved.remove", method: "DELETE", path: "/api/permission/saved/{id}", route: "/api/permission/saved/{id}", scope: Scope::G, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::SessionPermissionCreate, id: "session.permission.create", method: "POST", path: "/api/session/{sessionID}/permission", route: "/api/session/{sessionID}/permission", scope: Scope::S, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::SessionPermissionList, id: "session.permission.list", method: "GET", path: "/api/session/{sessionID}/permission", route: "/api/session/{sessionID}/permission", scope: Scope::H, envelope: Envelope::Data, special: false },
@@ -7556,6 +7834,7 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::VcsStatus, id: "vcs.status", method: "GET", path: "/api/vcs/status", route: "/api/vcs/status", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::VcsBranchList, id: "vcs.branch.list", method: "GET", path: "/api/vcs/branch", route: "/api/vcs/branch", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::VcsDiff, id: "vcs.diff", method: "GET", path: "/api/vcs/diff", route: "/api/vcs/diff", scope: Scope::L, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::DebugHeapDump, id: "debug.heapDump", method: "POST", path: "/api/debug/heap-dump", route: "/api/debug/heap-dump", scope: Scope::G, envelope: Envelope::Bare, special: false },
     OpMeta { op: Op::DebugLocationList, id: "debug.location.list", method: "GET", path: "/api/debug/location", route: "/api/debug/location", scope: Scope::G, envelope: Envelope::Bare, special: false },
     OpMeta { op: Op::DebugLocationEvict, id: "debug.location.evict", method: "DELETE", path: "/api/debug/location", route: "/api/debug/location", scope: Scope::L, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::ExperimentalMigrationV1Status, id: "experimental.migration.v1.status", method: "GET", path: "/api/experimental/migration/v1", route: "/api/experimental/migration/v1", scope: Scope::G, envelope: Envelope::Bare, special: false },
@@ -8070,6 +8349,33 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("experimental.generate.text"))
     }
+    /// `GET /api/experimental/voice/models` — `experimental.voice.models`: List voice models.
+    ///
+    /// List supported voice models, their transports, whether the server has a usable API key for each provider or the connected OpenCode Console hosts the model, and the Console workspace a hosted model bills to.
+    ///
+    /// Scope `G`, envelope `Bare`.
+    async fn experimental_voice_models(&self, ctx: &RequestContext, req: ExperimentalVoiceModelsRequest) -> Result<VoiceModelsResponse, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.voice.models"))
+    }
+    /// `POST /api/experimental/voice/session` — `experimental.voice.session`: Create voice session.
+    ///
+    /// Create a server-brokered voice session using the server's configured provider credentials, or the connected OpenCode Console when it hosts the model, and return the WebRTC SDP answer or WebSocket ephemeral token.
+    ///
+    /// Scope `G`, envelope `Bare`.
+    async fn experimental_voice_session(&self, ctx: &RequestContext, req: ExperimentalVoiceSessionRequest) -> Result<VoiceSessionResponse, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.voice.session"))
+    }
+    /// `POST /api/experimental/voice/session/{sessionID}/instructions` — `experimental.voice.instructions`: Replace voice session instructions.
+    ///
+    /// Replace the backend instructions of a running session the connected OpenCode Console hosts, whose data channel can't change them.
+    ///
+    /// Scope `G`, envelope `NoContent`.
+    async fn experimental_voice_instructions(&self, ctx: &RequestContext, req: ExperimentalVoiceInstructionsRequest) -> Result<(), ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.voice.instructions"))
+    }
     /// `GET /api/provider` — `provider.list`: List providers.
     ///
     /// Retrieve active AI providers so clients can show provider availability and configuration.
@@ -8250,6 +8556,24 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("mcp.resource.catalog"))
     }
+    /// `POST /api/experimental/client-mcp/token` — `experimental.mcp.client.token`: Create client MCP WebSocket token.
+    ///
+    /// Create a short-lived single-use ticket for opening a client MCP WebSocket connection from a browser.
+    ///
+    /// Scope `L`, envelope `Location`.
+    async fn experimental_mcp_client_token(&self, ctx: &RequestContext, req: ExperimentalMcpClientTokenRequest) -> Result<PtyTicketConnectToken, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.mcp.client.token"))
+    }
+    /// `GET /api/experimental/client-mcp` — `experimental.mcp.client`: Attach client MCP server.
+    ///
+    /// Upgrade to a WebSocket over which the client hosts an MCP server named after `name`; its tools stay available while the socket is open. One JSON-RPC message per text frame. Experimental: may change without compatibility guarantees.
+    ///
+    /// Scope `L`, envelope `Raw`.
+    async fn experimental_mcp_client(&self, ctx: &RequestContext, req: ExperimentalMcpClientRequest) -> Result<bool, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.mcp.client"))
+    }
     /// `GET /api/credential` — `credential.list`: List credentials.
     ///
     /// List every stored integration credential, including its secret value.
@@ -8297,7 +8621,7 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// `GET /api/project` — `project.list`: List projects.
     ///
-    /// List known projects.
+    /// List known projects. Archived projects are excluded unless archived=true.
     ///
     /// Scope `G`, envelope `Bare`.
     async fn project_list(&self, ctx: &RequestContext, req: ProjectListRequest) -> Result<Vec<Project>, ApiError> {
@@ -8339,6 +8663,15 @@ pub trait Backend: Send + Sync + 'static {
     async fn permission_saved_list(&self, ctx: &RequestContext, req: PermissionSavedListRequest) -> Result<Vec<PermissionSavedInfo>, ApiError> {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("permission.saved.list"))
+    }
+    /// `PATCH /api/permission/saved/{id}` — `permission.saved.update`: Update saved permission.
+    ///
+    /// Change the action or resource of a saved permission. Fails with a conflict when the project already has a saved permission with the same action and resource.
+    ///
+    /// Scope `G`, envelope `Data`.
+    async fn permission_saved_update(&self, ctx: &RequestContext, req: PermissionSavedUpdateRequest) -> Result<PermissionSavedInfo, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("permission.saved.update"))
     }
     /// `DELETE /api/permission/saved/{id}` — `permission.saved.remove`: Remove saved permission.
     ///
@@ -8728,6 +9061,15 @@ pub trait Backend: Send + Sync + 'static {
     async fn vcs_diff(&self, ctx: &RequestContext, req: VcsDiffRequest) -> Result<Vec<FileDiffInfo>, ApiError> {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("vcs.diff"))
+    }
+    /// `POST /api/debug/heap-dump` — `debug.heapDump`: Write a heap snapshot.
+    ///
+    /// Write a JavaScript heap snapshot of the server process into its log directory, or the requested directory, and return the server-local path once the file is complete. Pauses the server while the heap serializes and can temporarily increase its memory use. The snapshot can contain credentials, prompts, and file contents.
+    ///
+    /// Scope `G`, envelope `Bare`.
+    async fn debug_heap_dump(&self, ctx: &RequestContext, req: DebugHeapDumpRequest) -> Result<DebugHeapDumpResponse, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("debug.heapDump"))
     }
     /// `GET /api/debug/location` — `debug.location.list`: List loaded locations.
     ///
@@ -9220,6 +9562,27 @@ pub(crate) async fn dispatch(
             let out = backend.experimental_generate_text(&call.ctx, req).await?;
             Ok(respond::bare(&out))
         }
+        Op::ExperimentalVoiceModels => {
+            let req = ExperimentalVoiceModelsRequest {};
+            let out = backend.experimental_voice_models(&call.ctx, req).await?;
+            Ok(respond::bare(&out))
+        }
+        Op::ExperimentalVoiceSession => {
+            let req = ExperimentalVoiceSessionRequest {
+                body: call.json_body_for("experimental.voice.session")?,
+            };
+            let out = backend.experimental_voice_session(&call.ctx, req).await?;
+            Ok(respond::bare(&out))
+        }
+        Op::ExperimentalVoiceInstructions => {
+            let req = ExperimentalVoiceInstructionsRequest {
+                session_id: call.path_str("sessionID", None)?,
+                body: call.json_body_for("experimental.voice.instructions")?,
+            };
+            let out = backend.experimental_voice_instructions(&call.ctx, req).await?;
+            let () = out;
+            Ok(respond::no_content())
+        }
         Op::ProviderList => {
             let req = ProviderListRequest {};
             let out = backend.provider_list(&call.ctx, req).await?;
@@ -9373,6 +9736,21 @@ pub(crate) async fn dispatch(
             let out = backend.mcp_resource_catalog(&call.ctx, req).await?;
             Ok(respond::location(&call.ctx, &out))
         }
+        Op::ExperimentalMcpClientToken => {
+            let req = ExperimentalMcpClientTokenRequest {
+                name: crate::router::required(call.query_str("name", None)?, "name")?,
+            };
+            let out = backend.experimental_mcp_client_token(&call.ctx, req).await?;
+            Ok(respond::location(&call.ctx, &out))
+        }
+        Op::ExperimentalMcpClient => {
+            let req = ExperimentalMcpClientRequest {
+                name: crate::router::required(call.query_str("name", None)?, "name")?,
+                ticket: call.query_str("ticket", None)?,
+            };
+            let out = backend.experimental_mcp_client(&call.ctx, req).await?;
+            Ok(respond::bare(&out))
+        }
         Op::CredentialList => {
             let req = CredentialListRequest {};
             let out = backend.credential_list(&call.ctx, req).await?;
@@ -9411,7 +9789,9 @@ pub(crate) async fn dispatch(
             Ok(respond::no_content())
         }
         Op::ProjectList => {
-            let req = ProjectListRequest {};
+            let req = ProjectListRequest {
+                archived: call.query_bool("archived")?,
+            };
             let out = backend.project_list(&call.ctx, req).await?;
             Ok(respond::bare(&out))
         }
@@ -9438,6 +9818,14 @@ pub(crate) async fn dispatch(
                 project_id: call.query_str("projectID", None)?,
             };
             let out = backend.permission_saved_list(&call.ctx, req).await?;
+            Ok(respond::data(&out))
+        }
+        Op::PermissionSavedUpdate => {
+            let req = PermissionSavedUpdateRequest {
+                id: call.path_str("id", None)?,
+                body: call.json_body_for("permission.saved.update")?,
+            };
+            let out = backend.permission_saved_update(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }
         Op::PermissionSavedRemove => {
@@ -9733,6 +10121,13 @@ pub(crate) async fn dispatch(
             };
             let out = backend.vcs_diff(&call.ctx, req).await?;
             Ok(respond::location(&call.ctx, &out))
+        }
+        Op::DebugHeapDump => {
+            let req = DebugHeapDumpRequest {
+                directory: call.query_str("directory", None)?,
+            };
+            let out = backend.debug_heap_dump(&call.ctx, req).await?;
+            Ok(respond::bare(&out))
         }
         Op::DebugLocationList => {
             let req = DebugLocationListRequest {};

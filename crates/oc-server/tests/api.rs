@@ -827,7 +827,7 @@ async fn json_responses_are_compressed() {
 
 #[test]
 fn every_operation_is_routed_once() {
-    assert_eq!(oc_server::OPS.len(), 142);
+    assert_eq!(oc_server::OPS.len(), 149);
     let mut seen = std::collections::HashSet::new();
     for op in oc_server::OPS {
         assert!(seen.insert((op.method, op.path)), "{} {}", op.method, op.path);

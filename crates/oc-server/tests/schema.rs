@@ -140,7 +140,7 @@ fn every_error_component_has_a_status() {
         .filter(|(k, _)| k.ends_with("ErrorEncoded"))
         .map(|(_, v)| v["properties"]["_tag"]["enum"][0].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(tags.len(), 33);
+    assert_eq!(tags.len(), 34);
     for t in tags {
         assert!(oc_server::generated::ERROR_STATUS.iter().any(|(tag, _)| *tag == t), "{t}");
     }

@@ -214,7 +214,7 @@ async fn session_message_list(app: &App, call: &Call) -> Result<Response, ApiErr
     let cursor = call.query_str("cursor", None)?.filter(|c| !c.is_empty());
     let r#type = call.query_enum(
         "type",
-        r#""agent-switched" | "model-switched" | "location-switched" | "user" | "synthetic" | "system" | "skill" | "shell" | "assistant" | "compaction""#,
+        r#""agent-switched" | "model-switched" | "location-switched" | "user" | "synthetic" | "system" | "skill" | "shell" | "assistant" | "compaction" | "idle""#,
     )?;
     if cursor.is_some() && order_q.is_some() {
         return Err(ApiError::invalid_cursor("Cursor cannot be combined with order"));
