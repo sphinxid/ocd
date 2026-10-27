@@ -1,0 +1,205 @@
+# Builds the Linux binaries against glibc 2.17 (RHEL/CentOS 7, Ubuntu 14.04, Debian 8 and later) and adds them to a
+# release the Release workflow has published: ocd-<tag>-linux-x64-glibc2.17.tar.gz and
+# ocd-<tag>-linux-arm64-glibc2.17.tar.gz, with their checksums added to SHA256SUMS. The regular builds don't change.
+#
+# It runs after every successful Release run. To run it for an existing tag, use Run workflow in the Actions tab
+# with the tag name.
+#
+# cargo-zigbuild links against glibc 2.17's symbol versions; the binaries report `linux-<arch>-glibc2.17` as their
+# platform (OCD_RELEASE_PLATFORM), so `ocd upgrade` keeps installing this variant.
+name: Release (glibc 2.17)
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to add the glibc 2.17 builds to (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: "1.99.0"
+  UPSTREAM_REPO: https://github.com/anomalyco/opencode.git
+  UPSTREAM_COMMIT: 68bc26b7da1990ce10ffecfbc1e09eb13aa5d824
+  BUN_VERSION: "1.4.4"
+  CARGO_ZIGBUILD_VERSION: "0.24.0"
+  ZIG_VERSION: "0.17.0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  meta:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - id: tag
+        shell: bash
+        env:
+          # The Release run's name is "Release <tag>".
+          TITLE: ${{ github.event.workflow_run.display_title }}
+        run: |
+          tag="${{ inputs.tag }}"
+          [ -n "$tag" ] || tag="${TITLE#Release }"
+          case "$tag" in
+            v*) echo "tag=$tag" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::no release tag in '$tag'"; exit 1 ;;
+          esac
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+      - id: meta
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          version="${tag#v}+$(git rev-parse --short=7 HEAD)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building $tag as $version against glibc 2.17"
+
+  # The same web UI archive as the Release workflow's.
+  web-ui:
+    needs: meta
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Install bun
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bun.zip" \
+            "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"
+          unzip -q "$RUNNER_TEMP/bun.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: Check out upstream opencode
+        shell: bash
+        run: |
+          git init -q "$RUNNER_TEMP/opencode"
+          cd "$RUNNER_TEMP/opencode"
+          git fetch -q --depth 1 "$UPSTREAM_REPO" "$UPSTREAM_COMMIT"
+          git checkout -q FETCH_HEAD
+          bun install
+      - name: Build the web UI archive
+        shell: bash
+        run: scripts/build-web-ui.sh "$RUNNER_TEMP/opencode" "$RUNNER_TEMP/app-archive.bin"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-ui-glibc2.17
+          path: ${{ runner.temp }}/app-archive.bin
+          retention-days: 1
+
+  build:
+    needs: [meta, web-ui]
+    if: ${{ !cancelled() && needs.meta.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64-glibc2.17
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: linux-arm64-glibc2.17
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target ${{ matrix.target }}
+          rustup default "$RUST_VERSION"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install cargo-zigbuild
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install -q "cargo-zigbuild==$CARGO_ZIGBUILD_VERSION" "ziglang==$ZIG_VERSION"
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+      - name: Download the web UI
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: web-ui-glibc2.17
+          path: ${{ runner.temp }}/web-ui
+      - name: Build
+        shell: bash
+        env:
+          OCD_BUILD_VERSION: ${{ needs.meta.outputs.version }}
+          OCD_RELEASE_PLATFORM: ${{ matrix.name }}
+        run: |
+          archive="$RUNNER_TEMP/web-ui/app-archive.bin"
+          if [ -f "$archive" ]; then
+            export OCD_WEB_UI_ARCHIVE="$archive"
+          else
+            echo "::warning::building without the web UI"
+          fi
+          cargo zigbuild --release --locked -p ocd --target ${{ matrix.target }}.2.17
+      - name: Check the glibc versions it needs
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/ocd"
+          newest="$(objdump -T "$bin" | grep -o 'GLIBC_[0-9][0-9.]*' | sort -uV | tail -n 1)"
+          echo "newest glibc symbol version: $newest"
+          if [ "$(printf '%s\n' "$newest" GLIBC_2.17 | sort -V | tail -n 1)" != GLIBC_2.17 ]; then
+            echo "::error::the binary needs $newest, newer than glibc 2.17"
+            exit 1
+          fi
+      - name: Package
+        shell: bash
+        run: |
+          name="ocd-${{ needs.meta.outputs.tag }}-${{ matrix.name }}"
+          bin="target/${{ matrix.target }}/release/ocd"
+          "$bin" --version
+          mkdir -p "dist/$name"
+          cp "$bin" LICENSE LICENSE-opencode README.md "dist/$name/"
+          cd dist
+          tar -czf "$name.tar.gz" "$name"
+          rm -rf "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ocd-${{ matrix.name }}
+          path: dist/*
+          retention-days: 1
+
+  release:
+    needs: [meta, build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ocd-*-glibc2.17
+          path: dist
+          merge-multiple: true
+      - name: Add to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          cd dist
+          gh release view "$TAG" > /dev/null || { echo "::error::release $TAG doesn't exist; run the Release workflow first"; exit 1; }
+          # Keep the regular builds' checksums and replace any earlier glibc 2.17 lines.
+          gh release download "$TAG" -p SHA256SUMS -O SHA256SUMS.release
+          grep -v -- '-glibc2\.17\.tar\.gz$' SHA256SUMS.release > SHA256SUMS || true
+          sha256sum ocd-*-glibc2.17.tar.gz >> SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" ocd-*-glibc2.17.tar.gz SHA256SUMS --clobber

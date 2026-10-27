@@ -17,7 +17,7 @@ commit `4617210` (version 2.0.26) and has since caught up with 2.1.4 ([docs/UPGR
 
 ## Install
 
-On Linux (x86_64 or ARM64, glibc 2.35 or newer) or macOS on Apple silicon:
+On Linux (x86_64 or ARM64, glibc 2.17 or newer) or macOS on Apple silicon:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/sphinxid/ocd/main/scripts/install.sh | bash
@@ -31,7 +31,8 @@ wget -qO- https://raw.githubusercontent.com/sphinxid/ocd/main/scripts/install.sh
 
 The script ([scripts/install.sh](scripts/install.sh)) needs no root. It picks the latest
 [release](https://github.com/sphinxid/ocd/releases) for your OS and CPU, checks it against the release's
-`SHA256SUMS` and installs it as `~/.local/bin/ocd`. If that folder isn't on your `PATH` yet, it adds it in your
+`SHA256SUMS` and installs it as `~/.local/bin/ocd`. On Linux with glibc older than 2.35 (RHEL/CentOS 7 and 8,
+Ubuntu 20.04, Debian 11 and so on) it takes the glibc 2.17 build instead. If that folder isn't on your `PATH` yet, it adds it in your
 shell's startup file (`~/.bashrc`, `~/.zshrc`, fish's `config.fish`, or `~/.profile` for other shells); open a new
 shell afterwards. Run it again to update. If ocd was already installed, it restarts the background service
 (`ocd service restart`) on the new binary.
@@ -187,11 +188,19 @@ git push origin v1.0.0
 | `ocd-<tag>-linux-arm64.tar.gz` | Linux ARM64, glibc 2.35 or newer |
 | `ocd-<tag>-windows-x64.zip` | Windows x86_64 |
 | `ocd-<tag>-darwin-arm64.tar.gz` | macOS on Apple silicon |
+| `ocd-<tag>-linux-x64-glibc2.17.tar.gz` | Linux x86_64, glibc 2.17 or newer (RHEL/CentOS 7, Ubuntu 14.04, Debian 8 and later) |
+| `ocd-<tag>-linux-arm64-glibc2.17.tar.gz` | Linux ARM64, glibc 2.17 or newer |
 
 `SHA256SUMS` lists the checksums. The binaries include the web UI. `ocd --version` shows the tag and commit,
 for example `ocd v1.0.0+1a2b3c4 (opencode 2.1.4)`; the opencode version is the one ocd reports to providers,
 plugins and the service, so it stays compatible. To rebuild an existing tag, run the workflow from the Actions
 tab with the tag name.
+
+The glibc 2.17 builds come from a second workflow (`.github/workflows/release-glibc2.17.yml`) that runs after the
+release is published, so they appear a few minutes after the others. It links the same code with
+[cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild) against glibc 2.17 and adds the two archives to the
+release and `SHA256SUMS`; the regular builds don't change. To add them to an existing release, run that workflow
+from the Actions tab with the tag name. A glibc 2.17 build upgrades to the glibc 2.17 build of the new release.
 
 The macOS binary isn't signed. After unpacking, clear the download quarantine once:
 `xattr -d com.apple.quarantine ocd` (the [install script](#install) does this for you).

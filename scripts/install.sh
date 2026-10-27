@@ -53,7 +53,19 @@ latest_tag() {
   esac
 }
 
-# The release's platform name for this machine: linux-x64, linux-arm64 or darwin-arm64.
+# version_at_least <version> <minimum>: compares dotted major.minor versions.
+version_at_least() {
+  local a_major a_minor b_major b_minor
+  a_major="${1%%.*}"
+  a_minor="${1#*.}"
+  a_minor="${a_minor%%.*}"
+  b_major="${2%%.*}"
+  b_minor="${2#*.}"
+  [ "$a_major" -gt "$b_major" ] || { [ "$a_major" -eq "$b_major" ] && [ "$a_minor" -ge "$b_minor" ]; }
+}
+
+# The release's platform name for this machine: linux-x64, linux-arm64 (or either with -glibc2.17 on
+# glibc older than 2.35) or darwin-arm64.
 detect_platform() {
   local os arch
   os="$(uname -s)"
@@ -69,7 +81,16 @@ detect_platform() {
       if [ -f /etc/alpine-release ] || case "$(ldd --version 2>&1 || true)" in *musl*) true ;; *) false ;; esac; then
         die "the Linux builds need glibc; this system uses musl (Alpine?)"
       fi
-      printf 'linux-%s\n' "$arch"
+      # The regular Linux builds need glibc 2.35; older systems get the glibc 2.17 build.
+      local glibc
+      glibc="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+      glibc="${glibc##* }"
+      if [ -n "$glibc" ] && ! version_at_least "$glibc" 2.35; then
+        version_at_least "$glibc" 2.17 || die "glibc $glibc is too old; ocd needs glibc 2.17 or newer"
+        printf 'linux-%s-glibc2.17\n' "$arch"
+      else
+        printf 'linux-%s\n' "$arch"
+      fi
       ;;
     Darwin)
       # A shell running under Rosetta reports x86_64 on Apple silicon.
@@ -181,7 +202,12 @@ main() {
   trap "rm -rf '$tmp'" EXIT
 
   info "downloading ocd $tag for $platform"
-  fetch "$base/$name.tar.gz" "$tmp/$name.tar.gz" || die "could not download $base/$name.tar.gz"
+  if ! fetch "$base/$name.tar.gz" "$tmp/$name.tar.gz"; then
+    case "$platform" in
+      *-glibc2.17) die "could not download $base/$name.tar.gz (releases before the glibc 2.17 builds don't have it)" ;;
+      *) die "could not download $base/$name.tar.gz" ;;
+    esac
+  fi
   fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS" || die "could not download $base/SHA256SUMS"
   local want got
   want="$(awk -v f="$name.tar.gz" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")"

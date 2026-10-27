@@ -6,6 +6,8 @@
 #
 # Run it again for an existing tag from the Actions tab (Run workflow, with the tag name).
 name: Release
+# release-glibc2.17.yml reads the tag from this.
+run-name: Release ${{ inputs.tag || github.ref_name }}
 
 on:
   push:

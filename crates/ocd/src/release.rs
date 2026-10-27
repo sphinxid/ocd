@@ -422,17 +422,23 @@ pub fn parse_release(body: &Value) -> Result<Release, String> {
 // ---------------------------------------------------------------------------------------------
 // platform and archive
 
-/// The release platform this binary was built for.
-pub const PLATFORM: Option<&str> = if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-    Some("linux-x64")
-} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
-    Some("linux-arm64")
-} else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-    Some("darwin-arm64")
-} else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-    Some("windows-x64")
-} else {
-    None
+/// The release platform this binary was built for. `OCD_RELEASE_PLATFORM` at build time overrides it, so a
+/// variant build (`release-glibc2.17.yml`: `linux-x64-glibc2.17`) upgrades to the same variant.
+pub const PLATFORM: Option<&str> = match option_env!("OCD_RELEASE_PLATFORM") {
+    Some(p) if !p.is_empty() => Some(p),
+    _ => {
+        if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            Some("linux-x64")
+        } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+            Some("linux-arm64")
+        } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            Some("darwin-arm64")
+        } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+            Some("windows-x64")
+        } else {
+            None
+        }
+    }
 };
 
 pub fn unsupported_platform() -> UpgradeError {

@@ -5,17 +5,23 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// The platform name of release archives built for this machine (`release::PLATFORM`).
-pub const PLATFORM: Option<&str> = if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-    Some("linux-x64")
-} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
-    Some("linux-arm64")
-} else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-    Some("darwin-arm64")
-} else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-    Some("windows-x64")
-} else {
-    None
+/// The platform name of release archives built for this machine (`release::PLATFORM`, including its
+/// `OCD_RELEASE_PLATFORM` override).
+pub const PLATFORM: Option<&str> = match option_env!("OCD_RELEASE_PLATFORM") {
+    Some(p) if !p.is_empty() => Some(p),
+    _ => {
+        if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            Some("linux-x64")
+        } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+            Some("linux-arm64")
+        } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            Some("darwin-arm64")
+        } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+            Some("windows-x64")
+        } else {
+            None
+        }
+    }
 };
 
 #[derive(Clone, Debug)]
