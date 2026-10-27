@@ -26,7 +26,6 @@ fn sse(chunks: &[Value]) -> Response {
 /// A mock OpenAI-compatible provider: a `read` tool call when the prompt says USE_TOOL, else text. Records the
 /// kind of each request (`title` or `step`) in arrival order.
 fn start_mock() -> (u16, Arc<Mutex<Vec<&'static str>>>) {
-    let port = free_port();
     let requests = Arc::new(Mutex::new(Vec::new()));
     let log = requests.clone();
     let app = Router::new().route(
@@ -55,7 +54,9 @@ fn start_mock() -> (u16, Arc<Mutex<Vec<&'static str>>>) {
             ])
         }),
     );
-    let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
+    // Keep the listener the port came from: probing a free port and binding it again races other tests.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
     listener.set_nonblocking(true).unwrap();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
