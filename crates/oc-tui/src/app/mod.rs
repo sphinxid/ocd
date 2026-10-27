@@ -11,6 +11,7 @@ pub mod stats;
 pub mod input;
 pub mod migration;
 pub mod panel;
+pub mod program_status;
 pub mod mini;
 pub mod selection;
 pub mod tabs;
@@ -296,6 +297,8 @@ pub struct App {
     pub free_limits_handled: HashSet<String>,
     /// In-memory copy of the `go-upsell` storage: last time the offer opened, and "don't show again".
     pub go_upsell_memory: (Option<i64>, bool),
+    /// OSC 7501 records last sent to the terminal.
+    pub program_status: program_status::ProgramStatus,
 }
 
 impl App {
@@ -408,6 +411,7 @@ impl App {
             busy: HashMap::new(),
             free_limits_handled: HashSet::new(),
             go_upsell_memory: (None, false),
+            program_status: Default::default(),
             config,
             opts,
         };

@@ -198,6 +198,14 @@ impl app::event_loop::Hooks for TermHooks<'_> {
     fn draw(&mut self, app: &mut App) -> anyhow::Result<()> {
         self.term.draw(|f| app.draw(f))?;
         set_title(app, &mut self.title);
+        // Pending session state for the terminal (OSC 7501), only what changed.
+        let sessions = app.program_status_sessions();
+        let seq = app.program_status.update(&sessions);
+        if !seq.is_empty() {
+            let mut out = std::io::stdout();
+            let _ = out.write_all(seq.as_bytes());
+            let _ = out.flush();
+        }
         Ok(())
     }
     fn editor(&mut self, app: &mut App) -> anyhow::Result<()> {
@@ -216,6 +224,11 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     let kitty = crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
     let screen = Screen { kitty, mouse: config.mouse() };
     screen.enter()?;
+    {
+        let mut out = std::io::stdout();
+        let _ = out.write_all(app::program_status::QUERY.as_bytes());
+        let _ = out.flush();
+    }
     // Theme mode + palette probe before the input reader starts.
     let palette = terminal::probe(1000);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppMsg>();
@@ -257,6 +270,12 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     let mut events = app::escape::JoinEscapes::new(EventStream::new());
     let mut hooks = TermHooks { screen: &screen, term: &mut term, title: String::new() };
     let result = app::event_loop::run(&mut app, &mut events, &mut rx, &mut hooks).await;
+    {
+        // Terminals drop working and blocked records when the process exits; the root is cleared.
+        let mut out = std::io::stdout();
+        let _ = out.write_all(app::program_status::ProgramStatus::clear().as_bytes());
+        let _ = out.flush();
+    }
     screen.leave();
     if let Err(e) = result {
         tracing::error!(cause = %e, "tui failed");

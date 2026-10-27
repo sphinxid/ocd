@@ -136,7 +136,8 @@ impl App {
         } else {
             None
         };
-        let busy = fam.iter().any(|id| self.store.is_running(id));
+        // Parked synthetic context (user shells, plan reminders) stays pending without execution; only work counts as busy.
+        let busy = fam.iter().any(|id| self.store.is_running(id) || self.store.pending.get(id).is_some_and(|p| p.iter().any(|i| i.kind != "synthetic")));
         let current = self.session_id().map(|s| self.store.root(s));
         let unread = self.store.session(root).and_then(|s| {
             let idle = s.time.idle?;
