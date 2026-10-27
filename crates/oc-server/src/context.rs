@@ -129,3 +129,19 @@ impl ServerMeta {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `process.test.ts`: server info lists remote URLs alongside local addresses while they are available.
+    #[test]
+    fn info_lists_remote_urls_after_local_ones_while_available() {
+        let meta = ServerMeta::new("2.1.4", "/tmp");
+        meta.set_urls(vec!["http://127.0.0.1:4096".into()]);
+        meta.set_extra_urls(vec!["https://example.opentunnel.xyz".into()]);
+        assert_eq!(meta.info(None).urls, vec!["http://127.0.0.1:4096", "https://example.opentunnel.xyz"]);
+        meta.set_extra_urls(vec![]);
+        assert_eq!(meta.info(None).urls, vec!["http://127.0.0.1:4096"]);
+    }
+}

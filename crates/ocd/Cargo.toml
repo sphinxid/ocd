@@ -18,6 +18,7 @@ oc-config = { path = "../oc-config" }
 oc-mcp = { path = "../oc-mcp" }
 oc-plugin = { path = "../oc-plugin" }
 oc-tui = { path = "../oc-tui" }
+oc-tunnel = { path = "../oc-tunnel" }
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
@@ -52,6 +53,7 @@ serde_json.workspace = true
 tempfile = "3"
 brotli = "8"
 axum.workspace = true
+oc-tunnel = { path = "../oc-tunnel", features = ["fake"] }
 
 [[bin]]
 name = "ocd"

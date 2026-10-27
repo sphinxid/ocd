@@ -2870,6 +2870,7 @@ dependencies = [
  "oc-storage",
  "oc-tools",
  "oc-tui",
+ "oc-tunnel",
  "oc-util",
  "parking_lot",
  "percent-encoding",

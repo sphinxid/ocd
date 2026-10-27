@@ -234,8 +234,8 @@ impl ServiceConfig {
         Ok(next)
     }
 
-    /// `ServiceConfig.remote()` (used by `service set remote true` once a tunnel client exists).
-    #[allow(dead_code)]
+    /// `ServiceConfig.remote()`: turns remote access on and returns its route, created once and kept so the remote
+    /// URL survives restarts.
     pub fn remote(&self) -> anyhow::Result<String> {
         let mut existing = self.read();
         if let Some(r) = &existing.remote {

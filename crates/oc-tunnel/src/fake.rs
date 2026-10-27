@@ -33,6 +33,8 @@ pub struct Options {
     pub fail_issuance: Option<String>,
     /// `POST /api/tunnel` fails with this status and `_tag`.
     pub create_error: Option<(u16, String)>,
+    /// `GET /api/tunnel/:id/certificate` fails with this status and `_tag`.
+    pub certificate_error: Option<(u16, String)>,
     pub heartbeat_ms: u64,
     pub idle_timeout_ms: u64,
     /// Attach is refused with this code.
@@ -53,6 +55,7 @@ impl Default for Options {
             issuing_polls: 1,
             fail_issuance: None,
             create_error: None,
+            certificate_error: None,
             heartbeat_ms: 15_000,
             idle_timeout_ms: 45_000,
             attach_error: None,
@@ -534,6 +537,9 @@ async fn certificate(State(inner): State<Arc<Inner>>, Path(id): Path<String>, he
     if let Err(r) = authorize(&inner, &id, &headers) {
         return r;
     }
+    if let Some((status, tag)) = inner.options.lock().certificate_error.clone() {
+        return error_response(status, &tag, "Fake failure", json!({"tunnelID": id}));
+    }
     let (fail, polls) = {
         let options = inner.options.lock();
         (options.fail_issuance.clone(), options.issuing_polls)
@@ -858,9 +864,14 @@ async fn admin(State(inner): State<Arc<Inner>>, Path(action): Path<String>, body
             if let Some(v) = payload.get("validity_days").and_then(Value::as_i64) {
                 o.validity_days = v;
             }
+            let pair = |v: &Value| {
+                v.as_array().and_then(|a| Some((a.first()?.as_u64()? as u16, a.get(1)?.as_str()?.to_string())))
+            };
             if let Some(v) = payload.get("create_error") {
-                o.create_error =
-                    v.as_array().and_then(|a| Some((a.first()?.as_u64()? as u16, a.get(1)?.as_str()?.to_string())));
+                o.create_error = pair(v);
+            }
+            if let Some(v) = payload.get("certificate_error") {
+                o.certificate_error = pair(v);
             }
         }),
         "state" => {

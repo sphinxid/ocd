@@ -197,6 +197,8 @@ impl Drop for Raw {
 enum Key {
     Up,
     Down,
+    Left,
+    Right,
     Enter,
     Cancel,
     Backspace,
@@ -226,6 +228,8 @@ fn read_key() -> Key {
             match seq[1] {
                 b'A' => Key::Up,
                 b'B' => Key::Down,
+                b'C' => Key::Right,
+                b'D' => Key::Left,
                 _ => Key::Other,
             }
         }
@@ -324,24 +328,82 @@ pub fn select(message: &str, choices: &[Choice], max_items: usize) -> Result<Str
                 search.push(c);
                 index = 0;
             }
-            Key::Other => {}
+            Key::Left | Key::Right | Key::Other => {}
         }
     }
 }
 
-/// `confirm({message, initialValue})`
-pub fn confirm(message: &str, initial: bool) -> Result<bool, Cancelled> {
-    let choices = [
-        Choice { value: "yes".into(), label: "Yes".into(), hint: None },
-        Choice { value: "no".into(), label: "No".into(), hint: None },
-    ];
-    let ordered: Vec<Choice> = if initial {
-        choices.into_iter().collect()
+fn dim(s: &str) -> String {
+    if color() { format!("\x1b[2m{s}\x1b[22m") } else { s.to_string() }
+}
+
+fn strikethrough(s: &str) -> String {
+    if color() { format!("\x1b[9m{s}\x1b[29m") } else { s.to_string() }
+}
+
+/// The active frame of `confirm`: `● Yes / ○ No` with the current value selected.
+fn confirm_frame(message: &str, value: bool) -> String {
+    let (yes, no) = if value {
+        (format!("{} Yes", paint("32", "●")), format!("{} {}", dim("○"), dim("No")))
     } else {
-        let [a, b] = choices;
-        vec![b, a]
+        (format!("{} {}", dim("○"), dim("Yes")), format!("{} No", paint("32", "●")))
     };
-    select(message, &ordered, 2).map(|v| v == "yes")
+    format!("{}\n{}  {message}\n{}  {yes} {} {no}\n{}\n", gray(S_BAR), paint("36", "◆"), paint("36", S_BAR), dim("/"), paint("36", "└"))
+}
+
+/// `confirm({message, initialValue})`: arrows (or h/j/k/l) toggle, `y`/`n` answer at once, Enter submits, and
+/// Ctrl-C or Esc cancels.
+pub fn confirm(message: &str, initial: bool) -> Result<bool, Cancelled> {
+    #[cfg(unix)]
+    let _raw = Raw::enter(false);
+    let mut out = std::io::stdout();
+    let mut value = initial;
+    let mut drawn = 0usize;
+    loop {
+        let mut s = String::new();
+        if drawn > 0 {
+            s.push_str(&format!("\x1b[{drawn}A\r\x1b[J"));
+        }
+        let frame = confirm_frame(message, value);
+        drawn = frame.matches('\n').count();
+        s.push_str(&frame);
+        let _ = out.write_all(s.as_bytes());
+        let _ = out.flush();
+        let answer = match read_key() {
+            Key::Up | Key::Down | Key::Left | Key::Right => {
+                value = !value;
+                None
+            }
+            Key::Char('h' | 'j' | 'k' | 'l') => {
+                value = !value;
+                None
+            }
+            Key::Char(c @ ('y' | 'Y' | 'n' | 'N')) => Some(c.eq_ignore_ascii_case(&'y')),
+            Key::Enter => Some(value),
+            Key::Cancel => {
+                let label = if value { "Yes" } else { "No" };
+                let s = format!(
+                    "\x1b[{drawn}A\r\x1b[J{}\n{}  {message}\n{}  {}\n{}\n",
+                    gray(S_BAR),
+                    paint("31", "■"),
+                    gray(S_BAR),
+                    strikethrough(&dim(label)),
+                    gray(S_BAR)
+                );
+                let _ = out.write_all(s.as_bytes());
+                let _ = out.flush();
+                return Err(Cancelled);
+            }
+            _ => None,
+        };
+        if let Some(answer) = answer {
+            let label = if answer { "Yes" } else { "No" };
+            let s = format!("\x1b[{drawn}A\r\x1b[J{}\n{}  {message}\n{}  {}\n", gray(S_BAR), paint("32", "◇"), gray(S_BAR), dim(label));
+            let _ = out.write_all(s.as_bytes());
+            let _ = out.flush();
+            return Ok(answer);
+        }
+    }
 }
 
 /// `text` / `password` prompt; `validate` returns an error message to re-prompt.

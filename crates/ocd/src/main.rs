@@ -6,6 +6,7 @@ mod cli;
 mod client;
 mod commands;
 mod connection;
+mod remote_tunnel;
 mod run;
 mod runtime;
 mod serve;
@@ -89,7 +90,11 @@ fn main() {
             Ok(code) => code,
             Err(e) => {
                 tracing::error!(cause = %e, args = %serde_json::to_string(&argv).unwrap_or_default(), "cli process failed");
-                term::write_stderr(&format!("Error: {e}\n"));
+                if e.downcast_ref::<remote_tunnel::Inspected>().is_some() {
+                    term::write_stderr(&format!("{e}\n"));
+                } else {
+                    term::write_stderr(&format!("Error: {e}\n"));
+                }
                 1
             }
         }

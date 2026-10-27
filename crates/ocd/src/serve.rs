@@ -239,14 +239,30 @@ async fn run_service(
     let bound = server.url().to_string();
     let registration = Registration::new(VERSION, &bound, &password);
     write_registration(&options.file, &registration)?;
-    if info.remote.is_some() {
-        tracing::warn!("remote access is configured but the OpenTunnel client is not supported by this build");
-    }
+    // Remote access: the tunnel holds the service's route and its URL joins the server's URLs while attached.
+    let tunnel = info.remote.clone().map(|remote| {
+        let addr = server.local_addr();
+        // A wildcard bind also listens on loopback, which is all the tunnel needs to reach.
+        let target = if addr.ip().is_unspecified() { format!("127.0.0.1:{}", addr.port()) } else { addr.to_string() };
+        let meta = server.meta();
+        let (stop, stopped) = tokio::sync::watch::channel(false);
+        let task = tokio::spawn(crate::remote_tunnel::run(
+            remote.route,
+            target,
+            move |url| meta.set_extra_urls(url.into_iter().collect()),
+            stopped,
+        ));
+        (stop, task)
+    });
     crate::term::write_stdout(&format!("server listening on {bound}\n"));
     let file = options.file.clone();
     tokio::select! {
         _ = oc_server::service::watch_registration(file.clone(), registration.clone()) => {}
         _ = wait_for_signal() => {}
+    }
+    if let Some((stop, task)) = tunnel {
+        let _ = stop.send(true);
+        let _ = tokio::time::timeout(Duration::from_secs(3), task).await;
     }
     server.shutdown().await;
     rt.app.plugins.shutdown().await;

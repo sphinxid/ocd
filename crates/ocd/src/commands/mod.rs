@@ -538,20 +538,28 @@ async fn pair(global: &Global, input: &Input) -> anyhow::Result<i32> {
     if remote && url.is_some() {
         anyhow::bail!("--remote cannot be combined with --url");
     }
-    if remote {
-        anyhow::bail!("Remote access through OpenTunnel is not supported by this build");
+    if remote && info.remote.is_none() {
+        if let Consent::Refused(code) = remote_consent(&config, &info, input.flag("yes"), &TerminalPrompt)? {
+            return Ok(code);
+        }
+        // Changing the setting restarts the service, and the ensure below starts it again with the tunnel.
+        set_remote(&config, true).await?;
     }
     let endpoint = service::ensure(&config.options(false), None).await?;
     let client = Client::new(&endpoint);
-    let urls: Vec<String> = match &url {
-        Some(u) => vec![u.clone()],
-        None => client
-            .call("server.info", Req::new())
-            .await?
-            .get("urls")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(|u| u.as_str().map(String::from)).collect())
-            .unwrap_or_default(),
+    let urls: Vec<String> = if remote {
+        vec![remote_url(&client, &config).await?]
+    } else {
+        match &url {
+            Some(u) => vec![u.clone()],
+            None => client
+                .call("server.info", Req::new())
+                .await?
+                .get("urls")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|u| u.as_str().map(String::from)).collect())
+                .unwrap_or_default(),
+        }
     };
     let pairing = client.call("server.pair", Req::new()).await?;
     let code = pairing.get("code").and_then(Value::as_str).unwrap_or("").to_string();
@@ -560,6 +568,7 @@ async fn pair(global: &Global, input: &Input) -> anyhow::Result<i32> {
         .iter()
         .filter_map(|u| url::Url::parse(u).ok().and_then(|b| b.join(&format!("/auth/connect/{code}")).ok()).map(|l| l.to_string()))
         .collect();
+    // Loopback URLs are useless to the scanning device, so the QR code only carries reachable addresses.
     let remote_urls: Vec<&String> = urls
         .iter()
         .filter(|u| url::Url::parse(u).ok().and_then(|p| p.host_str().map(|h| !is_loopback(&host_display(&p, h)))).unwrap_or(false))
@@ -577,7 +586,7 @@ async fn pair(global: &Global, input: &Input) -> anyhow::Result<i32> {
     }
     lines.push(String::new());
     write_stdout(&format!("{}{EOL}", lines.join(EOL)));
-    if url.is_some() {
+    if remote || url.is_some() {
         return Ok(0);
     }
     let parsed = url::Url::parse(&endpoint.url)?;
@@ -599,6 +608,124 @@ async fn pair(global: &Global, input: &Input) -> anyhow::Result<i32> {
             + EOL),
     );
     Ok(0)
+}
+
+/// `remoteWarning`
+pub fn remote_warning() -> String {
+    [
+        "This will expose your OpenCode server to the internet.",
+        "Traffic is end-to-end encrypted, and access requires your server password.",
+        "To pair locally instead, run `ocd pair` without the --remote flag.",
+    ]
+    .join(EOL)
+}
+
+const REMOTE_NOT_ENABLED: &str = "Remote access was not enabled. To pair locally, run `ocd pair`.";
+
+/// The consent prompt's terminal (`RemoteConsentPrompt`).
+pub trait ConsentPrompt {
+    fn interactive(&self) -> bool;
+    fn confirm(&self) -> Result<bool, crate::ui::Cancelled>;
+}
+
+struct TerminalPrompt;
+
+impl ConsentPrompt for TerminalPrompt {
+    fn interactive(&self) -> bool {
+        crate::ui::interactive()
+    }
+    fn confirm(&self) -> Result<bool, crate::ui::Cancelled> {
+        crate::ui::confirm("Expose your server to the internet?", true)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Consent {
+    Accepted,
+    /// Remote access stays off; exit with this code.
+    Refused(i32),
+}
+
+/// `remoteConsent`: remote access is only explained and accepted the first time it is turned on; once accepted,
+/// pairing goes straight through.
+pub fn remote_consent(
+    config: &ServiceConfig,
+    info: &service::ServiceInfo,
+    yes: bool,
+    terminal: &dyn ConsentPrompt,
+) -> anyhow::Result<Consent> {
+    if info.remote.is_some() || info.remote_accepted == Some(true) {
+        return Ok(Consent::Accepted);
+    }
+    if !yes && !terminal.interactive() {
+        write_stderr(&format!("{}{EOL}Run interactively or pass --yes to continue.{EOL}", remote_warning()));
+        return Ok(Consent::Refused(1));
+    }
+    crate::ui::log::warn(&remote_warning());
+    if !yes {
+        match terminal.confirm() {
+            Err(crate::ui::Cancelled) => {
+                crate::ui::cancel(REMOTE_NOT_ENABLED);
+                return Ok(Consent::Refused(130));
+            }
+            Ok(false) => {
+                crate::ui::log::info(REMOTE_NOT_ENABLED);
+                return Ok(Consent::Refused(0));
+            }
+            Ok(true) => {}
+        }
+    }
+    // `acceptRemote`
+    let mut next = config.read();
+    next.remote_accepted = Some(true);
+    config.write(&next)?;
+    Ok(Consent::Accepted)
+}
+
+/// The remote URL among the server's URLs: the one on `<route>.<tunnel hostname>`.
+async fn find_remote_url(client: &Client, config: &ServiceConfig) -> Option<String> {
+    let route = config.read().remote.map(|r| r.route)?;
+    let hostname = crate::remote_tunnel::hostname(&route).ok().flatten()?;
+    let info = client.call("server.info", Req::new()).await.ok()?;
+    info.get("urls")?.as_array()?.iter().filter_map(Value::as_str).find_map(|candidate| {
+        let parsed = url::Url::parse(candidate).ok()?;
+        let host = parsed.host_str().map(|h| host_display(&parsed, h))?;
+        (host == hostname.to_lowercase()).then(|| candidate.to_string())
+    })
+}
+
+/// The service attaches the tunnel in the background, so wait for its URL to appear in server info.
+async fn remote_url(client: &Client, config: &ServiceConfig) -> anyhow::Result<String> {
+    let wait = async {
+        loop {
+            if let Some(url) = find_remote_url(client, config).await {
+                return url;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(3 * 60), wait).await {
+        Ok(url) => Ok(url),
+        Err(_) => anyhow::bail!("Timed out waiting for the remote tunnel; run `ocd pair --remote` again to retry"),
+    }
+}
+
+/// `ServiceConfig.set("remote", ...)`: turning remote access on creates the device's tunnel first (a tunnel that
+/// cannot be created leaves remote access off instead of a service that keeps retrying), then restarts the service
+/// with a route; turning it off forgets the route.
+async fn set_remote(config: &ServiceConfig, enabled: bool) -> anyhow::Result<()> {
+    if enabled {
+        crate::remote_tunnel::ensure().await?;
+    }
+    stop_service(config).await?;
+    if enabled {
+        config.remote()?;
+        return Ok(());
+    }
+    let mut info = config.read();
+    disable_remote(&mut info);
+    config.write(&info)?;
+    Ok(())
 }
 
 /// WHATWG `url.hostname` (IPv6 bracketed).
@@ -724,13 +851,7 @@ async fn service_set(global: &Global, input: &Input) -> anyhow::Result<i32> {
             if value != "true" && value != "false" {
                 anyhow::bail!("Remote must be true or false");
             }
-            if value == "true" {
-                anyhow::bail!("Remote access through OpenTunnel is not supported by this build");
-            }
-            stop_service(&config).await?;
-            let mut info = config.read();
-            disable_remote(&mut info);
-            config.write(&info)?;
+            set_remote(&config, value == "true").await?;
         }
         "hostname" => {
             stop_service(&config).await?;
@@ -851,5 +972,130 @@ mod tests {
         assert_eq!(js_number(" 80 "), Some(80.0));
         assert_eq!(js_number("1e3"), Some(1000.0));
         assert_eq!(js_number("abc"), None);
+    }
+
+    // `pair-remote-consent.test.ts`
+
+    fn temp_global(dir: &std::path::Path) -> Global {
+        Global {
+            home: dir.join("home"),
+            data: dir.join("data"),
+            cache: dir.join("cache"),
+            config: dir.join("config"),
+            state: dir.join("state"),
+            tmp: dir.join("tmp"),
+            bin: dir.join("bin"),
+            log: dir.join("log"),
+            repos: dir.join("repos"),
+        }
+    }
+
+    /// Records whether the user was asked so tests can assert the prompt was skipped.
+    struct Terminal {
+        interactive: bool,
+        answer: Option<bool>,
+        asked: std::cell::Cell<usize>,
+    }
+
+    impl Terminal {
+        fn new(interactive: bool, answer: Option<bool>) -> Terminal {
+            Terminal { interactive, answer, asked: std::cell::Cell::new(0) }
+        }
+    }
+
+    impl ConsentPrompt for Terminal {
+        fn interactive(&self) -> bool {
+            self.interactive
+        }
+        fn confirm(&self) -> Result<bool, crate::ui::Cancelled> {
+            self.asked.set(self.asked.get() + 1);
+            self.answer.ok_or(crate::ui::Cancelled)
+        }
+    }
+
+    fn consent(config: &ServiceConfig, yes: bool, terminal: &Terminal) -> Consent {
+        remote_consent(config, &config.read(), yes, terminal).unwrap()
+    }
+
+    fn saved(config: &ServiceConfig) -> Value {
+        serde_json::to_value(config.read()).unwrap()
+    }
+
+    #[test]
+    fn first_enable_asks_before_remote_access_is_enabled_and_remembers_acceptance() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = ServiceConfig::new(&temp_global(dir.path()));
+        let accepting = Terminal::new(true, Some(true));
+        assert_eq!(consent(&config, false, &accepting), Consent::Accepted);
+        assert_eq!(accepting.asked.get(), 1);
+        assert_eq!(saved(&config), serde_json::json!({"remoteAccepted": true}));
+
+        let again = Terminal::new(true, Some(false));
+        assert_eq!(consent(&config, false, &again), Consent::Accepted);
+        assert_eq!(again.asked.get(), 0);
+    }
+
+    #[test]
+    fn declining_enables_nothing_and_asks_again_next_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = ServiceConfig::new(&temp_global(dir.path()));
+        let declining = Terminal::new(true, Some(false));
+        assert_eq!(consent(&config, false, &declining), Consent::Refused(0));
+        assert_eq!(declining.asked.get(), 1);
+        assert_eq!(saved(&config), serde_json::json!({}));
+
+        let cancelling = Terminal::new(true, None);
+        assert_eq!(consent(&config, false, &cancelling), Consent::Refused(130));
+        assert_eq!(saved(&config), serde_json::json!({}));
+    }
+
+    #[test]
+    fn already_enabled_or_previously_enabled_remote_access_does_not_ask() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = ServiceConfig::new(&temp_global(dir.path()));
+        config.remote().unwrap();
+        let enabled = Terminal::new(false, None);
+        assert_eq!(consent(&config, false, &enabled), Consent::Accepted);
+        assert_eq!(enabled.asked.get(), 0);
+
+        // Turning remote access off forgets the address but not that it was enabled.
+        let mut info = config.read();
+        disable_remote(&mut info);
+        config.write(&info).unwrap();
+        assert_eq!(saved(&config), serde_json::json!({"remoteAccepted": true}));
+        let disabled = Terminal::new(false, None);
+        assert_eq!(consent(&config, false, &disabled), Consent::Accepted);
+        assert_eq!(disabled.asked.get(), 0);
+    }
+
+    #[test]
+    fn remote_route_is_random_stable_and_a_valid_tunnel_route() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = ServiceConfig::new(&temp_global(dir.path()));
+        let route = config.remote().unwrap();
+        assert!(route.len() == 16 && route.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)), "{route}");
+        // The tunnel client rejects invalid route names, which would keep the service from ever attaching.
+        let routes = [(route.clone(), "127.0.0.1:4096".to_string())];
+        assert!(oc_tunnel::names::validate_routes(routes.iter().map(|(a, b)| (a, b))).is_ok());
+        assert_eq!(saved(&config), serde_json::json!({"remote": {"route": route}}));
+        assert_eq!(config.remote().unwrap(), route);
+        let mut info = config.read();
+        disable_remote(&mut info);
+        config.write(&info).unwrap();
+        assert_ne!(config.remote().unwrap(), route);
+    }
+
+    #[test]
+    fn without_a_terminal_first_enable_fails_unless_yes_accepts() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = ServiceConfig::new(&temp_global(dir.path()));
+        let headless = Terminal::new(false, None);
+        assert_eq!(consent(&config, false, &headless), Consent::Refused(1));
+        assert_eq!(headless.asked.get(), 0);
+        assert_eq!(saved(&config), serde_json::json!({}));
+
+        assert_eq!(consent(&config, true, &headless), Consent::Accepted);
+        assert_eq!(headless.asked.get(), 0);
+        assert_eq!(saved(&config), serde_json::json!({"remoteAccepted": true}));
     }
 }
