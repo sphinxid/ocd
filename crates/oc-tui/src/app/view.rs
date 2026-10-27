@@ -50,6 +50,8 @@ impl App {
         }
         self.draw_tab_menu(buf, area, &t);
         self.draw_toast(buf, area, &t);
+        // The execute detail follows its live tool part.
+        self.refresh_execute_dialog();
         if let Some(mut d) = self.dialogs.pop() {
             let kb = self.keybinds.clone();
             let (rect, hits, c) = dialog::render(buf, area, &mut d, &t, &kb);

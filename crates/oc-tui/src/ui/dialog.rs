@@ -504,6 +504,10 @@ pub struct TextDialog {
     pub button: Option<String>,
     /// Side padding, `DIALOG_INSET` by default (the fork dialog's pending view uses the list inset).
     pub inset: Option<usize>,
+    /// The band's blank rows are part of `lines` and scroll with them (a scrollbox's padding).
+    pub band_scrolls: bool,
+    /// Color of `title_extra` (muted by default).
+    pub title_extra_color: Option<Rgba>,
 }
 
 impl TextDialog {
@@ -1049,11 +1053,15 @@ fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme
     match td.band {
         Some(band) => {
             let row = |l: SLine| l.prefixed(&[pad(ins)]).with_bg(Some(band.tui()));
-            v.push(SLine::blank().with_bg(Some(band.tui())));
+            if !td.band_scrolls {
+                v.push(SLine::blank().with_bg(Some(band.tui())));
+            }
             for l in shown {
                 v.push(row(l));
             }
-            v.push(SLine::blank().with_bg(Some(band.tui())));
+            if !td.band_scrolls {
+                v.push(SLine::blank().with_bg(Some(band.tui())));
+            }
         }
         None => {
             for l in shown {
@@ -1119,7 +1127,7 @@ fn text_header(td: &TextDialog, t: &Theme, w: usize) -> SLine {
         let room = inner.saturating_sub(tw + gap * 2 + sw(close));
         let text = locale::take_width(extra, room);
         segs.push(pad(gap + room.saturating_sub(sw(&text))));
-        segs.push(seg(text, fg(t.text.muted)));
+        segs.push(seg(text, fg(td.title_extra_color.unwrap_or(t.text.muted))));
         segs.push(pad(gap));
     }
     segs.push(seg(close, fg(t.text.muted)));

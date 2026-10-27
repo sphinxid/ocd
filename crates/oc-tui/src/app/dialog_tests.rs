@@ -286,3 +286,37 @@ fn fork_pending_view_uses_the_list_inset() {
     assert_eq!(col(&lines[y + 2], "\u{22ef} Forking session\u{2026}"), 10, "{}", lines[y + 2]);
     assert_eq!(a.dialogs.len(), 1);
 }
+
+#[test]
+fn execute_detail_dialog() {
+    let mut a = app();
+    let sid = session(&mut a);
+    let m: Message = serde_json::from_value(json!({
+        "id": "msg_x", "type": "assistant", "agent": "build", "time": {"created": 1000},
+        "content": [{"type": "tool", "id": "call_x", "name": "execute",
+            "state": {"status": "completed", "input": {"code": "const a = 1\nreturn a"},
+                      "content": [{"type": "text", "text": "{\"a\":1}\n\nLogs:\nhello"}]},
+            "time": {"created": 1000, "ran": 1100, "completed": 2300}}]
+    }))
+    .unwrap();
+    a.store.messages.entry(sid.clone()).or_default().push(m);
+    a.on_click(crate::ui::text::Click::Execute("msg_x".into(), "call_x".into()));
+    let lines = render(&mut a, 140, 40);
+    let joined = lines.join("\n");
+    // XLarge dialog at x=12: header at the inset of 3, status before `esc` (gap 2).
+    let header = row(&lines, "execute");
+    assert_eq!(col(header, "execute"), 15, "{joined}");
+    assert!(header.contains("Completed · 1.2s  esc"), "{joined}");
+    assert_eq!(col(row(&lines, "Code"), "Code"), 15);
+    assert!(contains(&lines, "1 const a = 1"), "{joined}");
+    assert!(contains(&lines, "2 return a"), "{joined}");
+    assert!(contains(&lines, "1 {\"a\":1}"), "{joined}");
+    assert_eq!(col(row(&lines, "Logs:"), "Logs:"), 17, "{joined}");
+    assert!(contains(&lines, "scroll ↑/↓  copy code c  copy output o  back esc"), "{joined}");
+    a.on_key(Stroke::key("c"));
+    assert_eq!(clipboard().as_deref(), Some("const a = 1\nreturn a"));
+    let lines = render(&mut a, 140, 40);
+    assert!(contains(&lines, "scroll ↑/↓  ✓ copied  copy output o  back esc"), "{}", lines.join("\n"));
+    a.on_key(Stroke::key("escape"));
+    assert!(a.dialogs.is_empty());
+}

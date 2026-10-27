@@ -1346,6 +1346,8 @@ impl App {
     fn dialog_key(&mut self, purpose: &str, key: &str, d: &dialog::Dialog) {
         match (purpose, key) {
             ("export-result", "return") => self.close_dialog(),
+            ("execute", "c") => self.execute_copy("code"),
+            ("execute", "o") => self.execute_copy("output"),
             ("go-connect", "o" | "c") => self.go_connect_key(key),
             ("debug", "return") => {
                 let text = d.data.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
@@ -2223,7 +2225,7 @@ impl App {
                 self.open_dialog(d);
             }
             Click::Navigate(id) => self.navigate(Route::Session(id)),
-            Click::Execute(_, _) => {}
+            Click::Execute(message, tool) => self.open_execute(&message, &tool),
             Click::RevertClear => {
                 let c = self.client.clone();
                 self.call(async move { c.revert_clear(&sid).await }, |_, _| {});

@@ -10,6 +10,7 @@ pub mod event_loop;
 pub mod stats;
 pub mod input;
 pub mod migration;
+pub mod execute;
 pub mod highlights;
 pub mod location;
 pub mod session_list;
