@@ -45,6 +45,7 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 | Sign-in | API keys and OAuth. ChatGPT, with token sharing, the Codex browser and device-code logins, and upstream's model list, endpoints and headers. Also GitHub Copilot and the Azure CLI. Available from `ocd auth` or the TUI's `/connect` (accounts, sign-in forms, browser and device OAuth, pasted codes, login commands) |
 | GitHub Copilot models | The account's model list, routing between the AI SDK, Responses, Chat and native Anthropic routes, and Copilot's request headers. Upstream's in-house Copilot provider runs in the Bun helper |
 | OpenAI Responses over WebSocket | For OpenAI, Azure and xAI: one socket per session, incremental turns with `previous_response_id`, and the same fallback to HTTP. The same proxy variables as upstream (`WSS_PROXY`, `WS_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`) and `permessage-deflate` compression |
+| Cloud credentials | Bedrock uses the AWS SDK's full default chain: environment, profiles with role assumption, web identity, `credential_process`, SSO with token refresh, `aws login`, container and EC2 instance roles. Vertex uses Google's application default credentials, including workload identity federation (`external_account`) and service-account impersonation. Checked against upstream with stand-in AWS and Google endpoints |
 | MCP servers | stdio and HTTP transports, OAuth and elicitation |
 | Server plugins | Tools, hooks, transforms, storage, rpc and events, plus `ocd plugin add/check/update`. They run in a small Bun helper process |
 | AI SDK provider packages | Such as `@ai-sdk/deepseek`, through the same Bun helper |
@@ -80,7 +81,6 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 | `--wizard` mode | Prints an error |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 |
 | Other experimental 2.1 features | Background compaction, `location_idle_timeout` and the new designs. Their config keys are accepted and do nothing |
-| Some cloud credentials | AWS SSO, web identity and instance metadata, and Google workload identity federation. Env vars, shared config files, `credential_process` and ECS credentials work |
 | Testing on macOS, Windows and Linux ARM | Release binaries are built for them, but only Linux x86_64 is tested |
 
 ## Different on purpose

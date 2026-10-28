@@ -92,6 +92,13 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-28: CLOUD CREDENTIALS: Bedrock's AWS chain is the SDK's `defaultProvider` (`oc-ai/src/protocols/
+  bedrock_converse/aws/`: smithy INI, assume-role via `source_profile`/`credential_source`, web identity, SSO +
+  SSO-OIDC refresh, legacy SSO, `aws login` with DPoP, container, IMDSv2/v1, endpoint overrides) and Vertex ADC
+  follows google-auth-library 10.5.0 (`gemini/adc/external.rs`: identity-pool file/URL/certificate, AWS and
+  executable sources, impersonation, `external_account_authorized_user`, `impersonated_service_account`, gtoken
+  assertions, GCE detection). Environment via `protocols/cloud_env.rs` so tests use mocks. Compared with the 2.1.4
+  binary against mock STS/SSO/IMDS/Google endpoints. Leftovers in `crates/oc-ai/README.md`.
 - 2026-10-28: WS PROXY/DEFLATE/ENTRA: oc-ai has its own Responses WebSocket client (`route/websocket/client.rs`,
   Bun 1.4.4's upgrade request, HTTP CONNECT tunnel incl. `https:` proxies and credentials, permessage-deflate via
   flate2 + zlib-rs) and upstream's proxy selection (`route/websocket/proxy.rs`); `oc_util::proxy` holds Bun's
