@@ -9,9 +9,9 @@ import time
 from parity.plugins import BUN, plugin_files
 from parity.registry import scenario
 
-# Handshake headers that differ by WebSocket client and carry no request data: the random key, the host
-# with the mock's port, and Bun's `permessage-deflate` offer (ocd's client offers no extensions).
-WS_HIDDEN = {"host", "sec-websocket-key", "sec-websocket-extensions"}
+# Handshake headers that differ between runs and carry no request data: the random key and the host with the
+# mock's port. (Both clients offer `permessage-deflate; client_max_window_bits`; the mock accepts no extension.)
+WS_HIDDEN = {"host", "sec-websocket-key"}
 # HTTP client details (Bun's fetch vs reqwest), as in `record_llm`.
 HTTP_HIDDEN = {"host", "connection", "content-length", "accept-encoding"}
 

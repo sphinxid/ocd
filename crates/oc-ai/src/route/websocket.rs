@@ -5,17 +5,21 @@
 //! the socket: it sends the driver's `response.create` message, feeds every inbound text frame through
 //! the driver and returns the frames the route parses like SSE data. The exchange carries an HTTP
 //! fallback for executors that decide not to use the socket.
+//!
+//! [`open`] is the socket upstream's runtime opens (`core/src/effect/websocket-constructor.ts` on Bun
+//! 1.4.4): through the proxy the environment selects ([`proxy`]), with Bun's upgrade request and
+//! `permessage-deflate` ([`client`]).
 
 use super::Headers;
 use crate::error::{AIError, ErrorKind, TransportOperation, TransportType};
 use futures::stream::BoxStream;
-use futures::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::protocol::Message;
+
+pub mod client;
+pub mod proxy;
 
 /// Largest inbound message accepted (`MAX_FRAME_BYTES`).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -189,10 +193,7 @@ pub enum WsMessage {
     Binary(Vec<u8>),
 }
 
-type Sink = futures::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-    Message,
->;
+type Sink = client::Writer;
 
 /// An open WebSocket (`WebSocketConnection`): text sends, the inbound message queue and close.
 pub struct WebSocketConnection {
@@ -201,6 +202,7 @@ pub struct WebSocketConnection {
     messages: parking_lot::Mutex<Option<mpsc::UnboundedReceiver<Result<WsMessage, AIError>>>>,
     reader: tokio::task::AbortHandle,
     closed: Arc<std::sync::atomic::AtomicBool>,
+    deflate: Option<client::DeflateParams>,
 }
 
 impl WebSocketConnection {
@@ -218,10 +220,10 @@ impl WebSocketConnection {
         }
         let mut sink = self.sink.lock().await;
         let Some(sink) = sink.as_mut() else { return Err(not_open(3)) };
-        sink.send(Message::Text(message.into())).await.map_err(|e| match e {
-            tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed => not_open(3),
-            other => transport_error(
-                other.to_string(),
+        sink.text(&message).await.map_err(|e| match e.kind() {
+            std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::NotConnected => not_open(3),
+            _ => transport_error(
+                e.to_string(),
                 TransportOperation::Write,
                 WsError { url: Some(&self.url), phase: Some("send"), delivery: Some("not-sent"), ..Default::default() },
             ),
@@ -259,13 +261,9 @@ impl WebSocketConnection {
         Some(async move {
             let mut guard = sink.lock().await;
             if let Some(mut sink) = guard.take() {
-                let frame = tungstenite::protocol::CloseFrame {
-                    code: tungstenite::protocol::frame::coding::CloseCode::Normal,
-                    reason: "".into(),
-                };
                 let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                    let _ = sink.send(Message::Close(Some(frame))).await;
-                    let _ = sink.close().await;
+                    let _ = sink.control(client::OP_CLOSE, &1000u16.to_be_bytes()).await;
+                    let _ = sink.io.shutdown().await;
                 })
                 .await;
             }
@@ -274,6 +272,11 @@ impl WebSocketConnection {
 
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// The negotiated `permessage-deflate` parameters (`None`: the server accepted no extension).
+    pub fn deflate(&self) -> Option<client::DeflateParams> {
+        self.deflate
     }
 }
 
@@ -308,35 +311,49 @@ fn connect_error(url: &str, message: String) -> AIError {
     )
 }
 
-/// `WebSocketTransport.open`: connect with the handshake headers.
+/// RFC 7230 `token` characters (a header name `Headers` accepts).
+fn header_name_ok(name: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
+/// `WebSocketTransport.open`: connect with the handshake headers, through the proxy the process environment
+/// selects ([`proxy`]).
 pub async fn open(url: &str, headers: &Headers) -> Result<WebSocketConnection, AIError> {
-    let mut request = url.into_client_request().map_err(|e| connect_error(url, e.to_string()))?;
-    for (name, value) in headers {
-        let name = tungstenite::http::HeaderName::from_bytes(name.as_bytes()).map_err(|e| connect_error(url, e.to_string()))?;
-        let value = tungstenite::http::HeaderValue::from_str(value).map_err(|e| connect_error(url, e.to_string()))?;
-        request.headers_mut().insert(name, value);
+    open_with_env(url, headers, &proxy::process_env).await
+}
+
+/// [`open`] with an explicit environment lookup for the proxy variables.
+pub async fn open_with_env(url: &str, headers: &Headers, env: proxy::Env<'_>) -> Result<WebSocketConnection, AIError> {
+    // The constructor's synchronous checks (`new WebSocket` throws; upstream reports the exception's message).
+    let parsed = url::Url::parse(url).map_err(|_| connect_error(url, format!("Invalid url for WebSocket {url}")))?;
+    if parsed.scheme() != "ws" && parsed.scheme() != "wss" {
+        return Err(connect_error(url, format!("Wrong url scheme for WebSocket {url}")));
     }
-    // Same certificate trust as the HTTP clients (Bun's WebSocket shares fetch's CA store).
-    let tls = tokio_tungstenite::Connector::Rustls(oc_util::http::websocket_tls());
-    let (stream, _response) = tokio_tungstenite::connect_async_tls_with_config(request, None, true, Some(tls)).await.map_err(|e| match e {
-        tungstenite::Error::Http(response) => transport_error(
-            format!("WebSocket closed before opening with code {}", response.status().as_u16()),
-            TransportOperation::Request,
-            WsError {
-                url: Some(url),
-                code: Some(&response.status().as_u16().to_string()),
-                phase: Some("connect"),
-                delivery: Some("not-sent"),
-                body: response.body().as_ref().map(|b| String::from_utf8_lossy(b).into_owned()),
-            },
-        ),
-        other => connect_error(url, format!("Failed to open WebSocket: {other}")),
+    if parsed.fragment().is_some() {
+        return Err(connect_error(url, format!("URL has fragment component {url}")));
+    }
+    for (name, value) in headers {
+        if !header_name_ok(name) {
+            return Err(connect_error(url, format!("Invalid header name: '{name}'")));
+        }
+        if value.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+            return Err(connect_error(url, format!("Header '{name}' has invalid value: '{value}'")));
+        }
+    }
+    let upgraded = client::connect(&parsed, headers, env).await.map_err(|failure| match failure {
+        client::ConnectFailure::Thrown(message) => connect_error(url, message),
+        client::ConnectFailure::Failed(text) => connect_error(url, format!("Failed to open WebSocket: WebSocket connection to '{parsed}' failed: {text}")),
     })?;
-    let (sink, mut source) = stream.split();
+    let deflate = upgraded.deflate;
+    let (mut source, sink) = tokio::io::split(upgraded.io);
+    let sink = Arc::new(tokio::sync::Mutex::new(Some(client::Writer { io: sink, deflate: deflate.map(client::Compressor::new) })));
     let (tx, rx) = mpsc::unbounded_channel();
     let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let read_url = url.to_string();
+    let message_url = parsed.to_string();
     let read_closed = closed.clone();
+    let read_sink = sink.clone();
+    let mut frames = client::Reader::new(upgraded.leftover, deflate);
     let reader = tokio::spawn(async move {
         let close_error = |code: u16, reason: String| {
             transport_error(
@@ -345,65 +362,86 @@ pub async fn open(url: &str, headers: &Headers) -> Result<WebSocketConnection, A
                 WsError { url: Some(&read_url), code: Some(&code.to_string()), phase: Some("close"), body: Some(reason), ..Default::default() },
             )
         };
+        // Ends the socket from this side: a close frame (when there is one to send), then the write half.
+        let finish = |close: Option<(u16, String)>| {
+            read_closed.store(true, std::sync::atomic::Ordering::SeqCst);
+            let sink = read_sink.clone();
+            async move {
+                if let Some(mut sink) = sink.lock().await.take() {
+                    if let Some((code, reason)) = close {
+                        let mut payload = code.to_be_bytes().to_vec();
+                        payload.extend_from_slice(reason.as_bytes());
+                        let _ = sink.control(client::OP_CLOSE, &payload).await;
+                    }
+                    let _ = sink.io.shutdown().await;
+                }
+            }
+        };
+        let too_large = |body: String| {
+            transport_error(
+                "WebSocket message exceeds the 16 MiB limit",
+                TransportOperation::Read,
+                WsError { url: Some(&read_url), code: Some("message-too-large"), phase: Some("receive"), body: Some(body), ..Default::default() },
+            )
+        };
+        let mut chunk = vec![0u8; 64 * 1024];
         loop {
-            match source.next().await {
-                Some(Ok(Message::Text(text))) => {
-                    let text = text.to_string();
+            let message = match frames.next_message() {
+                Ok(Some(message)) => message,
+                Ok(None) => {
+                    match source.read(&mut chunk).await {
+                        Ok(n) if n > 0 => frames.buf.extend_from_slice(&chunk[..n]),
+                        // The peer went away without a close frame: the runtime reports an abnormal closure
+                        // (Bun 1.4.4, which 2.1 runs on, gives it an empty reason; 1.4.2 said "Connection ended").
+                        _ => {
+                            finish(None).await;
+                            let _ = tx.send(Err(close_error(1006, String::new())));
+                            return;
+                        }
+                    }
+                    continue;
+                }
+                // A protocol violation fails the socket: the runtime's error event comes first.
+                Err(error) => {
+                    finish(error.close_code.map(|code| (code, String::new()))).await;
+                    let _ = tx.send(Err(transport_error(
+                        format!("WebSocket error: WebSocket connection to '{message_url}' failed: {}", error.message),
+                        TransportOperation::Read,
+                        WsError { url: Some(&read_url), code: Some("message"), phase: Some("receive"), ..Default::default() },
+                    )));
+                    return;
+                }
+            };
+            match message {
+                client::Inbound::Text(text) => {
+                    // `rejectOversized`: the frame is refused and the socket closed with 1009.
                     if text.len() > MAX_FRAME_BYTES {
-                        let _ = tx.send(Err(transport_error(
-                            "WebSocket message exceeds the 16 MiB limit",
-                            TransportOperation::Read,
-                            WsError { url: Some(&read_url), code: Some("message-too-large"), phase: Some("receive"), body: Some(text), ..Default::default() },
-                        )));
+                        finish(Some((1009, "Message too large".into()))).await;
+                        let _ = tx.send(Err(too_large(text)));
                         return;
                     }
                     if tx.send(Ok(WsMessage::Text(text))).is_err() {
                         return;
                     }
                 }
-                Some(Ok(Message::Binary(bytes))) => {
+                client::Inbound::Binary(bytes) => {
                     if bytes.len() > MAX_FRAME_BYTES {
-                        let _ = tx.send(Err(transport_error(
-                            "WebSocket message exceeds the 16 MiB limit",
-                            TransportOperation::Read,
-                            WsError {
-                                url: Some(&read_url),
-                                code: Some("message-too-large"),
-                                phase: Some("receive"),
-                                body: Some(String::from_utf8_lossy(&bytes).into_owned()),
-                                ..Default::default()
-                            },
-                        )));
+                        finish(Some((1009, "Message too large".into()))).await;
+                        let _ = tx.send(Err(too_large(String::from_utf8_lossy(&bytes).into_owned())));
                         return;
                     }
-                    if tx.send(Ok(WsMessage::Binary(bytes.to_vec()))).is_err() {
+                    if tx.send(Ok(WsMessage::Binary(bytes))).is_err() {
                         return;
                     }
                 }
-                Some(Ok(Message::Close(frame))) => {
-                    read_closed.store(true, std::sync::atomic::Ordering::SeqCst);
-                    let (code, reason) = match frame {
-                        Some(f) => (u16::from(f.code), f.reason.to_string()),
-                        // A close frame without a status code reads as 1005 (No Status Received).
-                        None => (1005, String::new()),
-                    };
+                client::Inbound::Ping(payload) => {
+                    if let Some(sink) = read_sink.lock().await.as_mut() {
+                        let _ = sink.control(client::OP_PONG, &payload).await;
+                    }
+                }
+                client::Inbound::Close(code, reason) => {
+                    finish(Some((if code == 1005 { 1000 } else { code }, String::new()))).await;
                     let _ = tx.send(Err(close_error(code, reason)));
-                    return;
-                }
-                Some(Ok(_)) => {}
-                Some(Err(tungstenite::Error::Capacity(e))) => {
-                    let _ = tx.send(Err(transport_error(
-                        "WebSocket message exceeds the 16 MiB limit",
-                        TransportOperation::Read,
-                        WsError { url: Some(&read_url), code: Some("message-too-large"), phase: Some("receive"), body: Some(e.to_string()), ..Default::default() },
-                    )));
-                    return;
-                }
-                // The peer went away without a close frame: the runtime reports an abnormal closure
-                // (Bun 1.4.4, which 2.1 runs on, gives it an empty reason; 1.4.2 said "Connection ended").
-                Some(Err(_)) | None => {
-                    read_closed.store(true, std::sync::atomic::Ordering::SeqCst);
-                    let _ = tx.send(Err(close_error(1006, String::new())));
                     return;
                 }
             }
@@ -411,10 +449,11 @@ pub async fn open(url: &str, headers: &Headers) -> Result<WebSocketConnection, A
     });
     Ok(WebSocketConnection {
         url: url.to_string(),
-        sink: Arc::new(tokio::sync::Mutex::new(Some(sink))),
+        sink,
         messages: parking_lot::Mutex::new(Some(rx)),
         reader: reader.abort_handle(),
         closed,
+        deflate,
     })
 }
 

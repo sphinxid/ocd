@@ -329,11 +329,20 @@ impl Models {
     }
 
     fn location_integrations(&self, key: &str) -> Arc<LocationIntegrations> {
-        self.by_location
+        let mut created = false;
+        let state = self
+            .by_location
             .lock()
             .entry(key.to_string())
-            .or_insert_with(|| LocationIntegrations::new(Integrations::new(self.store.clone())))
-            .clone()
+            .or_insert_with(|| {
+                created = true;
+                LocationIntegrations::new(Integrations::new(self.store.clone()))
+            })
+            .clone();
+        if created && let Some(plugins) = self.plugins.read().as_ref() {
+            plugins.azure.register(key, state.integrations.clone());
+        }
+        state
     }
 
     /// The integration registry of location `key` (`None`: the location-less one).
@@ -349,6 +358,7 @@ impl Models {
         self.by_location.lock().remove(key);
         if let Some(plugins) = self.plugins.read().as_ref() {
             plugins.openai.remove(key);
+            plugins.azure.remove(key);
             plugins.set_catalog(key, None);
         }
     }
@@ -365,7 +375,10 @@ impl Models {
 
     /// Runs plugin `provider`/`model` transforms in catalog builds of plugin locations.
     pub fn set_plugins(&self, plugins: Arc<crate::plugins::Plugins>) {
-        *self.plugins.write() = Some(plugins);
+        *self.plugins.write() = Some(plugins.clone());
+        for (key, state) in self.by_location.lock().iter() {
+            plugins.azure.register(key, state.integrations.clone());
+        }
     }
 
     /// The provider and web-search plugins' integration registrations (crate::integrations), replayed after the

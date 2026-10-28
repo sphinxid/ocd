@@ -349,10 +349,13 @@ impl ServerCertVerifier for Verifier {
 static HTTP_TLS: LazyLock<ClientConfig> = LazyLock::new(|| client_config(Source::Global, &[b"h2", b"http/1.1"]));
 static WS_TLS: LazyLock<Arc<ClientConfig>> = LazyLock::new(|| Arc::new(client_config(Source::Global, &[])));
 
-/// A reqwest builder for outgoing requests, with upstream's certificate trust. Use it for every client that may
-/// reach a remote HTTPS server.
+/// A reqwest builder for outgoing requests, with upstream's certificate trust and `fetch`'s proxy rules
+/// ([`crate::proxy::fetch_proxy`], read from the environment per request, instead of reqwest's own reading of the
+/// proxy variables). Use it for every client that may reach a remote HTTPS server.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder().use_preconfigured_tls(HTTP_TLS.clone())
+    reqwest::Client::builder()
+        .use_preconfigured_tls(HTTP_TLS.clone())
+        .proxy(reqwest::Proxy::custom(|url| crate::proxy::fetch_proxy(&crate::proxy::process_env, url)))
 }
 
 /// `client_builder().build()`.

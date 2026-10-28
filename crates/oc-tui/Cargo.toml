@@ -28,7 +28,8 @@ dirs.workspace = true
 rand.workspace = true
 once_cell.workspace = true
 vt100 = "0.15"
-tokio-tungstenite = "0.29"
+# `wss:` terminal sockets for servers reached over https (this used to come from oc-ai through feature unification).
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "regex-fancy", "parsing"] }
 
 [dev-dependencies]

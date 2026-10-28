@@ -260,6 +260,8 @@ pub struct Plugins {
     pub copilot: Arc<crate::copilot::Copilot>,
     /// The built-in OpenAI provider plugins' loaded sign-in state.
     pub openai: Arc<crate::openai::OpenAi>,
+    /// The built-in Azure provider plugin's Entra ID token hooks.
+    pub azure: Arc<crate::azure::Azure>,
     /// Each location's latest model catalog, for built-in hooks that look up the request's model
     /// (`Model.Service.get` in upstream's plugins).
     catalogs: Mutex<HashMap<String, oc_ai::catalog::Catalog>>,
@@ -296,6 +298,7 @@ impl Plugins {
             db,
             copilot: crate::copilot::Copilot::new(bus.clone(), version),
             openai: Arc::new(crate::openai::OpenAi::new()),
+            azure: Arc::default(),
             catalogs: Mutex::new(HashMap::new()),
             bus,
             // `App.Info` of the server (`App.configured(options.app)`: the CLI names itself "cli").
@@ -772,6 +775,11 @@ impl Plugins {
     /// Whether the built-in GitHub Copilot plugin runs at the location.
     pub fn copilot_enabled(&self, key: &str) -> bool {
         self.builtin_enabled(key, crate::copilot::PLUGIN_ID)
+    }
+
+    /// Whether the built-in Azure plugin's Entra hooks apply to `provider_id`'s requests at the location.
+    pub fn azure_hooks(&self, key: &str, provider_id: &str) -> bool {
+        provider_id == crate::azure::PROVIDER_ID && self.builtin_enabled(key, crate::azure::PLUGIN_ID)
     }
 
     pub fn has_hook(&self, key: &str, hook: &str, provider_id: Option<&str>) -> bool {

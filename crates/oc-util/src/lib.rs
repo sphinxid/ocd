@@ -8,6 +8,7 @@ pub mod http;
 pub mod jsonc;
 pub mod log;
 pub mod panic;
+pub mod proxy;
 pub mod qr;
 pub mod trace;
 pub mod variable;

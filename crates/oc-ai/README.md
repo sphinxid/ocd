@@ -64,7 +64,7 @@ Per-call options are `StreamOptions { http, web_socket }` (`Client::stream_opts`
 | `media` | `MediaAsset`/`MediaSource` (bytes, base64, url, ref), `parse_data_url`, `detect_media_type`. |
 | `error` | `AIError` (`kind: ErrorKind` with the upstream `_tag`s: `message`, `body`, `http`), `classify_provider_failure`, `is_context_overflow`, `http_status_message`, `retry_after_ms`, `rate_limit_details`, `ProviderConfigurationError`. `AIError::is_retryable()` is upstream `isRetryable`. |
 | `compile` | Request pipeline: tool-history normalization, tool dedupe, schema projection (gemini/moonshot sanitizers), effort updates, cache policy, route headers. |
-| `route` | `Route` (protocol × endpoint × auth × framing + defaults + optional WebSocket `channel`), `LanguageModel`, `Endpoint`, `auth` combinators (`bearer`, `header`, `bearer_header`, `scheme`, `remove`, `and_then`, `or_else`, `custom`, `bearer_options`), `Credential` (value, env, dynamic), `framing` (SSE, SSE+`[DONE]`, SSE event filter, NDJSON, document, AWS event stream with CRC check), `transport` (JSON POST, body overlay, header/chunk/total timeouts, `HttpMiddleware` hook), `websocket` (channel exchange types: `ChannelExecutor`, `ChannelExchange`, `ChannelDriver`, `ChannelObservation`, `ChannelCheckpoint`; the tokio-tungstenite connector `open` / `DirectConnector`, `to_websocket_url`, WebSocket transport errors). |
+| `route` | `Route` (protocol × endpoint × auth × framing + defaults + optional WebSocket `channel`), `LanguageModel`, `Endpoint`, `auth` combinators (`bearer`, `header`, `bearer_header`, `scheme`, `remove`, `and_then`, `or_else`, `custom`, `bearer_options`), `Credential` (value, env, dynamic), `framing` (SSE, SSE+`[DONE]`, SSE event filter, NDJSON, document, AWS event stream with CRC check), `transport` (JSON POST, body overlay, header/chunk/total timeouts, `HttpMiddleware` hook), `websocket` (channel exchange types: `ChannelExecutor`, `ChannelExchange`, `ChannelDriver`, `ChannelObservation`, `ChannelCheckpoint`; the connector `open` / `open_with_env` / `DirectConnector`, `to_websocket_url`, WebSocket transport errors), `websocket::client` (the WebSocket client of Bun 1.4.4: CONNECT tunnel, upgrade request and validation, frames, permessage-deflate), `websocket::proxy` (proxy selection: upstream's constructor layer and Bun's own `NO_PROXY` matcher). |
 | `protocols` | `Protocol` + `StreamParser` traits and the adapters listed below. |
 | `providers` | `language_model(package, model_id, settings)` for every `@opencode/ai/providers/*` entrypoint, plus provider wrappers (Groq, OpenRouter, Moonshot/MiniMax chat, Vercel gateway, Bedrock Mantle, DigitalOcean). |
 | `catalog` | models.dev fetch/cache/normalization, npm → native mapping, variants, custom providers from config, registry/availability/defaults, and `Catalog::resolve` → `ResolvedModel`. `catalog::copilot`: the GitHub Copilot `/models` decoding, `derive`/`build` and the `GithubCopilot` catalog plugin (core supplies the loaded state). |
@@ -100,8 +100,8 @@ Per-call options are `StreamOptions { http, web_socket }` (`Client::stream_opts`
   in the `credential` table. The ordering and selection rules are exported as pure functions (`store::selected`,
   `store::list_order`, `store::plan_create`, `store::unique_label`).
 - `credentials::KvStore`: `wellknown:*` keys.
-- `route::transport::HttpMiddleware`: per-request header injection (Copilot, Azure Entra).
-  Register it with `Client::with_middleware`.
+- `route::transport::HttpMiddleware`: per-request header injection. Register it with `Client::with_middleware`.
+  (Core's Copilot and Azure Entra hooks run as `HttpHook`s and WebSocket interceptors instead.)
 - `route::transport::HttpHook`: per-call middleware around the HTTP exchange (upstream `StreamOptions.http`, which
   core builds from the `session.http.request` / `session.http.response` plugin hooks). Pass it to
   `Client::stream_with` / `generate_with`. The request hook sees a `WireRequest` (prepared headers incl.
@@ -143,6 +143,47 @@ Errors on the socket are `Transport` errors with `transport: "websocket"` and up
 lost without a close frame; `Timed out waiting for WebSocket data`). Error frames classify like SSE error
 events, with the raw frame as the body.
 
+### The socket (`route::websocket::client`, `route::websocket::proxy`)
+
+The connector replays what upstream's `WebSocketConstructor` layer and Bun 1.4.4's global `WebSocket` do
+(compared against the upstream binary with a logging CONNECT proxy and a deflate-capable mock):
+
+- **Proxy selection, upstream's layer** (`core/src/effect/websocket-constructor.ts`): none for the hosts
+  `127.0.0.1` and `localhost` (`::1` never matches: the hostname is `[::1]`); none when `NO_PROXY` (else
+  `no_proxy`) lists the host (comma/whitespace list; `*`; `host:port` only for that port, 443/80 by default; a
+  leading `*` dropped; `.suffix` matches the end of the host name, anything else only the exact name); otherwise
+  `WSS_PROXY` (`wss:`) / `WS_PROXY` (`ws:`), then `HTTPS_PROXY` / `HTTP_PROXY`, then `ALL_PROXY`, each upper case
+  first, then lower case. A set but empty variable counts (an empty `WS_PROXY` means no proxy).
+- **Bun's layer**: the proxy URL must be `http:` or `https:` (`Unsupported proxy protocol "socks5" (expected "http"
+  or "https")`, `Invalid proxy URL: ...`: the constructor throws, the session falls back to HTTP). Bun then applies
+  its own `NO_PROXY` matcher to the target (`no_proxy` first, then `NO_PROXY`, empty-ish values skipped; domains
+  match themselves and subdomains, IP addresses and CIDR blocks, optional `:port`), so either layer can bypass.
+  That matcher lives in `oc_util::proxy`, which also gives every HTTP client from `oc_util::http::client_builder`
+  (including the HTTP fallback) the proxy rules of Bun's `fetch`: `http_proxy`/`HTTP_PROXY` or
+  `https_proxy`/`HTTPS_PROXY` (lower case first), else an HTTP `ALL_PROXY`, unless that `NO_PROXY` matches.
+- **Tunnel**: `CONNECT host:port HTTP/1.1`, `Host: host:port`, `Proxy-Connection: Keep-Alive`, and
+  `Proxy-Authorization: Basic ...` from the proxy URL's percent-decoded credentials; any 2xx opens it (407 →
+  `Proxy authentication required: 407 ...`, others `Proxy connection failed: ...`). An `https:` proxy is reached
+  over TLS (same trust as the target); a `wss:` target gets its TLS inside the tunnel. Both `ws:` and `wss:` go
+  through `CONNECT`.
+- **Upgrade request**: `Host` (port only when not the default), `Connection: Upgrade`, `Upgrade: websocket`,
+  `Sec-WebSocket-Version: 13`, `Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits`,
+  `Sec-WebSocket-Key`, an `Authorization: Basic` from URL credentials, then the handshake headers the way Bun
+  iterates a `Headers` object: WebKit's known names in their default case (`Authorization`, `User-Agent`, ...),
+  the others as given, sorted by name in code point order.
+- **Upgrade response**: 101 (else `Expected 101 status code: <status>`, with no `code`), `Connection` listing
+  `upgrade`, `Upgrade: websocket`, the matching accept key, no `Sec-WebSocket-Protocol`, at most one valid
+  `permessage-deflate` answer (`Unsupported websocket extension` otherwise). Connect failures read
+  `Failed to open WebSocket: WebSocket connection to '<url>' failed: <reason>`.
+- **permessage-deflate**: inbound RSV1 messages are inflated (context takeover unless
+  `server_no_context_takeover`, reset after a final block); outbound text of 860 bytes or more is compressed (zlib
+  level 6, the negotiated `client_max_window_bits` (at least 9), reset per message with
+  `client_no_context_takeover`). Messages up to 128 MiB after inflation; pings are answered.
+- Protocol errors (bad RSV bits, invalid compressed data, invalid UTF-8, oversized messages) close the socket
+  with Bun's close code and fail the exchange with `WebSocket error: WebSocket connection to '<url>' failed:
+  <reason>` (code `message`); a text frame over 16 MiB closes with 1009 `Message too large`
+  (`message-too-large`).
+
 ## Error handling and retries
 
 - Compile and HTTP-status failures are returned by `Client::stream`. Mid-stream failures arrive as the stream's
@@ -157,11 +198,9 @@ events, with the raw frame as the body.
 
 ## Not ported / gaps
 
-- **Responses WebSocket proxies**: upstream's WebSocket constructor tunnels through `WSS_PROXY` / `WS_PROXY` /
-  `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` (honouring `NO_PROXY`); ocd's connector connects directly. Bun's
-  client also offers `permessage-deflate`; ocd's offers no extensions.
-- **Azure Entra tokens on the WebSocket handshake** (upstream's internal `experimental.ws.handshake` hook of
-  the Azure plugin), like the `http.request` Entra hook, are not ported.
+- **WebSocket client details**: a proxy's own TLS settings (`proxy.tls`, upstream never passes them), Bun's
+  handshake timeout (core's 15 s connect timeout applies) and the exact compressed bytes (zlib-rs vs Bun's zlib,
+  same format and parameters) are not replicated.
 - **Explicit compaction endpoints** (`/responses/compact`, compaction trigger): `compaction` and `transport` are
   surfaced on `ResolvedModel` for core to decide.
 - **Non-chat modalities**: image, video, speech and transcription (see `modalities`).

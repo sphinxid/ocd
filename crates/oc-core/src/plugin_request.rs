@@ -257,10 +257,11 @@ fn chatgpt_retry_applies(plugins: &Arc<Plugins>, key: &str, provider_id: &str) -
 pub fn http_hooks(plugins: &Arc<Plugins>, key: &str, kind: Kind, session_id: &str, agent: &str, model: &ModelRef) -> Option<Arc<dyn HttpHook>> {
     let request = plugins.has_hook(key, "session.http.request", Some(&model.provider_id));
     let response = plugins.has_hook(key, "session.http.response", Some(&model.provider_id));
-    // The built-in Copilot plugin registers `http.request` for its provider.
+    // The built-in Copilot plugin registers `http.request` for its provider, the Azure plugin for `azure`.
     let copilot = (model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && plugins.copilot_enabled(key))
         .then(|| crate::copilot::user_agent(plugins.version()));
-    if !request && !response && copilot.is_none() {
+    let azure = plugins.azure_hooks(key, &model.provider_id).then(|| crate::copilot::user_agent(plugins.version()));
+    if !request && !response && copilot.is_none() && azure.is_none() {
         return None;
     }
     let mut scope = Map::new();
@@ -268,7 +269,7 @@ pub fn http_hooks(plugins: &Arc<Plugins>, key: &str, kind: Kind, session_id: &st
     scope.insert("agent".into(), json!(agent));
     scope.insert("model".into(), model_json(model));
     scope.insert("kind".into(), json!(kind.as_str()));
-    Some(Arc::new(PluginHttp { plugins: plugins.clone(), key: key.to_string(), scope, request, response, copilot }))
+    Some(Arc::new(PluginHttp { plugins: plugins.clone(), key: key.to_string(), scope, request, response, copilot, azure }))
 }
 
 struct PluginHttp {
@@ -279,6 +280,8 @@ struct PluginHttp {
     response: bool,
     /// The Copilot hook's user agent, when the built-in hook applies.
     copilot: Option<String>,
+    /// The Azure Entra hook's user agent, when the built-in hook applies.
+    azure: Option<String>,
 }
 
 fn headers_json(headers: &indexmap::IndexMap<String, String>) -> Value {
@@ -301,6 +304,11 @@ impl HttpHook for PluginHttp {
     async fn request(&self, mut request: WireRequest) -> Result<WireRequest, String> {
         if let Some(user_agent) = &self.copilot {
             crate::copilot::http_request(&mut request, user_agent);
+        }
+        if let Some(user_agent) = &self.azure
+            && let Some(authorization) = self.plugins.azure.bearer(&self.key, &request.url).await?
+        {
+            crate::azure::apply(&mut request.headers, &authorization, user_agent);
         }
         if !self.request {
             return Ok(request);
@@ -361,7 +369,9 @@ pub fn ws_hooks(
     model: &ModelRef,
 ) -> Option<Arc<dyn crate::model_transport::Interceptor>> {
     let has = WS_HOOKS.map(|name| plugins.has_hook(key, name, Some(&model.provider_id)));
-    if !has.iter().any(|h| *h) {
+    // The built-in Azure plugin registers `experimental.ws.handshake` for its provider.
+    let azure = plugins.azure_hooks(key, &model.provider_id).then(|| crate::copilot::user_agent(plugins.version()));
+    if !has.iter().any(|h| *h) && azure.is_none() {
         return None;
     }
     let mut scope = Map::new();
@@ -369,7 +379,7 @@ pub fn ws_hooks(
     scope.insert("agent".into(), json!(agent));
     scope.insert("model".into(), model_json(model));
     scope.insert("kind".into(), json!(kind.as_str()));
-    Some(Arc::new(PluginWs { plugins: plugins.clone(), key: key.to_string(), scope, has }))
+    Some(Arc::new(PluginWs { plugins: plugins.clone(), key: key.to_string(), scope, has, azure }))
 }
 
 struct PluginWs {
@@ -377,6 +387,8 @@ struct PluginWs {
     key: String,
     scope: Map<String, Value>,
     has: [bool; 3],
+    /// The Azure Entra hook's user agent, when the built-in hook applies.
+    azure: Option<String>,
 }
 
 impl PluginWs {
@@ -393,7 +405,12 @@ impl PluginWs {
 
 #[async_trait::async_trait]
 impl crate::model_transport::Interceptor for PluginWs {
-    async fn handshake(&self, url: String, headers: oc_ai::route::Headers) -> Result<(String, oc_ai::route::Headers), String> {
+    async fn handshake(&self, url: String, mut headers: oc_ai::route::Headers) -> Result<(String, oc_ai::route::Headers), String> {
+        if let Some(user_agent) = &self.azure
+            && let Some(authorization) = self.plugins.azure.bearer(&self.key, &url).await?
+        {
+            crate::azure::apply(&mut headers, &authorization, user_agent);
+        }
         if !self.has[0] {
             return Ok((url, headers));
         }
