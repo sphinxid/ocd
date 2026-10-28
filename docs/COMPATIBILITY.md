@@ -15,7 +15,7 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 73 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 74 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
@@ -23,7 +23,7 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
   - GitHub Copilot, the OpenAI WebSocket transport and the experimental todo list.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 67 of the 73 scenarios are identical. The other six differ in ways that are expected or harmless:
+- **Result:** 69 of the 74 scenarios are identical. The other five differ in ways that are expected or harmless:
   - timing races that also vary between two runs of upstream;
   - the intended renames;
   - the wording of one network error.
@@ -45,11 +45,13 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 | GitHub Copilot models | The account's model list, routing between the AI SDK, Responses, Chat and native Anthropic routes, and Copilot's request headers. Upstream's in-house Copilot provider runs in the Bun helper |
 | OpenAI Responses over WebSocket | For OpenAI, Azure and xAI: one socket per session, incremental turns with `previous_response_id`, and the same fallback to HTTP. The same proxy variables as upstream (`WSS_PROXY`, `WS_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`) and `permessage-deflate` compression |
 | Cloud credentials | Bedrock uses the AWS SDK's full default chain: environment, profiles with role assumption, web identity, `credential_process`, SSO with token refresh, `aws login`, container and EC2 instance roles. Vertex uses Google's application default credentials, including workload identity federation (`external_account`) and service-account impersonation. Checked against upstream with stand-in AWS and Google endpoints |
-| MCP servers | stdio and HTTP transports, OAuth and elicitation |
+| MCP servers | stdio and HTTP transports, OAuth and elicitation. Remote servers are sign-in integrations, so `ocd mcp auth` and `/connect` can sign in to them |
 | Server plugins | Tools, hooks, transforms, storage, rpc and events, plus `ocd plugin add/check/update`. They run in a small Bun helper process |
 | AI SDK provider packages | Such as `@ai-sdk/deepseek`, through the same Bun helper |
 | Clients and API | The full TUI. The web UI served by `ocd serve`, built from upstream's 2.1.4 app (88 of 88 compared requests were identical with the 2.0.26 app; the serving code is unchanged in 2.1.4). The HTTP API (149 endpoints, from upstream 2.1.4's OpenAPI document) and the event stream. The background service on port 49374 (28894 on Windows) |
 | Git | Status, diffs, branches, snapshots and worktrees |
+| Editor integration (ACP) | `ocd acp`, including the file diffs on permission requests and completed edits |
+| CLI prompts | `ocd auth`, `ocd mcp auth` and `ocd session export` use the same prompts as upstream (pickers, search lists, forms), down to resizing and key handling |
 | Remote access | `ocd pair --remote` |
 | Experimental todo list | `experimental.todo`: the `todowrite` tool, the sidebar section and its transcript rendering |
 
@@ -63,8 +65,6 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 | Plugin worktree strategies | Used only after the project's location has loaded; before that, worktree tools fall back to git |
 | Persistent terminals | The same `opencode-pty` helper (0.3.1), downloaded once instead of carried inside the binary. Enabled on Windows like upstream 2.1, but not tested there |
 | Mini mode (`ocd mini`) | A port of upstream's mini frontend. In 63 screens compared side by side the text was identical, except one startup race; code blocks are highlighted with syntect instead of tree-sitter, so some TypeScript and JavaScript token colours differ |
-| `ocd auth login` pickers | Multi-select asks for comma-separated values |
-| Editor integration (ACP) | Doesn't add the diff for a completed edit |
 | Error texts | A few come from Rust instead of Bun or Node: file-system errors, MCP JSON-schema validation and network errors |
 | Start-up events | A new session's start-up notifications arrive about 0.5 s sooner; same events, same order |
 | `pair --remote` | A native OpenTunnel client (`crates/oc-tunnel`) replaces upstream's JavaScript SDK. It keeps the tunnel in the same place, so ocd, upstream and the opentunnel CLI share a device's tunnel. Tested against a local stand-in for the service, not yet against opentunnel.xyz |

@@ -92,6 +92,13 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-28: ACP + CLI PROMPTS: ACP permission previews and completed edit/patch diffs (`acp/permission.ts`;
+  jsdiff parse/reverse/apply in `oc-tools/src/jsdiff.rs`), identical to 2.1.4 over stdio. Every clack prompt in the
+  CLI (confirm/select/multiselect/text/password/autocomplete) and upstream's integration picker are ported
+  (`crates/ocd/src/clack.rs`, golden frames from @clack/prompts 1.0.0-alpha.1 under Bun; resize, ctrl+d, NFC);
+  tmux-identical to 2.1.4. Remote MCP servers register as `mcp_<hash>` OAuth integrations
+  (`oc_core::mcp::register_integrations`, reconnect on `credential.switched`); `mcp auth` used to find none.
+  `run` hold raised to 150 ms (50 ms split a failing step's burst under load).
 - 2026-10-28: PARALLEL TOOLS: `step.rs` keeps tool executions unstarted until the provider stream would wait
   (`start_tools`), else until after `step.streamed`, like Effect's `setImmediate` fork scheduling; `loop_tool_error`
   was this, not a race. Parity `loop_parallel_settle` added; settle order sorted by call ID in the harness.
