@@ -65,27 +65,52 @@ pub async fn oc_tui::run_mini(opts: oc_tui::TuiOptions, mini: oc_tui::MiniOption
 
 #[derive(Clone, Debug, Default)]
 pub struct MiniOptions {
-    pub replay: Option<bool>,       // --replay / --no-replay (falls back to `mini.replay`, then true)
-    pub replay_limit: Option<i64>,  // --replay-limit N (falls back to `mini.replay_limit`, then 200)
+    pub replay: Option<bool>,       // --replay / --no-replay (default true)
+    pub replay_limit: Option<i64>,  // --replay-limit N (default 200)
 }
 ```
 
-`run_mini` is the `opencode mini` frontend. It does not use the alternate screen or mouse
-capture. Finished transcript rows go to the terminal's native scrollback, and only a live
-footer is redrawn below them. The footer holds the in-progress tail of the current turn
-(at most 8 rows), then the prompt (or the permission or form dock), dialogs and toasts.
+`run_mini` is `ocd mini`, a port of upstream's `opencode mini` (`packages/tui/src/mini/` plus
+`packages/cli/src/mini.ts` and `mini-host.ts`). It lives in its own module tree, `src/mini/`, with
+one file per upstream module (`footer`, `prompt`, `panels`, `blocker`, `scrollback`, `split`,
+`transport`, `subagents`, `splash`, `tool`, `structured`, `markdown`, `fuzzysort`, ...), and shares
+only the API client, the config store, the theme manager and the keymap with the full TUI, which it
+does not touch.
 
-- **Output:** prints the entry header `▪ oc mini v<version> · <path>`. On exit it prints the
-  `go` logo with `Session <title>` and `Continue opencode mini -s <id>`. `mini.splash: "hide"`
-  turns both off.
+- **Screen:** no alternate screen or mouse capture. It is a Rust port of OpenTUI's split-footer
+  renderer (`split.rs`): committed rows are written into a scroll region above the footer so they
+  end up in the terminal's native scrollback, and only the footer (prompt, permission and question
+  docks, command, agent, model, variant, settings, subagent and queued-prompt panels, queued prompts, statusline)
+  is redrawn. The startup cursor position comes from a CPR query, and the footer height follows
+  upstream's rules for each view.
+- **Scrollback:** upstream's entry rendering (markdown through a `marked` lexer port, code, tools
+  with diffs, shell output, reasoning, todo and question summaries), streaming tails, the quiet mode
+  that hides tool output, verbosity settings and the `ocd mini -s <id>` exit splash.
+- **Transport:** the V2 event stream is reduced to commits, patches and blocker views the same way
+  as upstream (fragment reconciler, tool versions, subagent tracker with child discovery, pending
+  prompt inbox, settle by `session.wait`). Prompts queue while a turn runs; `!cmd` runs a shell turn.
 - **Replay:** a resumed session's history is replayed according to `replay` / `replay_limit`.
-  `ctrl+l` (`app.clear`) clears the screen and replays. A width change does the same when
-  replay is on.
-- **Validation:** the same messages and exit code 1 as upstream (`opencode mini requires a TTY
-  stdout`, `--replay-limit must be a positive integer`, `--fork requires --continue or
-  --session`).
-- **Piped input:** piped stdin is merged with `--prompt` (`piped + "\n" + prompt`), and keys
-  are then read from the controlling terminal.
+  `ctrl+l` clears the screen and replays; a width change resets the split footer and replays.
+- **Settings:** `/settings` and the variant and model pickers save to `mini.*` in the config and to
+  `model.json`, as upstream does. `OPENCODE_DIRECT_TRACE` writes the same JSONL trace.
+- **Validation:** the same messages and exit code 1 as upstream (`ocd mini requires a TTY stdout`,
+  `--replay-limit must be a positive integer`, `--fork requires --continue or --session`).
+- **Piped input:** piped stdin is merged with `--prompt` (`piped + "\n" + prompt`), and keys are
+  then read from the controlling terminal.
+
+Upstream's mini tests are ported next to each module. `testdata/scrollback.json` and
+`testdata/footer.json` are goldens produced by running upstream's own modules under Bun with
+OpenTUI's test renderer; the tests compare every cell (text, colors, attributes).
+
+Remaining differences from upstream:
+
+- Code blocks are highlighted with syntect scopes mapped to upstream's tree-sitter highlight
+  groups (the workspace has no tree-sitter grammars for TypeScript and most other languages), so
+  some token colors and italics differ, e.g. in TypeScript. Text and layout are the same.
+- The command names say `ocd` (`ocd mini -s <id>`, `ocd mini requires ...`).
+- The ocd server runs parallel tool calls in a different order than upstream's, so scrollback
+  order for parallel tools can differ; that is a server difference, not a mini one.
+- Upstream's narrow permission dock can leave a stale scrollbar thumb for one frame; ocd does not.
 
 ## Features
 
@@ -134,8 +159,8 @@ The modules below cover the main session and home screens and all dialogs. They 
   `⠹ Waiting for Claude Sonnet 4.5… (12s · ↓ 1.2k tokens · esc to interrupt)`. Upstream's footer bar is kept.
   - **Where:** in the full TUI it goes between the transcript and the bottom dock, with a blank row above and
     below it (upstream has one blank strip row there, which is what remains when idle). "Jump to latest ↓" goes
-    on the right of the blank row above, and the status line is shortened to fit next to it. In mini mode it is
-    the footer row right above the prompt, permission or form dock.
+    on the right of the blank row above, and the status line is shortened to fit next to it. Mini mode uses
+    upstream's own statusline instead.
   - **Shell commands** go on their own row under the status: `⠦ Running shell… (7s · …)` then `  $ npm test`.
   - **Thinking once:** while a thought is in progress the status line says `Thinking…` (or `Thinking: <title>…`
     with the thought's bold title), and the transcript does not draw upstream's live `Thinking` row (thought group
@@ -182,7 +207,7 @@ The modules below cover the main session and home screens and all dialogs. They 
 Long sessions must not slow the TUI down: the cost of a frame and of an event does not grow with the transcript
 (ocd-specific; the output is identical to rendering everything from scratch).
 
-- **Event loop** (`app/event_loop.rs`, shared by the full TUI and mini mode): each iteration waits for anything
+- **Event loop** (`app/event_loop.rs`): each iteration waits for anything
   (terminal input, a queued SSE event or async result, the 40 ms animation tick, the next frame), then drains
   everything that is ready — all pending terminal input first, then queued messages in batches of 64, re-checking
   input between batches and stopping after 8 ms. At most one frame is drawn per 16 ms (~60 fps), and only when
@@ -203,7 +228,7 @@ Long sessions must not slow the TUI down: the cost of a frame and of an event do
   afterwards. Opening, resizing or re-theming a long session shows the visible part at once; until every row is
   rendered the line count and the message marks are unknown, the window is addressed from the bottom
   (`TranscriptCache::window_bottom`) and scrolling is unclamped. Message navigation (`App::transcript_complete`)
-  and mini mode finish the render first. The window is drawn by reference (no copy of the transcript per frame).
+  finishes the render first. The window is drawn by reference (no copy of the transcript per frame).
 - **Highlighting:** `ui/highlight.rs` caches syntect tokenization (style-independent) per (language, code), up to
   32 MB of code; finished code blocks of a streaming answer and re-wraps never parse again. The diff viewer caches
   each file's rendered diff by content, width and theme.
@@ -230,6 +255,6 @@ Long sessions must not slow the TUI down: the cost of a frame and of an event do
 | `config` | `cli.json` (JSONC) with resolved defaults and atomic, comment-preserving writes |
 | `state` | `model.json`, `session.json`, `prompt-history.jsonl`, `prompt-stash.jsonl`, `frecency.jsonl`, and the keyed `<state>/<channel>/tui/<key>.json` store, all at the upstream paths |
 | `ui` | text and wrapping primitives, markdown rendering, syntect highlighting, unified and split diffs, the transcript row model and renderers, the prompt editor with chips, dialogs, form and permission helpers, the logo and epilogue |
-| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `mini` (scrollback and footer rendering), `migration` (v1 import badge and status poller), `busy` (busy status line: turn tracking, phase derivation, rendering), `event_loop` (input-first batching, frame cap), `tcache` (incremental, lazy transcript rendering) |
-| `mini` | the `run_mini` event loop and footer painter |
+| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `migration` (v1 import badge and status poller), `busy` (busy status line: turn tracking, phase derivation, rendering), `event_loop` (input-first batching, frame cap), `tcache` (incremental, lazy transcript rendering) |
+| `mini` | `ocd mini`: a port of upstream's mini frontend (split-footer renderer, footer, panels, docks, scrollback rendering, transport, subagents, splash), one file per upstream module |
 | `clipboard`, `attention`, `terminal` | clipboard (OSC 52 plus host tools), notifications and sounds, terminal palette probe (OSC 4/10/11) |
