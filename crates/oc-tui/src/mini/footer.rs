@@ -868,6 +868,13 @@ impl Footer {
     /// `applyHeight()`.
     pub fn apply_height(&mut self) {
         self.sync_rows();
+        // The subagent and pending-prompt pickers report their rows (`onRows`) as soon as they mount.
+        if matches!(self.route, PromptRoute::SubagentMenu | PromptRoute::QueuedMenu)
+            && let Some(p) = self.panel.as_ref()
+        {
+            let d = self.panel_data();
+            self.subagent_menu_rows = p.reported_rows(&d, self.term_height);
+        }
         let panel = footer_panel_layout(self.term_height, panels::PANEL_LIST_ROWS);
         let prompt = footer_prompt_layout(self.term_height, TEXTAREA_MIN_ROWS, 0, 1, false);
         let desired = match &self.view {

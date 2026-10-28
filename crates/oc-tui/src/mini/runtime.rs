@@ -698,7 +698,12 @@ impl Runtime {
                 let reconnect = !t.initial;
                 t.hydrate(&h.projected, &h.inbox, h.permissions, &h.sources, h.forms, h.globals, &h.active, render, reconnect);
                 t.initial = false;
+                let idle = !t.root_active && !reconnect;
                 self.apply_outs();
+                if idle {
+                    let mut sink = Sink2 { split: &mut self.split };
+                    self.footer.idle(&mut sink);
+                }
                 let buffered = std::mem::take(&mut self.buffered);
                 let loc = self.location.clone();
                 if let Some(t) = self.transport.as_mut() {
@@ -731,6 +736,8 @@ impl Runtime {
                     }
                 }
                 self.apply_outs();
+                let mut sink = Sink2 { split: &mut self.split };
+                self.footer.idle(&mut sink);
             }
         }
     }
@@ -816,11 +823,13 @@ impl Runtime {
 
     fn after_session(&mut self) {
         self.ensure_stream();
-        self.load_models();
+        // `modelTask` and `initialCatalog`; the default model loads with the catalog refresh.
+        self.load_models(false);
         self.load_catalog(false);
     }
 
     fn reset_for_replay(&mut self) {
+        self.footer.finish_startup();
         let mut sink = Sink2 { split: &mut self.split };
         self.footer.idle(&mut sink);
         let (buf, cursor) = self.footer.render(Instant::now());
@@ -858,15 +867,15 @@ impl Runtime {
             let _ = tx.send(Msg::Catalog { agents, references, commands });
         });
         if models_too {
-            self.load_models();
+            self.load_models(true);
         }
     }
 
-    fn load_models(&self) {
+    fn load_models(&self, with_default: bool) {
         let client = self.client.clone();
         let tx = self.tx.clone();
         let dir = self.location.clone();
-        let need_default = self.model.is_none();
+        let need_default = with_default && self.model.is_none();
         tokio::spawn(async move {
             let q = [("location[directory]", dir.clone())];
             let (p, m) = tokio::join!(client.get_value("/api/provider", &q), client.get_value("/api/model", &q));
@@ -1039,7 +1048,7 @@ impl Runtime {
             FooterAction::MiniSetting(change) => {
                 let writes = change_writes(&change);
                 for (k, v) in writes {
-                    self.config.set(k, Some(v));
+                    self.config.set(&format!("mini.{k}"), Some(v));
                 }
                 let settings = resolve_mini_settings(self.config.get("mini"));
                 let _ = self.tx.send(Msg::SettingsSaved(Ok(settings)));
@@ -1384,6 +1393,9 @@ impl Runtime {
 
     fn on_msg(&mut self, m: Msg) {
         if let Some(t) = self.trace.as_mut() {
+            if let Msg::SseEvent(_, ev) = &m {
+                t.write("recv.event", serde_json::to_value(ev.as_ref()).unwrap_or(Value::Null));
+            }
             let text = format!("{m:?}");
             let short: String = text.chars().take(400).collect();
             t.write("recv.msg", Value::String(short));
@@ -1588,10 +1600,8 @@ impl Runtime {
                         let _ = execute!(out, PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
                     }
                 }
-                if let Some(t) = self.transport.as_mut() {
-                    t.thinking = s.thinking;
-                    t.tools = s.tools;
-                }
+                // The transport keeps the thinking/tools settings it was created with (upstream reads them
+                // once per session transport).
                 self.footer.settings_saved(s, theme);
             }
             Msg::SettingsSaved(Err(_)) => self.footer.settings_failed(),

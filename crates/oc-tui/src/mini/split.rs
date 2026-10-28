@@ -160,10 +160,12 @@ fn write_cells(out: &mut String, buf: &Buffer, y: u16, end: usize) {
         if cell.glyph == Glyph::Cont {
             continue;
         }
-        let key = (cell.fg, cell.bg, cell.attrs);
+        // Never-drawn cells keep OpenTUI's cleared foreground (white) when serialized.
+        let fg = if cell.glyph == Glyph::Empty { Color::WHITE } else { cell.fg };
+        let key = (fg, cell.bg, cell.attrs);
         if cur != Some(key) {
             out.push_str("\x1b[0m");
-            emit_color(out, cell.fg, false);
+            emit_color(out, fg, false);
             emit_color(out, cell.bg, true);
             emit_attrs(out, cell.attrs);
             cur = Some(key);
