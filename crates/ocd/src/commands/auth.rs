@@ -274,7 +274,7 @@ fn choose_integration(integrations: &[Value], target: Option<&str>) -> Result<Va
             hint: Some(connections(i, "credential").iter().map(|c| s(c, "label").to_string()).collect::<Vec<_>>().join(", ")),
         })
         .collect();
-    let id = ui::select("Select integration", &choices, 8)?;
+    let id = ui::autocomplete("Select integration", &choices, 8)?;
     Ok(resolve_integration(&configured.into_iter().cloned().collect::<Vec<_>>(), &id)?)
 }
 
@@ -314,7 +314,7 @@ fn choose_credential(integration: &Value, action: &str, target: Option<&str>) ->
             hint: Some(s(c, "id").into()),
         })
         .collect();
-    Ok(ui::select(&format!("Select {name} account to {action}"), &choices, 8)?)
+    Ok(ui::autocomplete(&format!("Select {name} account to {action}"), &choices, 8)?)
 }
 
 async fn account(global: &Global, input: &Input, switch: bool) -> Result<(), Flow> {
@@ -487,6 +487,10 @@ fn validate_value(field: &Value, value: Option<&Value>) -> Option<String> {
     }
 }
 
+/// Stand-ins for the `custom` / `skip` symbols upstream's form pickers add to their options.
+const CUSTOM: &str = "\u{0}custom";
+const SKIP: &str = "\u{0}skip";
+
 fn answer_field(field: &Value) -> Result<Option<Value>, Flow> {
     require_interactive("Authentication form input requires an interactive terminal")?;
     let key = s(field, "key");
@@ -513,16 +517,32 @@ fn answer_field(field: &Value) -> Result<Option<Value>, Flow> {
             }
             let choices = [("true", "Yes"), ("false", "No"), ("skip", "Skip")]
                 .map(|(v, l)| ui::Choice { value: v.into(), label: l.into(), hint: None });
-            Ok(match ui::select(&message, &choices, 3)?.as_str() {
+            let initial = match field.get("default").and_then(Value::as_bool) {
+                Some(true) => "true",
+                Some(false) => "false",
+                None => "skip",
+            };
+            Ok(match ui::select(&message, &choices, Some(initial))?.as_str() {
                 "true" => Some(Value::Bool(true)),
                 "false" => Some(Value::Bool(false)),
                 _ => None,
             })
         }
         "multiselect" => {
-            let options: Vec<String> = arr(field, "options").iter().map(|o| s(o, "value").to_string()).collect();
-            let raw = ui::text(&format!("{message} ({})", options.join(", ")), false, &|_| None)?;
-            let selected: Vec<Value> = raw.split(',').map(str::trim).filter(|v| !v.is_empty()).map(|v| Value::String(v.into())).collect();
+            let mut choices: Vec<ui::Choice> = arr(field, "options")
+                .iter()
+                .map(|o| ui::Choice { value: s(o, "value").into(), label: s(o, "label").into(), hint: o.get("description").and_then(Value::as_str).map(String::from) })
+                .collect();
+            if field.get("custom").and_then(Value::as_bool).unwrap_or(false) {
+                choices.push(ui::Choice { value: CUSTOM.into(), label: "Type another value".into(), hint: None });
+            }
+            let initial: Vec<String> = arr(field, "default").iter().filter_map(|v| v.as_str().map(String::from)).collect();
+            let min_items = field.get("minItems").and_then(Value::as_u64).unwrap_or(0);
+            let values = ui::multiselect(&message, &choices, &initial, required || min_items > 0)?;
+            let mut selected: Vec<Value> = values.iter().filter(|v| *v != CUSTOM).map(|v| Value::String(v.clone())).collect();
+            if values.iter().any(|v| v == CUSTOM) {
+                selected.push(Value::String(ui::text("Enter value", ui::TextOptions::default(), &ui::required)?));
+            }
             if let Some(min) = field.get("minItems").and_then(Value::as_u64)
                 && (selected.len() as u64) < min
             {
@@ -544,21 +564,30 @@ fn answer_field(field: &Value) -> Result<Option<Value>, Flow> {
                     .map(|o| ui::Choice { value: s(o, "value").into(), label: s(o, "label").into(), hint: o.get("description").and_then(Value::as_str).map(String::from) })
                     .collect();
                 if field.get("custom").and_then(Value::as_bool).unwrap_or(false) {
-                    choices.push(ui::Choice { value: "\u{0}custom".into(), label: "Type your own answer".into(), hint: None });
+                    choices.push(ui::Choice { value: CUSTOM.into(), label: "Type your own answer".into(), hint: None });
                 }
                 if !required {
-                    choices.push(ui::Choice { value: "\u{0}skip".into(), label: "Skip".into(), hint: None });
+                    choices.push(ui::Choice { value: SKIP.into(), label: "Skip".into(), hint: None });
                 }
-                let v = ui::select(&message, &choices, 10)?;
-                if v == "\u{0}skip" {
+                let v = ui::select(&message, &choices, field.get("default").and_then(Value::as_str))?;
+                if v == SKIP {
                     return Ok(None);
                 }
-                if v != "\u{0}custom" {
+                if v != CUSTOM {
                     return Ok(Some(Value::String(v)));
                 }
             }
             let f = field.clone();
-            let value = ui::text(&message, false, &|v| validate_text(&f, v))?;
+            let default = match field.get("default") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(v)) => Some(v.clone()),
+                Some(v) => Some(v.to_string()),
+            };
+            let opts = ui::TextOptions {
+                placeholder: if ty == "string" { field.get("placeholder").and_then(Value::as_str) } else { None },
+                initial_value: default.as_deref(),
+            };
+            let value = ui::text(&message, opts, &|v| validate_text(&f, v.unwrap_or("")))?;
             if value.is_empty() && !required {
                 return Ok(None);
             }
@@ -664,7 +693,7 @@ pub async fn login_flow(
             if choices.is_empty() {
                 return Err(Flow::Error(anyhow::anyhow!("No authentication integrations are available")));
             }
-            let id = ui::select("Select integration", &choices, 10)?;
+            let id = ui::autocomplete("Select integration", &choices, 10)?;
             resolve_integration(&integrations, &id)?
         }
     };
@@ -688,7 +717,7 @@ pub async fn login_flow(
                     }
                 })
                 .collect();
-            let id = ui::select("Select login method", &choices, 10)?;
+            let id = ui::select("Select login method", &choices, None)?;
             resolve_method(&methods, &id)?
         }
     };
@@ -699,7 +728,7 @@ pub async fn login_flow(
         "key" => {
             require_interactive("API key input requires an interactive terminal")?;
             let prompt = method.get("label").and_then(Value::as_str).map(String::from).unwrap_or_else(|| format!("Enter your {name} API key"));
-            let key = ui::text(&prompt, true, &|v| v.is_empty().then(|| "Required".to_string()))?;
+            let key = ui::password(&prompt, &ui::required)?;
             let sp = ui::Spinner::start("Saving credential...");
             let mut body = json!({"key": key, "location": {"directory": dir}});
             if let Some(a) = &answer {
@@ -818,7 +847,7 @@ pub async fn oauth_login(client: &Client, integration: &Value, method: &Value, a
     let result = async {
         if s(&started, "mode") == "code" {
             require_interactive("This login requires an interactive terminal to enter the authorization code")?;
-            let code = ui::text("Paste the authorization code", false, &|v| v.is_empty().then(|| "Required".to_string()))?;
+            let code = ui::text("Paste the authorization code", ui::TextOptions::default(), &ui::required)?;
             let sp = ui::Spinner::start("Completing authorization...");
             return match client
                 .call(

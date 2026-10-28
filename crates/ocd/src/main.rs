@@ -2,6 +2,7 @@
 
 mod acp;
 mod askpass;
+mod clack;
 mod cli;
 mod client;
 mod commands;

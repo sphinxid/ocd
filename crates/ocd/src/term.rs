@@ -37,6 +37,23 @@ pub fn columns() -> Option<usize> {
     None
 }
 
+/// `process.stdout.rows` (None when not a TTY).
+pub fn rows() -> Option<usize> {
+    #[cfg(unix)]
+    unsafe {
+        if !stdout_is_tty() {
+            return None;
+        }
+        let mut ws: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_row > 0 {
+            return Some(ws.ws_row as usize);
+        }
+        None
+    }
+    #[cfg(not(unix))]
+    None
+}
+
 pub fn write_stdout(s: &str) {
     use std::io::Write;
     let mut out = std::io::stdout().lock();

@@ -189,7 +189,7 @@ async fn auth_flow(global: &Global, name: Option<String>) -> Result<(), Flow> {
             let server = list.iter().find(|x| s(x, "name") == n).ok_or_else(|| anyhow::anyhow!(oc_mcp::cli::not_found(n)))?;
             s(server, "integrationID").to_string()
         }
-        None => ui::select("Select MCP server", &choices, 10)?,
+        None => ui::autocomplete("Select MCP server", &choices, 10)?,
     };
     let integration = by_id(&integration_id);
     let method = integration

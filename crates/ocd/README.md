@@ -41,7 +41,7 @@ files, the HTTP API and `x-opencode-*` headers, Basic-auth username `opencode`, 
 | `run.rs` | `run/run.ts`, `run/noninteractive.ts`, `session-target.ts`, `run/ui.ts`, `tui/src/mini/tool.ts` | `ocd run`: message/stdin merge, `--file` preparation, session selection (`--continue`/`--session`/`--fork`), title, prompt + SSE consumption, permission auto-reject/`--auto`, form cancellation, reconcile, default and JSON output, tool inline rendering, exit codes 0/1/130 |
 | `acp.rs` | `acp/*.ts` | ACP JSON-RPC over stdio (see below) |
 | `commands/*.rs` | `commands/handlers/**` | all other handlers |
-| `ui.rs` | `@clack/prompts` | intro/outro/log/spinner/select/confirm/text with clack glyphs |
+| `ui.rs`, `clack.rs` | `@clack/core` + `@clack/prompts` 1.0.0-alpha.1, `wrap-ansi` 8.1.0, picocolors 1.1.1 | intro/outro/log/spinner/confirm with clack glyphs; `select`, `multiselect`, `text` and `password` on a port of clack's `Prompt` (keypresses as node `readline` parses them, its line editing, frames hard-wrapped to the terminal and redrawn from the first changed line, `limitOptions` scrolling, validation errors). `autocomplete` and the integration picker are a simplified type-to-filter list |
 | `askpass.rs` | `ssh-askpass.ts` | `OPENCODE_SSH_ASKPASS_PORT` helper mode |
 
 `clap` is not used: its parser cannot reproduce Effect CLI semantics (parent flags given before a
@@ -77,7 +77,7 @@ twice (parsed operands + upstream's own `process.argv` re-read), exactly like up
 | `serve` | default / `--stdio` / `--service` complete; remote tunnel (OpenTunnel) not supported |
 | `service start/stop/restart/status/get/set/unset` | complete; `set remote true` and `pair --remote` report that OpenTunnel is unsupported (so `pair --yes`, upstream's consent to expose the server, is parsed but has nothing to accept) |
 | `debug paths/config/agents` | complete |
-| `auth list/export/import/login/logout/switch` | complete; login supports key/external/oauth/command methods and form answers (`--answer`); interactive pickers use a simplified clack-style UI (multiselect asks for comma-separated values) |
+| `auth list/export/import/login/logout/switch` | complete; login supports key/external/oauth/command methods and form answers (`--answer`); form fields use the ported clack `multiselect`/`select`/`text`/`password` prompts; the integration and account pickers (upstream's `autocomplete`) are simplified |
 | `mcp list/add/auth/logout` | complete (strings from `oc_mcp::cli`; `add` uses `oc_config::jsonc_edit`) |
 | `plugin list/check/update/remove` | server plugins via the API; TUI package plugins from `cli.json` are inspected too (installed version from upstream's npm cache layout, update check with `oc_plugin::npm::Npm::check`, `update` reinstalls with `Npm::update`); `remove` edits the global config and `cli.json` |
 | `plugin add` | complete: installs with Bun into upstream's npm cache (`oc_plugin::npm`), resolves the `server`/root and `tui` entrypoints with Bun's module resolution (upstream `Host.resolve`) and writes the global config (`plugins`) or `cli.json`, with upstream's messages. Bun comes from `OCD_BUN_PATH`/`OPENCODE_BUN_PATH` or the pinned 1.4.2 download. TUI plugins are recorded but ocd's TUI does not run them (documented incompatibility) |
