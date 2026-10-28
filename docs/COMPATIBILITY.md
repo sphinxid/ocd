@@ -63,7 +63,7 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 | `session.http.response` plugin hook | Receives the whole response body as text instead of a stream |
 | Plugin worktree strategies | Used only after the project's location has loaded; before that, worktree tools fall back to git |
 | Persistent terminals | The same `opencode-pty` helper (0.3.1), downloaded once instead of carried inside the binary. Enabled on Windows like upstream 2.1, but not tested there |
-| Mini mode (`ocd mini`) | Works, but simplified and not compared screen by screen |
+| Mini mode (`ocd mini`) | A port of upstream's mini frontend. In 63 screens compared side by side the text was identical, except one startup race; code blocks are highlighted with syntect instead of tree-sitter, so some TypeScript and JavaScript token colours differ |
 | `ocd auth login` pickers | Multi-select asks for comma-separated values |
 | Editor integration (ACP) | Doesn't add the diff for a completed edit |
 | Error texts | A few come from Rust instead of Bun or Node: file-system errors, MCP JSON-schema validation and network errors |

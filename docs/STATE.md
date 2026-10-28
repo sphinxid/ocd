@@ -51,7 +51,7 @@ Goal (user request): an exact behavioral replica of **opencode v2** in Rust — 
 | oc-ai | agent | DONE (231 tests; 226 recorded upstream streams decode): ModelsDev+Catalog+resolve→ResolvedModel, Client::stream, all chat protocols, credentials/OAuth (Integrations), retry helpers. Gaps: aisdk:* packages, Responses websocket, non-chat modalities, some AWS/GCP cred sources. See README. |
 | oc-tools | agent | DONE (164 tests, ~21k lines): all tools, Registry/Snapshot, ToolHost (~45 async methods, only ask_permission required), tool_output::truncate, scanners (0 mismatches/81,787 upstream cases), html→md, websearch, formatters, ripgrep. Divergences: image re-encode via `image` crate, localeCompare approx. Core must implement ToolHost job methods. See README. |
 | oc-codemode | agent | DONE: ~33k lines, full JS interpreter; 1705/1707 upstream replays identical, test262 sample conformant, acorn-identical parser; README lists unsupported JS + known diffs. Wired into oc-core (runner + ExecuteTool). |
-| oc-tui | agent | DONE (136 tests): `run(TuiOptions)`, `run_mini(TuiOptions, MiniOptions)`; all screens incl. tab rail, diff viewer, stats, terminal pane (vt100), open/worktrees/pair dialogs, mouse select, comment-preserving cli.json. Mini mode simplified. Not yet run against a live server. |
+| oc-tui | agent | DONE (136 tests): `run(TuiOptions)`, `run_mini(TuiOptions, MiniOptions)`; all screens incl. tab rail, diff viewer, stats, terminal pane (vt100), open/worktrees/pair dialogs, mouse select, comment-preserving cli.json. Mini mode ported (`src/mini/`). Not yet run against a live server. |
 | oc-mcp | agent | DONE (44 tests): McpManager (set_servers/tools/call_tool/prompts/resources/auth_start/finish/logout, event channel), hand-rolled JSON-RPC (stdio + streamable HTTP + 2026-07-28 protocol), OAuth. Core implements McpCredentialStore + ElicitationHandler. See README. |
 | oc-server | agent | DONE (78 tests): generated types from openapi.json (codegen/gen.py), Backend trait (138 methods, default 500), envelopes/errors/auth/CORS/pairing/SSE/fs.read/PTY ws/startup/web UI/service helpers. `serve(backend, ServerOptions)`. Core must implement Backend. See README. |
 | oc-config | agent | DONE (164 tests): schema, normalize (v1→v2), discovery+watch plan, Loader (WellKnown trait), fold helpers (agents/providers/...), markdown sources, template eval, policy, redact, cli.json (CliConfig), jsonc_edit. Core owns watchers/reload/bus. See README. |
@@ -92,6 +92,15 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-28: MINI MODE PORTED: `crates/oc-tui/src/mini/` (~20k lines, one module per upstream
+  `packages/tui/src/mini/` file plus `cli/src/mini.ts`, `mini-host.ts`): OpenTUI 0.6.8 split-footer renderer
+  (`split.rs`), footer/composer/panels/docks, scrollback with a `marked` lexer port, fuzzysort 3.1.0, V2 event
+  transport, subagents, queue, replay, `mini.*` settings. Goldens from upstream's own modules under Bun
+  (`mini/testdata/{scrollback,footer}.json`, compared cell by cell). tmux comparison with the 2.1.4 binary: 12
+  scenarios, 63 screens, text identical except one startup race (agent list not loaded yet upstream). Left: TS/JS
+  highlight colours (syntect vs tree-sitter). Seen there: the server finishes parallel tool calls in a different
+  order than upstream. `run`: last-burst skipping emulated in `Shared::consume` (50 ms hold), parity
+  `cli_run_last_step` added.
 - 2026-10-28: CLOUD CREDENTIALS: Bedrock's AWS chain is the SDK's `defaultProvider` (`oc-ai/src/protocols/
   bedrock_converse/aws/`: smithy INI, assume-role via `source_profile`/`credential_source`, web identity, SSO +
   SSO-OIDC refresh, legacy SSO, `aws login` with DPoP, container, IMDSv2/v1, endpoint overrides) and Vertex ADC

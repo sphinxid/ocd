@@ -64,8 +64,8 @@ Linux x86_64, release builds of both, the same mock model and isolated folders:
 
 | Status | Areas |
 |---|---|
-| ✅ **Same as upstream** | Sessions and history, the agent loop, permissions, built-in tools, Code Mode, agents/commands/skills, config and policies, all chat providers and sign-in methods (API keys, OAuth, ChatGPT, GitHub Copilot, Azure, AWS and Google cloud credentials), MCP servers, server plugins and AI SDK packages, the full TUI, web UI, HTTP API (149 endpoints), background service, git and worktrees, v1 history import |
-| 🟡 **Small differences** | Plugins run in a Bun helper that is downloaded on first use; a few error texts; mini mode and the ACP editor integration are simplified |
+| ✅ **Same as upstream** | Sessions and history, the agent loop, permissions, built-in tools, Code Mode, agents/commands/skills, config and policies, all chat providers and sign-in methods (API keys, OAuth, ChatGPT, GitHub Copilot, Azure, AWS and Google cloud credentials), MCP servers, server plugins and AI SDK packages, the full TUI and `ocd mini`, web UI, HTTP API (149 endpoints), background service, git and worktrees, v1 history import |
+| 🟡 **Small differences** | Plugins run in a Bun helper that is downloaded on first use; a few error texts; code-block colours in `ocd mini`; the ACP editor integration is simplified |
 | ⛔ **Not yet** | TUI plugins, image/speech/video models, Mercurial, `--wizard`, most experimental 2.1 features (the todo list is ported) |
 | ✨ **Different on purpose** | A working status line in the TUI, `ocd upgrade` from ocd's own releases, `ocd --version` shows ocd's own version |
 
