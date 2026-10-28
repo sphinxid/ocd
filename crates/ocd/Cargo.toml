@@ -37,6 +37,7 @@ url.workspace = true
 indexmap.workspace = true
 parking_lot.workspace = true
 unicode-width.workspace = true
+unicode-normalization = "0.1"
 unicode-segmentation.workspace = true
 mime_guess.workspace = true
 hex.workspace = true

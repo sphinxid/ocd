@@ -147,9 +147,11 @@ pub async fn export(global: &Global, input: &Input) -> anyhow::Result<i32> {
                         }
                     })
                     .collect();
-                match ui::autocomplete("Select session to export", &choices, 10) {
+                match ui::autocomplete(ui::Out::Stderr, "Select session to export", &choices, Some(10)) {
                     Ok(id) => {
                         ui::outro_to(ui::Out::Stderr, "Exporting session...");
+                        // Enter with nothing matching resolves `undefined`: nothing to export.
+                        let Some(id) = id else { return Ok(0) };
                         id
                     }
                     Err(_) => {

@@ -1,8 +1,8 @@
 //! `@clack/prompts` on the terminal: intro/outro/log/spinner/confirm with clack's glyphs and line
-//! layout, `select`, `multiselect`, `text` and `password` through the ported prompt engine in
-//! `clack.rs`, and a simplified type-to-filter picker standing in for `autocomplete`.
+//! layout; `select`, `multiselect`, `text`, `password`, `autocomplete` and upstream's integration
+//! picker through the ported prompt engine in `clack.rs`.
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -158,254 +158,15 @@ impl std::fmt::Display for Cancelled {
 
 impl std::error::Error for Cancelled {}
 
-#[cfg(unix)]
-struct Raw {
-    orig: libc::termios,
-}
-
-#[cfg(unix)]
-impl Raw {
-    fn enter(echo: bool) -> Option<Raw> {
-        unsafe {
-            let mut t: libc::termios = std::mem::zeroed();
-            if libc::tcgetattr(0, &mut t) != 0 {
-                return None;
-            }
-            let orig = t;
-            t.c_lflag &= !(libc::ICANON | libc::ISIG);
-            if !echo {
-                t.c_lflag &= !libc::ECHO;
-            } else {
-                t.c_lflag &= !libc::ECHO;
-            }
-            t.c_cc[libc::VMIN] = 1;
-            t.c_cc[libc::VTIME] = 0;
-            libc::tcsetattr(0, libc::TCSANOW, &t);
-            Some(Raw { orig })
-        }
-    }
-}
-
-#[cfg(unix)]
-impl Drop for Raw {
-    fn drop(&mut self) {
-        unsafe {
-            libc::tcsetattr(0, libc::TCSANOW, &self.orig);
-        }
-    }
-}
-
-enum Key {
-    Up,
-    Down,
-    Left,
-    Right,
-    Enter,
-    Cancel,
-    Backspace,
-    Char(char),
-    Other,
-}
-
-fn read_key() -> Key {
-    let mut b = [0u8; 1];
-    let mut stdin = std::io::stdin();
-    if stdin.read(&mut b).unwrap_or(0) == 0 {
-        return Key::Cancel;
-    }
-    match b[0] {
-        3 | 4 => Key::Cancel,
-        b'\r' | b'\n' => Key::Enter,
-        127 | 8 => Key::Backspace,
-        27 => {
-            let mut seq = [0u8; 2];
-            if stdin.read(&mut seq[..1]).unwrap_or(0) == 0 {
-                return Key::Cancel;
-            }
-            if seq[0] != b'[' {
-                return Key::Cancel;
-            }
-            let _ = stdin.read(&mut seq[1..2]);
-            match seq[1] {
-                b'A' => Key::Up,
-                b'B' => Key::Down,
-                b'C' => Key::Right,
-                b'D' => Key::Left,
-                _ => Key::Other,
-            }
-        }
-        c if c >= 0x20 => {
-            // utf-8 continuation
-            let len = match c {
-                0xc0..=0xdf => 2,
-                0xe0..=0xef => 3,
-                0xf0..=0xf7 => 4,
-                _ => 1,
-            };
-            let mut buf = vec![c];
-            for _ in 1..len {
-                let mut x = [0u8; 1];
-                let _ = stdin.read(&mut x);
-                buf.push(x[0]);
-            }
-            String::from_utf8(buf).ok().and_then(|s| s.chars().next()).map(Key::Char).unwrap_or(Key::Other)
-        }
-        _ => Key::Other,
-    }
-}
-
 pub struct Choice {
     pub value: String,
     pub label: String,
     pub hint: Option<String>,
 }
 
-/// Stand-in for clack's `autocomplete` and upstream's integration picker: arrow keys and type to
-/// filter, with a simplified layout.
-pub fn autocomplete(message: &str, choices: &[Choice], max_items: usize) -> Result<String, Cancelled> {
-    #[cfg(unix)]
-    let _raw = Raw::enter(false);
-    let mut out = std::io::stdout();
-    let mut index = 0usize;
-    let mut search = String::new();
-    let mut drawn = 0usize;
-    loop {
-        let filtered: Vec<&Choice> = choices
-            .iter()
-            .filter(|c| search.is_empty() || c.label.to_lowercase().contains(&search.to_lowercase()))
-            .collect();
-        if index >= filtered.len().max(1) {
-            index = filtered.len().saturating_sub(1);
-        }
-        let mut s = String::new();
-        if drawn > 0 {
-            s.push_str(&format!("\x1b[{drawn}A\r\x1b[J"));
-        }
-        let mut lines = vec![format!("{}", gray(S_BAR)), format!("{}  {message}", paint("36", "◆"))];
-        if !search.is_empty() {
-            lines.push(format!("{}  Search: {search}", paint("36", S_BAR)));
-        }
-        let start = index.saturating_sub(max_items.saturating_sub(1));
-        for (i, c) in filtered.iter().enumerate().skip(start).take(max_items) {
-            let hint = c.hint.as_ref().map(|h| format!(" {}", gray(&format!("({h})")))).unwrap_or_default();
-            if i == index {
-                lines.push(format!("{}  {} {}{hint}", paint("36", S_BAR), paint("32", "●"), c.label));
-            } else {
-                lines.push(format!("{}  {} {}", paint("36", S_BAR), gray("○"), gray(&c.label)));
-            }
-        }
-        if filtered.is_empty() {
-            lines.push(format!("{}  {}", paint("36", S_BAR), gray("No matches")));
-        }
-        lines.push(paint("36", "└"));
-        drawn = lines.len();
-        s.push_str(&lines.join("\n"));
-        s.push('\n');
-        let _ = out.write_all(s.as_bytes());
-        let _ = out.flush();
-        match read_key() {
-            Key::Up => index = index.saturating_sub(1),
-            Key::Down => {
-                if index + 1 < filtered.len() {
-                    index += 1
-                }
-            }
-            Key::Enter => {
-                if let Some(c) = filtered.get(index) {
-                    let s = format!("\x1b[{drawn}A\r\x1b[J{}\n{}  {message}\n{}  {}\n", gray(S_BAR), paint("32", "◇"), gray(S_BAR), gray(&c.label));
-                    let _ = out.write_all(s.as_bytes());
-                    let _ = out.flush();
-                    return Ok(c.value.clone());
-                }
-            }
-            Key::Cancel => {
-                let s = format!("\x1b[{drawn}A\r\x1b[J{}\n{}  {message}\n", gray(S_BAR), paint("31", "■"));
-                let _ = out.write_all(s.as_bytes());
-                return Err(Cancelled);
-            }
-            Key::Backspace => {
-                search.pop();
-            }
-            Key::Char(c) => {
-                search.push(c);
-                index = 0;
-            }
-            Key::Left | Key::Right | Key::Other => {}
-        }
-    }
-}
-
-fn dim(s: &str) -> String {
-    if color() { format!("\x1b[2m{s}\x1b[22m") } else { s.to_string() }
-}
-
-fn strikethrough(s: &str) -> String {
-    if color() { format!("\x1b[9m{s}\x1b[29m") } else { s.to_string() }
-}
-
-/// The active frame of `confirm`: `● Yes / ○ No` with the current value selected.
-fn confirm_frame(message: &str, value: bool) -> String {
-    let (yes, no) = if value {
-        (format!("{} Yes", paint("32", "●")), format!("{} {}", dim("○"), dim("No")))
-    } else {
-        (format!("{} {}", dim("○"), dim("Yes")), format!("{} No", paint("32", "●")))
-    };
-    format!("{}\n{}  {message}\n{}  {yes} {} {no}\n{}\n", gray(S_BAR), paint("36", "◆"), paint("36", S_BAR), dim("/"), paint("36", "└"))
-}
-
-/// `confirm({message, initialValue})`: arrows (or h/j/k/l) toggle, `y`/`n` answer at once, Enter submits, and
-/// Ctrl-C or Esc cancels.
+/// clack `confirm({message, initialValue})`.
 pub fn confirm(message: &str, initial: bool) -> Result<bool, Cancelled> {
-    #[cfg(unix)]
-    let _raw = Raw::enter(false);
-    let mut out = std::io::stdout();
-    let mut value = initial;
-    let mut drawn = 0usize;
-    loop {
-        let mut s = String::new();
-        if drawn > 0 {
-            s.push_str(&format!("\x1b[{drawn}A\r\x1b[J"));
-        }
-        let frame = confirm_frame(message, value);
-        drawn = frame.matches('\n').count();
-        s.push_str(&frame);
-        let _ = out.write_all(s.as_bytes());
-        let _ = out.flush();
-        let answer = match read_key() {
-            Key::Up | Key::Down | Key::Left | Key::Right => {
-                value = !value;
-                None
-            }
-            Key::Char('h' | 'j' | 'k' | 'l') => {
-                value = !value;
-                None
-            }
-            Key::Char(c @ ('y' | 'Y' | 'n' | 'N')) => Some(c.eq_ignore_ascii_case(&'y')),
-            Key::Enter => Some(value),
-            Key::Cancel => {
-                let label = if value { "Yes" } else { "No" };
-                let s = format!(
-                    "\x1b[{drawn}A\r\x1b[J{}\n{}  {message}\n{}  {}\n{}\n",
-                    gray(S_BAR),
-                    paint("31", "■"),
-                    gray(S_BAR),
-                    strikethrough(&dim(label)),
-                    gray(S_BAR)
-                );
-                let _ = out.write_all(s.as_bytes());
-                let _ = out.flush();
-                return Err(Cancelled);
-            }
-            _ => None,
-        };
-        if let Some(answer) = answer {
-            let label = if answer { "Yes" } else { "No" };
-            let s = format!("\x1b[{drawn}A\r\x1b[J{}\n{}  {message}\n{}  {}\n", gray(S_BAR), paint("32", "◇"), gray(S_BAR), dim(label));
-            let _ = out.write_all(s.as_bytes());
-            let _ = out.flush();
-            return Ok(answer);
-        }
-    }
+    Ok(run_prompt(crate::clack::Confirm::new(message, initial), None, Out::Stdout)?.value)
 }
 
 /// node's `setRawMode(true)` (libuv `UV_TTY_MODE_RAW`), restored on drop.
@@ -444,6 +205,71 @@ impl Drop for RawMode {
     }
 }
 
+static SIGNALLED_WINCH: AtomicBool = AtomicBool::new(false);
+static SIGNALLED_INT: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn on_winch(_: libc::c_int) {
+    SIGNALLED_WINCH.store(true, Ordering::SeqCst);
+}
+
+#[cfg(unix)]
+extern "C" fn on_int(_: libc::c_int) {
+    SIGNALLED_INT.store(true, Ordering::SeqCst);
+}
+
+/// A signal handler installed without `SA_RESTART` (so a blocked `poll` wakes up), restored on drop.
+#[cfg(unix)]
+struct Handler {
+    signal: libc::c_int,
+    old: libc::sigaction,
+}
+
+#[cfg(unix)]
+impl Handler {
+    fn install(signal: libc::c_int, f: extern "C" fn(libc::c_int)) -> Handler {
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = f as usize;
+            libc::sigemptyset(&mut action.sa_mask);
+            let mut old: libc::sigaction = std::mem::zeroed();
+            libc::sigaction(signal, &action, &mut old);
+            Handler { signal, old }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Handler {
+    fn drop(&mut self) {
+        unsafe {
+            libc::sigaction(self.signal, &self.old, std::ptr::null_mut());
+        }
+    }
+}
+
+/// `output.rows` of a terminal stream.
+fn tty_rows(out: Out) -> Option<usize> {
+    match out {
+        Out::Stdout => crate::term::rows(),
+        Out::Stderr => {
+            #[cfg(unix)]
+            unsafe {
+                if libc::isatty(2) != 1 {
+                    return None;
+                }
+                let mut ws: libc::winsize = std::mem::zeroed();
+                if libc::ioctl(2, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_row > 0 {
+                    return Some(ws.ws_row as usize);
+                }
+                None
+            }
+            #[cfg(not(unix))]
+            None
+        }
+    }
+}
+
 /// Whether more input arrives within `ms` (readline's `escapeCodeTimeout` is 50 ms).
 fn input_within(ms: i32) -> bool {
     #[cfg(unix)]
@@ -458,21 +284,65 @@ fn input_within(ms: i32) -> bool {
     }
 }
 
-/// Runs a clack prompt on the terminal until it submits or cancels.
-fn run_prompt<K: crate::clack::Kind>(kind: K, initial_user_input: Option<&str>) -> Result<K, Cancelled> {
+/// Waits for input on stdin; false when a signal interrupted the wait.
+fn wait_input() -> bool {
     #[cfg(unix)]
-    let _raw = RawMode::enter();
+    unsafe {
+        let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+        libc::poll(&mut fd, 1, -1) > 0
+    }
+    #[cfg(not(unix))]
+    true
+}
+
+/// After readline closed (ctrl+d on an empty line) the input is paused and the terminal back in its
+/// normal mode: nothing answers the prompt until ctrl+c interrupts the command.
+fn wait_for_interrupt() {
+    #[cfg(unix)]
+    {
+        let _int = Handler::install(libc::SIGINT, on_int);
+        SIGNALLED_INT.store(false, Ordering::SeqCst);
+        while !SIGNALLED_INT.load(Ordering::SeqCst) {
+            unsafe {
+                libc::pause();
+            }
+        }
+    }
+}
+
+/// Runs a clack prompt on the terminal until it submits or cancels, re-rendering on resize like
+/// `output.on("resize", render)`.
+fn run_prompt<K: crate::clack::Kind>(kind: K, initial_user_input: Option<&str>, out: Out) -> Result<K, Cancelled> {
     let pc = crate::clack::Pc { on: color() };
-    let mut prompt = crate::clack::Prompt::new(kind, pc, crate::term::columns(), crate::term::rows());
-    crate::term::write_stdout(&prompt.start(initial_user_input));
+    let mut prompt = crate::clack::Prompt::new(kind, pc, crate::term::columns(), tty_rows(out));
+    #[cfg(unix)]
+    let mut raw = RawMode::enter();
+    #[cfg(not(unix))]
+    let mut raw: Option<()> = None;
+    #[cfg(unix)]
+    let _winch = Handler::install(libc::SIGWINCH, on_winch);
+    SIGNALLED_WINCH.store(false, Ordering::SeqCst);
+    write(out, &prompt.start(initial_user_input));
     let mut stdin = std::io::stdin();
     let mut buf: Vec<u8> = Vec::new();
     while !prompt.done() {
+        let ready = wait_input();
+        if SIGNALLED_WINCH.swap(false, Ordering::SeqCst) {
+            write(out, &prompt.resize(crate::term::columns(), tty_rows(out)));
+        }
+        if !ready {
+            continue;
+        }
         let mut chunk = [0u8; 256];
-        let n = stdin.read(&mut chunk).unwrap_or(0);
+        let n = match stdin.read(&mut chunk) {
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => 0,
+        };
         if n == 0 {
-            // stdin closed: nothing can answer the prompt any more.
-            crate::term::write_stdout("\n\x1b[?25h");
+            // End of input closes readline the same way ctrl+d does.
+            drop(raw.take());
+            wait_for_interrupt();
             return Err(Cancelled);
         }
         buf.extend_from_slice(&chunk[..n]);
@@ -484,7 +354,12 @@ fn run_prompt<K: crate::clack::Kind>(kind: K, initial_user_input: Option<&str>) 
             if prompt.done() {
                 break;
             }
-            crate::term::write_stdout(&prompt.press(&key));
+            write(out, &prompt.press(&key));
+            if prompt.closed() {
+                drop(raw.take());
+                wait_for_interrupt();
+                return Err(Cancelled);
+            }
         }
     }
     if prompt.ctx.state == crate::clack::State::Cancel { Err(Cancelled) } else { Ok(prompt.kind) }
@@ -496,14 +371,14 @@ fn options(choices: &[Choice]) -> Vec<crate::clack::Opt> {
 
 /// clack `select({message, options, initialValue})`.
 pub fn select(message: &str, choices: &[Choice], initial: Option<&str>) -> Result<String, Cancelled> {
-    let kind = run_prompt(crate::clack::Select::new(message, options(choices), initial), None)?;
+    let kind = run_prompt(crate::clack::Select::new(message, options(choices), initial), None, Out::Stdout)?;
     Ok(kind.value().to_string())
 }
 
 /// clack `multiselect({message, options, initialValues, required})`.
 pub fn multiselect(message: &str, choices: &[Choice], initial: &[String], required: bool) -> Result<Vec<String>, Cancelled> {
     let pc = crate::clack::Pc { on: color() };
-    Ok(run_prompt(crate::clack::MultiSelect::new(message, options(choices), initial, required, pc), None)?.value)
+    Ok(run_prompt(crate::clack::MultiSelect::new(message, options(choices), initial, required, pc), None, Out::Stdout)?.value)
 }
 
 /// Options of clack's `text` prompt.
@@ -517,12 +392,25 @@ pub struct TextOptions<'a> {
 pub fn text(message: &str, opts: TextOptions, validate: &dyn Fn(Option<&str>) -> Option<String>) -> Result<String, Cancelled> {
     let mut kind = crate::clack::Text::new(message, Some(validate));
     kind.placeholder = opts.placeholder.map(String::from);
-    Ok(run_prompt(kind, opts.initial_value)?.value.unwrap_or_default())
+    Ok(run_prompt(kind, opts.initial_value, Out::Stdout)?.value.unwrap_or_default())
 }
 
 /// clack `password({message, validate})`.
 pub fn password(message: &str, validate: &dyn Fn(Option<&str>) -> Option<String>) -> Result<String, Cancelled> {
-    Ok(run_prompt(crate::clack::Password::new(message, Some(validate)), None)?.value.unwrap_or_default())
+    Ok(run_prompt(crate::clack::Password::new(message, Some(validate)), None, Out::Stdout)?.value.unwrap_or_default())
+}
+
+/// clack `autocomplete({message, options, maxItems, output})`: the chosen value, `None` when Enter
+/// was pressed with nothing matching (upstream resolves `undefined`).
+pub fn autocomplete(out: Out, message: &str, choices: &[Choice], max_items: Option<usize>) -> Result<Option<String>, Cancelled> {
+    Ok(run_prompt(crate::clack::Autocomplete::new(message, options(choices), max_items), None, out)?.state.value)
+}
+
+pub use crate::clack::IntegrationChoice;
+
+/// Upstream's `selectIntegration(choices, kind)`.
+pub fn select_integration(choices: Vec<IntegrationChoice>, kind: &str) -> Result<String, Cancelled> {
+    Ok(run_prompt(crate::clack::IntegrationPicker::new(choices, kind), None, Out::Stdout)?.state.value.unwrap_or_default())
 }
 
 /// The validator upstream passes to `text`/`password`: `!value ? "Required" : undefined`.

@@ -1,7 +1,8 @@
 //! Port of the `@clack/core` / `@clack/prompts` 1.0.0-alpha.1 prompt machinery used by the auth
 //! flows: the `Prompt` keypress and render loop (`core/src/prompts/prompt.ts`: frames hard-wrapped
 //! with `wrap-ansi` 8.1.0, redrawn from the first changed line, cursor hidden while active), the
-//! `select`, `multiselect`, `text` and `password` prompts with their renderers and `limitOptions`,
+//! `select`, `multiselect`, `text`, `password` and `autocomplete` prompts with their renderers and
+//! `limitOptions`, upstream's integration picker (`cli/src/ui/integration-picker.ts`),
 //! the node `readline` line editing that `text`/`password` sit on, and picocolors 1.1.1.
 //!
 //! Everything here is pure: prompts take parsed keypresses and return the bytes to write, so the
@@ -43,6 +44,9 @@ impl Pc {
     }
     pub fn reset(&self, s: &str) -> String {
         self.f("\x1b[0m", "\x1b[0m", "\x1b[0m", s)
+    }
+    pub fn bold(&self, s: &str) -> String {
+        self.f("\x1b[1m", "\x1b[22m", "\x1b[22m\x1b[1m", s)
     }
     pub fn dim(&self, s: &str) -> String {
         self.f("\x1b[2m", "\x1b[22m", "\x1b[22m\x1b[2m", s)
@@ -293,9 +297,10 @@ fn wrap_line(line: &str, columns: Option<usize>) -> String {
     out
 }
 
-/// `wrapAnsi(s, columns, {hard: true})`.
+/// `wrapAnsi(s, columns, {hard: true})` (the string NFC-normalised first).
 pub fn wrap(s: &str, columns: Option<usize>) -> String {
-    s.replace("\r\n", "\n").split('\n').map(|l| wrap_line(l, columns)).collect::<Vec<_>>().join("\n")
+    use unicode_normalization::UnicodeNormalization;
+    s.nfc().collect::<String>().replace("\r\n", "\n").split('\n').map(|l| wrap_line(l, columns)).collect::<Vec<_>>().join("\n")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -491,8 +496,9 @@ impl Line {
         i
     }
 
-    /// `Interface._ttyWrite(s, key)` for an interface with no output, history or completer.
-    fn key(&mut self, key: &Key) {
+    /// `Interface._ttyWrite(s, key)` for an interface with no output, history or completer. Returns
+    /// true when the key closes the interface (ctrl+d on an empty line).
+    fn key(&mut self, key: &Key) -> bool {
         let name = key.name.as_deref().unwrap_or("");
         if key.ctrl && key.shift {
             match name {
@@ -505,11 +511,12 @@ impl Line {
                 }
                 _ => {}
             }
-            return;
+            return false;
         }
         if key.ctrl {
             match name {
                 "h" => self.delete_left(),
+                "d" if self.cursor == 0 && self.chars.is_empty() => return true,
                 "d" => self.delete_right(),
                 "u" => {
                     self.chars.drain(..self.cursor);
@@ -533,7 +540,7 @@ impl Line {
                 "right" => self.cursor = self.word_right(),
                 _ => {}
             }
-            return;
+            return false;
         }
         if key.meta {
             match name {
@@ -550,7 +557,7 @@ impl Line {
                 }
                 _ => {}
             }
-            return;
+            return false;
         }
         match name {
             "return" | "enter" => self.clear(),
@@ -567,6 +574,7 @@ impl Line {
                 }
             }
         }
+        false
     }
 }
 
@@ -580,8 +588,13 @@ pub trait Kind {
         false
     }
     fn on_cursor(&mut self, _action: &str) {}
-    fn on_key(&mut self, _ch: Option<&str>) {}
+    /// The `key` event: the lower-cased string and the key.
+    fn on_key(&mut self, _ch: Option<&str>, _key: &Key) {}
     fn on_user_input(&mut self, _input: &str) {}
+    /// The `confirm` event (`y`/`n` typed); true when the prompt handles it by submitting.
+    fn on_confirm(&mut self, _yes: bool) -> bool {
+        false
+    }
     fn validate(&self) -> Option<String> {
         None
     }
@@ -598,13 +611,17 @@ pub struct Ctx {
     pub cursor: usize,
     /// `output.rows` when the output is a terminal (`limitOptions` uses 10 otherwise).
     pub rows: Option<usize>,
+    /// `process.stdout.columns`.
+    pub columns: Option<usize>,
 }
 
 pub struct Prompt<K: Kind> {
     pub kind: K,
     pub ctx: Ctx,
-    columns: Option<usize>,
     line: Line,
+    /// readline closed (ctrl+d on an empty line): it paused the input and left raw mode, so no
+    /// further keypress reaches the prompt.
+    closed: bool,
     prev_frame: String,
 }
 
@@ -629,7 +646,24 @@ fn move_cursor(x: i64, y: i64) -> String {
 
 impl<K: Kind> Prompt<K> {
     pub fn new(kind: K, pc: Pc, columns: Option<usize>, rows: Option<usize>) -> Self {
-        Prompt { kind, ctx: Ctx { pc, state: State::Initial, error: String::new(), user_input: String::new(), cursor: 0, rows }, columns, line: Line::default(), prev_frame: String::new() }
+        Prompt {
+            kind,
+            ctx: Ctx { pc, state: State::Initial, error: String::new(), user_input: String::new(), cursor: 0, rows, columns },
+            line: Line::default(),
+            closed: false,
+            prev_frame: String::new(),
+        }
+    }
+
+    pub fn closed(&self) -> bool {
+        self.closed
+    }
+
+    /// The output's `resize` event: render again at the new size.
+    pub fn resize(&mut self, columns: Option<usize>, rows: Option<usize>) -> String {
+        self.ctx.columns = columns;
+        self.ctx.rows = rows;
+        self.render()
     }
 
     pub fn done(&self) -> bool {
@@ -656,8 +690,9 @@ impl<K: Kind> Prompt<K> {
     /// `onKeypress(char, key)`: the bytes to write (the closing newline and cursor-show included).
     pub fn press(&mut self, key: &Key) -> String {
         let name = key.name.as_deref();
-        if self.kind.track() {
-            self.line.key(key);
+        // readline's own keypress listener runs first, for every prompt.
+        if self.line.key(key) {
+            self.closed = true;
         }
         if self.kind.track() && name != Some("return") {
             if name.is_some() && key.ch.as_deref() == Some("\t") {
@@ -689,7 +724,22 @@ impl<K: Kind> Prompt<K> {
             }
         }
         let lower = key.ch.as_deref().map(str::to_lowercase);
-        self.kind.on_key(lower.as_deref());
+        let mut out = String::new();
+        // `confirm` submits from its listener: it moves up a line, closes (newline, cursor shown) and
+        // unsubscribes everything, so the rest of this keypress only renders and closes again.
+        let mut unsubscribed = false;
+        if let Some(c @ ("y" | "n")) = lower.as_deref()
+            && self.kind.on_confirm(c == "y")
+        {
+            out.push_str(&move_cursor(0, -1));
+            self.ctx.state = State::Submit;
+            out.push('\n');
+            out.push_str(CURSOR_SHOW);
+            unsubscribed = true;
+        }
+        if !unsubscribed {
+            self.kind.on_key(lower.as_deref(), key);
+        }
         if name == Some("return") {
             if let Some(problem) = self.kind.validate() {
                 self.ctx.error = problem;
@@ -705,19 +755,21 @@ impl<K: Kind> Prompt<K> {
         if key.ch.as_deref().is_some_and(cancel) || name.is_some_and(cancel) || cancel(&key.sequence) {
             self.ctx.state = State::Cancel;
         }
-        if self.done() {
+        if self.done() && !unsubscribed {
             self.kind.finalize();
         }
-        let mut out = self.render();
+        out.push_str(&self.render());
         if self.done() {
             out.push('\n');
-            out.push_str(CURSOR_SHOW);
+            if !unsubscribed {
+                out.push_str(CURSOR_SHOW);
+            }
         }
         out
     }
 
     fn render(&mut self) -> String {
-        let frame = wrap(&self.kind.render(&self.ctx), self.columns);
+        let frame = wrap(&self.kind.render(&self.ctx), self.ctx.columns);
         if frame == self.prev_frame {
             return String::new();
         }
@@ -728,7 +780,9 @@ impl<K: Kind> Prompt<K> {
             let prev: Vec<&str> = self.prev_frame.split('\n').collect();
             let next: Vec<&str> = frame.split('\n').collect();
             let diff: Vec<usize> = (0..prev.len().max(next.len())).filter(|&i| prev.get(i) != next.get(i)).collect();
-            out.push_str(&move_cursor(-999, -(prev.len() as i64 - 1)));
+            // `restoreCursor`: the previous frame's height at the current width.
+            let height = wrap(&self.prev_frame, self.ctx.columns).split('\n').count();
+            out.push_str(&move_cursor(-999, -(height as i64 - 1)));
             if diff.len() == 1 {
                 let line = diff[0];
                 out.push_str(&move_cursor(0, line as i64));
@@ -891,7 +945,7 @@ impl Kind for MultiSelect {
             _ => {}
         }
     }
-    fn on_key(&mut self, ch: Option<&str>) {
+    fn on_key(&mut self, ch: Option<&str>, _key: &Key) {
         if ch == Some("a") {
             let all = self.value.len() == self.options.len();
             self.value = if all { vec![] } else { self.options.iter().map(|o| o.value.clone()).collect() };
@@ -942,6 +996,43 @@ impl Kind for MultiSelect {
             _ => {
                 let bar = pc.cyan(S_BAR);
                 format!("{title}{bar}  {}\n{}\n", limit_options(p, &self.options, self.cursor, self.max_items, &style).join(&format!("\n{bar}  ")), pc.cyan(S_BAR_END))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// confirm (`core/src/prompts/confirm.ts`, `prompts/src/confirm.ts`)
+
+pub struct Confirm {
+    pub message: String,
+    pub value: bool,
+}
+
+impl Confirm {
+    pub fn new(message: &str, initial: bool) -> Confirm {
+        Confirm { message: message.into(), value: initial }
+    }
+}
+
+impl Kind for Confirm {
+    fn on_cursor(&mut self, _action: &str) {
+        self.value = !self.value;
+    }
+    fn on_confirm(&mut self, yes: bool) -> bool {
+        self.value = yes;
+        true
+    }
+    fn render(&self, p: &Ctx) -> String {
+        let pc = p.pc;
+        let title = format!("{}\n{}  {}\n", pc.gray(S_BAR), symbol(pc, p.state), self.message);
+        let value = if self.value { "Yes" } else { "No" };
+        match p.state {
+            State::Submit => format!("{title}{}  {}", pc.gray(S_BAR), pc.dim(value)),
+            State::Cancel => format!("{title}{}  {}\n{}", pc.gray(S_BAR), pc.strikethrough(&pc.dim(value)), pc.gray(S_BAR)),
+            _ => {
+                let option = |on: bool, label: &str| if on { format!("{} {label}", pc.green(S_RADIO_ACTIVE)) } else { format!("{} {}", pc.dim(S_RADIO_INACTIVE), pc.dim(label)) };
+                format!("{title}{}  {} {} {}\n{}\n", pc.cyan(S_BAR), option(self.value, "Yes"), pc.dim("/"), option(!self.value, "No"), pc.cyan(S_BAR_END))
             }
         }
     }
@@ -1068,6 +1159,293 @@ impl Kind for Password<'_> {
             }
             _ => format!("{title}{}  {user_input}\n{}\n", pc.cyan(S_BAR), pc.cyan(S_BAR_END)),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// autocomplete (`core/src/prompts/autocomplete.ts`)
+
+/// `AutocompletePrompt` state (single selection) over options identified by their values.
+pub struct AutoState {
+    values: Vec<String>,
+    /// Indices of the options that match the search.
+    pub filtered: Vec<usize>,
+    /// The option cursor within `filtered`.
+    pub cursor: usize,
+    pub focused: Option<String>,
+    /// `selectedValues`; an entry is `None` where upstream stores `undefined`.
+    pub selected: Vec<Option<String>>,
+    pub navigating: bool,
+    last_user_input: String,
+    /// `this.value`, set when Enter is pressed.
+    pub value: Option<String>,
+}
+
+impl AutoState {
+    pub fn new(values: Vec<String>, initial: Option<&str>) -> AutoState {
+        let mut st = AutoState {
+            filtered: (0..values.len()).collect(),
+            values,
+            cursor: 0,
+            focused: None,
+            selected: vec![],
+            navigating: false,
+            last_user_input: String::new(),
+            value: None,
+        };
+        let initial: Vec<String> = match initial {
+            Some(v) => vec![v.to_string()],
+            None => st.values.first().cloned().into_iter().collect(),
+        };
+        for v in initial {
+            if let Some(i) = st.values.iter().position(|x| *x == v) {
+                st.toggle_selected(Some(v));
+                st.cursor = i;
+            }
+        }
+        st.focused = st.values.get(st.cursor).cloned();
+        st
+    }
+
+    fn toggle_selected(&mut self, value: Option<String>) {
+        if !self.filtered.is_empty() {
+            self.selected = vec![value];
+        }
+    }
+
+    fn focused_at(&self, cursor: usize) -> Option<String> {
+        self.filtered.get(cursor).map(|&i| self.values[i].clone())
+    }
+
+    /// `#onUserInputChanged`.
+    fn user_input(&mut self, input: &str, matches: &dyn Fn(&str, usize) -> bool) {
+        if input == self.last_user_input {
+            return;
+        }
+        self.last_user_input = input.to_string();
+        self.filtered = (0..self.values.len()).filter(|&i| input.is_empty() || matches(input, i)).collect();
+        self.cursor = match &self.focused {
+            None => 0,
+            Some(f) => self.filtered.iter().position(|&i| self.values[i] == *f).unwrap_or(0),
+        };
+        self.focused = self.focused_at(self.cursor);
+        match self.focused.clone() {
+            Some(f) => self.toggle_selected(Some(f)),
+            None => self.selected.clear(),
+        }
+    }
+
+    /// `#onKey`.
+    fn key(&mut self, key: &Key) {
+        match key.name.as_deref() {
+            Some(n @ ("up" | "down")) => {
+                let next = self.cursor as i64 + if n == "up" { -1 } else { 1 };
+                self.cursor = next.min(self.filtered.len() as i64 - 1).max(0) as usize;
+                self.focused = self.focused_at(self.cursor);
+                self.selected = vec![self.focused.clone()];
+                self.navigating = true;
+            }
+            Some("return") => self.value = self.selected.first().cloned().flatten(),
+            _ => {
+                if let Some(f) = self.focused.clone().filter(|f| !f.is_empty()) {
+                    self.selected = vec![Some(f)];
+                }
+            }
+        }
+    }
+
+    fn is_selected(&self, value: &str) -> bool {
+        self.selected.iter().any(|s| s.as_deref() == Some(value))
+    }
+}
+
+/// `userInputWithCursor` of `AutocompletePrompt`.
+fn search_with_cursor(p: &Ctx) -> String {
+    if p.user_input.is_empty() {
+        return p.pc.inverse(&p.pc.hidden("_"));
+    }
+    input_with_cursor(p.pc, &p.user_input, p.cursor)
+}
+
+/// `autocomplete` from `prompts/src/autocomplete.ts`.
+pub struct Autocomplete {
+    pub message: String,
+    pub options: Vec<Opt>,
+    pub max_items: Option<usize>,
+    pub placeholder: Option<String>,
+    pub state: AutoState,
+}
+
+impl Autocomplete {
+    pub fn new(message: &str, options: Vec<Opt>, max_items: Option<usize>) -> Autocomplete {
+        let state = AutoState::new(options.iter().map(|o| o.value.clone()).collect(), None);
+        Autocomplete { message: message.into(), options, max_items, placeholder: None, state }
+    }
+}
+
+impl Kind for Autocomplete {
+    fn track(&self) -> bool {
+        true
+    }
+    fn on_user_input(&mut self, input: &str) {
+        let options = &self.options;
+        // `getFilteredOption`: label, hint or value contains the search, ignoring case.
+        let matches = |search: &str, i: usize| {
+            let o = &options[i];
+            let term = search.to_lowercase();
+            o.label.to_lowercase().contains(&term) || o.hint.as_deref().unwrap_or("").to_lowercase().contains(&term) || o.value.to_lowercase().contains(&term)
+        };
+        self.state.user_input(input, &matches);
+    }
+    fn on_key(&mut self, _ch: Option<&str>, key: &Key) {
+        self.state.key(key);
+    }
+    fn render(&self, p: &Ctx) -> String {
+        let pc = p.pc;
+        let st = &self.state;
+        let title = format!("{}\n{}  {}\n", pc.gray(S_BAR), symbol(pc, p.state), self.message);
+        match p.state {
+            State::Submit => {
+                let label = self.options.iter().filter(|o| st.is_selected(&o.value)).map(|o| o.label.as_str()).collect::<Vec<_>>().join(", ");
+                format!("{title}{}  {}", pc.gray(S_BAR), pc.dim(&label))
+            }
+            State::Cancel => format!("{title}{}  {}", pc.gray(S_BAR), pc.strikethrough(&pc.dim(&p.user_input))),
+            _ => {
+                let show_placeholder = st.value.as_deref().unwrap_or("").is_empty() && self.placeholder.is_some();
+                let search = if st.navigating || show_placeholder {
+                    pc.dim(if show_placeholder { self.placeholder.as_deref().unwrap_or("") } else { &p.user_input })
+                } else {
+                    search_with_cursor(p)
+                };
+                let n = st.filtered.len();
+                let matches = if n != self.options.len() { pc.dim(&format!(" ({n} match{})", if n == 1 { "" } else { "es" })) } else { String::new() };
+                let filtered: Vec<Opt> = st.filtered.iter().map(|&i| self.options[i].clone()).collect();
+                let style = |o: &Opt, active: bool| {
+                    let hint = match &o.hint {
+                        Some(h) if !h.is_empty() && st.focused.as_deref() == Some(o.value.as_str()) => pc.dim(&format!(" ({h})")),
+                        _ => String::new(),
+                    };
+                    if active { format!("{} {}{hint}", pc.green(S_RADIO_ACTIVE), o.label) } else { format!("{} {}{hint}", pc.dim(S_RADIO_INACTIVE), pc.dim(&o.label)) }
+                };
+                let options = if filtered.is_empty() { vec![] } else { limit_options(p, &filtered, st.cursor, self.max_items, &style) };
+                let instructions = [format!("{} to select", pc.dim("↑/↓")), format!("{} confirm", pc.dim("Enter:")), format!("{} to search", pc.dim("Type:"))];
+                let mut lines = vec![title, format!("{}  {} {search}{matches}", pc.cyan(S_BAR), pc.dim("Search:"))];
+                if filtered.is_empty() && !p.user_input.is_empty() {
+                    lines.push(format!("{}  {}", pc.cyan(S_BAR), pc.yellow("No matches found")));
+                }
+                if p.state == State::Error {
+                    lines.push(format!("{}  {}", pc.yellow(S_BAR), pc.yellow(&p.error)));
+                }
+                lines.extend(options.iter().map(|o| format!("{}  {o}", pc.cyan(S_BAR))));
+                lines.push(format!("{}  {}", pc.cyan(S_BAR), pc.dim(&instructions.join(" • "))));
+                lines.push(pc.cyan(S_BAR_END));
+                lines.join("\n")
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// integration picker (upstream `cli/src/ui/integration-picker.ts`, on `AutocompletePrompt`)
+
+#[derive(Clone, Debug)]
+pub struct IntegrationChoice {
+    pub value: String,
+    pub label: String,
+    /// "MCP", "Popular" or "Services".
+    pub category: String,
+    pub connected: bool,
+    pub hint: Option<String>,
+}
+
+/// `selectIntegration(choices, kind)`.
+pub struct IntegrationPicker {
+    pub kind: String,
+    pub choices: Vec<IntegrationChoice>,
+    pub state: AutoState,
+}
+
+impl IntegrationPicker {
+    pub fn new(choices: Vec<IntegrationChoice>, kind: &str) -> IntegrationPicker {
+        let state = AutoState::new(choices.iter().map(|c| c.value.clone()).collect(), None);
+        IntegrationPicker { kind: kind.into(), choices, state }
+    }
+}
+
+impl Kind for IntegrationPicker {
+    fn track(&self) -> bool {
+        true
+    }
+    fn on_user_input(&mut self, input: &str) {
+        let choices = &self.choices;
+        let matches = |search: &str, i: usize| {
+            let c = &choices[i];
+            let term = search.to_lowercase();
+            [&c.label, &c.value, &c.category].iter().any(|v| v.to_lowercase().contains(&term))
+        };
+        self.state.user_input(input, &matches);
+    }
+    fn on_key(&mut self, _ch: Option<&str>, key: &Key) {
+        self.state.key(key);
+    }
+    fn validate(&self) -> Option<String> {
+        self.state.value.as_deref().filter(|v| !v.is_empty()).is_none().then(|| format!("Select an {}", self.kind))
+    }
+    fn render(&self, p: &Ctx) -> String {
+        let pc = p.pc;
+        let st = &self.state;
+        let title = format!("{}\n{}  Select {}", pc.gray(S_BAR), symbol(pc, p.state), self.kind);
+        match p.state {
+            State::Submit => {
+                let label = self.choices.iter().find(|c| Some(c.value.as_str()) == st.value.as_deref()).map(|c| c.label.as_str()).unwrap_or("");
+                return format!("{title}\n{}  {}", pc.gray(S_BAR), pc.dim(label));
+            }
+            State::Cancel => return format!("{title}\n{}  {}", pc.gray(S_BAR), pc.strikethrough(&pc.dim(&p.user_input))),
+            _ => {}
+        }
+        let rows = p.rows.unwrap_or(24) as i64;
+        let error = (p.state == State::Error) as i64;
+        let max_items = 8.min(2.max(rows - 14 - error));
+        let compact = rows < 18;
+        let n = st.filtered.len() as i64;
+        let start = (st.cursor as i64 - 2.min(max_items - 1)).max(0).min((n - max_items).max(0));
+        let visible: Vec<&IntegrationChoice> = st.filtered.iter().skip(start as usize).take(max_items as usize).map(|&i| &self.choices[i]).collect();
+        let bar = pc.cyan(S_BAR);
+        let mut items: Vec<String> = vec![];
+        for (index, c) in visible.iter().enumerate() {
+            if index == 0 || visible[index - 1].category != c.category {
+                if !compact {
+                    items.push(format!("{bar}  "));
+                }
+                items.push(format!("{bar}  {}", pc.bold(&c.category)));
+            }
+            let active = start + index as i64 == st.cursor as i64;
+            items.push(format!(
+                "{bar}  {} {}{}{}",
+                if active { pc.green(S_RADIO_ACTIVE) } else { pc.dim(S_RADIO_INACTIVE) },
+                if active { c.label.clone() } else { pc.dim(&c.label) },
+                if c.connected { format!(" {}", pc.green("✓")) } else { String::new() },
+                c.hint.as_deref().filter(|h| !h.is_empty()).map(|h| format!(" {}", pc.dim(&format!("({h})")))).unwrap_or_default(),
+            ));
+        }
+        let mut lines = vec![title, format!("{bar}  {} {}", pc.dim("Search:"), if st.navigating { pc.dim(&p.user_input) } else { search_with_cursor(p) })];
+        if visible.is_empty() && !p.user_input.is_empty() {
+            lines.push(format!("{bar}  {}", pc.yellow(&format!("No {}s found", self.kind))));
+        }
+        if p.state == State::Error && !visible.is_empty() {
+            lines.push(format!("{}  {}", pc.yellow(S_BAR), pc.yellow(&p.error)));
+        }
+        if start > 0 {
+            lines.push(format!("{bar}  {}", pc.dim("…")));
+        }
+        lines.extend(items);
+        if start + max_items < n {
+            lines.push(format!("{bar}  {}", pc.dim("…")));
+        }
+        let help = if p.columns.unwrap_or(80) < 50 { "↑/↓ navigate • Enter select" } else { "↑/↓ to select • Enter: confirm • Type: to search" };
+        lines.push(format!("{bar}  {}", pc.dim(help)));
+        lines.push(pc.cyan(S_BAR_END));
+        lines.join("\n")
     }
 }
 

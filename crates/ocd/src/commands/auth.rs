@@ -274,8 +274,8 @@ fn choose_integration(integrations: &[Value], target: Option<&str>) -> Result<Va
             hint: Some(connections(i, "credential").iter().map(|c| s(c, "label").to_string()).collect::<Vec<_>>().join(", ")),
         })
         .collect();
-    let id = ui::autocomplete("Select integration", &choices, 8)?;
-    Ok(resolve_integration(&configured.into_iter().cloned().collect::<Vec<_>>(), &id)?)
+    let id = ui::autocomplete(ui::Out::Stdout, "Select integration", &choices, Some(8))?;
+    Ok(resolve_integration(&configured.into_iter().cloned().collect::<Vec<_>>(), id.as_deref().unwrap_or(UNDEFINED))?)
 }
 
 fn choose_credential(integration: &Value, action: &str, target: Option<&str>) -> Result<String, Flow> {
@@ -314,7 +314,7 @@ fn choose_credential(integration: &Value, action: &str, target: Option<&str>) ->
             hint: Some(s(c, "id").into()),
         })
         .collect();
-    Ok(ui::autocomplete(&format!("Select {name} account to {action}"), &choices, 8)?)
+    Ok(ui::autocomplete(ui::Out::Stdout, &format!("Select {name} account to {action}"), &choices, Some(8))?.unwrap_or_else(|| UNDEFINED.to_string()))
 }
 
 async fn account(global: &Global, input: &Input, switch: bool) -> Result<(), Flow> {
@@ -373,7 +373,7 @@ fn priority(id: &str) -> usize {
     PRIORITY.iter().position(|p| *p == id).unwrap_or(PRIORITY.len())
 }
 
-pub fn login_choices(integrations: &[Value]) -> Vec<ui::Choice> {
+pub fn login_choices(integrations: &[Value]) -> Vec<ui::IntegrationChoice> {
     let mut list: Vec<&Value> = integrations.iter().filter(|i| !connect_methods(i).is_empty()).collect();
     let mcp = |i: &Value| i.pointer("/metadata/source").and_then(Value::as_str) == Some("mcp");
     list.sort_by(|a, b| {
@@ -392,11 +392,12 @@ pub fn login_choices(integrations: &[Value]) -> Vec<ui::Choice> {
             } else {
                 "Services"
             };
-            let connected = !arr(i, "connections").is_empty();
-            ui::Choice {
+            ui::IntegrationChoice {
                 value: s(i, "id").into(),
-                label: format!("{}{}", s(i, "name"), if connected { " ✓" } else { "" }),
-                hint: Some(category.into()),
+                label: s(i, "name").into(),
+                category: category.into(),
+                connected: !arr(i, "connections").is_empty(),
+                hint: None,
             }
         })
         .collect()
@@ -486,6 +487,9 @@ fn validate_value(field: &Value, value: Option<&Value>) -> Option<String> {
         _ => None,
     }
 }
+
+/// What a picker resolved with nothing matching stands for (upstream passes `undefined` on).
+const UNDEFINED: &str = "undefined";
 
 /// Stand-ins for the `custom` / `skip` symbols upstream's form pickers add to their options.
 const CUSTOM: &str = "\u{0}custom";
@@ -693,7 +697,7 @@ pub async fn login_flow(
             if choices.is_empty() {
                 return Err(Flow::Error(anyhow::anyhow!("No authentication integrations are available")));
             }
-            let id = ui::autocomplete("Select integration", &choices, 10)?;
+            let id = ui::select_integration(choices, "integration")?;
             resolve_integration(&integrations, &id)?
         }
     };

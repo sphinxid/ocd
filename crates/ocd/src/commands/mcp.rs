@@ -161,7 +161,7 @@ async fn auth_flow(global: &Global, name: Option<String>) -> Result<(), Flow> {
     let list = servers(&client).await?;
     let by_id = |id: &str| integrations.iter().find(|i| s(i, "id") == id).cloned();
     let has_oauth = |i: &Value| i.get("methods").and_then(Value::as_array).is_some_and(|m| m.iter().any(|m| s(m, "type") == "oauth"));
-    let mut choices: Vec<ui::Choice> = list
+    let mut choices: Vec<ui::IntegrationChoice> = list
         .iter()
         .filter_map(|server| {
             let integration = server.get("integrationID").and_then(Value::as_str).and_then(by_id)?;
@@ -174,7 +174,13 @@ async fn auth_flow(global: &Global, name: Option<String>) -> Result<(), Flow> {
                 "failed" | "disabled" => Some(status.to_string()),
                 _ => None,
             };
-            Some(ui::Choice { value: s(&integration, "id").into(), label: s(server, "name").into(), hint })
+            Some(ui::IntegrationChoice {
+                value: s(&integration, "id").into(),
+                label: s(server, "name").into(),
+                category: "MCP".into(),
+                connected: integration.get("connections").and_then(Value::as_array).is_some_and(|c| !c.is_empty()),
+                hint,
+            })
         })
         .collect();
     choices.sort_by(|a, b| locale_cmp(&a.label, &b.label).then(locale_cmp(&a.value, &b.value)));
@@ -189,7 +195,7 @@ async fn auth_flow(global: &Global, name: Option<String>) -> Result<(), Flow> {
             let server = list.iter().find(|x| s(x, "name") == n).ok_or_else(|| anyhow::anyhow!(oc_mcp::cli::not_found(n)))?;
             s(server, "integrationID").to_string()
         }
-        None => ui::autocomplete("Select MCP server", &choices, 10)?,
+        None => ui::select_integration(choices, "MCP server")?,
     };
     let integration = by_id(&integration_id);
     let method = integration

@@ -81,9 +81,101 @@ fn prompts_match_recorded_clack_frames() {
                 let result = if p.ctx.state == State::Cancel { json!("<cancel>") } else { json!(p.kind.value) };
                 check(case, &frames, result);
             }
+            "confirm" => {
+                let kind = Confirm::new(opts["message"].as_str().unwrap(), opts["initialValue"].as_bool().unwrap_or(true));
+                let (p, frames) = replay(case, Prompt::new(kind, pc, columns, None), None);
+                let result = if p.ctx.state == State::Cancel { json!("<cancel>") } else { json!(p.kind.value) };
+                check(case, &frames, result);
+            }
             k => panic!("unknown kind {k}"),
         }
     }
+}
+
+/// Recorded with `tests/golden/clack_autocomplete.mjs`: clack's `autocomplete` and upstream's integration
+/// picker under Bun 1.4.4, `FORCE_COLOR=1`, with the picker's `process.stdout.rows`/`columns` set per case.
+const AUTOCOMPLETE: &str = include_str!("../../tests/golden/clack_autocomplete.json");
+
+#[test]
+fn autocomplete_and_integration_picker_match_recorded_frames() {
+    let cases: Value = serde_json::from_str(AUTOCOMPLETE).unwrap();
+    let pc = Pc { on: true };
+    let shown = |state: State, value: Option<String>| match (state, value) {
+        (State::Cancel, _) => json!("<cancel>"),
+        (_, Some(v)) => json!(v),
+        (_, None) => json!("<undefined>"),
+    };
+    for case in cases.as_array().unwrap() {
+        let opts = &case["opts"];
+        let columns = case["columns"].as_u64().map(|c| c as usize);
+        let rows = case["rows"].as_u64().map(|c| c as usize);
+        match case["kind"].as_str().unwrap() {
+            "autocomplete" => {
+                let kind = Autocomplete::new(opts["message"].as_str().unwrap(), options(opts), opts["maxItems"].as_u64().map(|m| m as usize));
+                // limitOptions reads the (piped) output's rows: 10.
+                let (p, frames) = replay(case, Prompt::new(kind, pc, columns, None), None);
+                let result = shown(p.ctx.state, p.kind.state.value.clone());
+                check(case, &frames, result);
+            }
+            "picker" => {
+                let choices = opts["choices"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|c| IntegrationChoice {
+                        value: c["value"].as_str().unwrap().into(),
+                        label: c["label"].as_str().unwrap().into(),
+                        category: c["category"].as_str().unwrap().into(),
+                        connected: c["connected"].as_bool().unwrap(),
+                        hint: c["hint"].as_str().map(String::from),
+                    })
+                    .collect();
+                let kind = IntegrationPicker::new(choices, opts["kind"].as_str().unwrap());
+                let (p, frames) = replay(case, Prompt::new(kind, pc, columns, rows), None);
+                let result = shown(p.ctx.state, p.kind.state.value.clone());
+                check(case, &frames, result);
+            }
+            k => panic!("unknown kind {k}"),
+        }
+    }
+}
+
+#[test]
+fn resize_rerenders_at_the_new_width() {
+    let pc = Pc { on: false };
+    let opts = vec![Opt { value: "a".into(), label: "Alpha beta gamma".into(), hint: None }];
+    let mut p = Prompt::new(Select::new("Pick", opts, None), pc, Some(40), None);
+    p.start(None);
+    // The old frame is measured at the new width (`restoreCursor`), then the changed lines redrawn.
+    assert_eq!(p.resize(Some(10), None), "\x1b[999D\x1b[5A\x1b[2B\x1b[J│  ● Alpha\nbeta gamma\n└\n");
+    assert_eq!(p.resize(Some(10), None), "");
+}
+
+#[test]
+fn ctrl_d_on_an_empty_line_closes_readline() {
+    let pc = Pc { on: false };
+    let ctrl_d = Key { ctrl: true, ..Key::named("d", Some("\x04"), "\x04") };
+    let mut p = Prompt::new(Text::new("Name", None), pc, None, None);
+    p.start(Some("ab"));
+    // With text in the line, ctrl+d deletes forward (nothing at the end).
+    assert_eq!(p.press(&ctrl_d), "");
+    assert!(!p.closed());
+    let mut p = Prompt::new(Text::new("Name", None), pc, None, None);
+    p.start(None);
+    assert_eq!(p.press(&ctrl_d), "");
+    assert!(p.closed() && !p.done());
+    // A select's readline line collects typed characters too, so ctrl+d after a space doesn't close it.
+    let opts = vec![Opt { value: "a".into(), label: "A".into(), hint: None }];
+    let mut p = Prompt::new(MultiSelect::new("Pick", opts, &[], false, pc), pc, None, None);
+    p.start(None);
+    p.press(&Key::named("space", Some(" "), " "));
+    p.press(&ctrl_d);
+    assert!(!p.closed());
+}
+
+#[test]
+fn wrap_normalises_to_nfc() {
+    assert_eq!(wrap("e\u{301}", None), "\u{e9}");
 }
 
 #[test]
