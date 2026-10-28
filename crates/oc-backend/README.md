@@ -106,6 +106,9 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
 * **wellknown**: `experimental.integration.wellknown.add` (`oc_ai` `WellKnown` over the `kv` table;
   failure → 400 `well_known_discovery`); persisted sources register their `login` command method
   whenever integrations are loaded.
+* **MCP integrations**: loading integrations also registers the location's remote MCP servers as
+  `mcp_<hash>` OAuth integrations (`oc_core::mcp::register_integrations`, upstream `mcp/index.ts`
+  `register`); a `credential.switched` for one reconnects its server.
 * **config reload**: `experimental.config.update` reloads every loaded location through
   `runner.reload_location`; `Locations` drops its cached services on `config.updated`.
 * **prompt attachments**: images are normalized with `oc_tools::image::normalize` under the

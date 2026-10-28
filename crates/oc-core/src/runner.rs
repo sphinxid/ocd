@@ -272,6 +272,27 @@ impl Engine {
                 bus.publish(ev.event_type(), data, Some(loc.clone()));
             }
         });
+        // `Credential.Event.Switched` for a server's integration (an OAuth login through the
+        // integration API) brings that server back online with the new credential.
+        let mut events = self.app.bus.subscribe();
+        let manager = Arc::downgrade(&m);
+        tokio::spawn(async move {
+            loop {
+                let event = match events.recv().await {
+                    Ok(event) => event,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => return,
+                };
+                if event.kind != "credential.switched" {
+                    continue;
+                }
+                let Some(id) = event.data.get("integrationID").and_then(serde_json::Value::as_str) else { continue };
+                let Some(manager) = manager.upgrade() else { return };
+                if manager.servers().iter().any(|s| s.integration_id.as_deref() == Some(id)) {
+                    manager.credential_switched(id).await;
+                }
+            }
+        });
         mcps.insert(key, m.clone());
         m
     }

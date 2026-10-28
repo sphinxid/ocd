@@ -108,6 +108,81 @@ pub async fn manager(db: &Database, forms: &Forms, location: &Location, version:
     manager
 }
 
+/// The OAuth login method of a remote MCP server (`register` in `core/src/mcp/index.ts`): the
+/// integration's `oauth` method runs the server's MCP OAuth flow.
+struct McpOAuthMethod {
+    integration_id: String,
+    name: String,
+    manager: Arc<McpManager>,
+}
+
+#[async_trait]
+impl oc_ai::credentials::integration::OAuthMethod for McpOAuthMethod {
+    fn integration_id(&self) -> String {
+        self.integration_id.clone()
+    }
+
+    fn info(&self) -> oc_ai::credentials::integration::OAuthMethodInfo {
+        oc_ai::credentials::integration::OAuthMethodInfo::new(&self.integration_id, &self.name)
+    }
+
+    async fn authorize(
+        &self,
+        _answer: oc_ai::credentials::form::FormAnswer,
+        scope: CancellationToken,
+    ) -> oc_ai::credentials::integration::FlowResult<oc_ai::credentials::integration::AuthorizeResult> {
+        use oc_ai::credentials::integration::{AuthorizeResult, FlowError};
+        let handle = self.manager.auth_start(&self.name).await.map_err(|e| FlowError::new(e.to_string()))?;
+        // The callback server stops with the attempt's scope.
+        let cancel = handle.canceller();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = scope.cancelled() => cancel.cancel(),
+                _ = cancel.cancelled() => {}
+            }
+        });
+        let (url, instructions) = (handle.url.clone(), handle.instructions.clone());
+        Ok(AuthorizeResult::auto(url, instructions, async move {
+            let value = handle.wait().await.map_err(FlowError::new)?;
+            let text = |k: &str| value.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            Ok(oc_ai::credentials::OAuthValue {
+                method_id: text("methodID"),
+                refresh: text("refresh"),
+                access: text("access"),
+                expires: value.get("expires").and_then(Value::as_u64).unwrap_or(0),
+                metadata: value.get("metadata").and_then(Value::as_object).cloned(),
+            })
+        }))
+    }
+}
+
+/// Registers every remote OAuth-capable server of `manager` as an integration (`mcp_<hash>`, named
+/// after the server, `metadata.source: "mcp"`, one `oauth` method labelled with the server name),
+/// and drops MCP integrations whose server is gone. Unchanged registrations are left alone.
+pub fn register_integrations(integrations: &oc_ai::credentials::integration::Integrations, manager: &Arc<McpManager>) {
+    use oc_ai::credentials::integration::Method;
+    let is_mcp = |metadata: &Option<oc_ai::credentials::Metadata>| metadata.as_ref().and_then(|m| m.get("source")).and_then(Value::as_str) == Some("mcp");
+    let servers: Vec<(String, String)> = manager.servers().into_iter().filter_map(|s| s.integration_id.map(|id| (id, s.name))).collect();
+    let refs = integrations.refs();
+    for r in refs.iter().filter(|r| is_mcp(&r.metadata)) {
+        if !servers.iter().any(|(id, _)| *id == r.id) {
+            integrations.remove(&r.id);
+        }
+    }
+    for (id, name) in servers {
+        let registered = refs.iter().any(|r| r.id == id && r.name == name && is_mcp(&r.metadata))
+            && integrations.methods(&id).iter().any(|m| matches!(m, Method::Oauth { id: mid, label, .. } if *mid == id && *label == name));
+        if registered {
+            continue;
+        }
+        integrations.update(&id, |r| {
+            r.name = name.clone();
+            r.metadata = Some(serde_json::Map::from_iter([("source".to_string(), Value::String("mcp".into()))]));
+        });
+        integrations.register_oauth(Arc::new(McpOAuthMethod { integration_id: id, name, manager: manager.clone() }));
+    }
+}
+
 /// Sentinel owner session of MCP elicitation forms.
 pub const GLOBAL_ELICITATION_SESSION_ID: &str = "global";
 pub const URL_ELICITATION_FIELD_KEY: &str = "elicitation";
@@ -284,6 +359,41 @@ fn option(value: Option<&Value>, label: Option<&Value>) -> Value {
 mod elicitation_tests {
     use super::*;
     use serde_json::json;
+
+    /// `register` in `mcp/index.ts`: remote servers become `mcp_<hash>` OAuth integrations (recorded
+    /// from upstream 2.1.4's `integration.list`), `oauth: false` and local servers don't, and
+    /// removed servers drop out.
+    #[tokio::test]
+    async fn remote_servers_register_oauth_integrations() {
+        let integrations = oc_ai::credentials::integration::Integrations::new(oc_ai::credentials::store::MemoryCredentialStore::shared());
+        let manager = Arc::new(McpManager::new(ManagerOptions {
+            directory: std::env::temp_dir(),
+            client_info: ClientInfo { name: "opencode".into(), version: "test".into() },
+            credentials: None,
+            elicitation: None,
+        }));
+        let servers = |v: serde_json::Value| serde_json::from_value::<indexmap::IndexMap<String, oc_mcp::config::ServerConfig>>(v).unwrap();
+        manager
+            .set_servers(servers(json!({
+                "alpha": {"type": "remote", "url": "http://127.0.0.1:9/alpha", "disabled": true},
+                "plain": {"type": "remote", "url": "http://127.0.0.1:9/plain", "oauth": false, "disabled": true},
+                "local": {"type": "local", "command": ["true"], "disabled": true},
+            })))
+            .await;
+        register_integrations(&integrations, &manager);
+        let list = integrations.list().await.unwrap();
+        let mcp: Vec<serde_json::Value> = list.iter().filter(|i| i.id.starts_with("mcp_")).map(|i| serde_json::to_value(i).unwrap()).collect();
+        assert_eq!(
+            mcp,
+            vec![json!({"id": "mcp_ad7fcff5e94db8a6", "name": "alpha", "metadata": {"source": "mcp"}, "methods": [{"id": "mcp_ad7fcff5e94db8a6", "type": "oauth", "label": "alpha"}], "connections": []})]
+        );
+        let revision = integrations.revision();
+        register_integrations(&integrations, &manager);
+        assert_eq!(integrations.revision(), revision, "unchanged registrations are not re-published");
+        manager.set_servers(servers(json!({}))).await;
+        register_integrations(&integrations, &manager);
+        assert!(!integrations.list().await.unwrap().iter().any(|i| i.id.starts_with("mcp_")));
+    }
 
     #[test]
     fn machine_titles_fall_back() {

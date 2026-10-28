@@ -1648,6 +1648,10 @@ impl Engine {
             Ok(entries) => oc_ai::credentials::wellknown::register(&integrations, &entries),
             Err(e) => tracing::warn!(error = %e, "failed to load wellknown sources"),
         }
+        // The MCP layer registers every remote server as an OAuth integration.
+        if let Some(mcp) = self.mcp(&loc).await {
+            oc_core::mcp::register_integrations(&integrations, &mcp);
+        }
         Ok(integrations)
     }
 

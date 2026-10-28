@@ -56,7 +56,7 @@ the rest untouched. Runtime `add` overrides win over config; `remove` hides a na
 | `instructions() -> Vec<(server, text)>` | trimmed, non-empty, sorted |
 | `prompts()`, `prompt(server, name, args)` | prompt list; `prompts/get` (`None` on any failure) |
 | `resource_catalog()`, `resources(server)`, `read_resource(server, uri)` | merged/sorted catalog (template-list failures swallowed); read returns `None` without the `resources` capability |
-| `auth_start(server) -> AuthorizeHandle` | interactive OAuth: `handle.url`, `handle.instructions` (`Authorize <name> in your browser. This window will close automatically.`), `handle.mode == "auto"`, `handle.wait().await -> Result<credential JSON, String>` |
+| `auth_start(server) -> AuthorizeHandle` | interactive OAuth: `handle.url`, `handle.instructions` (`Authorize <name> in your browser. This window will close automatically.`), `handle.mode == "auto"`, `handle.wait().await -> Result<credential JSON, String>`, `handle.canceller()` (cancel to close the callback server). Core registers each remote server as an `mcp_<hash>` OAuth integration whose method runs this flow (`oc_core::mcp::register_integrations`) |
 | `auth_finish(server, credential) -> credential id` | stores the credential (keeps previous label, removes old rows), reconnects |
 | `logout(server) -> usize` | removes all stored credentials of the integration, reconnects |
 | `credential_switched(integration_id)` | call when core's credential store switches a credential (`Credential.Event.Switched`) |

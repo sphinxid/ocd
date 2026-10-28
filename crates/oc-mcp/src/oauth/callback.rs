@@ -61,6 +61,12 @@ impl AuthorizeHandle {
     pub fn cancel(&self) {
         self.cancel.cancel();
     }
+
+    /// The attempt's cancellation token: cancelling it closes the callback server; it is cancelled
+    /// once [`AuthorizeHandle::wait`] resolves.
+    pub fn canceller(&self) -> CancellationToken {
+        self.cancel.clone()
+    }
 }
 
 struct CodeMessage {
