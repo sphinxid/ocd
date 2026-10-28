@@ -1,5 +1,6 @@
 //! Wire protocols: request lowering and stream raising.
 
+pub mod cloud_env;
 pub mod lifecycle;
 pub mod partial_json;
 pub mod options;
