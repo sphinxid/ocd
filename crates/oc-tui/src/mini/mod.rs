@@ -1,6 +1,20 @@
 //! `opencode mini` runner (`cli/src/mini.ts`, `src/mini/`): no alternate screen; the transcript
 //! goes to native scrollback and a live footer is redrawn below it.
 
+pub mod catalog;
+pub mod entry_body;
+pub mod footer_width;
+pub mod form_shared;
+pub mod mono;
+pub mod permission_shared;
+pub mod prompt_shared;
+pub mod session_shared;
+pub mod tool;
+pub mod types;
+pub mod util;
+pub mod variant;
+pub mod verbosity;
+
 use crate::app::mini::{MiniState, lines_to_ansi, row_to_ansi};
 use crate::app::{App, AppMsg, TuiOptions};
 use crate::keymap::{self, Match};
