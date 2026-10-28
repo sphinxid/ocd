@@ -18,6 +18,7 @@ reqwest.workspace = true
 pulldown-cmark.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
+unicode-normalization = "0.1"
 similar.workspace = true
 chrono.workspace = true
 parking_lot.workspace = true

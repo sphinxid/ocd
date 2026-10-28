@@ -244,3 +244,52 @@ pub fn render(snap: &ToolSnapshot, theme: &RunTheme, _syntax: &MiniSyntax, width
         }
     }
 }
+
+/// `PatchDiff` as the permission dock shows it: unified, line numbers, line backgrounds.
+pub fn patch_diff_dock(diff: &str, width: usize, b: &super::theme::BlockTheme, fg: Color) -> Buffer {
+    let mut parts: Vec<Buffer> = Vec::new();
+    for (hi, h) in hunks(diff).iter().enumerate() {
+        if hi > 0 {
+            let mut row = Buffer::new(width as u16, 1);
+            row.fill_rect(0, 0, width as i32, 1, b.diff_context_bg);
+            row.draw_chunks(0, 0, &[StyledChunk { text: format!(" {}", h.header.clone().unwrap_or_default()), fg: b.diff_line_number, bg: b.diff_context_bg, attrs: 0 }], width);
+            parts.push(row);
+        }
+        let max = h.lines.iter().map(|l| l.number).max().unwrap_or(1);
+        let d = digits(max);
+        let gw = 1 + d + 1 + 2;
+        let code_w = width.saturating_sub(gw).max(1);
+        let mut rows: Vec<(char, Option<usize>, Vec<StyledChunk>)> = Vec::new();
+        for l in &h.lines {
+            for (k, v) in layout(&[StyledChunk::plain(&l.text, fg)], code_w, WrapMode::Word, false).into_iter().enumerate() {
+                rows.push((l.sign, (k == 0).then_some(l.number), v.chunks));
+            }
+        }
+        let mut buf = Buffer::new(width as u16, rows.len().max(1) as u16);
+        for (y, (sign, number, chunks)) in rows.iter().enumerate() {
+            let (line_bg, num_bg) = match sign {
+                '+' => (b.diff_added_bg, b.diff_added_line_number_bg),
+                '-' => (b.diff_removed_bg, b.diff_removed_line_number_bg),
+                _ => (b.diff_context_bg, b.diff_context_bg),
+            };
+            buf.fill_rect(0, y as i32, gw as i32, 1, num_bg);
+            buf.fill_rect(gw as i32, y as i32, code_w as i32, 1, line_bg);
+            if let Some(n) = number {
+                let s = n.to_string();
+                buf.draw_chunks((gw - 3 - s.len()) as i32, y as i32, &[StyledChunk { text: s, fg: b.diff_line_number, bg: num_bg, attrs: 0 }], gw);
+                let sign_text = match sign {
+                    '+' => Some((" +", b.diff_highlight_added)),
+                    '-' => Some((" -", b.diff_highlight_removed)),
+                    _ => None,
+                };
+                if let Some((t, c)) = sign_text {
+                    buf.draw_chunks((gw - 3) as i32, y as i32, &[StyledChunk { text: t.into(), fg: c, bg: num_bg, attrs: 0 }], 2);
+                }
+            }
+            let chunks: Vec<StyledChunk> = chunks.iter().map(|c| StyledChunk { bg: line_bg, ..c.clone() }).collect();
+            buf.draw_chunks(gw as i32, y as i32, &chunks, code_w);
+        }
+        parts.push(buf);
+    }
+    column(parts, width, 0)
+}

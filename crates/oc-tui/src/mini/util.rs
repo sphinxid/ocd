@@ -431,6 +431,21 @@ pub fn money(v: f64) -> String {
     format!("{}${digits}{grouped}.{frac:02}", if neg { "-" } else { "" })
 }
 
+/// Drop leading graphemes covering `width` display cells.
+pub fn skip_width(s: &str, width: usize) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut used = 0;
+    let mut out = String::new();
+    for g in s.graphemes(true) {
+        if used >= width {
+            out.push_str(g);
+        } else {
+            used += crate::util::locale::width(g);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,3 +484,4 @@ mod tests {
         assert_eq!(money(1234.5), "$1,234.50");
     }
 }
+

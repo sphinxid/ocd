@@ -16,6 +16,9 @@ pub enum WrapMode {
 pub struct VLine {
     pub chunks: Vec<StyledChunk>,
     pub width: usize,
+    /// Byte range of the source text (all chunks concatenated) shown on this row.
+    pub start: usize,
+    pub end: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -23,6 +26,7 @@ struct G {
     text: String,
     w: usize,
     style: usize,
+    pos: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -77,12 +81,18 @@ struct Wrapper<'a> {
     line_w: usize,
     width: usize,
     full: usize,
+    line_pos: usize,
 }
 
 impl Wrapper<'_> {
     fn commit(&mut self) {
         let line = std::mem::take(&mut self.line);
-        self.out.push(to_vline(&line, self.styles));
+        let mut v = to_vline(&line, self.styles);
+        if line.is_empty() {
+            v.start = self.line_pos;
+            v.end = self.line_pos;
+        }
+        self.out.push(v);
         self.line_w = 0;
         self.width = self.full;
     }
@@ -189,30 +199,37 @@ fn to_vline(gs: &[G], styles: &[StyledChunk]) -> VLine {
             }
         }
     }
-    VLine { chunks, width }
+    let start = gs.first().map(|g| g.pos).unwrap_or(0);
+    let end = gs.last().map(|g| g.pos + g.text.len()).unwrap_or(start);
+    VLine { chunks, width, start, end }
 }
 
 /// Split styled chunks into logical lines of graphemes.
-fn logical_lines(chunks: &[StyledChunk]) -> Vec<Vec<G>> {
-    let mut lines: Vec<Vec<G>> = vec![Vec::new()];
+fn logical_lines(chunks: &[StyledChunk]) -> Vec<(usize, Vec<G>)> {
+    let mut lines: Vec<(usize, Vec<G>)> = vec![(0, Vec::new())];
+    let mut base = 0;
     for (i, c) in chunks.iter().enumerate() {
         let mut prev_cr = false;
-        for g in c.text.graphemes(true) {
+        for (o, g) in c.text.grapheme_indices(true) {
+            let pos = base + o;
             if g == "\r\n" || g == "\n" {
                 if !prev_cr || g == "\r\n" {
-                    lines.push(Vec::new());
+                    lines.push((pos + g.len(), Vec::new()));
+                } else {
+                    lines.last_mut().unwrap().0 = pos + g.len();
                 }
                 prev_cr = false;
                 continue;
             }
             if g == "\r" {
-                lines.push(Vec::new());
+                lines.push((pos + 1, Vec::new()));
                 prev_cr = true;
                 continue;
             }
             prev_cr = false;
-            lines.last_mut().unwrap().push(G { text: g.to_string(), w: grapheme_width(g), style: i });
+            lines.last_mut().unwrap().1.push(G { text: g.to_string(), w: grapheme_width(g), style: i, pos });
         }
+        base += c.text.len();
     }
     lines
 }
@@ -326,8 +343,9 @@ pub fn layout_first(chunks: &[StyledChunk], width: usize, mode: WrapMode, first_
 fn layout_inner(chunks: &[StyledChunk], width: usize, mode: WrapMode, truncate: bool, offset: usize) -> Vec<VLine> {
     let width = width.max(1);
     let first = if offset > 0 && offset < width && mode != WrapMode::None { width - offset } else { width };
-    let mut w = Wrapper { styles: chunks, out: Vec::new(), line: Vec::new(), line_w: 0, width: first, full: width };
-    for line in logical_lines(chunks) {
+    let mut w = Wrapper { styles: chunks, out: Vec::new(), line: Vec::new(), line_w: 0, width: first, full: width, line_pos: 0 };
+    for (line_pos, line) in logical_lines(chunks) {
+        w.line_pos = line_pos;
         let line_width: usize = line.iter().map(|g| g.w).sum();
         match mode {
             WrapMode::None => w.add(&line),
@@ -351,7 +369,7 @@ fn layout_inner(chunks: &[StyledChunk], width: usize, mode: WrapMode, truncate: 
 
 fn truncate_middle(v: &VLine, width: usize) -> VLine {
     if width <= 3 {
-        return VLine { chunks: vec![], width: 0 };
+        return VLine { chunks: vec![], width: 0, start: v.start, end: v.start };
     }
     let available = width - 3;
     let prefix_w = available / 2;
@@ -389,7 +407,7 @@ fn truncate_middle(v: &VLine, width: usize) -> VLine {
         }
         pos += w;
     }
-    VLine { chunks: out, width: used + 3 + suffix_used }
+    VLine { chunks: out, width: used + 3 + suffix_used, start: v.start, end: v.end }
 }
 
 /// Draw laid-out rows at (x, y), at most `max_rows` rows and `width` columns.

@@ -1,22 +1,33 @@
 //! `opencode mini` runner (`cli/src/mini.ts`, `src/mini/`): no alternate screen; the transcript
 //! goes to native scrollback and a live footer is redrawn below it.
 
+pub mod blocker;
 pub mod catalog;
 pub mod cell;
 pub mod text;
+pub mod textarea;
 pub mod entry_body;
+pub mod footer;
 pub mod footer_width;
 pub mod form_shared;
+pub mod fuzzysort;
 pub mod highlight;
 pub mod markdown;
 pub mod marked;
+pub mod menu;
 mod marked_rules;
 pub mod mono;
+pub mod motion;
+pub mod panels;
 pub mod permission_shared;
+pub mod prompt;
 pub mod prompt_shared;
 pub mod scrollback;
 pub mod session_shared;
+pub mod splash;
+pub mod split;
 pub mod structured;
+pub mod subagent_view;
 pub mod theme;
 pub mod tool;
 pub mod types;

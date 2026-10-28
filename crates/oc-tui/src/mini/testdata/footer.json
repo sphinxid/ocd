@@ -1,0 +1,11404 @@
+[
+{
+"name": "idle-w80",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"snap": "first"
+},
+{
+"text": "hello there"
+},
+{
+"snap": "typed"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "submitted"
+},
+{
+"event": {
+"type": "turn.send"
+}
+},
+{
+"snap": "sending"
+},
+{
+"event": {
+"type": "stream.patch",
+"patch": {
+"phase": "running",
+"status": "assistant responding"
+}
+}
+},
+{
+"snap": "running"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "esc1"
+},
+{
+"event": {
+"type": "stream.patch",
+"patch": {
+"usage": {
+"tokens": 15,
+"percent": 0
+}
+}
+}
+},
+{
+"event": {
+"type": "turn.idle"
+}
+},
+{
+"snap": "idle"
+},
+{
+"key": "c",
+"ctrl": true
+},
+{
+"snap": "ctrlc"
+}
+],
+"width": 80,
+"frames": [
+{
+"name": "first",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "typed",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ hello there",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-13:#eeeeee/d#0a0a0a/0",
+"13-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+14,
+2
+]
+},
+{
+"name": "submitted",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "sending",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ esc interrupt · Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-15:#eeeeee/d#0a0a0a/0",
+"15-18:#808080/d#0a0a0a/0",
+"18-23:#5c9cf5/d#0a0a0a/0",
+"23-26:#808080/d#0a0a0a/0",
+"26-34:#eeeeee/d#0a0a0a/0",
+"34-44:#808080/d#0a0a0a/0",
+"44-50:#eeeeee/d#0a0a0a/0",
+"50-55:#808080/d#0a0a0a/0",
+"55-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "running",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ esc interrupt · Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-15:#eeeeee/d#0a0a0a/0",
+"15-18:#808080/d#0a0a0a/0",
+"18-23:#5c9cf5/d#0a0a0a/0",
+"23-26:#808080/d#0a0a0a/0",
+"26-34:#eeeeee/d#0a0a0a/0",
+"34-44:#808080/d#0a0a0a/0",
+"44-50:#eeeeee/d#0a0a0a/0",
+"50-55:#808080/d#0a0a0a/0",
+"55-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "esc1",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ Press esc again to interrupt"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-30:#f5a742/d#0a0a0a/0",
+"30-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "idle",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Build · Mock One · 15 (0%) · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-36:#808080/d#0a0a0a/0",
+"36-42:#eeeeee/d#0a0a0a/0",
+"42-47:#808080/d#0a0a0a/0",
+"47-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "ctrlc",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Press ctrl+c again to exit"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-26:#e06c75/d#0a0a0a/0",
+"26-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"prompt": {
+"text": "hello there",
+"parts": [],
+"delivery": "steer"
+}
+}
+]
+},
+{
+"name": "palette-w80",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"key": "p",
+"ctrl": true
+},
+{
+"snap": "open"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down2"
+},
+{
+"text": "mod"
+},
+{
+"snap": "search"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "model"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "picked"
+}
+],
+"width": 80,
+"frames": [
+{
+"name": "open",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Commands                                                                 esc",
+"",
+"  Search",
+"",
+"  Session",
+"  Open editor                                                          /editor",
+"  Show status",
+"  Compact session                                                     /compact",
+"  New session                                                             /new",
+"",
+"  Agent",
+"  Switch agent",
+"  Switch model",
+"  Variant cycle                                                         ctrl+t",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-75:#ffffff/#141414/0",
+"75-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-78:#ffffff/#0a0a0a/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-9:#808080/#141414/1",
+"9-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-13:#0a0a0a/#fab283/1",
+"13-71:#ffffff/#fab283/0",
+"71-78:#0a0a0a/#fab283/1",
+"78-80:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-17:#eeeeee/#141414/0",
+"17-70:#ffffff/#141414/0",
+"70-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-74:#ffffff/#141414/0",
+"74-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#808080/#141414/1",
+"7-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-72:#ffffff/#141414/0",
+"72-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "down2",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Commands                                                                 esc",
+"",
+"  Search",
+"",
+"  Session",
+"  Open editor                                                          /editor",
+"  Show status",
+"  Compact session                                                     /compact",
+"  New session                                                             /new",
+"",
+"  Agent",
+"  Switch agent",
+"  Switch model",
+"  Variant cycle                                                         ctrl+t",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-75:#ffffff/#141414/0",
+"75-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-78:#ffffff/#0a0a0a/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-9:#808080/#141414/1",
+"9-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-71:#ffffff/#141414/0",
+"71-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-17:#0a0a0a/#fab283/1",
+"17-70:#ffffff/#fab283/0",
+"70-78:#0a0a0a/#fab283/1",
+"78-80:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-74:#ffffff/#141414/0",
+"74-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#808080/#141414/1",
+"7-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-72:#ffffff/#141414/0",
+"72-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "search",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Commands                                                                 esc",
+"",
+"  mod",
+"",
+"  Switch model",
+"  Switch model variant",
+"  Show status",
+"  Open editor                                                          /editor",
+"",
+"",
+"",
+"",
+"",
+"",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-75:#ffffff/#141414/0",
+"75-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-5:#fab283/#0a0a0a/0",
+"5-78:#ffffff/#0a0a0a/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-14:#0a0a0a/#fab283/1",
+"14-80:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-22:#eeeeee/#141414/0",
+"22-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-71:#ffffff/#141414/0",
+"71-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+6,
+5
+]
+},
+{
+"name": "model",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Select model 3                                                           esc",
+"",
+"  Search",
+"",
+"  OpenCode Zen",
+"  Big Pickle                                                              Free",
+"",
+"  Mock",
+"  Mock One                                                             current",
+"  Mock Two                                                                  m2",
+"",
+"",
+"",
+"",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-14:#eeeeee/d#0a0a0a/1",
+"14-16:#808080/d#0a0a0a/0",
+"16-75:#ffffff/d#0a0a0a/0",
+"75-78:#808080/d#0a0a0a/0",
+"78-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-8:#808080/d#0a0a0a/0",
+"8-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-14:#808080/d#0a0a0a/1",
+"14-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-12:#eeeeee/d#0a0a0a/0",
+"12-74:#ffffff/d#0a0a0a/0",
+"74-78:#808080/d#0a0a0a/0",
+"78-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-6:#808080/d#0a0a0a/1",
+"6-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-10:#0a0a0a/#fab283/1",
+"10-71:#ffffff/#fab283/0",
+"71-78:#0a0a0a/#fab283/1",
+"78-80:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-10:#eeeeee/d#0a0a0a/0",
+"10-76:#ffffff/d#0a0a0a/0",
+"76-78:#808080/d#0a0a0a/0",
+"78-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "picked",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock Two · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": []
+},
+{
+"name": "slash-w80",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"insert": "/"
+},
+{
+"snap": "slash"
+},
+{
+"text": "re"
+},
+{
+"snap": "re"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "hidden"
+},
+{
+"insert": "@"
+},
+{
+"snap": "mention"
+}
+],
+"width": 80,
+"frames": [
+{
+"name": "slash",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "re",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-4:#eeeeee/d#0a0a0a/0",
+"4-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+5,
+2
+]
+},
+{
+"name": "hidden",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-4:#eeeeee/d#0a0a0a/0",
+"4-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+5,
+2
+]
+},
+{
+"name": "mention",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re@",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-5:#eeeeee/d#0a0a0a/0",
+"5-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+6,
+2
+]
+}
+],
+"actions": []
+},
+{
+"name": "permission-w80",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "permission",
+"request": {
+"id": "per_1",
+"sessionID": "ses_1",
+"action": "edit",
+"resources": [
+"src/a.ts"
+],
+"save": [
+"src/*"
+],
+"metadata": {
+"filepath": "/project/src/a.ts",
+"diff": "Index: src/a.ts\n===\n--- src/a.ts\n+++ src/a.ts\n@@ -1,3 +1,3 @@\n const a = 1\n-const b = 2\n+const b = 3\n const c = 4\n"
+}
+}
+}
+}
+},
+{
+"snap": "edit"
+},
+{
+"key": "ARROW_RIGHT"
+},
+{
+"snap": "right"
+},
+{
+"key": "ARROW_RIGHT"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "reject"
+},
+{
+"text": "no"
+},
+{
+"snap": "typed"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "back"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "permission",
+"request": {
+"id": "per_2",
+"sessionID": "ses_1",
+"action": "bash",
+"resources": [
+"ls -la"
+],
+"save": [
+"ls *"
+],
+"metadata": {
+"command": "ls -la",
+"description": "List files"
+}
+}
+}
+}
+},
+{
+"snap": "shell"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "sent"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "prompt"
+}
+}
+},
+{
+"snap": "prompt"
+}
+],
+"width": 80,
+"frames": [
+{
+"name": "edit",
+"width": 80,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"",
+"  △ Permission required",
+"",
+"   → Edit src/a.ts                                                          █",
+"                                                                            █",
+"   1   const a = 1                                                          █",
+"   2 - const b = 2                                                          █",
+"   2 + const b = 3                                                          █",
+"   3   const c = 4                                                          █",
+"                                                                            █",
+"",
+"",
+"   Allow once   Always allow   Reject     ⇆ select  enter confirm  esc reject",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#9d7cd8/#141414/0",
+"4-23:#eeeeee/#141414/0",
+"23-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-3:#ffffff/#141414/0",
+"3-5:#808080/#141414/0",
+"5-18:#eeeeee/#141414/0",
+"18-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i233/0",
+"3-4:i246/i233/0",
+"4-7:#ffffff/i233/0",
+"7-18:#eeeeee/i233/0",
+"18-75:#ffffff/i233/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i235/0",
+"3-4:i246/i235/0",
+"4-6:i167/i235/0",
+"6-7:#ffffff/i235/0",
+"7-18:#eeeeee/i235/0",
+"18-75:#ffffff/i235/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i235/0",
+"3-4:i246/i235/0",
+"4-6:i150/i235/0",
+"6-7:#ffffff/i235/0",
+"7-18:#eeeeee/i236/0",
+"18-75:#ffffff/i236/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i233/0",
+"3-4:i246/i233/0",
+"4-7:#ffffff/i233/0",
+"7-18:#eeeeee/i233/0",
+"18-75:#ffffff/i233/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-2:#ffffff/#1e1e1e/0",
+"2-3:#ffffff/#fab283/0",
+"3-13:#0a0a0a/#fab283/0",
+"13-14:#ffffff/#fab283/0",
+"14-16:#ffffff/#1e1e1e/0",
+"16-28:#808080/#1e1e1e/0",
+"28-31:#ffffff/#1e1e1e/0",
+"31-37:#808080/#1e1e1e/0",
+"37-42:#ffffff/#1e1e1e/0",
+"42-43:#eeeeee/#1e1e1e/0",
+"43-52:#808080/#1e1e1e/0",
+"52-57:#eeeeee/#1e1e1e/0",
+"57-67:#808080/#1e1e1e/0",
+"67-70:#eeeeee/#1e1e1e/0",
+"70-77:#808080/#1e1e1e/0",
+"77-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "right",
+"width": 80,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"",
+"  △ Permission required",
+"",
+"   → Edit src/a.ts                                                          █",
+"                                                                            █",
+"   1   const a = 1                                                          █",
+"   2 - const b = 2                                                          █",
+"   2 + const b = 3                                                          █",
+"   3   const c = 4                                                          █",
+"                                                                            █",
+"",
+"",
+"   Allow once   Always allow   Reject     ⇆ select  enter confirm  esc reject",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#9d7cd8/#141414/0",
+"4-23:#eeeeee/#141414/0",
+"23-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-3:#ffffff/#141414/0",
+"3-5:#808080/#141414/0",
+"5-18:#eeeeee/#141414/0",
+"18-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i233/0",
+"3-4:i246/i233/0",
+"4-7:#ffffff/i233/0",
+"7-18:#eeeeee/i233/0",
+"18-75:#ffffff/i233/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i235/0",
+"3-4:i246/i235/0",
+"4-6:i167/i235/0",
+"6-7:#ffffff/i235/0",
+"7-18:#eeeeee/i235/0",
+"18-75:#ffffff/i235/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i235/0",
+"3-4:i246/i235/0",
+"4-6:i150/i235/0",
+"6-7:#ffffff/i235/0",
+"7-18:#eeeeee/i236/0",
+"18-75:#ffffff/i236/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i233/0",
+"3-4:i246/i233/0",
+"4-7:#ffffff/i233/0",
+"7-18:#eeeeee/i233/0",
+"18-75:#ffffff/i233/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-3:#ffffff/#1e1e1e/0",
+"3-13:#808080/#1e1e1e/0",
+"13-15:#ffffff/#1e1e1e/0",
+"15-16:#ffffff/#fab283/0",
+"16-28:#0a0a0a/#fab283/0",
+"28-29:#ffffff/#fab283/0",
+"29-31:#ffffff/#1e1e1e/0",
+"31-37:#808080/#1e1e1e/0",
+"37-42:#ffffff/#1e1e1e/0",
+"42-43:#eeeeee/#1e1e1e/0",
+"43-52:#808080/#1e1e1e/0",
+"52-57:#eeeeee/#1e1e1e/0",
+"57-67:#808080/#1e1e1e/0",
+"67-70:#eeeeee/#1e1e1e/0",
+"70-77:#808080/#1e1e1e/0",
+"77-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "reject",
+"width": 80,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"",
+"  △ Reject permission",
+"",
+"  Tell OpenCode what to do differently",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"  Tell OpenCode what to do differently              enter confirm  esc cancel",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#9d7cd8/#141414/0",
+"4-21:#eeeeee/#141414/0",
+"21-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-38:#808080/#141414/0",
+"38-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-2:#ffffff/#1e1e1e/0",
+"2-38:#808080/#0a0a0a/0",
+"38-51:#ffffff/#0a0a0a/0",
+"51-52:#ffffff/#1e1e1e/0",
+"52-58:#eeeeee/#1e1e1e/0",
+"58-65:#808080/#1e1e1e/0",
+"65-67:#ffffff/#1e1e1e/0",
+"67-71:#eeeeee/#1e1e1e/0",
+"71-77:#808080/#1e1e1e/0",
+"77-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": [
+3,
+14
+]
+},
+{
+"name": "typed",
+"width": 80,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"",
+"  △ Reject permission",
+"",
+"  Tell OpenCode what to do differently",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"  no                                                enter confirm  esc cancel",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#9d7cd8/#141414/0",
+"4-21:#eeeeee/#141414/0",
+"21-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-38:#808080/#141414/0",
+"38-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-2:#ffffff/#1e1e1e/0",
+"2-4:#fab283/#0a0a0a/0",
+"4-51:#ffffff/#0a0a0a/0",
+"51-52:#ffffff/#1e1e1e/0",
+"52-58:#eeeeee/#1e1e1e/0",
+"58-65:#808080/#1e1e1e/0",
+"65-67:#ffffff/#1e1e1e/0",
+"67-71:#eeeeee/#1e1e1e/0",
+"71-77:#808080/#1e1e1e/0",
+"77-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": [
+5,
+14
+]
+},
+{
+"name": "back",
+"width": 80,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"",
+"  △ Permission required",
+"",
+"   → Edit src/a.ts                                                          █",
+"                                                                            █",
+"   1   const a = 1                                                          █",
+"   2 - const b = 2                                                          █",
+"   2 + const b = 3                                                          █",
+"   3   const c = 4                                                          █",
+"                                                                            █",
+"",
+"",
+"   Allow once   Always allow   Reject     ⇆ select  enter confirm  esc reject",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#9d7cd8/#141414/0",
+"4-23:#eeeeee/#141414/0",
+"23-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-3:#ffffff/#141414/0",
+"3-5:#808080/#141414/0",
+"5-18:#eeeeee/#141414/0",
+"18-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i233/0",
+"3-4:i246/i233/0",
+"4-7:#ffffff/i233/0",
+"7-18:#eeeeee/i233/0",
+"18-75:#ffffff/i233/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i235/0",
+"3-4:i246/i235/0",
+"4-6:i167/i235/0",
+"6-7:#ffffff/i235/0",
+"7-18:#eeeeee/i235/0",
+"18-75:#ffffff/i235/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i235/0",
+"3-4:i246/i235/0",
+"4-6:i150/i235/0",
+"6-7:#ffffff/i235/0",
+"7-18:#eeeeee/i236/0",
+"18-75:#ffffff/i236/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#ffffff/i233/0",
+"3-4:i246/i233/0",
+"4-7:#ffffff/i233/0",
+"7-18:#eeeeee/i233/0",
+"18-75:#ffffff/i233/0",
+"75-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-3:#ffffff/#1e1e1e/0",
+"3-13:#808080/#1e1e1e/0",
+"13-16:#ffffff/#1e1e1e/0",
+"16-28:#808080/#1e1e1e/0",
+"28-30:#ffffff/#1e1e1e/0",
+"30-31:#ffffff/#fab283/0",
+"31-37:#0a0a0a/#fab283/0",
+"37-38:#ffffff/#fab283/0",
+"38-42:#ffffff/#1e1e1e/0",
+"42-43:#eeeeee/#1e1e1e/0",
+"43-52:#808080/#1e1e1e/0",
+"52-57:#eeeeee/#1e1e1e/0",
+"57-67:#808080/#1e1e1e/0",
+"67-70:#eeeeee/#1e1e1e/0",
+"70-77:#808080/#1e1e1e/0",
+"77-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "shell",
+"width": 80,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"",
+"  △ Permission required",
+"",
+"   # Shell command                                                          █",
+"                                                                            █",
+"  - ls -la                                                                  █",
+"                                                                            █",
+"                                                                            █",
+"                                                                            █",
+"                                                                            █",
+"",
+"",
+"   Allow once   Always allow   Reject     ⇆ select  enter confirm  esc reject",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#9d7cd8/#141414/0",
+"4-23:#eeeeee/#141414/0",
+"23-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-3:#ffffff/#141414/0",
+"3-5:#808080/#141414/0",
+"5-18:#eeeeee/#141414/0",
+"18-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/0",
+"10-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-2:#ffffff/#1e1e1e/0",
+"2-3:#ffffff/#fab283/0",
+"3-13:#0a0a0a/#fab283/0",
+"13-14:#ffffff/#fab283/0",
+"14-16:#ffffff/#1e1e1e/0",
+"16-28:#808080/#1e1e1e/0",
+"28-31:#ffffff/#1e1e1e/0",
+"31-37:#808080/#1e1e1e/0",
+"37-42:#ffffff/#1e1e1e/0",
+"42-43:#eeeeee/#1e1e1e/0",
+"43-52:#808080/#1e1e1e/0",
+"52-57:#eeeeee/#1e1e1e/0",
+"57-67:#808080/#1e1e1e/0",
+"67-70:#eeeeee/#1e1e1e/0",
+"70-77:#808080/#1e1e1e/0",
+"77-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "sent",
+"width": 80,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"",
+"  △ Permission required",
+"",
+"   # Shell command                                                          █",
+"                                                                            █",
+"  - ls -la                                                                  █",
+"                                                                            █",
+"                                                                            █",
+"                                                                            █",
+"                                                                            █",
+"",
+"",
+"   Allow once   Always allow   Reject           Waiting for permission event…",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#9d7cd8/#141414/0",
+"4-23:#eeeeee/#141414/0",
+"23-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-3:#ffffff/#141414/0",
+"3-5:#808080/#141414/0",
+"5-18:#eeeeee/#141414/0",
+"18-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/0",
+"10-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-76:#ffffff/#141414/0",
+"76-77:#1e1e1e/#141414/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-2:#ffffff/#1e1e1e/0",
+"2-3:#ffffff/#fab283/0",
+"3-13:#0a0a0a/#fab283/0",
+"13-14:#ffffff/#fab283/0",
+"14-16:#ffffff/#1e1e1e/0",
+"16-28:#808080/#1e1e1e/0",
+"28-31:#ffffff/#1e1e1e/0",
+"31-37:#808080/#1e1e1e/0",
+"37-48:#ffffff/#1e1e1e/0",
+"48-77:#fab283/#1e1e1e/0",
+"77-80:#ffffff/#1e1e1e/0"
+],
+[
+"0-80:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "prompt",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"permission": {
+"sessionID": "ses_1",
+"requestID": "per_2",
+"decision": "once"
+}
+}
+]
+},
+{
+"name": "form-w80",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "form",
+"request": {
+"id": "frm_1",
+"sessionID": "ses_1",
+"title": "Pick a color",
+"fields": [
+{
+"key": "color",
+"type": "string",
+"title": "Color",
+"required": true,
+"options": [
+{
+"value": "red",
+"label": "Red"
+},
+{
+"value": "blue",
+"label": "Blue",
+"description": "calm"
+}
+]
+}
+]
+}
+}
+}
+},
+{
+"snap": "form"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "form",
+"request": {
+"id": "frm_2",
+"sessionID": "ses_1",
+"title": "Details",
+"fields": [
+{
+"key": "name",
+"type": "string",
+"title": "Name",
+"required": true
+},
+{
+"key": "ok",
+"type": "boolean",
+"title": "Proceed?"
+}
+]
+}
+}
+}
+},
+{
+"snap": "form2"
+},
+{
+"text": "Bob"
+},
+{
+"snap": "typed"
+},
+{
+"key": "RETURN"
+}
+],
+"width": 80,
+"frames": [
+{
+"name": "form",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  ◆ Pick a color",
+"",
+"  Color (required)",
+"",
+"  1. Red",
+"  2. Blue calm",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"  ↑↓ select   enter choose   tab next   esc dismiss",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#9d7cd8/#141414/0",
+"3-4:#ffffff/#141414/0",
+"4-16:#eeeeee/#141414/0",
+"16-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-18:#eeeeee/#141414/0",
+"18-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#fab283/#0a0a0a/0",
+"4-5:#ffffff/#0a0a0a/0",
+"5-8:#fab283/#0a0a0a/0",
+"8-76:#ffffff/#0a0a0a/0",
+"76-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#eeeeee/#141414/0",
+"4-5:#ffffff/#141414/0",
+"5-9:#eeeeee/#141414/0",
+"9-10:#ffffff/#141414/0",
+"10-14:#808080/#141414/0",
+"14-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-51:#808080/#141414/0",
+"51-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+]
+],
+"cursor": null
+},
+{
+"name": "down",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  ◆ Pick a color",
+"",
+"  Color (required)",
+"",
+"  1. Red",
+"  2. Blue calm",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"  ↑↓ select   enter choose   tab next   esc dismiss",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#9d7cd8/#141414/0",
+"3-4:#ffffff/#141414/0",
+"4-16:#eeeeee/#141414/0",
+"16-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-18:#eeeeee/#141414/0",
+"18-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#eeeeee/#141414/0",
+"4-5:#ffffff/#141414/0",
+"5-8:#eeeeee/#141414/0",
+"8-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-4:#fab283/#0a0a0a/0",
+"4-5:#ffffff/#0a0a0a/0",
+"5-9:#fab283/#0a0a0a/0",
+"9-10:#ffffff/#0a0a0a/0",
+"10-14:#808080/#0a0a0a/0",
+"14-76:#ffffff/#0a0a0a/0",
+"76-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-51:#808080/#141414/0",
+"51-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+]
+],
+"cursor": null
+},
+{
+"name": "form2",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  ◆ Details 1/2",
+"",
+"  Name (required)",
+"",
+"  Type your answer",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"  enter save   esc dismiss",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#9d7cd8/#141414/0",
+"3-4:#ffffff/#141414/0",
+"4-11:#eeeeee/#141414/0",
+"11-12:#ffffff/#141414/0",
+"12-15:#808080/#141414/0",
+"15-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-17:#eeeeee/#141414/0",
+"17-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-18:#808080/#0a0a0a/0",
+"18-77:#ffffff/#0a0a0a/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-26:#808080/#141414/0",
+"26-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+]
+],
+"cursor": [
+3,
+7
+]
+},
+{
+"name": "typed",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  ◆ Details 1/2",
+"",
+"  Name (required)",
+"",
+"  Bob",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"  enter save   esc dismiss",
+""
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-3:#9d7cd8/#141414/0",
+"3-4:#ffffff/#141414/0",
+"4-11:#eeeeee/#141414/0",
+"11-12:#ffffff/#141414/0",
+"12-15:#808080/#141414/0",
+"15-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-17:#eeeeee/#141414/0",
+"17-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-5:#fab283/#0a0a0a/0",
+"5-77:#ffffff/#0a0a0a/0",
+"77-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-26:#808080/#141414/0",
+"26-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+]
+],
+"cursor": [
+6,
+7
+]
+}
+],
+"actions": []
+},
+{
+"name": "settings-w80",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"key": "p",
+"ctrl": true
+},
+{
+"wait": 30
+},
+{
+"text": "settings"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "settings"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "closed"
+},
+{
+"key": "t",
+"ctrl": true
+},
+{
+"snap": "cycle"
+}
+],
+"width": 80,
+"frames": [
+{
+"name": "settings",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Settings                                             left/right change · esc",
+"",
+"  Search",
+"",
+"  Transcript",
+"  Verbosity                                                            Default",
+"  Thinking                                                                show",
+"  Tools                                                                   hide",
+"  Shell                                                                   hide",
+"  Turn summary                                                            show",
+"",
+"  Terminal",
+"  Footer details                                                          show",
+"  Splash                                                                  show",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-55:#ffffff/#141414/0",
+"55-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-78:#ffffff/#0a0a0a/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-12:#808080/#141414/1",
+"12-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-11:#0a0a0a/#fab283/1",
+"11-71:#ffffff/#fab283/0",
+"71-78:#0a0a0a/#fab283/1",
+"78-80:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/0",
+"10-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#eeeeee/#141414/0",
+"7-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#eeeeee/#141414/0",
+"7-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#808080/#141414/1",
+"10-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-16:#eeeeee/#141414/0",
+"16-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#eeeeee/#141414/0",
+"8-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "down",
+"width": 80,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Settings                                             left/right change · esc",
+"",
+"  Search",
+"",
+"  Transcript",
+"  Verbosity                                                            Default",
+"  Thinking                                                                show",
+"  Tools                                                                   hide",
+"  Shell                                                                   hide",
+"  Turn summary                                                            show",
+"",
+"  Terminal",
+"  Footer details                                                          show",
+"  Splash                                                                  show",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-55:#ffffff/#141414/0",
+"55-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-78:#ffffff/#0a0a0a/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-12:#808080/#141414/1",
+"12-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-11:#eeeeee/#141414/0",
+"11-71:#ffffff/#141414/0",
+"71-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-10:#0a0a0a/#fab283/1",
+"10-74:#ffffff/#fab283/0",
+"74-78:#0a0a0a/#fab283/1",
+"78-80:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#eeeeee/#141414/0",
+"7-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#eeeeee/#141414/0",
+"7-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#808080/#141414/1",
+"10-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-16:#eeeeee/#141414/0",
+"16-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#eeeeee/#141414/0",
+"8-74:#ffffff/#141414/0",
+"74-78:#fab283/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-80:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "closed",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "cycle",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"no variants available"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-21:#eeeeee/d#0a0a0a/0",
+"21-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"cycle": true
+}
+]
+},
+{
+"name": "idle-w50",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"snap": "first"
+},
+{
+"text": "hello there"
+},
+{
+"snap": "typed"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "submitted"
+},
+{
+"event": {
+"type": "turn.send"
+}
+},
+{
+"snap": "sending"
+},
+{
+"event": {
+"type": "stream.patch",
+"patch": {
+"phase": "running",
+"status": "assistant responding"
+}
+}
+},
+{
+"snap": "running"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "esc1"
+},
+{
+"event": {
+"type": "stream.patch",
+"patch": {
+"usage": {
+"tokens": 15,
+"percent": 0
+}
+}
+}
+},
+{
+"event": {
+"type": "turn.idle"
+}
+},
+{
+"snap": "idle"
+},
+{
+"key": "c",
+"ctrl": true
+},
+{
+"snap": "ctrlc"
+}
+],
+"width": 50,
+"frames": [
+{
+"name": "first",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "typed",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ hello there",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-13:#eeeeee/d#0a0a0a/0",
+"13-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+14,
+2
+]
+},
+{
+"name": "submitted",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "sending",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ esc stop · Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-10:#eeeeee/d#0a0a0a/0",
+"10-13:#808080/d#0a0a0a/0",
+"13-18:#5c9cf5/d#0a0a0a/0",
+"18-21:#808080/d#0a0a0a/0",
+"21-29:#eeeeee/d#0a0a0a/0",
+"29-39:#808080/d#0a0a0a/0",
+"39-45:#eeeeee/d#0a0a0a/0",
+"45-50:#808080/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "running",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ esc stop · Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-10:#eeeeee/d#0a0a0a/0",
+"10-13:#808080/d#0a0a0a/0",
+"13-18:#5c9cf5/d#0a0a0a/0",
+"18-21:#808080/d#0a0a0a/0",
+"21-29:#eeeeee/d#0a0a0a/0",
+"29-39:#808080/d#0a0a0a/0",
+"39-45:#eeeeee/d#0a0a0a/0",
+"45-50:#808080/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "esc1",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ Press esc again to interrupt"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-30:#f5a742/d#0a0a0a/0",
+"30-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "idle",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Build · Mock One · 15 (0%) · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-36:#808080/d#0a0a0a/0",
+"36-42:#eeeeee/d#0a0a0a/0",
+"42-47:#808080/d#0a0a0a/0",
+"47-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "ctrlc",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Press ctrl+c again to exit"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-26:#e06c75/d#0a0a0a/0",
+"26-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"prompt": {
+"text": "hello there",
+"parts": [],
+"delivery": "steer"
+}
+}
+]
+},
+{
+"name": "palette-w50",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"key": "p",
+"ctrl": true
+},
+{
+"snap": "open"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down2"
+},
+{
+"text": "mod"
+},
+{
+"snap": "search"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "model"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "picked"
+}
+],
+"width": 50,
+"frames": [
+{
+"name": "open",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Commands                                   esc",
+"",
+"  Search",
+"",
+"  Session",
+"  Open editor                            /editor",
+"  Show status",
+"  Compact session                       /compact",
+"  New session                               /new",
+"",
+"  Agent",
+"  Switch agent",
+"  Switch model",
+"  Variant cycle                           ctrl+t",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-45:#ffffff/#141414/0",
+"45-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-48:#ffffff/#0a0a0a/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-9:#808080/#141414/1",
+"9-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-13:#0a0a0a/#fab283/1",
+"13-41:#ffffff/#fab283/0",
+"41-48:#0a0a0a/#fab283/1",
+"48-50:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-17:#eeeeee/#141414/0",
+"17-40:#ffffff/#141414/0",
+"40-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-44:#ffffff/#141414/0",
+"44-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#808080/#141414/1",
+"7-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-42:#ffffff/#141414/0",
+"42-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "down2",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Commands                                   esc",
+"",
+"  Search",
+"",
+"  Session",
+"  Open editor                            /editor",
+"  Show status",
+"  Compact session                       /compact",
+"  New session                               /new",
+"",
+"  Agent",
+"  Switch agent",
+"  Switch model",
+"  Variant cycle                           ctrl+t",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-45:#ffffff/#141414/0",
+"45-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-48:#ffffff/#0a0a0a/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-9:#808080/#141414/1",
+"9-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-41:#ffffff/#141414/0",
+"41-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-17:#0a0a0a/#fab283/1",
+"17-40:#ffffff/#fab283/0",
+"40-48:#0a0a0a/#fab283/1",
+"48-50:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-44:#ffffff/#141414/0",
+"44-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#808080/#141414/1",
+"7-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-42:#ffffff/#141414/0",
+"42-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "search",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Commands                                   esc",
+"",
+"  mod",
+"",
+"  Switch model",
+"  Switch model variant",
+"  Show status",
+"  Open editor                            /editor",
+"",
+"",
+"",
+"",
+"",
+"",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-45:#ffffff/#141414/0",
+"45-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-5:#fab283/#0a0a0a/0",
+"5-48:#ffffff/#0a0a0a/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-14:#0a0a0a/#fab283/1",
+"14-50:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-22:#eeeeee/#141414/0",
+"22-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-41:#ffffff/#141414/0",
+"41-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+6,
+5
+]
+},
+{
+"name": "model",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Select model 3                             esc",
+"",
+"  Search",
+"",
+"  OpenCode Zen",
+"  Big Pickle                                Free",
+"",
+"  Mock",
+"  Mock One                               current",
+"  Mock Two                                    m2",
+"",
+"",
+"",
+"",
+""
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-14:#eeeeee/d#0a0a0a/1",
+"14-16:#808080/d#0a0a0a/0",
+"16-45:#ffffff/d#0a0a0a/0",
+"45-48:#808080/d#0a0a0a/0",
+"48-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-8:#808080/d#0a0a0a/0",
+"8-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-14:#808080/d#0a0a0a/1",
+"14-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-12:#eeeeee/d#0a0a0a/0",
+"12-44:#ffffff/d#0a0a0a/0",
+"44-48:#808080/d#0a0a0a/0",
+"48-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-6:#808080/d#0a0a0a/1",
+"6-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-10:#0a0a0a/#fab283/1",
+"10-41:#ffffff/#fab283/0",
+"41-48:#0a0a0a/#fab283/1",
+"48-50:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/d#0a0a0a/0",
+"2-10:#eeeeee/d#0a0a0a/0",
+"10-46:#ffffff/d#0a0a0a/0",
+"46-48:#808080/d#0a0a0a/0",
+"48-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "picked",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock Two · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": []
+},
+{
+"name": "slash-w50",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"insert": "/"
+},
+{
+"snap": "slash"
+},
+{
+"text": "re"
+},
+{
+"snap": "re"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "hidden"
+},
+{
+"insert": "@"
+},
+{
+"snap": "mention"
+}
+],
+"width": 50,
+"frames": [
+{
+"name": "slash",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "re",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-4:#eeeeee/d#0a0a0a/0",
+"4-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+5,
+2
+]
+},
+{
+"name": "hidden",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-4:#eeeeee/d#0a0a0a/0",
+"4-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+5,
+2
+]
+},
+{
+"name": "mention",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re@",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-5:#eeeeee/d#0a0a0a/0",
+"5-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+6,
+2
+]
+}
+],
+"actions": []
+},
+{
+"name": "permission-w50",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "permission",
+"request": {
+"id": "per_1",
+"sessionID": "ses_1",
+"action": "edit",
+"resources": [
+"src/a.ts"
+],
+"save": [
+"src/*"
+],
+"metadata": {
+"filepath": "/project/src/a.ts",
+"diff": "Index: src/a.ts\n===\n--- src/a.ts\n+++ src/a.ts\n@@ -1,3 +1,3 @@\n const a = 1\n-const b = 2\n+const b = 3\n const c = 4\n"
+}
+}
+}
+}
+},
+{
+"snap": "edit"
+},
+{
+"key": "ARROW_RIGHT"
+},
+{
+"snap": "right"
+},
+{
+"key": "ARROW_RIGHT"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "reject"
+},
+{
+"text": "no"
+},
+{
+"snap": "typed"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "back"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "permission",
+"request": {
+"id": "per_2",
+"sessionID": "ses_1",
+"action": "bash",
+"resources": [
+"ls -la"
+],
+"save": [
+"ls *"
+],
+"metadata": {
+"command": "ls -la",
+"description": "List files"
+}
+}
+}
+}
+},
+{
+"snap": "shell"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "sent"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "prompt"
+}
+}
+},
+{
+"snap": "prompt"
+}
+],
+"width": 50,
+"frames": [
+{
+"name": "edit",
+"width": 50,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"→ Edit src/a.ts                                  █",
+" 1   const a = 1                                 █",
+" 2 - const b = 2                                 █",
+" 2 + const b = 3                                 █",
+" 3   const c = 4                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+" Allow once   Always allow   Reject",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-50:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i233/0",
+"1-2:i246/i233/0",
+"2-5:#ffffff/i233/0",
+"5-16:#eeeeee/i233/0",
+"16-48:#ffffff/i233/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i235/0",
+"1-2:i246/i235/0",
+"2-4:i167/i235/0",
+"4-5:#ffffff/i235/0",
+"5-16:#eeeeee/i235/0",
+"16-48:#ffffff/i235/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i235/0",
+"1-2:i246/i235/0",
+"2-4:i150/i235/0",
+"4-5:#ffffff/i235/0",
+"5-16:#eeeeee/i236/0",
+"16-48:#ffffff/i236/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i233/0",
+"1-2:i246/i233/0",
+"2-5:#ffffff/i233/0",
+"5-16:#eeeeee/i233/0",
+"16-48:#ffffff/i233/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-11:#0a0a0a/#fab283/0",
+"11-12:#ffffff/#fab283/0",
+"12-14:#ffffff/#1e1e1e/0",
+"14-26:#808080/#1e1e1e/0",
+"26-29:#ffffff/#1e1e1e/0",
+"29-35:#808080/#1e1e1e/0",
+"35-50:#ffffff/#1e1e1e/0"
+],
+[
+"0-9:#eeeeee/#1e1e1e/0",
+"9-16:#808080/#1e1e1e/0",
+"16-50:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "right",
+"width": 50,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"→ Edit src/a.ts                                  █",
+" 1   const a = 1                                 █",
+" 2 - const b = 2                                 █",
+" 2 + const b = 3                                 █",
+" 3   const c = 4                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+" Allow once   Always allow   Reject",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-50:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i233/0",
+"1-2:i246/i233/0",
+"2-5:#ffffff/i233/0",
+"5-16:#eeeeee/i233/0",
+"16-48:#ffffff/i233/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i235/0",
+"1-2:i246/i235/0",
+"2-4:i167/i235/0",
+"4-5:#ffffff/i235/0",
+"5-16:#eeeeee/i235/0",
+"16-48:#ffffff/i235/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i235/0",
+"1-2:i246/i235/0",
+"2-4:i150/i235/0",
+"4-5:#ffffff/i235/0",
+"5-16:#eeeeee/i236/0",
+"16-48:#ffffff/i236/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i233/0",
+"1-2:i246/i233/0",
+"2-5:#ffffff/i233/0",
+"5-16:#eeeeee/i233/0",
+"16-48:#ffffff/i233/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/#1e1e1e/0",
+"1-11:#808080/#1e1e1e/0",
+"11-13:#ffffff/#1e1e1e/0",
+"13-14:#ffffff/#fab283/0",
+"14-26:#0a0a0a/#fab283/0",
+"26-27:#ffffff/#fab283/0",
+"27-29:#ffffff/#1e1e1e/0",
+"29-35:#808080/#1e1e1e/0",
+"35-50:#ffffff/#1e1e1e/0"
+],
+[
+"0-9:#eeeeee/#1e1e1e/0",
+"9-16:#808080/#1e1e1e/0",
+"16-50:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "reject",
+"width": 50,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Reject permission",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"Tell OpenCode what to do differently",
+"enter reject esc back"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-19:#eeeeee/#141414/0",
+"19-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-36:#808080/#0a0a0a/0",
+"36-50:#ffffff/#0a0a0a/0"
+],
+[
+"0-6:#eeeeee/#1e1e1e/0",
+"6-12:#808080/#1e1e1e/0",
+"12-13:#ffffff/#1e1e1e/0",
+"13-17:#eeeeee/#1e1e1e/0",
+"17-21:#808080/#1e1e1e/0",
+"21-50:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": [
+1,
+14
+]
+},
+{
+"name": "typed",
+"width": 50,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Reject permission",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"no",
+"enter reject esc back"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-19:#eeeeee/#141414/0",
+"19-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#fab283/#0a0a0a/0",
+"2-50:#ffffff/#0a0a0a/0"
+],
+[
+"0-6:#eeeeee/#1e1e1e/0",
+"6-12:#808080/#1e1e1e/0",
+"12-13:#ffffff/#1e1e1e/0",
+"13-17:#eeeeee/#1e1e1e/0",
+"17-21:#808080/#1e1e1e/0",
+"21-50:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": [
+3,
+14
+]
+},
+{
+"name": "back",
+"width": 50,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"→ Edit src/a.ts                                  █",
+" 1   const a = 1                                 █",
+" 2 - const b = 2                                 █",
+" 2 + const b = 3                                 █",
+" 3   const c = 4                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+" Allow once   Always allow   Reject",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-50:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i233/0",
+"1-2:i246/i233/0",
+"2-5:#ffffff/i233/0",
+"5-16:#eeeeee/i233/0",
+"16-48:#ffffff/i233/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i235/0",
+"1-2:i246/i235/0",
+"2-4:i167/i235/0",
+"4-5:#ffffff/i235/0",
+"5-16:#eeeeee/i235/0",
+"16-48:#ffffff/i235/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i235/0",
+"1-2:i246/i235/0",
+"2-4:i150/i235/0",
+"4-5:#ffffff/i235/0",
+"5-16:#eeeeee/i236/0",
+"16-48:#ffffff/i236/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/i233/0",
+"1-2:i246/i233/0",
+"2-5:#ffffff/i233/0",
+"5-16:#eeeeee/i233/0",
+"16-48:#ffffff/i233/0",
+"48-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/#1e1e1e/0",
+"1-11:#808080/#1e1e1e/0",
+"11-14:#ffffff/#1e1e1e/0",
+"14-26:#808080/#1e1e1e/0",
+"26-28:#ffffff/#1e1e1e/0",
+"28-29:#ffffff/#fab283/0",
+"29-35:#0a0a0a/#fab283/0",
+"35-36:#ffffff/#fab283/0",
+"36-50:#ffffff/#1e1e1e/0"
+],
+[
+"0-9:#eeeeee/#1e1e1e/0",
+"9-16:#808080/#1e1e1e/0",
+"16-50:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "shell",
+"width": 50,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"# Shell command                                  █",
+"- ls -la                                         █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+" Allow once   Always allow   Reject",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-50:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-8:#eeeeee/#141414/0",
+"8-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-11:#0a0a0a/#fab283/0",
+"11-12:#ffffff/#fab283/0",
+"12-14:#ffffff/#1e1e1e/0",
+"14-26:#808080/#1e1e1e/0",
+"26-29:#ffffff/#1e1e1e/0",
+"29-35:#808080/#1e1e1e/0",
+"35-50:#ffffff/#1e1e1e/0"
+],
+[
+"0-9:#eeeeee/#1e1e1e/0",
+"9-16:#808080/#1e1e1e/0",
+"16-50:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "sent",
+"width": 50,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"# Shell command                                  █",
+"- ls -la                                         █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+"                                                 █",
+" Allow once   Always allow   Reject",
+"Waiting…"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-50:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-8:#eeeeee/#141414/0",
+"8-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-49:#ffffff/#141414/0",
+"49-50:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-11:#0a0a0a/#fab283/0",
+"11-12:#ffffff/#fab283/0",
+"12-14:#ffffff/#1e1e1e/0",
+"14-26:#808080/#1e1e1e/0",
+"26-29:#ffffff/#1e1e1e/0",
+"29-35:#808080/#1e1e1e/0",
+"35-50:#ffffff/#1e1e1e/0"
+],
+[
+"0-8:#fab283/#1e1e1e/0",
+"8-50:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "prompt",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"permission": {
+"sessionID": "ses_1",
+"requestID": "per_2",
+"decision": "once"
+}
+}
+]
+},
+{
+"name": "form-w50",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "form",
+"request": {
+"id": "frm_1",
+"sessionID": "ses_1",
+"title": "Pick a color",
+"fields": [
+{
+"key": "color",
+"type": "string",
+"title": "Color",
+"required": true,
+"options": [
+{
+"value": "red",
+"label": "Red"
+},
+{
+"value": "blue",
+"label": "Blue",
+"description": "calm"
+}
+]
+}
+]
+}
+}
+}
+},
+{
+"snap": "form"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "form",
+"request": {
+"id": "frm_2",
+"sessionID": "ses_1",
+"title": "Details",
+"fields": [
+{
+"key": "name",
+"type": "string",
+"title": "Name",
+"required": true
+},
+{
+"key": "ok",
+"type": "boolean",
+"title": "Proceed?"
+}
+]
+}
+}
+}
+},
+{
+"snap": "form2"
+},
+{
+"text": "Bob"
+},
+{
+"snap": "typed"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "next"
+}
+],
+"width": 50,
+"frames": [
+{
+"name": "form",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Pick a color",
+"Color (required)",
+"1. Red",
+"2. Blue calm",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"enter choose esc dismiss pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-50:#ffffff/#141414/0"
+],
+[
+"0-16:#eeeeee/#141414/0",
+"16-50:#ffffff/#141414/0"
+],
+[
+"0-2:#fab283/#0a0a0a/0",
+"2-3:#ffffff/#0a0a0a/0",
+"3-6:#fab283/#0a0a0a/0",
+"6-49:#ffffff/#0a0a0a/0",
+"49-50:#ffffff/#141414/0"
+],
+[
+"0-2:#eeeeee/#141414/0",
+"2-3:#ffffff/#141414/0",
+"3-7:#eeeeee/#141414/0",
+"7-8:#ffffff/#141414/0",
+"8-12:#808080/#141414/0",
+"12-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-12:#808080/#141414/0",
+"12-13:#ffffff/#141414/0",
+"13-24:#808080/#141414/0",
+"24-25:#ffffff/#141414/0",
+"25-41:#808080/#141414/0",
+"41-50:#ffffff/#141414/0"
+]
+],
+"cursor": null
+},
+{
+"name": "down",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Pick a color",
+"Color (required)",
+"1. Red",
+"2. Blue calm",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"enter choose esc dismiss pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-50:#ffffff/#141414/0"
+],
+[
+"0-16:#eeeeee/#141414/0",
+"16-50:#ffffff/#141414/0"
+],
+[
+"0-2:#eeeeee/#141414/0",
+"2-3:#ffffff/#141414/0",
+"3-6:#eeeeee/#141414/0",
+"6-50:#ffffff/#141414/0"
+],
+[
+"0-2:#fab283/#0a0a0a/0",
+"2-3:#ffffff/#0a0a0a/0",
+"3-7:#fab283/#0a0a0a/0",
+"7-8:#ffffff/#0a0a0a/0",
+"8-12:#808080/#0a0a0a/0",
+"12-49:#ffffff/#0a0a0a/0",
+"49-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-12:#808080/#141414/0",
+"12-13:#ffffff/#141414/0",
+"13-24:#808080/#141414/0",
+"24-25:#ffffff/#141414/0",
+"25-41:#808080/#141414/0",
+"41-50:#ffffff/#141414/0"
+]
+],
+"cursor": null
+},
+{
+"name": "form2",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Details 1/2",
+"Name (required)",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"Type your answer",
+"enter save esc dismiss pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-9:#eeeeee/#141414/0",
+"9-10:#ffffff/#141414/0",
+"10-13:#808080/#141414/0",
+"13-50:#ffffff/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-16:#808080/#0a0a0a/0",
+"16-50:#ffffff/#0a0a0a/0"
+],
+[
+"0-10:#808080/#141414/0",
+"10-11:#ffffff/#141414/0",
+"11-22:#808080/#141414/0",
+"22-23:#ffffff/#141414/0",
+"23-39:#808080/#141414/0",
+"39-50:#ffffff/#141414/0"
+]
+],
+"cursor": [
+1,
+16
+]
+},
+{
+"name": "typed",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Details 1/2",
+"Name (required)",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"Bob",
+"enter save esc dismiss pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-9:#eeeeee/#141414/0",
+"9-10:#ffffff/#141414/0",
+"10-13:#808080/#141414/0",
+"13-50:#ffffff/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-3:#fab283/#0a0a0a/0",
+"3-50:#ffffff/#0a0a0a/0"
+],
+[
+"0-10:#808080/#141414/0",
+"10-11:#ffffff/#141414/0",
+"11-22:#808080/#141414/0",
+"22-23:#ffffff/#141414/0",
+"23-39:#808080/#141414/0",
+"39-50:#ffffff/#141414/0"
+]
+],
+"cursor": [
+4,
+16
+]
+},
+{
+"name": "next",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Details 2/2",
+"Proceed?",
+"1. Yes",
+"2. No",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"enter choose esc dismiss pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-9:#eeeeee/#141414/0",
+"9-10:#ffffff/#141414/0",
+"10-13:#808080/#141414/0",
+"13-50:#ffffff/#141414/0"
+],
+[
+"0-8:#eeeeee/#141414/0",
+"8-50:#ffffff/#141414/0"
+],
+[
+"0-2:#fab283/#0a0a0a/0",
+"2-3:#ffffff/#0a0a0a/0",
+"3-6:#fab283/#0a0a0a/0",
+"6-49:#ffffff/#0a0a0a/0",
+"49-50:#ffffff/#141414/0"
+],
+[
+"0-2:#eeeeee/#141414/0",
+"2-3:#ffffff/#141414/0",
+"3-5:#eeeeee/#141414/0",
+"5-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-12:#808080/#141414/0",
+"12-13:#ffffff/#141414/0",
+"13-24:#808080/#141414/0",
+"24-25:#ffffff/#141414/0",
+"25-41:#808080/#141414/0",
+"41-50:#ffffff/#141414/0"
+]
+],
+"cursor": null
+}
+],
+"actions": []
+},
+{
+"name": "settings-w50",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"key": "p",
+"ctrl": true
+},
+{
+"wait": 30
+},
+{
+"text": "settings"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "settings"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "closed"
+},
+{
+"key": "t",
+"ctrl": true
+},
+{
+"snap": "cycle"
+}
+],
+"width": 50,
+"frames": [
+{
+"name": "settings",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Settings               left/right change · esc",
+"",
+"  Search",
+"",
+"  Transcript",
+"  Verbosity                              Default",
+"  Thinking                                  show",
+"  Tools                                     hide",
+"  Shell                                     hide",
+"  Turn summary                              show",
+"",
+"  Terminal",
+"  Footer details                            show",
+"  Splash                                    show",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-25:#ffffff/#141414/0",
+"25-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-48:#ffffff/#0a0a0a/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-12:#808080/#141414/1",
+"12-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-11:#0a0a0a/#fab283/1",
+"11-41:#ffffff/#fab283/0",
+"41-48:#0a0a0a/#fab283/1",
+"48-50:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/0",
+"10-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#eeeeee/#141414/0",
+"7-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#eeeeee/#141414/0",
+"7-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#808080/#141414/1",
+"10-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-16:#eeeeee/#141414/0",
+"16-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#eeeeee/#141414/0",
+"8-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "down",
+"width": 50,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+"  Settings               left/right change · esc",
+"",
+"  Search",
+"",
+"  Transcript",
+"  Verbosity                              Default",
+"  Thinking                                  show",
+"  Tools                                     hide",
+"  Shell                                     hide",
+"  Turn summary                              show",
+"",
+"  Terminal",
+"  Footer details                            show",
+"  Splash                                    show",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-25:#ffffff/#141414/0",
+"25-48:#808080/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-48:#ffffff/#0a0a0a/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-12:#808080/#141414/1",
+"12-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-11:#eeeeee/#141414/0",
+"11-41:#ffffff/#141414/0",
+"41-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-10:#0a0a0a/#fab283/1",
+"10-44:#ffffff/#fab283/0",
+"44-48:#0a0a0a/#fab283/1",
+"48-50:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#eeeeee/#141414/0",
+"7-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-7:#eeeeee/#141414/0",
+"7-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#808080/#141414/1",
+"10-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-16:#eeeeee/#141414/0",
+"16-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#eeeeee/#141414/0",
+"8-44:#ffffff/#141414/0",
+"44-48:#fab283/#141414/0",
+"48-50:#ffffff/#141414/0"
+],
+[
+"0-50:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+5
+]
+},
+{
+"name": "closed",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "cycle",
+"width": 50,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"no variants available"
+],
+"styles": [
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-50:#ffffff/d#0a0a0a/0"
+],
+[
+"0-21:#eeeeee/d#0a0a0a/0",
+"21-50:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"cycle": true
+}
+]
+},
+{
+"name": "idle-w34",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"snap": "first"
+},
+{
+"text": "hello there"
+},
+{
+"snap": "typed"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "submitted"
+},
+{
+"event": {
+"type": "turn.send"
+}
+},
+{
+"snap": "sending"
+},
+{
+"event": {
+"type": "stream.patch",
+"patch": {
+"phase": "running",
+"status": "assistant responding"
+}
+}
+},
+{
+"snap": "running"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "esc1"
+},
+{
+"event": {
+"type": "stream.patch",
+"patch": {
+"usage": {
+"tokens": 15,
+"percent": 0
+}
+}
+}
+},
+{
+"event": {
+"type": "turn.idle"
+}
+},
+{
+"snap": "idle"
+},
+{
+"key": "c",
+"ctrl": true
+},
+{
+"snap": "ctrlc"
+}
+],
+"width": 34,
+"frames": [
+{
+"name": "first",
+"width": 34,
+"height": 5,
+"footerHeight": 5,
+"rows": [
+"",
+"┃ Ask anything, / for commands,",
+"┃ @ for context…",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-32:#808080/d#0a0a0a/0",
+"32-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-16:#808080/d#0a0a0a/0",
+"16-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "typed",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ hello there",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-13:#eeeeee/d#0a0a0a/0",
+"13-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+14,
+2
+]
+},
+{
+"name": "submitted",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "sending",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ esc stop · Build · Mock One"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-10:#eeeeee/d#0a0a0a/0",
+"10-13:#808080/d#0a0a0a/0",
+"13-18:#5c9cf5/d#0a0a0a/0",
+"18-21:#808080/d#0a0a0a/0",
+"21-29:#eeeeee/d#0a0a0a/0",
+"29-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "running",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ esc stop · Build · Mock One"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-10:#eeeeee/d#0a0a0a/0",
+"10-13:#808080/d#0a0a0a/0",
+"13-18:#5c9cf5/d#0a0a0a/0",
+"18-21:#808080/d#0a0a0a/0",
+"21-29:#eeeeee/d#0a0a0a/0",
+"29-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "esc1",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"▪ Press esc again to interrupt"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-30:#f5a742/d#0a0a0a/0",
+"30-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "idle",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Build · Mock One · 15 (0%) · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-33:#808080/d#0a0a0a/0",
+"33-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "ctrlc",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃",
+"",
+"Press ctrl+c again to exit"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-26:#e06c75/d#0a0a0a/0",
+"26-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"prompt": {
+"text": "hello there",
+"parts": [],
+"delivery": "steer"
+}
+}
+]
+},
+{
+"name": "palette-w34",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"key": "p",
+"ctrl": true
+},
+{
+"snap": "open"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down2"
+},
+{
+"text": "mod"
+},
+{
+"snap": "search"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "model"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "picked"
+}
+],
+"width": 34,
+"frames": [
+{
+"name": "open",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+" Commands                     esc",
+"",
+" Search",
+"",
+" Session",
+" Open editor              /editor",
+" Show status",
+" Compact session         /compact",
+" New session                 /new",
+"",
+" Agent",
+" Switch agent",
+" Switch model",
+" Variant cycle             ctrl+t",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-9:#eeeeee/#141414/1",
+"9-30:#ffffff/#141414/0",
+"30-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-7:#808080/#0a0a0a/0",
+"7-33:#ffffff/#0a0a0a/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-8:#808080/#141414/1",
+"8-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-12:#0a0a0a/#fab283/1",
+"12-26:#ffffff/#fab283/0",
+"26-33:#0a0a0a/#fab283/1",
+"33-34:#ffffff/#fab283/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-16:#eeeeee/#141414/0",
+"16-25:#ffffff/#141414/0",
+"25-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-12:#eeeeee/#141414/0",
+"12-29:#ffffff/#141414/0",
+"29-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-6:#808080/#141414/1",
+"6-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-13:#eeeeee/#141414/0",
+"13-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-13:#eeeeee/#141414/0",
+"13-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-14:#eeeeee/#141414/0",
+"14-27:#ffffff/#141414/0",
+"27-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+2,
+5
+]
+},
+{
+"name": "down2",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+" Commands                     esc",
+"",
+" Search",
+"",
+" Session",
+" Open editor              /editor",
+" Show status",
+" Compact session         /compact",
+" New session                 /new",
+"",
+" Agent",
+" Switch agent",
+" Switch model",
+" Variant cycle             ctrl+t",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-9:#eeeeee/#141414/1",
+"9-30:#ffffff/#141414/0",
+"30-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-7:#808080/#0a0a0a/0",
+"7-33:#ffffff/#0a0a0a/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-8:#808080/#141414/1",
+"8-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-12:#eeeeee/#141414/0",
+"12-26:#ffffff/#141414/0",
+"26-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-16:#0a0a0a/#fab283/1",
+"16-25:#ffffff/#fab283/0",
+"25-33:#0a0a0a/#fab283/1",
+"33-34:#ffffff/#fab283/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-12:#eeeeee/#141414/0",
+"12-29:#ffffff/#141414/0",
+"29-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-6:#808080/#141414/1",
+"6-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-13:#eeeeee/#141414/0",
+"13-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-13:#eeeeee/#141414/0",
+"13-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-14:#eeeeee/#141414/0",
+"14-27:#ffffff/#141414/0",
+"27-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+2,
+5
+]
+},
+{
+"name": "search",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+" Commands                     esc",
+"",
+" mod",
+"",
+" Switch model",
+" Switch model variant",
+" Show status",
+" Open editor              /editor",
+"",
+"",
+"",
+"",
+"",
+"",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-9:#eeeeee/#141414/1",
+"9-30:#ffffff/#141414/0",
+"30-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-4:#fab283/#0a0a0a/0",
+"4-33:#ffffff/#0a0a0a/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-13:#0a0a0a/#fab283/1",
+"13-34:#ffffff/#fab283/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-21:#eeeeee/#141414/0",
+"21-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-12:#eeeeee/#141414/0",
+"12-26:#ffffff/#141414/0",
+"26-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+5,
+5
+]
+},
+{
+"name": "model",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+" Select model 3               esc",
+"",
+" Search",
+"",
+" OpenCode Zen",
+" Big Pickle                  Free",
+"",
+" Mock",
+" Mock One                 current",
+" Mock Two                      m2",
+"",
+"",
+"",
+"",
+""
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#ffffff/d#0a0a0a/0",
+"1-13:#eeeeee/d#0a0a0a/1",
+"13-15:#808080/d#0a0a0a/0",
+"15-30:#ffffff/d#0a0a0a/0",
+"30-33:#808080/d#0a0a0a/0",
+"33-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#ffffff/d#0a0a0a/0",
+"1-7:#808080/d#0a0a0a/0",
+"7-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#ffffff/d#0a0a0a/0",
+"1-13:#808080/d#0a0a0a/1",
+"13-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#ffffff/d#0a0a0a/0",
+"1-11:#eeeeee/d#0a0a0a/0",
+"11-29:#ffffff/d#0a0a0a/0",
+"29-33:#808080/d#0a0a0a/0",
+"33-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#ffffff/d#0a0a0a/0",
+"1-5:#808080/d#0a0a0a/1",
+"5-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-9:#0a0a0a/#fab283/1",
+"9-26:#ffffff/#fab283/0",
+"26-33:#0a0a0a/#fab283/1",
+"33-34:#ffffff/#fab283/0"
+],
+[
+"0-1:#ffffff/d#0a0a0a/0",
+"1-9:#eeeeee/d#0a0a0a/0",
+"9-31:#ffffff/d#0a0a0a/0",
+"31-33:#808080/d#0a0a0a/0",
+"33-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+2,
+5
+]
+},
+{
+"name": "picked",
+"width": 34,
+"height": 5,
+"footerHeight": 5,
+"rows": [
+"",
+"┃ Ask anything, / for commands,",
+"┃ @ for context…",
+"",
+"Build · Mock Two · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-32:#808080/d#0a0a0a/0",
+"32-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-16:#808080/d#0a0a0a/0",
+"16-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": []
+},
+{
+"name": "slash-w34",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"insert": "/"
+},
+{
+"snap": "slash"
+},
+{
+"text": "re"
+},
+{
+"snap": "re"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "hidden"
+},
+{
+"insert": "@"
+},
+{
+"snap": "mention"
+}
+],
+"width": 34,
+"frames": [
+{
+"name": "slash",
+"width": 34,
+"height": 5,
+"footerHeight": 5,
+"rows": [
+"",
+"┃ Ask anything, / for commands,",
+"┃ @ for context…",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-32:#808080/d#0a0a0a/0",
+"32-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-16:#808080/d#0a0a0a/0",
+"16-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "re",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-4:#eeeeee/d#0a0a0a/0",
+"4-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+5,
+2
+]
+},
+{
+"name": "hidden",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-4:#eeeeee/d#0a0a0a/0",
+"4-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+5,
+2
+]
+},
+{
+"name": "mention",
+"width": 34,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ re@",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-5:#eeeeee/d#0a0a0a/0",
+"5-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+6,
+2
+]
+}
+],
+"actions": []
+},
+{
+"name": "permission-w34",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "permission",
+"request": {
+"id": "per_1",
+"sessionID": "ses_1",
+"action": "edit",
+"resources": [
+"src/a.ts"
+],
+"save": [
+"src/*"
+],
+"metadata": {
+"filepath": "/project/src/a.ts",
+"diff": "Index: src/a.ts\n===\n--- src/a.ts\n+++ src/a.ts\n@@ -1,3 +1,3 @@\n const a = 1\n-const b = 2\n+const b = 3\n const c = 4\n"
+}
+}
+}
+}
+},
+{
+"snap": "edit"
+},
+{
+"key": "ARROW_RIGHT"
+},
+{
+"snap": "right"
+},
+{
+"key": "ARROW_RIGHT"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "reject"
+},
+{
+"text": "no"
+},
+{
+"snap": "typed"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "back"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "permission",
+"request": {
+"id": "per_2",
+"sessionID": "ses_1",
+"action": "bash",
+"resources": [
+"ls -la"
+],
+"save": [
+"ls *"
+],
+"metadata": {
+"command": "ls -la",
+"description": "List files"
+}
+}
+}
+}
+},
+{
+"snap": "shell"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "sent"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "prompt"
+}
+}
+},
+{
+"snap": "prompt"
+}
+],
+"width": 34,
+"frames": [
+{
+"name": "edit",
+"width": 34,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"→ Edit src/a.ts                  █",
+"Index: src/a.ts                  █",
+"===                              █",
+"--- src/a.ts                     █",
+"+++ src/a.ts                     █",
+"@@ -1,3 +1,3 @@                  █",
+" const a = 1                     ▀",
+"-const b = 2",
+"+const b = 3",
+" const c = 4",
+" Allow once   Always allow",
+" Reject",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-34:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-3:#eeeeee/#141414/0",
+"3-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-11:#0a0a0a/#fab283/0",
+"11-12:#ffffff/#fab283/0",
+"12-14:#ffffff/#1e1e1e/0",
+"14-26:#808080/#1e1e1e/0",
+"26-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-1:#ffffff/#1e1e1e/0",
+"1-7:#808080/#1e1e1e/0",
+"7-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-9:#eeeeee/#1e1e1e/0",
+"9-16:#808080/#1e1e1e/0",
+"16-34:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "right",
+"width": 34,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"→ Edit src/a.ts                  █",
+"Index: src/a.ts                  █",
+"===                              █",
+"--- src/a.ts                     █",
+"+++ src/a.ts                     █",
+"@@ -1,3 +1,3 @@                  █",
+" const a = 1                     ▀",
+"-const b = 2",
+"+const b = 3",
+" const c = 4",
+" Allow once   Always allow",
+" Reject",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-34:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-3:#eeeeee/#141414/0",
+"3-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#1e1e1e/0",
+"1-11:#808080/#1e1e1e/0",
+"11-13:#ffffff/#1e1e1e/0",
+"13-14:#ffffff/#fab283/0",
+"14-26:#0a0a0a/#fab283/0",
+"26-27:#ffffff/#fab283/0",
+"27-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-1:#ffffff/#1e1e1e/0",
+"1-7:#808080/#1e1e1e/0",
+"7-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-9:#eeeeee/#1e1e1e/0",
+"9-16:#808080/#1e1e1e/0",
+"16-34:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "reject",
+"width": 34,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Reject permission",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"Tell OpenCode what to do",
+"differently",
+"enter reject esc back"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-19:#eeeeee/#141414/0",
+"19-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-25:#808080/#0a0a0a/0",
+"25-34:#ffffff/#0a0a0a/0"
+],
+[
+"0-11:#808080/#0a0a0a/0",
+"11-34:#ffffff/#0a0a0a/0"
+],
+[
+"0-6:#eeeeee/#1e1e1e/0",
+"6-12:#808080/#1e1e1e/0",
+"12-13:#ffffff/#1e1e1e/0",
+"13-17:#eeeeee/#1e1e1e/0",
+"17-21:#808080/#1e1e1e/0",
+"21-34:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": [
+1,
+13
+]
+},
+{
+"name": "typed",
+"width": 34,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Reject permission",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"no",
+"enter reject esc back"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-19:#eeeeee/#141414/0",
+"19-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-2:#fab283/#0a0a0a/0",
+"2-34:#ffffff/#0a0a0a/0"
+],
+[
+"0-6:#eeeeee/#1e1e1e/0",
+"6-12:#808080/#1e1e1e/0",
+"12-13:#ffffff/#1e1e1e/0",
+"13-17:#eeeeee/#1e1e1e/0",
+"17-21:#808080/#1e1e1e/0",
+"21-34:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": [
+3,
+14
+]
+},
+{
+"name": "back",
+"width": 34,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"→ Edit src/a.ts                  █",
+"Index: src/a.ts                  █",
+"===                              █",
+"--- src/a.ts                     █",
+"+++ src/a.ts                     █",
+"@@ -1,3 +1,3 @@                  █",
+" const a = 1                     ▀",
+"-const b = 2",
+"+const b = 3",
+" const c = 4",
+" Allow once   Always allow",
+" Reject",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-34:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-3:#eeeeee/#141414/0",
+"3-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-12:#eeeeee/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#1e1e1e/0",
+"1-11:#808080/#1e1e1e/0",
+"11-14:#ffffff/#1e1e1e/0",
+"14-26:#808080/#1e1e1e/0",
+"26-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-7:#0a0a0a/#fab283/0",
+"7-8:#ffffff/#fab283/0",
+"8-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-9:#eeeeee/#1e1e1e/0",
+"9-16:#808080/#1e1e1e/0",
+"16-34:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "shell",
+"width": 34,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"# Shell command                  █",
+"- ls -la                         █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+" Allow once   Always allow",
+" Reject",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-34:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-8:#eeeeee/#141414/0",
+"8-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-11:#0a0a0a/#fab283/0",
+"11-12:#ffffff/#fab283/0",
+"12-14:#ffffff/#1e1e1e/0",
+"14-26:#808080/#1e1e1e/0",
+"26-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-1:#ffffff/#1e1e1e/0",
+"1-7:#808080/#1e1e1e/0",
+"7-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-9:#eeeeee/#1e1e1e/0",
+"9-16:#808080/#1e1e1e/0",
+"16-34:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "sent",
+"width": 34,
+"height": 15,
+"footerHeight": 15,
+"rows": [
+"",
+"△ Permission required",
+"# Shell command                  █",
+"- ls -la                         █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+"                                 █",
+" Allow once   Always allow",
+" Reject",
+"Waiting…"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#9d7cd8/#141414/0",
+"2-21:#eeeeee/#141414/0",
+"21-34:#ffffff/#141414/0"
+],
+[
+"0-2:#808080/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-8:#eeeeee/#141414/0",
+"8-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-33:#ffffff/#141414/0",
+"33-34:#1e1e1e/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-11:#0a0a0a/#fab283/0",
+"11-12:#ffffff/#fab283/0",
+"12-14:#ffffff/#1e1e1e/0",
+"14-26:#808080/#1e1e1e/0",
+"26-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-1:#ffffff/#1e1e1e/0",
+"1-7:#808080/#1e1e1e/0",
+"7-34:#ffffff/#1e1e1e/0"
+],
+[
+"0-8:#fab283/#1e1e1e/0",
+"8-34:#ffffff/#1e1e1e/0"
+]
+],
+"cursor": null
+},
+{
+"name": "prompt",
+"width": 34,
+"height": 5,
+"footerHeight": 5,
+"rows": [
+"",
+"┃ Ask anything, / for commands,",
+"┃ @ for context…",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-32:#808080/d#0a0a0a/0",
+"32-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-16:#808080/d#0a0a0a/0",
+"16-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"permission": {
+"sessionID": "ses_1",
+"requestID": "per_2",
+"decision": "once"
+}
+}
+]
+},
+{
+"name": "form-w34",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "form",
+"request": {
+"id": "frm_1",
+"sessionID": "ses_1",
+"title": "Pick a color",
+"fields": [
+{
+"key": "color",
+"type": "string",
+"title": "Color",
+"required": true,
+"options": [
+{
+"value": "red",
+"label": "Red"
+},
+{
+"value": "blue",
+"label": "Blue",
+"description": "calm"
+}
+]
+}
+]
+}
+}
+}
+},
+{
+"snap": "form"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down"
+},
+{
+"event": {
+"type": "stream.view",
+"view": {
+"type": "form",
+"request": {
+"id": "frm_2",
+"sessionID": "ses_1",
+"title": "Details",
+"fields": [
+{
+"key": "name",
+"type": "string",
+"title": "Name",
+"required": true
+},
+{
+"key": "ok",
+"type": "boolean",
+"title": "Proceed?"
+}
+]
+}
+}
+}
+},
+{
+"snap": "form2"
+},
+{
+"text": "Bob"
+},
+{
+"snap": "typed"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "next"
+}
+],
+"width": 34,
+"frames": [
+{
+"name": "form",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Pick a color",
+"Color (required)",
+"1. Red",
+"2. Blue calm",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"enter choose esc dismiss",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-34:#ffffff/#141414/0"
+],
+[
+"0-16:#eeeeee/#141414/0",
+"16-34:#ffffff/#141414/0"
+],
+[
+"0-2:#fab283/#0a0a0a/0",
+"2-3:#ffffff/#0a0a0a/0",
+"3-6:#fab283/#0a0a0a/0",
+"6-33:#ffffff/#0a0a0a/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-2:#eeeeee/#141414/0",
+"2-3:#ffffff/#141414/0",
+"3-7:#eeeeee/#141414/0",
+"7-8:#ffffff/#141414/0",
+"8-12:#808080/#141414/0",
+"12-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-12:#808080/#141414/0",
+"12-13:#ffffff/#141414/0",
+"13-24:#808080/#141414/0",
+"24-34:#ffffff/#141414/0"
+],
+[
+"0-16:#808080/#141414/0",
+"16-34:#ffffff/#141414/0"
+]
+],
+"cursor": null
+},
+{
+"name": "down",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Pick a color",
+"Color (required)",
+"1. Red",
+"2. Blue calm",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"enter choose esc dismiss",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-34:#ffffff/#141414/0"
+],
+[
+"0-16:#eeeeee/#141414/0",
+"16-34:#ffffff/#141414/0"
+],
+[
+"0-2:#eeeeee/#141414/0",
+"2-3:#ffffff/#141414/0",
+"3-6:#eeeeee/#141414/0",
+"6-34:#ffffff/#141414/0"
+],
+[
+"0-2:#fab283/#0a0a0a/0",
+"2-3:#ffffff/#0a0a0a/0",
+"3-7:#fab283/#0a0a0a/0",
+"7-8:#ffffff/#0a0a0a/0",
+"8-12:#808080/#0a0a0a/0",
+"12-33:#ffffff/#0a0a0a/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-12:#808080/#141414/0",
+"12-13:#ffffff/#141414/0",
+"13-24:#808080/#141414/0",
+"24-34:#ffffff/#141414/0"
+],
+[
+"0-16:#808080/#141414/0",
+"16-34:#ffffff/#141414/0"
+]
+],
+"cursor": null
+},
+{
+"name": "form2",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Details 1/2",
+"Name (required)",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"Type your answer",
+"enter save esc dismiss",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-9:#eeeeee/#141414/0",
+"9-10:#ffffff/#141414/0",
+"10-13:#808080/#141414/0",
+"13-34:#ffffff/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-16:#808080/#0a0a0a/0",
+"16-34:#ffffff/#0a0a0a/0"
+],
+[
+"0-10:#808080/#141414/0",
+"10-11:#ffffff/#141414/0",
+"11-22:#808080/#141414/0",
+"22-34:#ffffff/#141414/0"
+],
+[
+"0-16:#808080/#141414/0",
+"16-34:#ffffff/#141414/0"
+]
+],
+"cursor": [
+1,
+15
+]
+},
+{
+"name": "typed",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Details 1/2",
+"Name (required)",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"Bob",
+"enter save esc dismiss",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-9:#eeeeee/#141414/0",
+"9-10:#ffffff/#141414/0",
+"10-13:#808080/#141414/0",
+"13-34:#ffffff/#141414/0"
+],
+[
+"0-15:#eeeeee/#141414/0",
+"15-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-3:#fab283/#0a0a0a/0",
+"3-34:#ffffff/#0a0a0a/0"
+],
+[
+"0-10:#808080/#141414/0",
+"10-11:#ffffff/#141414/0",
+"11-22:#808080/#141414/0",
+"22-34:#ffffff/#141414/0"
+],
+[
+"0-16:#808080/#141414/0",
+"16-34:#ffffff/#141414/0"
+]
+],
+"cursor": [
+4,
+15
+]
+},
+{
+"name": "next",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"◆ Details 2/2",
+"Proceed?",
+"1. Yes",
+"2. No",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"",
+"enter choose esc dismiss",
+"pgup/pgdn scroll"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#9d7cd8/#141414/0",
+"1-2:#ffffff/#141414/0",
+"2-9:#eeeeee/#141414/0",
+"9-10:#ffffff/#141414/0",
+"10-13:#808080/#141414/0",
+"13-34:#ffffff/#141414/0"
+],
+[
+"0-8:#eeeeee/#141414/0",
+"8-34:#ffffff/#141414/0"
+],
+[
+"0-2:#fab283/#0a0a0a/0",
+"2-3:#ffffff/#0a0a0a/0",
+"3-6:#fab283/#0a0a0a/0",
+"6-33:#ffffff/#0a0a0a/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-2:#eeeeee/#141414/0",
+"2-3:#ffffff/#141414/0",
+"3-5:#eeeeee/#141414/0",
+"5-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-12:#808080/#141414/0",
+"12-13:#ffffff/#141414/0",
+"13-24:#808080/#141414/0",
+"24-34:#ffffff/#141414/0"
+],
+[
+"0-16:#808080/#141414/0",
+"16-34:#ffffff/#141414/0"
+]
+],
+"cursor": null
+}
+],
+"actions": []
+},
+{
+"name": "settings-w34",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"key": "p",
+"ctrl": true
+},
+{
+"wait": 30
+},
+{
+"text": "settings"
+},
+{
+"key": "RETURN"
+},
+{
+"snap": "settings"
+},
+{
+"key": "ARROW_DOWN"
+},
+{
+"snap": "down"
+},
+{
+"key": "ESCAPE"
+},
+{
+"snap": "closed"
+},
+{
+"key": "t",
+"ctrl": true
+},
+{
+"snap": "cycle"
+}
+],
+"width": 34,
+"frames": [
+{
+"name": "settings",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+" Settings left/right change · esc",
+"",
+" Search",
+"",
+" Transcript",
+" Verbosity                Default",
+" Thinking                    show",
+" Tools                       hide",
+" Shell                       hide",
+" Turn summary                show",
+"",
+" Terminal",
+" Footer details              show",
+" Splash                      show",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-9:#eeeeee/#141414/1",
+"9-10:#ffffff/#141414/0",
+"10-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-7:#808080/#0a0a0a/0",
+"7-33:#ffffff/#0a0a0a/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-11:#808080/#141414/1",
+"11-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-10:#0a0a0a/#fab283/1",
+"10-26:#ffffff/#fab283/0",
+"26-33:#0a0a0a/#fab283/1",
+"33-34:#ffffff/#fab283/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-9:#eeeeee/#141414/0",
+"9-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-6:#eeeeee/#141414/0",
+"6-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-6:#eeeeee/#141414/0",
+"6-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-13:#eeeeee/#141414/0",
+"13-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-9:#808080/#141414/1",
+"9-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-15:#eeeeee/#141414/0",
+"15-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-7:#eeeeee/#141414/0",
+"7-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+2,
+5
+]
+},
+{
+"name": "down",
+"width": 34,
+"height": 17,
+"footerHeight": 17,
+"rows": [
+"",
+"",
+" Settings left/right change · esc",
+"",
+" Search",
+"",
+" Transcript",
+" Verbosity                Default",
+" Thinking                    show",
+" Tools                       hide",
+" Shell                       hide",
+" Turn summary                show",
+"",
+" Terminal",
+" Footer details              show",
+" Splash                      show",
+"▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-9:#eeeeee/#141414/1",
+"9-10:#ffffff/#141414/0",
+"10-33:#808080/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-7:#808080/#0a0a0a/0",
+"7-33:#ffffff/#0a0a0a/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-11:#808080/#141414/1",
+"11-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-10:#eeeeee/#141414/0",
+"10-26:#ffffff/#141414/0",
+"26-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#fab283/0",
+"1-9:#0a0a0a/#fab283/1",
+"9-29:#ffffff/#fab283/0",
+"29-33:#0a0a0a/#fab283/1",
+"33-34:#ffffff/#fab283/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-6:#eeeeee/#141414/0",
+"6-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-6:#eeeeee/#141414/0",
+"6-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-13:#eeeeee/#141414/0",
+"13-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-9:#808080/#141414/1",
+"9-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-15:#eeeeee/#141414/0",
+"15-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-1:#ffffff/#141414/0",
+"1-7:#eeeeee/#141414/0",
+"7-29:#ffffff/#141414/0",
+"29-33:#fab283/#141414/0",
+"33-34:#ffffff/#141414/0"
+],
+[
+"0-34:#141414/d#0a0a0a/0"
+]
+],
+"cursor": [
+2,
+5
+]
+},
+{
+"name": "closed",
+"width": 34,
+"height": 5,
+"footerHeight": 5,
+"rows": [
+"",
+"┃ Ask anything, / for commands,",
+"┃ @ for context…",
+"",
+"Build · Mock One · Mock"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-32:#808080/d#0a0a0a/0",
+"32-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-16:#808080/d#0a0a0a/0",
+"16-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-23:#808080/d#0a0a0a/0",
+"23-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "cycle",
+"width": 34,
+"height": 5,
+"footerHeight": 5,
+"rows": [
+"",
+"┃ Ask anything, / for commands,",
+"┃ @ for context…",
+"",
+"no variants available"
+],
+"styles": [
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-32:#808080/d#0a0a0a/0",
+"32-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-16:#808080/d#0a0a0a/0",
+"16-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-34:#ffffff/d#0a0a0a/0"
+],
+[
+"0-21:#eeeeee/d#0a0a0a/0",
+"21-34:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"cycle": true
+}
+]
+},
+{
+"name": "startup-w80",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"snap": "startup"
+},
+{
+"finishStartup": true
+},
+{
+"snap": "done"
+}
+],
+"width": 80,
+"startup": {
+"version": "0.0.0-test",
+"detail": "~/project"
+},
+"frames": [
+{
+"name": "startup",
+"width": 80,
+"height": 5,
+"footerHeight": 5,
+"rows": [
+"▪ oc mini v0.0.0-test · ~/project",
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-9:i255/d#0a0a0a/0",
+"9-33:i8/d#0a0a0a/0",
+"33-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+3
+]
+},
+{
+"name": "done",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"┃ Ask anything, / for commands, @ for context…",
+"",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": []
+},
+{
+"name": "short-h12",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"snap": "first"
+},
+{
+"key": "p",
+"ctrl": true
+},
+{
+"snap": "palette"
+}
+],
+"width": 80,
+"height": 12,
+"frames": [
+{
+"name": "first",
+"width": 80,
+"height": 2,
+"footerHeight": 2,
+"rows": [
+"┃ Ask anything, / for commands, @ for context…",
+"Build · Mock One · Mock · ctrl+p menu"
+],
+"styles": [
+[
+"0-1:#5c9cf5/d#0a0a0a/0",
+"1-2:#ffffff/d#0a0a0a/0",
+"2-46:#808080/d#0a0a0a/0",
+"46-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-5:#5c9cf5/d#0a0a0a/0",
+"5-8:#808080/d#0a0a0a/0",
+"8-16:#eeeeee/d#0a0a0a/0",
+"16-26:#808080/d#0a0a0a/0",
+"26-32:#eeeeee/d#0a0a0a/0",
+"32-37:#808080/d#0a0a0a/0",
+"37-80:#ffffff/d#0a0a0a/0"
+]
+],
+"cursor": [
+3,
+1
+]
+},
+{
+"name": "palette",
+"width": 80,
+"height": 12,
+"footerHeight": 12,
+"rows": [
+"",
+"  Commands                                                                 esc",
+"  Search",
+"  Open editor                                                          /editor",
+"  Show status",
+"  Compact session                                                     /compact",
+"  New session                                                             /new",
+"  Switch agent",
+"  Switch model",
+"  Variant cycle                                                         ctrl+t",
+"  Switch model variant",
+"  Clear screen                                                          ctrl+l"
+],
+"styles": [
+[
+"0-80:#ffffff/d#0a0a0a/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-10:#eeeeee/#141414/1",
+"10-75:#ffffff/#141414/0",
+"75-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-8:#808080/#0a0a0a/0",
+"8-78:#ffffff/#0a0a0a/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#fab283/0",
+"2-13:#0a0a0a/#fab283/1",
+"13-71:#ffffff/#fab283/0",
+"71-78:#0a0a0a/#fab283/1",
+"78-80:#ffffff/#fab283/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-17:#eeeeee/#141414/0",
+"17-70:#ffffff/#141414/0",
+"70-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-13:#eeeeee/#141414/0",
+"13-74:#ffffff/#141414/0",
+"74-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-15:#eeeeee/#141414/0",
+"15-72:#ffffff/#141414/0",
+"72-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-22:#eeeeee/#141414/0",
+"22-80:#ffffff/#141414/0"
+],
+[
+"0-2:#ffffff/#141414/0",
+"2-14:#eeeeee/#141414/0",
+"14-72:#ffffff/#141414/0",
+"72-78:#808080/#141414/0",
+"78-80:#ffffff/#141414/0"
+]
+],
+"cursor": [
+3,
+3
+]
+}
+],
+"actions": []
+},
+{
+"name": "mono-w80",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"model": {
+"providerID": "mock",
+"modelID": "m1"
+},
+"steps": [
+{
+"event": {
+"type": "catalog",
+"agents": [
+{
+"id": "build",
+"name": "Build",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "plan",
+"name": "Plan",
+"mode": "primary",
+"hidden": false
+},
+{
+"id": "explore",
+"name": "Explore",
+"mode": "subagent",
+"hidden": false,
+"description": "Fast codebase search"
+}
+],
+"references": [],
+"commands": [
+{
+"name": "review",
+"description": "Review changes [commit|branch|pr], defaults to uncommitted",
+"source": "command"
+},
+{
+"name": "init",
+"description": "create/update AGENTS.md",
+"source": "command"
+}
+]
+}
+},
+{
+"event": {
+"type": "models",
+"providers": [
+{
+"id": "mock",
+"name": "Mock",
+"models": {
+"m1": {
+"name": "Mock One",
+"cost": {
+"input": 1
+},
+"status": "active",
+"variants": {
+"low": {},
+"high": {}
+}
+},
+"m2": {
+"name": "Mock Two",
+"cost": {
+"input": 1
+},
+"status": "active"
+}
+}
+},
+{
+"id": "opencode",
+"name": "OpenCode Zen",
+"models": {
+"big-pickle": {
+"name": "Big Pickle",
+"cost": {
+"input": 0
+},
+"status": "active"
+}
+}
+}
+]
+}
+},
+{
+"event": {
+"type": "variants",
+"variants": [
+"low",
+"high"
+]
+}
+},
+{
+"snap": "first"
+},
+{
+"text": "hi"
+},
+{
+"key": "RETURN"
+},
+{
+"event": {
+"type": "turn.send"
+}
+},
+{
+"snap": "running"
+}
+],
+"width": 80,
+"mono": true,
+"frames": [
+{
+"name": "first",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"| Ask anything, / for commands, @ for context...",
+"",
+"Build - Mock One - Mock - ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#000000/0"
+],
+[
+"0-1:d#ffffff/d#000000/0",
+"1-2:#ffffff/d#000000/0",
+"2-48:d#ffffff/d#000000/0",
+"48-80:#ffffff/d#000000/0"
+],
+[
+"0-80:#ffffff/d#000000/0"
+],
+[
+"0-37:d#ffffff/d#000000/0",
+"37-80:#ffffff/d#000000/0"
+]
+],
+"cursor": [
+3,
+2
+]
+},
+{
+"name": "running",
+"width": 80,
+"height": 4,
+"footerHeight": 4,
+"rows": [
+"",
+"|",
+"",
+"* esc interrupt - Build - Mock One - Mock - ctrl+p menu"
+],
+"styles": [
+[
+"0-80:#ffffff/d#000000/0"
+],
+[
+"0-1:d#ffffff/d#000000/0",
+"1-80:#ffffff/d#000000/0"
+],
+[
+"0-80:#ffffff/d#000000/0"
+],
+[
+"0-1:d#ffffff/d#000000/0",
+"1-2:#ffffff/d#000000/0",
+"2-55:d#ffffff/d#000000/0",
+"55-80:#ffffff/d#000000/0"
+]
+],
+"cursor": [
+3,
+2
+]
+}
+],
+"actions": [
+{
+"prompt": {
+"text": "hi",
+"parts": [],
+"delivery": "steer"
+}
+}
+]
+}
+]
