@@ -1,7 +1,7 @@
 //! `opencode run` (`handlers/run.ts`, `run/run.ts`, `run/noninteractive.ts`, `session-target.ts`):
 //! a non-interactive prompt against the server, streaming SSE events to stdout/stderr.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
@@ -21,6 +21,10 @@ const QUESTION_CANCELLED_FEEDBACK: &str = "This non-interactive run cannot ask t
 const PERMISSION_REJECTED_FEEDBACK: &str =
     "This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.";
 const ATTACH_FILE_MAX_BYTES: u64 = 10 * 1024 * 1024;
+/// How long `run` holds a live event before handling it (see `Shared::consume`): within the delay with which
+/// upstream's event stream trails its HTTP answers (15 to 200+ ms measured), and longer than ocd takes from a
+/// fast provider's answer to the session going idle.
+const HOLD: std::time::Duration = std::time::Duration::from_millis(50);
 
 // ---------------------------------------------------------------------------------------------
 // UI (`run/ui.ts`) — everything on stderr
@@ -914,305 +918,386 @@ impl Shared {
         Ok(())
     }
 
+    /// Upstream's server writes events to the event stream only when its runner waits for I/O, after the
+    /// answers to the requests it settled before that. So the `session.wait` answer released by the session
+    /// going idle overtakes the events published since the runner's last I/O wait, and `run` handles those as
+    /// finalizing: it skips them and prints their content from the projected messages (no `> agent · model`
+    /// header nor `step_start`/`step_finish` for a step that fails at once, or for the last step of a fast
+    /// provider). ocd delivers events at once, so the consumer holds each event of the session for `HOLD` and
+    /// handles the held ones as finalizing when the execution ends meanwhile. Where upstream's runner always
+    /// waits for I/O, the held events are released at once and handled as upstream's stream delivers them
+    /// before that wait, whether or not `session.wait` has answered here by then: before a new step (its
+    /// provider request), before the end of a step that started with a snapshot (the end snapshot), and before
+    /// permission and form requests (the reply).
     async fn consume(&self, stream: &mut EventStream) -> Result<(), String> {
+        let mut held: VecDeque<(tokio::time::Instant, Value)> = VecDeque::new();
+        let mut snapshot_step = false;
         loop {
-            let next = stream.next().await;
+            let next = match held.front() {
+                None => stream.next().await,
+                Some((at, _)) => {
+                    let due = *at + HOLD;
+                    tokio::select! {
+                        biased;
+                        _ = tokio::time::sleep_until(due) => {
+                            while held.front().is_some_and(|(at, _)| *at + HOLD <= tokio::time::Instant::now()) {
+                                let (_, event) = held.pop_front().expect("held event");
+                                if let Some(r) = self.handle(event, None).await {
+                                    return r;
+                                }
+                            }
+                            continue;
+                        }
+                        next = stream.next() => next,
+                    }
+                }
+            };
             let event = match next {
-                None => {
-                    if self.state.lock().emitted_error {
-                        return Ok(());
-                    }
-                    return Err("Event stream disconnected during prompt execution".into());
-                }
-                Some(Err(e)) => {
-                    if self.state.lock().emitted_error {
-                        return Ok(());
-                    }
-                    return Err(e.to_string());
-                }
                 Some(Ok(e)) => e,
+                end => {
+                    if let Some(r) = self.release(&mut held, None).await {
+                        return r;
+                    }
+                    if self.state.lock().emitted_error {
+                        return Ok(());
+                    }
+                    return Err(match end {
+                        Some(Err(e)) => e.to_string(),
+                        _ => "Event stream disconnected during prompt execution".into(),
+                    });
+                }
             };
             let ty = event.get("type").and_then(Value::as_str).unwrap_or("").to_string();
-            let data = event.get("data").cloned().unwrap_or(Value::Null);
-            let submitted = self.state.lock().submitted;
-            if ty == "permission.asked" && submitted && self.owns(data.get("sessionID").and_then(Value::as_str).unwrap_or("")).await {
-                self.reply_permission(&data).await;
-                continue;
-            }
-            if ty == "form.created" && submitted {
-                let form = data.get("form").cloned().unwrap_or(Value::Null);
-                if self.owns(form.get("sessionID").and_then(Value::as_str).unwrap_or("")).await {
-                    self.cancel_form(&form).await.map_err(|e| e.to_string())?;
-                    continue;
-                }
-            }
-            if data.get("sessionID").and_then(Value::as_str) != Some(self.p.session_id.as_str()) {
-                continue;
-            }
-            let time = to_millis(event.get("created"));
-            let event_id = event.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-            let interrupted = self.interrupted.load(Ordering::SeqCst);
-            let finalizing = self.finalizing.load(Ordering::SeqCst);
+            let data = event.get("data").unwrap_or(&Value::Null);
+            let ours = data.get("sessionID").and_then(Value::as_str) == Some(self.p.session_id.as_str());
+            let request = ty == "permission.asked" || ty == "form.created";
+            let step_end = ty == "session.step.ended" || ty == "session.step.failed";
+            if (request || (ours && (ty == "session.step.started" || (snapshot_step && step_end))))
+                && let Some(r) = self.release(&mut held, Some(false)).await
             {
-                let mut st = self.state.lock();
-                if ty == "session.inbox.delivered" && data.get("inboxID").and_then(Value::as_str) == Some(self.message_id.as_str()) {
-                    st.promoted = true;
-                    st.pre_promotion_error = None;
-                    continue;
+                return r;
+            }
+            if ours && ty == "session.step.started" {
+                snapshot_step = data.get("snapshot").is_some_and(|s| !s.is_null());
+            }
+            if request || !ours {
+                if let Some(r) = self.handle(event, None).await {
+                    return r;
                 }
-                if ty == "session.execution.interrupted"
-                    && data.get("reason").and_then(Value::as_str) == Some("user")
-                    && (interrupted || st.form_cancelled)
-                {
-                    return Ok(());
+                continue;
+            }
+            if matches!(ty.as_str(), "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted") {
+                if let Some(r) = self.release(&mut held, Some(true)).await {
+                    return r;
                 }
-                if !st.promoted && ty == "session.execution.failed" {
-                    st.pre_promotion_error = data.get("error").cloned();
-                    if finalizing {
-                        return Ok(());
-                    }
-                    continue;
+                // An execution that ends before this prompt was promoted is not this run's last burst.
+                let late = self.state.lock().promoted.then_some(true);
+                if let Some(r) = self.handle(event, late).await {
+                    return r;
                 }
-                if !st.promoted && finalizing && (ty == "session.execution.succeeded" || ty == "session.execution.interrupted") {
-                    return Ok(());
+                continue;
+            }
+            held.push_back((tokio::time::Instant::now(), event));
+        }
+    }
+
+    /// Handles all held events (see `consume`), in order.
+    async fn release(&self, held: &mut VecDeque<(tokio::time::Instant, Value)>, finalizing: Option<bool>) -> Option<Result<(), String>> {
+        while let Some((_, event)) = held.pop_front() {
+            if let Some(r) = self.handle(event, finalizing).await {
+                return Some(r);
+            }
+        }
+        None
+    }
+
+    /// Handles one event like upstream's `consume` loop body; `Some` ends the consumer with that result.
+    /// `finalizing` overrides whether it is handled as upstream does once `session.wait` has answered (see
+    /// `consume`); `None` follows this run's own `session.wait`.
+    async fn handle(&self, event: Value, finalizing: Option<bool>) -> Option<Result<(), String>> {
+        let ty = event.get("type").and_then(Value::as_str).unwrap_or("").to_string();
+        let data = event.get("data").cloned().unwrap_or(Value::Null);
+        let submitted = self.state.lock().submitted;
+        if ty == "permission.asked" && submitted && self.owns(data.get("sessionID").and_then(Value::as_str).unwrap_or("")).await {
+            self.reply_permission(&data).await;
+            return None;
+        }
+        if ty == "form.created" && submitted {
+            let form = data.get("form").cloned().unwrap_or(Value::Null);
+            if self.owns(form.get("sessionID").and_then(Value::as_str).unwrap_or("")).await {
+                if let Err(e) = self.cancel_form(&form).await {
+                    return Some(Err(e.to_string()));
                 }
-                if !st.promoted {
-                    continue;
+                return None;
+            }
+        }
+        if data.get("sessionID").and_then(Value::as_str) != Some(self.p.session_id.as_str()) {
+            return None;
+        }
+        let time = to_millis(event.get("created"));
+        let event_id = event.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        let interrupted = self.interrupted.load(Ordering::SeqCst);
+        let finalizing = finalizing.unwrap_or_else(|| self.finalizing.load(Ordering::SeqCst));
+        {
+            let mut st = self.state.lock();
+            if ty == "session.inbox.delivered" && data.get("inboxID").and_then(Value::as_str) == Some(self.message_id.as_str()) {
+                st.promoted = true;
+                st.pre_promotion_error = None;
+                return None;
+            }
+            if ty == "session.execution.interrupted"
+                && data.get("reason").and_then(Value::as_str) == Some("user")
+                && (interrupted || st.form_cancelled)
+            {
+                return Some(Ok(()));
+            }
+            if !st.promoted && ty == "session.execution.failed" {
+                st.pre_promotion_error = data.get("error").cloned();
+                if finalizing {
+                    return Some(Ok(()));
                 }
-                if finalizing && !ty.starts_with("session.execution.") {
-                    continue;
+                return None;
+            }
+            if !st.promoted && finalizing && (ty == "session.execution.succeeded" || ty == "session.execution.interrupted") {
+                return Some(Ok(()));
+            }
+            if !st.promoted {
+                return None;
+            }
+            if finalizing && !ty.starts_with("session.execution.") {
+                return None;
+            }
+        }
+        let amid = data.get("assistantMessageID").and_then(Value::as_str).unwrap_or("").to_string();
+        match ty.as_str() {
+            "session.step.started" => {
+                let mut part = Map::new();
+                part.insert("id".into(), json!(part_id(&event_id)));
+                part.insert("sessionID".into(), json!(self.p.session_id));
+                part.insert("messageID".into(), json!(amid));
+                part.insert("type".into(), json!("step-start"));
+                put(&mut part, "snapshot", data.get("snapshot"));
+                if !self.emit("step_start", time, vec![("part", Value::Object(part))]) && self.p.format != Format::Json {
+                    ui::empty();
+                    ui::println(&[&format!(
+                        "> {} · {}",
+                        data.get("agent").and_then(Value::as_str).unwrap_or(""),
+                        data.pointer("/model/id").and_then(Value::as_str).unwrap_or("")
+                    )]);
+                    ui::empty();
                 }
             }
-            let amid = data.get("assistantMessageID").and_then(Value::as_str).unwrap_or("").to_string();
-            match ty.as_str() {
-                "session.step.started" => {
-                    let mut part = Map::new();
-                    part.insert("id".into(), json!(part_id(&event_id)));
-                    part.insert("sessionID".into(), json!(self.p.session_id));
-                    part.insert("messageID".into(), json!(amid));
-                    part.insert("type".into(), json!("step-start"));
-                    put(&mut part, "snapshot", data.get("snapshot"));
-                    if !self.emit("step_start", time, vec![("part", Value::Object(part))]) && self.p.format != Format::Json {
-                        ui::empty();
-                        ui::println(&[&format!(
-                            "> {} · {}",
-                            data.get("agent").and_then(Value::as_str).unwrap_or(""),
-                            data.pointer("/model/id").and_then(Value::as_str).unwrap_or("")
-                        )]);
-                        ui::empty();
+            "session.text.started" | "session.reasoning.started" => {
+                let kind = if ty == "session.text.started" { "text" } else { "reasoning" };
+                let k = key(kind, key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null)));
+                self.state.lock().starts.insert(k, (part_id(&event_id), time));
+            }
+            "session.text.ended" => {
+                let ck = key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null));
+                let started = self.state.lock().starts.remove(&key("text", &ck));
+                let text = data.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+                let part = json!({
+                    "id": started.as_ref().map(|s| s.0.clone()).unwrap_or_else(|| part_id(&event_id)),
+                    "sessionID": self.p.session_id, "messageID": amid, "type": "text", "text": text,
+                    "time": {"start": started.as_ref().map(|s| s.1).unwrap_or(time), "end": time},
+                });
+                self.state.lock().rendered_text.insert(ck, text);
+                self.write_text(part, time);
+            }
+            "session.reasoning.ended" if self.p.thinking => {
+                let ck = key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null));
+                let started = self.state.lock().starts.remove(&key("reasoning", &ck));
+                let text = data.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+                let mut part = Map::new();
+                part.insert("id".into(), json!(started.as_ref().map(|s| s.0.clone()).unwrap_or_else(|| part_id(&event_id))));
+                part.insert("sessionID".into(), json!(self.p.session_id));
+                part.insert("messageID".into(), json!(amid));
+                part.insert("type".into(), json!("reasoning"));
+                part.insert("text".into(), json!(text));
+                put(&mut part, "metadata", data.get("native"));
+                part.insert("time".into(), json!({"start": started.as_ref().map(|s| s.1).unwrap_or(time), "end": time}));
+                self.state.lock().rendered_reasoning.insert(ck, text);
+                self.write_reasoning(Value::Object(part), time);
+            }
+            "session.tool.input.started" => {
+                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
+                self.state.lock().tools.insert(
+                    k,
+                    ToolState {
+                        id: part_id(&event_id),
+                        timestamp: time,
+                        tool: data.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                        input: json!({}),
+                        metadata: json!({}),
+                        ..Default::default()
+                    },
+                );
+            }
+            "session.tool.input.ended" | "session.tool.input.delta" => {
+                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
+                let mut st = self.state.lock();
+                if let Some(t) = st.tools.get_mut(&k) {
+                    if ty == "session.tool.input.ended" {
+                        t.raw = data.get("text").and_then(Value::as_str).map(String::from);
+                    } else {
+                        t.raw = Some(format!("{}{}", t.raw.clone().unwrap_or_default(), data.get("delta").and_then(Value::as_str).unwrap_or("")));
                     }
                 }
-                "session.text.started" | "session.reasoning.started" => {
-                    let kind = if ty == "session.text.started" { "text" } else { "reasoning" };
-                    let k = key(kind, key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null)));
-                    self.state.lock().starts.insert(k, (part_id(&event_id), time));
+            }
+            "session.tool.called" => {
+                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
+                let mut st = self.state.lock();
+                let current = st.tools.get(&k).cloned();
+                let mut provider = Map::new();
+                put(&mut provider, "executed", data.get("executed"));
+                put(&mut provider, "state", data.get("native"));
+                st.tools.insert(
+                    k,
+                    ToolState {
+                        id: current.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| part_id(&event_id)),
+                        timestamp: current.as_ref().map(|c| c.timestamp).unwrap_or(time),
+                        tool: current.as_ref().map(|c| c.tool.clone()).unwrap_or_else(|| "tool".into()),
+                        input: data.get("input").cloned().unwrap_or(json!({})),
+                        raw: current.and_then(|c| c.raw),
+                        provider: Some(Value::Object(provider)),
+                        metadata: json!({}),
+                    },
+                );
+            }
+            "session.tool.progress" => {
+                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
+                if let Some(t) = self.state.lock().tools.get_mut(&k) {
+                    t.metadata = data.get("metadata").cloned().unwrap_or(json!({}));
                 }
-                "session.text.ended" => {
-                    let ck = key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null));
-                    let started = self.state.lock().starts.remove(&key("text", &ck));
-                    let text = data.get("text").and_then(Value::as_str).unwrap_or("").to_string();
-                    let part = json!({
-                        "id": started.as_ref().map(|s| s.0.clone()).unwrap_or_else(|| part_id(&event_id)),
-                        "sessionID": self.p.session_id, "messageID": amid, "type": "text", "text": text,
-                        "time": {"start": started.as_ref().map(|s| s.1).unwrap_or(time), "end": time},
+            }
+            "session.tool.success" | "session.tool.failed" => {
+                let success = ty == "session.tool.success";
+                let tid = data.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                let k = key(&amid, &tid);
+                let current = {
+                    let mut st = self.state.lock();
+                    let c = st.tools.remove(&k).unwrap_or_else(|| ToolState {
+                        id: part_id(&event_id),
+                        timestamp: time,
+                        tool: "tool".into(),
+                        input: json!({}),
+                        metadata: json!({}),
+                        ..Default::default()
                     });
-                    self.state.lock().rendered_text.insert(ck, text);
-                    self.write_text(part, time);
+                    st.rendered_tools.insert(k.clone());
+                    c
+                };
+                let mut provider_result = Map::new();
+                put(&mut provider_result, "executed", data.get("executed"));
+                put(&mut provider_result, "state", data.get("native"));
+                let mut meta = Map::new();
+                let content = if success {
+                    data.get("content").cloned()
+                } else {
+                    data.get("content").cloned().filter(|c| !c.is_null())
+                };
+                let metadata = if success {
+                    data.get("metadata").cloned()
+                } else {
+                    Some(data.get("metadata").cloned().filter(|m| !m.is_null()).unwrap_or_else(|| current.metadata.clone()))
+                };
+                if success {
+                    put(&mut meta, "metadata", metadata.as_ref());
+                    put(&mut meta, "content", content.as_ref());
                 }
-                "session.reasoning.ended" if self.p.thinking => {
-                    let ck = key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null));
-                    let started = self.state.lock().starts.remove(&key("reasoning", &ck));
-                    let text = data.get("text").and_then(Value::as_str).unwrap_or("").to_string();
-                    let mut part = Map::new();
-                    part.insert("id".into(), json!(started.as_ref().map(|s| s.0.clone()).unwrap_or_else(|| part_id(&event_id))));
-                    part.insert("sessionID".into(), json!(self.p.session_id));
-                    part.insert("messageID".into(), json!(amid));
-                    part.insert("type".into(), json!("reasoning"));
-                    part.insert("text".into(), json!(text));
-                    put(&mut part, "metadata", data.get("native"));
-                    part.insert("time".into(), json!({"start": started.as_ref().map(|s| s.1).unwrap_or(time), "end": time}));
-                    self.state.lock().rendered_reasoning.insert(ck, text);
-                    self.write_reasoning(Value::Object(part), time);
-                }
-                "session.tool.input.started" => {
-                    let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
-                    self.state.lock().tools.insert(
-                        k,
-                        ToolState {
-                            id: part_id(&event_id),
-                            timestamp: time,
-                            tool: data.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-                            input: json!({}),
-                            metadata: json!({}),
-                            ..Default::default()
-                        },
-                    );
-                }
-                "session.tool.input.ended" | "session.tool.input.delta" => {
-                    let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
-                    let mut st = self.state.lock();
-                    if let Some(t) = st.tools.get_mut(&k) {
-                        if ty == "session.tool.input.ended" {
-                            t.raw = data.get("text").and_then(Value::as_str).map(String::from);
-                        } else {
-                            t.raw = Some(format!("{}{}", t.raw.clone().unwrap_or_default(), data.get("delta").and_then(Value::as_str).unwrap_or("")));
-                        }
+                put(&mut meta, "providerCall", current.provider.as_ref());
+                meta.insert("providerResult".into(), Value::Object(provider_result));
+                put(&mut meta, "rawInput", current.raw.as_ref().map(|r| json!(r)).as_ref());
+                let error = data.pointer("/error/message").and_then(Value::as_str).unwrap_or("").to_string();
+                let state = if success {
+                    json!({"status": "completed", "input": current.input, "output": tool_output_text(&current.tool, content.as_ref()), "title": current.tool, "metadata": meta, "time": {"start": current.timestamp, "end": time}})
+                } else {
+                    json!({"status": "error", "input": current.input, "error": error, "metadata": meta, "time": {"start": current.timestamp, "end": time}})
+                };
+                let part = json!({
+                    "partID": current.id, "sessionID": self.p.session_id, "messageID": amid, "type": "tool",
+                    "id": tid, "tool": current.tool, "state": state,
+                });
+                if !self.emit("tool_use", time, vec![("part", part)]) {
+                    let mut tool_state = json!({"status": if success { "completed" } else { "error" }, "input": current.input});
+                    if let Some(m) = &metadata {
+                        tool_state["metadata"] = m.clone();
                     }
-                }
-                "session.tool.called" => {
-                    let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
-                    let mut st = self.state.lock();
-                    let current = st.tools.get(&k).cloned();
-                    let mut provider = Map::new();
-                    put(&mut provider, "executed", data.get("executed"));
-                    put(&mut provider, "state", data.get("native"));
-                    st.tools.insert(
-                        k,
-                        ToolState {
-                            id: current.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| part_id(&event_id)),
-                            timestamp: current.as_ref().map(|c| c.timestamp).unwrap_or(time),
-                            tool: current.as_ref().map(|c| c.tool.clone()).unwrap_or_else(|| "tool".into()),
-                            input: data.get("input").cloned().unwrap_or(json!({})),
-                            raw: current.and_then(|c| c.raw),
-                            provider: Some(Value::Object(provider)),
-                            metadata: json!({}),
-                        },
-                    );
-                }
-                "session.tool.progress" => {
-                    let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
-                    if let Some(t) = self.state.lock().tools.get_mut(&k) {
-                        t.metadata = data.get("metadata").cloned().unwrap_or(json!({}));
+                    if let Some(c) = &content {
+                        tool_state["content"] = c.clone();
                     }
-                }
-                "session.tool.success" | "session.tool.failed" => {
-                    let success = ty == "session.tool.success";
-                    let tid = data.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                    let k = key(&amid, &tid);
-                    let current = {
-                        let mut st = self.state.lock();
-                        let c = st.tools.remove(&k).unwrap_or_else(|| ToolState {
-                            id: part_id(&event_id),
-                            timestamp: time,
-                            tool: "tool".into(),
-                            input: json!({}),
-                            metadata: json!({}),
-                            ..Default::default()
-                        });
-                        st.rendered_tools.insert(k.clone());
-                        c
-                    };
-                    let mut provider_result = Map::new();
-                    put(&mut provider_result, "executed", data.get("executed"));
-                    put(&mut provider_result, "state", data.get("native"));
-                    let mut meta = Map::new();
-                    let content = if success {
-                        data.get("content").cloned()
-                    } else {
-                        data.get("content").cloned().filter(|c| !c.is_null())
-                    };
-                    let metadata = if success {
-                        data.get("metadata").cloned()
-                    } else {
-                        Some(data.get("metadata").cloned().filter(|m| !m.is_null()).unwrap_or_else(|| current.metadata.clone()))
-                    };
+                    let tool = json!({"type": "tool", "id": tid, "name": current.tool, "state": tool_state, "time": {"created": current.timestamp, "ran": current.timestamp, "completed": time}});
                     if success {
-                        put(&mut meta, "metadata", metadata.as_ref());
-                        put(&mut meta, "content", content.as_ref());
-                    }
-                    put(&mut meta, "providerCall", current.provider.as_ref());
-                    meta.insert("providerResult".into(), Value::Object(provider_result));
-                    put(&mut meta, "rawInput", current.raw.as_ref().map(|r| json!(r)).as_ref());
-                    let error = data.pointer("/error/message").and_then(Value::as_str).unwrap_or("").to_string();
-                    let state = if success {
-                        json!({"status": "completed", "input": current.input, "output": tool_output_text(&current.tool, content.as_ref()), "title": current.tool, "metadata": meta, "time": {"start": current.timestamp, "end": time}})
+                        render_tool(&tool, &self.p.directory);
                     } else {
-                        json!({"status": "error", "input": current.input, "error": error, "metadata": meta, "time": {"start": current.timestamp, "end": time}})
-                    };
-                    let part = json!({
-                        "partID": current.id, "sessionID": self.p.session_id, "messageID": amid, "type": "tool",
-                        "id": tid, "tool": current.tool, "state": state,
-                    });
-                    if !self.emit("tool_use", time, vec![("part", part)]) {
-                        let mut tool_state = json!({"status": if success { "completed" } else { "error" }, "input": current.input});
-                        if let Some(m) = &metadata {
-                            tool_state["metadata"] = m.clone();
+                        if content.is_some() && !tool_output_text(&current.tool, content.as_ref()).trim().is_empty() {
+                            let mut completed = tool.clone();
+                            completed["state"]["status"] = json!("completed");
+                            render_tool(&completed, &self.p.directory);
                         }
-                        if let Some(c) = &content {
-                            tool_state["content"] = c.clone();
-                        }
-                        let tool = json!({"type": "tool", "id": tid, "name": current.tool, "state": tool_state, "time": {"created": current.timestamp, "ran": current.timestamp, "completed": time}});
-                        if success {
-                            render_tool(&tool, &self.p.directory);
-                        } else {
-                            if content.is_some() && !tool_output_text(&current.tool, content.as_ref()).trim().is_empty() {
-                                let mut completed = tool.clone();
-                                completed["state"]["status"] = json!("completed");
-                                render_tool(&completed, &self.p.directory);
-                            }
-                            render_tool_error(&tool, &self.p.directory);
-                            ui::error(&error);
-                        }
+                        render_tool_error(&tool, &self.p.directory);
+                        ui::error(&error);
                     }
                 }
-                "session.step.ended" => {
-                    let mut part = Map::new();
-                    part.insert("id".into(), json!(part_id(&event_id)));
-                    part.insert("sessionID".into(), json!(self.p.session_id));
-                    part.insert("messageID".into(), json!(amid));
-                    part.insert("type".into(), json!("step-finish"));
-                    put(&mut part, "reason", data.get("finish"));
-                    put(&mut part, "snapshot", data.get("snapshot"));
-                    put(&mut part, "cost", data.get("cost"));
-                    put(&mut part, "tokens", data.get("tokens"));
-                    self.emit("step_finish", time, vec![("part", Value::Object(part))]);
+            }
+            "session.step.ended" => {
+                let mut part = Map::new();
+                part.insert("id".into(), json!(part_id(&event_id)));
+                part.insert("sessionID".into(), json!(self.p.session_id));
+                part.insert("messageID".into(), json!(amid));
+                part.insert("type".into(), json!("step-finish"));
+                put(&mut part, "reason", data.get("finish"));
+                put(&mut part, "snapshot", data.get("snapshot"));
+                put(&mut part, "cost", data.get("cost"));
+                put(&mut part, "tokens", data.get("tokens"));
+                self.emit("step_finish", time, vec![("part", Value::Object(part))]);
+            }
+            "session.step.failed" => {
+                if self.interrupted.load(Ordering::SeqCst) || self.state.lock().form_cancelled {
+                    return None;
                 }
-                "session.step.failed" => {
-                    if self.interrupted.load(Ordering::SeqCst) || self.state.lock().form_cancelled {
-                        continue;
+                self.state.lock().emitted_error = true;
+                self.set_exit(1);
+                self.error(time, data.get("error").cloned().unwrap_or(Value::Null));
+            }
+            "session.execution.failed" => {
+                let emit = {
+                    let mut st = self.state.lock();
+                    let e = !st.emitted_error && !st.form_cancelled;
+                    if e {
+                        st.emitted_error = true;
                     }
-                    self.state.lock().emitted_error = true;
+                    e
+                };
+                if emit {
                     self.set_exit(1);
                     self.error(time, data.get("error").cloned().unwrap_or(Value::Null));
                 }
-                "session.execution.failed" => {
-                    let emit = {
-                        let mut st = self.state.lock();
-                        let e = !st.emitted_error && !st.form_cancelled;
-                        if e {
-                            st.emitted_error = true;
-                        }
-                        e
-                    };
-                    if emit {
-                        self.set_exit(1);
-                        self.error(time, data.get("error").cloned().unwrap_or(Value::Null));
-                    }
-                    return Ok(());
-                }
-                "session.execution.interrupted" => {
-                    let reason = data.get("reason").and_then(Value::as_str).unwrap_or("");
-                    if reason == "user" && self.interrupted.load(Ordering::SeqCst) {
-                        self.set_exit(130);
-                    }
-                    let emit = {
-                        let mut st = self.state.lock();
-                        let e = reason != "user" && !st.emitted_error && !st.form_cancelled;
-                        if e {
-                            st.emitted_error = true;
-                        }
-                        e
-                    };
-                    if emit {
-                        self.set_exit(1);
-                        self.error(time, json!({"type": "aborted", "message": format!("Session interrupted: {reason}")}));
-                    }
-                    return Ok(());
-                }
-                "session.execution.succeeded" => return Ok(()),
-                _ => {}
+                return Some(Ok(()));
             }
+            "session.execution.interrupted" => {
+                let reason = data.get("reason").and_then(Value::as_str).unwrap_or("");
+                if reason == "user" && self.interrupted.load(Ordering::SeqCst) {
+                    self.set_exit(130);
+                }
+                let emit = {
+                    let mut st = self.state.lock();
+                    let e = reason != "user" && !st.emitted_error && !st.form_cancelled;
+                    if e {
+                        st.emitted_error = true;
+                    }
+                    e
+                };
+                if emit {
+                    self.set_exit(1);
+                    self.error(time, json!({"type": "aborted", "message": format!("Session interrupted: {reason}")}));
+                }
+                return Some(Ok(()));
+            }
+            "session.execution.succeeded" => return Some(Ok(())),
+            _ => {}
         }
+        None
     }
 
     async fn projected(&self) -> anyhow::Result<(bool, Vec<Value>)> {

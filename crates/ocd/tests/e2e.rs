@@ -40,6 +40,13 @@ fn start_mock() -> (u16, Arc<Mutex<Vec<&'static str>>>) {
                     json!({"id":"t","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
                 ]);
             }
+            if text.contains("REFUSE") {
+                return Response::builder()
+                    .status(400)
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"error": {"message": "mock refuses", "type": "invalid_request_error"}}).to_string()))
+                    .unwrap();
+            }
             let has_tool_result = body.0["messages"].as_array().is_some_and(|m| m.iter().any(|m| m["role"] == "tool"));
             if text.contains("USE_TOOL") && !has_tool_result {
                 return sse(&[
@@ -188,25 +195,45 @@ fn run_streams_text_and_tools_from_a_mock_provider() {
     let (provider, _) = start_mock();
     write_config(&env, provider);
 
-    // default format, stdout not a TTY: assistant text on stdout, step header on stderr
+    // default format, stdout not a TTY: assistant text on stdout. Like upstream's, `run` handles the events of
+    // a step that a fast provider answers at once only after `session.wait` answered (outside a git repository
+    // the runner never waits for I/O between them and the session going idle), so there is no step header and
+    // the text comes from the projected message.
     let out = env.run(&["run", "--standalone", "say", "hi"]);
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
     assert_eq!(common::text(&out.stdout), "Hello from mock.\n");
-    assert_eq!(common::text(&out.stderr), "\x1b[0m\n> build · m1\n");
+    assert_eq!(common::text(&out.stderr), "");
 
-    // JSON format with a tool call
+    // JSON format with a tool call: the first step live (its tool ran and the next step's request went out
+    // before the session went idle), the last one projected.
     let out = env.run(&["run", "--standalone", "--format", "json", "USE_TOOL", "now"]);
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
     let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     let types: Vec<&str> = lines.iter().map(|l| l["type"].as_str().unwrap()).collect();
-    assert_eq!(types, vec!["step_start", "tool_use", "step_finish", "step_start", "text", "step_finish"]);
+    assert_eq!(types, vec!["step_start", "tool_use", "step_finish", "text"]);
     let tool = &lines[1]["part"];
     assert_eq!(tool["tool"], "read");
     assert_eq!(tool["state"]["status"], "completed");
     assert!(tool["state"]["output"].as_str().unwrap().contains("hello from file"));
-    assert_eq!(lines[4]["part"]["text"], "Hello from mock.");
-    let keys: Vec<&String> = lines[4].as_object().unwrap().keys().collect();
+    let text = &lines[3]["part"];
+    assert_eq!(text["text"], "Hello from mock.");
+    let message = text["messageID"].as_str().unwrap();
+    assert_eq!(text["id"], format!("prt_{}_text-0", message.strip_prefix("msg_").unwrap()));
+    let keys: Vec<&String> = lines[3].as_object().unwrap().keys().collect();
     assert_eq!(keys, vec!["type", "timestamp", "sessionID", "part"]);
+
+    // A non-retryable 400 at once: only the error, no step header (`step_start` in JSON), like upstream.
+    let out = env.run(&["run", "--standalone", "REFUSE", "now"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(common::text(&out.stdout), "");
+    assert_eq!(common::text(&out.stderr), "\x1b[91m\x1b[1mError: \x1b[0mmock refuses\n");
+    let out = env.run(&["run", "--standalone", "--format", "json", "REFUSE", "now"]);
+    assert_eq!(out.status.code(), Some(1));
+    let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines.len(), 1, "{}", common::text(&out.stdout));
+    assert_eq!(lines[0]["type"], "error");
+    assert_eq!(lines[0]["error"]["message"], "mock refuses");
+    assert_eq!(lines[0]["error"]["status"], 400);
 
     // missing message
     let out = env.run(&["run", "--standalone"]);
@@ -222,6 +249,40 @@ fn run_streams_text_and_tools_from_a_mock_provider() {
     let out = env.run(&["run", "--standalone", "--server", "http://127.0.0.1:1", "x"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(common::text(&out.stderr).contains("--server and --standalone cannot be combined"));
+}
+
+/// In a git repository the step's end snapshot is the runner's last I/O wait before the session goes idle, so
+/// upstream's `run` prints the step header (and the text) live and skips only what follows that snapshot (the
+/// `step_finish`; for a failed step its `session.step.failed`, the error then coming from the execution's end).
+#[test]
+fn run_in_a_git_repository_prints_the_last_step_live_up_to_its_end_snapshot() {
+    let env = common::Env::new();
+    let (provider, _) = start_mock();
+    write_config(&env, provider);
+    for args in [&["init", "-q"][..], &["add", "-A"], &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"]] {
+        let status = std::process::Command::new("git").args(args).current_dir(env.path("work")).env("HOME", env.path("home")).status().unwrap();
+        assert!(status.success());
+    }
+
+    let out = env.run(&["run", "--standalone", "say", "hi"]);
+    assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
+    assert_eq!(common::text(&out.stdout), "Hello from mock.\n");
+    assert_eq!(common::text(&out.stderr), "\x1b[0m\n> build · m1\n");
+    let out = env.run(&["run", "--standalone", "--format", "json", "say", "hi"]);
+    assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
+    let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let types: Vec<&str> = lines.iter().map(|l| l["type"].as_str().unwrap()).collect();
+    assert_eq!(types, vec!["step_start", "text"]);
+    assert!(lines[0]["part"]["snapshot"].is_string());
+
+    let out = env.run(&["run", "--standalone", "REFUSE", "now"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(common::text(&out.stderr), "\x1b[0m\n> build · m1\n\x1b[91m\x1b[1mError: \x1b[0mmock refuses\n");
+    let out = env.run(&["run", "--standalone", "--format", "json", "REFUSE", "now"]);
+    assert_eq!(out.status.code(), Some(1));
+    let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let types: Vec<&str> = lines.iter().map(|l| l["type"].as_str().unwrap()).collect();
+    assert_eq!(types, vec!["step_start", "error"]);
 }
 
 /// Like upstream, a new session's title request goes out before its first step's (the title starts before the

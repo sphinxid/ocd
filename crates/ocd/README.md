@@ -145,6 +145,16 @@ previews/diffs) and background following of child sessions after the root turn e
   ICU-root approximation (`term::locale_cmp`).
 * The background service election probes the port with a plain bind before building the runtime
   (oc-server binds only once the backend exists) and then retries on `EADDRINUSE` as upstream.
+* `run` and the last events of a run: upstream's server writes events to the event stream only when its
+  runner waits for I/O, after the HTTP answers settled before that, so `session.wait` answers before the
+  events published since the runner's last I/O wait and `run` skips them as finalizing (no `> agent · model`
+  header / `step_start` for a step that fails at once, the last step's text from the projected message,
+  no last `step_finish`). ocd's server delivers events at once, so `run.rs` (`Shared::consume`) emulates
+  this: it holds each live event for 50 ms and handles the held ones as finalizing when the execution ends
+  meanwhile, releasing them at once where upstream's runner always waits for I/O (a new step's provider
+  request, the end snapshot of a step that started with one, permission and form requests). Upstream's own
+  output there depends on timing (e.g. a provider whose whole answer arrives in one read); the emulation
+  matches it for providers that answer at once and for streams slower than the hold.
 * `OPENCODE_PTY_HANDOFF` is validated at boot and left in the environment for the backend
   (`oc_persistent_pty::handoff::take_from_env()`); the client side publishes/consumes the
   `<registration>.pty-handoff` sidecar via `POST /api/experimental/persistent-pty/handoff`.
@@ -157,7 +167,8 @@ previews/diffs) and background following of child sessions after the root turn e
 * `tests/golden.rs`: help/version/completions/errors and decoded inputs vs. the Effect oracle;
 * `tests/e2e.rs`: `debug paths`, version + parse errors, background service lifecycle with
   `debug config` and `models`, `models --standalone`, `run` (default and JSON) against a mock
-  OpenAI-compatible SSE provider with a tool call, missing-message and flag-conflict errors;
+  OpenAI-compatible SSE provider with a tool call and a non-retryable 400, outside and inside a git
+  repository (which steps print live), missing-message and flag-conflict errors;
 * `tests/web_ui.rs`: `serve` answers non-API paths with the web UI from `OCD_WEB_UI` (SPA
   fallback, headers, 404 `no-store`, API still 401) and rejects an unreadable override;
   `web_ui::tests` cover the lookup order;

@@ -55,6 +55,26 @@ def cli_run(ctx):
 
 
 @scenario("cli")
+def cli_run_last_step(ctx):
+    """`run` (default format and --format json) for a one-step run that fails at once (a non-retryable 400) or
+    answers at once, outside a git repository and inside one. Upstream's `run` sees the events published after
+    the runner's last I/O wait only after `session.wait` answered, so it skips them: outside a repository no
+    step header, no `step_start`/`step_finish` and the text from the projected message; inside one, the start
+    snapshot's step header and the text (the end snapshot is the last I/O wait) but no `step_finish`."""
+    refuse = {"status": 400, "body": {"error": {"message": "mock refuses", "type": "invalid_request_error"}}}
+    answer = {"text": "Hello."}
+    for git_repo in (False, True):
+        boot(ctx, [refuse, refuse, answer, answer])
+        if git_repo:
+            ctx.make_project(files={"hello.txt": "hi\n"}, git_repo=True)
+        tag = " git" if git_repo else ""
+        for label, extra in (("", []), (" --format json", ["--format", "json"])):
+            ctx.cli(f"run 400{label}{tag}", ["run", "--standalone", "-m", "mock/m1", *extra, "hi"], timeout=60)
+        for label, extra in (("", []), (" --format json", ["--format", "json"])):
+            ctx.cli(f"run text{label}{tag}", ["run", "--standalone", "-m", "mock/m1", *extra, "hi"], timeout=60)
+
+
+@scenario("cli")
 def cli_inventory(ctx):
     """models, stats, session list, debug and list subcommands against a standalone server."""
     boot(ctx, [{"text": "Hello."}])
