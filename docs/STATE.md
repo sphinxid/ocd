@@ -102,7 +102,7 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
   (`mini/testdata/{scrollback,footer}.json`, compared cell by cell). tmux comparison with the 2.1.4 binary: 12
   scenarios, 63 screens, text identical except one startup race (agent list not loaded yet upstream). Left: TS/JS
   highlight colours (syntect vs tree-sitter). Seen there: the server finishes parallel tool calls in a different
-  order than upstream. `run`: last-burst skipping emulated in `Shared::consume` (50 ms hold), parity
+  order than upstream. `run`: last-burst skipping emulated in `Shared::consume` (150 ms hold), parity
   `cli_run_last_step` added.
 - 2026-10-28: CLOUD CREDENTIALS: Bedrock's AWS chain is the SDK's `defaultProvider` (`oc-ai/src/protocols/
   bedrock_converse/aws/`: smithy INI, assume-role via `source_profile`/`credential_source`, web identity, SSO +

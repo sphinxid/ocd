@@ -154,7 +154,7 @@ following of child sessions after the root turn ends.
   events published since the runner's last I/O wait and `run` skips them as finalizing (no `> agent · model`
   header / `step_start` for a step that fails at once, the last step's text from the projected message,
   no last `step_finish`). ocd's server delivers events at once, so `run.rs` (`Shared::consume`) emulates
-  this: it holds each live event for 50 ms and handles the held ones as finalizing when the execution ends
+  this: it holds each live event for 150 ms and handles the held ones as finalizing when the execution ends
   meanwhile, releasing them at once where upstream's runner always waits for I/O (a new step's provider
   request, the end snapshot of a step that started with one, permission and form requests). Upstream's own
   output there depends on timing (e.g. a provider whose whole answer arrives in one read); the emulation

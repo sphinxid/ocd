@@ -22,9 +22,9 @@ const PERMISSION_REJECTED_FEEDBACK: &str =
     "This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.";
 const ATTACH_FILE_MAX_BYTES: u64 = 10 * 1024 * 1024;
 /// How long `run` holds a live event before handling it (see `Shared::consume`): within the delay with which
-/// upstream's event stream trails its HTTP answers (15 to 200+ ms measured), and longer than ocd takes from a
-/// fast provider's answer to the session going idle.
-const HOLD: std::time::Duration = std::time::Duration::from_millis(50);
+/// upstream's event stream trails its HTTP answers (15 to 200+ ms measured), and long enough that a busy machine
+/// doesn't split ocd's burst from a fast provider's answer to the session going idle (50 ms did under load).
+const HOLD: std::time::Duration = std::time::Duration::from_millis(150);
 
 // ---------------------------------------------------------------------------------------------
 // UI (`run/ui.ts`) — everything on stderr

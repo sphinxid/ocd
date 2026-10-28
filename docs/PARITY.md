@@ -130,7 +130,7 @@ one (identical with ocd pointed at an empty web UI archive, `OCD_WEB_UI`). After
 `session.wait` answers. Upstream's server writes the event stream only while its runner waits for I/O, so the events
 published after the runner's last wait (a step that fails at once, the last step of a fast provider) arrive after
 `wait` and `run` prints that step from the projected messages instead (no header, no `step_start`/`step_finish`).
-Fixed on 2026-10-28: ocd's `run` holds each live event for 50 ms and treats the held ones as arriving after `wait`
+Fixed on 2026-10-28: ocd's `run` holds each live event for 150 ms and treats the held ones as arriving after `wait`
 when the execution ends meanwhile (`crates/ocd/src/run.rs`, `Shared::consume`); scenario `cli_run_last_step`.
 
 The CLI help, completions and parse errors of every `cli.json` golden case (help of every command, completion
