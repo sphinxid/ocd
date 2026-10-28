@@ -304,8 +304,6 @@ classified below; none is an unexplained behavioral difference.
 | An AI SDK package install failure reads `Failed to install <spec>: <bun output>` in the initialization detail (upstream: the npm/arborist error message) | util/src/npm.ts `InstallFailedError` | ocd installs with `bun add` |
 | Third-party packages for upstream's own runtime (exporting `model(modelID, settings)` for `@opencode/ai`, loaded by `Provider.loadPackage` from npm) are not supported: `Provider package <x> is not installed` | core/src/provider.ts `loadPackage` | AI SDK packages (`aisdk:`) are |
 | The worktree tools use the strategies of the project's canonical location only when that location is already loaded (the HTTP endpoints boot it first) | core/src/worktree.ts `load` | the tool path falls back to the git strategy |
-| The Responses WebSocket connects directly: no `WSS_PROXY`/`WS_PROXY`/`HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` tunnel (`NO_PROXY`, loopback exempt), and the upgrade offers no `permessage-deflate` (Bun's client does) | core/src/effect/websocket-constructor.ts | the suite masks `sec-websocket-extensions` |
-| The Azure plugin's Entra token on the WebSocket handshake (`experimental.ws.handshake`) is not ported, like its `http.request` Entra hook | core/src/plugin/provider/azure.ts:499-527 | key auth works on both |
 
 ## CLI-crate differences (for the CLI owner; `crates/ocd` was not edited)
 

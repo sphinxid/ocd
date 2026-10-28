@@ -82,6 +82,10 @@ WebSockets:
   ocd also writes the line to its log.
 - **Turning checks off:** `NODE_TLS_REJECT_UNAUTHORIZED=0` turns certificate checks off.
 
+**Proxies:** outgoing requests use `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and `NO_PROXY` (either case) with
+upstream's rules. The OpenAI WebSocket transport also reads `WSS_PROXY` and `WS_PROXY`, and tunnels through `http:`
+or `https:` proxies, with credentials taken from the proxy URL.
+
 ## Downloads on first use
 
 When they're needed, ocd downloads these into the opencode cache folder, the same way upstream does:

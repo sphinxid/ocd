@@ -92,6 +92,12 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-28: WS PROXY/DEFLATE/ENTRA: oc-ai has its own Responses WebSocket client (`route/websocket/client.rs`,
+  Bun 1.4.4's upgrade request, HTTP CONNECT tunnel incl. `https:` proxies and credentials, permessage-deflate via
+  flate2 + zlib-rs) and upstream's proxy selection (`route/websocket/proxy.rs`); `oc_util::proxy` holds Bun's
+  `NO_PROXY` matcher and fetch proxy rules, used by `oc_util::http::client_builder` instead of reqwest's. The Azure
+  plugin's Entra hooks (`http.request`, `experimental.ws.handshake`) are ported (`oc_core::azure`). 20 proxy/deflate
+  cases identical to the 2.1.4 binary; parity group `websocket` 4/4 identical.
 - 2026-10-27: `ocd upgrade` FROM GITHUB RELEASES + UPDATE NOTICE (`crates/ocd/src/release.rs`, `commands/upgrade.rs`,
   `oc-tui/src/app/update.rs`): latest or `v<target>` from the GitHub API, semver against the build, "already
   installed", local builds confirm or `--yes`, `SHA256SUMS` check, in-memory extraction, `--version` check, atomic
