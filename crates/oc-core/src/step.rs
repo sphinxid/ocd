@@ -124,9 +124,27 @@ pub fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
 }
 
 struct Run {
-    handle: tokio::task::JoinHandle<ToolRun>,
+    /// The execution, until it is started (`start_tools`).
+    task: Option<futures::future::BoxFuture<'static, ToolRun>>,
+    handle: Option<tokio::task::JoinHandle<ToolRun>>,
     id: String,
     cancel: CancellationToken,
+}
+
+/// Starts the tool executions forked so far, in call order.
+///
+/// Upstream forks each execution with `Effect.forkScoped`, which does not run the fiber at once: Effect 4.0.1
+/// schedules it as a macrotask (`forkUnsafe` → `scheduleTask` → `setImmediate`), so it starts only when the
+/// provider fiber yields to the event loop: when it waits for provider bytes that have not arrived, or after the
+/// stream ended, `Step.Streamed` was published and the attempt awaits the tools. Tool calls already received are
+/// all published (`tool.called`) before any of them runs, and a call that settles without I/O (an unknown tool)
+/// still settles after `step.streamed` when the response ends in the same read.
+fn start_tools(runs: &mut [Run]) {
+    for r in runs.iter_mut() {
+        if let Some(task) = r.task.take() {
+            r.handle = Some(tokio::spawn(task));
+        }
+    }
 }
 
 pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
@@ -167,7 +185,17 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
     let stream_result: Result<(), AIError> = async {
         let options = oc_ai::StreamOptions { http: input.http_hook.clone(), web_socket: input.web_socket.clone() };
         let mut stream = input.client.stream_opts(input.request.clone(), stream_cancel.clone(), options).await?;
-        while let Some(item) = stream.next().await {
+        loop {
+            // Events of a read that already arrived are handled without yielding; only a wait for more provider
+            // output lets the forked tool executions start (see `start_tools`).
+            let next = match stream.next().now_or_never() {
+                Some(next) => next,
+                None => {
+                    start_tools(&mut runs);
+                    stream.next().await
+                }
+            };
+            let Some(item) = next else { break };
             let event = item?;
             if overflow.is_some() || publisher.has_provider_error() {
                 continue;
@@ -193,7 +221,7 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
                 let none = input.tool_choice_none;
                 let p = publisher.clone();
                 // Each tool publishes its terminal event as soon as it settles, concurrently with the stream.
-                let handle = tokio::spawn(async move {
+                let task = async move {
                     let run = if none {
                         ToolRun::Failed {
                             error: SessionError::new("tool.execution", "Tools are disabled after the maximum agent steps"),
@@ -213,8 +241,9 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
                         },
                         other => other,
                     }
-                });
-                runs.push(Run { handle, id: id.clone(), cancel });
+                }
+                .boxed();
+                runs.push(Run { task: Some(task), handle: None, id: id.clone(), cancel });
             }
         }
         Ok(())
@@ -231,10 +260,14 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
         publisher.streamed().await?;
     }
     if stream_interrupted {
-        for r in &runs {
+        // Interrupting a fiber that has not started yet means it never runs (`interruptTools`).
+        for r in &mut runs {
+            r.task = None;
             r.cancel.cancel();
         }
     }
+    // The attempt now awaits the tools, which lets the executions still pending start.
+    start_tools(&mut runs);
 
     // ---- join tools ----
     let mut declines: Vec<(String, Option<String>)> = Vec::new();
@@ -243,10 +276,13 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
     for r in runs.drain(..) {
         // A tool that panics is a defect of that call (upstream: a tool fiber that dies), not an interruption of
         // the step: the call fails with the panic message and the run continues.
-        let result = match r.handle.await {
-            Ok(run) => run,
-            Err(e) if e.is_panic() => ToolRun::Defect(panic_message(e.into_panic())),
-            Err(_) => ToolRun::Interrupted,
+        let result = match r.handle {
+            None => ToolRun::Interrupted,
+            Some(handle) => match handle.await {
+                Ok(run) => run,
+                Err(e) if e.is_panic() => ToolRun::Defect(panic_message(e.into_panic())),
+                Err(_) => ToolRun::Interrupted,
+            },
         };
         match result {
             ToolRun::Ok { .. } | ToolRun::Failed { .. } => {}

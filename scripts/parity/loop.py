@@ -3,7 +3,7 @@ from parity.registry import scenario
 
 
 def run_prompt(ctx, script, text="hello", files=None, git_repo=False, config_extra=None, llm_full=False, before=None,
-               after=None, timeout=60):
+               after=None, timeout=60, race_sort=()):
     ctx.set_script(script)
     ctx.make_project(files=files, git_repo=git_repo, config_extra=config_extra)
     ctx.start()
@@ -15,9 +15,13 @@ def run_prompt(ctx, script, text="hello", files=None, git_repo=False, config_ext
         after(ctx, sid)
     ctx.call("messages", "GET", f"/api/session/{sid}/message")
     ctx.call("session.get", "GET", f"/api/session/{sid}")
-    ctx.record_events()
+    ctx.record_events(race_sort=race_sort)
     ctx.record_llm(full=llm_full)
     return sid
+
+
+# Tool results settle in completion order in both binaries: results that settle together are a timing race.
+SETTLED = ("session.tool.success", "session.tool.failed")
 
 
 @scenario("loop")
@@ -44,13 +48,26 @@ def loop_reasoning(ctx):
 
 @scenario("loop")
 def loop_parallel_tools(ctx):
-    """three tool calls in one step (read, glob, grep), then an answer."""
+    """three tool calls in one step (read, glob, grep), then an answer. The glob and the grep match one file each:
+    ripgrep's walk is unsorted, so matches in several files list in either order in both binaries."""
     run_prompt(ctx, [
         {"tools": [{"name": "read", "args": {"path": "$PROJECT/a.txt"}, "id": "call_a"},
-                   {"name": "glob", "args": {"pattern": "**/*.txt"}, "id": "call_b"},
-                   {"name": "grep", "args": {"pattern": "beta"}, "id": "call_c"}]},
+                   {"name": "glob", "args": {"pattern": "**/c*.txt"}, "id": "call_b"},
+                   {"name": "grep", "args": {"pattern": "gamma"}, "id": "call_c"}]},
         {"text": "Done looking."},
-    ], text="look around", files={"a.txt": "alpha\n", "b.txt": "beta\n", "sub/c.txt": "gamma beta\n"})
+    ], text="look around", files={"a.txt": "alpha\n", "b.txt": "beta\n", "sub/c.txt": "gamma beta\n"},
+        race_sort=SETTLED)
+
+
+@scenario("loop")
+def loop_parallel_settle(ctx):
+    """parallel calls whose execution waits for the provider loop: an unknown tool (fails without I/O) and a read
+    both settle after `step.streamed`, never between the calls."""
+    run_prompt(ctx, [
+        {"tools": [{"name": "nonexistent_tool", "args": {"x": 1}, "id": "call_x"},
+                   {"name": "read", "args": {"path": "$PROJECT/a.txt"}, "id": "call_y"}]},
+        {"text": "Settled."},
+    ], text="settle", files={"a.txt": "alpha\n"})
 
 
 @scenario("loop")
@@ -102,7 +119,7 @@ def loop_tool_error(ctx):
                    {"name": "nonexistent_tool", "args": {"x": 1}, "id": "call_b"},
                    {"name": "read", "args": "{not json", "id": "call_c"}]},
         {"text": "Errors seen."},
-    ], text="break things")
+    ], text="break things", race_sort=SETTLED)
 
 
 @scenario("loop", hold_for_title=0)

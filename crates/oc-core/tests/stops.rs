@@ -102,6 +102,11 @@ async fn runs_do_not_stop_early() {
                 match (case, n) {
                     (None, _) => text("Title"),
                     (Some("case-panic"), _) => tool_call("read", json!({"path": "x"})),
+                    (Some("case-order"), _) => sse(&[
+                        json!({"id":"c","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"nonexistent_tool","arguments":"{}"}}]}}]}),
+                        json!({"id":"c","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":1,"id":"call_y","type":"function","function":{"name":"read","arguments":"{}"}}]}}]}),
+                        json!({"id":"c","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}),
+                    ]),
                     (Some("case-retry"), _) => Response::builder()
                         .status(429)
                         .header("content-type", "application/json")
@@ -249,7 +254,105 @@ async fn runs_do_not_stop_early() {
     assert_eq!(last_text.as_deref(), Some("after close"));
     assert_eq!(app.sessions.get(&s.id).unwrap().outcome, Some(Idle::Succeeded));
 
+    // 4. Parallel tool calls received in one read: every call is published before any of them runs, and the
+    //    executions start only once the provider loop waits (here: after `step.streamed`), like upstream's forked
+    //    tool fibers, which Effect starts on a later macrotask. A call that settles without I/O (an unknown tool)
+    //    used to settle between the calls.
+    let s = session("order").await;
+    cases.lock().insert(s.id.clone(), "case-order");
+    let selected = engine.select(&s.id).await.unwrap();
+    oc_core::instruction_state::prepare(&app.bus, &selected.sources, &s.id).unwrap();
+    let loaded = engine.load(selected).await.unwrap();
+    let (request, _) = engine.request(&loaded, false);
+    let mut policy = oc_core::retry::Policy::default();
+    let mut events = app.bus.subscribe();
+    let tools = Arc::new(InstantTools { rx: Mutex::new(app.bus.subscribe()), seen: Mutex::default(), log: Mutex::default() });
+    let outcome = step::attempt(step::Input {
+        bus: app.bus.clone(),
+        client: engine.client.clone(),
+        session_id: s.id.clone(),
+        assistant_message_id: oc_schema::id::message(),
+        agent: loaded.sel.agent.id.clone(),
+        model: loaded.resolved.model_ref(),
+        provider_metadata_key: "mock".into(),
+        cost: vec![],
+        request,
+        tool_choice_none: false,
+        tools: tools.clone(),
+        snapshots: None,
+        recover_continuation: true,
+        retry: &mut policy,
+        cancel: CancellationToken::new(),
+        location_closed: Arc::new(|| false),
+        retry_hook: None,
+        http_hook: None,
+        web_socket: None,
+        recover_overflow: Box::new(|| Box::pin(async { false })),
+    })
+    .await;
+    assert!(matches!(outcome, Ok(Outcome::Completed { needs_continuation: true })));
+    // What had been published when each execution started.
+    let mut log = tools.log.lock().clone();
+    log.sort();
+    let before = "session.tool.called call_x, session.tool.called call_y, session.step.streamed";
+    assert_eq!(log, vec![format!("call_x after {before}"), format!("call_y after {before}")]);
+    let mut order = Vec::new();
+    while let Ok(e) = events.try_recv() {
+        let name = event_name(&e);
+        let step_event = name.starts_with("session.step.") || (name.starts_with("session.tool.") && !name.starts_with("session.tool.input"));
+        if step_event && e.data.get("sessionID").and_then(|v| v.as_str()) == Some(s.id.as_str()) {
+            order.push(name);
+        }
+    }
+    let streamed = order.iter().position(|e| e == "session.step.streamed").unwrap();
+    assert_eq!(
+        order[..=streamed],
+        ["session.step.started", "session.tool.called call_x", "session.tool.called call_y", "session.step.streamed"],
+        "{order:#?}"
+    );
+    // The two executions run concurrently and settle in completion order.
+    let mut settled = order[streamed + 1..order.len() - 1].to_vec();
+    settled.sort();
+    assert_eq!(settled, ["session.tool.failed call_x", "session.tool.success call_y"], "{order:#?}");
+    assert_eq!(order.last().map(String::as_str), Some("session.step.ended"));
+
     std::fs::remove_dir_all(&root).ok();
+}
+
+fn event_name(e: &oc_core::bus::Event) -> String {
+    match e.data.get("id").and_then(|v| v.as_str()).filter(|id| id.starts_with("call_")) {
+        Some(id) => format!("{} {id}", e.kind),
+        None => e.kind.clone(),
+    }
+}
+
+/// Tools that settle without I/O; each records the calls and `step.streamed` published before it started.
+struct InstantTools {
+    rx: Mutex<tokio::sync::broadcast::Receiver<oc_core::bus::Event>>,
+    seen: Mutex<Vec<String>>,
+    log: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl ToolRunner for InstantTools {
+    async fn run(&self, call: ToolCall, _progress: Progress, _cancel: CancellationToken) -> ToolRun {
+        let snapshot = {
+            let mut rx = self.rx.lock();
+            let mut seen = self.seen.lock();
+            while let Ok(e) = rx.try_recv() {
+                let name = event_name(&e);
+                if name.starts_with("session.tool.called") || name == "session.step.streamed" {
+                    seen.push(name);
+                }
+            }
+            seen.join(", ")
+        };
+        self.log.lock().push(format!("{} after {snapshot}", call.id));
+        if call.name == "nonexistent_tool" {
+            return ToolRun::Failed { error: oc_schema::types::SessionError::new("unknown", "no such tool"), metadata: None };
+        }
+        ToolRun::Ok { content: vec![oc_schema::types::ToolContent::Text { text: "ok".into() }], metadata: None }
+    }
 }
 
 struct NoStore;

@@ -425,7 +425,10 @@ class Ctx:
     def events(self):
         return list(self.server.events[self.event_start:])
 
-    def record_events(self, label="events", filt=None):
+    def record_events(self, label="events", filt=None, race_sort=()):
+        """`race_sort`: durable event types whose consecutive runs are put in call-ID order (keeping their seq
+        slots). Parallel tool calls settle in completion order in both binaries, so the order of tool results
+        that settle together is a timing race; everything else about them is still compared."""
         evs = [e for e in self.events() if filt is None or filt(e)]
         durable, ephemeral = {}, []
         for e in evs:
@@ -436,7 +439,7 @@ class Ctx:
                 ephemeral.append(e)
         out = []
         for agg, items in durable.items():
-            out.extend(sorted(items, key=lambda e: e["durable"].get("seq", 0)))
+            out.extend(_race_sort(sorted(items, key=lambda e: e["durable"].get("seq", 0)), race_sort))
         self.rec(label + ".durable", out)
         self.rec(label + ".ephemeral", ephemeral)
 
@@ -473,6 +476,26 @@ class Ctx:
             res = {"exit": "TIMEOUT", "stdout": _s(e.stdout), "stderr": _s(e.stderr)}
         self.rec(label, res)
         return res
+
+
+def _race_sort(events, types):
+    if not types:
+        return events
+    out, i = [], 0
+    while i < len(events):
+        j = i
+        while j < len(events) and events[j].get("type") in types and events[j].get("type") == events[i].get("type"):
+            j += 1
+        if j - i > 1:
+            run = events[i:j]
+            slots = [(e["durable"], e.get("id")) for e in run]
+            for (durable, eid), e in zip(slots, sorted(run, key=lambda e: str((e.get("data") or {}).get("id")))):
+                out.append(dict(e, durable=durable, id=eid))
+            i = j
+        else:
+            out.append(events[i])
+            i += 1
+    return out
 
 
 def _s(v):
