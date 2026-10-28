@@ -2,13 +2,22 @@
 //! goes to native scrollback and a live footer is redrawn below it.
 
 pub mod catalog;
+pub mod cell;
+pub mod text;
 pub mod entry_body;
 pub mod footer_width;
 pub mod form_shared;
+pub mod highlight;
+pub mod markdown;
+pub mod marked;
+mod marked_rules;
 pub mod mono;
 pub mod permission_shared;
 pub mod prompt_shared;
+pub mod scrollback;
 pub mod session_shared;
+pub mod structured;
+pub mod theme;
 pub mod tool;
 pub mod types;
 pub mod util;

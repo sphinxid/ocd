@@ -181,6 +181,54 @@ impl StreamCommit {
     pub fn new(kind: EntryKind, text: impl Into<String>, phase: Phase, source: Source) -> StreamCommit {
         StreamCommit { kind, text: text.into(), phase, source, ..Default::default() }
     }
+
+    /// Parse the JSON shape of upstream's `StreamCommit` (traces and test fixtures).
+    pub fn from_value(v: &Value) -> StreamCommit {
+        let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
+        StreamCommit {
+            kind: match s("kind").as_deref() {
+                Some("user") => EntryKind::User,
+                Some("assistant") => EntryKind::Assistant,
+                Some("reasoning") => EntryKind::Reasoning,
+                Some("tool") => EntryKind::Tool,
+                Some("error") => EntryKind::Error,
+                _ => EntryKind::System,
+            },
+            text: s("text").unwrap_or_default(),
+            image: s("image"),
+            phase: match s("phase").as_deref() {
+                Some("progress") => Phase::Progress,
+                Some("final") => Phase::Final,
+                _ => Phase::Start,
+            },
+            source: match s("source").as_deref() {
+                Some("assistant") => Source::Assistant,
+                Some("reasoning") => Source::Reasoning,
+                Some("tool") => Source::Tool,
+                _ => Source::System,
+            },
+            compaction: v.get("compaction").and_then(|x| x.as_bool()).unwrap_or(false),
+            summary: v.get("summary").filter(|x| x.is_object()).map(|x| TurnSummary {
+                agent: x.get("agent").and_then(|a| a.as_str()).unwrap_or_default().into(),
+                model: x.get("model").and_then(|a| a.as_str()).unwrap_or_default().into(),
+                duration: x.get("duration").and_then(|a| a.as_str()).unwrap_or_default().into(),
+            }),
+            message_id: s("messageID"),
+            part_id: s("partID"),
+            tool: s("tool"),
+            directory: s("directory"),
+            part: v.get("part").filter(|x| x.is_object()).map(ToolPart::from_value),
+            interrupted: v.get("interrupted").and_then(|x| x.as_bool()).unwrap_or(false),
+            tool_state: match s("toolState").as_deref() {
+                Some("running") => Some(ToolStateKind::Running),
+                Some("completed") => Some(ToolStateKind::Completed),
+                Some("error") => Some(ToolStateKind::Error),
+                _ => None,
+            },
+            tool_error: s("toolError"),
+            shell: v.get("shell").and_then(|x| x.get("command")).and_then(|x| x.as_str()).map(str::to_string),
+        }
+    }
 }
 
 /// A local scrollback row kept for resize replay.

@@ -1,0 +1,8702 @@
+[
+{
+"name": "user",
+"width": 80,
+"wrote": true,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "user",
+"text": "hello there",
+"phase": "start",
+"source": "system",
+"messageID": "m1"
+}
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+""
+],
+"styles": [
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": false,
+"rows": [
+"› hello there"
+],
+"styles": [
+[
+"0-13:i255/#000000:0/0",
+"13-80:-"
+]
+]
+}
+]
+},
+{
+"name": "stream-md",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "user",
+"text": "hello there",
+"phase": "start",
+"source": "system",
+"messageID": "m1"
+}
+},
+{
+"commit": {
+"kind": "reasoning",
+"text": "Thinking: Let me think about ",
+"phase": "progress",
+"source": "reasoning",
+"messageID": "a1",
+"partID": "reasoning:0"
+}
+},
+{
+"commit": {
+"kind": "reasoning",
+"text": "this request.",
+"phase": "progress",
+"source": "reasoning",
+"messageID": "a1",
+"partID": "reasoning:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "Hello! ",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "I can help with **that**.\n\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "- one\n- two\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+},
+{
+"summary": {
+"agent": "Build",
+"model": "Mock One",
+"duration": "438ms"
+}
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": false,
+"rows": [
+"› hello there"
+],
+"styles": [
+[
+"0-13:i255/#000000:0/0",
+"13-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+""
+],
+"styles": [
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Thinking: Let me think about this request."
+],
+"styles": [
+[
+"0-9:i215/#000000:0/4",
+"9-42:i255/#000000:0/0",
+"42-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+""
+],
+"styles": [
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 4,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Hello! I can help with that.",
+"",
+"- one",
+"- two"
+],
+"styles": [
+[
+"0-23:i255/#000000:0/0",
+"23-27:i215/#000000:0/1",
+"27-28:i255/#000000:0/0",
+"28-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+""
+],
+"styles": [
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": false,
+"rows": [
+"Build · Mock One · 438ms"
+],
+"styles": [
+[
+"0-5:i255/#000000:0/0",
+"5-24:i8/#000000:0/0",
+"24-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md-whole",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "# Title\n\nHello **world** and `code` and *em*.\n\n- one\n- two\n\n1. a\n2. b\n\n```ts\nconst x = 1\n```\n\n> quote here\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [link](https://example.com) now.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 16,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Title",
+"",
+"Hello world and code and em.",
+"",
+"- one",
+"- two",
+"",
+"1. a",
+"2. b",
+"",
+"const x = 1",
+"",
+"│ quote here",
+"",
+"────────────────────────────────────────────────────────────────────────────────",
+""
+],
+"styles": [
+[
+"0-5:i104/#000000:0/9",
+"5-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-6:i255/#000000:0/0",
+"6-11:i215/#000000:0/1",
+"11-16:i255/#000000:0/0",
+"16-20:i114/#000000:0/0",
+"20-25:i255/#000000:0/0",
+"25-27:i215/#000000:0/4",
+"27-28:i255/#000000:0/0",
+"28-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-80:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-5:i104/#000000:0/4",
+"5-6:i255/#000000:0/0",
+"6-7:i167/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-9:i73/#000000:0/0",
+"9-10:i255/#000000:0/0",
+"10-11:i215/#000000:0/0",
+"11-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-12:i255/#000000:0/4",
+"12-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-80:i255/#000000:0/0"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 4,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"a  b",
+"1  2",
+"",
+"See link (https://example.com) now."
+],
+"styles": [
+[
+"0-1:i104/#000000:0/1",
+"1-3:#ffffff/#000000:0/0",
+"3-4:i104/#000000:0/1",
+"4-80:#ffffff/#000000:0/0"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-3:#ffffff/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-80:#ffffff/#000000:0/0"
+],
+[
+"0-80:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-8:i73/#000000:0/8",
+"8-9:i255/#000000:0/0",
+"9-30:i216/#000000:0/8",
+"30-35:i255/#000000:0/0",
+"35-80:-"
+]
+]
+}
+]
+},
+{
+"name": "wrap",
+"width": 30,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "This is a long paragraph that should wrap across several lines at thirty columns, including a path like src/components/footer-view.tsx and a hyphenated-word-sequence.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 30,
+"height": 6,
+"rowColumns": 30,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"This is a long paragraph that",
+"should wrap across several",
+"lines at thirty columns,",
+"including a path like src/",
+"components/footer-view.tsx and",
+"a hyphenated-word-sequence."
+],
+"styles": [
+[
+"0-30:i255/#000000:0/0"
+],
+[
+"0-27:i255/#000000:0/0",
+"27-30:-"
+],
+[
+"0-25:i255/#000000:0/0",
+"25-30:-"
+],
+[
+"0-26:i255/#000000:0/0",
+"26-30:-"
+],
+[
+"0-30:i255/#000000:0/0"
+],
+[
+"0-27:i255/#000000:0/0",
+"27-30:-"
+]
+]
+}
+]
+},
+{
+"name": "quiet-full",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Hello! I can help with **that**.\n\n- one\n- two\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Hello! I can help with that.",
+""
+],
+"styles": [
+[
+"0-23:i255/#000000:0/0",
+"23-27:i215/#000000:0/1",
+"27-28:i255/#000000:0/0",
+"28-80:-"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"- one",
+"- two"
+],
+"styles": [
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+]
+]
+}
+]
+},
+{
+"name": "quiet-full-reasoning-first",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "reasoning",
+"text": "Thinking: Let me think about this request.",
+"phase": "progress",
+"source": "reasoning",
+"messageID": "a1",
+"partID": "reasoning:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "Hello! I can help with **that**.\n\n- one\n- two\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Thinking: Let me think about this request."
+],
+"styles": [
+[
+"0-9:i215/#000000:0/4",
+"9-42:i255/#000000:0/0",
+"42-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+""
+],
+"styles": [
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Hello! I can help with that.",
+""
+],
+"styles": [
+[
+"0-23:i255/#000000:0/0",
+"23-27:i215/#000000:0/1",
+"27-28:i255/#000000:0/0",
+"28-80:-"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"- one",
+"- two"
+],
+"styles": [
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md0-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Hello! I can help with **that**.\n\n- one\n- two\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Hello! I can help with that.",
+""
+],
+"styles": [
+[
+"0-23:i255/#000000:0/0",
+"23-27:i215/#000000:0/1",
+"27-28:i255/#000000:0/0",
+"28-80:-"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"- one",
+"- two"
+],
+"styles": [
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md1-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "# Title\n\nHello **world** and `code` and *em*.\n\n- one\n- two\n\n1. a\n2. b\n\n```ts\nconst x = 1\n```\n\n> quote here\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [link](https://example.com) now.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 16,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Title",
+"",
+"Hello world and code and em.",
+"",
+"- one",
+"- two",
+"",
+"1. a",
+"2. b",
+"",
+"const x = 1",
+"",
+"│ quote here",
+"",
+"────────────────────────────────────────────────────────────────────────────────",
+""
+],
+"styles": [
+[
+"0-5:i104/#000000:0/9",
+"5-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-6:i255/#000000:0/0",
+"6-11:i215/#000000:0/1",
+"11-16:i255/#000000:0/0",
+"16-20:i114/#000000:0/0",
+"20-25:i255/#000000:0/0",
+"25-27:i215/#000000:0/4",
+"27-28:i255/#000000:0/0",
+"28-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-80:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-5:i104/#000000:0/4",
+"5-6:i255/#000000:0/0",
+"6-7:i167/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-9:i73/#000000:0/0",
+"9-10:i255/#000000:0/0",
+"10-11:i215/#000000:0/0",
+"11-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-12:i255/#000000:0/4",
+"12-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-80:i255/#000000:0/0"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 4,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"a  b",
+"1  2",
+"",
+"See link (https://example.com) now."
+],
+"styles": [
+[
+"0-1:i104/#000000:0/1",
+"1-3:#ffffff/#000000:0/0",
+"3-4:i104/#000000:0/1",
+"4-80:#ffffff/#000000:0/0"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-3:#ffffff/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-80:#ffffff/#000000:0/0"
+],
+[
+"0-80:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-8:i73/#000000:0/8",
+"8-9:i255/#000000:0/0",
+"9-30:i216/#000000:0/8",
+"30-35:i255/#000000:0/0",
+"35-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md2-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Inline: ~~strike~~, _under em_, __under strong__, ***both***, `a`b`, ``tick ` code``.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Inline: strike, under em, under strong, both, ab, `tick ` code``."
+],
+"styles": [
+[
+"0-8:i255/#000000:0/0",
+"8-14:i8/#000000:0/0",
+"14-16:i255/#000000:0/0",
+"16-24:i215/#000000:0/4",
+"24-26:i255/#000000:0/0",
+"26-38:i215/#000000:0/1",
+"38-40:i255/#000000:0/0",
+"40-44:i215/#000000:0/5",
+"44-46:i255/#000000:0/0",
+"46-47:i114/#000000:0/0",
+"47-48:i255/#000000:0/0",
+"48-51:i114/#000000:0/0",
+"51-65:i255/#000000:0/0",
+"65-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md3-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Escapes \\*not em\\* and a \\_ backslash; entity &amp; &lt;tag&gt; &nbsp;space.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Escapes \\*not em\\* and a \\_ backslash; entity & <tag> space."
+],
+"styles": [
+[
+"0-8:i255/#000000:0/0",
+"8-10:i104/#000000:0/0",
+"10-16:i255/#000000:0/0",
+"16-18:i104/#000000:0/0",
+"18-25:i255/#000000:0/0",
+"25-27:i104/#000000:0/0",
+"27-60:i255/#000000:0/0",
+"60-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md4-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Links: [text](https://a.b/c \"title\"), <https://auto.link>, [ref], [full][ref2], ![img](x.png), https://bare.url/path.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Links: text (https://a.b/c \"title\"), https://auto.link, ref, full, img, https://",
+"bare.url/path."
+],
+"styles": [
+[
+"0-7:i255/#000000:0/0",
+"7-11:i73/#000000:0/8",
+"11-12:i255/#000000:0/0",
+"12-26:i216/#000000:0/8",
+"26-27:i255/#000000:0/0",
+"27-34:i73/#000000:0/8",
+"34-35:i216/#000000:0/8",
+"35-37:i255/#000000:0/0",
+"37-54:i216/#000000:0/8",
+"54-56:i255/#000000:0/0",
+"56-59:i73/#000000:0/8",
+"59-61:i255/#000000:0/0",
+"61-65:i73/#000000:0/8",
+"65-67:i255/#000000:0/0",
+"67-70:i73/#000000:0/8",
+"70-80:i255/#000000:0/0"
+],
+[
+"0-14:i255/#000000:0/0",
+"14-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md5-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "## Second level\n### Third level heading with **bold**\n#### Four\n\nBody.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 4,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Second level",
+"",
+"Third level heading with bold",
+""
+],
+"styles": [
+[
+"0-12:i104/#000000:0/1",
+"12-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-29:i104/#000000:0/1",
+"29-80:-"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Four",
+"",
+"Body."
+],
+"styles": [
+[
+"0-4:i104/#000000:0/1",
+"4-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md6-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Setext\n===\n\nSub\n---\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 5,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Setext",
+"===",
+"",
+"Sub",
+"---"
+],
+"styles": [
+[
+"0-6:i255/#000000:0/0",
+"6-80:-"
+],
+[
+"0-3:i255/#000000:0/0",
+"3-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-3:i255/#000000:0/0",
+"3-80:-"
+],
+[
+"0-3:i255/#000000:0/0",
+"3-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md7-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "- item one\n  - nested a\n  - nested b\n- item two with a long line that wraps around the column limit at narrow widths\n\n- loose item\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 6,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"- item one",
+"  - nested a",
+"  - nested b",
+"- item two with a long line that wraps around the column limit at narrow widths",
+"",
+"- loose item"
+],
+"styles": [
+[
+"0-2:i216/#000000:0/0",
+"2-10:i255/#000000:0/0",
+"10-80:-"
+],
+[
+"0-2:-",
+"2-4:i216/#000000:0/0",
+"4-12:i255/#000000:0/0",
+"12-80:-"
+],
+[
+"0-2:-",
+"2-4:i216/#000000:0/0",
+"4-12:i255/#000000:0/0",
+"12-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-79:i255/#000000:0/0",
+"79-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-12:i255/#000000:0/0",
+"12-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md8-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "- [ ] todo item\n- [x] done item\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"- todo item",
+"- done item"
+],
+"styles": [
+[
+"0-2:i216/#000000:0/0",
+"2-11:i255/#000000:0/0",
+"11-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-11:i255/#000000:0/0",
+"11-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md9-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "1. First step\n2. Second step with `code`\n   continued line\n10. Tenth\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 4,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"1. First step",
+"2. Second step with code",
+"   continued line",
+"3. Tenth"
+],
+"styles": [
+[
+"0-3:i216/#000000:0/0",
+"3-13:i255/#000000:0/0",
+"13-80:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-20:i255/#000000:0/0",
+"20-24:i114/#000000:0/0",
+"24-80:-"
+],
+[
+"0-3:-",
+"3-17:i255/#000000:0/0",
+"17-80:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-8:i255/#000000:0/0",
+"8-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md10-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "```python\ndef f(x):\n    return x * 2  # comment\n```\nText after fence.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 4,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"def f(x):",
+"    return x * 2  # comment",
+"",
+"Text after fence."
+],
+"styles": [
+[
+"0-9:i255/#000000:0/0",
+"9-80:-"
+],
+[
+"0-27:i255/#000000:0/0",
+"27-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-17:i255/#000000:0/0",
+"17-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md11-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "```\nplain fence\n  indented\n```",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"plain fence",
+"  indented"
+],
+"styles": [
+[
+"0-11:i255/#000000:0/0",
+"11-80:-"
+],
+[
+"0-10:i255/#000000:0/0",
+"10-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md12-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "    indented code\n    more\n\nafter",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 4,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"indented code",
+"more",
+"",
+"after"
+],
+"styles": [
+[
+"0-13:i255/#000000:0/0",
+"13-80:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md13-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "| Name | Value | Notes |\n|:-----|------:|:-----:|\n| alpha | 1 | first **bold** |\n| beta | 22 | `code` here |\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Name   Value  Notes",
+"alpha  1      first bold",
+"beta   22     code here"
+],
+"styles": [
+[
+"0-4:i104/#000000:0/1",
+"4-7:#ffffff/#000000:0/0",
+"7-12:i104/#000000:0/1",
+"12-14:#ffffff/#000000:0/0",
+"14-19:i104/#000000:0/1",
+"19-80:#ffffff/#000000:0/0"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-14:#ffffff/#000000:0/0",
+"14-20:i255/#000000:0/0",
+"20-24:i215/#000000:0/1",
+"24-80:#ffffff/#000000:0/0"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-7:#ffffff/#000000:0/0",
+"7-9:i255/#000000:0/0",
+"9-14:#ffffff/#000000:0/0",
+"14-18:i114/#000000:0/0",
+"18-23:i255/#000000:0/0",
+"23-80:#ffffff/#000000:0/0"
+]
+]
+}
+]
+},
+{
+"name": "md14-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "> quote **bold**\n> second line\n\nafter quote",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"│ quote bold",
+"│ second line",
+""
+],
+"styles": [
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-8:i255/#000000:0/4",
+"8-12:i215/#000000:0/5",
+"12-80:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-13:i255/#000000:0/4",
+"13-80:-"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"after quote"
+],
+"styles": [
+[
+"0-11:i255/#000000:0/0",
+"11-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md15-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Text with trailing spaces  \nhard break and\\\nbackslash break",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Text with trailing spaces",
+"hard break and\\",
+"backslash break"
+],
+"styles": [
+[
+"0-25:i255/#000000:0/0",
+"25-27:i104/#000000:0/0",
+"27-80:-"
+],
+[
+"0-14:i255/#000000:0/0",
+"14-15:i104/#000000:0/0",
+"15-80:-"
+],
+[
+"0-15:i255/#000000:0/0",
+"15-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md16-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "A paragraph with a very long line that goes on and on and on to test wrapping across several terminal columns in scrollback output, with `inline code spans` and **bold words** in it.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"A paragraph with a very long line that goes on and on and on to test wrapping",
+"across several terminal columns in scrollback output, with inline code spans and",
+"bold words in it."
+],
+"styles": [
+[
+"0-78:i255/#000000:0/0",
+"78-80:-"
+],
+[
+"0-59:i255/#000000:0/0",
+"59-76:i114/#000000:0/0",
+"76-80:i255/#000000:0/0"
+],
+[
+"0-10:i215/#000000:0/1",
+"10-17:i255/#000000:0/0",
+"17-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md17-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "<div>\nhtml block\n</div>\n\nafter html",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 4,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"<div>",
+"html block",
+"</div>",
+"after html"
+],
+"styles": [
+[
+"0-5:i255/#000000:0/0",
+"5-80:-"
+],
+[
+"0-10:i255/#000000:0/0",
+"10-80:-"
+],
+[
+"0-6:i255/#000000:0/0",
+"6-80:-"
+],
+[
+"0-10:i255/#000000:0/0",
+"10-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md18-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Para one.\nSame para line two.\n\nPara two.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Para one.",
+"Same para line two.",
+""
+],
+"styles": [
+[
+"0-9:i255/#000000:0/0",
+"9-80:-"
+],
+[
+"0-19:i255/#000000:0/0",
+"19-80:-"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Para two."
+],
+"styles": [
+[
+"0-9:i255/#000000:0/0",
+"9-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md19-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "***\n\nAfter rule",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"────────────────────────────────────────────────────────────────────────────────",
+""
+],
+"styles": [
+[
+"0-80:i255/#000000:0/0"
+],
+[
+"0-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"After rule"
+],
+"styles": [
+[
+"0-10:i255/#000000:0/0",
+"10-80:-"
+]
+]
+}
+]
+},
+{
+"name": "md0-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Hello! I can help with **that**.\n\n- one\n- two\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Hello! I can help with that.",
+""
+],
+"styles": [
+[
+"0-23:i255/#000000:0/0",
+"23-27:i215/#000000:0/1",
+"27-28:i255/#000000:0/0",
+"28-36:-"
+],
+[
+"0-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"- one",
+"- two"
+],
+"styles": [
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-36:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md1-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "# Title\n\nHello **world** and `code` and *em*.\n\n- one\n- two\n\n1. a\n2. b\n\n```ts\nconst x = 1\n```\n\n> quote here\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [link](https://example.com) now.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 16,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Title",
+"",
+"Hello world and code and em.",
+"",
+"- one",
+"- two",
+"",
+"1. a",
+"2. b",
+"",
+"const x = 1",
+"",
+"│ quote here",
+"",
+"────────────────────────────────────",
+""
+],
+"styles": [
+[
+"0-5:i104/#000000:0/9",
+"5-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-6:i255/#000000:0/0",
+"6-11:i215/#000000:0/1",
+"11-16:i255/#000000:0/0",
+"16-20:i114/#000000:0/0",
+"20-25:i255/#000000:0/0",
+"25-27:i215/#000000:0/4",
+"27-28:i255/#000000:0/0",
+"28-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-36:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-36:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-5:i104/#000000:0/4",
+"5-6:i255/#000000:0/0",
+"6-7:i167/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-9:i73/#000000:0/0",
+"9-10:i255/#000000:0/0",
+"10-11:i215/#000000:0/0",
+"11-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-12:i255/#000000:0/4",
+"12-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-36:i255/#000000:0/0"
+],
+[
+"0-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 4,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"a  b",
+"1  2",
+"",
+"See link (https://example.com) now."
+],
+"styles": [
+[
+"0-1:i104/#000000:0/1",
+"1-3:#ffffff/#000000:0/0",
+"3-4:i104/#000000:0/1",
+"4-36:#ffffff/#000000:0/0"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-3:#ffffff/#000000:0/0",
+"3-4:i255/#000000:0/0",
+"4-36:#ffffff/#000000:0/0"
+],
+[
+"0-36:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-8:i73/#000000:0/8",
+"8-9:i255/#000000:0/0",
+"9-30:i216/#000000:0/8",
+"30-35:i255/#000000:0/0",
+"35-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md2-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Inline: ~~strike~~, _under em_, __under strong__, ***both***, `a`b`, ``tick ` code``.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Inline: strike, under em, under",
+"strong, both, ab, `tick ` code``."
+],
+"styles": [
+[
+"0-8:i255/#000000:0/0",
+"8-14:i8/#000000:0/0",
+"14-16:i255/#000000:0/0",
+"16-24:i215/#000000:0/4",
+"24-26:i255/#000000:0/0",
+"26-32:i215/#000000:0/1",
+"32-36:-"
+],
+[
+"0-6:i215/#000000:0/1",
+"6-8:i255/#000000:0/0",
+"8-12:i215/#000000:0/5",
+"12-14:i255/#000000:0/0",
+"14-15:i114/#000000:0/0",
+"15-16:i255/#000000:0/0",
+"16-19:i114/#000000:0/0",
+"19-33:i255/#000000:0/0",
+"33-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md3-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Escapes \\*not em\\* and a \\_ backslash; entity &amp; &lt;tag&gt; &nbsp;space.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Escapes \\*not em\\* and a \\_",
+"backslash; entity & <tag> space."
+],
+"styles": [
+[
+"0-8:i255/#000000:0/0",
+"8-10:i104/#000000:0/0",
+"10-16:i255/#000000:0/0",
+"16-18:i104/#000000:0/0",
+"18-25:i255/#000000:0/0",
+"25-27:i104/#000000:0/0",
+"27-28:i255/#000000:0/0",
+"28-36:-"
+],
+[
+"0-32:i255/#000000:0/0",
+"32-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md4-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Links: [text](https://a.b/c \"title\"), <https://auto.link>, [ref], [full][ref2], ![img](x.png), https://bare.url/path.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 3,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Links: text (https://a.b/c \"title\"),",
+"https://auto.link, ref, full, img,",
+"https://bare.url/path."
+],
+"styles": [
+[
+"0-7:i255/#000000:0/0",
+"7-11:i73/#000000:0/8",
+"11-12:i255/#000000:0/0",
+"12-26:i216/#000000:0/8",
+"26-27:i255/#000000:0/0",
+"27-34:i73/#000000:0/8",
+"34-35:i216/#000000:0/8",
+"35-36:i255/#000000:0/0"
+],
+[
+"0-17:i216/#000000:0/8",
+"17-19:i255/#000000:0/0",
+"19-22:i73/#000000:0/8",
+"22-24:i255/#000000:0/0",
+"24-28:i73/#000000:0/8",
+"28-30:i255/#000000:0/0",
+"30-33:i73/#000000:0/8",
+"33-35:i255/#000000:0/0",
+"35-36:-"
+],
+[
+"0-22:i255/#000000:0/0",
+"22-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md5-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "## Second level\n### Third level heading with **bold**\n#### Four\n\nBody.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 4,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Second level",
+"",
+"Third level heading with bold",
+""
+],
+"styles": [
+[
+"0-12:i104/#000000:0/1",
+"12-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-29:i104/#000000:0/1",
+"29-36:-"
+],
+[
+"0-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 3,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Four",
+"",
+"Body."
+],
+"styles": [
+[
+"0-4:i104/#000000:0/1",
+"4-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md6-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Setext\n===\n\nSub\n---\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 5,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Setext",
+"===",
+"",
+"Sub",
+"---"
+],
+"styles": [
+[
+"0-6:i255/#000000:0/0",
+"6-36:-"
+],
+[
+"0-3:i255/#000000:0/0",
+"3-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-3:i255/#000000:0/0",
+"3-36:-"
+],
+[
+"0-3:i255/#000000:0/0",
+"3-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md7-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "- item one\n  - nested a\n  - nested b\n- item two with a long line that wraps around the column limit at narrow widths\n\n- loose item\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 8,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"- item one",
+"  - nested a",
+"  - nested b",
+"- item two with a long line that",
+"  wraps around the column limit at",
+"  narrow widths",
+"",
+"- loose item"
+],
+"styles": [
+[
+"0-2:i216/#000000:0/0",
+"2-10:i255/#000000:0/0",
+"10-36:-"
+],
+[
+"0-2:-",
+"2-4:i216/#000000:0/0",
+"4-12:i255/#000000:0/0",
+"12-36:-"
+],
+[
+"0-2:-",
+"2-4:i216/#000000:0/0",
+"4-12:i255/#000000:0/0",
+"12-36:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-33:i255/#000000:0/0",
+"33-36:-"
+],
+[
+"0-2:-",
+"2-35:i255/#000000:0/0",
+"35-36:-"
+],
+[
+"0-2:-",
+"2-15:i255/#000000:0/0",
+"15-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-12:i255/#000000:0/0",
+"12-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md8-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "- [ ] todo item\n- [x] done item\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"- todo item",
+"- done item"
+],
+"styles": [
+[
+"0-2:i216/#000000:0/0",
+"2-11:i255/#000000:0/0",
+"11-36:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-11:i255/#000000:0/0",
+"11-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md9-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "1. First step\n2. Second step with `code`\n   continued line\n10. Tenth\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 4,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"1. First step",
+"2. Second step with code",
+"   continued line",
+"3. Tenth"
+],
+"styles": [
+[
+"0-3:i216/#000000:0/0",
+"3-13:i255/#000000:0/0",
+"13-36:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-20:i255/#000000:0/0",
+"20-24:i114/#000000:0/0",
+"24-36:-"
+],
+[
+"0-3:-",
+"3-17:i255/#000000:0/0",
+"17-36:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-8:i255/#000000:0/0",
+"8-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md10-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "```python\ndef f(x):\n    return x * 2  # comment\n```\nText after fence.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 4,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"def f(x):",
+"    return x * 2  # comment",
+"",
+"Text after fence."
+],
+"styles": [
+[
+"0-9:i255/#000000:0/0",
+"9-36:-"
+],
+[
+"0-27:i255/#000000:0/0",
+"27-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-17:i255/#000000:0/0",
+"17-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md11-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "```\nplain fence\n  indented\n```",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"plain fence",
+"  indented"
+],
+"styles": [
+[
+"0-11:i255/#000000:0/0",
+"11-36:-"
+],
+[
+"0-10:i255/#000000:0/0",
+"10-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md12-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "    indented code\n    more\n\nafter",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 4,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"indented code",
+"more",
+"",
+"after"
+],
+"styles": [
+[
+"0-13:i255/#000000:0/0",
+"13-36:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-36:-"
+],
+[
+"0-36:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md13-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "| Name | Value | Notes |\n|:-----|------:|:-----:|\n| alpha | 1 | first **bold** |\n| beta | 22 | `code` here |\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 3,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Name   Value  Notes",
+"alpha  1      first bold",
+"beta   22     code here"
+],
+"styles": [
+[
+"0-4:i104/#000000:0/1",
+"4-7:#ffffff/#000000:0/0",
+"7-12:i104/#000000:0/1",
+"12-14:#ffffff/#000000:0/0",
+"14-19:i104/#000000:0/1",
+"19-36:#ffffff/#000000:0/0"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-14:#ffffff/#000000:0/0",
+"14-20:i255/#000000:0/0",
+"20-24:i215/#000000:0/1",
+"24-36:#ffffff/#000000:0/0"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-7:#ffffff/#000000:0/0",
+"7-9:i255/#000000:0/0",
+"9-14:#ffffff/#000000:0/0",
+"14-18:i114/#000000:0/0",
+"18-23:i255/#000000:0/0",
+"23-36:#ffffff/#000000:0/0"
+]
+]
+}
+]
+},
+{
+"name": "md14-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "> quote **bold**\n> second line\n\nafter quote",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 3,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"│ quote bold",
+"│ second line",
+""
+],
+"styles": [
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-8:i255/#000000:0/4",
+"8-12:i215/#000000:0/5",
+"12-36:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-13:i255/#000000:0/4",
+"13-36:-"
+],
+[
+"0-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 1,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"after quote"
+],
+"styles": [
+[
+"0-11:i255/#000000:0/0",
+"11-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md15-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Text with trailing spaces  \nhard break and\\\nbackslash break",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 3,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Text with trailing spaces",
+"hard break and\\",
+"backslash break"
+],
+"styles": [
+[
+"0-25:i255/#000000:0/0",
+"25-27:i104/#000000:0/0",
+"27-36:-"
+],
+[
+"0-14:i255/#000000:0/0",
+"14-15:i104/#000000:0/0",
+"15-36:-"
+],
+[
+"0-15:i255/#000000:0/0",
+"15-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md16-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "A paragraph with a very long line that goes on and on and on to test wrapping across several terminal columns in scrollback output, with `inline code spans` and **bold words** in it.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 6,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"A paragraph with a very long line",
+"that goes on and on and on to test",
+"wrapping across several terminal",
+"columns in scrollback output, with",
+"inline code spans and bold words in",
+"it."
+],
+"styles": [
+[
+"0-34:i255/#000000:0/0",
+"34-36:-"
+],
+[
+"0-35:i255/#000000:0/0",
+"35-36:-"
+],
+[
+"0-33:i255/#000000:0/0",
+"33-36:-"
+],
+[
+"0-35:i255/#000000:0/0",
+"35-36:-"
+],
+[
+"0-17:i114/#000000:0/0",
+"17-22:i255/#000000:0/0",
+"22-32:i215/#000000:0/1",
+"32-36:i255/#000000:0/0"
+],
+[
+"0-3:i255/#000000:0/0",
+"3-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md17-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "<div>\nhtml block\n</div>\n\nafter html",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 4,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"<div>",
+"html block",
+"</div>",
+"after html"
+],
+"styles": [
+[
+"0-5:i255/#000000:0/0",
+"5-36:-"
+],
+[
+"0-10:i255/#000000:0/0",
+"10-36:-"
+],
+[
+"0-6:i255/#000000:0/0",
+"6-36:-"
+],
+[
+"0-10:i255/#000000:0/0",
+"10-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md18-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Para one.\nSame para line two.\n\nPara two.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 3,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Para one.",
+"Same para line two.",
+""
+],
+"styles": [
+[
+"0-9:i255/#000000:0/0",
+"9-36:-"
+],
+[
+"0-19:i255/#000000:0/0",
+"19-36:-"
+],
+[
+"0-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 1,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Para two."
+],
+"styles": [
+[
+"0-9:i255/#000000:0/0",
+"9-36:-"
+]
+]
+}
+]
+},
+{
+"name": "md19-w36",
+"width": 36,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "***\n\nAfter rule",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"────────────────────────────────────",
+""
+],
+"styles": [
+[
+"0-36:i255/#000000:0/0"
+],
+[
+"0-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 1,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"After rule"
+],
+"styles": [
+[
+"0-10:i255/#000000:0/0",
+"10-36:-"
+]
+]
+}
+]
+},
+{
+"name": "read-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running read",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/a.ts"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "x",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/a.ts"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "{\"type\":\"text-page\",\"content\":\"x\"}"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"→ Read src/a.ts"
+],
+"styles": [
+[
+"0-15:i8/#000000:0/0",
+"15-80:-"
+]
+]
+}
+]
+},
+{
+"name": "read-range-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running read",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/a.ts",
+"offset": 10,
+"limit": 20
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "x",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/a.ts",
+"offset": 10,
+"limit": 20
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "x"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"→ Read src/a.ts [offset=10, limit=20]"
+],
+"styles": [
+[
+"0-37:i8/#000000:0/0",
+"37-80:-"
+]
+]
+}
+]
+},
+{
+"name": "glob-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running glob",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_glob",
+"tool": "glob",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_glob",
+"name": "glob",
+"state": {
+"status": "running",
+"input": {
+"pattern": "**/*.ts",
+"path": "/work/project/src"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "a\nb\nc",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_glob",
+"tool": "glob",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_glob",
+"name": "glob",
+"state": {
+"status": "completed",
+"input": {
+"pattern": "**/*.ts",
+"path": "/work/project/src"
+},
+"metadata": {
+"count": 3
+},
+"content": [
+{
+"type": "text",
+"text": "a\nb\nc"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"✱ Glob \"**/*.ts\" in src"
+],
+"styles": [
+[
+"0-23:i8/#000000:0/0",
+"23-80:-"
+]
+]
+}
+]
+},
+{
+"name": "grep-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running grep",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_grep",
+"tool": "grep",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_grep",
+"name": "grep",
+"state": {
+"status": "running",
+"input": {
+"pattern": "needle"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "a.ts:1",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_grep",
+"tool": "grep",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_grep",
+"name": "grep",
+"state": {
+"status": "completed",
+"input": {
+"pattern": "needle"
+},
+"metadata": {
+"matches": 1
+},
+"content": [
+{
+"type": "text",
+"text": "a.ts:1"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"✱ Grep \"needle\""
+],
+"styles": [
+[
+"0-15:i8/#000000:0/0",
+"15-80:-"
+]
+]
+}
+]
+},
+{
+"name": "list-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running list",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_list",
+"tool": "list",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_list",
+"name": "list",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "a",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_list",
+"tool": "list",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_list",
+"name": "list",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "a"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"→ List src"
+],
+"styles": [
+[
+"0-10:i8/#000000:0/0",
+"10-80:-"
+]
+]
+}
+]
+},
+{
+"name": "shell-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running shell",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "running",
+"input": {
+"command": "ls -la"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "total 4\nfile.txt\n",
+"phase": "progress",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "completed",
+"input": {
+"command": "ls -la"
+},
+"metadata": {
+"exit": 0
+},
+"content": [
+{
+"type": "text",
+"text": "total 4\nfile.txt\n"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"$ ls -la"
+],
+"styles": [
+[
+"0-8:i8/#000000:0/0",
+"8-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"total 4",
+"file.txt"
+],
+"styles": [
+[
+"0-80:-"
+],
+[
+"0-7:i8/#000000:0/0",
+"7-80:-"
+],
+[
+"0-8:i8/#000000:0/0",
+"8-80:-"
+]
+]
+}
+]
+},
+{
+"name": "shell-workdir-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running shell",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "running",
+"input": {
+"command": "pwd",
+"workdir": "/work/project/sub"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "/work/project/sub\n",
+"phase": "progress",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "completed",
+"input": {
+"command": "pwd",
+"workdir": "/work/project/sub"
+},
+"metadata": {
+"exit": 0
+},
+"content": [
+{
+"type": "text",
+"text": "/work/project/sub\n"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"sub$ pwd"
+],
+"styles": [
+[
+"0-8:i8/#000000:0/0",
+"8-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"/work/project/sub"
+],
+"styles": [
+[
+"0-80:-"
+],
+[
+"0-17:i8/#000000:0/0",
+"17-80:-"
+]
+]
+}
+]
+},
+{
+"name": "shell-fail-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running shell",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "running",
+"input": {
+"command": "false"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Command exited with code 1",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "error",
+"input": {
+"command": "false"
+},
+"metadata": {
+"exit": 1
+},
+"content": [
+{
+"type": "text",
+"text": "boom\n"
+}
+],
+"error": {
+"type": "unknown",
+"message": "Command exited with code 1"
+}
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "error",
+"toolError": "Command exited with code 1"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"$ false"
+],
+"styles": [
+[
+"0-7:i8/#000000:0/0",
+"7-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"✖ shell failed: Command exited with code 1"
+],
+"styles": [
+[
+"0-42:i167/#000000:0/1",
+"42-80:-"
+]
+]
+}
+]
+},
+{
+"name": "edit-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running edit",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_edit",
+"tool": "edit",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_edit",
+"name": "edit",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/a.ts",
+"oldString": "old",
+"newString": "new"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Edited",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_edit",
+"tool": "edit",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_edit",
+"name": "edit",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/a.ts",
+"oldString": "old",
+"newString": "new"
+},
+"metadata": {
+"files": [
+{
+"file": "src/a.ts",
+"status": "modified",
+"patch": "@@ -1,4 +1,4 @@\n line one\n-old line\n+new line\n line three\n line four\n",
+"additions": 1,
+"deletions": 1
+}
+]
+},
+"content": [
+{
+"type": "text",
+"text": "Edited"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 7,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Edited src/a.ts",
+"",
+"  1   line one",
+"  2 - old line",
+"  2 + new line",
+"  3   line three",
+"  4   line four"
+],
+"styles": [
+[
+"0-17:i8/#000000:0/0",
+"17-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-14:i255/#000000:0/0",
+"14-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i167/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-14:i255/#000000:0/0",
+"14-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i150/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-14:i255/#000000:0/0",
+"14-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-16:i255/#000000:0/0",
+"16-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-15:i255/#000000:0/0",
+"15-80:-"
+]
+]
+}
+]
+},
+{
+"name": "edit-two-hunks-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running edit",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_edit",
+"tool": "edit",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_edit",
+"name": "edit",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/b.ts"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Edited",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_edit",
+"tool": "edit",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_edit",
+"name": "edit",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/b.ts"
+},
+"metadata": {
+"files": [
+{
+"file": "src/b.ts",
+"status": "modified",
+"patch": "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -20,3 +20,4 @@\n x\n y\n+z\n w\n"
+}
+]
+},
+"content": [
+{
+"type": "text",
+"text": "Edited"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 11,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Edited src/b.ts",
+"",
+"  1   a",
+"  2 - b",
+"  2 + B",
+"  3   c",
+"  @@ -20,3 +20,4 @@",
+"  20   x",
+"  21   y",
+"  22 + z",
+"  23   w"
+],
+"styles": [
+[
+"0-17:i8/#000000:0/0",
+"17-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-7:i255/#000000:0/0",
+"7-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i167/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-7:i255/#000000:0/0",
+"7-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i150/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-7:i255/#000000:0/0",
+"7-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-7:i255/#000000:0/0",
+"7-80:-"
+],
+[
+"0-1:-",
+"1-19:i246/#000000:0/0",
+"19-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-4:i246/#000000:0/0",
+"4-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-4:i246/#000000:0/0",
+"4-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-4:i246/#000000:0/0",
+"4-6:i150/#000000:0/0",
+"6-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-4:i246/#000000:0/0",
+"4-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-80:-"
+]
+]
+}
+]
+},
+{
+"name": "write-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running write",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_write",
+"tool": "write",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_write",
+"name": "write",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/new.ts",
+"content": "const a = 1\nconsole.log(a)\n"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Wrote",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_write",
+"tool": "write",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_write",
+"name": "write",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/new.ts",
+"content": "const a = 1\nconsole.log(a)\n"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "Wrote"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 5,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Wrote src/new.ts",
+"",
+"  1 const a = 1",
+"  2 console.log(a)",
+"  3"
+],
+"styles": [
+[
+"0-18:i8/#000000:0/0",
+"18-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-15:i255/#000000:0/0",
+"15-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-18:i255/#000000:0/0",
+"18-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-80:-"
+]
+]
+}
+]
+},
+{
+"name": "write-py-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running write",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_write",
+"tool": "write",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_write",
+"name": "write",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/tool.py",
+"content": "def f():\n    return 1\n"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Wrote",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_write",
+"tool": "write",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_write",
+"name": "write",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/tool.py",
+"content": "def f():\n    return 1\n"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "Wrote"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 5,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Wrote tool.py",
+"",
+"  1 def f():",
+"  2     return 1",
+"  3"
+],
+"styles": [
+[
+"0-15:i8/#000000:0/0",
+"15-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-12:i255/#000000:0/0",
+"12-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-16:i255/#000000:0/0",
+"16-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-80:-"
+]
+]
+}
+]
+},
+{
+"name": "patch-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running patch",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_patch",
+"tool": "patch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_patch",
+"name": "patch",
+"state": {
+"status": "running",
+"input": {
+"patchText": "*** Begin Patch\n*** End Patch"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Patched",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_patch",
+"tool": "patch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_patch",
+"name": "patch",
+"state": {
+"status": "completed",
+"input": {
+"patchText": "*** Begin Patch\n*** End Patch"
+},
+"metadata": {
+"files": [
+{
+"file": "a.txt",
+"status": "added",
+"patch": "@@ -0,0 +1 @@\n+added\n"
+},
+{
+"file": "b.txt",
+"status": "modified",
+"patch": "@@ -1 +1 @@\n-one\n+uno\n"
+}
+]
+},
+"content": [
+{
+"type": "text",
+"text": "Patched"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 8,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Created a.txt",
+"",
+"  1 + added",
+"",
+"# Patched b.txt",
+"",
+"  1 - one",
+"  1 + uno"
+],
+"styles": [
+[
+"0-15:i8/#000000:0/0",
+"15-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i150/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-11:i255/#000000:0/0",
+"11-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-15:i8/#000000:0/0",
+"15-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i167/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-9:i255/#000000:0/0",
+"9-80:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i150/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-9:i255/#000000:0/0",
+"9-80:-"
+]
+]
+}
+]
+},
+{
+"name": "task-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running subagent",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_subagent",
+"tool": "subagent",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_subagent",
+"name": "subagent",
+"state": {
+"status": "running",
+"input": {
+"description": "Inspect reducer",
+"agent": "explore"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "<task_result>\n# Findings\n\n- Footer stays live\n</task_result>",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_subagent",
+"tool": "subagent",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_subagent",
+"name": "subagent",
+"state": {
+"status": "completed",
+"input": {
+"description": "Inspect reducer",
+"agent": "explore"
+},
+"metadata": {
+"sessionID": "ses_child",
+"status": "completed"
+},
+"content": [
+{
+"type": "text",
+"text": "<task_result>\n# Findings\n\n- Footer stays live\n</task_result>"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"Findings",
+"",
+"- Footer stays live"
+],
+"styles": [
+[
+"0-8:i104/#000000:0/9",
+"8-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-19:i255/#000000:0/0",
+"19-80:-"
+]
+]
+}
+]
+},
+{
+"name": "task-empty-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running subagent",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_subagent",
+"tool": "subagent",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_subagent",
+"name": "subagent",
+"state": {
+"status": "running",
+"input": {
+"description": "Inspect reducer",
+"agent": "explore"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_subagent",
+"tool": "subagent",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_subagent",
+"name": "subagent",
+"state": {
+"status": "completed",
+"input": {
+"description": "Inspect reducer",
+"agent": "explore"
+},
+"metadata": {
+"sessionID": "ses_child",
+"status": "completed"
+},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Explore Subagent",
+"",
+" Inspect reducer"
+],
+"styles": [
+[
+"0-18:i8/#000000:0/0",
+"18-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-1:-",
+"1-16:i255/#000000:0/0",
+"16-80:-"
+]
+]
+}
+]
+},
+{
+"name": "todo-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running todowrite",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_todowrite",
+"tool": "todowrite",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_todowrite",
+"name": "todowrite",
+"state": {
+"status": "running",
+"input": {
+"todos": [
+{
+"content": "First",
+"status": "completed"
+},
+{
+"content": "Second",
+"status": "in_progress"
+},
+{
+"content": "Third",
+"status": "pending"
+},
+{
+"content": "Dropped",
+"status": "cancelled"
+}
+]
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_todowrite",
+"tool": "todowrite",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_todowrite",
+"name": "todowrite",
+"state": {
+"status": "completed",
+"input": {
+"todos": [
+{
+"content": "First",
+"status": "completed"
+},
+{
+"content": "Second",
+"status": "in_progress"
+},
+{
+"content": "Third",
+"status": "pending"
+},
+{
+"content": "Dropped",
+"status": "cancelled"
+}
+]
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 6,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Todos",
+"",
+"[✓] First",
+"[•] Second",
+"[ ] Third",
+"[-] Dropped"
+],
+"styles": [
+[
+"0-7:i8/#000000:0/0",
+"7-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-9:i8/#000000:0/0",
+"9-80:-"
+],
+[
+"0-10:i215/#000000:0/0",
+"10-80:-"
+],
+[
+"0-9:i8/#000000:0/0",
+"9-80:-"
+],
+[
+"0-4:i8/#000000:0/0",
+"4-11:i8/#000000:0/128",
+"11-80:-"
+]
+]
+}
+]
+},
+{
+"name": "question-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running question",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_question",
+"tool": "question",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_question",
+"name": "question",
+"state": {
+"status": "running",
+"input": {
+"questions": [
+{
+"question": "Pick one?"
+},
+{
+"question": "Why?"
+}
+]
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_question",
+"tool": "question",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_question",
+"name": "question",
+"state": {
+"status": "completed",
+"input": {
+"questions": [
+{
+"question": "Pick one?"
+},
+{
+"question": "Why?"
+}
+]
+},
+"metadata": {
+"answers": [
+[
+"A"
+],
+[]
+]
+},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 7,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Questions",
+"",
+"Pick one?",
+"A",
+"",
+"Why?",
+"(no answer)"
+],
+"styles": [
+[
+"0-11:i8/#000000:0/0",
+"11-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-9:i8/#000000:0/0",
+"9-80:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-4:i8/#000000:0/0",
+"4-80:-"
+],
+[
+"0-11:i255/#000000:0/0",
+"11-80:-"
+]
+]
+}
+]
+},
+{
+"name": "webfetch-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running webfetch",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_webfetch",
+"tool": "webfetch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_webfetch",
+"name": "webfetch",
+"state": {
+"status": "running",
+"input": {
+"url": "https://example.com/page"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "page",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_webfetch",
+"tool": "webfetch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_webfetch",
+"name": "webfetch",
+"state": {
+"status": "completed",
+"input": {
+"url": "https://example.com/page"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "page"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"% WebFetch https://example.com/page"
+],
+"styles": [
+[
+"0-35:i8/#000000:0/0",
+"35-80:-"
+]
+]
+}
+]
+},
+{
+"name": "websearch-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running websearch",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_websearch",
+"tool": "websearch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_websearch",
+"name": "websearch",
+"state": {
+"status": "running",
+"input": {
+"query": "rust tui"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "results",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_websearch",
+"tool": "websearch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_websearch",
+"name": "websearch",
+"state": {
+"status": "completed",
+"input": {
+"query": "rust tui"
+},
+"metadata": {
+"provider": "exa"
+},
+"content": [
+{
+"type": "text",
+"text": "results"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"◈ Web Search \"rust tui\""
+],
+"styles": [
+[
+"0-23:i8/#000000:0/0",
+"23-80:-"
+]
+]
+}
+]
+},
+{
+"name": "mcp-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running mcp_custom",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_mcp_custom",
+"tool": "mcp_custom",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_mcp_custom",
+"name": "mcp_custom",
+"state": {
+"status": "running",
+"input": {
+"target": "demo"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_mcp_custom",
+"tool": "mcp_custom",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_mcp_custom",
+"name": "mcp_custom",
+"state": {
+"status": "completed",
+"input": {
+"target": "demo"
+},
+"metadata": {
+"result": {
+"ok": true
+}
+},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"⚙ mcp_custom [target=demo]"
+],
+"styles": [
+[
+"0-26:i8/#000000:0/0",
+"26-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 5,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"",
+"",
+"",
+"",
+""
+],
+"styles": [
+[
+"0-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-80:-"
+],
+[
+"0-80:-"
+]
+]
+}
+]
+},
+{
+"name": "mcp-out-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running mcp_custom",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_mcp_custom",
+"tool": "mcp_custom",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_mcp_custom",
+"name": "mcp_custom",
+"state": {
+"status": "running",
+"input": {
+"target": "demo"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "custom output\nline 2",
+"phase": "progress",
+"messageID": "msg_1",
+"partID": "prt_call_mcp_custom",
+"tool": "mcp_custom",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_mcp_custom",
+"name": "mcp_custom",
+"state": {
+"status": "completed",
+"input": {
+"target": "demo"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "custom output\nline 2"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"⚙ mcp_custom [target=demo]"
+],
+"styles": [
+[
+"0-26:i8/#000000:0/0",
+"26-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"custom output",
+"line 2"
+],
+"styles": [
+[
+"0-13:i8/#000000:0/0",
+"13-80:-"
+],
+[
+"0-6:i8/#000000:0/0",
+"6-80:-"
+]
+]
+}
+]
+},
+{
+"name": "read-error-w80",
+"width": 80,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running read",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/missing.ts"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "File not found: /work/project/missing.ts",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "error",
+"input": {
+"path": "/work/project/missing.ts"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+],
+"error": {
+"type": "unknown",
+"message": "File not found: /work/project/missing.ts"
+}
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "error",
+"toolError": "File not found: /work/project/missing.ts"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"→ Read missing.ts"
+],
+"styles": [
+[
+"0-17:i8/#000000:0/0",
+"17-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 1,
+"rowColumns": 80,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"✖ read failed: File not found: /work/project/missing.ts"
+],
+"styles": [
+[
+"0-55:i167/#000000:0/1",
+"55-80:-"
+]
+]
+}
+]
+},
+{
+"name": "read-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running read",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/a.ts"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "x",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/a.ts"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "{\"type\":\"text-page\",\"content\":\"x\"}"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"→ Read src/a.ts"
+],
+"styles": [
+[
+"0-15:i8/#000000:0/0",
+"15-40:-"
+]
+]
+}
+]
+},
+{
+"name": "read-range-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running read",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/a.ts",
+"offset": 10,
+"limit": 20
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "x",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/a.ts",
+"offset": 10,
+"limit": 20
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "x"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"→ Read src/a.ts [offset=10, limit=20]"
+],
+"styles": [
+[
+"0-37:i8/#000000:0/0",
+"37-40:-"
+]
+]
+}
+]
+},
+{
+"name": "glob-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running glob",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_glob",
+"tool": "glob",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_glob",
+"name": "glob",
+"state": {
+"status": "running",
+"input": {
+"pattern": "**/*.ts",
+"path": "/work/project/src"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "a\nb\nc",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_glob",
+"tool": "glob",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_glob",
+"name": "glob",
+"state": {
+"status": "completed",
+"input": {
+"pattern": "**/*.ts",
+"path": "/work/project/src"
+},
+"metadata": {
+"count": 3
+},
+"content": [
+{
+"type": "text",
+"text": "a\nb\nc"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"✱ Glob \"**/*.ts\" in src"
+],
+"styles": [
+[
+"0-23:i8/#000000:0/0",
+"23-40:-"
+]
+]
+}
+]
+},
+{
+"name": "grep-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running grep",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_grep",
+"tool": "grep",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_grep",
+"name": "grep",
+"state": {
+"status": "running",
+"input": {
+"pattern": "needle"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "a.ts:1",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_grep",
+"tool": "grep",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_grep",
+"name": "grep",
+"state": {
+"status": "completed",
+"input": {
+"pattern": "needle"
+},
+"metadata": {
+"matches": 1
+},
+"content": [
+{
+"type": "text",
+"text": "a.ts:1"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"✱ Grep \"needle\""
+],
+"styles": [
+[
+"0-15:i8/#000000:0/0",
+"15-40:-"
+]
+]
+}
+]
+},
+{
+"name": "list-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running list",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_list",
+"tool": "list",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_list",
+"name": "list",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "a",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_list",
+"tool": "list",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_list",
+"name": "list",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "a"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"→ List src"
+],
+"styles": [
+[
+"0-10:i8/#000000:0/0",
+"10-40:-"
+]
+]
+}
+]
+},
+{
+"name": "shell-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running shell",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "running",
+"input": {
+"command": "ls -la"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "total 4\nfile.txt\n",
+"phase": "progress",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "completed",
+"input": {
+"command": "ls -la"
+},
+"metadata": {
+"exit": 0
+},
+"content": [
+{
+"type": "text",
+"text": "total 4\nfile.txt\n"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"$ ls -la"
+],
+"styles": [
+[
+"0-8:i8/#000000:0/0",
+"8-40:-"
+]
+]
+},
+{
+"width": 40,
+"height": 3,
+"rowColumns": 40,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"total 4",
+"file.txt"
+],
+"styles": [
+[
+"0-40:-"
+],
+[
+"0-7:i8/#000000:0/0",
+"7-40:-"
+],
+[
+"0-8:i8/#000000:0/0",
+"8-40:-"
+]
+]
+}
+]
+},
+{
+"name": "shell-workdir-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running shell",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "running",
+"input": {
+"command": "pwd",
+"workdir": "/work/project/sub"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "/work/project/sub\n",
+"phase": "progress",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "completed",
+"input": {
+"command": "pwd",
+"workdir": "/work/project/sub"
+},
+"metadata": {
+"exit": 0
+},
+"content": [
+{
+"type": "text",
+"text": "/work/project/sub\n"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"sub$ pwd"
+],
+"styles": [
+[
+"0-8:i8/#000000:0/0",
+"8-40:-"
+]
+]
+},
+{
+"width": 40,
+"height": 2,
+"rowColumns": 40,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"/work/project/sub"
+],
+"styles": [
+[
+"0-40:-"
+],
+[
+"0-17:i8/#000000:0/0",
+"17-40:-"
+]
+]
+}
+]
+},
+{
+"name": "shell-fail-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running shell",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "running",
+"input": {
+"command": "false"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Command exited with code 1",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_shell",
+"tool": "shell",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_shell",
+"name": "shell",
+"state": {
+"status": "error",
+"input": {
+"command": "false"
+},
+"metadata": {
+"exit": 1
+},
+"content": [
+{
+"type": "text",
+"text": "boom\n"
+}
+],
+"error": {
+"type": "unknown",
+"message": "Command exited with code 1"
+}
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "error",
+"toolError": "Command exited with code 1"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"$ false"
+],
+"styles": [
+[
+"0-7:i8/#000000:0/0",
+"7-40:-"
+]
+]
+},
+{
+"width": 40,
+"height": 2,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"✖ shell failed: Command exited with code",
+"1"
+],
+"styles": [
+[
+"0-40:i167/#000000:0/1"
+],
+[
+"0-1:i167/#000000:0/1",
+"1-40:-"
+]
+]
+}
+]
+},
+{
+"name": "edit-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running edit",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_edit",
+"tool": "edit",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_edit",
+"name": "edit",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/a.ts",
+"oldString": "old",
+"newString": "new"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Edited",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_edit",
+"tool": "edit",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_edit",
+"name": "edit",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/a.ts",
+"oldString": "old",
+"newString": "new"
+},
+"metadata": {
+"files": [
+{
+"file": "src/a.ts",
+"status": "modified",
+"patch": "@@ -1,4 +1,4 @@\n line one\n-old line\n+new line\n line three\n line four\n",
+"additions": 1,
+"deletions": 1
+}
+]
+},
+"content": [
+{
+"type": "text",
+"text": "Edited"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 7,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Edited src/a.ts",
+"",
+"  1   line one",
+"  2 - old line",
+"  2 + new line",
+"  3   line three",
+"  4   line four"
+],
+"styles": [
+[
+"0-17:i8/#000000:0/0",
+"17-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-14:i255/#000000:0/0",
+"14-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i167/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-14:i255/#000000:0/0",
+"14-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i150/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-14:i255/#000000:0/0",
+"14-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-16:i255/#000000:0/0",
+"16-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-15:i255/#000000:0/0",
+"15-40:-"
+]
+]
+}
+]
+},
+{
+"name": "edit-two-hunks-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running edit",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_edit",
+"tool": "edit",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_edit",
+"name": "edit",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/b.ts"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Edited",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_edit",
+"tool": "edit",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_edit",
+"name": "edit",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/b.ts"
+},
+"metadata": {
+"files": [
+{
+"file": "src/b.ts",
+"status": "modified",
+"patch": "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -20,3 +20,4 @@\n x\n y\n+z\n w\n"
+}
+]
+},
+"content": [
+{
+"type": "text",
+"text": "Edited"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 11,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Edited src/b.ts",
+"",
+"  1   a",
+"  2 - b",
+"  2 + B",
+"  3   c",
+"  @@ -20,3 +20,4 @@",
+"  20   x",
+"  21   y",
+"  22 + z",
+"  23   w"
+],
+"styles": [
+[
+"0-17:i8/#000000:0/0",
+"17-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-7:i255/#000000:0/0",
+"7-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i167/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-7:i255/#000000:0/0",
+"7-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i150/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-7:i255/#000000:0/0",
+"7-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-6:#ffffff/#000000:0/0",
+"6-7:i255/#000000:0/0",
+"7-40:-"
+],
+[
+"0-1:-",
+"1-19:i246/#000000:0/0",
+"19-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-4:i246/#000000:0/0",
+"4-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-4:i246/#000000:0/0",
+"4-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-4:i246/#000000:0/0",
+"4-6:i150/#000000:0/0",
+"6-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-4:i246/#000000:0/0",
+"4-7:#ffffff/#000000:0/0",
+"7-8:i255/#000000:0/0",
+"8-40:-"
+]
+]
+}
+]
+},
+{
+"name": "write-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running write",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_write",
+"tool": "write",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_write",
+"name": "write",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/src/new.ts",
+"content": "const a = 1\nconsole.log(a)\n"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Wrote",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_write",
+"tool": "write",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_write",
+"name": "write",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/src/new.ts",
+"content": "const a = 1\nconsole.log(a)\n"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "Wrote"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 5,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Wrote src/new.ts",
+"",
+"  1 const a = 1",
+"  2 console.log(a)",
+"  3"
+],
+"styles": [
+[
+"0-18:i8/#000000:0/0",
+"18-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-15:i255/#000000:0/0",
+"15-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-18:i255/#000000:0/0",
+"18-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-40:-"
+]
+]
+}
+]
+},
+{
+"name": "write-py-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running write",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_write",
+"tool": "write",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_write",
+"name": "write",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/tool.py",
+"content": "def f():\n    return 1\n"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Wrote",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_write",
+"tool": "write",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_write",
+"name": "write",
+"state": {
+"status": "completed",
+"input": {
+"path": "/work/project/tool.py",
+"content": "def f():\n    return 1\n"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "Wrote"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 5,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Wrote tool.py",
+"",
+"  1 def f():",
+"  2     return 1",
+"  3"
+],
+"styles": [
+[
+"0-15:i8/#000000:0/0",
+"15-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-12:i255/#000000:0/0",
+"12-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-16:i255/#000000:0/0",
+"16-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i8/#000000:0/0",
+"3-4:#ffffff/#000000:0/0",
+"4-40:-"
+]
+]
+}
+]
+},
+{
+"name": "patch-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running patch",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_patch",
+"tool": "patch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_patch",
+"name": "patch",
+"state": {
+"status": "running",
+"input": {
+"patchText": "*** Begin Patch\n*** End Patch"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "Patched",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_patch",
+"tool": "patch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_patch",
+"name": "patch",
+"state": {
+"status": "completed",
+"input": {
+"patchText": "*** Begin Patch\n*** End Patch"
+},
+"metadata": {
+"files": [
+{
+"file": "a.txt",
+"status": "added",
+"patch": "@@ -0,0 +1 @@\n+added\n"
+},
+{
+"file": "b.txt",
+"status": "modified",
+"patch": "@@ -1 +1 @@\n-one\n+uno\n"
+}
+]
+},
+"content": [
+{
+"type": "text",
+"text": "Patched"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 8,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Created a.txt",
+"",
+"  1 + added",
+"",
+"# Patched b.txt",
+"",
+"  1 - one",
+"  1 + uno"
+],
+"styles": [
+[
+"0-15:i8/#000000:0/0",
+"15-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i150/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-11:i255/#000000:0/0",
+"11-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-15:i8/#000000:0/0",
+"15-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i167/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-9:i255/#000000:0/0",
+"9-40:-"
+],
+[
+"0-1:-",
+"1-2:#ffffff/#000000:0/0",
+"2-3:i246/#000000:0/0",
+"3-5:i150/#000000:0/0",
+"5-6:#ffffff/#000000:0/0",
+"6-9:i255/#000000:0/0",
+"9-40:-"
+]
+]
+}
+]
+},
+{
+"name": "task-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running subagent",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_subagent",
+"tool": "subagent",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_subagent",
+"name": "subagent",
+"state": {
+"status": "running",
+"input": {
+"description": "Inspect reducer",
+"agent": "explore"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "<task_result>\n# Findings\n\n- Footer stays live\n</task_result>",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_subagent",
+"tool": "subagent",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_subagent",
+"name": "subagent",
+"state": {
+"status": "completed",
+"input": {
+"description": "Inspect reducer",
+"agent": "explore"
+},
+"metadata": {
+"sessionID": "ses_child",
+"status": "completed"
+},
+"content": [
+{
+"type": "text",
+"text": "<task_result>\n# Findings\n\n- Footer stays live\n</task_result>"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 3,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"Findings",
+"",
+"- Footer stays live"
+],
+"styles": [
+[
+"0-8:i104/#000000:0/9",
+"8-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-19:i255/#000000:0/0",
+"19-40:-"
+]
+]
+}
+]
+},
+{
+"name": "task-empty-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running subagent",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_subagent",
+"tool": "subagent",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_subagent",
+"name": "subagent",
+"state": {
+"status": "running",
+"input": {
+"description": "Inspect reducer",
+"agent": "explore"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_subagent",
+"tool": "subagent",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_subagent",
+"name": "subagent",
+"state": {
+"status": "completed",
+"input": {
+"description": "Inspect reducer",
+"agent": "explore"
+},
+"metadata": {
+"sessionID": "ses_child",
+"status": "completed"
+},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 3,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Explore Subagent",
+"",
+" Inspect reducer"
+],
+"styles": [
+[
+"0-18:i8/#000000:0/0",
+"18-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-1:-",
+"1-16:i255/#000000:0/0",
+"16-40:-"
+]
+]
+}
+]
+},
+{
+"name": "todo-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running todowrite",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_todowrite",
+"tool": "todowrite",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_todowrite",
+"name": "todowrite",
+"state": {
+"status": "running",
+"input": {
+"todos": [
+{
+"content": "First",
+"status": "completed"
+},
+{
+"content": "Second",
+"status": "in_progress"
+},
+{
+"content": "Third",
+"status": "pending"
+},
+{
+"content": "Dropped",
+"status": "cancelled"
+}
+]
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_todowrite",
+"tool": "todowrite",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_todowrite",
+"name": "todowrite",
+"state": {
+"status": "completed",
+"input": {
+"todos": [
+{
+"content": "First",
+"status": "completed"
+},
+{
+"content": "Second",
+"status": "in_progress"
+},
+{
+"content": "Third",
+"status": "pending"
+},
+{
+"content": "Dropped",
+"status": "cancelled"
+}
+]
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 6,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Todos",
+"",
+"[✓] First",
+"[•] Second",
+"[ ] Third",
+"[-] Dropped"
+],
+"styles": [
+[
+"0-7:i8/#000000:0/0",
+"7-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-9:i8/#000000:0/0",
+"9-40:-"
+],
+[
+"0-10:i215/#000000:0/0",
+"10-40:-"
+],
+[
+"0-9:i8/#000000:0/0",
+"9-40:-"
+],
+[
+"0-4:i8/#000000:0/0",
+"4-11:i8/#000000:0/128",
+"11-40:-"
+]
+]
+}
+]
+},
+{
+"name": "question-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running question",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_question",
+"tool": "question",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_question",
+"name": "question",
+"state": {
+"status": "running",
+"input": {
+"questions": [
+{
+"question": "Pick one?"
+},
+{
+"question": "Why?"
+}
+]
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_question",
+"tool": "question",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_question",
+"name": "question",
+"state": {
+"status": "completed",
+"input": {
+"questions": [
+{
+"question": "Pick one?"
+},
+{
+"question": "Why?"
+}
+]
+},
+"metadata": {
+"answers": [
+[
+"A"
+],
+[]
+]
+},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 7,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"# Questions",
+"",
+"Pick one?",
+"A",
+"",
+"Why?",
+"(no answer)"
+],
+"styles": [
+[
+"0-11:i8/#000000:0/0",
+"11-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-9:i8/#000000:0/0",
+"9-40:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-4:i8/#000000:0/0",
+"4-40:-"
+],
+[
+"0-11:i255/#000000:0/0",
+"11-40:-"
+]
+]
+}
+]
+},
+{
+"name": "webfetch-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running webfetch",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_webfetch",
+"tool": "webfetch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_webfetch",
+"name": "webfetch",
+"state": {
+"status": "running",
+"input": {
+"url": "https://example.com/page"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "page",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_webfetch",
+"tool": "webfetch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_webfetch",
+"name": "webfetch",
+"state": {
+"status": "completed",
+"input": {
+"url": "https://example.com/page"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "page"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"% WebFetch https://example.com/page"
+],
+"styles": [
+[
+"0-35:i8/#000000:0/0",
+"35-40:-"
+]
+]
+}
+]
+},
+{
+"name": "websearch-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running websearch",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_websearch",
+"tool": "websearch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_websearch",
+"name": "websearch",
+"state": {
+"status": "running",
+"input": {
+"query": "rust tui"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "results",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_websearch",
+"tool": "websearch",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_websearch",
+"name": "websearch",
+"state": {
+"status": "completed",
+"input": {
+"query": "rust tui"
+},
+"metadata": {
+"provider": "exa"
+},
+"content": [
+{
+"type": "text",
+"text": "results"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"◈ Web Search \"rust tui\""
+],
+"styles": [
+[
+"0-23:i8/#000000:0/0",
+"23-40:-"
+]
+]
+}
+]
+},
+{
+"name": "mcp-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running mcp_custom",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_mcp_custom",
+"tool": "mcp_custom",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_mcp_custom",
+"name": "mcp_custom",
+"state": {
+"status": "running",
+"input": {
+"target": "demo"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_mcp_custom",
+"tool": "mcp_custom",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_mcp_custom",
+"name": "mcp_custom",
+"state": {
+"status": "completed",
+"input": {
+"target": "demo"
+},
+"metadata": {
+"result": {
+"ok": true
+}
+},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"⚙ mcp_custom [target=demo]"
+],
+"styles": [
+[
+"0-26:i8/#000000:0/0",
+"26-40:-"
+]
+]
+},
+{
+"width": 40,
+"height": 5,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"",
+"",
+"",
+"",
+""
+],
+"styles": [
+[
+"0-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-40:-"
+],
+[
+"0-40:-"
+]
+]
+}
+]
+},
+{
+"name": "mcp-out-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running mcp_custom",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_mcp_custom",
+"tool": "mcp_custom",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_mcp_custom",
+"name": "mcp_custom",
+"state": {
+"status": "running",
+"input": {
+"target": "demo"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "custom output\nline 2",
+"phase": "progress",
+"messageID": "msg_1",
+"partID": "prt_call_mcp_custom",
+"tool": "mcp_custom",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_mcp_custom",
+"name": "mcp_custom",
+"state": {
+"status": "completed",
+"input": {
+"target": "demo"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": "custom output\nline 2"
+}
+]
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "completed"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"⚙ mcp_custom [target=demo]"
+],
+"styles": [
+[
+"0-26:i8/#000000:0/0",
+"26-40:-"
+]
+]
+},
+{
+"width": 40,
+"height": 2,
+"rowColumns": 40,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"custom output",
+"line 2"
+],
+"styles": [
+[
+"0-13:i8/#000000:0/0",
+"13-40:-"
+],
+[
+"0-6:i8/#000000:0/0",
+"6-40:-"
+]
+]
+}
+]
+},
+{
+"name": "read-error-w40",
+"width": 40,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "running read",
+"phase": "start",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "running",
+"input": {
+"path": "/work/project/missing.ts"
+},
+"metadata": {}
+},
+"time": {
+"created": 1000,
+"ran": 1000
+}
+},
+"toolState": "running"
+}
+},
+{
+"commit": {
+"kind": "tool",
+"source": "tool",
+"text": "File not found: /work/project/missing.ts",
+"phase": "final",
+"messageID": "msg_1",
+"partID": "prt_call_read",
+"tool": "read",
+"directory": "/work/project",
+"part": {
+"type": "tool",
+"id": "call_read",
+"name": "read",
+"state": {
+"status": "error",
+"input": {
+"path": "/work/project/missing.ts"
+},
+"metadata": {},
+"content": [
+{
+"type": "text",
+"text": ""
+}
+],
+"error": {
+"type": "unknown",
+"message": "File not found: /work/project/missing.ts"
+}
+},
+"time": {
+"created": 1000,
+"ran": 1000,
+"completed": 2234
+}
+},
+"toolState": "error",
+"toolError": "File not found: /work/project/missing.ts"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 40,
+"height": 1,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"→ Read missing.ts"
+],
+"styles": [
+[
+"0-17:i8/#000000:0/0",
+"17-40:-"
+]
+]
+},
+{
+"width": 40,
+"height": 2,
+"rowColumns": 40,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+"✖ read failed: File not found: /work/",
+"project/missing.ts"
+],
+"styles": [
+[
+"0-37:i167/#000000:0/1",
+"37-40:-"
+],
+[
+"0-18:i167/#000000:0/1",
+"18-40:-"
+]
+]
+}
+]
+}
+]

@@ -23,6 +23,7 @@ chrono.workspace = true
 parking_lot.workspace = true
 indexmap.workspace = true
 regex.workspace = true
+fancy-regex = "0.16"
 base64.workspace = true
 dirs.workspace = true
 rand.workspace = true

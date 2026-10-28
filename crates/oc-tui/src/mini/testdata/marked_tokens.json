@@ -1,0 +1,1037 @@
+[
+ {
+  "text": "Hello! I can help with **that**.\n\n- one\n- two\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "Hello! I can help with **that**.",
+    "text": "Hello! I can help with **that**."
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "list",
+    "raw": "- one\n- two\n",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "raw": "- one\n",
+      "text": "one",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "one",
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "raw": "- two",
+      "text": "two",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "two",
+        "text": "two"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "text": "# Title\n\nHello **world** and `code` and *em*.\n\n- one\n- two\n\n1. a\n2. b\n\n```ts\nconst x = 1\n```\n\n> quote here\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [link](https://example.com) now.",
+  "tokens": [
+   {
+    "type": "heading",
+    "raw": "# Title\n\n",
+    "depth": 1,
+    "text": "Title"
+   },
+   {
+    "type": "paragraph",
+    "raw": "Hello **world** and `code` and *em*.",
+    "text": "Hello **world** and `code` and *em*."
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "list",
+    "raw": "- one\n- two",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "raw": "- one\n",
+      "text": "one",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "one",
+        "text": "one"
+       }
+      ]
+     },
+     {
+      "raw": "- two",
+      "text": "two",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "two",
+        "text": "two"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "list",
+    "raw": "1. a\n2. b",
+    "ordered": true,
+    "start": 1,
+    "loose": false,
+    "items": [
+     {
+      "raw": "1. a\n",
+      "text": "a",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "a",
+        "text": "a"
+       }
+      ]
+     },
+     {
+      "raw": "2. b",
+      "text": "b",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "b",
+        "text": "b"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "code",
+    "raw": "```ts\nconst x = 1\n```",
+    "lang": "ts",
+    "text": "const x = 1"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "blockquote",
+    "raw": "> quote here",
+    "text": "quote here",
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "quote here",
+      "text": "quote here"
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "hr",
+    "raw": "---"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "table",
+    "raw": "| a | b |\n|---|---|\n| 1 | 2 |\n\n",
+    "header": [
+     "a",
+     "b"
+    ],
+    "rows": [
+     [
+      "1",
+      "2"
+     ]
+    ],
+    "align": [
+     null,
+     null
+    ]
+   },
+   {
+    "type": "paragraph",
+    "raw": "See [link](https://example.com) now.",
+    "text": "See [link](https://example.com) now."
+   }
+  ]
+ },
+ {
+  "text": "Plain line one\nline two continues\n\nSecond paragraph.",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "Plain line one\nline two continues",
+    "text": "Plain line one\nline two continues"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "Second paragraph.",
+    "text": "Second paragraph."
+   }
+  ]
+ },
+ {
+  "text": "## Steps\n1. First step\n2. Second step with `code`\n   continued line\n3. Third\n\nDone.",
+  "tokens": [
+   {
+    "type": "heading",
+    "raw": "## Steps\n",
+    "depth": 2,
+    "text": "Steps"
+   },
+   {
+    "type": "list",
+    "raw": "1. First step\n2. Second step with `code`\n   continued line\n3. Third",
+    "ordered": true,
+    "start": 1,
+    "loose": false,
+    "items": [
+     {
+      "raw": "1. First step\n",
+      "text": "First step",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "First step",
+        "text": "First step"
+       }
+      ]
+     },
+     {
+      "raw": "2. Second step with `code`\n   continued line\n",
+      "text": "Second step with `code`\ncontinued line",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "Second step with `code`\ncontinued line",
+        "text": "Second step with `code`\ncontinued line"
+       }
+      ]
+     },
+     {
+      "raw": "3. Third",
+      "text": "Third",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "Third",
+        "text": "Third"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "Done.",
+    "text": "Done."
+   }
+  ]
+ },
+ {
+  "text": "- item one\n  - nested a\n  - nested b\n- item two\n\n- loose item\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "- item one\n  - nested a\n  - nested b\n- item two\n\n- loose item\n",
+    "ordered": false,
+    "start": "",
+    "loose": true,
+    "items": [
+     {
+      "raw": "- item one\n  - nested a\n  - nested b\n",
+      "text": "item one\n- nested a\n- nested b",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "item one\n",
+        "text": "item one"
+       },
+       {
+        "type": "list",
+        "raw": "- nested a\n- nested b",
+        "ordered": false,
+        "start": "",
+        "loose": false,
+        "items": [
+         {
+          "raw": "- nested a\n",
+          "text": "nested a",
+          "task": false,
+          "checked": null,
+          "tokens": [
+           {
+            "type": "text",
+            "raw": "nested a",
+            "text": "nested a"
+           }
+          ]
+         },
+         {
+          "raw": "- nested b",
+          "text": "nested b",
+          "task": false,
+          "checked": null,
+          "tokens": [
+           {
+            "type": "text",
+            "raw": "nested b",
+            "text": "nested b"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "raw": "- item two\n\n",
+      "text": "item two\n",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "item two\n",
+        "text": "item two"
+       }
+      ]
+     },
+     {
+      "raw": "- loose item",
+      "text": "loose item",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "paragraph",
+        "raw": "loose item",
+        "text": "loose item"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "text": "- [ ] todo item\n- [x] done item\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "- [ ] todo item\n- [x] done item\n",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "raw": "- [ ] todo item\n",
+      "text": "todo item",
+      "task": true,
+      "checked": false,
+      "tokens": [
+       {
+        "type": "checkbox",
+        "raw": "[ ] "
+       },
+       {
+        "type": "text",
+        "raw": "todo item",
+        "text": "todo item"
+       }
+      ]
+     },
+     {
+      "raw": "- [x] done item",
+      "text": "done item",
+      "task": true,
+      "checked": true,
+      "tokens": [
+       {
+        "type": "checkbox",
+        "raw": "[x] "
+       },
+       {
+        "type": "text",
+        "raw": "done item",
+        "text": "done item"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "text": "Setext Heading\n==============\n\nAnother\n-------\n",
+  "tokens": [
+   {
+    "type": "heading",
+    "raw": "Setext Heading\n==============\n\n",
+    "depth": 1,
+    "text": "Setext Heading"
+   },
+   {
+    "type": "heading",
+    "raw": "Another\n-------\n",
+    "depth": 2,
+    "text": "Another"
+   }
+  ]
+ },
+ {
+  "text": "    indented code\n    more code\n\nafter",
+  "tokens": [
+   {
+    "type": "code",
+    "raw": "    indented code\n    more code\n\n",
+    "lang": null,
+    "text": "indented code\nmore code"
+   },
+   {
+    "type": "paragraph",
+    "raw": "after",
+    "text": "after"
+   }
+  ]
+ },
+ {
+  "text": "```\nno lang fence\n```",
+  "tokens": [
+   {
+    "type": "code",
+    "raw": "```\nno lang fence\n```",
+    "lang": "",
+    "text": "no lang fence"
+   }
+  ]
+ },
+ {
+  "text": "```python\ndef f():\n    return 1\n```\nText right after fence.",
+  "tokens": [
+   {
+    "type": "code",
+    "raw": "```python\ndef f():\n    return 1\n```\n",
+    "lang": "python",
+    "text": "def f():\n    return 1"
+   },
+   {
+    "type": "paragraph",
+    "raw": "Text right after fence.",
+    "text": "Text right after fence."
+   }
+  ]
+ },
+ {
+  "text": "Text before\n```bash\nls -la\n```",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "Text before\n",
+    "text": "Text before"
+   },
+   {
+    "type": "code",
+    "raw": "```bash\nls -la\n```",
+    "lang": "bash",
+    "text": "ls -la"
+   }
+  ]
+ },
+ {
+  "text": "<div>\nhtml block\n</div>\n\nafter html",
+  "tokens": [
+   {
+    "type": "html",
+    "raw": "<div>\nhtml block\n</div>\n\n",
+    "text": "<div>\nhtml block\n</div>\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "after html",
+    "text": "after html"
+   }
+  ]
+ },
+ {
+  "text": "| Name | Value | Notes |\n|:-----|------:|:-----:|\n| alpha | 1 | first |\n| beta | 22 | second row |\n",
+  "tokens": [
+   {
+    "type": "table",
+    "raw": "| Name | Value | Notes |\n|:-----|------:|:-----:|\n| alpha | 1 | first |\n| beta | 22 | second row |\n",
+    "header": [
+     "Name",
+     "Value",
+     "Notes"
+    ],
+    "rows": [
+     [
+      "alpha",
+      "1",
+      "first"
+     ],
+     [
+      "beta",
+      "22",
+      "second row"
+     ]
+    ],
+    "align": [
+     "left",
+     "right",
+     "center"
+    ]
+   }
+  ]
+ },
+ {
+  "text": "> multi\n> line quote\ncontinued lazily\n\n> second quote",
+  "tokens": [
+   {
+    "type": "blockquote",
+    "raw": "> multi\n> line quote\ncontinued lazily",
+    "text": "multi\nline quote\ncontinued lazily",
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "multi\nline quote\ncontinued lazily",
+      "text": "multi\nline quote\ncontinued lazily"
+     }
+    ]
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "blockquote",
+    "raw": "> second quote",
+    "text": "second quote",
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "second quote",
+      "text": "second quote"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "text": "Paragraph\n- list interrupting\n- more",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "Paragraph\n",
+    "text": "Paragraph"
+   },
+   {
+    "type": "list",
+    "raw": "- list interrupting\n- more",
+    "ordered": false,
+    "start": "",
+    "loose": false,
+    "items": [
+     {
+      "raw": "- list interrupting\n",
+      "text": "list interrupting",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "list interrupting",
+        "text": "list interrupting"
+       }
+      ]
+     },
+     {
+      "raw": "- more",
+      "text": "more",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "more",
+        "text": "more"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "text": "1) paren list\n2) second\n",
+  "tokens": [
+   {
+    "type": "list",
+    "raw": "1) paren list\n2) second\n",
+    "ordered": true,
+    "start": 1,
+    "loose": false,
+    "items": [
+     {
+      "raw": "1) paren list\n",
+      "text": "paren list",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "paren list",
+        "text": "paren list"
+       }
+      ]
+     },
+     {
+      "raw": "2) second",
+      "text": "second",
+      "task": false,
+      "checked": null,
+      "tokens": [
+       {
+        "type": "text",
+        "raw": "second",
+        "text": "second"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "text": "***\n\nText\n___\n",
+  "tokens": [
+   {
+    "type": "hr",
+    "raw": "***"
+   },
+   {
+    "type": "space",
+    "raw": "\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "Text\n",
+    "text": "Text"
+   },
+   {
+    "type": "hr",
+    "raw": "___\n"
+   }
+  ]
+ },
+ {
+  "text": "Trailing spaces  \nhard break line\n",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "Trailing spaces  \nhard break line\n",
+    "text": "Trailing spaces  \nhard break line"
+   }
+  ]
+ },
+ {
+  "text": "[ref]: https://example.com\n\nUse [ref] here.",
+  "tokens": [
+   {
+    "type": "def",
+    "raw": "[ref]: https://example.com\n\n"
+   },
+   {
+    "type": "paragraph",
+    "raw": "Use [ref] here.",
+    "text": "Use [ref] here."
+   }
+  ]
+ },
+ {
+  "text": "A paragraph with a very long line that goes on and on and on to test wrapping across several terminal columns in scrollback output.",
+  "tokens": [
+   {
+    "type": "paragraph",
+    "raw": "A paragraph with a very long line that goes on and on and on to test wrapping across several terminal columns in scrollback output.",
+    "text": "A paragraph with a very long line that goes on and on and on to test wrapping across several terminal columns in scrollback output."
+   }
+  ]
+ },
+ {
+  "chunks": [
+   "Hello! ",
+   "I can help with **that**.\n\n",
+   "- one\n- two\n"
+  ],
+  "steps": [
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "Hello! "
+     }
+    ]
+   },
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "Hello! I can help with **that**."
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     }
+    ]
+   },
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "Hello! I can help with **that**."
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     },
+     {
+      "type": "list",
+      "raw": "- one\n- two\n"
+     }
+    ]
+   }
+  ],
+  "final": {
+   "stable": 3,
+   "tokens": [
+    {
+     "type": "paragraph",
+     "raw": "Hello! I can help with **that**."
+    },
+    {
+     "type": "space",
+     "raw": "\n\n"
+    },
+    {
+     "type": "list",
+     "raw": "- one\n- two\n"
+    }
+   ]
+  }
+ },
+ {
+  "chunks": [
+   "# Ti",
+   "tle\n\nSome text",
+   " here.\n\n```ts\nconst a",
+   " = 1\n```\n\nEnd."
+  ],
+  "steps": [
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "heading",
+      "raw": "# Ti"
+     }
+    ]
+   },
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "heading",
+      "raw": "# Title\n\n"
+     },
+     {
+      "type": "paragraph",
+      "raw": "Some text"
+     }
+    ]
+   },
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "heading",
+      "raw": "# Title\n\n"
+     },
+     {
+      "type": "paragraph",
+      "raw": "Some text here."
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     },
+     {
+      "type": "code",
+      "raw": "```ts\nconst a"
+     }
+    ]
+   },
+   {
+    "stable": 2,
+    "tokens": [
+     {
+      "type": "heading",
+      "raw": "# Title\n\n"
+     },
+     {
+      "type": "paragraph",
+      "raw": "Some text here."
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     },
+     {
+      "type": "code",
+      "raw": "```ts\nconst a = 1\n```"
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     },
+     {
+      "type": "paragraph",
+      "raw": "End."
+     }
+    ]
+   }
+  ],
+  "final": {
+   "stable": 6,
+   "tokens": [
+    {
+     "type": "heading",
+     "raw": "# Title\n\n"
+    },
+    {
+     "type": "paragraph",
+     "raw": "Some text here."
+    },
+    {
+     "type": "space",
+     "raw": "\n\n"
+    },
+    {
+     "type": "code",
+     "raw": "```ts\nconst a = 1\n```"
+    },
+    {
+     "type": "space",
+     "raw": "\n\n"
+    },
+    {
+     "type": "paragraph",
+     "raw": "End."
+    }
+   ]
+  }
+ },
+ {
+  "chunks": [
+   "- a\n",
+   "- b\n",
+   "- c\n\nAfter list."
+  ],
+  "steps": [
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "list",
+      "raw": "- a\n"
+     }
+    ]
+   },
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "list",
+      "raw": "- a\n- b\n"
+     }
+    ]
+   },
+   {
+    "stable": 0,
+    "tokens": [
+     {
+      "type": "list",
+      "raw": "- a\n- b\n- c"
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     },
+     {
+      "type": "paragraph",
+      "raw": "After list."
+     }
+    ]
+   }
+  ],
+  "final": {
+   "stable": 3,
+   "tokens": [
+    {
+     "type": "list",
+     "raw": "- a\n- b\n- c"
+    },
+    {
+     "type": "space",
+     "raw": "\n\n"
+    },
+    {
+     "type": "paragraph",
+     "raw": "After list."
+    }
+   ]
+  }
+ },
+ {
+  "chunks": [
+   "Para one.\n\nPara",
+   " two.\n\nPara three."
+  ],
+  "steps": [
+   {
+    "stable": 1,
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "Para one."
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     },
+     {
+      "type": "paragraph",
+      "raw": "Para"
+     }
+    ]
+   },
+   {
+    "stable": 1,
+    "tokens": [
+     {
+      "type": "paragraph",
+      "raw": "Para one."
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     },
+     {
+      "type": "paragraph",
+      "raw": "Para two."
+     },
+     {
+      "type": "space",
+      "raw": "\n\n"
+     },
+     {
+      "type": "paragraph",
+      "raw": "Para three."
+     }
+    ]
+   }
+  ],
+  "final": {
+   "stable": 5,
+   "tokens": [
+    {
+     "type": "paragraph",
+     "raw": "Para one."
+    },
+    {
+     "type": "space",
+     "raw": "\n\n"
+    },
+    {
+     "type": "paragraph",
+     "raw": "Para two."
+    },
+    {
+     "type": "space",
+     "raw": "\n\n"
+    },
+    {
+     "type": "paragraph",
+     "raw": "Para three."
+    }
+   ]
+  }
+ }
+]

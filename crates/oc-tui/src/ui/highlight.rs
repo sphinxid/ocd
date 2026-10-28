@@ -300,6 +300,25 @@ fn tokens(code: &str, lang: &str, syntax: &SyntaxReference) -> Rc<Vec<TokLine>> 
     t
 }
 
+/// `(start, end, tree-sitter style scope)` of one token.
+pub type ScopeToken = (u32, u32, Option<&'static str>);
+
+/// Per-line `(start, end, tree-sitter style scope)` tokens of `code` as `lang` (byte offsets within each
+/// line), or `None` when the language has no grammar. Used by mini mode, which merges styles itself.
+pub fn scopes(code: &str, lang: &str) -> Option<Vec<Vec<ScopeToken>>> {
+    let syntax = find_syntax(lang)?;
+    let toks = tokens(code, lang, syntax);
+    Some(
+        toks.iter()
+            .zip(code.split('\n'))
+            .map(|(t, line)| match t {
+                TokLine::Toks(v) => v.clone(),
+                TokLine::Raw => vec![(0, line.len() as u32, None)],
+            })
+            .collect(),
+    )
+}
+
 /// Highlight `code` as `lang`; one segment list per source line.
 pub fn highlight(code: &str, lang: &str, styles: &SyntaxStyle) -> Vec<Vec<Seg>> {
     let default = token_style(styles.default);
