@@ -69,7 +69,7 @@ Linux x86_64, release builds of both, the same mock model and isolated folders:
 | ⛔ **Not yet** | TUI plugins, image/speech/video models, Mercurial, `--wizard`, most experimental 2.1 features (the todo list is ported) |
 | ✨ **Different on purpose** | A working status line in the TUI, `ocd upgrade` from ocd's own releases, `ocd --version` shows ocd's own version |
 
-65 of 72 side-by-side scenarios produce identical output; the rest differ only by timing, the renames and a few
+67 of 73 side-by-side scenarios produce identical output; the rest differ only by timing, the renames and a few
 message wordings. Details: **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
 
 Only Linux x86_64 is tested day to day. The macOS, Windows and ARM64 builds are produced by CI but not tested.

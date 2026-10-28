@@ -104,6 +104,8 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 
 ## Results
 
+**Release-candidate run (debug build, 2026-10-28):** all 73 scenarios (the new `cli_run_last_step` included) against the local v2.1.4 build, both binaries through the isolation guard, ocd pointed at an empty web UI archive: **67 of 73 identical**. `cli_run` and `cli_run_last_step` are identical since `run` skips the last burst of events like upstream (below), and the WebSocket group stays identical with the new proxy-aware client. The 6 left are the two races, the intended help wording, `debug paths`/`debug agents`, the extra ephemeral `project.updated` and the network error wording listed below.
+
 **Todo list run (batch 8a, debug build, 2026-10-27):** all 72 scenarios (the new group `todo` included) against the same local v2.1.4 build, both binaries through the isolation guard, ocd pointed at an empty web UI archive: **65 of 72 identical**. `todo_loop`, `todo_off`, `todo_permission` and the four plugin-listing scenarios (`readonly_server`, `plugin_inventory`, `plugin_effect`, `plugin_rpc_storage`, which differed only by `opencode.tool.todo`) are identical; the 7 left are the races, the intended help wording, `run`'s last step, `debug paths`/`debug agents` and the network error wording listed below.
 
 **2.1.4 release run (batch 7, debug build, 2026-10-27):** all 69 scenarios against the local v2.1.4 build, both
@@ -118,16 +120,16 @@ one (identical with ocd pointed at an empty web UI archive, `OCD_WEB_UI`). After
 | loop_tool_error, loop_http_400 | the known races (unknown-tool failure vs `step.streamed`; title rename vs failed step), both runs |
 | stop_retry_exhausted | the known extra ephemeral `project.updated` at the end of upstream's run (timing) |
 | cli_help | by design: ocd's root and `upgrade` descriptions, `upgrade --yes`, the version |
-| cli_run, cli_inventory | `run` output for the last step of a run (below), `debug paths` db name (channel), `debug agents` (upstream laziness race) |
+| ~~cli_run~~, cli_inventory | ~~`run` output for the last step of a run (below)~~ identical since 2026-10-28; `debug paths` db name (channel), `debug agents` (upstream laziness race) |
 | plugin_copilot_unsynced | network error wording: Bun's `ECONNREFUSED: Unable to connect. …` vs reqwest's message for the same refused proxy connection (by design, see "Error texts" in the README) |
 
 `run` and the last step: upstream's `run` prints the `> agent · model` header and, with `--format json`, the
 `step_start`/`text`/`step_finish` events only for steps whose live events reach its event stream before
-`session.wait` answers. For the final step of a run they never do, even with the model's answer delayed by 1.5 s,
-so upstream prints that step's text from the projected messages afterwards (part ID `<message>_text-0`, no header,
-no `step_start`/`step_finish`), while ocd prints it live like the earlier steps. Both use the same
-wait-then-reconcile logic (`run/noninteractive.ts`); the difference is in when upstream's server delivers the
-final step's events. Not fixed: matching it would mean delaying ocd's event delivery.
+`session.wait` answers. Upstream's server writes the event stream only while its runner waits for I/O, so the events
+published after the runner's last wait (a step that fails at once, the last step of a fast provider) arrive after
+`wait` and `run` prints that step from the projected messages instead (no header, no `step_start`/`step_finish`).
+Fixed on 2026-10-28: ocd's `run` holds each live event for 50 ms and treats the held ones as arriving after `wait`
+when the execution ends meanwhile (`crates/ocd/src/run.rs`, `Shared::consume`); scenario `cli_run_last_step`.
 
 The CLI help, completions and parse errors of every `cli.json` golden case (help of every command, completion
 scripts, ~70 parse errors) were also compared directly against the 2.1.4 binary: identical apart from the version

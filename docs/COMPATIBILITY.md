@@ -15,7 +15,7 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 72 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 73 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
@@ -23,11 +23,10 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
   - GitHub Copilot, the OpenAI WebSocket transport and the experimental todo list.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 65 of the 72 scenarios are identical. The other seven differ in ways that are expected or harmless:
+- **Result:** 67 of the 73 scenarios are identical. The other six differ in ways that are expected or harmless:
   - timing races that also vary between two runs of upstream;
   - the intended renames;
-  - the wording of one network error;
-  - `ocd run` printing the last step of a run live, where upstream prints it afterwards.
+  - the wording of one network error.
 - **Per-crate tests:** each crate has its own test suite, many replaying recorded upstream data.
 
 ## Same as upstream
