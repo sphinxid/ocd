@@ -86,9 +86,43 @@ Per-call options are `StreamOptions { http, web_socket }` (`Client::stream_opts`
 | `open_responses_channel` | The Responses WebSocket channel (`open-responses-channel.ts` + `open-responses-continuation.ts`): `ChannelOptions` (id, name, rotation age, `enabled`/`url`/`headers` endpoint hooks, continuation shape), the `response.create` message, the base driver (event order checks, error/failed frames → provider failures with the frame as body) and the continuation driver (checkpoint, incremental `previous_response_id` frames, `retry-full` / `rotate-and-retry-full` rejections), `xai_continuation`. |
 | `openai_responses` | `openai-responses`: namespaces, image generation, hosted tools, effort updates, `context_management`. |
 | `responses_variants` | `xai-responses`, `alibaba-responses`, `meta-responses`. |
-| `gemini` | `gemini`, `google-vertex-gemini`; Vertex helpers; `gemini::adc` (Google ADC: authorized_user, service_account, metadata server). |
+| `gemini` | `gemini`, `google-vertex-gemini`; Vertex helpers; `gemini::adc`: Google ADC as google-auth-library 10.5.0 resolves it (see below). |
 | `google_interactions` | `google-interactions`, `google-vertex-interactions`. |
-| `bedrock_converse` | `bedrock-converse`, hand-written SigV4 (`sigv4`), AWS credential chain subset (`aws`). |
+| `bedrock_converse` | `bedrock-converse`, hand-written SigV4 (`sigv4`), the AWS default credential chain (`aws`, see below). |
+| `cloud_env` | The environment and SDK module state the AWS and Google chains read (`Env::process()`, or `Env::from_map` in tests). |
+
+## Cloud credentials
+
+**AWS** (`bedrock_converse::aws`): `default_chain` is `fromNodeProviderChain({ ignoreCache: true, profile })` of
+`@aws-sdk/credential-providers` 3.1057.0, run afresh for every request, in the SDK's order: environment variables
+(skipped when a profile is selected), the shared files for the profile (`ini`: smithy's INI parser, the credentials
+file merged over the config file), `credential_process`, the web identity variables, then the container endpoint
+(`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` / `_FULL_URI`, authorization token or token file) or EC2 instance metadata
+(IMDSv2 token with the v1 fallback, `AWS_EC2_METADATA_DISABLED`, `AWS_EC2_METADATA_V1_DISABLED`,
+`AWS_EC2_METADATA_SERVICE_ENDPOINT[_MODE]` and their config keys, 1 s timeouts, expired credentials extended). A
+profile can hold static keys, `role_arn` with `source_profile` (chained) or `credential_source`
+(`Environment` / `Ec2InstanceMetadata` / `EcsContainer`) for STS `AssumeRole` (`external_id`,
+`role_session_name`, `duration_seconds`; `mfa_serial` fails as the SDK does without an MFA callback),
+`web_identity_token_file` for `AssumeRoleWithWebIdentity`, `credential_process`, IAM Identity Center SSO
+(`sso_session` with the `~/.aws/sso/cache` token refreshed through SSO-OIDC `CreateToken` inside 5 minutes of
+expiry, at most every 30 s, or the legacy `sso_*` keys) and `login_session` (`aws login`, refreshed through the
+sign-in service with a DPoP proof). STS, SSO, SSO-OIDC and sign-in calls follow the nested clients: endpoint rule
+sets and partitions, `AWS_ENDPOINT_URL_<SERVICE>` / `AWS_ENDPOINT_URL` / `endpoint_url` / `[services]` overrides
+(the tests point them at local mocks), FIPS and dual-stack switches, `AWS_MAX_ATTEMPTS` and standard retries, no
+proxy. A provider error moves to the next provider; any other error ends the chain and becomes
+`AWS default credential chain failed: <message>`.
+
+**Google** (`gemini::adc`): `GOOGLE_APPLICATION_CREDENTIALS`, the well-known file (`$CLOUDSDK_CONFIG` as upstream's
+`CloudSDKAuth` reads it, else `$HOME/.config/gcloud`), then the GCE metadata server (residency, `METADATA_SERVER_DETECTION`,
+`GCE_METADATA_HOST`/`_IP`, cached ping). Types: `authorized_user`, `service_account` (gtoken's assertion to
+`https://oauth2.googleapis.com/token`), `impersonated_service_account` (any source type, `delegates`, the source's
+quota project), `external_account_authorized_user`, and `external_account` (`gemini::adc::external`): identity pool
+file / URL (text or JSON, headers) / X.509 certificate (mTLS, `GOOGLE_API_CERTIFICATE_CONFIG`, trust chain), AWS
+(region and role from the metadata URLs or the environment, signed `GetCallerIdentity` subject token) and executables
+(`GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES`, output-file cache, timeouts), the STS exchange at `token_url` with the
+library's metrics header, `workforce_pool_user_project`, client id/secret, `service_account_impersonation_url`
+and `token_lifetime_seconds`. Tokens refresh 5 minutes before expiry; requests use gaxios' retries. `Adc::new(env,
+Endpoints)` lets tests point the fixed Google URLs at local servers.
 | `mistral_chat` | `mistral-chat`, Vertex Mistral. |
 | `cohere_chat` | `cohere-chat` (native v2). |
 
@@ -204,6 +238,10 @@ The connector replays what upstream's `WebSocketConstructor` layer and Bun 1.4.4
 - **Explicit compaction endpoints** (`/responses/compact`, compaction trigger): `compaction` and `transport` are
   surfaced on `ResolvedModel` for core to decide.
 - **Non-chat modalities**: image, video, speech and transcription (see `modalities`).
-- **AWS credential sources**: SSO, web-identity and IMDS are not implemented. Supported: env, shared files /
-  `credential_process`, and ECS container credentials.
-- **Google ADC**: no `external_account` (workload identity federation).
+- **AWS SDK details**: the standard retry strategy's retry quota and clock-skew correction, SDK user-agent
+  headers, region validation (`Region not accepted`) and the FIPS / custom-endpoint conflict errors are not
+  replicated. JavaScriptCore `JSON.parse` messages are reproduced for the common cases only. With `mfa_serial` the
+  source credentials are not resolved before the MFA error (the SDK starts resolving them in the background).
+- **Google ADC**: project discovery when no project is configured (`gcloud config config-helper`, the GCE project,
+  an external account's Cloud Resource Manager lookup) is not run. GCE residency reads MAC addresses from
+  `/sys/class/net` (Linux only). An executable's stdout and stderr are joined in that order, not interleaved.
