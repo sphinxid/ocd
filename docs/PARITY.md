@@ -104,6 +104,8 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 
 ## Results
 
+**Parallel tool calls (2026-10-28):** upstream forks each tool execution as a fiber that first runs when the provider loop yields to the event loop, so every `tool.called` (and, for a response read at once, `step.streamed`) is published before any tool starts; ocd now defers its executions the same way (`oc-core/src/step.rs`, `start_tools`). Results settle in completion order in both, which is a timing race (upstream shuffles reads between runs too), so the harness sorts consecutive `tool.success`/`tool.failed` events by call ID (`record_events(race_sort=...)`) in `loop_parallel_tools`, `loop_tool_error` and the new `loop_parallel_settle` (unknown tool + read in one step, identical 15/15).
+
 **Release-candidate run (debug build, 2026-10-28):** all 73 scenarios (the new `cli_run_last_step` included) against the local v2.1.4 build, both binaries through the isolation guard, ocd pointed at an empty web UI archive: **67 of 73 identical**. `cli_run` and `cli_run_last_step` are identical since `run` skips the last burst of events like upstream (below), and the WebSocket group stays identical with the new proxy-aware client. The 6 left are the two races, the intended help wording, `debug paths`/`debug agents`, the extra ephemeral `project.updated` and the network error wording listed below.
 
 **Todo list run (batch 8a, debug build, 2026-10-27):** all 72 scenarios (the new group `todo` included) against the same local v2.1.4 build, both binaries through the isolation guard, ocd pointed at an empty web UI archive: **65 of 72 identical**. `todo_loop`, `todo_off`, `todo_permission` and the four plugin-listing scenarios (`readonly_server`, `plugin_inventory`, `plugin_effect`, `plugin_rpc_storage`, which differed only by `opencode.tool.todo`) are identical; the 7 left are the races, the intended help wording, `run`'s last step, `debug paths`/`debug agents` and the network error wording listed below.
@@ -117,7 +119,7 @@ one (identical with ocd pointed at an empty web UI archive, `OCD_WEB_UI`). After
 | scenario | cause |
 |---|---|
 | ~~readonly_server, plugin_inventory, plugin_effect, plugin_rpc_storage~~ | ~~2.1.4 lists the built-in plugin `opencode.tool.todo`, which ocd did not have~~; identical since batch 8a |
-| loop_tool_error, loop_http_400 | the known races (unknown-tool failure vs `step.streamed`; title rename vs failed step), both runs |
+| ~~loop_tool_error~~, loop_http_400 | ~~unknown-tool failure vs `step.streamed`~~: not a race but upstream's fork scheduling, fixed 2026-10-28 (tool executions start only when the provider loop waits); title rename vs failed step (race), both runs |
 | stop_retry_exhausted | the known extra ephemeral `project.updated` at the end of upstream's run (timing) |
 | cli_help | by design: ocd's root and `upgrade` descriptions, `upgrade --yes`, the version |
 | ~~cli_run~~, cli_inventory | ~~`run` output for the last step of a run (below)~~ identical since 2026-10-28; `debug paths` db name (channel), `debug agents` (upstream laziness race) |

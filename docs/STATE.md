@@ -92,6 +92,9 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-28: PARALLEL TOOLS: `step.rs` keeps tool executions unstarted until the provider stream would wait
+  (`start_tools`), else until after `step.streamed`, like Effect's `setImmediate` fork scheduling; `loop_tool_error`
+  was this, not a race. Parity `loop_parallel_settle` added; settle order sorted by call ID in the harness.
 - 2026-10-28: MINI MODE PORTED: `crates/oc-tui/src/mini/` (~20k lines, one module per upstream
   `packages/tui/src/mini/` file plus `cli/src/mini.ts`, `mini-host.ts`): OpenTUI 0.6.8 split-footer renderer
   (`split.rs`), footer/composer/panels/docks, scrollback with a `marked` lexer port, fuzzysort 3.1.0, V2 event
