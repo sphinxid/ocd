@@ -380,7 +380,7 @@ impl App {
 
     /// The current session's transcript still has rows to render (keep drawing frames).
     pub fn transcript_pending(&self) -> bool {
-        !self.tcache.complete && !self.tcache.sid.is_empty() && self.session_id() == Some(self.tcache.sid.as_str()) && !self.mini
+        !self.tcache.complete && !self.tcache.sid.is_empty() && self.session_id() == Some(self.tcache.sid.as_str())
     }
 
     /// Marks of the last synced transcript: (line, message id, user).

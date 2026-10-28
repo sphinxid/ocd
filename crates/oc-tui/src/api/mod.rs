@@ -659,6 +659,18 @@ impl Client {
     }
 
     /// Open the raw SSE response for `GET /api/event`.
+    /// Untyped GET returning the JSON body (mini mode consumes raw payloads).
+    pub async fn get_value(&self, path: &str, query: &[(&str, String)]) -> anyhow::Result<Value> {
+        self.json(self.request(Method::GET, path).query(query)).await
+    }
+
+    /// Untyped POST of `body` returning the JSON body (`null` for an empty response).
+    pub async fn post_value(&self, path: &str, body: Value) -> anyhow::Result<Value> {
+        let resp = self.send(self.request(Method::POST, path).json(&body)).await?;
+        let text = resp.text().await?;
+        Ok(if text.trim().is_empty() { Value::Null } else { serde_json::from_str(&text)? })
+    }
+
     pub async fn event_stream(&self) -> anyhow::Result<reqwest::Response> {
         let r = self.request(Method::GET, "/api/event").header("accept", "text/event-stream");
         self.send(r).await

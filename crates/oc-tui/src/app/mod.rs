@@ -20,7 +20,6 @@ pub mod sidebar_todo;
 pub mod panel;
 pub mod plugins;
 pub mod program_status;
-pub mod mini;
 pub mod selection;
 pub mod tabs;
 pub mod tcache;
@@ -299,8 +298,6 @@ pub struct App {
     pub selection: Option<selection::Selection>,
     /// Last rendered frame (selection text source).
     pub last_frame: Option<ratatui::buffer::Buffer>,
-    /// Running as `opencode mini` (scrollback transcript + live footer).
-    pub mini: bool,
     /// V1 history import badge: current progress and when the badge appeared (spinner phase).
     pub migration: Option<(migration::MigrationProgress, Instant)>,
     /// Busy turns per session (status line above the prompt; an ocd addition).
@@ -433,7 +430,6 @@ impl App {
             diff_cache: Default::default(),
             selection: None,
             last_frame: None,
-            mini: false,
             migration: None,
             busy: HashMap::new(),
             free_limits_handled: HashSet::new(),

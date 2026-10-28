@@ -639,43 +639,6 @@ fn mouse_drag_select_copies() {
     assert_eq!(crate::clipboard::TEST_CLIPBOARD.with(|c| c.borrow().clone()).as_deref(), Some("ctrl+p"));
 }
 
-#[test]
-fn mini_scrollback_and_footer() {
-    use super::mini::{MiniState, lines_to_ansi, plain, row_to_ansi};
-    let mut a = app();
-    a.mini = true;
-    a.size = (100, 30);
-    let header = plain(&[a.mini_header(100)]).join("");
-    assert!(header.starts_with("▪ oc mini v2.0.26 · /work/proj"), "{header}");
-    session(&mut a);
-    // New (not resumed) session: the whole finished transcript is committed once.
-    let mut st = MiniState { replay: true, replay_limit: 200, ..Default::default() };
-    let (commit, tail) = a.mini_transcript(&mut st, 100);
-    let text = plain(&commit).join("\n");
-    assert!(text.contains("Fix the bug in parser.ts"), "{text}");
-    assert!(text.contains("I fixed the bug."), "{text}");
-    assert!(tail.is_empty());
-    let (again, _) = a.mini_transcript(&mut st, 100);
-    assert!(again.is_empty());
-    // Footer is the prompt dock only.
-    let (buf, cursor) = a.mini_footer(100, 29, &tail);
-    let rows: Vec<String> = (0..buf.area.height).map(|y| (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>().trim_end().to_string()).collect();
-    assert!(rows.iter().any(|r| r.contains("Build · Claude Sonnet 4.5")), "{rows:?}");
-    assert!(buf.area.height < 12, "{}", buf.area.height);
-    assert!(cursor.is_some());
-    assert!(row_to_ansi(&buf, 0).contains("\x1b["));
-    // Resumed with --no-replay: history is skipped.
-    let mut st = MiniState { replay: false, replay_limit: 200, resumed: true, ..Default::default() };
-    a.store.message_cursor.insert("ses_test".into(), None);
-    let (commit, _) = a.mini_transcript(&mut st, 100);
-    assert!(commit.is_empty());
-    // Exit banner.
-    let banner = plain(&a.mini_banner()).join("\n");
-    assert!(banner.contains("Session   Fix parser bug"), "{banner}");
-    assert!(banner.contains("Continue  ocd mini -s ses_test"), "{banner}");
-    assert_eq!(lines_to_ansi(&a.mini_banner(), 80).len(), 3);
-}
-
 #[tokio::test]
 async fn enter_key_submits_from_home() {
     let mut a = app();
@@ -1001,7 +964,7 @@ fn busy_status_replaces_the_live_thinking_row() {
 }
 
 #[test]
-fn busy_status_animated_spinner_and_mini() {
+fn busy_status_animated_spinner() {
     let mut a = app();
     a.config.set("animations", Some(json!(true)));
     busy_fixture(&mut a);
@@ -1009,10 +972,6 @@ fn busy_status_animated_spinner_and_mini() {
     let row = busy_row(&lines);
     let glyph = row.trim().chars().next().unwrap().to_string();
     assert!(crate::ui::text::SPINNER_FRAMES.contains(&glyph.as_str()), "{row}");
-    // Mini mode: the same line sits above the prompt in the live footer.
-    let (buf, _) = a.mini_footer(80, 30, &[]);
-    let rows: Vec<String> = (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>()).collect();
-    assert!(busy_row(&rows).contains("Waiting for Claude Sonnet 4.5… (12s · esc to interrupt)"), "{}", rows.join("\n"));
 }
 
 #[test]
