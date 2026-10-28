@@ -134,8 +134,12 @@ options (model/effort/mode), the event fold (text, reasoning, tools, retries, co
 marker forms, child sessions), turn stop reasons/usage/`usage_update`, error mapping (`Invalid params:`
 / `Internal error:` / `Authentication required:` / `"Method not found"`), history replay,
 additional directories, MCP registration, 32 MiB message limit, exit codes (`ocd acp: server
-exited unexpectedly (...)`). Not ported: completed-edit diff enrichment (`acp/permission.ts`
-previews/diffs) and background following of child sessions after the root turn ends.
+exited unexpectedly (...)`), and file diffs (`acp/permission.ts`): permission requests carry a
+`diff` preview per file (`N files` title for several) and completed edit/patch calls (live and in
+history replay) append a `diff` per changed file, the old text rebuilt by reversing the recorded
+patch against the file (jsdiff `parsePatch`/`reversePatch`/`applyPatch`, ported in
+`oc_tools::jsdiff`) or, for the patch tool's trimmed diffs, from its hunks. Not ported: background
+following of child sessions after the root turn ends.
 
 ## Notes / deviations
 

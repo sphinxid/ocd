@@ -120,7 +120,7 @@ Each method has a default that reports the capability as unavailable. The except
 |---|---|
 | `tools::{read, edit, write, patch, grep, glob, shell, webfetch, websearch, question, skill, subagent, todo}` | `core/src/tool/plugin/*.ts` (`todo`: `todowrite`, which oc-core keeps only where `experimental.todo` is on) |
 | `tools::opencode` (6 tools + namespace + `SYSTEM_HINT`), `tools::mcp_resource`, `tools::mcp::McpTool` | `opencode.ts`, `mcp-resource.ts`, `tool/mcp.ts` |
-| `file_access`, `file_mutation`, `file_diff`, `jsdiff` (byte-exact jsdiff 8.0.4 port) | `file-access.ts`, `file-mutation.ts`, `file-diff.ts` |
+| `file_access`, `file_mutation`, `file_diff`, `jsdiff` (byte-exact jsdiff 8.0.4 port: `createTwoFilesPatch`, `structuredPatch`, `parsePatch`, `reversePatch`, `applyPatch`) | `file-access.ts`, `file-mutation.ts`, `file-diff.ts` |
 | `patch` (grammar, 4-pass seek), `validate` (Effect-compatible issues) | `util/src/patch.ts`, `tool/runtime.ts` |
 | `ripgrep` (args, JSON parsing, binary locate/download of 15.1.0 into `<cache>/bin`) | `ripgrep.ts`, `ripgrep/binary.ts` |
 | `shell::{select, parse, scan, service, result}`: tree-sitter (legacy) and portable scanners | `shell/*.ts`, `shell.ts` |

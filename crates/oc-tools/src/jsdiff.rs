@@ -1,9 +1,11 @@
-//! Byte-exact port of the parts of jsdiff 8.0.4 used by upstream `file-diff.ts`:
+//! Byte-exact port of the parts of jsdiff 8.0.4 used by upstream `file-diff.ts` and `acp/permission.ts`:
 //! `createTwoFilesPatch` (default headers, context 4) and `diffLines` change counts.
 //!
 //! Ported from `diff/libesm/diff/base.js` (Myers diff with jsdiff's diagonal pruning and
 //! tie-breaking), `diff/libesm/diff/line.js` (tokenizer, default options) and
-//! `diff/libesm/patch/create.js` (`structuredPatch` + `formatPatch`).
+//! `diff/libesm/patch/create.js` (`structuredPatch` + `formatPatch`). The ACP agent's file diffs
+//! also use `parsePatch`, `reversePatch` and `applyPatch` (`patch/parse.js`, `patch/reverse.js`,
+//! `patch/apply.js` with the default options: no fuzz, line endings converted automatically).
 
 /// One change object as produced by `Diff.buildValues` (values are kept as token slices).
 #[derive(Debug, Clone)]
@@ -307,6 +309,334 @@ pub fn diff_lines_counts(old: &str, new: &str) -> (u64, u64) {
     })
 }
 
+/// One hunk of a structured patch (`StructuredPatchHunk`), as `structuredPatch` builds it and
+/// `parsePatch` reads it back (zero-line ranges keep the one-based start).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchHunk {
+    pub old_start: i64,
+    pub old_lines: i64,
+    pub new_start: i64,
+    pub new_lines: i64,
+    pub lines: Vec<String>,
+}
+
+/// `structuredPatch(_, _, old, new).hunks` with the default context of 4.
+pub fn structured_patch(old: &str, new: &str) -> Vec<PatchHunk> {
+    structured_hunks(old, new)
+        .into_iter()
+        .map(|h| PatchHunk { old_start: h.old_start, old_lines: h.old_lines, new_start: h.new_start, new_lines: h.new_lines, lines: h.lines })
+        .collect()
+}
+
+static HEADER_START: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"^(---|\+\+\+|@@)\s").unwrap());
+static FILE_HEADER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"^(---|\+\+\+)\s+").unwrap());
+static INDEX_END: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"^(Index:\s|diff\s|---\s|\+\+\+\s|===================================================================)").unwrap());
+static HUNK_HEADER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@").unwrap());
+
+/// `parsePatch(uniDiff)` (`diff/libesm/patch/parse.js`): the hunks of every file index in the
+/// patch. File names and headers are not kept. `Err` carries the message jsdiff throws.
+pub fn parse_patch(uni_diff: &str) -> Result<Vec<Vec<PatchHunk>>, String> {
+    let lines: Vec<&str> = uni_diff.split('\n').collect();
+    let mut list = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        while i < lines.len() && !HEADER_START.is_match(lines[i]) {
+            i += 1;
+        }
+        for _ in 0..2 {
+            if i < lines.len() && FILE_HEADER.is_match(lines[i]) {
+                i += 1;
+            }
+        }
+        let mut hunks = Vec::new();
+        while i < lines.len() {
+            let line = lines[i];
+            if INDEX_END.is_match(line) {
+                break;
+            } else if line.starts_with("@@") {
+                hunks.push(parse_hunk(&lines, &mut i)?);
+            } else if !line.is_empty() {
+                return Err(format!("Unknown line {} {}", i + 1, serde_json::to_string(line).unwrap_or_default()));
+            } else {
+                i += 1;
+            }
+        }
+        list.push(hunks);
+    }
+    Ok(list)
+}
+
+fn parse_hunk(lines: &[&str], i: &mut usize) -> Result<PatchHunk, String> {
+    let header_index = *i;
+    let header = lines[*i];
+    *i += 1;
+    let caps = HUNK_HEADER.captures(header).ok_or_else(|| format!("Unknown line {} {}", header_index + 1, serde_json::to_string(header).unwrap_or_default()))?;
+    let num = |n: usize| caps.get(n).map(|m| m.as_str().parse::<i64>().unwrap_or(0));
+    let mut hunk = PatchHunk { old_start: num(1).unwrap_or(0), old_lines: num(2).unwrap_or(1), new_start: num(3).unwrap_or(0), new_lines: num(4).unwrap_or(1), lines: Vec::new() };
+    if hunk.old_lines == 0 {
+        hunk.old_start += 1;
+    }
+    if hunk.new_lines == 0 {
+        hunk.new_start += 1;
+    }
+    let (mut add, mut remove) = (0i64, 0i64);
+    while *i < lines.len() && (remove < hunk.old_lines || add < hunk.new_lines || lines[*i].starts_with('\\')) {
+        let line = lines[*i];
+        let op = if line.is_empty() && *i != lines.len() - 1 { Some(' ') } else { line.chars().next() };
+        match op {
+            Some('+') => add += 1,
+            Some('-') => remove += 1,
+            Some(' ') => {
+                add += 1;
+                remove += 1;
+            }
+            Some('\\') => {}
+            _ => return Err(format!("Hunk at line {} contained invalid line {line}", header_index + 1)),
+        }
+        hunk.lines.push(line.to_string());
+        *i += 1;
+    }
+    if add == 0 && hunk.new_lines == 1 {
+        hunk.new_lines = 0;
+    }
+    if remove == 0 && hunk.old_lines == 1 {
+        hunk.old_lines = 0;
+    }
+    if add != hunk.new_lines {
+        return Err(format!("Added line count did not match for hunk at line {}", header_index + 1));
+    }
+    if remove != hunk.old_lines {
+        return Err(format!("Removed line count did not match for hunk at line {}", header_index + 1));
+    }
+    Ok(hunk)
+}
+
+/// `reversePatch(patch)` for one file index.
+pub fn reverse_patch(hunks: &[PatchHunk]) -> Vec<PatchHunk> {
+    hunks
+        .iter()
+        .map(|h| PatchHunk {
+            old_start: h.new_start,
+            old_lines: h.new_lines,
+            new_start: h.old_start,
+            new_lines: h.old_lines,
+            lines: h
+                .lines
+                .iter()
+                .map(|l| {
+                    if let Some(rest) = l.strip_prefix('-') {
+                        format!("+{rest}")
+                    } else if let Some(rest) = l.strip_prefix('+') {
+                        format!("-{rest}")
+                    } else {
+                        l.clone()
+                    }
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// `applyPatch(source, uniDiff)` with a patch string: `Err` when jsdiff throws (unparseable or
+/// more than one file), `Ok(None)` when it returns `false`.
+pub fn apply_patch_str(source: &str, uni_diff: &str) -> Result<Option<String>, String> {
+    let patches = parse_patch(uni_diff)?;
+    if patches.len() > 1 {
+        return Err("applyPatch only works with a single input.".into());
+    }
+    Ok(apply_patch(source, patches.first().map(Vec::as_slice).unwrap_or(&[])))
+}
+
+fn has_only_win_line_endings(s: &str) -> bool {
+    let b = s.as_bytes();
+    s.contains("\r\n") && !s.starts_with('\n') && !(1..b.len()).any(|i| b[i] == b'\n' && b[i - 1] != b'\r')
+}
+
+fn has_only_unix_line_endings(s: &str) -> bool {
+    !s.contains("\r\n") && s.contains('\n')
+}
+
+fn is_unix(hunks: &[PatchHunk]) -> bool {
+    !hunks.iter().any(|h| h.lines.iter().any(|l| !l.starts_with('\\') && l.ends_with('\r')))
+}
+
+fn keeps_ending(h: &PatchHunk, i: usize) -> bool {
+    let l = &h.lines[i];
+    l.starts_with('\\') || l.ends_with('\r') || h.lines.get(i + 1).is_some_and(|n| n.starts_with('\\'))
+}
+
+fn is_win(hunks: &[PatchHunk]) -> bool {
+    hunks.iter().any(|h| h.lines.iter().any(|l| l.ends_with('\r'))) && hunks.iter().all(|h| (0..h.lines.len()).all(|i| keeps_ending(h, i)))
+}
+
+fn unix_to_win(hunks: &[PatchHunk]) -> Vec<PatchHunk> {
+    hunks
+        .iter()
+        .map(|h| PatchHunk { lines: (0..h.lines.len()).map(|i| if keeps_ending(h, i) { h.lines[i].clone() } else { format!("{}\r", h.lines[i]) }).collect(), ..h.clone() })
+        .collect()
+}
+
+fn win_to_unix(hunks: &[PatchHunk]) -> Vec<PatchHunk> {
+    hunks.iter().map(|h| PatchHunk { lines: h.lines.iter().map(|l| l.strip_suffix('\r').unwrap_or(l).to_string()).collect(), ..h.clone() }).collect()
+}
+
+/// `distance-iterator.js`: positions in `[min, max]` by growing distance from `start`.
+struct Distance {
+    start: i64,
+    min: i64,
+    max: i64,
+    want_forward: bool,
+    backward_exhausted: bool,
+    forward_exhausted: bool,
+    offset: i64,
+}
+
+impl Distance {
+    fn new(start: i64, min: i64, max: i64) -> Self {
+        Distance { start, min, max, want_forward: true, backward_exhausted: false, forward_exhausted: false, offset: 1 }
+    }
+
+    fn next(&mut self) -> Option<i64> {
+        loop {
+            if self.want_forward && !self.forward_exhausted {
+                if self.backward_exhausted {
+                    self.offset += 1;
+                } else {
+                    self.want_forward = false;
+                }
+                if self.start + self.offset <= self.max {
+                    return Some(self.start + self.offset);
+                }
+                self.forward_exhausted = true;
+            }
+            if !self.backward_exhausted {
+                if !self.forward_exhausted {
+                    self.want_forward = true;
+                }
+                if self.min <= self.start - self.offset {
+                    let at = self.start - self.offset;
+                    self.offset += 1;
+                    return Some(at);
+                }
+                self.backward_exhausted = true;
+                continue;
+            }
+            return None;
+        }
+    }
+}
+
+fn line_at<'a>(lines: &[&'a str], at: i64) -> Option<&'a str> {
+    usize::try_from(at).ok().and_then(|i| lines.get(i).copied())
+}
+
+/// `applyHunk` with `maxErrors` 0: the patched lines and the last old line consumed.
+fn apply_hunk(lines: &[&str], hunk_lines: &[String], mut to_pos: i64) -> Option<(Vec<String>, i64)> {
+    let mut patched: Vec<String> = Vec::new();
+    let mut trailing_context = 0usize;
+    for hunk_line in hunk_lines {
+        let (op, content) = match hunk_line.chars().next() {
+            None => (' ', ""),
+            Some(c) => (c, &hunk_line[c.len_utf8()..]),
+        };
+        match op {
+            '-' => {
+                if line_at(lines, to_pos) != Some(content) {
+                    return None;
+                }
+                to_pos += 1;
+                trailing_context = 0;
+            }
+            '+' => {
+                patched.push(content.to_string());
+                trailing_context = 0;
+            }
+            ' ' => {
+                trailing_context += 1;
+                if line_at(lines, to_pos) != Some(content) {
+                    return None;
+                }
+                patched.push(content.to_string());
+                to_pos += 1;
+            }
+            _ => {}
+        }
+    }
+    patched.truncate(patched.len() - trailing_context);
+    Some((patched, to_pos - trailing_context as i64 - 1))
+}
+
+/// `applyPatch(source, structuredPatch)` with the default options (no fuzz, line endings
+/// converted automatically). `None` is jsdiff's `false`.
+pub fn apply_patch(source: &str, hunks: &[PatchHunk]) -> Option<String> {
+    let converted;
+    let hunks = if has_only_win_line_endings(source) && is_unix(hunks) {
+        converted = unix_to_win(hunks);
+        &converted[..]
+    } else if has_only_unix_line_endings(source) && is_win(hunks) {
+        converted = win_to_unix(hunks);
+        &converted[..]
+    } else {
+        hunks
+    };
+    let mut lines: Vec<&str> = source.split('\n').collect();
+    let Some(last_hunk) = hunks.last() else { return Some(source.to_string()) };
+    let (mut remove_eofnl, mut add_eofnl) = (false, false);
+    let mut prev = "";
+    for line in &last_hunk.lines {
+        if line.starts_with('\\') {
+            if prev.starts_with('+') {
+                remove_eofnl = true;
+            } else if prev.starts_with('-') {
+                add_eofnl = true;
+            }
+        }
+        prev = line;
+    }
+    let ends_empty = lines.last() == Some(&"");
+    if remove_eofnl {
+        if add_eofnl {
+            if ends_empty {
+                return None;
+            }
+        } else if ends_empty {
+            lines.pop();
+        } else {
+            return None;
+        }
+    } else if add_eofnl {
+        if ends_empty {
+            return None;
+        }
+        lines.push("");
+    }
+    let mut result: Vec<String> = Vec::new();
+    let mut min_line: i64 = 0;
+    let mut prev_offset: i64 = 0;
+    for hunk in hunks {
+        let max_line = lines.len() as i64 - hunk.old_lines;
+        let mut to_pos = hunk.old_start + prev_offset - 1;
+        let mut positions = Distance::new(to_pos, min_line, max_line);
+        let (patched, last) = loop {
+            if let Some(found) = apply_hunk(&lines, &hunk.lines, to_pos) {
+                break found;
+            }
+            to_pos = positions.next()?;
+        };
+        for i in min_line..to_pos {
+            result.push(line_at(&lines, i).unwrap_or("").to_string());
+        }
+        result.extend(patched);
+        min_line = last + 1;
+        prev_offset = to_pos + 1 - hunk.old_start;
+    }
+    for i in min_line..lines.len() as i64 {
+        result.push(line_at(&lines, i).unwrap_or("").to_string());
+    }
+    Some(result.join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,6 +653,34 @@ mod tests {
     #[test]
     fn empty_before_is_zero_range() {
         assert!(create_two_files_patch("f", "f", "", "x\n").contains("@@ -0,0 +1,1 @@"));
+    }
+
+    /// Recorded from jsdiff 8.0.4 (`applyPatch`, `parsePatch`, `reversePatch`, `structuredPatch`)
+    /// under Bun 1.4.4.
+    const APPLY_FIXTURE: &str = r#"[{"a":"a\nb\nc\n","b":"a\nB\nc\n","fwd":"a\nB\nc\n","rev":"a\nb\nc\n","wrong":false,"hunks":[[1,3,1,3]],"sp":[[1,3,1,3]]},{"a":"","b":"x\n","fwd":"x\n","rev":"","wrong":"x\nzzz\n","hunks":[[1,0,1,1]],"sp":[[1,0,1,1]]},{"a":"x\n","b":"","fwd":"","rev":"x\n","wrong":"zzz\n","hunks":[[1,1,1,0]],"sp":[[1,1,1,0]]},{"a":"a\nb","b":"a\nb\n","fwd":"a\nb\n","rev":"a\nb","wrong":false,"hunks":[[1,2,1,2]],"sp":[[1,2,1,2]]},{"a":"a\nb\n","b":"a\nb","fwd":"a\nb","rev":"a\nb\n","wrong":false,"hunks":[[1,2,1,2]],"sp":[[1,2,1,2]]},{"a":"a\r\nb\r\nc\r\n","b":"a\r\nB\r\nc\r\n","fwd":"a\r\nB\r\nc\r\n","rev":"a\r\nb\r\nc\r\n","wrong":false,"hunks":[[1,3,1,3]],"sp":[[1,3,1,3]]},{"a":"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n","b":"1\nTWO\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\nFOURTEEN\n15\n","fwd":"1\nTWO\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\nFOURTEEN\n15\n","rev":"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n","wrong":"zzz\n1\nTWO\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\nFOURTEEN\n15\n","hunks":[[1,6,1,6],[10,6,10,6]],"sp":[[1,6,1,6],[10,6,10,6]]}]"#;
+
+    #[test]
+    fn apply_parse_reverse_match_jsdiff() {
+        let cases: serde_json::Value = serde_json::from_str(APPLY_FIXTURE).unwrap();
+        let ranges = |h: &[PatchHunk]| h.iter().map(|h| serde_json::json!([h.old_start, h.old_lines, h.new_start, h.new_lines])).collect::<Vec<_>>();
+        let result = |v: Option<String>| v.map(serde_json::Value::String).unwrap_or(serde_json::Value::Bool(false));
+        for c in cases.as_array().unwrap() {
+            let (a, b) = (c["a"].as_str().unwrap(), c["b"].as_str().unwrap());
+            let patch = create_two_files_patch("f", "f", a, b);
+            let parsed = parse_patch(&patch).unwrap();
+            assert_eq!(parsed.len(), 1);
+            assert_eq!(serde_json::Value::Array(ranges(&parsed[0])), c["hunks"], "{a:?} -> {b:?}");
+            assert_eq!(serde_json::Value::Array(ranges(&structured_patch(a, b))), c["sp"]);
+            assert_eq!(result(apply_patch_str(a, &patch).unwrap()), c["fwd"]);
+            assert_eq!(result(apply_patch(b, &reverse_patch(&parsed[0]))), c["rev"]);
+            let wrong = format!("zzz\n{}", a.replace('b', "q"));
+            assert_eq!(result(apply_patch_str(&wrong, &patch).unwrap()), c["wrong"], "{a:?} -> {b:?}");
+        }
+        // A Unix patch on a CRLF file, and a hunk found two lines below its header.
+        assert_eq!(apply_patch_str("a\r\nb\r\n", &create_two_files_patch("f", "f", "a\nb\n", "a\nc\n")).unwrap().as_deref(), Some("a\r\nc\r\n"));
+        assert_eq!(apply_patch_str("pre\npre2\na\nb\nc\n", &create_two_files_patch("f", "f", "a\nb\nc\n", "a\nB\nc\n")).unwrap().as_deref(), Some("pre\npre2\na\nB\nc\n"));
+        assert!(parse_patch("@@ -1,2 +1,2 @@\n a\n").is_err());
+        assert!(apply_patch_str("", "--- a\n+++ a\n@@ -1 +1 @@\n-a\n+b\n--- b\n+++ b\n@@ -1 +1 @@\n-a\n+b\n").is_err());
     }
 
     #[test]

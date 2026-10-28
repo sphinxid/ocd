@@ -6,8 +6,8 @@
 //! catalog + config options, the event fold (text, reasoning, tools, retries, compaction, child
 //! sessions), permission requests, form elicitation, usage updates, history replay, additional
 //! directories, MCP registration and the JSON-RPC error mapping.
-//! Not implemented: completed-edit diff enrichment and background following of child sessions
-//! after the root turn ends.
+//! File diffs on permission requests and completed edit/patch calls (`acp/permission.ts`).
+//! Not implemented: background following of child sessions after the root turn ends.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, Write};
@@ -20,6 +20,9 @@ use oc_util::Global;
 use parking_lot::Mutex;
 use serde_json::{Map, Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
+
+use oc_tools::jsdiff;
+use oc_tools::patch::Hunk;
 
 use crate::cli::parse::Input;
 use crate::client::{Client, ClientError, EventStream, Req};
@@ -395,29 +398,10 @@ fn tool_kind(name: &str) -> &'static str {
     }
 }
 
-struct Hunk {
-    kind: &'static str,
-    path: String,
-    move_path: Option<String>,
-}
-
+/// `patchHunks(input)`: the parsed `patchText`, or nothing when it doesn't parse.
 fn patch_hunks(input: &Value) -> Vec<Hunk> {
-    let Some(text) = input.get("patchText").and_then(Value::as_str) else { return vec![] };
-    let mut hunks: Vec<Hunk> = vec![];
-    for line in text.lines() {
-        if let Some(p) = line.strip_prefix("*** Add File: ") {
-            hunks.push(Hunk { kind: "add", path: p.trim().into(), move_path: None });
-        } else if let Some(p) = line.strip_prefix("*** Delete File: ") {
-            hunks.push(Hunk { kind: "delete", path: p.trim().into(), move_path: None });
-        } else if let Some(p) = line.strip_prefix("*** Update File: ") {
-            hunks.push(Hunk { kind: "update", path: p.trim().into(), move_path: None });
-        } else if let Some(p) = line.strip_prefix("*** Move to: ")
-            && let Some(h) = hunks.last_mut()
-        {
-            h.move_path = Some(p.trim().into());
-        }
-    }
-    hunks
+    let Some(text) = input.get("patchText").and_then(Value::as_str).filter(|t| !t.is_empty()) else { return vec![] };
+    oc_tools::patch::parse(text).unwrap_or_default()
 }
 
 fn locations(name: &str, input: &Value, cwd: &str) -> Value {
@@ -425,7 +409,13 @@ fn locations(name: &str, input: &Value, cwd: &str) -> Value {
     let values: Vec<String> = match canonical(name).as_str() {
         "shell" => vec![str_of("workdir").or_else(|| str_of("cwd")).unwrap_or_else(|| cwd.to_string())],
         "read" | "edit" | "write" => str_of("path").or_else(|| str_of("filePath")).into_iter().collect(),
-        "patch" => patch_hunks(input).into_iter().flat_map(|h| std::iter::once(h.path).chain(if h.kind == "update" { h.move_path } else { None })).collect(),
+        "patch" => patch_hunks(input)
+            .into_iter()
+            .flat_map(|h| match h {
+                Hunk::Update { path, move_path, .. } => std::iter::once(path).chain(move_path).collect::<Vec<_>>(),
+                h => vec![h.path().to_string()],
+            })
+            .collect(),
         "external_directory" => str_of("filepath").into_iter().collect(),
         "grep" | "glob" | "context" | "context7_resolve_library_id" | "context7_get_library_docs" => str_of("path").into_iter().collect(),
         _ => vec![],
@@ -516,6 +506,127 @@ fn error_update(id: &str, name: &str, input: &Value, content: &Value, metadata: 
     }
     raw.insert("error".into(), json!(error));
     json!({"toolCallId": id, "status": "failed", "kind": tool_kind(name), "title": tool_title(name, input, None), "locations": locations(name, input, cwd), "rawInput": raw_input(name, input, cwd), "content": c, "rawOutput": raw})
+}
+
+// ---------------------------------------------------------------------------------------------
+// file diffs (`acp/permission.ts`: `withCompletedDiffs`, `permissionPreviews`)
+
+/// A `{type: "diff", path, oldText, newText}` tool-call content item.
+fn diff_item(path: &str, old_text: Option<&str>, new_text: &str) -> Value {
+    json!({"type": "diff", "path": path, "oldText": old_text, "newText": new_text})
+}
+
+struct FileInfo {
+    file: String,
+    patch: String,
+    status: String,
+}
+
+/// `Schema.decodeUnknownOption(Schema.Array(FileDiff.Info))(metadata?.files)`: every entry must
+/// decode, or there are none.
+fn decode_files(metadata: Option<&Value>) -> Vec<FileInfo> {
+    let count = |v: Option<&Value>| v.and_then(Value::as_f64).is_some_and(|n| n.is_finite() && n >= 0.0 && n.fract() == 0.0);
+    let Some(files) = metadata.and_then(|m| m.get("files")).and_then(Value::as_array) else { return vec![] };
+    let mut out = Vec::with_capacity(files.len());
+    for f in files {
+        let (Some(file), Some(patch), Some(status)) = (f.get("file").and_then(Value::as_str), f.get("patch").and_then(Value::as_str), f.get("status").and_then(Value::as_str)) else {
+            return vec![];
+        };
+        if !count(f.get("additions")) || !count(f.get("deletions")) || !["added", "deleted", "modified"].contains(&status) {
+            return vec![];
+        }
+        out.push(FileInfo { file: file.into(), patch: patch.into(), status: status.into() });
+    }
+    out
+}
+
+/// `Bun.file(path).text()`.
+fn read_text(path: &str) -> Option<String> {
+    std::fs::read(path).ok().map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+/// `withCompletedDiffs(update, source, cwd)`: appends a diff per changed file in the completed
+/// tool's `metadata.files`, rebuilding the old text by reversing the recorded patch against the
+/// file as it is now.
+fn with_completed_diffs(mut update: Value, tool_name: &str, input: &Value, metadata: Option<&Value>, cwd: &str) -> Value {
+    if s(&update, "sessionUpdate") != "tool_call_update" {
+        return update;
+    }
+    let hunks = if canonical(tool_name) == "patch" { patch_hunks(input) } else { vec![] };
+    let diffs: Vec<Value> = decode_files(metadata).iter().filter_map(|f| completed_diff(f, &hunks, cwd)).collect();
+    if diffs.is_empty() {
+        return update;
+    }
+    match update.get_mut("content").and_then(Value::as_array_mut) {
+        Some(content) => content.extend(diffs),
+        None => update["content"] = Value::Array(diffs),
+    }
+    update
+}
+
+fn completed_diff(file: &FileInfo, hunks: &[Hunk], cwd: &str) -> Option<Value> {
+    let path = absolutize(&file.file, cwd);
+    let new_text = if file.status == "deleted" { String::new() } else { read_text(&path)? };
+    if file.status == "added" {
+        return Some(diff_item(&path, None, &new_text));
+    }
+    let recorded = jsdiff::parse_patch(&file.patch).ok()?.into_iter().next()?;
+    if let Some(old_text) = jsdiff::apply_patch(&new_text, &jsdiff::reverse_patch(&recorded)) {
+        return Some(diff_item(&path, Some(&old_text), &new_text));
+    }
+    // Core trims indentation from patch-tool diffs, so rebuild those from its hunks and keep them if the ranges agree.
+    let hunk = hunks.iter().find(|h| matches!(h, Hunk::Update { path: p, move_path, .. } if absolutize(move_path.as_deref().unwrap_or(p), cwd) == path));
+    let Some(Hunk::Update { path: hunk_path, chunks, .. }) = hunk else { return None };
+    if chunks.iter().any(|c| c.old_lines.is_empty() || c.new_lines.is_empty()) {
+        return None;
+    }
+    let swapped: Vec<_> = chunks.iter().map(|c| oc_tools::patch::UpdateFileChunk { old_lines: c.new_lines.clone(), new_lines: c.old_lines.clone(), ..c.clone() }).collect();
+    let rebuilt = oc_tools::patch::derive(hunk_path, &swapped, &new_text).ok()?.content;
+    let ranges = |h: &[jsdiff::PatchHunk]| h.iter().map(|h| (h.old_start, h.old_lines, h.new_start, h.new_lines)).collect::<Vec<_>>();
+    (ranges(&jsdiff::structured_patch(&rebuilt, &new_text)) == ranges(&recorded)).then(|| diff_item(&path, Some(&rebuilt), &new_text))
+}
+
+/// `permissionPreviews(toolName, input, metadata, cwd)`: the diffs a permission request shows.
+/// Any failure drops every preview, like upstream's `orElseSucceed`.
+fn permission_previews(tool_name: &str, input: &Value, metadata: Option<&Value>, cwd: &str) -> Vec<Value> {
+    let previews = if canonical(tool_name) == "patch" {
+        patch_previews(input, cwd)
+    } else {
+        decode_files(metadata)
+            .iter()
+            .map(|f| {
+                let path = absolutize(&f.file, cwd);
+                let old_text = if f.status == "added" { None } else { Some(read_text(&path)?) };
+                let new_text = jsdiff::apply_patch_str(old_text.as_deref().unwrap_or(""), &f.patch).ok()?;
+                Some(new_text.map(|n| diff_item(&path, old_text.as_deref(), &n)))
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|v| v.into_iter().flatten().collect())
+    };
+    previews.unwrap_or_default()
+}
+
+// Core trims the patch tool's diffs for display, which breaks `applyPatch`, so its previews come from its own hunks.
+fn patch_previews(input: &Value, cwd: &str) -> Option<Vec<Value>> {
+    patch_hunks(input)
+        .iter()
+        .map(|hunk| {
+            let path = absolutize(hunk.path(), cwd);
+            match hunk {
+                Hunk::Add { contents, .. } => {
+                    let new_text = if contents.ends_with('\n') || contents.is_empty() { contents.clone() } else { format!("{contents}\n") };
+                    Some(diff_item(&path, None, &new_text))
+                }
+                Hunk::Delete { .. } => Some(diff_item(&path, Some(&read_text(&path)?), "")),
+                Hunk::Update { path: rel, move_path, chunks } => {
+                    let old_text = read_text(&path)?;
+                    let derived = oc_tools::patch::derive(rel, chunks, &old_text).ok()?;
+                    let target = move_path.as_deref().map(|m| absolutize(m, cwd)).unwrap_or(path);
+                    Some(diff_item(&target, Some(&old_text), &derived.content))
+                }
+            }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1223,7 +1334,8 @@ fn replay_message(m: &Value, cwd: &str, caps: Caps) -> Vec<Value> {
                         };
                         if let Some(mut u) = update {
                             u["sessionUpdate"] = json!("tool_call_update");
-                            out.push(reorder_update(u));
+                            let u = reorder_update(u);
+                            out.push(if status == "completed" { with_completed_diffs(u, name, &input, state.get("metadata"), cwd) } else { u });
                         }
                     }
                     _ => {}
@@ -1561,7 +1673,8 @@ fn session_event(st: &mut TurnState, ty: &str, data: &Value, event: &Value, ctx:
         "session.tool.success" => {
             let id = s(data, "id");
             let t = st.tools.remove(&tool_key(id)).unwrap_or(Tracked { session: sid.clone(), id: id.into(), name: "tool".into(), input: json!({}), metadata: json!({}) });
-            send(with_update("tool_call_update", completed_update(id, &t.name, &t.input, data.get("content").unwrap_or(&json!([])), data.get("metadata"), &ctx.cwd)))
+            let update = with_update("tool_call_update", completed_update(id, &t.name, &t.input, data.get("content").unwrap_or(&json!([])), data.get("metadata"), &ctx.cwd));
+            send(with_completed_diffs(update, &t.name, &t.input, data.get("metadata"), &ctx.cwd))
         }
         "session.tool.failed" => {
             let id = s(data, "id");
@@ -1896,12 +2009,14 @@ fn permission_params(root: &str, cwd: &str, data: &Value, tool: Option<&Tracked>
     let tool_name = tool.map(|t| t.name.clone()).unwrap_or_else(|| s(data, "action").to_string());
     let input = tool.map(|t| t.input.clone()).or_else(|| data.get("metadata").filter(|m| m.is_object()).cloned()).unwrap_or(json!({}));
     let str_of = |k: &str| input.get(k).and_then(Value::as_str).map(String::from);
+    let previews = permission_previews(&tool_name, &input, data.get("metadata"), cwd);
     let title = match canonical(&tool_name).as_str() {
+        _ if previews.len() > 1 => Some(format!("{} files", previews.len())),
         "external_directory" => str_of("description").or_else(|| str_of("command")).or_else(|| str_of("parentDir")),
         "webfetch" => str_of("url"),
         "websearch" => str_of("query"),
         "grep" | "glob" => str_of("pattern"),
-        "read" | "edit" | "write" | "patch" => str_of("path").or_else(|| str_of("filePath")),
+        "read" | "edit" | "write" | "patch" => str_of("path").or_else(|| str_of("filePath")).or_else(|| previews.first().map(|p| s(p, "path").to_string())),
         _ => None,
     };
     let prefixed = |id: &str| match child {
@@ -1940,6 +2055,9 @@ fn permission_params(root: &str, cwd: &str, data: &Value, tool: Option<&Tracked>
         }
     }
     o.insert("locations".into(), locs);
+    if !previews.is_empty() {
+        o.insert("content".into(), Value::Array(previews));
+    }
     if let Some(c) = child {
         o.insert("_meta".into(), child_meta(c));
     }
@@ -2387,6 +2505,90 @@ mod tests {
         let err = error_update("t", "read", &json!({"path": "a.txt"}), &json!([]), None, "boom", "/w");
         assert_eq!(err["content"], json!([{"type": "content", "content": {"type": "text", "text": "boom"}}]));
         assert_eq!(err["locations"], json!([{"path": "/w/a.txt"}]));
+    }
+
+    const PATCH: &str = "*** Begin Patch\n*** Update File: b.py\n@@\n def f():\n-    x = 1\n+    x = 2\n     return x\n*** Update File: e.py\n@@\n     a = 1\n-    b = 2\n+    b = 3\n     c = 3\n*** Add File: c.txt\n+hello\n*** Delete File: gone.txt\n*** End Patch";
+
+    fn file(file: &str, patch: &str, status: &str) -> Value {
+        json!({"file": file, "patch": patch, "status": status, "additions": 1, "deletions": 1})
+    }
+
+    /// Recorded from upstream 2.1.4 `opencode acp` completing a patch call (e.py's patch is trimmed by core, so
+    /// its old text is rebuilt from the patch hunks).
+    #[test]
+    fn completed_patch_diffs_match_upstream() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().display().to_string();
+        std::fs::write(dir.path().join("b.py"), "def f():\n    x = 2\n    return x\n").unwrap();
+        std::fs::write(dir.path().join("e.py"), "    a = 1\n    b = 3\n    c = 3\n").unwrap();
+        std::fs::write(dir.path().join("c.txt"), "hello\n").unwrap();
+        let metadata = json!({"files": [
+            file("b.py", "Index: b.py\n===================================================================\n--- b.py\n+++ b.py\n@@ -1,3 +1,3 @@\n def f():\n-    x = 1\n+    x = 2\n     return x\n", "modified"),
+            file("e.py", "Index: e.py\n===================================================================\n--- e.py\n+++ e.py\n@@ -1,3 +1,3 @@\n a = 1\n-b = 2\n+b = 3\n c = 3\n", "modified"),
+            file("c.txt", "Index: c.txt\n===================================================================\n--- c.txt\n+++ c.txt\n@@ -0,0 +1,1 @@\n+hello\n", "added"),
+            file("gone.txt", "Index: gone.txt\n===================================================================\n--- gone.txt\n+++ gone.txt\n@@ -1,1 +0,0 @@\n-bye\n", "deleted"),
+        ], "truncated": false});
+        let input = json!({"patchText": PATCH});
+        let update = with_update("tool_call_update", completed_update("call_patch", "patch", &input, &json!([{"type": "text", "text": "Success."}]), Some(&metadata), &cwd));
+        let update = with_completed_diffs(update, "patch", &input, Some(&metadata), &cwd);
+        let p = |f: &str| format!("{cwd}/{f}");
+        assert_eq!(
+            update["content"],
+            json!([
+                {"type": "content", "content": {"type": "text", "text": "Success."}},
+                {"type": "diff", "path": p("b.py"), "oldText": "def f():\n    x = 1\n    return x\n", "newText": "def f():\n    x = 2\n    return x\n"},
+                {"type": "diff", "path": p("e.py"), "oldText": "    a = 1\n    b = 2\n    c = 3\n", "newText": "    a = 1\n    b = 3\n    c = 3\n"},
+                {"type": "diff", "path": p("c.txt"), "oldText": null, "newText": "hello\n"},
+                {"type": "diff", "path": p("gone.txt"), "oldText": "bye\n", "newText": ""},
+            ])
+        );
+        let keys: Vec<&String> = update.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["sessionUpdate", "toolCallId", "status", "locations", "content", "rawOutput"]);
+        // The same trimmed patch on an edit call has no hunks to rebuild from, so that file gets no diff.
+        let edit = with_completed_diffs(with_update("tool_call_update", json!({"content": []})), "edit", &json!({}), Some(&metadata), &cwd);
+        assert_eq!(edit["content"].as_array().unwrap().len(), 3);
+        // One file that doesn't decode drops them all; other updates pass through.
+        let bad = json!({"files": [metadata["files"][0].clone(), {"file": "x", "patch": "", "status": "renamed", "additions": 0, "deletions": 0}]});
+        assert_eq!(with_completed_diffs(with_update("tool_call_update", json!({"content": []})), "edit", &json!({}), Some(&bad), &cwd)["content"], json!([]));
+        assert_eq!(with_completed_diffs(json!({"sessionUpdate": "tool_call"}), "edit", &json!({}), Some(&metadata), &cwd), json!({"sessionUpdate": "tool_call"}));
+    }
+
+    /// Recorded from upstream 2.1.4's permission requests for the same patch and for an edit.
+    #[test]
+    fn permission_previews_match_upstream() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().display().to_string();
+        std::fs::write(dir.path().join("b.py"), "def f():\n    x = 1\n    return x\n").unwrap();
+        std::fs::write(dir.path().join("e.py"), "    a = 1\n    b = 2\n    c = 3\n").unwrap();
+        std::fs::write(dir.path().join("gone.txt"), "bye\n").unwrap();
+        std::fs::write(dir.path().join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        let p = |f: &str| format!("{cwd}/{f}");
+        let tool = Tracked { session: "s".into(), id: "call_patch".into(), name: "patch".into(), input: json!({"patchText": PATCH}), metadata: json!({}) };
+        let params = permission_params("root", &cwd, &json!({"id": "per", "action": "edit", "resources": []}), Some(&tool), None);
+        let call = &params["toolCall"];
+        assert_eq!(call["title"], "4 files");
+        assert_eq!(
+            call["content"],
+            json!([
+                {"type": "diff", "path": p("b.py"), "oldText": "def f():\n    x = 1\n    return x\n", "newText": "def f():\n    x = 2\n    return x\n"},
+                {"type": "diff", "path": p("e.py"), "oldText": "    a = 1\n    b = 2\n    c = 3\n", "newText": "    a = 1\n    b = 3\n    c = 3\n"},
+                {"type": "diff", "path": p("c.txt"), "oldText": null, "newText": "hello\n"},
+                {"type": "diff", "path": p("gone.txt"), "oldText": "bye\n", "newText": ""},
+            ])
+        );
+        let keys: Vec<&String> = call.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["toolCallId", "name", "title", "kind", "status", "locations", "rawInput", "content"]);
+
+        let edit = Tracked { session: "s".into(), id: "call_edit".into(), name: "edit".into(), input: json!({"path": "a.txt", "oldString": "two", "newString": "TWO"}), metadata: json!({}) };
+        let data = json!({"id": "per", "action": "edit", "resources": [], "metadata": {"files": [file("a.txt", "Index: a.txt\n===================================================================\n--- a.txt\n+++ a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n", "modified")]}});
+        let call = permission_params("root", &cwd, &data, Some(&edit), None)["toolCall"].clone();
+        assert_eq!(call["title"], "a.txt");
+        assert_eq!(call["content"], json!([{"type": "diff", "path": p("a.txt"), "oldText": "one\ntwo\nthree\n", "newText": "one\nTWO\nthree\n"}]));
+        // A file that no longer matches its patch is left out; a missing file drops every preview.
+        std::fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
+        assert!(permission_params("root", &cwd, &data, Some(&edit), None)["toolCall"].get("content").is_none());
+        std::fs::remove_file(dir.path().join("a.txt")).unwrap();
+        assert!(permission_params("root", &cwd, &data, Some(&edit), None)["toolCall"].get("content").is_none());
     }
 
     #[test]
