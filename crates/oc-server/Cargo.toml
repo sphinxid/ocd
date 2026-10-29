@@ -37,6 +37,9 @@ brotli-decompressor = "4"
 sha1 = "0.10"
 ryu = "1"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
 jsonschema = { version = "0.33", default-features = false }

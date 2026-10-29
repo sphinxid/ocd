@@ -439,6 +439,7 @@ async fn readiness_gate() {
     assert_eq!(v["version"], "1.2.3");
     assert_eq!(v["paths"]["tmp"], "/tmp/oc");
     assert!(v.get("capabilities").is_none());
+    assert!(v.get("hostname").is_none());
 
     let r = h.get("/api/project").await;
     assert_eq!(r.status, StatusCode::SERVICE_UNAVAILABLE);
@@ -827,9 +828,81 @@ async fn json_responses_are_compressed() {
 
 #[test]
 fn every_operation_is_routed_once() {
-    assert_eq!(oc_server::OPS.len(), 149);
+    assert_eq!(oc_server::OPS.len(), 162);
     let mut seen = std::collections::HashSet::new();
     for op in oc_server::OPS {
         assert!(seen.insert((op.method, op.path)), "{} {}", op.method, op.path);
     }
+}
+
+/// `media.test.ts`: immutable caching, strong ETags, 304s and attachment disposition for non-images.
+#[tokio::test]
+async fn media_get_headers_and_conditional_requests() {
+    let h = harness(Some(PASSWORD));
+    h.handle.set_ready();
+    let png = format!("a{}", "0".repeat(63));
+    let r = h.get(&format!("/api/experimental/media/{png}")).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(&r.body[..], b"png");
+    assert_eq!(r.header("content-type"), Some("image/png"));
+    assert_eq!(r.header("cache-control"), Some("private, max-age=31536000, immutable"));
+    assert_eq!(r.header("etag"), Some(format!("\"{png}\"").as_str()));
+    assert_eq!(r.header("x-content-type-options"), Some("nosniff"));
+    assert_eq!(r.header("content-security-policy"), Some("default-src 'none'; sandbox"));
+    assert!(r.header("content-disposition").is_none());
+
+    for inm in [format!("\"{png}\""), format!("W/\"{png}\""), format!("\"x\", w/\"{png}\""), "*".to_string()] {
+        let r = h
+            .send(
+                Request::get(format!("/api/experimental/media/{png}"))
+                    .header("authorization", basic(PASSWORD))
+                    .header("if-none-match", inm.as_str())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(r.status, 304, "{inm}");
+        assert!(r.body.is_empty());
+        assert_eq!(r.header("etag"), Some(format!("\"{png}\"").as_str()));
+    }
+
+    let html = format!("b{}", "0".repeat(63));
+    let r = h.get(&format!("/api/experimental/media/{html}")).await;
+    assert_eq!(r.header("content-type"), Some("application/octet-stream"));
+    assert_eq!(r.header("content-disposition"), Some("attachment"));
+
+    let missing = "c".repeat(64);
+    let r = h.get(&format!("/api/experimental/media/{missing}")).await;
+    assert_eq!(r.status, 404);
+    assert_eq!(
+        r.json(),
+        json!({"_tag":"FileNotFoundError","path":format!("/api/experimental/media/{missing}"),"message":format!("Media blob not found: {missing}")})
+    );
+
+    let r = h.get("/api/experimental/media/ABC").await;
+    assert_eq!(r.status, 400);
+    assert_eq!(r.json()["kind"], "Params");
+}
+
+#[tokio::test]
+async fn server_info_reports_the_hostname_once_ready() {
+    let h = harness(Some(PASSWORD));
+    let v = h.get("/api/info").await.json();
+    let keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
+    match oc_server::context::machine_hostname() {
+        Some(name) => {
+            assert_eq!(v["hostname"], json!(name));
+            assert_eq!(keys, vec!["version", "pid", "hostname", "urls", "paths", "capabilities"]);
+        }
+        None => assert!(v.get("hostname").is_none()),
+    }
+}
+
+#[tokio::test]
+async fn array_query_parameters_repeat_or_promote() {
+    let h = harness(Some(PASSWORD));
+    h.handle.set_ready();
+    // model.list is not implemented by the mock (500), but decoding happens first
+    let r = h.get(&format!("/api/model?location%5Bdirectory%5D={}&types=chat&types=image", enc(&h.dir()))).await;
+    assert_eq!(r.status, 500);
 }

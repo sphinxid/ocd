@@ -17,7 +17,7 @@ use crate::engine::Engine;
 /// Upstream `ClientApi` endpoint identifiers that differ from the OpenAPI operation id.
 fn operation_id(method: &str) -> &str {
     match method {
-        "persistentPty.read" => "server.experimental.persistentPty.read",
+        "persistentPty.read" => "experimental.persistentPty.read",
         "generate.text" => "experimental.generate.text",
         "session.wait" => "experimental.session.wait",
         other => other,

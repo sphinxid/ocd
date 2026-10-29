@@ -41,6 +41,42 @@ OUT_PATH = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "..", "src",
 spec = json.load(open(SPEC_PATH), object_pairs_hook=OrderedDict)
 SCHEMAS = spec["components"]["schemas"]
 
+NONFINITE = ["Infinity", "-Infinity", "NaN"]
+
+
+def _nest_nonfinite(node):
+    """Since v2.2 the document flattens `Schema.Number`'s `anyOf[number, "Infinity"|...]` into the
+    enclosing union (`anyOf[string, number, enum Infinity…, boolean]`). Nest the pair again so it
+    maps to `JsNumber` exactly like the older shape."""
+    if isinstance(node, list):
+        for x in node:
+            _nest_nonfinite(x)
+        return
+    if not isinstance(node, dict):
+        return
+    for v in node.values():
+        _nest_nonfinite(v)
+    a = node.get("anyOf")
+    if not isinstance(a, list) or len(a) <= 2:
+        return
+    out = []
+    i = 0
+    while i < len(a):
+        m = a[i]
+        nxt = a[i + 1] if i + 1 < len(a) else None
+        if (isinstance(m, dict) and m == {"type": "number"} and isinstance(nxt, dict)
+                and nxt.get("type") == "string" and nxt.get("enum") == NONFINITE and len(nxt) == 2):
+            out.append(OrderedDict([("anyOf", [m, nxt])]))
+            i += 2
+            continue
+        out.append(m)
+        i += 1
+    if len(out) != len(a):
+        node["anyOf"] = out
+
+
+_nest_nonfinite(spec)
+
 RUST_KEYWORDS = {
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
     "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
@@ -64,7 +100,8 @@ ERROR_STATUS = {
     "SessionBusyError": 409, "FormAlreadySettledError": 409,
     "InstructionEntryValueTooLargeError": 413, "UnknownError": 500,
     "CommandExecutionError": 500, "RpcInternalError": 500, "VcsInitNotSupportedError": 501,
-    "ServiceUnavailableError": 503,
+    "ServiceUnavailableError": 503, "PluginNotFoundError": 404, "ModelNotFoundError": 404,
+    "UnsupportedModelError": 422, "ProviderRequestError": 502, "ScheduleNotFoundError": 404,
 }
 
 # Scope per operation (spec 06 §1.1 / §7). Operations with a `location` query parameter are L.
@@ -84,17 +121,18 @@ SCOPE_H = {"session.permission.list", "pty.connect"}
 
 # Operations owned by the server itself (not part of the Backend trait).
 SERVER_OWNED = {"server.pair", "server.connect", "pty.connect.token",
-                "server.experimental.persistentPty.connectToken"}
+                "experimental.persistentPty.connectToken"}
 
 # Operations whose handlers are hand-written (signature overridden below).
 SPECIAL = {
     "session.list": ("crate::backend::SessionListRequest", "Vec<SessionInfo>"),
     "session.message.list": ("crate::backend::SessionMessageListRequest", "Vec<SessionMessageInfo>"),
-    "session.log": ("SessionLogRequest", "crate::backend::SessionLogStream"),
+    "experimental.session.log": ("SessionLogRequest", "crate::backend::SessionLogStream"),
     "event.subscribe": ("crate::backend::EventSubscribeRequest", "crate::backend::EventSubscription"),
     "fs.read": ("crate::backend::FsReadRequest", "crate::backend::FsFile"),
     "pty.connect": ("crate::backend::PtyAttachRequest", "crate::backend::PtyAttachment"),
-    "persistentPty.connect": ("crate::backend::PersistentPtyAttachRequest",
+    "experimental.media.get": ("MediaGetRequest", "crate::backend::MediaBlob"),
+    "experimental.persistentPty.connect": ("crate::backend::PersistentPtyAttachRequest",
                               "crate::backend::PersistentPtyAttachment"),
     "rpc.call": None,      # generated normally, but defects map to RpcInternalError
     "server.info": None,   # generated normally, default impl builds from ctx.server
@@ -110,9 +148,9 @@ QUERY_NUMERIC = {
     ("experimental.session.stats", "from"): ("num", None, None),
     ("experimental.session.stats", "to"): ("num", None, None),
     ("session.diff", "context"): ("int", 0, None),
-    ("session.log", "after"): ("int", 0, None),
+    ("experimental.session.log", "after"): ("int", 0, None),
     ("fs.find", "limit"): ("pos", None, None),
-    ("server.experimental.persistentPty.read", "lines"): ("pos", None, 65535),
+    ("experimental.persistentPty.read", "lines"): ("pos", None, 65535),
     ("shell.output", "cursor"): ("int", 0, None),
     ("shell.output", "limit"): ("int", 0, None),
     ("vcs.branch.list", "limit"): ("pos", None, None),
@@ -673,12 +711,26 @@ for info in op_infos:
             continue
         if loc == "header":
             continue
-        if oid in ("pty.connect", "persistentPty.connect"):
+        if oid in ("pty.connect", "experimental.persistentPty.connect"):
             continue
         fid = field_ident(name)
         schema = prm["schema"]
         required = prm.get("required", False)
         doc = schema.get("description") or prm.get("description")
+        arrays = [x for x in schema.get("anyOf", []) if isinstance(x, dict) and x.get("type") == "array"]
+        if loc == "query" and arrays:
+            # `Schema.ArrayEnsure(X)`: repeated `?k=a&k=b`, or one value promoted to an array.
+            item = arrays[0]["items"]
+            ty, _ = g.rtype(item, P + pascal(name) + "Item")
+            expected = ref_name(item["$ref"]) if "$ref" in item else "string"
+            call_expr = f"call.query_array::<{ty}>({rust_str(name)}, {rust_str(expected)})?"
+            if required:
+                decode.append(f"{fid}: crate::router::required({call_expr}, {rust_str(name)})?")
+                fields.append((fid, f"Vec<{ty}>", doc, name, "query"))
+            else:
+                decode.append(f"{fid}: {call_expr}")
+                fields.append((fid, f"Option<Vec<{ty}>>", doc, name, "query"))
+            continue
         inner = schema
         nullable = False
         if "anyOf" in schema:
@@ -764,7 +816,7 @@ g.compute_defaults()
 req_items = OrderedDict()
 for info in op_infos:
     oid = info["id"]
-    if oid in SERVER_OWNED or oid in ("pty.connect", "persistentPty.connect", "fs.read", "event.subscribe",
+    if oid in SERVER_OWNED or oid in ("pty.connect", "experimental.persistentPty.connect", "fs.read", "event.subscribe",
                                       "session.list", "session.message.list"):
         continue
     P = info["pascal"]
@@ -944,7 +996,7 @@ for info in op_infos:
     sp = SPECIAL.get(oid)
     if sp:
         req_ty, resp_ty = sp
-        if req_ty == "SessionLogRequest":
+        if "::" not in req_ty:
             req_ty = info["req_ty"]
     else:
         req_ty = info["req_ty"]

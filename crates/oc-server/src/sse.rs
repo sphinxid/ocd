@@ -158,11 +158,21 @@ impl std::error::Error for Overflow {}
 /// Build the `/api/event` response: `server.connected` first, then public events, heartbeats
 /// every 15 s. A subscriber that overflows its 4096-frame queue (or lags the broadcast
 /// channel) is dropped and its response aborted.
-pub fn event_response(subscription: EventSubscription) -> Response {
-    event_response_with(subscription, SUBSCRIBER_CAPACITY, HEARTBEAT)
+///
+/// `types` (`?types=`): when non-empty, only events of these types are sent after
+/// `server.connected` (`EventFeed.subscribe(types)`).
+pub fn event_response(subscription: EventSubscription, types: Option<Vec<String>>) -> Response {
+    event_response_with(subscription, types, SUBSCRIBER_CAPACITY, HEARTBEAT)
 }
 
-pub(crate) fn event_response_with(subscription: EventSubscription, capacity: usize, heartbeat: Duration) -> Response {
+pub(crate) fn event_response_with(
+    subscription: EventSubscription,
+    types: Option<Vec<String>>,
+    capacity: usize,
+    heartbeat: Duration,
+) -> Response {
+    let types: Option<std::collections::HashSet<String>> =
+        types.filter(|t| !t.is_empty()).map(|t| t.into_iter().collect());
     let (tx, rx) = mpsc::channel::<Bytes>(capacity);
     let overflow = Arc::new(AtomicBool::new(false));
     let connected = serde_json::json!({ "id": crate::ids::event_id(), "type": "server.connected", "data": {} });
@@ -173,7 +183,7 @@ pub(crate) fn event_response_with(subscription: EventSubscription, capacity: usi
     tokio::spawn(async move {
         let offer = |v: Value| -> Result<(), ()> {
             let ty = v.get("type").and_then(Value::as_str).unwrap_or("");
-            if !is_public_event(ty) {
+            if !is_public_event(ty) || types.as_ref().is_some_and(|t| !t.contains(ty)) {
                 return Ok(());
             }
             let Some(f) = frame(&v) else { return Ok(()) };
@@ -303,7 +313,7 @@ mod tests {
     #[tokio::test]
     async fn overflowing_subscriber_is_dropped() {
         let (tx, rx) = broadcast::channel(64);
-        let res = event_response_with(EventSubscription::Broadcast(rx), 3, Duration::from_secs(60));
+        let res = event_response_with(EventSubscription::Broadcast(rx), None, 3, Duration::from_secs(60));
         for i in 0..10 {
             tx.send(serde_json::json!({"id": i, "type": "session.idle", "data": {}})).unwrap();
         }
@@ -320,7 +330,7 @@ mod tests {
         for i in 0..5 {
             tx.send(serde_json::json!({"id": i, "type": "session.idle", "data": {}})).unwrap();
         }
-        let res = event_response_with(EventSubscription::Broadcast(rx), 100, Duration::from_secs(60));
+        let res = event_response_with(EventSubscription::Broadcast(rx), None, 100, Duration::from_secs(60));
         let (_, errored) = collect(res, 100).await;
         assert!(errored);
     }
@@ -328,7 +338,7 @@ mod tests {
     #[tokio::test]
     async fn heartbeat_comments() {
         let (_tx, rx) = broadcast::channel::<Value>(4);
-        let res = event_response_with(EventSubscription::Broadcast(rx), 10, Duration::from_millis(30));
+        let res = event_response_with(EventSubscription::Broadcast(rx), None, 10, Duration::from_millis(30));
         let (frames, _) = collect(res, 3).await;
         assert!(frames[0].starts_with("data: {\"id\":\"evt_"));
         assert_eq!(frames[1], ": heartbeat\n\n");
@@ -337,7 +347,7 @@ mod tests {
 
     #[tokio::test]
     async fn stream_ends_when_source_closes() {
-        let res = event_response_with(EventSubscription::Stream(futures::stream::empty().boxed()), 10, Duration::from_secs(60));
+        let res = event_response_with(EventSubscription::Stream(futures::stream::empty().boxed()), None, 10, Duration::from_secs(60));
         let (frames, errored) = collect(res, 10).await;
         assert_eq!(frames.len(), 1);
         assert!(!errored);

@@ -100,6 +100,24 @@ impl Call {
             .map_err(|_| query_issue(name, format!("Expected {expected}")))
     }
 
+    /// `Schema.ArrayEnsure(X)`: every value of a repeated key (`?k=a&k=b`), a single value being
+    /// promoted to a one-element array. Items that do not decode fail with `Expected <expected>`.
+    pub fn query_array<T: DeserializeOwned>(&self, name: &str, expected: &str) -> Result<Option<Vec<T>>, ApiError> {
+        let values: Vec<&str> = self.query.iter().filter(|(k, _)| k == name).map(|(_, v)| v.as_str()).collect();
+        if values.is_empty() {
+            return Ok(None);
+        }
+        let mut out = Vec::with_capacity(values.len());
+        for (index, v) in values.iter().enumerate() {
+            let item = serde_json::from_value(serde_json::Value::String(v.to_string())).map_err(|_| {
+                let at = if values.len() == 1 { format!("[\"{name}\"]") } else { format!("[\"{name}\"][{index}]") };
+                ApiError::schema("Query", format!("Expected {expected}\n  at {at}"))
+            })?;
+            out.push(item);
+        }
+        Ok(Some(out))
+    }
+
     /// `BooleanFromString`: only `"true"` / `"false"`.
     pub fn query_bool(&self, name: &str) -> Result<Option<bool>, ApiError> {
         match self.query_raw(name) {
@@ -348,7 +366,7 @@ async fn handle_op(app: Arc<App>, meta: &'static OpMeta, req: Request) -> Respon
         Ok(params) => params.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
         Err(_) => return ApiError::schema("Params", "Invalid path parameters").into_response(),
     };
-    let ws = if matches!(meta.op, Op::PtyConnect | Op::PersistentPtyConnect) {
+    let ws = if matches!(meta.op, Op::PtyConnect | Op::ExperimentalPersistentPtyConnect) {
         axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, &()).await.ok()
     } else {
         None

@@ -208,6 +208,16 @@ pub enum FsSource {
     Bytes(Bytes),
 }
 
+// ---- experimental.media.get ------------------------------------------------------------------
+
+/// A content-addressed media blob (`SessionBlob.read`): its stored mime and raw bytes. The server
+/// adds the cache/ETag/security headers and answers `If-None-Match` with 304.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaBlob {
+    pub mime: String,
+    pub data: Bytes,
+}
+
 // ---- pty.connect -------------------------------------------------------------------------------
 
 /// `pty.connect` attach input. `cursor`: absolute output cursor (`-1` = tail only, `None` = the

@@ -190,7 +190,7 @@ async fn run_persistent(
 ) {
     let (mut sink, mut stream) = socket.split();
     let attachment_id = req.attachment_id.clone();
-    let attachment = match backend.persistent_pty_connect(&ctx, req).await {
+    let attachment = match backend.experimental_persistent_pty_connect(&ctx, req).await {
         Ok(a) => a,
         Err(_) => {
             let _ = sink.send(close(4404, "terminal unavailable")).await;

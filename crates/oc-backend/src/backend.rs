@@ -286,7 +286,7 @@ impl Backend for Engine {
         }
     }
 
-    async fn session_log(&self, _ctx: &RequestContext, req: SessionLogRequest) -> Result<SessionLogStream, ApiError> {
+    async fn experimental_session_log(&self, _ctx: &RequestContext, req: ExperimentalSessionLogRequest) -> Result<SessionLogStream, ApiError> {
         self.session(&req.session_id)?;
         let id = req.session_id.clone();
         let db = self.app.db.clone();
@@ -457,6 +457,16 @@ impl Backend for Engine {
             Err(oc_core::generate::GenerateError::ModelSelection(m)) => Err(ApiError::invalid_request(m)),
             Err(oc_core::generate::GenerateError::Unavailable { message, service }) => Err(ApiError::service_unavailable(message, service)),
         }
+    }
+
+    /// The deprecated `POST /api/experimental/generate`: the same handler as `generate/text`.
+    async fn experimental_generate_text_legacy(
+        &self,
+        ctx: &RequestContext,
+        req: ExperimentalGenerateTextLegacyRequest,
+    ) -> Result<GenerateTextResponse, ApiError> {
+        let body = from_json(serde_json::to_value(&req.body).map_err(|e| ApiError::defect(e.to_string()))?)?;
+        self.experimental_generate_text(ctx, ExperimentalGenerateTextRequest { body }).await
     }
 
     async fn experimental_session_export(
@@ -1054,63 +1064,63 @@ impl Backend for Engine {
         Ok(ctx.server.info(Some(available)))
     }
 
-    async fn server_experimental_persistent_pty_read(
+    async fn experimental_persistent_pty_read(
         &self,
         _ctx: &RequestContext,
-        req: ServerExperimentalPersistentPtyReadRequest,
+        req: ExperimentalPersistentPtyReadRequest,
     ) -> Result<Option<PersistentPtyReadResult>, ApiError> {
         let pty = self.persistent().await;
         pty.read(&req.session_id, req.lines).await.map_err(persistent_error)?.map(conv).transpose()
     }
 
-    async fn server_experimental_persistent_pty_list(
+    async fn experimental_persistent_pty_list(
         &self,
         _ctx: &RequestContext,
-        req: ServerExperimentalPersistentPtyListRequest,
+        req: ExperimentalPersistentPtyListRequest,
     ) -> Result<Vec<PersistentPtyInfo>, ApiError> {
         let pty = self.persistent().await;
         pty.list(Some(&req.session_id)).await.map_err(persistent_error)?.into_iter().map(conv).collect()
     }
 
-    async fn server_experimental_persistent_pty_create(
+    async fn experimental_persistent_pty_create(
         &self,
         _ctx: &RequestContext,
-        req: ServerExperimentalPersistentPtyCreateRequest,
+        req: ExperimentalPersistentPtyCreateRequest,
     ) -> Result<PersistentPtyInfo, ApiError> {
         let pty = self.persistent().await;
         let input: oc_persistent_pty::types::CreateInput = conv(req.body)?;
         conv(pty.create(&req.session_id, input).await.map_err(persistent_error)?)
     }
 
-    async fn server_experimental_persistent_pty_shutdown(
+    async fn experimental_persistent_pty_shutdown(
         &self,
         _ctx: &RequestContext,
-        _req: ServerExperimentalPersistentPtyShutdownRequest,
+        _req: ExperimentalPersistentPtyShutdownRequest,
     ) -> Result<(), ApiError> {
         self.persistent().await.shutdown().await.map_err(persistent_error)
     }
 
-    async fn server_experimental_persistent_pty_handoff(
+    async fn experimental_persistent_pty_handoff(
         &self,
         _ctx: &RequestContext,
-        _req: ServerExperimentalPersistentPtyHandoffRequest,
-    ) -> Result<ServerExperimentalPersistentPtyHandoffResponse, ApiError> {
+        _req: ExperimentalPersistentPtyHandoffRequest,
+    ) -> Result<ExperimentalPersistentPtyHandoffResponse, ApiError> {
         let handoff = self.prepare_pty_handoff().await.map_err(persistent_error)?;
-        Ok(ServerExperimentalPersistentPtyHandoffResponse { handoff: handoff.map(conv).transpose()? })
+        Ok(ExperimentalPersistentPtyHandoffResponse { handoff: handoff.map(conv).transpose()? })
     }
 
-    async fn server_experimental_persistent_pty_get(
+    async fn experimental_persistent_pty_get(
         &self,
         _ctx: &RequestContext,
-        req: ServerExperimentalPersistentPtyGetRequest,
+        req: ExperimentalPersistentPtyGetRequest,
     ) -> Result<PersistentPtyInfo, ApiError> {
         conv(self.persistent().await.get(&req.pty_id).await.map_err(persistent_error)?)
     }
 
-    async fn server_experimental_persistent_pty_update(
+    async fn experimental_persistent_pty_update(
         &self,
         _ctx: &RequestContext,
-        req: ServerExperimentalPersistentPtyUpdateRequest,
+        req: ExperimentalPersistentPtyUpdateRequest,
     ) -> Result<PersistentPtyInfo, ApiError> {
         let pty = self.persistent().await;
         let size = &req.body.size;
@@ -1120,23 +1130,23 @@ impl Backend for Engine {
         conv(pty.get(&req.pty_id).await.map_err(persistent_error)?)
     }
 
-    async fn server_experimental_persistent_pty_remove(
+    async fn experimental_persistent_pty_remove(
         &self,
         _ctx: &RequestContext,
-        req: ServerExperimentalPersistentPtyRemoveRequest,
+        req: ExperimentalPersistentPtyRemoveRequest,
     ) -> Result<(), ApiError> {
         self.persistent().await.remove(&req.pty_id).await.map_err(persistent_error)
     }
 
-    async fn server_experimental_persistent_pty_snapshot(
+    async fn experimental_persistent_pty_snapshot(
         &self,
         _ctx: &RequestContext,
-        req: ServerExperimentalPersistentPtySnapshotRequest,
+        req: ExperimentalPersistentPtySnapshotRequest,
     ) -> Result<PersistentPtySnapshot, ApiError> {
         conv(self.persistent().await.snapshot(&req.pty_id).await.map_err(persistent_error)?)
     }
 
-    async fn persistent_pty_connect(
+    async fn experimental_persistent_pty_connect(
         &self,
         _ctx: &RequestContext,
         req: oc_server::PersistentPtyAttachRequest,

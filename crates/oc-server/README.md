@@ -1,7 +1,7 @@
 # oc-server
 
 The opencode v2 HTTP API server, wire-compatible with `assets/openapi.json` (OpenAPI 3.1,
-149 operations, 293 component schemas; v2.1.4's document) so the upstream TypeScript client/SDK/TUI and the Rust
+162 operations, 350 component schemas; v2.2.2's document) so the upstream TypeScript client/SDK/TUI and the Rust
 TUI work unchanged. Behaviour follows `docs/spec/06-http-api.md`.
 
 The engine is **not** a dependency: everything it must do is expressed by the generated
@@ -56,9 +56,9 @@ server.shutdown().await;            // or server.wait().await
 
 Generated in `src/generated.rs`: **one async method per operationId** (snake_case of the dotted
 id, e.g. `session.revert.stage` → `session_revert_stage`,
-`server.experimental.persistentPty.read` → `server_experimental_persistent_pty_read`), 145 in
-total (149 operations minus 4 the server owns: `server.pair`, `server.connect`,
-`pty.connect.token`, `server.experimental.persistentPty.connectToken`).
+`experimental.persistentPty.read` → `experimental_persistent_pty_read`), 158 in
+total (162 operations minus 4 the server owns: `server.pair`, `server.connect`,
+`pty.connect.token`, `experimental.persistentPty.connectToken`).
 
 ```rust
 #[async_trait::async_trait]
@@ -80,7 +80,8 @@ pub trait Backend: Send + Sync + 'static {
 
 * **Every method has a default body** returning `ApiError::not_implemented` (HTTP 500, empty
   body), so an engine can implement operations incrementally. `server_info`'s default builds
-  `ServerInfo` from `ctx.server` with `capabilities: {persistentPty: false}`.
+  `ServerInfo` from `ctx.server` with `capabilities: {persistentPty: false}` and the machine
+  `hostname` (`os.hostname() || undefined`; the pre-ready 503 body has neither).
 * **Request** structs `<OpPascal>Request` carry the decoded path params, query params and
   `body` (field names snake_case of the wire names). Path/query decoding is done by the server:
   ID patterns (`^ses`, `^msg_`, `^pty`, …), `"true"/"false"` booleans → `bool`,
@@ -112,11 +113,12 @@ pub trait Backend: Send + Sync + 'static {
 |---|---|---|
 | `session.list` | `(ctx, SessionListRequest{limit, query}) -> Vec<SessionInfo>` | server decodes/encodes base64url JSON cursors (`{order?,search?,parentID?,directory|project,subpath?,anchor:{id,time,direction}}`); `query.anchor` is set when paging; response `{data, cursor:{previous,next}}` with `null`s on an empty page; bad cursor → `400 InvalidCursorError` |
 | `session.message.list` | `(ctx, SessionMessageListRequest{session_id, limit, order, type, cursor}) -> Vec<SessionMessageInfo>` | cursor `{id,order,direction}`; `cursor` + `order` → `400 "Cursor cannot be combined with order"` |
-| `session.log` | `(ctx, SessionLogRequest{session_id, after, follow}) -> SessionLogStream` | `BoxStream<Result<Value, StreamFailure>>`; frames `data: <json>`; an `Err` emits `event: effect/http-api/stream/failure` + `data: <cause array>` and ends; errors before streaming are JSON |
-| `event.subscribe` | `(ctx, EventSubscribeRequest{location: None}) -> EventSubscription` | `Broadcast(broadcast::Receiver<Value>)` or `Stream(BoxStream<Value>)` of bus payloads |
+| `experimental.session.log` | `(ctx, ExperimentalSessionLogRequest{session_id, after, follow}) -> SessionLogStream` | `BoxStream<Result<Value, StreamFailure>>`; frames `data: <json>`; an `Err` emits `event: effect/http-api/stream/failure` + `data: <cause array>` and ends; errors before streaming are JSON |
+| `event.subscribe` | `(ctx, EventSubscribeRequest{location: None}) -> EventSubscription` | `Broadcast(broadcast::Receiver<Value>)` or `Stream(BoxStream<Value>)` of bus payloads; the server decodes `?types=` (repeated or single; public types or `rpc.*`, else `400` `kind: Query`) and filters per subscriber |
+| `experimental.media.get` | `(ctx, ExperimentalMediaGetRequest{hash}) -> MediaBlob{mime, data}` | hash `^[0-9a-f]{64}$`; the server adds `cache-control: private, max-age=31536000, immutable`, `etag: "<hash>"`, `x-content-type-options: nosniff`, `content-security-policy: default-src 'none'; sandbox`, the mime for png/jpeg/gif/webp else `application/octet-stream` + `content-disposition: attachment`, and answers a matching `If-None-Match` (`*`, `W/`, lists) with 304 |
 | `fs.read` | `(ctx, FsReadRequest{path}) -> FsFile{size, mtime_ms, mime, source: Path|Bytes}` | server does ETag / Last-Modified / If-None-Match / If-Modified-Since / single Range / If-Range (200/206/304/416) |
 | `pty.connect` | `(ctx, PtyAttachRequest{pty_id, cursor}) -> PtyAttachment{replay, cursor, output, control}` | `Err(ApiError::pty_not_found)` → close 4404 "session not found"; `Err(ApiError::pty_exited())` → 4404 "session exited" |
-| `persistentPty.connect` | `(ctx, PersistentPtyAttachRequest{pty_id, cursor, attachment_id, role, takeover}) -> PersistentPtyAttachment{info, role, generation, replay, events, control}` | any `Err` → close 4404 "terminal unavailable" |
+| `experimental.persistentPty.connect` | `(ctx, PersistentPtyAttachRequest{pty_id, cursor, attachment_id, role, takeover}) -> PersistentPtyAttachment{info, role, generation, replay, events, control}` | any `Err` → close 4404 "terminal unavailable" |
 | `rpc.call` | generated | a `Defect` maps to `500 RpcInternalError{type:"rpc.internal",message:"RPC call failed"}` |
 
 ### Errors (`ApiError`)
@@ -156,6 +158,10 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
   `number | "Infinity" | "-Infinity" | "NaN"` → `JsNumber`; `{type: object}` → `JsonObject`;
   `additionalProperties: X` → `IndexMap<String, X>`; `{}`/`not` → `serde_json::Value`.
   Unknown input keys are ignored (as upstream).
+* `Schema.ArrayEnsure` query parameters (`model.list ?types=`) → `Option<Vec<T>>`, from repeated
+  keys or one value promoted to an array.
+* v2.2's flattened `anyOf[…, number, "Infinity"|"-Infinity"|"NaN", …]` is nested back so it still
+  maps to `JsNumber`.
 * `OPS: &[OpMeta]` (id, method, path, axum route, scope, envelope) and the generic
   `dispatch` used by the router.
 
@@ -183,7 +189,7 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
   token/connect routes (403 unless allowed or same host).
 * **PTY tickets**: `POST …/connect-token` needs `x-opencode-ticket: 1` and an allowed/same-host
   Origin (else `403 ForbiddenError`), checks the PTY exists via `pty_get` /
-  `server_experimental_persistent_pty_get`, issues a UUID v4 (60 s, single use, scope
+  `experimental_persistent_pty_get`, issues a UUID v4 (60 s, single use, scope
   `{ptyID, directory}` / `{ptyID}`).
 * **PTY WebSockets**: location PTY — replay as text frames of ≤ 65 536 UTF-16 units, then a
   binary `0x00{"cursor":n}` meta frame, live text frames, close `1000` at end; inbound text

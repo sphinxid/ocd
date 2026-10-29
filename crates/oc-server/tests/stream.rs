@@ -293,3 +293,48 @@ async fn default_port_counts_up_when_busy() {
     a.shutdown().await;
     b.shutdown().await;
 }
+
+/// `event-feed.test.ts`: a subscriber with `types` only receives those types, after `server.connected`.
+#[tokio::test]
+async fn event_feed_filters_by_types() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::new();
+    let server = start(mock.clone(), dir.path().to_str().unwrap()).await;
+    let res = reqwest::Client::new()
+        .get(format!("{}/api/event?types=session.idle&types=rpc.plugin.ping", server.url()))
+        .header("authorization", basic(PASSWORD))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let mut frames = Frames { res, buf: String::new() };
+    assert!(frames.next().await.unwrap().contains("server.connected"));
+    for _ in 0..50 {
+        if mock.events.receiver_count() > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    mock.events.send(json!({"id":"evt_1","created":1,"type":"session.text.delta","data":{}})).unwrap();
+    mock.events.send(json!({"id":"evt_2","created":1,"type":"session.idle","data":{}})).unwrap();
+    mock.events.send(json!({"id":"evt_3","created":1,"type":"rpc.other","location":{"directory":"/d"},"data":{}})).unwrap();
+    mock.events.send(json!({"id":"evt_4","created":1,"type":"rpc.plugin.ping","location":{"directory":"/d"},"data":{}})).unwrap();
+    assert!(frames.next().await.unwrap().contains("\"evt_2\""));
+    assert!(frames.next().await.unwrap().contains("\"evt_4\""));
+
+    // unknown types (server.connected included) are a query error
+    let client = reqwest::Client::new();
+    for bad in ["nope", "server.connected", "session.idle&types=bogus", ""] {
+        let res = client
+            .get(format!("{}/api/event?types={bad}", server.url()))
+            .header("authorization", basic(PASSWORD))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 400, "{bad}");
+        let v: Value = res.json().await.unwrap();
+        assert_eq!(v["_tag"], "InvalidRequestError");
+        assert_eq!(v["kind"], "Query");
+    }
+    server.shutdown().await;
+}

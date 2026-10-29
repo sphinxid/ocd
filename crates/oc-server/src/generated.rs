@@ -39,6 +39,14 @@ crate::lit_str!(LitString, "string");
 crate::lit_str!(LitFormAlreadySettledError, "FormAlreadySettledError");
 crate::lit_str!(LitFormInvalidAnswerError, "FormInvalidAnswerError");
 crate::lit_str!(LitFormNotFoundError, "FormNotFoundError");
+crate::lit_str!(LitChoice, "choice");
+crate::lit_str!(LitFile, "file");
+crate::lit_str!(LitJson, "json");
+crate::lit_str!(LitText, "text");
+crate::lit_str!(LitError, "error");
+crate::lit_str!(LitImage, "image");
+crate::lit_str!(LitPredicate, "predicate");
+crate::lit_str!(LitScore, "score");
 crate::lit_str!(LitInstructionEntryValueTooLargeError, "InstructionEntryValueTooLargeError");
 crate::lit_str!(LitComplete, "complete");
 crate::lit_str!(LitFailed, "failed");
@@ -56,6 +64,7 @@ crate::lit_str!(LitConnected, "connected");
 crate::lit_str!(LitDisabled, "disabled");
 crate::lit_str!(LitMcpServerNotFoundError, "McpServerNotFoundError");
 crate::lit_str!(LitMessageNotFoundError, "MessageNotFoundError");
+crate::lit_str!(LitModelNotFoundError, "ModelNotFoundError");
 crate::lit_str!(LitTool, "tool");
 crate::lit_str!(LitPermissionNotFoundError, "PermissionNotFoundError");
 crate::lit_str!(LitPermissionSavedNotFoundError, "PermissionSavedNotFoundError");
@@ -63,16 +72,25 @@ crate::lit_str!(LitBuiltin, "builtin");
 crate::lit_str!(LitPackage, "package");
 crate::lit_str!(LitSdk, "sdk");
 crate::lit_str!(LitActive, "active");
+crate::lit_str!(LitPluginNotFoundError, "PluginNotFoundError");
 crate::lit_str!(LitProjectNotFoundError, "ProjectNotFoundError");
 crate::lit_str!(LitInline, "inline");
 crate::lit_str!(LitUri, "uri");
 crate::lit_str!(LitSummary, "summary");
 crate::lit_str!(LitNative, "native");
 crate::lit_str!(LitProviderNotFoundError, "ProviderNotFoundError");
+crate::lit_str!(LitProviderRequestError, "ProviderRequestError");
 crate::lit_str!(LitPtyNotFoundError, "PtyNotFoundError");
 crate::lit_str!(LitGit, "git");
 crate::lit_str!(LitRpcError, "RpcError");
 crate::lit_str!(LitRpcInternalError, "RpcInternalError");
+crate::lit_str!(LitPrompt, "prompt");
+crate::lit_str!(LitShell, "shell");
+crate::lit_str!(LitAt, "at");
+crate::lit_str!(LitCron, "cron");
+crate::lit_str!(LitEvery, "every");
+crate::lit_str!(LitIn, "in");
+crate::lit_str!(LitScheduleNotFoundError, "ScheduleNotFoundError");
 crate::lit_str!(LitServiceUnavailableError, "ServiceUnavailableError");
 crate::lit_str!(LitBefore, "before");
 crate::lit_str!(LitThrough, "through");
@@ -83,16 +101,13 @@ crate::lit_str!(LitUser, "user");
 crate::lit_str!(LitAgentSwitched, "agent-switched");
 crate::lit_str!(LitAssistant, "assistant");
 crate::lit_str!(LitReasoning, "reasoning");
-crate::lit_str!(LitText, "text");
 crate::lit_str!(LitCompleted, "completed");
 crate::lit_str!(LitRunning, "running");
 crate::lit_str!(LitIdle, "idle");
 crate::lit_str!(LitLocationSwitched, "location-switched");
 crate::lit_str!(LitModelSwitched, "model-switched");
-crate::lit_str!(LitShell, "shell");
 crate::lit_str!(LitSkill, "skill");
 crate::lit_str!(LitSystem, "system");
-crate::lit_str!(LitError, "error");
 crate::lit_str!(LitStreaming, "streaming");
 crate::lit_str!(LitSessionBusyError, "SessionBusyError");
 crate::lit_str!(LitSessionNotFoundError, "SessionNotFoundError");
@@ -100,9 +115,9 @@ crate::lit_str!(LitNone, "none");
 crate::lit_str!(LitDetail, "detail");
 crate::lit_str!(LitShellNotFoundError, "ShellNotFoundError");
 crate::lit_str!(LitSkillNotFoundError, "SkillNotFoundError");
-crate::lit_str!(LitFile, "file");
 crate::lit_str!(LitUnauthorizedError, "UnauthorizedError");
 crate::lit_str!(LitUnknownError, "UnknownError");
+crate::lit_str!(LitUnsupportedModelError, "UnsupportedModelError");
 crate::lit_str!(LitVcsInitNotSupportedError, "VcsInitNotSupportedError");
 crate::lit_str!(LitWebrtc, "webrtc");
 crate::lit_str!(LitWebsocket, "websocket");
@@ -381,6 +396,8 @@ pub struct ConfigInfoEncoded {
     pub enterprise: Option<ConfigInfoEncodedEnterprise>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<PermissionRuleset>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -738,11 +755,58 @@ pub struct ConfigInfoEncodedExperimental {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_compaction: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_blob: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_generate: Option<ConfigInfoEncodedExperimentalImageGenerate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedules: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_depth: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location_idle_timeout: Option<ConfigInfoEncodedExperimentalLocationIdleTimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policies: Option<Vec<ConfigInfoEncodedExperimentalPoliciesItem>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigInfoEncodedExperimentalImageGenerate {
+    Bool(bool),
+    Object(ConfigInfoEncodedExperimentalImageGenerateObject),
+}
+
+impl From<ConfigInfoEncodedExperimentalImageGenerateObject> for ConfigInfoEncodedExperimentalImageGenerate {
+    fn from(value: ConfigInfoEncodedExperimentalImageGenerateObject) -> Self {
+        Self::Object(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ConfigInfoEncodedExperimentalImageGenerateObject {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ConfigInfoEncodedExperimentalImageGenerateObjectModel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigInfoEncodedExperimentalImageGenerateObjectModel {
+    String(String),
+    Object(ConfigInfoEncodedExperimentalImageGenerateObjectModelObject),
+}
+
+impl From<ConfigInfoEncodedExperimentalImageGenerateObjectModelObject> for ConfigInfoEncodedExperimentalImageGenerateObjectModel {
+    fn from(value: ConfigInfoEncodedExperimentalImageGenerateObjectModelObject) -> Self {
+        Self::Object(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ConfigInfoEncodedExperimentalImageGenerateObjectModelObject {
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -910,6 +974,20 @@ pub struct ConfigModelSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<ProviderCache>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<ProviderEncoding>,
+    /// Additional properties.
+    #[serde(flatten)]
+    pub extra: indexmap::IndexMap<String, serde_json::Value>,
+}
+
+/// Component schema `Config.Model.VariantSettings`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ConfigModelVariantSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction: Option<ProviderCompaction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding: Option<ProviderEncoding>,
     /// Additional properties.
     #[serde(flatten)]
@@ -921,6 +999,8 @@ pub struct ConfigModelSettings {
 pub struct ConfigModelEncoded {
     #[serde(rename = "modelID", default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<ModelType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -954,7 +1034,7 @@ pub struct ConfigModelEncoded {
 pub struct ConfigModelEncodedVariantsItem {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub settings: Option<ConfigModelSettings>,
+    pub settings: Option<ConfigModelVariantSettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<indexmap::IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1010,6 +1090,8 @@ pub struct ConfigProviderSettings {
     pub chunk_timeout: Option<ConfigProviderSettingsChunkTimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<ProviderCache>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<ProviderTransport>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1331,6 +1413,8 @@ pub struct FileDiffInfo {
     pub additions: i64,
     pub deletions: i64,
     pub status: FileDiffInfoStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more: Option<LitTrue>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1510,15 +1594,6 @@ impl From<FormExternalField> for FormField {
 
 /// Component schema `Form.Fields`.
 pub type FormFields = Vec<FormField>;
-
-/// Component schema `Form.Fields_1`.
-pub type FormFields1 = Vec<FormField>;
-
-/// Component schema `Form.Fields_2`.
-pub type FormFields2 = Vec<FormField>;
-
-/// Component schema `Form.Fields_3`.
-pub type FormFields3 = Vec<FormField>;
 
 /// Component schema `Form.ID`. Pattern: `^frm_`.
 pub type FormID = String;
@@ -1796,6 +1871,368 @@ pub struct FormNotFoundErrorEncoded {
     pub tag: LitFormNotFoundError,
     pub id: String,
     pub message: String,
+}
+
+/// Component schema `Generate.ChoiceAnswer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateChoiceAnswer {
+    pub r#type: LitChoice,
+    pub name: String,
+    pub choice: GenerateChoiceValue,
+    pub probabilities: Vec<GenerateChoiceAnswerProbabilitiesItem>,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateChoiceAnswerProbabilitiesItem {
+    pub value: GenerateChoiceValue,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub probability: f64,
+}
+
+/// Component schema `Generate.ChoiceQuestion`.
+/// Pick one value from a fixed set
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateChoiceQuestion {
+    pub r#type: LitChoice,
+    /// Unique within the request; echoed on the matching answer
+    pub name: String,
+    pub instructions: String,
+    pub choices: Vec<GenerateChoiceQuestionChoicesItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateChoiceQuestionChoicesItem {
+    pub value: GenerateChoiceValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Component schema `Generate.ChoiceValue`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GenerateChoiceValue {
+    String(String),
+    Bool(bool),
+}
+
+/// Component schema `Generate.DecisionAnswer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GenerateDecisionAnswer {
+    PredicateAnswer(GeneratePredicateAnswer),
+    ChoiceAnswer(GenerateChoiceAnswer),
+    ScoreAnswer(GenerateScoreAnswer),
+    ErrorAnswer(GenerateErrorAnswer),
+}
+
+impl From<GeneratePredicateAnswer> for GenerateDecisionAnswer {
+    fn from(value: GeneratePredicateAnswer) -> Self {
+        Self::PredicateAnswer(value)
+    }
+}
+
+impl From<GenerateChoiceAnswer> for GenerateDecisionAnswer {
+    fn from(value: GenerateChoiceAnswer) -> Self {
+        Self::ChoiceAnswer(value)
+    }
+}
+
+impl From<GenerateScoreAnswer> for GenerateDecisionAnswer {
+    fn from(value: GenerateScoreAnswer) -> Self {
+        Self::ScoreAnswer(value)
+    }
+}
+
+impl From<GenerateErrorAnswer> for GenerateDecisionAnswer {
+    fn from(value: GenerateErrorAnswer) -> Self {
+        Self::ErrorAnswer(value)
+    }
+}
+
+/// Component schema `Generate.DecisionFilePart`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateDecisionFilePart {
+    pub r#type: LitFile,
+    pub data: PromptBase64,
+    pub mime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Component schema `Generate.DecisionJsonPart`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateDecisionJsonPart {
+    pub r#type: LitJson,
+    pub value: serde_json::Value,
+}
+
+/// Component schema `Generate.DecisionPart`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GenerateDecisionPart {
+    DecisionTextPart(GenerateDecisionTextPart),
+    DecisionJsonPart(GenerateDecisionJsonPart),
+    DecisionFilePart(GenerateDecisionFilePart),
+}
+
+impl From<GenerateDecisionTextPart> for GenerateDecisionPart {
+    fn from(value: GenerateDecisionTextPart) -> Self {
+        Self::DecisionTextPart(value)
+    }
+}
+
+impl From<GenerateDecisionJsonPart> for GenerateDecisionPart {
+    fn from(value: GenerateDecisionJsonPart) -> Self {
+        Self::DecisionJsonPart(value)
+    }
+}
+
+impl From<GenerateDecisionFilePart> for GenerateDecisionPart {
+    fn from(value: GenerateDecisionFilePart) -> Self {
+        Self::DecisionFilePart(value)
+    }
+}
+
+/// Component schema `Generate.DecisionQuestion`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GenerateDecisionQuestion {
+    PredicateQuestion(GeneratePredicateQuestion),
+    ChoiceQuestion(GenerateChoiceQuestion),
+    ScoreQuestion(GenerateScoreQuestion),
+}
+
+impl From<GeneratePredicateQuestion> for GenerateDecisionQuestion {
+    fn from(value: GeneratePredicateQuestion) -> Self {
+        Self::PredicateQuestion(value)
+    }
+}
+
+impl From<GenerateChoiceQuestion> for GenerateDecisionQuestion {
+    fn from(value: GenerateChoiceQuestion) -> Self {
+        Self::ChoiceQuestion(value)
+    }
+}
+
+impl From<GenerateScoreQuestion> for GenerateDecisionQuestion {
+    fn from(value: GenerateScoreQuestion) -> Self {
+        Self::ScoreQuestion(value)
+    }
+}
+
+/// Component schema `Generate.DecisionRequest`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateDecisionRequest {
+    pub model: ModelRef,
+    /// The evidence every question is asked about, in order
+    pub input: Vec<GenerateDecisionPart>,
+    /// Question names must be unique; duplicates fail with InvalidRequestError
+    pub questions: Vec<GenerateDecisionQuestion>,
+}
+
+/// Component schema `Generate.DecisionResult`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateDecisionResult {
+    /// One answer per question, in question order
+    pub answers: Vec<GenerateDecisionAnswer>,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub cost: Option<MoneyUSD>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<GenerateUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<GenerateNative>,
+}
+
+/// Component schema `Generate.DecisionTextPart`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateDecisionTextPart {
+    pub r#type: LitText,
+    pub text: String,
+}
+
+/// Component schema `Generate.ErrorAnswer`.
+/// This one question has no answer; the other answers still came back
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateErrorAnswer {
+    pub r#type: LitError,
+    pub name: String,
+    /// Why the question has no answer, for example refusal
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Component schema `Generate.File`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateFile {
+    pub data: PromptBase64,
+    pub mime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Component schema `Generate.ImageAspect`. Pattern: `^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[Ee][+-]?\d+)?:[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[Ee][+-]?\d+)?$`.
+///
+/// Aspect ratio as width:height, for example 16:9
+pub type GenerateImageAspect = String;
+
+/// Component schema `Generate.ImageOutput`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateImageOutput {
+    pub r#type: LitImage,
+    pub data: PromptBase64,
+    pub mime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Component schema `Generate.ImageRequest`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateImageRequest {
+    pub model: ModelRef,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<GenerateFile>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aspect: Option<GenerateImageAspect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<GenerateImageResolution>,
+}
+
+/// Component schema `Generate.ImageResolution`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GenerateImageResolution {
+    Enum(GenerateImageResolutionEnum),
+    String(String),
+}
+
+impl From<GenerateImageResolutionEnum> for GenerateImageResolution {
+    fn from(value: GenerateImageResolutionEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GenerateImageResolutionEnum {
+    #[serde(rename = "1K")]
+    V1K,
+    #[serde(rename = "2K")]
+    V2K,
+    #[serde(rename = "4K")]
+    V4K,
+}
+
+impl GenerateImageResolutionEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::V1K => "1K",
+            Self::V2K => "2K",
+            Self::V4K => "4K",
+        }
+    }
+}
+
+/// Component schema `Generate.ImageResult`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateImageResult {
+    pub images: Vec<GenerateImageOutput>,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub cost: Option<MoneyUSD>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<GenerateUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<GenerateNative>,
+}
+
+/// Component schema `Generate.Native`.
+///
+/// Provider-specific data the shared fields do not cover
+pub type GenerateNative = JsonObject;
+
+/// Component schema `Generate.PredicateAnswer`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GeneratePredicateAnswer {
+    pub r#type: LitPredicate,
+    pub name: String,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub probability: f64,
+}
+
+/// Component schema `Generate.PredicateQuestion`.
+/// The probability that a statement is true
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GeneratePredicateQuestion {
+    pub r#type: LitPredicate,
+    /// Unique within the request; echoed on the matching answer
+    pub name: String,
+    pub instructions: String,
+}
+
+/// Component schema `Generate.ScoreAnswer`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateScoreAnswer {
+    pub r#type: LitScore,
+    pub name: String,
+    /// Probability-weighted level index, so it can fall between levels
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub score: f64,
+    pub probabilities: Vec<GenerateScoreAnswerProbabilitiesItem>,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateScoreAnswerProbabilitiesItem {
+    pub value: i64,
+    pub label: String,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub probability: f64,
+}
+
+/// Component schema `Generate.ScoreQuestion`.
+/// Place the input on ordered levels, lowest first
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateScoreQuestion {
+    pub r#type: LitScore,
+    /// Unique within the request; echoed on the matching answer
+    pub name: String,
+    pub instructions: String,
+    pub levels: Vec<GenerateScoreQuestionLevelsItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateScoreQuestionLevelsItem {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Component schema `Generate.Usage`.
+/// Token counts, when the provider reports them
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub input: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub output: Option<f64>,
+}
+
+/// Component schema `GenerateDecisionsResponse`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateDecisionsResponse {
+    pub data: GenerateDecisionResult,
+}
+
+/// Component schema `GenerateImageResponse`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GenerateImageResponse {
+    pub data: GenerateImageResult,
 }
 
 /// Component schema `GenerateTextResponse`.
@@ -2077,7 +2514,7 @@ pub struct IntegrationExternalMethod {
     pub r#type: LitExternal,
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub form: Option<FormFields3>,
+    pub form: Option<FormFields>,
 }
 
 /// Component schema `Integration.ID`.
@@ -2101,7 +2538,7 @@ pub struct IntegrationKeyMethod {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub form: Option<FormFields2>,
+    pub form: Option<FormFields>,
 }
 
 /// Component schema `Integration.Method`.
@@ -2155,7 +2592,7 @@ pub struct IntegrationOAuthMethod {
     pub r#type: LitOauth,
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub form: Option<FormFields1>,
+    pub form: Option<FormFields>,
 }
 
 /// Component schema `IntegrationAttemptNotFoundErrorEncoded`.
@@ -2394,6 +2831,8 @@ pub struct McpResourceTemplate {
 pub struct McpServer {
     pub name: String,
     pub status: McpServerStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(rename = "integrationID", default, skip_serializing_if = "Option::is_none")]
     pub integration_id: Option<IntegrationID>,
 }
@@ -2479,6 +2918,9 @@ pub struct McpServerNotFoundErrorEncoded {
     pub message: String,
 }
 
+/// Component schema `MediaHash`. Pattern: `^[0-9a-f]{64}$`.
+pub type MediaHash = String;
+
 /// Component schema `MessageNotFoundErrorEncoded`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct MessageNotFoundErrorEncoded {
@@ -2543,6 +2985,8 @@ pub struct ModelCompatibility {
     pub supports_thinking_block_binding: Option<bool>,
     #[serde(rename = "supportsEffortUpdates", default, skip_serializing_if = "Option::is_none")]
     pub supports_effort_updates: Option<bool>,
+    #[serde(rename = "mediaInput", default, skip_serializing_if = "Option::is_none")]
+    pub media_input: Option<ModelMediaInput>,
 }
 
 /// Component schema `Model.Cost`.
@@ -2581,6 +3025,8 @@ pub struct ModelInfo {
     pub provider_id: ProviderID,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical: Option<ProviderID>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<ModelType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
     pub name: String,
@@ -2660,6 +3106,28 @@ impl ModelMaxTokensField {
     }
 }
 
+/// Component schema `Model.MediaInput`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ModelMediaInput {
+    #[serde(rename = "assets")]
+    Assets,
+    #[serde(rename = "state")]
+    State,
+    #[serde(rename = "root")]
+    Root,
+}
+
+impl ModelMediaInput {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Assets => "assets",
+            Self::State => "state",
+            Self::Root => "root",
+        }
+    }
+}
+
 /// Component schema `Model.ReasoningField`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -2711,10 +3179,47 @@ pub struct ModelSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<ProviderCache>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding: Option<ProviderEncoding>,
     /// Additional properties.
     #[serde(flatten)]
     pub extra: indexmap::IndexMap<String, serde_json::Value>,
+}
+
+/// Component schema `Model.Type`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ModelType {
+    Enum(ModelTypeEnum),
+    String(String),
+}
+
+impl From<ModelTypeEnum> for ModelType {
+    fn from(value: ModelTypeEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ModelTypeEnum {
+    #[serde(rename = "chat")]
+    Chat,
+    #[serde(rename = "decision")]
+    Decision,
+    #[serde(rename = "image")]
+    Image,
+}
+
+impl ModelTypeEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Chat => "chat",
+            Self::Decision => "decision",
+            Self::Image => "image",
+        }
+    }
 }
 
 /// Component schema `Model.Variant`.
@@ -2722,11 +3227,35 @@ pub struct ModelSettings {
 pub struct ModelVariant {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub settings: Option<ModelSettings>,
+    pub settings: Option<ModelVariantSettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<indexmap::IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<JsonObject>,
+}
+
+/// Component schema `Model.VariantSettings`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ModelVariantSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction: Option<ProviderCompaction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<ProviderEncoding>,
+    /// Additional properties.
+    #[serde(flatten)]
+    pub extra: indexmap::IndexMap<String, serde_json::Value>,
+}
+
+/// Component schema `ModelNotFoundErrorEncoded`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ModelNotFoundErrorEncoded {
+    #[serde(rename = "_tag")]
+    pub tag: LitModelNotFoundError,
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+    #[serde(rename = "modelID")]
+    pub model_id: String,
+    pub message: String,
 }
 
 /// Component schema `Money.USD`.
@@ -3024,13 +3553,26 @@ pub struct PluginFeatures {
     pub tui: Option<LitTrue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rpc: Option<LitTrue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gui: Option<LitTrue>,
 }
+
+/// Component schema `Plugin.GuiBundle`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PluginGuiBundle {
+    pub code: String,
+    pub revision: String,
+    pub options: JsonObject,
+}
+
+/// Component schema `Plugin.ID`.
+pub type PluginID = String;
 
 /// Component schema `Plugin.Info`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: Option<PluginID>,
     pub source: PluginSource,
     pub features: PluginFeatures,
     pub state: PluginState,
@@ -3129,6 +3671,16 @@ pub struct PluginStateFailed {
     pub error: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#ref: Option<String>,
+}
+
+/// Component schema `PluginNotFoundErrorEncoded`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PluginNotFoundErrorEncoded {
+    #[serde(rename = "_tag")]
+    pub tag: LitPluginNotFoundError,
+    #[serde(rename = "pluginID")]
+    pub plugin_id: String,
+    pub message: String,
 }
 
 /// Component schema `Project`.
@@ -3275,6 +3827,8 @@ pub struct PromptSkillAttachment {
 pub struct PromptInputFileAttachment {
     pub uri: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<PromptFileSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -3289,6 +3843,16 @@ pub struct PromptInputSkillAttachment {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mention: Option<PromptMention>,
 }
+
+/// Component schema `Provider.Cache`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProviderCache {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<ProviderCacheTTL>,
+}
+
+/// Component schema `Provider.CacheTTL`. Pattern: `^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[Ee][+-]?\d+)?(?:ms|s|m|h|d)$`.
+pub type ProviderCacheTTL = String;
 
 /// Component schema `Provider.Compaction`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3339,6 +3903,8 @@ pub struct ProviderCompatibility {
     pub stream_usage: Option<bool>,
     #[serde(rename = "cacheFormat", default, skip_serializing_if = "Option::is_none")]
     pub cache_format: Option<ModelCacheFormat>,
+    #[serde(rename = "mediaInput", default, skip_serializing_if = "Option::is_none")]
+    pub media_input: Option<ModelMediaInput>,
 }
 
 /// Component schema `Provider.Encoding`.
@@ -3428,6 +3994,8 @@ pub struct ProviderSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<ProviderCache>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<ProviderTransport>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding: Option<ProviderEncoding>,
@@ -3502,6 +4070,51 @@ pub struct ProviderNotFoundErrorEncoded {
     #[serde(rename = "providerID")]
     pub provider_id: String,
     pub message: String,
+}
+
+/// Component schema `ProviderRequestErrorEncoded`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRequestErrorEncoded {
+    #[serde(rename = "_tag")]
+    pub tag: LitProviderRequestError,
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+    pub reason: ProviderRequestErrorEncodedReason,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<i64>,
+    #[serde(rename = "retryAfterMs", default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ProviderRequestErrorEncodedReason {
+    #[serde(rename = "authentication")]
+    Authentication,
+    #[serde(rename = "rate_limit")]
+    RateLimit,
+    #[serde(rename = "content_filter")]
+    ContentFilter,
+    #[serde(rename = "invalid_request")]
+    InvalidRequest,
+    #[serde(rename = "overloaded")]
+    Overloaded,
+    #[serde(rename = "provider")]
+    Provider,
+}
+
+impl ProviderRequestErrorEncodedReason {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Authentication => "authentication",
+            Self::RateLimit => "rate_limit",
+            Self::ContentFilter => "content_filter",
+            Self::InvalidRequest => "invalid_request",
+            Self::Overloaded => "overloaded",
+            Self::Provider => "provider",
+        }
+    }
 }
 
 /// Component schema `Pty`.
@@ -3661,11 +4274,353 @@ impl RpcInternalErrorEncodedType {
     }
 }
 
+/// Component schema `Schedule.Action`.
+pub type ScheduleAction = ScheduleActionPrompt;
+
+/// Component schema `Schedule.Action.Prompt`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleActionPrompt {
+    pub r#type: LitPrompt,
+    pub prompt: String,
+}
+
+/// Component schema `Schedule.Condition`.
+pub type ScheduleCondition = ScheduleConditionShell;
+
+/// Component schema `Schedule.Condition.Shell`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleConditionShell {
+    pub r#type: LitShell,
+    pub run: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matches: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes: Option<bool>,
+}
+
+/// Component schema `Schedule.ConditionInput`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleConditionInput {
+    /// Shell command to run in the Session's directory. Alone, exit 0 wakes and stdout is appended.
+    pub run: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matches: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes: Option<bool>,
+}
+
+/// Component schema `Schedule.CreatePayload`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleCreatePayload {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<ScheduleWhenInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#if: Option<ScheduleConditionInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<ScheduleConditionInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ends: Option<ScheduleEnds>,
+    /// The message the Session receives when the schedule wakes.
+    pub prompt: String,
+}
+
+/// Component schema `Schedule.Duration`.
+///
+/// A duration such as "90 seconds", "5 minutes" or "2 hours".
+pub type ScheduleDuration = String;
+
+/// Component schema `Schedule.Ends`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleEnds {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<ScheduleDuration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub times: Option<i64>,
+}
+
+/// Component schema `Schedule.ID`. Pattern: `^sch_`.
+pub type ScheduleID = String;
+
+/// Component schema `Schedule.Info`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScheduleInfo {
+    pub id: ScheduleID,
+    #[serde(rename = "sessionID", default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionID>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub when: ScheduleWhen,
+    pub tz: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#if: Option<ScheduleCondition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<ScheduleCondition>,
+    pub action: ScheduleAction,
+    pub status: ScheduleStatus,
+    #[serde(rename = "nextDueAt", default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub next_due_at: Option<f64>,
+    #[serde(rename = "endsAt", default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub ends_at: Option<f64>,
+    #[serde(rename = "remainingRuns", default, skip_serializing_if = "Option::is_none")]
+    pub remaining_runs: Option<i64>,
+    #[serde(rename = "runCount")]
+    pub run_count: i64,
+    #[serde(rename = "lastFiredAt", default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub last_fired_at: Option<f64>,
+    #[serde(rename = "lastOutcome", default, skip_serializing_if = "Option::is_none")]
+    pub last_outcome: Option<ScheduleOutcome>,
+    #[serde(rename = "lastOutput", default, skip_serializing_if = "Option::is_none")]
+    pub last_output: Option<String>,
+    pub time: ScheduleInfoTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleInfoTime {
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub updated: f64,
+}
+
+/// Component schema `Schedule.Outcome`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ScheduleOutcome {
+    #[serde(rename = "fired")]
+    Fired,
+    #[serde(rename = "late")]
+    Late,
+    #[serde(rename = "checked")]
+    Checked,
+    #[serde(rename = "expired")]
+    Expired,
+    #[serde(rename = "skipped")]
+    Skipped,
+    #[serde(rename = "disabled")]
+    Disabled,
+    #[serde(rename = "failed")]
+    Failed,
+}
+
+impl ScheduleOutcome {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Fired => "fired",
+            Self::Late => "late",
+            Self::Checked => "checked",
+            Self::Expired => "expired",
+            Self::Skipped => "skipped",
+            Self::Disabled => "disabled",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// Component schema `Schedule.Status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ScheduleStatus {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "paused")]
+    Paused,
+    #[serde(rename = "done")]
+    Done,
+}
+
+impl ScheduleStatus {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::Done => "done",
+        }
+    }
+}
+
+/// Component schema `Schedule.When`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ScheduleWhen {
+    In(ScheduleWhenIn),
+    At(ScheduleWhenAt),
+    Every(ScheduleWhenEvery),
+    Cron(ScheduleWhenCron),
+}
+
+impl From<ScheduleWhenIn> for ScheduleWhen {
+    fn from(value: ScheduleWhenIn) -> Self {
+        Self::In(value)
+    }
+}
+
+impl From<ScheduleWhenAt> for ScheduleWhen {
+    fn from(value: ScheduleWhenAt) -> Self {
+        Self::At(value)
+    }
+}
+
+impl From<ScheduleWhenEvery> for ScheduleWhen {
+    fn from(value: ScheduleWhenEvery) -> Self {
+        Self::Every(value)
+    }
+}
+
+impl From<ScheduleWhenCron> for ScheduleWhen {
+    fn from(value: ScheduleWhenCron) -> Self {
+        Self::Cron(value)
+    }
+}
+
+/// Component schema `Schedule.When.At`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleWhenAt {
+    pub r#type: LitAt,
+    pub at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+}
+
+/// Component schema `Schedule.When.Cron`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleWhenCron {
+    pub r#type: LitCron,
+    pub cron: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+}
+
+/// Component schema `Schedule.When.Every`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleWhenEvery {
+    pub r#type: LitEvery,
+    pub every: ScheduleDuration,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+}
+
+/// Component schema `Schedule.When.In`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleWhenIn {
+    pub r#type: LitIn,
+    pub r#in: ScheduleDuration,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+}
+
+/// Component schema `Schedule.WhenInput`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ScheduleWhenInput {
+    Object(ScheduleWhenInputObject),
+    Object2(ScheduleWhenInputObject2),
+    Object3(ScheduleWhenInputObject3),
+    Object4(ScheduleWhenInputObject4),
+}
+
+impl From<ScheduleWhenInputObject> for ScheduleWhenInput {
+    fn from(value: ScheduleWhenInputObject) -> Self {
+        Self::Object(value)
+    }
+}
+
+impl From<ScheduleWhenInputObject2> for ScheduleWhenInput {
+    fn from(value: ScheduleWhenInputObject2) -> Self {
+        Self::Object2(value)
+    }
+}
+
+impl From<ScheduleWhenInputObject3> for ScheduleWhenInput {
+    fn from(value: ScheduleWhenInputObject3) -> Self {
+        Self::Object3(value)
+    }
+}
+
+impl From<ScheduleWhenInputObject4> for ScheduleWhenInput {
+    fn from(value: ScheduleWhenInputObject4) -> Self {
+        Self::Object4(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleWhenInputObject {
+    pub r#in: ScheduleDuration,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cron: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleWhenInputObject2 {
+    pub at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#in: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cron: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleWhenInputObject3 {
+    pub every: ScheduleDuration,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#in: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cron: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleWhenInputObject4 {
+    pub cron: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#in: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+}
+
+/// Component schema `ScheduleNotFoundErrorEncoded`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleNotFoundErrorEncoded {
+    #[serde(rename = "_tag")]
+    pub tag: LitScheduleNotFoundError,
+    #[serde(rename = "scheduleID")]
+    pub schedule_id: String,
+    pub message: String,
+}
+
 /// Component schema `ServerInfo`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ServerInfo {
     pub version: String,
     pub pid: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
     pub urls: Vec<String>,
     pub paths: ServerInfoPaths,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3960,6 +4915,8 @@ pub struct SessionInfoTime {
     #[serde(serialize_with = "crate::support::ser_f64")]
     pub updated: f64,
     #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub busy: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
     pub idle: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
     pub viewed: Option<f64>,
@@ -4004,7 +4961,7 @@ pub struct SessionMessageAssistant {
     #[serde(rename = "rawFinish", default, skip_serializing_if = "Option::is_none")]
     pub raw_finish: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native: Option<SessionMessageNative3>,
+    pub native: Option<SessionMessageNative>,
     #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
     pub cost: Option<MoneyUSD>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4097,7 +5054,7 @@ pub struct SessionMessageAssistantReasoning {
     pub r#type: LitReasoning,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native: Option<SessionMessageNative1>,
+    pub native: Option<SessionMessageNative>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time: Option<SessionMessageAssistantReasoningTime>,
 }
@@ -4137,7 +5094,7 @@ pub struct SessionMessageAssistantTool {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native: Option<SessionMessageNative2>,
+    pub native: Option<SessionMessageNative>,
     pub state: SessionMessageAssistantToolState,
     pub time: SessionMessageAssistantToolTime,
 }
@@ -4225,7 +5182,7 @@ pub struct SessionMessageCompactionCompleted {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native: Option<SessionMessageNative4>,
+    pub native: Option<SessionMessageNative>,
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
     pub cost: Option<MoneyUSD>,
@@ -4514,18 +5471,6 @@ pub struct SessionMessageModelSelectedTime {
 
 /// Component schema `Session.Message.Native`.
 pub type SessionMessageNative = JsonObject;
-
-/// Component schema `Session.Message.Native_1`.
-pub type SessionMessageNative1 = JsonObject;
-
-/// Component schema `Session.Message.Native_2`.
-pub type SessionMessageNative2 = JsonObject;
-
-/// Component schema `Session.Message.Native_3`.
-pub type SessionMessageNative3 = JsonObject;
-
-/// Component schema `Session.Message.Native_4`.
-pub type SessionMessageNative4 = JsonObject;
 
 /// Component schema `Session.Message.Shell`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5105,6 +6050,144 @@ pub struct UnknownErrorEncoded {
     pub r#ref: Option<String>,
 }
 
+/// Component schema `UnsupportedModelErrorEncoded`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct UnsupportedModelErrorEncoded {
+    #[serde(rename = "_tag")]
+    pub tag: LitUnsupportedModelError,
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+    #[serde(rename = "modelID")]
+    pub model_id: String,
+    pub capability: String,
+    pub message: String,
+}
+
+/// Component schema `UsageLimits.Budget`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageLimitsBudget {
+    pub id: String,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub limit: MoneyUSD,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub spent: MoneyUSD,
+    pub scope: UsageLimitsBudgetScope,
+    pub per: UsageLimitsBudgetPer,
+    pub coverage: UsageLimitsBudgetCoverage,
+    pub models: Vec<UsageLimitsBudgetModel>,
+    pub vendors: Vec<String>,
+    #[serde(rename = "inputPriceAtLeast", default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub input_price_at_least: Option<MoneyUSDPerMillionTokens>,
+    pub picked: bool,
+    pub shared: bool,
+    /// Milliseconds since the Unix epoch
+    #[serde(rename = "resetsAt", serialize_with = "crate::support::ser_f64")]
+    pub resets_at: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum UsageLimitsBudgetScope {
+    #[serde(rename = "each")]
+    Each,
+    #[serde(rename = "combined")]
+    Combined,
+}
+
+impl UsageLimitsBudgetScope {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Each => "each",
+            Self::Combined => "combined",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum UsageLimitsBudgetPer {
+    #[serde(rename = "set")]
+    Set,
+    #[serde(rename = "model")]
+    Model,
+}
+
+impl UsageLimitsBudgetPer {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Set => "set",
+            Self::Model => "model",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum UsageLimitsBudgetCoverage {
+    #[serde(rename = "all")]
+    All,
+    #[serde(rename = "models")]
+    Models,
+}
+
+impl UsageLimitsBudgetCoverage {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Models => "models",
+        }
+    }
+}
+
+/// Component schema `UsageLimits.BudgetModel`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct UsageLimitsBudgetModel {
+    #[serde(rename = "providerID")]
+    pub provider_id: ProviderID,
+    #[serde(rename = "modelID")]
+    pub model_id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub spent: Option<MoneyUSD>,
+}
+
+/// Component schema `UsageLimits.Go`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct UsageLimitsGo {
+    pub rolling: UsageLimitsMeter,
+    pub weekly: UsageLimitsMeter,
+    pub monthly: UsageLimitsMeter,
+}
+
+/// Component schema `UsageLimits.Info`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct UsageLimitsInfo {
+    pub workspace: UsageLimitsInfoWorkspace,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub go: Option<UsageLimitsGo>,
+    pub budgets: Vec<UsageLimitsBudget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct UsageLimitsInfoWorkspace {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(rename = "usageURL")]
+    pub usage_url: String,
+}
+
+/// Component schema `UsageLimits.Meter`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct UsageLimitsMeter {
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub percent: f64,
+    pub limited: bool,
+    /// Milliseconds since the Unix epoch
+    #[serde(rename = "resetsAt", serialize_with = "crate::support::ser_f64")]
+    pub resets_at: f64,
+}
+
 /// Component schema `V2EventEncoded`.
 pub type V2EventEncoded = String;
 
@@ -5206,6 +6289,25 @@ impl VcsMode {
     }
 }
 
+/// Component schema `Vcs.Untracked`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum VcsUntracked {
+    #[serde(rename = "files")]
+    Files,
+    #[serde(rename = "folders")]
+    Folders,
+}
+
+impl VcsUntracked {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Files => "files",
+            Self::Folders => "folders",
+        }
+    }
+}
+
 /// Component schema `VcsInitNotSupportedErrorEncoded`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct VcsInitNotSupportedErrorEncoded {
@@ -5223,10 +6325,6 @@ pub struct VoiceModel {
     pub provider: String,
     pub transports: Vec<VoiceTransportType>,
     pub available: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub integration: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
 }
 
 /// Component schema `VoiceModelsResponse`.
@@ -5251,13 +6349,6 @@ pub struct VoiceSessionResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VoiceSessionResponseData {
     pub transport: VoiceTransport,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session: Option<VoiceSessionResponseDataSession>,
-}
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct VoiceSessionResponseDataSession {
-    pub id: String,
 }
 
 /// Component schema `VoiceTransport`.
@@ -5750,17 +6841,19 @@ pub struct ExperimentalGenerateTextBody {
     pub model: Option<ModelRef>,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ExperimentalGenerateTextLegacyBody {
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelRef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExperimentalVoiceSessionBody {
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<JsonObject>,
     pub transport: VoiceTransportInput,
-}
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ExperimentalVoiceInstructionsBody {
-    pub instructions: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -5908,6 +7001,325 @@ impl FsFindType {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ExperimentalFsWatchBody {
+    /// A file path relative to the requested location.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ExperimentalFsUnwatchBody {
+    /// A file path relative to the requested location.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EventSubscribeTypesItem {
+    Enum(EventSubscribeTypesItemEnum),
+    String(String),
+}
+
+impl From<EventSubscribeTypesItemEnum> for EventSubscribeTypesItem {
+    fn from(value: EventSubscribeTypesItemEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EventSubscribeTypesItemEnum {
+    #[serde(rename = "location.shutdown")]
+    LocationShutdown,
+    #[serde(rename = "models-dev.refreshed")]
+    ModelsDevRefreshed,
+    #[serde(rename = "credential.updated")]
+    CredentialUpdated,
+    #[serde(rename = "credential.switched")]
+    CredentialSwitched,
+    #[serde(rename = "integration.updated")]
+    IntegrationUpdated,
+    #[serde(rename = "provider.updated")]
+    ProviderUpdated,
+    #[serde(rename = "model.updated")]
+    ModelUpdated,
+    #[serde(rename = "agent.updated")]
+    AgentUpdated,
+    #[serde(rename = "session.created")]
+    SessionCreated,
+    #[serde(rename = "session.agent.selected")]
+    SessionAgentSelected,
+    #[serde(rename = "session.model.selected")]
+    SessionModelSelected,
+    #[serde(rename = "session.moved")]
+    SessionMoved,
+    #[serde(rename = "session.renamed")]
+    SessionRenamed,
+    #[serde(rename = "session.metadata.updated")]
+    SessionMetadataUpdated,
+    #[serde(rename = "session.permissions")]
+    SessionPermissions,
+    #[serde(rename = "session.viewed")]
+    SessionViewed,
+    #[serde(rename = "session.archived")]
+    SessionArchived,
+    #[serde(rename = "session.unarchived")]
+    SessionUnarchived,
+    #[serde(rename = "session.usage.updated")]
+    SessionUsageUpdated,
+    #[serde(rename = "session.deleted")]
+    SessionDeleted,
+    #[serde(rename = "session.forked")]
+    SessionForked,
+    #[serde(rename = "session.inbox.delivered")]
+    SessionInboxDelivered,
+    #[serde(rename = "session.inbox.enqueued")]
+    SessionInboxEnqueued,
+    #[serde(rename = "session.inbox.cancelled")]
+    SessionInboxCancelled,
+    #[serde(rename = "session.inbox.delivery.changed")]
+    SessionInboxDeliveryChanged,
+    #[serde(rename = "session.execution.started")]
+    SessionExecutionStarted,
+    #[serde(rename = "session.execution.succeeded")]
+    SessionExecutionSucceeded,
+    #[serde(rename = "session.execution.failed")]
+    SessionExecutionFailed,
+    #[serde(rename = "session.execution.interrupted")]
+    SessionExecutionInterrupted,
+    #[serde(rename = "session.instructions.updated")]
+    SessionInstructionsUpdated,
+    #[serde(rename = "session.synthetic")]
+    SessionSynthetic,
+    #[serde(rename = "session.skill.activated")]
+    SessionSkillActivated,
+    #[serde(rename = "session.shell.started")]
+    SessionShellStarted,
+    #[serde(rename = "session.shell.ended")]
+    SessionShellEnded,
+    #[serde(rename = "session.step.started")]
+    SessionStepStarted,
+    #[serde(rename = "session.step.streamed")]
+    SessionStepStreamed,
+    #[serde(rename = "session.step.ended")]
+    SessionStepEnded,
+    #[serde(rename = "session.step.failed")]
+    SessionStepFailed,
+    #[serde(rename = "session.text.started")]
+    SessionTextStarted,
+    #[serde(rename = "session.text.delta")]
+    SessionTextDelta,
+    #[serde(rename = "session.text.ended")]
+    SessionTextEnded,
+    #[serde(rename = "session.reasoning.started")]
+    SessionReasoningStarted,
+    #[serde(rename = "session.reasoning.delta")]
+    SessionReasoningDelta,
+    #[serde(rename = "session.reasoning.ended")]
+    SessionReasoningEnded,
+    #[serde(rename = "session.tool.input.started")]
+    SessionToolInputStarted,
+    #[serde(rename = "session.tool.input.delta")]
+    SessionToolInputDelta,
+    #[serde(rename = "session.tool.input.ended")]
+    SessionToolInputEnded,
+    #[serde(rename = "session.tool.called")]
+    SessionToolCalled,
+    #[serde(rename = "session.tool.progress")]
+    SessionToolProgress,
+    #[serde(rename = "session.tool.success")]
+    SessionToolSuccess,
+    #[serde(rename = "session.tool.failed")]
+    SessionToolFailed,
+    #[serde(rename = "session.retry.scheduled")]
+    SessionRetryScheduled,
+    #[serde(rename = "session.compaction.started")]
+    SessionCompactionStarted,
+    #[serde(rename = "session.compaction.delta")]
+    SessionCompactionDelta,
+    #[serde(rename = "session.compaction.ended")]
+    SessionCompactionEnded,
+    #[serde(rename = "session.compaction.failed")]
+    SessionCompactionFailed,
+    #[serde(rename = "session.revert.staged")]
+    SessionRevertStaged,
+    #[serde(rename = "session.revert.cleared")]
+    SessionRevertCleared,
+    #[serde(rename = "session.revert.committed")]
+    SessionRevertCommitted,
+    #[serde(rename = "filesystem.changed")]
+    FilesystemChanged,
+    #[serde(rename = "reference.updated")]
+    ReferenceUpdated,
+    #[serde(rename = "permission.asked")]
+    PermissionAsked,
+    #[serde(rename = "permission.replied")]
+    PermissionReplied,
+    #[serde(rename = "plugin.updated")]
+    PluginUpdated,
+    #[serde(rename = "project.updated")]
+    ProjectUpdated,
+    #[serde(rename = "worktree.updated")]
+    WorktreeUpdated,
+    #[serde(rename = "worktree.resolved")]
+    WorktreeResolved,
+    #[serde(rename = "command.updated")]
+    CommandUpdated,
+    #[serde(rename = "config.updated")]
+    ConfigUpdated,
+    #[serde(rename = "skill.updated")]
+    SkillUpdated,
+    #[serde(rename = "pty.created")]
+    PtyCreated,
+    #[serde(rename = "pty.updated")]
+    PtyUpdated,
+    #[serde(rename = "pty.exited")]
+    PtyExited,
+    #[serde(rename = "pty.deleted")]
+    PtyDeleted,
+    #[serde(rename = "persistent-pty.added")]
+    PersistentPtyAdded,
+    #[serde(rename = "persistent-pty.removed")]
+    PersistentPtyRemoved,
+    #[serde(rename = "shell.created")]
+    ShellCreated,
+    #[serde(rename = "shell.exited")]
+    ShellExited,
+    #[serde(rename = "shell.deleted")]
+    ShellDeleted,
+    #[serde(rename = "form.created")]
+    FormCreated,
+    #[serde(rename = "form.replied")]
+    FormReplied,
+    #[serde(rename = "form.cancelled")]
+    FormCancelled,
+    #[serde(rename = "websearch.updated")]
+    WebsearchUpdated,
+    #[serde(rename = "session.status")]
+    SessionStatus,
+    #[serde(rename = "session.idle")]
+    SessionIdle,
+    #[serde(rename = "tui.prompt.append")]
+    TuiPromptAppend,
+    #[serde(rename = "tui.command.execute")]
+    TuiCommandExecute,
+    #[serde(rename = "tui.toast.show")]
+    TuiToastShow,
+    #[serde(rename = "tui.session.select")]
+    TuiSessionSelect,
+    #[serde(rename = "installation.updated")]
+    InstallationUpdated,
+    #[serde(rename = "installation.update-available")]
+    InstallationUpdateAvailable,
+    #[serde(rename = "vcs.branch.updated")]
+    VcsBranchUpdated,
+    #[serde(rename = "mcp.status.changed")]
+    McpStatusChanged,
+    #[serde(rename = "mcp.resources.changed")]
+    McpResourcesChanged,
+}
+
+impl EventSubscribeTypesItemEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::LocationShutdown => "location.shutdown",
+            Self::ModelsDevRefreshed => "models-dev.refreshed",
+            Self::CredentialUpdated => "credential.updated",
+            Self::CredentialSwitched => "credential.switched",
+            Self::IntegrationUpdated => "integration.updated",
+            Self::ProviderUpdated => "provider.updated",
+            Self::ModelUpdated => "model.updated",
+            Self::AgentUpdated => "agent.updated",
+            Self::SessionCreated => "session.created",
+            Self::SessionAgentSelected => "session.agent.selected",
+            Self::SessionModelSelected => "session.model.selected",
+            Self::SessionMoved => "session.moved",
+            Self::SessionRenamed => "session.renamed",
+            Self::SessionMetadataUpdated => "session.metadata.updated",
+            Self::SessionPermissions => "session.permissions",
+            Self::SessionViewed => "session.viewed",
+            Self::SessionArchived => "session.archived",
+            Self::SessionUnarchived => "session.unarchived",
+            Self::SessionUsageUpdated => "session.usage.updated",
+            Self::SessionDeleted => "session.deleted",
+            Self::SessionForked => "session.forked",
+            Self::SessionInboxDelivered => "session.inbox.delivered",
+            Self::SessionInboxEnqueued => "session.inbox.enqueued",
+            Self::SessionInboxCancelled => "session.inbox.cancelled",
+            Self::SessionInboxDeliveryChanged => "session.inbox.delivery.changed",
+            Self::SessionExecutionStarted => "session.execution.started",
+            Self::SessionExecutionSucceeded => "session.execution.succeeded",
+            Self::SessionExecutionFailed => "session.execution.failed",
+            Self::SessionExecutionInterrupted => "session.execution.interrupted",
+            Self::SessionInstructionsUpdated => "session.instructions.updated",
+            Self::SessionSynthetic => "session.synthetic",
+            Self::SessionSkillActivated => "session.skill.activated",
+            Self::SessionShellStarted => "session.shell.started",
+            Self::SessionShellEnded => "session.shell.ended",
+            Self::SessionStepStarted => "session.step.started",
+            Self::SessionStepStreamed => "session.step.streamed",
+            Self::SessionStepEnded => "session.step.ended",
+            Self::SessionStepFailed => "session.step.failed",
+            Self::SessionTextStarted => "session.text.started",
+            Self::SessionTextDelta => "session.text.delta",
+            Self::SessionTextEnded => "session.text.ended",
+            Self::SessionReasoningStarted => "session.reasoning.started",
+            Self::SessionReasoningDelta => "session.reasoning.delta",
+            Self::SessionReasoningEnded => "session.reasoning.ended",
+            Self::SessionToolInputStarted => "session.tool.input.started",
+            Self::SessionToolInputDelta => "session.tool.input.delta",
+            Self::SessionToolInputEnded => "session.tool.input.ended",
+            Self::SessionToolCalled => "session.tool.called",
+            Self::SessionToolProgress => "session.tool.progress",
+            Self::SessionToolSuccess => "session.tool.success",
+            Self::SessionToolFailed => "session.tool.failed",
+            Self::SessionRetryScheduled => "session.retry.scheduled",
+            Self::SessionCompactionStarted => "session.compaction.started",
+            Self::SessionCompactionDelta => "session.compaction.delta",
+            Self::SessionCompactionEnded => "session.compaction.ended",
+            Self::SessionCompactionFailed => "session.compaction.failed",
+            Self::SessionRevertStaged => "session.revert.staged",
+            Self::SessionRevertCleared => "session.revert.cleared",
+            Self::SessionRevertCommitted => "session.revert.committed",
+            Self::FilesystemChanged => "filesystem.changed",
+            Self::ReferenceUpdated => "reference.updated",
+            Self::PermissionAsked => "permission.asked",
+            Self::PermissionReplied => "permission.replied",
+            Self::PluginUpdated => "plugin.updated",
+            Self::ProjectUpdated => "project.updated",
+            Self::WorktreeUpdated => "worktree.updated",
+            Self::WorktreeResolved => "worktree.resolved",
+            Self::CommandUpdated => "command.updated",
+            Self::ConfigUpdated => "config.updated",
+            Self::SkillUpdated => "skill.updated",
+            Self::PtyCreated => "pty.created",
+            Self::PtyUpdated => "pty.updated",
+            Self::PtyExited => "pty.exited",
+            Self::PtyDeleted => "pty.deleted",
+            Self::PersistentPtyAdded => "persistent-pty.added",
+            Self::PersistentPtyRemoved => "persistent-pty.removed",
+            Self::ShellCreated => "shell.created",
+            Self::ShellExited => "shell.exited",
+            Self::ShellDeleted => "shell.deleted",
+            Self::FormCreated => "form.created",
+            Self::FormReplied => "form.replied",
+            Self::FormCancelled => "form.cancelled",
+            Self::WebsearchUpdated => "websearch.updated",
+            Self::SessionStatus => "session.status",
+            Self::SessionIdle => "session.idle",
+            Self::TuiPromptAppend => "tui.prompt.append",
+            Self::TuiCommandExecute => "tui.command.execute",
+            Self::TuiToastShow => "tui.toast.show",
+            Self::TuiSessionSelect => "tui.session.select",
+            Self::InstallationUpdated => "installation.updated",
+            Self::InstallationUpdateAvailable => "installation.update-available",
+            Self::VcsBranchUpdated => "vcs.branch.updated",
+            Self::McpStatusChanged => "mcp.status.changed",
+            Self::McpResourcesChanged => "mcp.resources.changed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PtyCreateBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
@@ -5936,7 +7348,7 @@ pub struct PtyUpdateBodySize {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ServerExperimentalPersistentPtyHandoffResponse {
+pub struct ExperimentalPersistentPtyHandoffResponse {
     #[serde(default)]
     pub handoff: Option<PersistentPtyHandoff>,
 }
@@ -6164,6 +7576,11 @@ impl ErrorEncoded for MessageNotFoundErrorEncoded {
     const STATUS: u16 = 404;
 }
 
+impl ErrorEncoded for ModelNotFoundErrorEncoded {
+    const TAG: &'static str = "ModelNotFoundError";
+    const STATUS: u16 = 404;
+}
+
 impl ErrorEncoded for PermissionNotFoundErrorEncoded {
     const TAG: &'static str = "PermissionNotFoundError";
     const STATUS: u16 = 404;
@@ -6171,6 +7588,11 @@ impl ErrorEncoded for PermissionNotFoundErrorEncoded {
 
 impl ErrorEncoded for PermissionSavedNotFoundErrorEncoded {
     const TAG: &'static str = "PermissionSavedNotFoundError";
+    const STATUS: u16 = 404;
+}
+
+impl ErrorEncoded for PluginNotFoundErrorEncoded {
+    const TAG: &'static str = "PluginNotFoundError";
     const STATUS: u16 = 404;
 }
 
@@ -6182,6 +7604,11 @@ impl ErrorEncoded for ProjectNotFoundErrorEncoded {
 impl ErrorEncoded for ProviderNotFoundErrorEncoded {
     const TAG: &'static str = "ProviderNotFoundError";
     const STATUS: u16 = 404;
+}
+
+impl ErrorEncoded for ProviderRequestErrorEncoded {
+    const TAG: &'static str = "ProviderRequestError";
+    const STATUS: u16 = 502;
 }
 
 impl ErrorEncoded for PtyNotFoundErrorEncoded {
@@ -6197,6 +7624,11 @@ impl ErrorEncoded for RpcErrorEncoded {
 impl ErrorEncoded for RpcInternalErrorEncoded {
     const TAG: &'static str = "RpcInternalError";
     const STATUS: u16 = 500;
+}
+
+impl ErrorEncoded for ScheduleNotFoundErrorEncoded {
+    const TAG: &'static str = "ScheduleNotFoundError";
+    const STATUS: u16 = 404;
 }
 
 impl ErrorEncoded for ServiceUnavailableErrorEncoded {
@@ -6232,6 +7664,11 @@ impl ErrorEncoded for UnauthorizedErrorEncoded {
 impl ErrorEncoded for UnknownErrorEncoded {
     const TAG: &'static str = "UnknownError";
     const STATUS: u16 = 500;
+}
+
+impl ErrorEncoded for UnsupportedModelErrorEncoded {
+    const TAG: &'static str = "UnsupportedModelError";
+    const STATUS: u16 = 422;
 }
 
 impl ErrorEncoded for VcsInitNotSupportedErrorEncoded {
@@ -6280,6 +7717,11 @@ pub const ERROR_STATUS: &[(&str, u16)] = &[
     ("RpcInternalError", 500),
     ("VcsInitNotSupportedError", 501),
     ("ServiceUnavailableError", 503),
+    ("PluginNotFoundError", 404),
+    ("ModelNotFoundError", 404),
+    ("UnsupportedModelError", 422),
+    ("ProviderRequestError", 502),
+    ("ScheduleNotFoundError", 404),
 ];
 
 // ---- operation requests -------------------------------------------------------------------
@@ -6314,6 +7756,13 @@ pub struct AgentGetRequest {
 /// Request for `plugin.list` (`GET /api/plugin`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PluginListRequest {
+}
+
+/// Request for `plugin.gui` (`GET /api/plugin/gui`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PluginGuiRequest {
+    /// query parameter `id`.
+    pub id: PluginID,
 }
 
 /// Request for `plugin.check` (`POST /api/plugin/check`).
@@ -6599,9 +8048,9 @@ pub struct SessionGenerateRequest {
     pub body: SessionGenerateBody,
 }
 
-/// Request for `session.log` (`GET /api/experimental/session/{sessionID}/log`).
+/// Request for `experimental.session.log` (`GET /api/experimental/session/{sessionID}/log`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct SessionLogRequest {
+pub struct ExperimentalSessionLogRequest {
     /// path parameter `sessionID`.
     pub session_id: SessionID,
     /// query parameter `after`.
@@ -6703,6 +8152,8 @@ pub struct SessionViewRequest {
 /// Request for `model.list` (`GET /api/model`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ModelListRequest {
+    /// query parameter `types`. Only list models of these types. Defaults to chat, the only type offered for sessions.
+    pub types: Option<Vec<ModelType>>,
 }
 
 /// Request for `model.default` (`GET /api/model/default`).
@@ -6710,11 +8161,32 @@ pub struct ModelListRequest {
 pub struct ModelDefaultRequest {
 }
 
-/// Request for `experimental.generate.text` (`POST /api/experimental/generate`).
+/// Request for `experimental.generate.text` (`POST /api/experimental/generate/text`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExperimentalGenerateTextRequest {
     /// Request body.
     pub body: ExperimentalGenerateTextBody,
+}
+
+/// Request for `experimental.generate.textLegacy` (`POST /api/experimental/generate`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalGenerateTextLegacyRequest {
+    /// Request body.
+    pub body: ExperimentalGenerateTextLegacyBody,
+}
+
+/// Request for `experimental.generate.image` (`POST /api/experimental/generate/image`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalGenerateImageRequest {
+    /// Request body.
+    pub body: GenerateImageRequest,
+}
+
+/// Request for `experimental.generate.decisions` (`POST /api/experimental/generate/decisions`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalGenerateDecisionsRequest {
+    /// Request body.
+    pub body: GenerateDecisionRequest,
 }
 
 /// Request for `experimental.voice.models` (`GET /api/experimental/voice/models`).
@@ -6727,15 +8199,6 @@ pub struct ExperimentalVoiceModelsRequest {
 pub struct ExperimentalVoiceSessionRequest {
     /// Request body.
     pub body: ExperimentalVoiceSessionBody,
-}
-
-/// Request for `experimental.voice.instructions` (`POST /api/experimental/voice/session/{sessionID}/instructions`).
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ExperimentalVoiceInstructionsRequest {
-    /// path parameter `sessionID`.
-    pub session_id: String,
-    /// Request body.
-    pub body: ExperimentalVoiceInstructionsBody,
 }
 
 /// Request for `provider.list` (`GET /api/provider`).
@@ -7055,6 +8518,20 @@ pub struct ExperimentalFsWriteRequest {
     pub body: bytes::Bytes,
 }
 
+/// Request for `experimental.fs.watch` (`POST /api/experimental/fs/watch`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalFsWatchRequest {
+    /// Request body.
+    pub body: ExperimentalFsWatchBody,
+}
+
+/// Request for `experimental.fs.unwatch` (`DELETE /api/experimental/fs/watch`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalFsUnwatchRequest {
+    /// Request body.
+    pub body: ExperimentalFsUnwatchBody,
+}
+
 /// Request for `command.list` (`GET /api/command`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommandListRequest {
@@ -7111,69 +8588,118 @@ pub struct PtyRemoveRequest {
     pub pty_id: PtyID,
 }
 
-/// Request for `server.experimental.persistentPty.read` (`GET /api/experimental/session/{sessionID}/terminal/read`).
+/// Request for `experimental.persistentPty.read` (`GET /api/experimental/session/{sessionID}/terminal/read`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtyReadRequest {
+pub struct ExperimentalPersistentPtyReadRequest {
     /// path parameter `sessionID`.
     pub session_id: SessionID,
     /// query parameter `lines`.
     pub lines: Option<i64>,
 }
 
-/// Request for `server.experimental.persistentPty.list` (`GET /api/experimental/session/{sessionID}/terminal`).
+/// Request for `experimental.persistentPty.list` (`GET /api/experimental/session/{sessionID}/terminal`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtyListRequest {
+pub struct ExperimentalPersistentPtyListRequest {
     /// path parameter `sessionID`.
     pub session_id: SessionID,
 }
 
-/// Request for `server.experimental.persistentPty.create` (`POST /api/experimental/session/{sessionID}/terminal`).
+/// Request for `experimental.persistentPty.create` (`POST /api/experimental/session/{sessionID}/terminal`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtyCreateRequest {
+pub struct ExperimentalPersistentPtyCreateRequest {
     /// path parameter `sessionID`.
     pub session_id: SessionID,
     /// Request body.
     pub body: PersistentPtyCreateInput,
 }
 
-/// Request for `server.experimental.persistentPty.shutdown` (`POST /api/experimental/persistent-pty/shutdown`).
+/// Request for `experimental.persistentPty.shutdown` (`POST /api/experimental/persistent-pty/shutdown`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtyShutdownRequest {
+pub struct ExperimentalPersistentPtyShutdownRequest {
 }
 
-/// Request for `server.experimental.persistentPty.handoff` (`POST /api/experimental/persistent-pty/handoff`).
+/// Request for `experimental.persistentPty.handoff` (`POST /api/experimental/persistent-pty/handoff`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtyHandoffRequest {
+pub struct ExperimentalPersistentPtyHandoffRequest {
 }
 
-/// Request for `server.experimental.persistentPty.get` (`GET /api/experimental/persistent-pty/{ptyID}`).
+/// Request for `experimental.persistentPty.get` (`GET /api/experimental/persistent-pty/{ptyID}`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtyGetRequest {
+pub struct ExperimentalPersistentPtyGetRequest {
     /// path parameter `ptyID`.
     pub pty_id: PtyID,
 }
 
-/// Request for `server.experimental.persistentPty.update` (`PUT /api/experimental/persistent-pty/{ptyID}`).
+/// Request for `experimental.persistentPty.update` (`PUT /api/experimental/persistent-pty/{ptyID}`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtyUpdateRequest {
+pub struct ExperimentalPersistentPtyUpdateRequest {
     /// path parameter `ptyID`.
     pub pty_id: PtyID,
     /// Request body.
     pub body: PersistentPtyUpdateInput,
 }
 
-/// Request for `server.experimental.persistentPty.remove` (`DELETE /api/experimental/persistent-pty/{ptyID}`).
+/// Request for `experimental.persistentPty.remove` (`DELETE /api/experimental/persistent-pty/{ptyID}`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtyRemoveRequest {
+pub struct ExperimentalPersistentPtyRemoveRequest {
     /// path parameter `ptyID`.
     pub pty_id: PtyID,
 }
 
-/// Request for `server.experimental.persistentPty.snapshot` (`GET /api/experimental/persistent-pty/{ptyID}/snapshot`).
+/// Request for `experimental.persistentPty.snapshot` (`GET /api/experimental/persistent-pty/{ptyID}/snapshot`).
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ServerExperimentalPersistentPtySnapshotRequest {
+pub struct ExperimentalPersistentPtySnapshotRequest {
     /// path parameter `ptyID`.
     pub pty_id: PtyID,
+}
+
+/// Request for `experimental.media.get` (`GET /api/experimental/media/{hash}`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalMediaGetRequest {
+    /// path parameter `hash`.
+    pub hash: MediaHash,
+}
+
+/// Request for `experimental.schedule.create` (`POST /api/experimental/schedule`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalScheduleCreateRequest {
+    /// Request body.
+    pub body: ScheduleCreatePayload,
+}
+
+/// Request for `experimental.schedule.list` (`GET /api/experimental/schedule`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalScheduleListRequest {
+    /// query parameter `sessionID`.
+    pub session_id: SessionID,
+}
+
+/// Request for `experimental.schedule.get` (`GET /api/experimental/schedule/{scheduleID}`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalScheduleGetRequest {
+    /// path parameter `scheduleID`.
+    pub schedule_id: ScheduleID,
+}
+
+/// Request for `experimental.schedule.delete` (`DELETE /api/experimental/schedule/{scheduleID}`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalScheduleDeleteRequest {
+    /// path parameter `scheduleID`.
+    pub schedule_id: ScheduleID,
+}
+
+/// Request for `experimental.schedule.pause` (`POST /api/experimental/schedule/{scheduleID}/pause`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalSchedulePauseRequest {
+    /// path parameter `scheduleID`.
+    pub schedule_id: ScheduleID,
+}
+
+/// Request for `experimental.schedule.resume` (`POST /api/experimental/schedule/{scheduleID}/resume`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalScheduleResumeRequest {
+    /// path parameter `scheduleID`.
+    pub schedule_id: ScheduleID,
 }
 
 /// Request for `shell.list` (`GET /api/shell`).
@@ -7286,6 +8812,8 @@ pub struct VcsDiffRequest {
     pub base: Option<String>,
     /// query parameter `context`.
     pub context: Option<i64>,
+    /// query parameter `untracked`.
+    pub untracked: Option<VcsUntracked>,
 }
 
 /// Request for `debug.heapDump` (`POST /api/debug/heap-dump`).
@@ -7320,6 +8848,11 @@ pub struct WebsearchProvidersRequest {
 pub struct WebsearchQueryRequest {
     /// Request body.
     pub body: WebsearchQueryBody,
+}
+
+/// Request for `experimental.usage.limits` (`GET /api/experimental/usage/limits`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalUsageLimitsRequest {
 }
 
 /// Request for `config.get` (`GET /api/config`).
@@ -7390,6 +8923,8 @@ pub enum Op {
     AgentGet,
     /// `plugin.list`
     PluginList,
+    /// `plugin.gui`
+    PluginGui,
     /// `plugin.check`
     PluginCheck,
     /// `plugin.update`
@@ -7458,8 +8993,8 @@ pub enum Op {
     ExperimentalSessionInstructionsEntryRemove,
     /// `session.generate`
     SessionGenerate,
-    /// `session.log`
-    SessionLog,
+    /// `experimental.session.log`
+    ExperimentalSessionLog,
     /// `session.interrupt`
     SessionInterrupt,
     /// `session.background`
@@ -7488,12 +9023,16 @@ pub enum Op {
     ModelDefault,
     /// `experimental.generate.text`
     ExperimentalGenerateText,
+    /// `experimental.generate.textLegacy`
+    ExperimentalGenerateTextLegacy,
+    /// `experimental.generate.image`
+    ExperimentalGenerateImage,
+    /// `experimental.generate.decisions`
+    ExperimentalGenerateDecisions,
     /// `experimental.voice.models`
     ExperimentalVoiceModels,
     /// `experimental.voice.session`
     ExperimentalVoiceSession,
-    /// `experimental.voice.instructions`
-    ExperimentalVoiceInstructions,
     /// `provider.list`
     ProviderList,
     /// `provider.get`
@@ -7578,6 +9117,10 @@ pub enum Op {
     FsFind,
     /// `experimental.fs.write`
     ExperimentalFsWrite,
+    /// `experimental.fs.watch`
+    ExperimentalFsWatch,
+    /// `experimental.fs.unwatch`
+    ExperimentalFsUnwatch,
     /// `command.list`
     CommandList,
     /// `skill.list`
@@ -7600,28 +9143,42 @@ pub enum Op {
     PtyConnectToken,
     /// `pty.connect`
     PtyConnect,
-    /// `server.experimental.persistentPty.read`
-    ServerExperimentalPersistentPtyRead,
-    /// `server.experimental.persistentPty.list`
-    ServerExperimentalPersistentPtyList,
-    /// `server.experimental.persistentPty.create`
-    ServerExperimentalPersistentPtyCreate,
-    /// `server.experimental.persistentPty.shutdown`
-    ServerExperimentalPersistentPtyShutdown,
-    /// `server.experimental.persistentPty.handoff`
-    ServerExperimentalPersistentPtyHandoff,
-    /// `server.experimental.persistentPty.get`
-    ServerExperimentalPersistentPtyGet,
-    /// `server.experimental.persistentPty.update`
-    ServerExperimentalPersistentPtyUpdate,
-    /// `server.experimental.persistentPty.remove`
-    ServerExperimentalPersistentPtyRemove,
-    /// `server.experimental.persistentPty.snapshot`
-    ServerExperimentalPersistentPtySnapshot,
-    /// `server.experimental.persistentPty.connectToken`
-    ServerExperimentalPersistentPtyConnectToken,
-    /// `persistentPty.connect`
-    PersistentPtyConnect,
+    /// `experimental.persistentPty.read`
+    ExperimentalPersistentPtyRead,
+    /// `experimental.persistentPty.list`
+    ExperimentalPersistentPtyList,
+    /// `experimental.persistentPty.create`
+    ExperimentalPersistentPtyCreate,
+    /// `experimental.persistentPty.shutdown`
+    ExperimentalPersistentPtyShutdown,
+    /// `experimental.persistentPty.handoff`
+    ExperimentalPersistentPtyHandoff,
+    /// `experimental.persistentPty.get`
+    ExperimentalPersistentPtyGet,
+    /// `experimental.persistentPty.update`
+    ExperimentalPersistentPtyUpdate,
+    /// `experimental.persistentPty.remove`
+    ExperimentalPersistentPtyRemove,
+    /// `experimental.persistentPty.snapshot`
+    ExperimentalPersistentPtySnapshot,
+    /// `experimental.persistentPty.connectToken`
+    ExperimentalPersistentPtyConnectToken,
+    /// `experimental.persistentPty.connect`
+    ExperimentalPersistentPtyConnect,
+    /// `experimental.media.get`
+    ExperimentalMediaGet,
+    /// `experimental.schedule.create`
+    ExperimentalScheduleCreate,
+    /// `experimental.schedule.list`
+    ExperimentalScheduleList,
+    /// `experimental.schedule.get`
+    ExperimentalScheduleGet,
+    /// `experimental.schedule.delete`
+    ExperimentalScheduleDelete,
+    /// `experimental.schedule.pause`
+    ExperimentalSchedulePause,
+    /// `experimental.schedule.resume`
+    ExperimentalScheduleResume,
     /// `shell.list`
     ShellList,
     /// `shell.create`
@@ -7666,6 +9223,8 @@ pub enum Op {
     WebsearchProviders,
     /// `websearch.query`
     WebsearchQuery,
+    /// `experimental.usage.limits`
+    ExperimentalUsageLimits,
     /// `config.get`
     ConfigGet,
     /// `config.shells`
@@ -7702,6 +9261,7 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::AgentList, id: "agent.list", method: "GET", path: "/api/agent", route: "/api/agent", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::AgentGet, id: "agent.get", method: "GET", path: "/api/agent/{agentID}", route: "/api/agent/{agentID}", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::PluginList, id: "plugin.list", method: "GET", path: "/api/plugin", route: "/api/plugin", scope: Scope::L, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::PluginGui, id: "plugin.gui", method: "GET", path: "/api/plugin/gui", route: "/api/plugin/gui", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::PluginCheck, id: "plugin.check", method: "POST", path: "/api/plugin/check", route: "/api/plugin/check", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::PluginUpdate, id: "plugin.update", method: "POST", path: "/api/plugin/update", route: "/api/plugin/update", scope: Scope::L, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::SessionList, id: "session.list", method: "GET", path: "/api/session", route: "/api/session", scope: Scope::G, envelope: Envelope::Bare, special: true },
@@ -7736,7 +9296,7 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::ExperimentalSessionInstructionsEntryPut, id: "experimental.session.instructions.entry.put", method: "PUT", path: "/api/experimental/session/{sessionID}/instructions/entries/{key}", route: "/api/experimental/session/{sessionID}/instructions/entries/{key}", scope: Scope::S, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::ExperimentalSessionInstructionsEntryRemove, id: "experimental.session.instructions.entry.remove", method: "DELETE", path: "/api/experimental/session/{sessionID}/instructions/entries/{key}", route: "/api/experimental/session/{sessionID}/instructions/entries/{key}", scope: Scope::S, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::SessionGenerate, id: "session.generate", method: "POST", path: "/api/session/{sessionID}/generate", route: "/api/session/{sessionID}/generate", scope: Scope::S, envelope: Envelope::Bare, special: false },
-    OpMeta { op: Op::SessionLog, id: "session.log", method: "GET", path: "/api/experimental/session/{sessionID}/log", route: "/api/experimental/session/{sessionID}/log", scope: Scope::G, envelope: Envelope::Raw, special: true },
+    OpMeta { op: Op::ExperimentalSessionLog, id: "experimental.session.log", method: "GET", path: "/api/experimental/session/{sessionID}/log", route: "/api/experimental/session/{sessionID}/log", scope: Scope::G, envelope: Envelope::Raw, special: true },
     OpMeta { op: Op::SessionInterrupt, id: "session.interrupt", method: "POST", path: "/api/session/{sessionID}/interrupt", route: "/api/session/{sessionID}/interrupt", scope: Scope::S, envelope: Envelope::Bare, special: false },
     OpMeta { op: Op::SessionBackground, id: "session.background", method: "POST", path: "/api/session/{sessionID}/background", route: "/api/session/{sessionID}/background", scope: Scope::S, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::SessionMessageGet, id: "session.message.get", method: "GET", path: "/api/session/{sessionID}/message/{messageID}", route: "/api/session/{sessionID}/message/{messageID}", scope: Scope::G, envelope: Envelope::Data, special: false },
@@ -7750,10 +9310,12 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::SessionMessageList, id: "session.message.list", method: "GET", path: "/api/session/{sessionID}/message", route: "/api/session/{sessionID}/message", scope: Scope::G, envelope: Envelope::Bare, special: true },
     OpMeta { op: Op::ModelList, id: "model.list", method: "GET", path: "/api/model", route: "/api/model", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ModelDefault, id: "model.default", method: "GET", path: "/api/model/default", route: "/api/model/default", scope: Scope::L, envelope: Envelope::Location, special: false },
-    OpMeta { op: Op::ExperimentalGenerateText, id: "experimental.generate.text", method: "POST", path: "/api/experimental/generate", route: "/api/experimental/generate", scope: Scope::G, envelope: Envelope::Bare, special: false },
+    OpMeta { op: Op::ExperimentalGenerateText, id: "experimental.generate.text", method: "POST", path: "/api/experimental/generate/text", route: "/api/experimental/generate/text", scope: Scope::G, envelope: Envelope::Bare, special: false },
+    OpMeta { op: Op::ExperimentalGenerateTextLegacy, id: "experimental.generate.textLegacy", method: "POST", path: "/api/experimental/generate", route: "/api/experimental/generate", scope: Scope::G, envelope: Envelope::Bare, special: false },
+    OpMeta { op: Op::ExperimentalGenerateImage, id: "experimental.generate.image", method: "POST", path: "/api/experimental/generate/image", route: "/api/experimental/generate/image", scope: Scope::G, envelope: Envelope::Bare, special: false },
+    OpMeta { op: Op::ExperimentalGenerateDecisions, id: "experimental.generate.decisions", method: "POST", path: "/api/experimental/generate/decisions", route: "/api/experimental/generate/decisions", scope: Scope::G, envelope: Envelope::Bare, special: false },
     OpMeta { op: Op::ExperimentalVoiceModels, id: "experimental.voice.models", method: "GET", path: "/api/experimental/voice/models", route: "/api/experimental/voice/models", scope: Scope::G, envelope: Envelope::Bare, special: false },
     OpMeta { op: Op::ExperimentalVoiceSession, id: "experimental.voice.session", method: "POST", path: "/api/experimental/voice/session", route: "/api/experimental/voice/session", scope: Scope::G, envelope: Envelope::Bare, special: false },
-    OpMeta { op: Op::ExperimentalVoiceInstructions, id: "experimental.voice.instructions", method: "POST", path: "/api/experimental/voice/session/{sessionID}/instructions", route: "/api/experimental/voice/session/{sessionID}/instructions", scope: Scope::G, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::ProviderList, id: "provider.list", method: "GET", path: "/api/provider", route: "/api/provider", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ProviderGet, id: "provider.get", method: "GET", path: "/api/provider/{providerID}", route: "/api/provider/{providerID}", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::IntegrationList, id: "integration.list", method: "GET", path: "/api/integration", route: "/api/integration", scope: Scope::L, envelope: Envelope::Location, special: false },
@@ -7796,6 +9358,8 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::FsList, id: "fs.list", method: "GET", path: "/api/fs/list", route: "/api/fs/list", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::FsFind, id: "fs.find", method: "GET", path: "/api/fs/find", route: "/api/fs/find", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ExperimentalFsWrite, id: "experimental.fs.write", method: "POST", path: "/api/experimental/fs/write", route: "/api/experimental/fs/write", scope: Scope::L, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalFsWatch, id: "experimental.fs.watch", method: "POST", path: "/api/experimental/fs/watch", route: "/api/experimental/fs/watch", scope: Scope::L, envelope: Envelope::NoContent, special: false },
+    OpMeta { op: Op::ExperimentalFsUnwatch, id: "experimental.fs.unwatch", method: "DELETE", path: "/api/experimental/fs/watch", route: "/api/experimental/fs/watch", scope: Scope::L, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::CommandList, id: "command.list", method: "GET", path: "/api/command", route: "/api/command", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::SkillList, id: "skill.list", method: "GET", path: "/api/skill", route: "/api/skill", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::RpcCall, id: "rpc.call", method: "POST", path: "/api/rpc/{rpcID}/{method}", route: "/api/rpc/{rpcID}/{method}", scope: Scope::L, envelope: Envelope::Bare, special: false },
@@ -7807,17 +9371,24 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::PtyRemove, id: "pty.remove", method: "DELETE", path: "/api/pty/{ptyID}", route: "/api/pty/{ptyID}", scope: Scope::L, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::PtyConnectToken, id: "pty.connect.token", method: "POST", path: "/api/pty/{ptyID}/connect-token", route: "/api/pty/{ptyID}/connect-token", scope: Scope::L, envelope: Envelope::Location, special: true },
     OpMeta { op: Op::PtyConnect, id: "pty.connect", method: "GET", path: "/api/pty/{ptyID}/connect", route: "/api/pty/{ptyID}/connect", scope: Scope::H, envelope: Envelope::Raw, special: true },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyRead, id: "server.experimental.persistentPty.read", method: "GET", path: "/api/experimental/session/{sessionID}/terminal/read", route: "/api/experimental/session/{sessionID}/terminal/read", scope: Scope::G, envelope: Envelope::Data, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyList, id: "server.experimental.persistentPty.list", method: "GET", path: "/api/experimental/session/{sessionID}/terminal", route: "/api/experimental/session/{sessionID}/terminal", scope: Scope::G, envelope: Envelope::Data, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyCreate, id: "server.experimental.persistentPty.create", method: "POST", path: "/api/experimental/session/{sessionID}/terminal", route: "/api/experimental/session/{sessionID}/terminal", scope: Scope::G, envelope: Envelope::Data, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyShutdown, id: "server.experimental.persistentPty.shutdown", method: "POST", path: "/api/experimental/persistent-pty/shutdown", route: "/api/experimental/persistent-pty/shutdown", scope: Scope::G, envelope: Envelope::NoContent, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyHandoff, id: "server.experimental.persistentPty.handoff", method: "POST", path: "/api/experimental/persistent-pty/handoff", route: "/api/experimental/persistent-pty/handoff", scope: Scope::G, envelope: Envelope::Bare, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyGet, id: "server.experimental.persistentPty.get", method: "GET", path: "/api/experimental/persistent-pty/{ptyID}", route: "/api/experimental/persistent-pty/{ptyID}", scope: Scope::G, envelope: Envelope::Data, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyUpdate, id: "server.experimental.persistentPty.update", method: "PUT", path: "/api/experimental/persistent-pty/{ptyID}", route: "/api/experimental/persistent-pty/{ptyID}", scope: Scope::G, envelope: Envelope::Data, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyRemove, id: "server.experimental.persistentPty.remove", method: "DELETE", path: "/api/experimental/persistent-pty/{ptyID}", route: "/api/experimental/persistent-pty/{ptyID}", scope: Scope::G, envelope: Envelope::NoContent, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtySnapshot, id: "server.experimental.persistentPty.snapshot", method: "GET", path: "/api/experimental/persistent-pty/{ptyID}/snapshot", route: "/api/experimental/persistent-pty/{ptyID}/snapshot", scope: Scope::G, envelope: Envelope::Data, special: false },
-    OpMeta { op: Op::ServerExperimentalPersistentPtyConnectToken, id: "server.experimental.persistentPty.connectToken", method: "POST", path: "/api/experimental/persistent-pty/{ptyID}/connect-token", route: "/api/experimental/persistent-pty/{ptyID}/connect-token", scope: Scope::G, envelope: Envelope::Data, special: true },
-    OpMeta { op: Op::PersistentPtyConnect, id: "persistentPty.connect", method: "GET", path: "/api/experimental/persistent-pty/{ptyID}/connect", route: "/api/experimental/persistent-pty/{ptyID}/connect", scope: Scope::G, envelope: Envelope::Raw, special: true },
+    OpMeta { op: Op::ExperimentalPersistentPtyRead, id: "experimental.persistentPty.read", method: "GET", path: "/api/experimental/session/{sessionID}/terminal/read", route: "/api/experimental/session/{sessionID}/terminal/read", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtyList, id: "experimental.persistentPty.list", method: "GET", path: "/api/experimental/session/{sessionID}/terminal", route: "/api/experimental/session/{sessionID}/terminal", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtyCreate, id: "experimental.persistentPty.create", method: "POST", path: "/api/experimental/session/{sessionID}/terminal", route: "/api/experimental/session/{sessionID}/terminal", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtyShutdown, id: "experimental.persistentPty.shutdown", method: "POST", path: "/api/experimental/persistent-pty/shutdown", route: "/api/experimental/persistent-pty/shutdown", scope: Scope::G, envelope: Envelope::NoContent, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtyHandoff, id: "experimental.persistentPty.handoff", method: "POST", path: "/api/experimental/persistent-pty/handoff", route: "/api/experimental/persistent-pty/handoff", scope: Scope::G, envelope: Envelope::Bare, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtyGet, id: "experimental.persistentPty.get", method: "GET", path: "/api/experimental/persistent-pty/{ptyID}", route: "/api/experimental/persistent-pty/{ptyID}", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtyUpdate, id: "experimental.persistentPty.update", method: "PUT", path: "/api/experimental/persistent-pty/{ptyID}", route: "/api/experimental/persistent-pty/{ptyID}", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtyRemove, id: "experimental.persistentPty.remove", method: "DELETE", path: "/api/experimental/persistent-pty/{ptyID}", route: "/api/experimental/persistent-pty/{ptyID}", scope: Scope::G, envelope: Envelope::NoContent, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtySnapshot, id: "experimental.persistentPty.snapshot", method: "GET", path: "/api/experimental/persistent-pty/{ptyID}/snapshot", route: "/api/experimental/persistent-pty/{ptyID}/snapshot", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalPersistentPtyConnectToken, id: "experimental.persistentPty.connectToken", method: "POST", path: "/api/experimental/persistent-pty/{ptyID}/connect-token", route: "/api/experimental/persistent-pty/{ptyID}/connect-token", scope: Scope::G, envelope: Envelope::Data, special: true },
+    OpMeta { op: Op::ExperimentalPersistentPtyConnect, id: "experimental.persistentPty.connect", method: "GET", path: "/api/experimental/persistent-pty/{ptyID}/connect", route: "/api/experimental/persistent-pty/{ptyID}/connect", scope: Scope::G, envelope: Envelope::Raw, special: true },
+    OpMeta { op: Op::ExperimentalMediaGet, id: "experimental.media.get", method: "GET", path: "/api/experimental/media/{hash}", route: "/api/experimental/media/{hash}", scope: Scope::G, envelope: Envelope::Raw, special: true },
+    OpMeta { op: Op::ExperimentalScheduleCreate, id: "experimental.schedule.create", method: "POST", path: "/api/experimental/schedule", route: "/api/experimental/schedule", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalScheduleList, id: "experimental.schedule.list", method: "GET", path: "/api/experimental/schedule", route: "/api/experimental/schedule", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalScheduleGet, id: "experimental.schedule.get", method: "GET", path: "/api/experimental/schedule/{scheduleID}", route: "/api/experimental/schedule/{scheduleID}", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalScheduleDelete, id: "experimental.schedule.delete", method: "DELETE", path: "/api/experimental/schedule/{scheduleID}", route: "/api/experimental/schedule/{scheduleID}", scope: Scope::G, envelope: Envelope::NoContent, special: false },
+    OpMeta { op: Op::ExperimentalSchedulePause, id: "experimental.schedule.pause", method: "POST", path: "/api/experimental/schedule/{scheduleID}/pause", route: "/api/experimental/schedule/{scheduleID}/pause", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalScheduleResume, id: "experimental.schedule.resume", method: "POST", path: "/api/experimental/schedule/{scheduleID}/resume", route: "/api/experimental/schedule/{scheduleID}/resume", scope: Scope::G, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::ShellList, id: "shell.list", method: "GET", path: "/api/shell", route: "/api/shell", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ShellCreate, id: "shell.create", method: "POST", path: "/api/shell", route: "/api/shell", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ShellGet, id: "shell.get", method: "GET", path: "/api/shell/{id}", route: "/api/shell/{id}", scope: Scope::L, envelope: Envelope::Location, special: false },
@@ -7840,6 +9411,7 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::ExperimentalMigrationV1Status, id: "experimental.migration.v1.status", method: "GET", path: "/api/experimental/migration/v1", route: "/api/experimental/migration/v1", scope: Scope::G, envelope: Envelope::Bare, special: false },
     OpMeta { op: Op::WebsearchProviders, id: "websearch.providers", method: "GET", path: "/api/websearch/provider", route: "/api/websearch/provider", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::WebsearchQuery, id: "websearch.query", method: "POST", path: "/api/websearch", route: "/api/websearch", scope: Scope::L, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalUsageLimits, id: "experimental.usage.limits", method: "GET", path: "/api/experimental/usage/limits", route: "/api/experimental/usage/limits", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ConfigGet, id: "config.get", method: "GET", path: "/api/config", route: "/api/config", scope: Scope::L, envelope: Envelope::Bare, special: false },
     OpMeta { op: Op::ConfigShells, id: "config.shells", method: "GET", path: "/api/config/shell", route: "/api/config/shell", scope: Scope::G, envelope: Envelope::Bare, special: false },
     OpMeta { op: Op::ExperimentalConfigUpdate, id: "experimental.config.update", method: "PATCH", path: "/api/experimental/config", route: "/api/experimental/config", scope: Scope::G, envelope: Envelope::NoContent, special: false },
@@ -7911,6 +9483,15 @@ pub trait Backend: Send + Sync + 'static {
     async fn plugin_list(&self, ctx: &RequestContext, req: PluginListRequest) -> Result<Vec<PluginInfo>, ApiError> {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("plugin.list"))
+    }
+    /// `GET /api/plugin/gui` — `plugin.gui`: Read plugin GUI bundle.
+    ///
+    /// Read an active plugin's prebuilt CommonJS `./gui-experimental` bundle. Desktop app windows run its default export; the desktop app's main process runs its `main` export. Fails with not found when no active plugin has the id or the plugin exports no `./gui-experimental`.
+    ///
+    /// Scope `L`, envelope `Location`.
+    async fn plugin_gui(&self, ctx: &RequestContext, req: PluginGuiRequest) -> Result<PluginGuiBundle, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("plugin.gui"))
     }
     /// `POST /api/plugin/check` — `plugin.check`: Check plugin updates.
     ///
@@ -8214,14 +9795,14 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("session.generate"))
     }
-    /// `GET /api/experimental/session/{sessionID}/log` — `session.log`: Read the session log.
+    /// `GET /api/experimental/session/{sessionID}/log` — `experimental.session.log`: Read the session log.
     ///
     /// Experimental durable session event log. Reads events after an exclusive aggregate sequence and continues with live events when follow=true.
     ///
     /// Scope `G`, envelope `Raw`.
-    async fn session_log(&self, ctx: &RequestContext, req: SessionLogRequest) -> Result<crate::backend::SessionLogStream, ApiError> {
+    async fn experimental_session_log(&self, ctx: &RequestContext, req: ExperimentalSessionLogRequest) -> Result<crate::backend::SessionLogStream, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("session.log"))
+        Err(ApiError::not_implemented("experimental.session.log"))
     }
     /// `POST /api/session/{sessionID}/interrupt` — `session.interrupt`: Interrupt session execution.
     ///
@@ -8324,7 +9905,7 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// `GET /api/model` — `model.list`: List models.
     ///
-    /// Retrieve the current snapshot of available models ordered by release date. The snapshot may precede initial plugin settlement.
+    /// Retrieve the current snapshot of available models of the requested types, chat by default, ordered by release date within each type. The snapshot may precede initial plugin settlement.
     ///
     /// Scope `L`, envelope `Location`.
     async fn model_list(&self, ctx: &RequestContext, req: ModelListRequest) -> Result<Vec<ModelInfo>, ApiError> {
@@ -8340,7 +9921,7 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("model.default"))
     }
-    /// `POST /api/experimental/generate` — `experimental.generate.text`: Generate text.
+    /// `POST /api/experimental/generate/text` — `experimental.generate.text`: Generate text.
     ///
     /// Run one stateless model generation using the server's base configuration and return the assistant text. Uses the base configuration's default model when none is specified.
     ///
@@ -8349,9 +9930,36 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("experimental.generate.text"))
     }
+    /// `POST /api/experimental/generate` — `experimental.generate.textLegacy`: Generate text (deprecated path).
+    ///
+    /// Deprecated alias of POST /api/experimental/generate/text.
+    ///
+    /// Scope `G`, envelope `Bare`.
+    async fn experimental_generate_text_legacy(&self, ctx: &RequestContext, req: ExperimentalGenerateTextLegacyRequest) -> Result<GenerateTextResponse, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.generate.textLegacy"))
+    }
+    /// `POST /api/experimental/generate/image` — `experimental.generate.image`: Generate images.
+    ///
+    /// Generate or edit images with an image model using the server's base configuration and return them as base64. Stateless: nothing is stored.
+    ///
+    /// Scope `G`, envelope `Bare`.
+    async fn experimental_generate_image(&self, ctx: &RequestContext, req: ExperimentalGenerateImageRequest) -> Result<GenerateImageResponse, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.generate.image"))
+    }
+    /// `POST /api/experimental/generate/decisions` — `experimental.generate.decisions`: Generate decisions.
+    ///
+    /// Ask a decision model typed predicate, choice and score questions about the input and return one probability-bearing answer per question, in question order. Stateless: nothing is stored.
+    ///
+    /// Scope `G`, envelope `Bare`.
+    async fn experimental_generate_decisions(&self, ctx: &RequestContext, req: ExperimentalGenerateDecisionsRequest) -> Result<GenerateDecisionsResponse, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.generate.decisions"))
+    }
     /// `GET /api/experimental/voice/models` — `experimental.voice.models`: List voice models.
     ///
-    /// List supported voice models, their transports, whether the server has a usable API key for each provider or the connected OpenCode Console hosts the model, and the Console workspace a hosted model bills to.
+    /// List supported voice models, their transports, and whether the server has a usable API key for each provider.
     ///
     /// Scope `G`, envelope `Bare`.
     async fn experimental_voice_models(&self, ctx: &RequestContext, req: ExperimentalVoiceModelsRequest) -> Result<VoiceModelsResponse, ApiError> {
@@ -8360,21 +9968,12 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// `POST /api/experimental/voice/session` — `experimental.voice.session`: Create voice session.
     ///
-    /// Create a server-brokered voice session using the server's configured provider credentials, or the connected OpenCode Console when it hosts the model, and return the WebRTC SDP answer or WebSocket ephemeral token.
+    /// Create a server-brokered voice session using the server's configured provider credentials and return the WebRTC SDP answer or WebSocket ephemeral token.
     ///
     /// Scope `G`, envelope `Bare`.
     async fn experimental_voice_session(&self, ctx: &RequestContext, req: ExperimentalVoiceSessionRequest) -> Result<VoiceSessionResponse, ApiError> {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("experimental.voice.session"))
-    }
-    /// `POST /api/experimental/voice/session/{sessionID}/instructions` — `experimental.voice.instructions`: Replace voice session instructions.
-    ///
-    /// Replace the backend instructions of a running session the connected OpenCode Console hosts, whose data channel can't change them.
-    ///
-    /// Scope `G`, envelope `NoContent`.
-    async fn experimental_voice_instructions(&self, ctx: &RequestContext, req: ExperimentalVoiceInstructionsRequest) -> Result<(), ApiError> {
-        let _ = (ctx, req);
-        Err(ApiError::not_implemented("experimental.voice.instructions"))
     }
     /// `GET /api/provider` — `provider.list`: List providers.
     ///
@@ -8754,6 +10353,24 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("experimental.fs.write"))
     }
+    /// `POST /api/experimental/fs/watch` — `experimental.fs.watch`: Watch file.
+    ///
+    /// Watch one file relative to the requested location for 24 hours, publishing filesystem.changed on that location when it changes. Watching an already watched file resets its expiry. Paths follow read confinement. Experimental: may change without compatibility guarantees.
+    ///
+    /// Scope `L`, envelope `NoContent`.
+    async fn experimental_fs_watch(&self, ctx: &RequestContext, req: ExperimentalFsWatchRequest) -> Result<(), ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.fs.watch"))
+    }
+    /// `DELETE /api/experimental/fs/watch` — `experimental.fs.unwatch`: Unwatch file.
+    ///
+    /// Stop watching one file relative to the requested location. Experimental: may change without compatibility guarantees.
+    ///
+    /// Scope `L`, envelope `NoContent`.
+    async fn experimental_fs_unwatch(&self, ctx: &RequestContext, req: ExperimentalFsUnwatchRequest) -> Result<(), ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.fs.unwatch"))
+    }
     /// `GET /api/command` — `command.list`: List commands.
     ///
     /// Retrieve currently registered commands.
@@ -8844,79 +10461,142 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("pty.connect"))
     }
-    /// `GET /api/experimental/session/{sessionID}/terminal/read` — `server.experimental.persistentPty.read`: Read the session's most recently controlled terminal.
+    /// `GET /api/experimental/session/{sessionID}/terminal/read` — `experimental.persistentPty.read`: Read the session's most recently controlled terminal.
     ///
     /// Read the last physical rows without changing selection or taking control. Omitted lines uses the live terminal height; larger counts include retained history. Blank rows are preserved. Screen dimensions and cursor remain relative to the live screen. Returns null when no current terminal exists. Selection is server-local and resets on restart. Experimental: may change without compatibility guarantees.
     ///
     /// Scope `G`, envelope `Data`.
-    async fn server_experimental_persistent_pty_read(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtyReadRequest) -> Result<Option<PersistentPtyReadResult>, ApiError> {
+    async fn experimental_persistent_pty_read(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyReadRequest) -> Result<Option<PersistentPtyReadResult>, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.read"))
+        Err(ApiError::not_implemented("experimental.persistentPty.read"))
     }
-    /// `GET /api/experimental/session/{sessionID}/terminal` — `server.experimental.persistentPty.list`.
+    /// `GET /api/experimental/session/{sessionID}/terminal` — `experimental.persistentPty.list`.
     ///
     /// Scope `G`, envelope `Data`.
-    async fn server_experimental_persistent_pty_list(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtyListRequest) -> Result<Vec<PersistentPtyInfo>, ApiError> {
+    async fn experimental_persistent_pty_list(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyListRequest) -> Result<Vec<PersistentPtyInfo>, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.list"))
+        Err(ApiError::not_implemented("experimental.persistentPty.list"))
     }
-    /// `POST /api/experimental/session/{sessionID}/terminal` — `server.experimental.persistentPty.create`.
+    /// `POST /api/experimental/session/{sessionID}/terminal` — `experimental.persistentPty.create`.
     ///
     /// Scope `G`, envelope `Data`.
-    async fn server_experimental_persistent_pty_create(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtyCreateRequest) -> Result<PersistentPtyInfo, ApiError> {
+    async fn experimental_persistent_pty_create(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyCreateRequest) -> Result<PersistentPtyInfo, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.create"))
+        Err(ApiError::not_implemented("experimental.persistentPty.create"))
     }
-    /// `POST /api/experimental/persistent-pty/shutdown` — `server.experimental.persistentPty.shutdown`.
+    /// `POST /api/experimental/persistent-pty/shutdown` — `experimental.persistentPty.shutdown`.
     ///
     /// Scope `G`, envelope `NoContent`.
-    async fn server_experimental_persistent_pty_shutdown(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtyShutdownRequest) -> Result<(), ApiError> {
+    async fn experimental_persistent_pty_shutdown(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyShutdownRequest) -> Result<(), ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.shutdown"))
+        Err(ApiError::not_implemented("experimental.persistentPty.shutdown"))
     }
-    /// `POST /api/experimental/persistent-pty/handoff` — `server.experimental.persistentPty.handoff`.
+    /// `POST /api/experimental/persistent-pty/handoff` — `experimental.persistentPty.handoff`.
     ///
     /// Scope `G`, envelope `Bare`.
-    async fn server_experimental_persistent_pty_handoff(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtyHandoffRequest) -> Result<ServerExperimentalPersistentPtyHandoffResponse, ApiError> {
+    async fn experimental_persistent_pty_handoff(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyHandoffRequest) -> Result<ExperimentalPersistentPtyHandoffResponse, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.handoff"))
+        Err(ApiError::not_implemented("experimental.persistentPty.handoff"))
     }
-    /// `GET /api/experimental/persistent-pty/{ptyID}` — `server.experimental.persistentPty.get`.
+    /// `GET /api/experimental/persistent-pty/{ptyID}` — `experimental.persistentPty.get`.
     ///
     /// Scope `G`, envelope `Data`.
-    async fn server_experimental_persistent_pty_get(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtyGetRequest) -> Result<PersistentPtyInfo, ApiError> {
+    async fn experimental_persistent_pty_get(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyGetRequest) -> Result<PersistentPtyInfo, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.get"))
+        Err(ApiError::not_implemented("experimental.persistentPty.get"))
     }
-    /// `PUT /api/experimental/persistent-pty/{ptyID}` — `server.experimental.persistentPty.update`.
+    /// `PUT /api/experimental/persistent-pty/{ptyID}` — `experimental.persistentPty.update`.
     ///
     /// Scope `G`, envelope `Data`.
-    async fn server_experimental_persistent_pty_update(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtyUpdateRequest) -> Result<PersistentPtyInfo, ApiError> {
+    async fn experimental_persistent_pty_update(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyUpdateRequest) -> Result<PersistentPtyInfo, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.update"))
+        Err(ApiError::not_implemented("experimental.persistentPty.update"))
     }
-    /// `DELETE /api/experimental/persistent-pty/{ptyID}` — `server.experimental.persistentPty.remove`.
+    /// `DELETE /api/experimental/persistent-pty/{ptyID}` — `experimental.persistentPty.remove`.
     ///
     /// Scope `G`, envelope `NoContent`.
-    async fn server_experimental_persistent_pty_remove(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtyRemoveRequest) -> Result<(), ApiError> {
+    async fn experimental_persistent_pty_remove(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyRemoveRequest) -> Result<(), ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.remove"))
+        Err(ApiError::not_implemented("experimental.persistentPty.remove"))
     }
-    /// `GET /api/experimental/persistent-pty/{ptyID}/snapshot` — `server.experimental.persistentPty.snapshot`.
+    /// `GET /api/experimental/persistent-pty/{ptyID}/snapshot` — `experimental.persistentPty.snapshot`.
     ///
     /// Scope `G`, envelope `Data`.
-    async fn server_experimental_persistent_pty_snapshot(&self, ctx: &RequestContext, req: ServerExperimentalPersistentPtySnapshotRequest) -> Result<PersistentPtySnapshot, ApiError> {
+    async fn experimental_persistent_pty_snapshot(&self, ctx: &RequestContext, req: ExperimentalPersistentPtySnapshotRequest) -> Result<PersistentPtySnapshot, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("server.experimental.persistentPty.snapshot"))
+        Err(ApiError::not_implemented("experimental.persistentPty.snapshot"))
     }
-    /// `GET /api/experimental/persistent-pty/{ptyID}/connect` — `persistentPty.connect`: Connect to a persistent PTY.
+    /// `GET /api/experimental/persistent-pty/{ptyID}/connect` — `experimental.persistentPty.connect`: Connect to a persistent PTY.
     ///
     /// Stream persistent PTY output through the OpenCode server.
     ///
     /// Scope `G`, envelope `Raw`.
-    async fn persistent_pty_connect(&self, ctx: &RequestContext, req: crate::backend::PersistentPtyAttachRequest) -> Result<crate::backend::PersistentPtyAttachment, ApiError> {
+    async fn experimental_persistent_pty_connect(&self, ctx: &RequestContext, req: crate::backend::PersistentPtyAttachRequest) -> Result<crate::backend::PersistentPtyAttachment, ApiError> {
         let _ = (ctx, req);
-        Err(ApiError::not_implemented("persistentPty.connect"))
+        Err(ApiError::not_implemented("experimental.persistentPty.connect"))
+    }
+    /// `GET /api/experimental/media/{hash}` — `experimental.media.get`: Read media blob.
+    ///
+    /// Read a content-addressed media blob by SHA-256 hash with immutable Cache-Control, ETag, and 304 Not Modified support. Only blobs a stored message or inbox item still references are served. Experimental: may change without compatibility guarantees.
+    ///
+    /// Scope `G`, envelope `Raw`.
+    async fn experimental_media_get(&self, ctx: &RequestContext, req: ExperimentalMediaGetRequest) -> Result<crate::backend::MediaBlob, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.media.get"))
+    }
+    /// `POST /api/experimental/schedule` — `experimental.schedule.create`: Create schedule.
+    ///
+    /// Schedule a prompt that wakes the Session once after a delay, at a time, every interval, or on a cron. Experimental: needs experimental.schedules in the Session's config and may change without notice.
+    ///
+    /// Scope `G`, envelope `Data`.
+    async fn experimental_schedule_create(&self, ctx: &RequestContext, req: ExperimentalScheduleCreateRequest) -> Result<ScheduleInfo, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.schedule.create"))
+    }
+    /// `GET /api/experimental/schedule` — `experimental.schedule.list`: List schedules.
+    ///
+    /// List a Session's schedules, oldest first. Experimental: needs experimental.schedules in the Session's config and may change without notice.
+    ///
+    /// Scope `G`, envelope `Data`.
+    async fn experimental_schedule_list(&self, ctx: &RequestContext, req: ExperimentalScheduleListRequest) -> Result<Vec<ScheduleInfo>, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.schedule.list"))
+    }
+    /// `GET /api/experimental/schedule/{scheduleID}` — `experimental.schedule.get`: Get schedule.
+    ///
+    /// Read one schedule. Experimental: needs experimental.schedules in the Session's config and may change without notice.
+    ///
+    /// Scope `G`, envelope `Data`.
+    async fn experimental_schedule_get(&self, ctx: &RequestContext, req: ExperimentalScheduleGetRequest) -> Result<ScheduleInfo, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.schedule.get"))
+    }
+    /// `DELETE /api/experimental/schedule/{scheduleID}` — `experimental.schedule.delete`: Delete schedule.
+    ///
+    /// Delete a schedule. Experimental: needs experimental.schedules in the Session's config and may change without notice.
+    ///
+    /// Scope `G`, envelope `NoContent`.
+    async fn experimental_schedule_delete(&self, ctx: &RequestContext, req: ExperimentalScheduleDeleteRequest) -> Result<(), ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.schedule.delete"))
+    }
+    /// `POST /api/experimental/schedule/{scheduleID}/pause` — `experimental.schedule.pause`: Pause schedule.
+    ///
+    /// Stop a schedule from firing until it is resumed. Experimental: needs experimental.schedules in the Session's config and may change without notice.
+    ///
+    /// Scope `G`, envelope `Data`.
+    async fn experimental_schedule_pause(&self, ctx: &RequestContext, req: ExperimentalSchedulePauseRequest) -> Result<ScheduleInfo, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.schedule.pause"))
+    }
+    /// `POST /api/experimental/schedule/{scheduleID}/resume` — `experimental.schedule.resume`: Resume schedule.
+    ///
+    /// Resume a paused schedule. A one-shot that fell due while paused fires once; a repeating schedule resumes at its next slot. Experimental: needs experimental.schedules in the Session's config and may change without notice.
+    ///
+    /// Scope `G`, envelope `Data`.
+    async fn experimental_schedule_resume(&self, ctx: &RequestContext, req: ExperimentalScheduleResumeRequest) -> Result<ScheduleInfo, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.schedule.resume"))
     }
     /// `GET /api/shell` — `shell.list`: List running shell commands.
     ///
@@ -9116,6 +10796,15 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("websearch.query"))
     }
+    /// `GET /api/experimental/usage/limits` — `experimental.usage.limits`: Get usage limits.
+    ///
+    /// Return the OpenCode Go allowance and Console budgets of the OpenCode Console workspace the location is signed in to, or null when it isn't signed in.
+    ///
+    /// Scope `L`, envelope `Location`.
+    async fn experimental_usage_limits(&self, ctx: &RequestContext, req: ExperimentalUsageLimitsRequest) -> Result<Option<UsageLimitsInfo>, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.usage.limits"))
+    }
     /// `GET /api/config` — `config.get`: Get configuration.
     ///
     /// Return configuration documents and discovery sources for the requested location, from lowest to highest priority.
@@ -9186,6 +10875,13 @@ pub(crate) async fn dispatch(
         Op::PluginList => {
             let req = PluginListRequest {};
             let out = backend.plugin_list(&call.ctx, req).await?;
+            Ok(respond::location(&call.ctx, &out))
+        }
+        Op::PluginGui => {
+            let req = PluginGuiRequest {
+                id: crate::router::required(call.query_str("id", None)?, "id")?,
+            };
+            let out = backend.plugin_gui(&call.ctx, req).await?;
             Ok(respond::location(&call.ctx, &out))
         }
         Op::PluginCheck => {
@@ -9546,7 +11242,9 @@ pub(crate) async fn dispatch(
             Ok(respond::no_content())
         }
         Op::ModelList => {
-            let req = ModelListRequest {};
+            let req = ModelListRequest {
+                types: call.query_array::<ModelType>("types", "Model.Type")?,
+            };
             let out = backend.model_list(&call.ctx, req).await?;
             Ok(respond::location(&call.ctx, &out))
         }
@@ -9562,6 +11260,27 @@ pub(crate) async fn dispatch(
             let out = backend.experimental_generate_text(&call.ctx, req).await?;
             Ok(respond::bare(&out))
         }
+        Op::ExperimentalGenerateTextLegacy => {
+            let req = ExperimentalGenerateTextLegacyRequest {
+                body: call.json_body_for("experimental.generate.textLegacy")?,
+            };
+            let out = backend.experimental_generate_text_legacy(&call.ctx, req).await?;
+            Ok(respond::bare(&out))
+        }
+        Op::ExperimentalGenerateImage => {
+            let req = ExperimentalGenerateImageRequest {
+                body: call.json_body_for("experimental.generate.image")?,
+            };
+            let out = backend.experimental_generate_image(&call.ctx, req).await?;
+            Ok(respond::bare(&out))
+        }
+        Op::ExperimentalGenerateDecisions => {
+            let req = ExperimentalGenerateDecisionsRequest {
+                body: call.json_body_for("experimental.generate.decisions")?,
+            };
+            let out = backend.experimental_generate_decisions(&call.ctx, req).await?;
+            Ok(respond::bare(&out))
+        }
         Op::ExperimentalVoiceModels => {
             let req = ExperimentalVoiceModelsRequest {};
             let out = backend.experimental_voice_models(&call.ctx, req).await?;
@@ -9573,15 +11292,6 @@ pub(crate) async fn dispatch(
             };
             let out = backend.experimental_voice_session(&call.ctx, req).await?;
             Ok(respond::bare(&out))
-        }
-        Op::ExperimentalVoiceInstructions => {
-            let req = ExperimentalVoiceInstructionsRequest {
-                session_id: call.path_str("sessionID", None)?,
-                body: call.json_body_for("experimental.voice.instructions")?,
-            };
-            let out = backend.experimental_voice_instructions(&call.ctx, req).await?;
-            let () = out;
-            Ok(respond::no_content())
         }
         Op::ProviderList => {
             let req = ProviderListRequest {};
@@ -9893,6 +11603,22 @@ pub(crate) async fn dispatch(
             let out = backend.experimental_fs_write(&call.ctx, req).await?;
             Ok(respond::location(&call.ctx, &out))
         }
+        Op::ExperimentalFsWatch => {
+            let req = ExperimentalFsWatchRequest {
+                body: call.json_body_for("experimental.fs.watch")?,
+            };
+            let out = backend.experimental_fs_watch(&call.ctx, req).await?;
+            let () = out;
+            Ok(respond::no_content())
+        }
+        Op::ExperimentalFsUnwatch => {
+            let req = ExperimentalFsUnwatchRequest {
+                body: call.json_body_for("experimental.fs.unwatch")?,
+            };
+            let out = backend.experimental_fs_unwatch(&call.ctx, req).await?;
+            let () = out;
+            Ok(respond::no_content())
+        }
         Op::CommandList => {
             let req = CommandListRequest {};
             let out = backend.command_list(&call.ctx, req).await?;
@@ -9947,68 +11673,111 @@ pub(crate) async fn dispatch(
             let () = out;
             Ok(respond::no_content())
         }
-        Op::ServerExperimentalPersistentPtyRead => {
-            let req = ServerExperimentalPersistentPtyReadRequest {
+        Op::ExperimentalPersistentPtyRead => {
+            let req = ExperimentalPersistentPtyReadRequest {
                 session_id: call.path_str("sessionID", Some("^ses"))?,
                 lines: call.query_pos_int("lines", Some(65535))?,
             };
-            let out = backend.server_experimental_persistent_pty_read(&call.ctx, req).await?;
+            let out = backend.experimental_persistent_pty_read(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }
-        Op::ServerExperimentalPersistentPtyList => {
-            let req = ServerExperimentalPersistentPtyListRequest {
+        Op::ExperimentalPersistentPtyList => {
+            let req = ExperimentalPersistentPtyListRequest {
                 session_id: call.path_str("sessionID", Some("^ses"))?,
             };
-            let out = backend.server_experimental_persistent_pty_list(&call.ctx, req).await?;
+            let out = backend.experimental_persistent_pty_list(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }
-        Op::ServerExperimentalPersistentPtyCreate => {
-            let req = ServerExperimentalPersistentPtyCreateRequest {
+        Op::ExperimentalPersistentPtyCreate => {
+            let req = ExperimentalPersistentPtyCreateRequest {
                 session_id: call.path_str("sessionID", Some("^ses"))?,
-                body: call.json_body_for("server.experimental.persistentPty.create")?,
+                body: call.json_body_for("experimental.persistentPty.create")?,
             };
-            let out = backend.server_experimental_persistent_pty_create(&call.ctx, req).await?;
+            let out = backend.experimental_persistent_pty_create(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }
-        Op::ServerExperimentalPersistentPtyShutdown => {
-            let req = ServerExperimentalPersistentPtyShutdownRequest {};
-            let out = backend.server_experimental_persistent_pty_shutdown(&call.ctx, req).await?;
+        Op::ExperimentalPersistentPtyShutdown => {
+            let req = ExperimentalPersistentPtyShutdownRequest {};
+            let out = backend.experimental_persistent_pty_shutdown(&call.ctx, req).await?;
             let () = out;
             Ok(respond::no_content())
         }
-        Op::ServerExperimentalPersistentPtyHandoff => {
-            let req = ServerExperimentalPersistentPtyHandoffRequest {};
-            let out = backend.server_experimental_persistent_pty_handoff(&call.ctx, req).await?;
+        Op::ExperimentalPersistentPtyHandoff => {
+            let req = ExperimentalPersistentPtyHandoffRequest {};
+            let out = backend.experimental_persistent_pty_handoff(&call.ctx, req).await?;
             Ok(respond::bare(&out))
         }
-        Op::ServerExperimentalPersistentPtyGet => {
-            let req = ServerExperimentalPersistentPtyGetRequest {
+        Op::ExperimentalPersistentPtyGet => {
+            let req = ExperimentalPersistentPtyGetRequest {
                 pty_id: call.path_str("ptyID", Some("^pty"))?,
             };
-            let out = backend.server_experimental_persistent_pty_get(&call.ctx, req).await?;
+            let out = backend.experimental_persistent_pty_get(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }
-        Op::ServerExperimentalPersistentPtyUpdate => {
-            let req = ServerExperimentalPersistentPtyUpdateRequest {
+        Op::ExperimentalPersistentPtyUpdate => {
+            let req = ExperimentalPersistentPtyUpdateRequest {
                 pty_id: call.path_str("ptyID", Some("^pty"))?,
-                body: call.json_body_for("server.experimental.persistentPty.update")?,
+                body: call.json_body_for("experimental.persistentPty.update")?,
             };
-            let out = backend.server_experimental_persistent_pty_update(&call.ctx, req).await?;
+            let out = backend.experimental_persistent_pty_update(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }
-        Op::ServerExperimentalPersistentPtyRemove => {
-            let req = ServerExperimentalPersistentPtyRemoveRequest {
+        Op::ExperimentalPersistentPtyRemove => {
+            let req = ExperimentalPersistentPtyRemoveRequest {
                 pty_id: call.path_str("ptyID", Some("^pty"))?,
             };
-            let out = backend.server_experimental_persistent_pty_remove(&call.ctx, req).await?;
+            let out = backend.experimental_persistent_pty_remove(&call.ctx, req).await?;
             let () = out;
             Ok(respond::no_content())
         }
-        Op::ServerExperimentalPersistentPtySnapshot => {
-            let req = ServerExperimentalPersistentPtySnapshotRequest {
+        Op::ExperimentalPersistentPtySnapshot => {
+            let req = ExperimentalPersistentPtySnapshotRequest {
                 pty_id: call.path_str("ptyID", Some("^pty"))?,
             };
-            let out = backend.server_experimental_persistent_pty_snapshot(&call.ctx, req).await?;
+            let out = backend.experimental_persistent_pty_snapshot(&call.ctx, req).await?;
+            Ok(respond::data(&out))
+        }
+        Op::ExperimentalScheduleCreate => {
+            let req = ExperimentalScheduleCreateRequest {
+                body: call.json_body_for("experimental.schedule.create")?,
+            };
+            let out = backend.experimental_schedule_create(&call.ctx, req).await?;
+            Ok(respond::data(&out))
+        }
+        Op::ExperimentalScheduleList => {
+            let req = ExperimentalScheduleListRequest {
+                session_id: crate::router::required(call.query_str("sessionID", Some("^ses"))?, "sessionID")?,
+            };
+            let out = backend.experimental_schedule_list(&call.ctx, req).await?;
+            Ok(respond::data(&out))
+        }
+        Op::ExperimentalScheduleGet => {
+            let req = ExperimentalScheduleGetRequest {
+                schedule_id: call.path_str("scheduleID", Some("^sch_"))?,
+            };
+            let out = backend.experimental_schedule_get(&call.ctx, req).await?;
+            Ok(respond::data(&out))
+        }
+        Op::ExperimentalScheduleDelete => {
+            let req = ExperimentalScheduleDeleteRequest {
+                schedule_id: call.path_str("scheduleID", Some("^sch_"))?,
+            };
+            let out = backend.experimental_schedule_delete(&call.ctx, req).await?;
+            let () = out;
+            Ok(respond::no_content())
+        }
+        Op::ExperimentalSchedulePause => {
+            let req = ExperimentalSchedulePauseRequest {
+                schedule_id: call.path_str("scheduleID", Some("^sch_"))?,
+            };
+            let out = backend.experimental_schedule_pause(&call.ctx, req).await?;
+            Ok(respond::data(&out))
+        }
+        Op::ExperimentalScheduleResume => {
+            let req = ExperimentalScheduleResumeRequest {
+                schedule_id: call.path_str("scheduleID", Some("^sch_"))?,
+            };
+            let out = backend.experimental_schedule_resume(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }
         Op::ShellList => {
@@ -10118,6 +11887,7 @@ pub(crate) async fn dispatch(
                 mode: crate::router::required(call.query_enum::<VcsMode>("mode", "Vcs.Mode")?, "mode")?,
                 base: call.query_str("base", None)?,
                 context: call.query_int("context", Some(0), None)?,
+                untracked: call.query_enum::<VcsUntracked>("untracked", "Vcs.Untracked")?,
             };
             let out = backend.vcs_diff(&call.ctx, req).await?;
             Ok(respond::location(&call.ctx, &out))
@@ -10155,6 +11925,11 @@ pub(crate) async fn dispatch(
                 body: call.json_body_for("websearch.query")?,
             };
             let out = backend.websearch_query(&call.ctx, req).await?;
+            Ok(respond::location(&call.ctx, &out))
+        }
+        Op::ExperimentalUsageLimits => {
+            let req = ExperimentalUsageLimitsRequest {};
+            let out = backend.experimental_usage_limits(&call.ctx, req).await?;
             Ok(respond::location(&call.ctx, &out))
         }
         Op::ConfigGet => {

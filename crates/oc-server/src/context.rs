@@ -118,16 +118,36 @@ impl ServerMeta {
     }
 
     /// `ServerInfo` as served by `GET /api/info`. `persistent_pty` = `None` omits
-    /// `capabilities` (the pre-ready shape).
+    /// `capabilities` and `hostname` (the pre-ready shape).
     pub fn info(&self, persistent_pty: Option<bool>) -> ServerInfo {
         ServerInfo {
             version: self.version.clone(),
             pid: i64::from(self.pid),
+            // `hostname() || undefined`: only the ready handler reports it.
+            hostname: persistent_pty.and_then(|_| machine_hostname()),
             urls: self.urls(),
             paths: ServerInfoPaths { tmp: self.tmp.clone() },
             capabilities: persistent_pty.map(|p| ServerInfoCapabilities { persistent_pty: Some(p) }),
         }
     }
+}
+
+/// Node's `os.hostname()` (libuv `uv_os_gethostname`), `None` when empty.
+pub fn machine_hostname() -> Option<String> {
+    #[cfg(unix)]
+    let name = {
+        let mut buf = [0u8; 256];
+        // SAFETY: the buffer is valid for `buf.len()` bytes; gethostname NUL-terminates on success.
+        let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
+        if rc != 0 {
+            return None;
+        }
+        let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    };
+    #[cfg(not(unix))]
+    let name = std::env::var("COMPUTERNAME").unwrap_or_default();
+    (!name.is_empty()).then_some(name)
 }
 
 #[cfg(test)]

@@ -2677,6 +2677,7 @@ dependencies = [
  "httpdate",
  "indexmap",
  "jsonschema 0.33.0",
+ "libc",
  "mime_guess",
  "parking_lot",
  "percent-encoding",

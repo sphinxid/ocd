@@ -16,8 +16,8 @@ use crate::backend::{
 use crate::cors::is_allowed_request_origin;
 use crate::error::ApiError;
 use crate::generated::{
-    Op, OpMeta, PairingCode, PairingSession, PtyGetRequest, PtyTicketConnectToken, ServerExperimentalPersistentPtyGetRequest,
-    SessionInfo, SessionLogRequest, SessionMessageListOrder,
+    ExperimentalMediaGetRequest, ExperimentalPersistentPtyGetRequest, ExperimentalSessionLogRequest, Op, OpMeta,
+    PairingCode, PairingSession, PtyGetRequest, PtyTicketConnectToken, SessionInfo, SessionMessageListOrder,
 };
 use crate::location::decode_uri_component;
 use crate::router::{Call, respond};
@@ -37,18 +37,24 @@ pub(crate) async fn special(
         Op::ServerConnect => server_connect(app, &call),
         Op::SessionList => session_list(app, &call).await,
         Op::SessionMessageList => session_message_list(app, &call).await,
-        Op::SessionLog => {
-            let req = SessionLogRequest {
+        Op::ExperimentalSessionLog => {
+            let req = ExperimentalSessionLogRequest {
                 session_id: call.path_str("sessionID", Some("^ses"))?,
                 after: call.query_int("after", Some(0), None)?,
                 follow: call.query_bool("follow")?,
             };
-            let stream = app.backend.session_log(&call.ctx, req).await?;
+            let stream = app.backend.experimental_session_log(&call.ctx, req).await?;
             Ok(crate::sse::session_log_response(stream))
         }
         Op::EventSubscribe => {
+            let types = event_types(&call)?;
             let sub = app.backend.event_subscribe(&call.ctx, EventSubscribeRequest { location: None }).await?;
-            Ok(crate::sse::event_response(sub))
+            Ok(crate::sse::event_response(sub, types))
+        }
+        Op::ExperimentalMediaGet => {
+            let hash = call.path_str("hash", Some("^[0-9a-f]{64}$"))?;
+            let blob = app.backend.experimental_media_get(&call.ctx, ExperimentalMediaGetRequest { hash: hash.clone() }).await?;
+            Ok(media_response(&hash, blob, &call.headers))
         }
         Op::FsRead => {
             let raw = uri.path().get("/api/fs/read/".len()..).unwrap_or("").to_string();
@@ -67,19 +73,80 @@ pub(crate) async fn special(
             });
             Ok(respond::location(&call.ctx, &PtyTicketConnectToken { ticket, expires_in: TICKET_TTL_SECONDS }))
         }
-        Op::ServerExperimentalPersistentPtyConnectToken => {
+        Op::ExperimentalPersistentPtyConnectToken => {
             let pty_id = call.path_str("ptyID", Some("^pty"))?;
             check_ticket_request(app, &call, "Invalid persistent PTY connect token request")?;
             app.backend
-                .server_experimental_persistent_pty_get(&call.ctx, ServerExperimentalPersistentPtyGetRequest { pty_id: pty_id.clone() })
+                .experimental_persistent_pty_get(&call.ctx, ExperimentalPersistentPtyGetRequest { pty_id: pty_id.clone() })
                 .await?;
             let ticket = app.tickets.issue(TicketScope { pty_id, directory: None, workspace_id: None });
             Ok(respond::data(&PtyTicketConnectToken { ticket, expires_in: TICKET_TTL_SECONDS }))
         }
         Op::PtyConnect => crate::pty::connect(app, call, ws).await,
-        Op::PersistentPtyConnect => crate::pty::persistent_connect(app, call, ws).await,
+        Op::ExperimentalPersistentPtyConnect => crate::pty::persistent_connect(app, call, ws).await,
         other => Err(ApiError::defect(format!("no special handler for {other:?}"))),
     }
+}
+
+/// `?types=` of `event.subscribe`: `Schema.ArrayEnsure(Union(Literals(<public types>), "rpc.${string}"))`.
+/// `server.connected` is not a member, so asking for it fails like any unknown type.
+fn event_types(call: &Call) -> Result<Option<Vec<String>>, ApiError> {
+    let values: Vec<&str> = call.query.iter().filter(|(k, _)| k == "types").map(|(_, v)| v.as_str()).collect();
+    if values.is_empty() {
+        return Ok(None);
+    }
+    for (index, v) in values.iter().enumerate() {
+        if !(crate::sse::PUBLIC_EVENT_TYPES.contains(v) || v.starts_with("rpc.")) {
+            let at = if values.len() == 1 { "[\"types\"]".to_string() } else { format!("[\"types\"][{index}]") };
+            let literals = crate::sse::PUBLIC_EVENT_TYPES.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" | ");
+            return Err(ApiError::schema(
+                "Query",
+                format!("Expected {literals} | `rpc.${{string}}`, got {v:?}\n  at {at}"),
+            ));
+        }
+    }
+    Ok(Some(values.into_iter().map(str::to_string).collect()))
+}
+
+const MEDIA_INLINE_MIMES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/// `If-None-Match` against a strong ETag: `*`, the tag, or the tag with a `W/` prefix, in a list.
+fn matches_if_none_match(value: Option<&str>, etag: &str) -> bool {
+    let Some(value) = value else { return false };
+    value.split(',').any(|tag| {
+        let t = tag.trim();
+        let stripped = if t.len() >= 2 && t[..2].eq_ignore_ascii_case("w/") { &t[2..] } else { t };
+        t == "*" || stripped == etag
+    })
+}
+
+/// `makeMediaGet`: immutable caching, a strong ETag, `nosniff` + a sandboxing CSP, and inline only
+/// for the image types browsers render safely.
+fn media_response(hash: &str, blob: crate::backend::MediaBlob, headers: &axum::http::HeaderMap) -> Response {
+    let etag = format!("\"{hash}\"");
+    let inline = MEDIA_INLINE_MIMES.contains(&blob.mime.as_str());
+    let not_modified = matches_if_none_match(headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()), &etag);
+    let mut res = if not_modified {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        let mut res = (StatusCode::OK, blob.data).into_response();
+        let ct = if inline { blob.mime.as_str() } else { "application/octet-stream" };
+        if let Ok(v) = HeaderValue::from_str(ct) {
+            res.headers_mut().insert(header::CONTENT_TYPE, v);
+        }
+        res
+    };
+    let h = res.headers_mut();
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, max-age=31536000, immutable"));
+    if let Ok(v) = HeaderValue::from_str(&etag) {
+        h.insert(header::ETAG, v);
+    }
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'none'; sandbox"));
+    if !inline {
+        h.insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment"));
+    }
+    res
 }
 
 /// `x-opencode-ticket: 1` and an allowed (or same-host) Origin, else `403 ForbiddenError`.

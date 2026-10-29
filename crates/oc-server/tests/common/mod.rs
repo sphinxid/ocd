@@ -166,7 +166,7 @@ impl Backend for Mock {
         Ok(vec![from(message("msg_1")), from(message("msg_2"))])
     }
 
-    async fn session_log(&self, ctx: &RequestContext, req: SessionLogRequest) -> Result<SessionLogStream, ApiError> {
+    async fn experimental_session_log(&self, ctx: &RequestContext, req: ExperimentalSessionLogRequest) -> Result<SessionLogStream, ApiError> {
         self.record(ctx, &req);
         if req.session_id == "ses_missing" {
             return Err(ApiError::session_not_found(req.session_id));
@@ -232,6 +232,18 @@ impl Backend for Mock {
         Ok(from(json!({"path": format!("{}/{}", ctx.location.directory, req.path)})))
     }
 
+    async fn experimental_media_get(&self, ctx: &RequestContext, req: ExperimentalMediaGetRequest) -> Result<MediaBlob, ApiError> {
+        self.record(ctx, &req);
+        match req.hash.chars().next() {
+            Some('a') => Ok(MediaBlob { mime: "image/png".into(), data: Bytes::from_static(b"png") }),
+            Some('b') => Ok(MediaBlob { mime: "text/html".into(), data: Bytes::from_static(b"<html>") }),
+            _ => Err(ApiError::file_not_found_message(
+                format!("/api/experimental/media/{}", req.hash),
+                format!("Media blob not found: {}", req.hash),
+            )),
+        }
+    }
+
     async fn vcs_init(&self, ctx: &RequestContext, req: VcsInitRequest) -> Result<(), ApiError> {
         self.record(ctx, &req);
         Ok(())
@@ -249,16 +261,16 @@ impl Backend for Mock {
         Ok(PtyAttachment { replay: "hello".into(), cursor: 5, output, control: Arc::new(PtyCtl(self.pty_input.clone())) })
     }
 
-    async fn server_experimental_persistent_pty_get(
+    async fn experimental_persistent_pty_get(
         &self,
         ctx: &RequestContext,
-        req: ServerExperimentalPersistentPtyGetRequest,
+        req: ExperimentalPersistentPtyGetRequest,
     ) -> Result<PersistentPtyInfo, ApiError> {
         self.record(ctx, &req);
         if req.pty_id == "pty_p" { Ok(from(persistent_info("pty_p"))) } else { Err(ApiError::pty_not_found(req.pty_id)) }
     }
 
-    async fn persistent_pty_connect(
+    async fn experimental_persistent_pty_connect(
         &self,
         ctx: &RequestContext,
         req: PersistentPtyAttachRequest,

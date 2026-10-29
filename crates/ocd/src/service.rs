@@ -807,7 +807,7 @@ async fn pty_prepare(file: &Path, info: &Registration) {
         return;
     }
     let client = Client::new(&Endpoint { url: info.url.clone(), password: info.password.clone() });
-    let handoff = match client.call("server.experimental.persistentPty.handoff", Req::new().timeout(PROBE_TIMEOUT)).await {
+    let handoff = match client.call("experimental.persistentPty.handoff", Req::new().timeout(PROBE_TIMEOUT)).await {
         Ok(body) => match body.get("handoff") {
             Some(Value::Null) => Some(Value::Null),
             Some(h) if is_handoff(h) && h.get("expiresAt").and_then(Value::as_f64).unwrap_or(0.0) > now_ms() => Some(h.clone()),
@@ -825,7 +825,7 @@ async fn pty_prepare(file: &Path, info: &Registration) {
                 return;
             }
             tracing::warn!("Background service cannot hand off persistent terminals; shutting them down before replacement");
-            let _ = client.call("server.experimental.persistentPty.shutdown", Req::new().timeout(PROBE_TIMEOUT)).await;
+            let _ = client.call("experimental.persistentPty.shutdown", Req::new().timeout(PROBE_TIMEOUT)).await;
             Value::Null
         }
     };
@@ -846,7 +846,7 @@ async fn pty_prepare(file: &Path, info: &Registration) {
 /// `shutdownPersistentPty(options)`: best-effort, against the discovered service.
 pub async fn shutdown_persistent_pty(file: &Path) {
     if let Some(endpoint) = discover(file, None).await {
-        let _ = Client::new(&endpoint).call("server.experimental.persistentPty.shutdown", Req::new()).await;
+        let _ = Client::new(&endpoint).call("experimental.persistentPty.shutdown", Req::new()).await;
     }
 }
 

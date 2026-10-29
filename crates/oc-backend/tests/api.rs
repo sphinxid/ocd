@@ -886,7 +886,7 @@ async fn persistent_pty_real_daemon() {
     let engine = h.engine.clone();
     let ctx = RequestContext::for_test(&h.dir());
     let att = engine
-        .persistent_pty_connect(
+        .experimental_persistent_pty_connect(
             &ctx,
             PersistentPtyAttachRequest { pty_id: pty.clone(), cursor: 0, attachment_id: "a1".into(), role: PtyRole::Controller, takeover: true },
         )
