@@ -292,7 +292,7 @@ const ARN: &str = "arn:aws:bedrock:us-east-1:123456789012:application-inference-
 
 #[tokio::test]
 async fn bedrock_emits_checkpoints_for_an_opaque_arn_declaring_the_anthropic_format() {
-    for ttl in [None, Some(3600.0)] {
+    for ttl in [None, Some("1h")] {
         let model = bedrock(ARN).with_compatibility(Compatibility {
             cache_format: Some("anthropic".into()),
             ..Default::default()
@@ -311,7 +311,7 @@ async fn bedrock_emits_checkpoints_for_an_opaque_arn_declaring_the_anthropic_for
                 tools: Some(true),
                 system: Some(true),
                 messages: Some(CacheMessages::Tail { tail: 1 }),
-                ttl_seconds: ttl,
+                ttl: ttl.map(String::from),
             }));
         }
         let body = compile_body(&req).await.unwrap();

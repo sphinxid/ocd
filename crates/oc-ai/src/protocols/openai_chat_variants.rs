@@ -288,6 +288,7 @@ impl Protocol for VeniceChat {
         }
         let vp: Object = vp.into_iter().map(|(k, v)| (snake(&k), v)).collect();
         f.insert("venice_parameters".into(), Some(Value::Object(vp)));
+        let retention = retention.or_else(|| f.get("prompt_cache_retention").cloned().flatten());
         f.insert("prompt_cache_retention".into(), retention);
         f.insert("parallel_tool_calls".into(), parallel);
         f.insert("min_p".into(), min_p);

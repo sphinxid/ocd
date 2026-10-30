@@ -37,7 +37,7 @@ use crate::location::Location;
 
 /// Built-in (internal) plugin ids in activation order (`core/src/plugin/internal.ts` `pre`, the
 /// provider and web-search plugins, `post`), as `plugin.list` reports them.
-pub const BUILTIN_PLUGINS: [&str; 90] = [
+pub const BUILTIN_PLUGINS: [&str; 87] = [
     "opencode.tool.input.repair",
     "opencode.config.worktree",
     "opencode.config.mcp",
@@ -56,7 +56,6 @@ pub const BUILTIN_PLUGINS: [&str; 90] = [
     "opencode.provider.chatgpt",
     "opencode.provider.cloudflare.ai.gateway",
     "opencode.provider.cloudflare.workers.ai",
-    "opencode.provider.cohere",
     "opencode.provider.databricks",
     "opencode.provider.digitalocean",
     "opencode.provider.github.copilot",
@@ -74,11 +73,9 @@ pub const BUILTIN_PLUGINS: [&str; 90] = [
     "opencode.provider.openai",
     "opencode.provider.openai-context-caps",
     "opencode.provider.openrouter",
-    "opencode.provider.perplexity",
     "opencode.provider.poe",
     "opencode.provider.prompt-cache-key",
     "opencode.provider.sap.ai.core",
-    "opencode.provider.vercel",
     "opencode.provider.vllm",
     "opencode.provider.xai",
     "opencode.provider.zenmux",
@@ -131,7 +128,7 @@ pub const BUILTIN_PLUGINS: [&str; 90] = [
 ];
 
 /// Index of the first `post` internal plugin in [`BUILTIN_PLUGINS`].
-const POST_START: usize = 73;
+const POST_START: usize = 70;
 
 /// The ocd-native internal plugins in upstream order.
 pub fn internal_plugins() -> InternalPlugins {

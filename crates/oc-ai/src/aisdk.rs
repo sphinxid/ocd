@@ -111,12 +111,12 @@ pub fn provider_option_key(package: &str, provider_id: &str) -> String {
     }
 }
 
-/// `requestSettings`: model settings minus the SDK construction-only keys.
+/// `requestSettings`: the provider options (`Provider.nativeSettings`) minus the keys that configure the SDK
+/// provider when it is created, not each request.
 fn request_settings(settings: Option<&Object>) -> Option<Object> {
-    const DROP: &[&str] =
-        &["apiKey", "authToken", "baseURL", "chunkTimeout", "compaction", "fetch", "headerTimeout", "timeout", "transport"];
-    let settings = settings?;
-    let out: Object = settings.iter().filter(|(k, _)| !DROP.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    const DROP: &[&str] = &["accessToken", "apiKey", "authToken", "baseURL", "fetch"];
+    let settings = crate::catalog::types::native_settings(settings?);
+    let out: Object = settings.into_iter().filter(|(k, _)| !DROP.contains(&k.as_str())).collect();
     if out.is_empty() { None } else { Some(out) }
 }
 

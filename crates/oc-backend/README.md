@@ -127,7 +127,11 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `permission.saved.list/remove`, `session.permission.create/list/get/reply`.
 * **event.subscribe**: bus envelopes as JSON; a lagging subscriber ends the stream.
 * **model/provider** (oc-ai `Catalog` via `Models::catalog(location.entries)`): `model.list`
-  (available, newest first), `model.default`, `provider.list` (available), `provider.get`.
+  (available, newest first; `Engine::model_list_of(ctx, types)` lists other model types for `?types=`),
+  `model.default`, `provider.list` (available), `provider.get`.
+* **usage limits**: `Engine::usage_limits(ctx)` (`oc_core::usage_limits`) answers `usage.limits`
+  (`GET /api/experimental/usage/limits`): `None` (`data: null`) unless the location is signed in to OpenCode
+  Console, 503 `{service: "opencode"}` when Console can't answer.
 * **integration**: `list`, `get`, `connect.key`, `connect.external`, `oauth.connect/status/cancel/
   complete`, `command.connect/status/cancel` (oc-ai `Integrations`, upstream error mapping).
 * **credential**: `list/create/update/remove/activate` over `oc_core::models::DbCredentials`.

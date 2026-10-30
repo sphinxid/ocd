@@ -399,7 +399,7 @@ streaming `Response`); see docs/PARITY.md "Remaining".
 
 Upstream references: `packages/core/src/aisdk.ts` (the `AISDK` location node), `aisdk-native.ts`
 (which packages are native), `model-resolver.ts` (`loadAISDK`), `plugin/provider/{dynamic,
-sdk-factory,factory,cohere,github-copilot,perplexity,vercel,gitlab,sap-ai-core}.ts`, `github-copilot/`
+sdk-factory,github-copilot,gitlab,sap-ai-core}.ts`, `github-copilot/`
 (the in-tree Copilot provider) and `plugin/host.ts:157`.
 
 **Which models use it.** Exactly upstream's decision: the catalog rewrites known AI SDK packages to
@@ -468,7 +468,6 @@ configuration (`-opencode.provider.dynamic` etc.):
 
 | plugin | hooks | ocd |
 |---|---|---|
-| `opencode.provider.cohere`, `.perplexity`, `.vercel` | `sdk` for `@ai-sdk/cohere` / `perplexity` / `vercel` | upstream bundles these packages; ocd installs exactly upstream's pinned versions (`3.0.27`, `3.0.26`, `2.0.39`) on first use |
 | `opencode.provider.gitlab` | `sdk` for `gitlab-ai-provider`, `language` for provider `gitlab` (agentic/workflow chat) | installs `gitlab-ai-provider@6.19.0`; user agent from `ctx.app` |
 | `opencode.provider.sap.ai.core` | `sdk` / `language` for provider `sap-ai-core` | `loadSDKFactory` of the configured package, service-key environment |
 | `opencode.provider.dynamic` | `sdk` when none set it: the package's first `create*` export | `file://` URLs are imported directly; otherwise `npm.add` (official unversioned `@ai-sdk/x` → `@ai-sdk/x@ai-v6`), then `Bun.resolveSync` + import |
@@ -479,8 +478,13 @@ Plugin hooks see `{model, package, options, sdk?}` / `{model, sdk, options, lang
 
 **Differences from upstream.**
 
-- Packages upstream bundles (cohere, perplexity, vercel, gitlab) are installed from npm at the same
-  versions, so the first use needs the registry.
+- Packages upstream bundles (gitlab) are installed from npm at the same version, so the first use needs the
+  registry. Since 2.2 `@ai-sdk/cohere`, `perplexity` and `vercel` are no longer special-cased: they install from
+  npm through `opencode.provider.dynamic` like any other AI SDK package.
+- SDK creation options are `{name, ...nativeSettings(settings), headers, body}` and per-request provider options
+  are `nativeSettings(settings)` minus `accessToken`, `apiKey`, `authToken`, `baseURL` and `fetch` (2.2), where
+  `nativeSettings` drops the settings OpenCode reads itself (`timeout`, `headerTimeout`, `chunkTimeout`,
+  `compaction`, `cache`, `transport`, `encoding`).
 - npm install failures read `Failed to install <spec>: <bun output>` in the initialization detail
   (upstream: the npm/arborist error message).
 - A missing module's message names the sidecar bundle as importer (`imported from .../host.js`;

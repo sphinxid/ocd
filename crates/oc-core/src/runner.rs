@@ -47,6 +47,8 @@ pub struct Engine {
     titles: Mutex<std::collections::HashSet<String>>,
     /// Config watch task per location directory.
     watches: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// OpenCode Console config task per location directory (polling and `credential.switched`).
+    consoles: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     me: std::sync::Weak<Engine>,
 }
 
@@ -90,6 +92,7 @@ impl Engine {
         oc_tools::tools::register_builtins(&mut registry, services);
         let models = Models::new(app.db.clone(), app.bus.clone(), oc_util::version::CHANNEL, &app.version);
         models.set_plugins(app.plugins.clone());
+        models.set_lock_root(app.global.locks());
         app.plugins.add_websearch(services.websearch.clone());
         Arc::new_cyclic(|me| Engine {
             app,
@@ -102,6 +105,7 @@ impl Engine {
             mcps: tokio::sync::Mutex::new(HashMap::new()),
             titles: Mutex::new(Default::default()),
             watches: Mutex::new(HashMap::new()),
+            consoles: Mutex::new(HashMap::new()),
             me: me.clone(),
         })
     }
@@ -155,6 +159,8 @@ impl Engine {
         if let Some(l) = self.locations.lock().get(directory).cloned() {
             return Ok(l);
         }
+        // The OpenCode Console plugin loads the workspace config before the location's config is first read.
+        self.console_refresh(directory).await;
         let loc = Arc::new(Location::load(&self.app.global, &self.app.bus, std::path::Path::new(directory)).await?);
         loc.fetch_instructions(None).await;
         crate::reference::refresh(&self.app, crate::reference::list(&loc, &self.app.global));
@@ -165,7 +171,63 @@ impl Engine {
         };
         self.app.plugins.ensure(&loc);
         self.watch(directory, &loc);
+        self.console_watch(directory);
         Ok(loc)
+    }
+
+    /// `OpencodePlugin.load` + `publish`: load the location's OpenCode Console config, store it as the location's
+    /// integration document and offer the Console web search when the workspace selected it. True when the document
+    /// changed (the location's config must reload).
+    pub async fn console_refresh(&self, directory: &str) -> bool {
+        let integrations = self.models.prepared_integrations(directory).await;
+        let previous = crate::console_config::snapshot(directory);
+        let user_agent = format!("opencode/{}/{}/{}", oc_util::version::CHANNEL, self.app.version, oc_util::version::ARTIFACT);
+        let http = crate::usage_limits::ReqwestHttp::default();
+        let next = crate::console_config::load(&integrations, &http, &user_agent, &previous).await;
+        if let Some(websearch) = self.app.plugins.websearch_for(directory) {
+            match (&next.connection, next.offers_websearch()) {
+                (Some(connection), true) => websearch
+                    .add_provider(crate::console_config::websearch_provider_for(integrations.clone(), connection.clone())),
+                _ => websearch.remove_provider(crate::console_config::WEBSEARCH_ID),
+            }
+        }
+        crate::console_config::publish(directory, next)
+    }
+
+    /// Check the Console config again every minute while signed in, and on every `credential.switched` for
+    /// `opencode`; a changed document reloads the location's config.
+    fn console_watch(&self, directory: &str) {
+        let mut consoles = self.consoles.lock();
+        if consoles.contains_key(directory) {
+            return;
+        }
+        let mut events = self.app.bus.subscribe();
+        let me = self.me.clone();
+        let key = directory.to_string();
+        consoles.insert(
+            directory.to_string(),
+            tokio::spawn(async move {
+                loop {
+                    let connected = crate::console_config::snapshot(&key).connection.is_some();
+                    tokio::select! {
+                        _ = tokio::time::sleep(crate::console_config::POLL), if connected => {}
+                        event = events.recv() => match event {
+                            Ok(event)
+                                if event.kind == "credential.switched"
+                                    && event.data.get("integrationID").and_then(serde_json::Value::as_str) == Some(crate::console_config::INTEGRATION_ID) => {}
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                            _ => continue,
+                        },
+                    }
+                    let Some(engine) = me.upgrade() else { return };
+                    if engine.console_refresh(&key).await
+                        && let Err(error) = engine.reload_location(&key).await
+                    {
+                        tracing::error!(directory = %key, error = %error, "failed to reload config");
+                    }
+                }
+            }),
+        );
     }
 
     /// Watch the location's config sources; changes (debounced) reload it.
@@ -208,6 +270,10 @@ impl Engine {
         if let Some(handle) = self.watches.lock().remove(directory) {
             handle.abort();
         }
+        if let Some(handle) = self.consoles.lock().remove(directory) {
+            handle.abort();
+        }
+        crate::console_config::forget(directory);
         let canonical = location.as_ref().map(|l| l.directory.display().to_string()).unwrap_or_else(|| directory.to_string());
         let in_location = |session: &str| {
             self.app.sessions.get(session).is_ok_and(|s| s.location.directory == directory || s.location.directory == canonical)
@@ -530,6 +596,7 @@ impl Engine {
         let max = crate::prompt::output_limit(model.output_limit().max(0) as u64, model.context_limit().max(0) as u64, Some(estimate));
         req.generation = Some(GenerationOptions { max_tokens: Some(max as f64), ..Default::default() });
         self.session_http(&loaded.sel.session, &mut req);
+        req.cache = request_cache(model);
         (req, names)
     }
 
@@ -1330,3 +1397,10 @@ impl Driver for ExecutionDriver {
     }
 }
 
+
+/// The prompt-cache policy of a session model request (`SessionModelRequest.prepare`): `{ttl}` when the
+/// provider or model settings set `cache.ttl`, else the protocol default.
+pub(crate) fn request_cache(model: &oc_ai::catalog::ResolvedModel) -> Option<oc_ai::CachePolicy> {
+    let ttl = model.cache_ttl()?;
+    Some(oc_ai::CachePolicy::Object(oc_ai::CachePolicyObject { ttl: Some(ttl.to_string()), ..Default::default() }))
+}

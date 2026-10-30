@@ -143,9 +143,16 @@ pub struct ResolvedModel {
     pub transport: Option<String>,
     /// WebSocket idle limit (`false` disables it).
     pub chunk_timeout: Option<HttpTimeout>,
+    /// Prompt-cache settings from the provider and model (`settings.cache`); omitted keeps the provider defaults.
+    pub cache: Option<Object>,
 }
 
 impl ResolvedModel {
+    /// The prompt-cache TTL (`settings.cache.ttl`), when set.
+    pub fn cache_ttl(&self) -> Option<&str> {
+        self.cache.as_ref()?.get("ttl")?.as_str()
+    }
+
     /// Selected catalog identity (durable records must use this, never the API model id).
     pub fn model_ref(&self) -> ModelRef {
         ModelRef { id: self.model.id.clone(), provider_id: self.model.provider_id.clone(), variant: self.variant.clone() }
@@ -195,7 +202,9 @@ pub fn with_variant(model: &ModelInfo, variant: Option<&str>) -> Result<ModelInf
         });
     };
     let mut out = model.clone();
-    out.settings = merge_overlay(model.settings.as_ref(), model_settings(selected.settings.as_ref()).as_ref());
+    // Config accepts unknown variant keys, so `cache` is dropped here too; a variant can't change the prompt cache.
+    let settings = selected.settings.as_ref().map(|s| omit(s, &["cache"]));
+    out.settings = merge_overlay(model.settings.as_ref(), model_settings(settings.as_ref()).as_ref());
     out.headers = merge_headers(model.headers.as_ref(), selected.headers.as_ref());
     out.body = merge_overlay(model.body.as_ref(), selected.body.as_ref());
     Ok(out)
@@ -221,14 +230,19 @@ fn unresolved(model: &ModelInfo, base_url: &str) -> Option<ResolveError> {
     })
 }
 
-/// Replace `${VAR}` in `baseURL` from the environment; unresolved placeholders fail.
+/// Replace `${VAR}` in `baseURL` from the environment; unresolved placeholders fail. Catalog Bedrock URLs are
+/// model settings while `region` is a provider setting, so `${AWS_REGION}` takes a string `region` setting first.
 fn prepare_provider_settings(model: &ModelInfo, mut settings: Object, options: &ResolveOptions) -> Result<Object, ResolveError> {
     let Some(base_url) = settings.get("baseURL").and_then(Value::as_str).map(String::from) else { return Ok(settings) };
     if !base_url.contains("${") {
         return Ok(settings);
     }
+    let region = settings.get("region").and_then(Value::as_str).map(String::from);
     let prepared = PLACEHOLDER
-        .replace_all(&base_url, |c: &regex::Captures<'_>| options.env(&c[1]).unwrap_or_else(|| c[0].to_string()))
+        .replace_all(&base_url, |c: &regex::Captures<'_>| {
+            let value = if &c[1] == "AWS_REGION" && region.is_some() { region.clone() } else { options.env(&c[1]) };
+            value.unwrap_or_else(|| c[0].to_string())
+        })
         .into_owned();
     if let Some(failure) = unresolved(model, &prepared) {
         return Err(failure);
@@ -276,14 +290,6 @@ pub fn native_credential_settings(provider_id: &str, specifier: &str, credential
     }
 }
 
-fn credential_metadata(credential: Option<&CredentialValue>) -> Option<&Object> {
-    match credential? {
-        CredentialValue::Oauth { metadata, .. } | CredentialValue::Key { metadata, .. } | CredentialValue::External { metadata, .. } => {
-            metadata.as_ref()
-        }
-    }
-}
-
 /// `fromCatalogModel`: build the runtime model for an effective catalog model (provider settings merged).
 pub fn from_catalog_model(
     model: &ModelInfo,
@@ -302,12 +308,9 @@ pub fn from_catalog_model(
         model_id: resolved.id.clone(),
         package: resolved.package.clone().unwrap_or_else(|| "unknown".into()),
     };
-    let mut configured = resolved.settings.clone().unwrap_or_default();
-    if let Some(metadata) = credential_metadata(credential) {
-        for (k, v) in metadata {
-            configured.insert(k.clone(), v.clone());
-        }
-    }
+    // Credential metadata never reaches packages: the provider plugins project the login settings they need
+    // (`transforms::CredentialLogins`).
+    let configured = resolved.settings.clone().unwrap_or_default();
     if is_aisdk(Some(&package)) {
         let Some(bridge) = options.aisdk.clone() else {
             return Err(ResolveError::AisdkPackage {
@@ -316,12 +319,7 @@ pub fn from_catalog_model(
                 package,
             });
         };
-        let mut overlay = native_credential_settings(&resolved.provider_id, &package, credential);
-        if let Some(metadata) = credential_metadata(credential) {
-            for (k, v) in metadata {
-                overlay.insert(k.clone(), v.clone());
-            }
-        }
+        let overlay = native_credential_settings(&resolved.provider_id, &package, credential);
         let merged = merge_overlay(resolved.settings.as_ref(), Some(&overlay)).unwrap_or_default();
         let mut info = resolved.clone();
         info.settings = Some(prepare_provider_settings(&resolved, merged, options)?);
@@ -551,5 +549,6 @@ pub fn resolve_model(
             .map(String::from),
         transport: provider.and_then(|p| p.transport()).map(String::from),
         chunk_timeout: timeout(provider.and_then(|p| p.setting("chunkTimeout"))),
+        cache: runtime_info.settings.as_ref().and_then(|s| s.get("cache")).and_then(Value::as_object).cloned(),
     })
 }

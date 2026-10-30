@@ -33,6 +33,9 @@ pub const TOKEN_SHARING_BASE_URL: &str = chatgpt::RESOURCE;
 /// newer ones are rejected too (`codexDisallowed`).
 pub const CODEX_DISALLOWED: &[&str] = &["gpt-5.6"];
 
+/// The image models the Codex client generates and edits with on the Codex login (`codexImageModels`).
+pub const CODEX_IMAGE_MODELS: &[&str] = &["gpt-image-2"];
+
 /// The catalog models token sharing keeps (`fallbackModels`).
 pub const FALLBACK_MODELS: &[&str] = &[
     "gpt-5.5",
@@ -51,6 +54,8 @@ pub const FALLBACK_MODELS: &[&str] = &[
     "gpt-6-sol-fast",
     "gpt-6.1-sol",
     "gpt-6.1-sol-fast",
+    "gpt-6.1-terra",
+    "gpt-6.1-terra-fast",
 ];
 
 /// The OAuth methods the context caps apply to.
@@ -246,7 +251,20 @@ impl CatalogPlugin for OpenAi {
         // usage, so hide the rest and zero the cost.
         for (pid, mid) in editor.list(Some(PROVIDER_ID)) {
             editor.update(&pid, &mid, |model| {
-                if pro(model) || !codex_eligible(&model.model_id) {
+                if pro(model) {
+                    model.enabled = false;
+                    return;
+                }
+                // The image models the Codex client generates and edits with on the Codex login.
+                if model.kind.as_deref() == Some("image") {
+                    if CODEX_IMAGE_MODELS.contains(&model.model_id.as_str()) {
+                        model.cost = vec![];
+                    } else {
+                        model.enabled = false;
+                    }
+                    return;
+                }
+                if !codex_eligible(&model.model_id) {
                     model.enabled = false;
                     return;
                 }

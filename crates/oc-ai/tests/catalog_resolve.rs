@@ -218,8 +218,9 @@ fn injects_credentials() {
     let settings = loader.last().2;
     assert_eq!(settings["apiKey"], "stored");
     assert!(settings.get("authToken").is_none());
-    assert_eq!(settings["accountID"], "acct");
-    assert_eq!(settings["resourceName"], "res");
+    // Credential metadata never reaches packages (2.2); the provider plugins project what they need.
+    assert!(settings.get("accountID").is_none());
+    assert!(settings.get("resourceName").is_none());
 
     let oauth = |access: &str| CredentialValue::Oauth { method_id: "m".into(), refresh: "r".into(), access: access.into(), expires: 0, metadata: None };
     from_catalog_model(&model("@opencode/ai/providers/anthropic", json!({})), Some(&oauth("tok")), &opts).unwrap();
@@ -235,7 +236,7 @@ fn injects_credentials() {
     from_catalog_model(&model("@opencode/ai/providers/amazon-bedrock", json!({"apiKey": "x"})), Some(&external), &opts).unwrap();
     let settings = loader.last().2;
     assert_eq!(settings["auth"], "sigv4");
-    assert_eq!(settings["profile"], "work");
+    assert!(settings.get("profile").is_none());
     assert!(settings.get("apiKey").is_none());
 
     let mut azure = model("@opencode/ai/providers/azure/responses", json!({}));

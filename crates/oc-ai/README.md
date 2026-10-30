@@ -128,8 +128,10 @@ Endpoints)` lets tests point the fixed Google URLs at local servers.
 
 ## Traits that core implements
 
-- `catalog::CatalogCache`: `get`/`set`/`remove` of the models.dev KV value `{updatedAt, digest, body}`. The key is
-  `models-dev:catalog` (or `models-dev:catalog:<hash>` for a non-default source). `MemoryCache` is provided.
+- `catalog::CatalogCache`: `get`/`set`/`remove` of the models.dev KV values: the body row `{updatedAt, digest, body}`
+  under `models-dev:v2:catalog` (or `models-dev:v2:catalog:<hash>` for a non-default source) and the check row
+  `{updatedAt, digest?, etag?}` under `<key>:meta`. The unversioned v1 rows (`models-dev:catalog[:<hash>][:meta]`)
+  are removed before the service is first used, as 2.2 does at startup. `MemoryCache` is provided.
 - `credentials::CredentialStore`: rows of `Credential { id, integration_id, label, value: CredentialValue, active }`
   in the `credential` table. The ordering and selection rules are exported as pure functions (`store::selected`,
   `store::list_order`, `store::plan_create`, `store::unique_label`).
@@ -230,6 +232,29 @@ The connector replays what upstream's `WebSocketConstructor` layer and Bun 1.4.4
   `Retry-After` honored up to 15 min. It retries at most 10 times, with at most 3 Transport-timeout retries.
 - `err.is_context_overflow()` triggers compaction instead of a retry.
 
+## models.dev catalog (2.2)
+
+`catalog::models_dev` reads models.dev's v2 API (`<source>/experimental/v2.0/api.json?type=chat,decision,image`,
+bundled as `assets/models-dev/snapshot.txt`): providers without `npm`, models with a `type`, MIME modalities, a
+`capabilities.reasoning` object and an ordered `api` map. Each model is decoded on its own (a failure is skipped and
+logged), routed to its first API with a loadable package (`CATALOG_PACKAGES`, upstream's full builtin set including
+the image and decision entrypoints, for catalog listings only), priced from per-token text prices with context
+overrides as tiers and service-tier multipliers for modes. The provider package and base URL are the most common ones
+of its models. v1 catalogs (`OPENCODE_MODELS_PATH`, or a custom `OPENCODE_MODELS_URL` mirror that answers 404 for the
+v2 path) are converted first (`models_dev_v1`). Refreshes revalidate with the stored `ETag` and treat a 304 or an
+identical digest as unchanged. `tests/catalog_models_dev_upstream.rs` compares the normalization of the bundled
+snapshot, the v1 fixture and edge cases with upstream's own `decodeSnapshot` (run with Bun on the 2.2.2 checkout).
+
+`catalog::transforms::ProviderTransforms` holds the provider transforms of the Amazon Bedrock (ambient AWS
+configuration enables the provider; `region` and `endpoint`), Google Vertex (project, location, `${GOOGLE_VERTEX_*}`
+templates on providers and models, `eu`/`us` multi-region hosts), Cloudflare AI Gateway and Workers AI (account and
+gateway IDs), Databricks (`DATABRICKS_HOST`) and GitLab (OAuth `instanceUrl`) plugins. `CredentialLogins` carries the
+settings these plugins take from the active connection's stored credential; credential metadata no longer reaches
+packages otherwise. `${AWS_REGION}` in a base URL takes a string `region` setting before the environment.
+
+Model types: `ModelInfo.kind` (`type`), set from the catalog or config `type`. `Catalog` keeps non-chat models out of
+every session-facing lookup and lists them only through `available_models_of(types)`.
+
 ## Not ported / gaps
 
 - **WebSocket client details**: a proxy's own TLS settings (`proxy.tls`, upstream never passes them), Bun's
@@ -237,7 +262,10 @@ The connector replays what upstream's `WebSocketConstructor` layer and Bun 1.4.4
   same format and parameters) are not replicated.
 - **Explicit compaction endpoints** (`/responses/compact`, compaction trigger): `compaction` and `transport` are
   surfaced on `ResolvedModel` for core to decide.
-- **Non-chat modalities**: image, video, speech and transcription (see `modalities`).
+- **Non-chat modalities**: image, video, speech and transcription (see `modalities`). Image and decision models are
+  listed by the catalog but cannot be resolved yet (their entrypoints are not in `BUILTIN_PACKAGES`).
+- **`fetch` in native settings**: 2.2's `Provider.nativeSettings` no longer omits `fetch`; it is never a JSON config
+  value, so ocd ignores it.
 - **AWS SDK details**: the standard retry strategy's retry quota and clock-skew correction, SDK user-agent
   headers, region validation (`Region not accepted`) and the FIPS / custom-endpoint conflict errors are not
   replicated. JavaScriptCore `JSON.parse` messages are reproduced for the common cases only. With `mfa_serial` the

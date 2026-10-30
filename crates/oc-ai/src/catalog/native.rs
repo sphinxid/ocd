@@ -127,6 +127,14 @@ fn mantle(model_id: Option<&str>) -> String {
     }
 }
 
+/// Old hyphenated Vertex entrypoints that stale configs may still name (`LEGACY_VERTEX`).
+pub const LEGACY_VERTEX: &[(&str, &str)] = &[
+    ("@opencode/ai/providers/google-vertex-chat", "@opencode/ai/providers/google-vertex/chat"),
+    ("@opencode/ai/providers/google-vertex-responses", "@opencode/ai/providers/google-vertex/responses"),
+    ("@opencode/ai/providers/google-vertex-interactions", "@opencode/ai/providers/google-vertex/interactions"),
+    ("@opencode/ai/providers/google-vertex-mistral", "@opencode/ai/providers/google-vertex/mistral"),
+];
+
 /// `resolve(specifier, context)`: the native entrypoint for a stored package specifier, if any.
 pub fn resolve(specifier: &str, context: &NativeContext<'_>) -> Option<String> {
     let npm = package_name(specifier);
@@ -135,6 +143,9 @@ pub fn resolve(specifier: &str, context: &NativeContext<'_>) -> Option<String> {
     }
     if npm == "@opencode/ai/providers/amazon-bedrock/mantle" || npm == "@opencode/ai/providers/amazon-bedrock-mantle" {
         return Some(mantle(context.model_id));
+    }
+    if let Some((_, nested)) = LEGACY_VERTEX.iter().find(|(legacy, _)| *legacy == npm) {
+        return Some(nested.to_string());
     }
     if (npm == "@opencode/ai/providers/azure" || npm == "@opencode/ai/providers/azure/responses") && azure_chat(context) {
         return Some("@opencode/ai/providers/azure/chat".into());

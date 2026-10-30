@@ -26,22 +26,32 @@ pub enum CacheHintType {
     Persistent,
 }
 
+/// `CacheTTL`: a provider cache lifetime such as `"5m"`, `"30m"`, `"1h"` or `"24h"` (models.dev's duration
+/// format, `^\d+(ms|s|m|h|d)$`). It is sent as given; each provider accepts its own set, and omitting it
+/// keeps the provider default.
+pub fn is_cache_ttl(value: &str) -> bool {
+    let digits = value.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+    let unit = &value[digits.len()..];
+    !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) && matches!(unit, "ms" | "s" | "m" | "h" | "d")
+}
+
 /// `CacheHint`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CacheHint {
     #[serde(rename = "type")]
     pub kind: CacheHintType,
+    /// [`is_cache_ttl`] lifetime.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ttl_seconds: Option<f64>,
+    pub ttl: Option<String>,
 }
 
 impl CacheHint {
     pub fn ephemeral() -> Self {
-        Self { kind: CacheHintType::Ephemeral, ttl_seconds: None }
+        Self { kind: CacheHintType::Ephemeral, ttl: None }
     }
-    pub fn with_ttl(ttl_seconds: Option<f64>) -> Self {
-        Self { kind: CacheHintType::Ephemeral, ttl_seconds }
+    pub fn with_ttl(ttl: Option<String>) -> Self {
+        Self { kind: CacheHintType::Ephemeral, ttl }
     }
 }
 
@@ -62,8 +72,10 @@ pub struct CachePolicyObject {
     pub system: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub messages: Option<CacheMessages>,
+    /// Lifetime of the automatic markers ([`is_cache_ttl`]). An object with only `ttl` keeps the automatic
+    /// placements; routes without inline markers send it as a request-level cache option where one exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ttl_seconds: Option<f64>,
+    pub ttl: Option<String>,
 }
 
 /// `CachePolicy = "auto" | "none" | object`.
@@ -316,6 +328,10 @@ pub struct Compatibility {
     pub supports_thinking_block_binding: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_effort_updates: Option<bool>,
+    /// `"assets" | "state" | "root"`: where a System One decision host reads media (models.dev
+    /// `compatibility.media_input`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_input: Option<String>,
 }
 
 impl Compatibility {
@@ -339,7 +355,8 @@ impl Compatibility {
             zai_tool_stream,
             require_signature,
             supports_thinking_block_binding,
-            supports_effort_updates
+            supports_effort_updates,
+            media_input
         )
     }
 }

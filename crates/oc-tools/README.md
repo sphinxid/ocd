@@ -67,7 +67,7 @@ Each method has a default that reports the capability as unavailable. The except
 | read tool | `load_instructions(session, paths)`: nested AGENTS.md |
 | skills | `get_skill(id)`, `list_skills()` |
 | sessions | `session_get/create/switch_agent/switch_model/prompt/interrupt/rename/move/synthetic`, `session_environment` |
-| agents / models | `agent_resolve`, `models_available`, `models_list`, `providers_list` |
+| agents / models | `agent_resolve`, `models_available`, `models_list(types)` (the `opencode_models` tool's `type` filter, chat by default), `providers_list` |
 | jobs | `job_start(JobStart{run: BoxFuture})`, `job_block`, `job_background`, `job_wait`, `job_cancel`, `job_complete_background`, `subagent_job_start/background/notify` |
 | shell | `shell_create_before(&mut ShellInvocation)`: plugin hook |
 | worktrees | `worktree_create/list/remove` (remove returns `WorktreeRemoveError` classes) |

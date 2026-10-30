@@ -325,6 +325,16 @@ impl ToolHost for CoreHost {
         })
     }
 
+    async fn models_list(&self, types: &[String]) -> Result<Vec<ModelSummary>, String> {
+        let catalog = self.location.as_deref().and_then(|key| self.app.plugins.catalog(key)).ok_or("models are unavailable")?;
+        Ok(catalog.available_models_of(types).into_iter().map(model_summary).collect())
+    }
+
+    async fn providers_list(&self) -> Result<Vec<ProviderSummary>, String> {
+        let catalog = self.location.as_deref().and_then(|key| self.app.plugins.catalog(key)).ok_or("providers are unavailable")?;
+        Ok(catalog.available_providers().into_iter().map(|p| ProviderSummary { id: p.id.clone(), name: p.name.clone() }).collect())
+    }
+
     async fn agent_resolve(&self, name: &str) -> Result<Option<AgentSummary>, String> {
         let agents = self.app.agents.read();
         Ok(agents.items.get(name).map(|a| AgentSummary {
@@ -335,5 +345,19 @@ impl ToolHost for CoreHost {
             description: a.description.clone(),
             model: a.model.clone(),
         }))
+    }
+}
+
+/// A catalog model as the `opencode_models` tool lists it.
+fn model_summary(model: &oc_ai::catalog::ModelInfo) -> ModelSummary {
+    ModelSummary {
+        provider_id: model.provider_id.clone(),
+        id: model.id.clone(),
+        name: model.name.clone(),
+        family: model.family.clone(),
+        released: model.time.released,
+        variants: model.variants.iter().map(|v| v.id.clone()).collect(),
+        cost: serde_json::to_value(&model.cost).unwrap_or(Value::Array(vec![])),
+        status: serde_json::to_value(model.status).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "active".into()),
     }
 }

@@ -53,6 +53,7 @@ impl Engine {
         }
         req.messages = vec![LlmMessage::user_text(text)];
         self.session_http(session, &mut req);
+        req.cache = crate::runner::request_cache(model);
         // The built-in Copilot `session.title` hook runs first: the account's free utility model.
         let preset = if model.model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && self.app.plugins.copilot_enabled(key) {
             self.app.plugins.copilot.utility_title(key, &session.id, agent_model, &req.system, &req.messages, None).await

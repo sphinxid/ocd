@@ -275,6 +275,8 @@ pub struct Models {
     plugins: parking_lot::RwLock<Option<Arc<crate::plugins::Plugins>>>,
     /// The ChatGPT plugin moved token-sharing credentials saved under `chatgpt-browser`.
     chatgpt_migrated: tokio::sync::OnceCell<()>,
+    /// Root of the cross-process OAuth refresh locks (`<state>/locks`), given to every integration registry.
+    lock_root: parking_lot::Mutex<Option<std::path::PathBuf>>,
 }
 
 /// Plugin storage of `opencode.provider.chatgpt` (`PluginHost.storage`: `plugin:<utf-16 hex id>:<key>` in kv).
@@ -325,7 +327,17 @@ impl Models {
             user_agent: ua,
             plugins: parking_lot::RwLock::new(None),
             chatgpt_migrated: tokio::sync::OnceCell::new(),
+            lock_root: parking_lot::Mutex::new(None),
         }
+    }
+
+    /// Coordinate OAuth refreshes with other processes through file locks under `root` (`Credential.lock`).
+    pub fn set_lock_root(&self, root: std::path::PathBuf) {
+        self.integrations.set_lock_root(Some(root.clone()));
+        for state in self.by_location.lock().values() {
+            state.integrations.set_lock_root(Some(root.clone()));
+        }
+        *self.lock_root.lock() = Some(root);
     }
 
     fn location_integrations(&self, key: &str) -> Arc<LocationIntegrations> {
@@ -336,7 +348,9 @@ impl Models {
             .entry(key.to_string())
             .or_insert_with(|| {
                 created = true;
-                LocationIntegrations::new(Integrations::new(self.store.clone()))
+                let integrations = Integrations::new(self.store.clone());
+                integrations.set_lock_root(self.lock_root.lock().clone());
+                LocationIntegrations::new(integrations)
             })
             .clone();
         if created && let Some(plugins) = self.plugins.read().as_ref() {
@@ -379,6 +393,24 @@ impl Models {
         for (key, state) in self.by_location.lock().iter() {
             plugins.azure.register(key, state.integrations.clone());
         }
+    }
+
+    /// Location `key`'s integration registry with the models.dev and built-in plugin registrations (methods and
+    /// OAuth implementations) applied, so its connections resolve before the location's catalog is built.
+    pub async fn prepared_integrations(&self, key: &str) -> Arc<Integrations> {
+        let state = self.location_integrations(key);
+        if let Ok(snapshots) = self.models_dev.get().await {
+            for spec in catalog::models_dev::integrations(&snapshots) {
+                if let Some(name) = &spec.name {
+                    state.integrations.update(&spec.id, |r| r.name = name.clone());
+                }
+                for m in &spec.methods {
+                    state.integrations.register_method(&spec.id, method(m));
+                }
+            }
+            self.register_builtin_integrations(&state, &snapshots, &[]);
+        }
+        state.integrations.clone()
     }
 
     /// The provider and web-search plugins' integration registrations (crate::integrations), replayed after the
@@ -482,10 +514,29 @@ impl Models {
 
     async fn build_catalog_at(&self, entries: &[Entry], key: Option<&str>) -> anyhow::Result<Catalog> {
         let snapshots = self.models_dev.get().await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        // Integration documents are left out: their providers authenticate with the integration's connection, so they
+        // add no integration or method, and the integration's own plugin applies them earlier in the provider chain.
         let sections: Vec<Value> = entries
             .iter()
             .filter_map(|e| match e {
-                Entry::Document { info, .. } => info.providers.as_ref().map(|p| serde_json::to_value(p).unwrap_or(Value::Null)),
+                Entry::Document { info, integration: None, .. } => {
+                    info.providers.as_ref().map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
+                }
+                _ => None,
+            })
+            .collect();
+        let integration_documents: Vec<catalog::config::IntegrationDocument> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Entry::Document { info, integration: Some(source), .. } => Some(catalog::config::IntegrationDocument {
+                    integration_id: source.integration_id.clone(),
+                    connection: source.connection_key()?,
+                    providers: info
+                        .providers
+                        .as_ref()
+                        .map(|p| catalog::config::parse_providers(&serde_json::to_value(p).unwrap_or(Value::Null)))
+                        .unwrap_or_default(),
+                }),
                 _ => None,
             })
             .collect();
@@ -502,6 +553,7 @@ impl Models {
                 let _ = serde_json::to_writer(HashWriter(&mut fingerprint), section);
                 0u8.hash(&mut fingerprint);
             }
+            format!("{integration_documents:?}").hash(&mut fingerprint);
             format!("{default_model:?}").hash(&mut fingerprint);
         }
         let config = ConfigProviders::from_documents(&sections).with_default_model(default_model);
@@ -573,12 +625,19 @@ impl Models {
         }
         let connected = std::env::var("OPENCODE_API_KEY").is_ok_and(|v| !v.is_empty())
             || access.connections("opencode").is_some_and(|c| !c.is_empty());
+        // The provider plugins' login settings, from each integration's stored credential (a credential update
+        // or switch that changes them rebuilds the catalog).
+        let mut logins = catalog::transforms::CredentialLogins::default();
+        for id in catalog::transforms::LOGIN_INTEGRATIONS {
+            logins.set(id, integrations.stored(id).await.as_ref());
+        }
         {
             use std::hash::Hash;
             let mut ids: Vec<&String> = configured.iter().collect();
             ids.sort();
             ids.hash(&mut fingerprint);
             connected.hash(&mut fingerprint);
+            logins.hash(&mut fingerprint);
             plugin_state.hash(&mut fingerprint);
             (&sign_in, chatgpt_on, openai_on, caps_on).hash(&mut fingerprint);
             serde_json::to_string(&policies).unwrap_or_default().hash(&mut fingerprint);
@@ -616,6 +675,10 @@ impl Models {
             let mut plugins: Vec<Box<dyn catalog::CatalogPlugin + Send>> = vec![
                 Box::new(catalog::ModelsDevPlugin::new(&snapshots)),
                 Box::new(catalog::DataPlugins::new(configured.clone())),
+                Box::new(catalog::transforms::ProviderTransforms {
+                    env: catalog::transforms::process_env(),
+                    logins: logins.clone(),
+                }),
             ];
             // opencode.provider.chatgpt (token sharing), ahead of the other provider plugins.
             if chatgpt_on {
@@ -625,6 +688,8 @@ impl Models {
             if let Some(state) = copilot {
                 plugins.push(Box::new(catalog::copilot::GithubCopilot { state }));
             }
+            // opencode.provider.opencode: the Console document's providers (`integrate`), then the keyless provider.
+            plugins.push(Box::new(catalog::config::IntegrationProviders { documents: integration_documents.clone() }));
             plugins.push(Box::new(catalog::plugins::OpencodeZen { connected }));
             // Responses WebSocket transport defaults of the openai/azure/xai provider plugins.
             plugins.push(Box::new(catalog::plugins::ResponsesWebSockets));

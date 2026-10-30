@@ -799,7 +799,6 @@ fn protocol_for(package: &str) -> Option<Protocol> {
         | "@opencode/ai/providers/azure/responses"
         | "@opencode/ai/providers/amazon-bedrock/mantle"
         | "@opencode/ai/providers/amazon-bedrock/mantle/responses"
-        | "@opencode/ai/providers/amazon-bedrock-mantle"
         | "@opencode/ai/providers/alibaba/responses"
         | "@opencode/ai/providers/meta"
         | "@opencode/ai/providers/meta/responses"
@@ -810,14 +809,13 @@ fn protocol_for(package: &str) -> Option<Protocol> {
         "@opencode/ai/providers/openai-compatible/responses"
         | "@opencode/ai/providers/openai-compatible-responses"
         | "@opencode/ai/providers/google-vertex/responses"
-        | "@opencode/ai/providers/google-vertex-responses"
         | "@opencode/ai/providers/xai" => open_responses,
 
         "@opencode/ai/providers/openai-compatible" => openai_compatible,
         "@opencode/ai/providers/openai/chat" => openai_chat,
         "@opencode/ai/providers/azure/chat" => openai_chat,
         "@opencode/ai/providers/amazon-bedrock/mantle/chat" => openai_chat,
-        "@opencode/ai/providers/google-vertex/chat" | "@opencode/ai/providers/google-vertex-chat" => vertex_chat,
+        "@opencode/ai/providers/google-vertex/chat" => vertex_chat,
         "@opencode/ai/providers/alibaba" | "@opencode/ai/providers/alibaba/chat" => alibaba_chat,
         "@opencode/ai/providers/baseten" => baseten_chat,
         "@opencode/ai/providers/cerebras" => openai_chat,
@@ -831,7 +829,7 @@ fn protocol_for(package: &str) -> Option<Protocol> {
         "@opencode/ai/providers/meta/chat" => openai_chat,
         "@opencode/ai/providers/minimax/chat" => openai_chat,
         "@opencode/ai/providers/mistral" => openai_chat,
-        "@opencode/ai/providers/google-vertex/mistral" | "@opencode/ai/providers/google-vertex-mistral" => openai_chat,
+        "@opencode/ai/providers/google-vertex/mistral" => openai_chat,
         "@opencode/ai/providers/moonshot" | "@opencode/ai/providers/moonshot/chat" => moonshot_chat,
         "@opencode/ai/providers/togetherai" => openai_chat,
         "@opencode/ai/providers/venice" => venice_chat,
@@ -853,9 +851,9 @@ fn protocol_for(package: &str) -> Option<Protocol> {
         "@opencode/ai/providers/google" => gemini,
         "@opencode/ai/providers/google-vertex" => gemini,
         "@opencode/ai/providers/google-vertex/gemini" => gemini,
-        "@opencode/ai/providers/google/interactions"
-        | "@opencode/ai/providers/google-vertex/interactions"
-        | "@opencode/ai/providers/google-vertex-interactions" => google_interactions,
+        "@opencode/ai/providers/google/images" => gemini,
+        "@opencode/ai/providers/google-vertex/images" => gemini,
+        "@opencode/ai/providers/google/interactions" | "@opencode/ai/providers/google-vertex/interactions" => google_interactions,
 
         "@opencode/ai/providers/amazon-bedrock" => bedrock_converse,
         "@opencode/ai/providers/cohere" => cohere,

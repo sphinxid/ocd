@@ -74,7 +74,7 @@ impl OpenCodeTool {
             ),
             Kind2::Models => (
                 "models",
-                "Search the models available to use. Use this to turn a model name the user mentions into an exact reference before running a subagent on it. Check your own provider first.",
+                "Search the models available to use. Use this to turn a model name the user mentions into an exact reference for a tool that takes a model. Check your own provider first.",
                 include_str!("../../schemas/opencode_models.json"),
                 false,
             ),
@@ -190,6 +190,8 @@ struct Args {
     force: Option<bool>,
     query: Option<String>,
     provider: Option<String>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
     all: Option<bool>,
     limit: Option<usize>,
     offset: Option<usize>,
@@ -277,7 +279,8 @@ impl Tool for OpenCodeTool {
                 let fail = |m: String| err("Unable to list models".into(), m);
                 let own = host.session_get(&ctx.session_id).await.map_err(fail)?.model.map(|m| m.provider_id);
                 let names: Vec<(String, String)> = host.providers_list().await.map_err(fail)?.into_iter().map(|p| (p.id, p.name)).collect();
-                let models = host.models_list().await.map_err(fail)?;
+                let kind = args.kind.clone().unwrap_or_else(|| "chat".into());
+                let models = host.models_list(&[kind]).await.map_err(fail)?;
                 let output = models_page(
                     models,
                     &names,

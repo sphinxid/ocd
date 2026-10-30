@@ -82,6 +82,9 @@ pub struct ConfigReasoning {
 pub struct ConfigModel {
     #[serde(rename = "modelID", default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    /// `Model.Type`: lets a custom model be listed as another type (image, decision…).
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -220,6 +223,151 @@ fn assign_model(target: &mut ModelInfo, base: &ModelInfo) {
     opt!(canonical, family, compatibility, package, settings, headers, body);
 }
 
+/// What [`overlay_provider`] found before overlaying.
+struct Overlaid {
+    current_exists: bool,
+    source_id: String,
+    source_exists: bool,
+    changed: bool,
+}
+
+/// `overlayProvider`: applies one configured provider, first copying its source when `canonical` points it at
+/// another provider. An integration document's providers belong to its integration.
+fn overlay_provider(editor: &mut ProviderEditor, id: &str, item: &ConfigProvider, integration_id: Option<&str>) -> Overlaid {
+    let current = editor.get(id).map(|r| r.provider.canonical.clone());
+    let current_exists = current.is_some();
+    let current_canonical = current.flatten();
+    let source_id = item.canonical.clone().or_else(|| current_canonical.clone()).unwrap_or_else(|| id.to_string());
+    let source_exists = editor.get(&source_id).is_some();
+    let changed = item.canonical.is_some() && item.canonical != current_canonical;
+    let source_provider =
+        if changed && source_exists && source_id != id { editor.get(&source_id).map(|r| r.provider.clone()) } else { None };
+    editor.update(id, |provider| {
+        if let Some(source) = source_provider {
+            let own_id = provider.id.clone();
+            let own_integration = provider.integration_id.clone();
+            provider.name = source.name;
+            provider.activation = source.activation;
+            provider.package = source.package;
+            if source.canonical.is_some() {
+                provider.canonical = source.canonical;
+            }
+            if source.compatibility.is_some() {
+                provider.compatibility = source.compatibility;
+            }
+            if source.settings.is_some() {
+                provider.settings = source.settings;
+            }
+            if source.headers.is_some() {
+                provider.headers = source.headers;
+            }
+            if source.body.is_some() {
+                provider.body = source.body;
+            }
+            provider.id = own_id;
+            provider.integration_id = own_integration;
+        }
+        if let Some(integration_id) = integration_id {
+            provider.integration_id = Some(integration_id.to_string());
+        }
+        provider.activation = super::types::Activation::Enabled;
+        if item.canonical.is_some() {
+            provider.canonical = item.canonical.clone();
+        }
+        // An empty name counts as omitted.
+        if let Some(name) = item.name.as_ref().filter(|n| !n.is_empty()) {
+            provider.name = name.clone();
+        }
+        if let Some(package) = &item.package {
+            provider.package = package.clone();
+        }
+        if let Some(compatibility) = &item.compatibility {
+            provider.compatibility = Some(provider.compatibility.clone().unwrap_or_default().merged(compatibility));
+        }
+        if item.settings.is_some() {
+            provider.settings = merge_overlay(provider.settings.as_ref(), item.settings.as_ref());
+        }
+        if item.headers.is_some() {
+            provider.headers = merge_headers(provider.headers.as_ref(), item.headers.as_ref());
+        }
+        if item.body.is_some() {
+            provider.body = merge_overlay(provider.body.as_ref(), item.body.as_ref());
+        }
+    });
+    Overlaid { current_exists, source_id, source_exists, changed }
+}
+
+/// A config document an integration connection contributes (`ConfigIntegration.Document`), as the catalog reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntegrationDocument {
+    pub integration_id: String,
+    /// `IntegrationConnection.key(document.connection)`: its providers only exist while this connection is the
+    /// integration's active one.
+    pub connection: String,
+    pub providers: Vec<(String, ConfigProvider)>,
+}
+
+/// `ConfigProviderPlugin.integrate`: applies an integration document's providers at the integration plugin's
+/// position in the provider chain, so provider plugins registered after it treat these providers as configured ones
+/// rather than as their canonical provider, while user and project config still overlay them later. Each listed
+/// model starts again from the catalog and takes the provider's package and URL; its models are complete here.
+pub fn integrate(editor: &mut ProviderEditor, document: &IntegrationDocument) {
+    for (id, item) in &document.providers {
+        let Overlaid { source_id, source_exists, .. } = overlay_provider(editor, id, item, Some(&document.integration_id));
+        for (mid, config) in item.models.iter().flatten() {
+            let base = if source_exists {
+                editor.get(&source_id).and_then(|source| {
+                    config.model_id.as_ref().and_then(|m| source.models.get(m)).or_else(|| source.models.get(mid)).cloned()
+                })
+            } else {
+                None
+            };
+            editor.update_model(id, mid, |model| {
+                if let Some(base) = &base {
+                    assign_model(model, base);
+                }
+                if item.package.is_some() {
+                    model.package = None;
+                }
+                if item.settings.as_ref().is_some_and(|s| s.contains_key("baseURL"))
+                    && let Some(settings) = model.settings.as_mut()
+                {
+                    settings.shift_remove("baseURL");
+                }
+                apply_model_config(model, config);
+            });
+            // Variants are spelled for the final package, which the update above normalizes from `aisdk:*`.
+            let provider_package = editor.get(id).map(|r| r.provider.package.clone());
+            editor.update_model(id, mid, |model| {
+                if let Some(reasoning) = config.capabilities.as_ref().and_then(|c| c.reasoning.as_ref()) {
+                    let mut probe = model.clone();
+                    probe.package = model.package.clone().or_else(|| provider_package.clone());
+                    model.variants = variant::resolve(&probe, &variant::supports(reasoning));
+                }
+                apply_model_variants(model, config);
+            });
+        }
+        // Bound to the connection so its providers disappear as soon as the account changes or signs out.
+        if let Some(record) = editor.get(id).cloned() {
+            editor.add(record.provider, record.models.into_values().collect(), Some(document.connection.clone()));
+        }
+    }
+}
+
+/// The integration plugins' `integrate` step (`OpencodePlugin`: the Console document's providers).
+#[derive(Debug, Clone, Default)]
+pub struct IntegrationProviders {
+    pub documents: Vec<IntegrationDocument>,
+}
+
+impl CatalogPlugin for IntegrationProviders {
+    fn providers(&mut self, editor: &mut ProviderEditor) {
+        for document in &self.documents {
+            integrate(editor, document);
+        }
+    }
+}
+
 impl ConfigProviders {
     /// From one `providers` section.
     pub fn from_value(section: &Value) -> Self {
@@ -270,66 +418,7 @@ impl CatalogPlugin for ConfigProviders {
     fn providers(&mut self, editor: &mut ProviderEditor) {
         let mut next = vec![];
         for (index, (id, item)) in self.entries.iter().enumerate() {
-            let current = editor.get(id).map(|r| r.provider.canonical.clone());
-            let current_exists = current.is_some();
-            let current_canonical = current.flatten();
-            let source_id = item.canonical.clone().or_else(|| current_canonical.clone()).unwrap_or_else(|| id.clone());
-            let source_exists = editor.get(&source_id).is_some();
-            let changed = item.canonical.is_some() && item.canonical != current_canonical;
-            let source_provider = if changed && source_exists && source_id != *id {
-                editor.get(&source_id).map(|r| r.provider.clone())
-            } else {
-                None
-            };
-            editor.update(id, |provider| {
-                if let Some(source) = source_provider {
-                    let own_id = provider.id.clone();
-                    let own_integration = provider.integration_id.clone();
-                    provider.name = source.name;
-                    provider.activation = source.activation;
-                    provider.package = source.package;
-                    if source.canonical.is_some() {
-                        provider.canonical = source.canonical;
-                    }
-                    if source.compatibility.is_some() {
-                        provider.compatibility = source.compatibility;
-                    }
-                    if source.settings.is_some() {
-                        provider.settings = source.settings;
-                    }
-                    if source.headers.is_some() {
-                        provider.headers = source.headers;
-                    }
-                    if source.body.is_some() {
-                        provider.body = source.body;
-                    }
-                    provider.id = own_id;
-                    provider.integration_id = own_integration;
-                }
-                provider.activation = super::types::Activation::Enabled;
-                if item.canonical.is_some() {
-                    provider.canonical = item.canonical.clone();
-                }
-                // An empty name counts as omitted.
-                if let Some(name) = item.name.as_ref().filter(|n| !n.is_empty()) {
-                    provider.name = name.clone();
-                }
-                if let Some(package) = &item.package {
-                    provider.package = package.clone();
-                }
-                if let Some(compatibility) = &item.compatibility {
-                    provider.compatibility = Some(provider.compatibility.clone().unwrap_or_default().merged(compatibility));
-                }
-                if item.settings.is_some() {
-                    provider.settings = merge_overlay(provider.settings.as_ref(), item.settings.as_ref());
-                }
-                if item.headers.is_some() {
-                    provider.headers = merge_headers(provider.headers.as_ref(), item.headers.as_ref());
-                }
-                if item.body.is_some() {
-                    provider.body = merge_overlay(provider.body.as_ref(), item.body.as_ref());
-                }
-            });
+            let Overlaid { current_exists, source_id, source_exists, changed } = overlay_provider(editor, id, item, None);
             let mut definitions: IndexMap<String, Definition> = IndexMap::new();
             for (mid, config) in item.models.iter().flatten() {
                 let base = if source_exists {
@@ -465,6 +554,9 @@ fn apply_limit(model: &mut ModelInfo, limit: &ConfigLimit) {
 /// Overlay one configured model onto a model definition: the identity, overlay, capability and
 /// limit fields (the first model update of `opencode.config.provider`).
 pub fn apply_model_config(model: &mut ModelInfo, config: &ConfigModel) {
+    if let Some(kind) = &config.kind {
+        model.kind = Some(kind.clone());
+    }
     if let Some(family) = &config.family {
         model.family = Some(family.clone());
     }

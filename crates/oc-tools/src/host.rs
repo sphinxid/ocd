@@ -382,7 +382,8 @@ pub trait ToolHost: Send + Sync {
         Err(unsupported("models"))
     }
 
-    async fn models_list(&self) -> Result<Vec<ModelSummary>, String> {
+    /// Enabled models of the given types (`ctx.model.list({types})`), chat when none are given.
+    async fn models_list(&self, _types: &[String]) -> Result<Vec<ModelSummary>, String> {
         Err(unsupported("models"))
     }
 

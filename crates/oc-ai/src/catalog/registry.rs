@@ -265,6 +265,9 @@ struct CatalogData {
     all: Vec<ModelInfo>,
     /// Indexes into `all` of the enabled models, in `Model.available` order.
     enabled: Vec<usize>,
+    /// Enabled non-chat models (image, decision…) by type, newest first. They only show up when listed by
+    /// type, so nothing that picks or resolves a session model can reach them.
+    other: IndexMap<String, Vec<ModelInfo>>,
     default_model: Option<(String, String)>,
 }
 
@@ -299,6 +302,19 @@ fn materialize(
             }
         }
     }
+    let mut other: IndexMap<String, Vec<ModelInfo>> = IndexMap::new();
+    for models in by_provider.values_mut() {
+        models.retain(|_, model| {
+            let kind = model.kind.as_deref().unwrap_or("chat");
+            if kind == "chat" {
+                return true;
+            }
+            if model.enabled {
+                other.entry(kind.to_string()).or_default().push(model.clone());
+            }
+            false
+        });
+    }
     let mut all: Vec<ModelInfo> = by_provider.values().flat_map(|m| m.values().cloned()).collect();
     all.sort_by(|a, b| b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal));
     let mut enabled: Vec<usize> = (0..all.len()).filter(|i| all[*i].enabled).collect();
@@ -309,7 +325,10 @@ fn materialize(
         let rest: Vec<usize> = enabled.iter().copied().filter(|i| !picks.contains(i)).collect();
         enabled = picks.into_iter().chain(rest).collect();
     }
-    Catalog { inner: Arc::new(CatalogData { records, available, by_provider, all, enabled, default_model }) }
+    for models in other.values_mut() {
+        models.sort_by(|a, b| b.time.released.partial_cmp(&a.time.released).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    Catalog { inner: Arc::new(CatalogData { records, available, by_provider, all, enabled, other, default_model }) }
 }
 
 impl Catalog {
@@ -431,6 +450,28 @@ impl Catalog {
     /// models are available (`Model.available`).
     pub fn available_models(&self) -> Vec<&ModelInfo> {
         self.inner.enabled.iter().map(|i| &self.inner.all[*i]).collect()
+    }
+
+    /// `Model.available(types)`: enabled models of the given types, chat when none are given. Each
+    /// distinct type is listed once, in request order; only chat models are offered for sessions.
+    pub fn available_models_of(&self, types: &[String]) -> Vec<&ModelInfo> {
+        if types.is_empty() {
+            return self.available_models();
+        }
+        let mut seen: Vec<&str> = vec![];
+        let mut out = vec![];
+        for kind in types {
+            if seen.contains(&kind.as_str()) {
+                continue;
+            }
+            seen.push(kind);
+            if kind == "chat" {
+                out.extend(self.available_models());
+            } else if let Some(models) = self.inner.other.get(kind) {
+                out.extend(models.iter());
+            }
+        }
+        out
     }
 
     /// Configured default selection, if any.

@@ -436,9 +436,8 @@ impl Backend for Engine {
     // ---- model / provider / generate ----------------------------------------------------------
 
     async fn model_list(&self, ctx: &RequestContext, _req: ModelListRequest) -> Result<Vec<ModelInfo>, ApiError> {
-        let loc = self.locations.get(&ctx.location.directory).await?;
-        let catalog = self.catalog(&loc).await?;
-        catalog.available_models().into_iter().map(conv).collect()
+        // The regenerated `ModelListRequest` carries `?types=`; pass it here (`self.model_list_of(ctx, &types)`).
+        self.model_list_of(ctx, &[]).await
     }
 
     async fn model_default(&self, ctx: &RequestContext, _req: ModelDefaultRequest) -> Result<Option<ModelInfo>, ApiError> {
@@ -1598,6 +1597,29 @@ impl Engine {
         tokio::time::timeout(std::time::Duration::from_secs(5), self.app.plugins.await_activation(&loc.key))
             .await
             .map_err(|_| ApiError::service_unavailable("Location plugins did not finish activating", Some("plugin".into())))
+    }
+
+    /// `model.list` with `?types=`: enabled models of the given types, chat when none are given
+    /// (`Model.available(types)`). Unknown types list nothing.
+    pub async fn model_list_of(&self, ctx: &RequestContext, types: &[String]) -> Result<Vec<ModelInfo>, ApiError> {
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        let catalog = self.catalog(&loc).await?;
+        catalog.available_models_of(types).into_iter().map(conv).collect()
+    }
+
+    /// `usage.limits` (`GET /api/experimental/usage/limits`): the usage limits of the OpenCode Console workspace
+    /// the location is signed in to, `None` (`data: null`) when it is not; a Console that can't answer gives 503
+    /// `{service: "opencode"}`.
+    pub async fn usage_limits(&self, ctx: &RequestContext) -> Result<Option<Value>, ApiError> {
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        // The OpenCode Console plugin registers the sign-in method that refreshes an expired credential.
+        self.await_plugins(&loc).await?;
+        self.catalog(&loc).await?;
+        let integrations = self.models().integrations_for(Some(&loc.key));
+        let user_agent = format!("opencode/{}/{}/{}", oc_util::version::CHANNEL, self.app.version, oc_util::version::ARTIFACT);
+        oc_core::usage_limits::get(&integrations, &oc_core::usage_limits::ReqwestHttp::default(), &user_agent)
+            .await
+            .map_err(|e| ApiError::service_unavailable(e.message, Some("opencode".into())))
     }
 
     /// The location's web search service with its config `websearch` selection applied

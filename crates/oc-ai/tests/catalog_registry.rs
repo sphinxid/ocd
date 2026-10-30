@@ -311,10 +311,8 @@ fn attribution_headers_per_plugin() {
         headers_of(&provider("zenmux", oc, Some("https://zenmux.ai/api/v1"), &[("HTTP-Referer", "https://example.com/"), ("X-Title", "custom-title")])),
         r#"{"HTTP-Referer":"https://example.com/","X-Title":"custom-title"}"#
     );
-    assert_eq!(
-        headers_of(&provider("vercel", "aisdk:@ai-sdk/vercel", None, &[])),
-        r#"{"http-referer":"https://opencode.ai/","x-title":"opencode"}"#
-    );
+    // 2.2 dropped the bundled Vercel provider plugin and its headers.
+    assert_eq!(headers_of(&provider("vercel", "aisdk:@ai-sdk/vercel", None, &[])), "null");
     assert_eq!(headers_of(&provider("nvidia", "@opencode/ai/providers/openrouter", None, &[])).contains("X-BILLING"), false);
     assert_eq!(headers_of(&provider("x", oc, Some("https://example.com"), &[])), "null");
 }

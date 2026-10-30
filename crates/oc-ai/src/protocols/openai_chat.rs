@@ -580,6 +580,12 @@ pub fn body_fields(request: &LLMRequest, opts: &ChatOptions) -> Result<Fields, A
             f.insert("prompt_cache_key".into(), Some(json!(key)));
         }
     }
+    // Inline markers carry the lifetime when the policy places them.
+    if !crate::compile::places_markers(request)
+        && let Some((key, value)) = crate::compile::openai_request_ttl(crate::compile::request_ttl(request))
+    {
+        f.insert(key.into(), Some(value));
+    }
     if let Some(effort) = po.reasoning_effort.filter(|e| !e.is_empty()) {
         f.insert("reasoning_effort".into(), Some(json!(effort)));
     }

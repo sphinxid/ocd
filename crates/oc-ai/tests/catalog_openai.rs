@@ -205,6 +205,8 @@ fn sharing_setup<'a>() -> Box<dyn CatalogPlugin + 'a> {
             "gpt-6-sol-fast",
             "gpt-6.1-sol",
             "gpt-6.1-sol-fast",
+            "gpt-6.1-terra",
+            "gpt-6.1-terra-fast",
         ] {
             e.update_model("openai", id, |_| {});
         }

@@ -332,14 +332,7 @@ impl Breakpoints {
     }
 }
 
-pub fn ttl_bucket(ttl_seconds: Option<f64>) -> Option<&'static str> {
-    match ttl_seconds {
-        Some(t) if t >= 3600.0 => Some("1h"),
-        _ => None,
-    }
-}
-
-/// `cacheControl()`: at most 4 markers; `{type:"ephemeral", ttl?:"1h"}`.
+/// `cacheControl()`: at most 4 markers; `{type:"ephemeral", ttl?}` with the hint's lifetime as given.
 #[derive(Debug, Clone)]
 pub struct CacheControl {
     pub breakpoints: Breakpoints,
@@ -360,8 +353,8 @@ impl CacheControl {
         self.breakpoints.remaining -= 1;
         let mut obj = serde_json::Map::new();
         obj.insert("type".into(), Value::String("ephemeral".into()));
-        if let Some(ttl) = ttl_bucket(cache.ttl_seconds) {
-            obj.insert("ttl".into(), Value::String(ttl.into()));
+        if let Some(ttl) = &cache.ttl {
+            obj.insert("ttl".into(), Value::String(ttl.clone()));
         }
         Some(Value::Object(obj))
     }

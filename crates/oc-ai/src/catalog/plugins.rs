@@ -3,7 +3,7 @@
 
 use super::models_dev::{filter_snapshots, Snapshot};
 use super::registry::{CatalogPlugin, ModelEditor, ProviderEditor};
-use super::types::{is_aisdk, package_name, HeaderMap, ProviderInfo};
+use super::types::{HeaderMap, ProviderInfo};
 use crate::types::Compatibility;
 use std::collections::HashSet;
 
@@ -52,9 +52,6 @@ pub fn attribution_headers(provider: &ProviderInfo, configured: &HashSet<String>
     }
     if package == "@opencode/ai/providers/openrouter" {
         result = Some(spread(current(&result).as_ref(), &[REFERER, TITLE]));
-    }
-    if is_aisdk(Some(package)) && package_name(package) == "@ai-sdk/vercel" {
-        result = Some(spread(current(&result).as_ref(), &[("http-referer", "https://opencode.ai/"), ("x-title", "opencode")]));
     }
     if package == OPENAI_COMPATIBLE && base_url == Some("https://zenmux.ai/api/v1") {
         let mut out: HeaderMap = [REFERER, TITLE].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
@@ -121,8 +118,8 @@ impl CatalogPlugin for ModelsDevPlugin {
     }
 }
 
-/// Attribution / integration headers of the Cerebras, Kilo, LLM Gateway, Nvidia, OpenRouter, Vercel and
-/// Zenmux plugins, plus OpenRouter alias disabling and the prompt-cache-key compatibility flag.
+/// Attribution / integration headers of the Cerebras, Kilo, LLM Gateway, Nvidia, OpenRouter and Zenmux
+/// plugins, plus OpenRouter alias disabling and the prompt-cache-key compatibility flag.
 pub struct DataPlugins {
     configured: HashSet<String>,
 }

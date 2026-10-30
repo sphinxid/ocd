@@ -99,7 +99,7 @@ async fn refresh_publishes_globally_and_rebuilds_catalogs() {
     let catalog = engine.models().catalog(&[]).await.unwrap();
     assert_eq!(catalog.provider("acme").map(|p| p.name.as_str()), Some("Acme"));
     // The refreshed body is cached, so the next process starts from it.
-    let cached = app.db.kv_get(&format!("models-dev:catalog:{}", oc_util::hash::fast(&url))).unwrap().unwrap();
+    let cached = app.db.kv_get(&format!("models-dev:v2:catalog:{}", oc_util::hash::fast(&url))).unwrap().unwrap();
     assert_eq!(serde_json::from_str::<Value>(cached["body"].as_str().unwrap()).unwrap(), catalog_json());
 }
 

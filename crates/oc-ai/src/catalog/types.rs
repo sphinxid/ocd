@@ -52,7 +52,10 @@ pub fn package_name(value: &str) -> String {
 }
 
 /// Native `@opencode/ai/providers/*` entrypoints bundled with Core and loadable by name from config
-/// (`packages/core/src/provider.ts` `builtinPackages`).
+/// (`packages/core/src/provider.ts` `builtinPackages`, without the image and decision entrypoints this
+/// build cannot run yet). The legacy hyphenated Vertex names and `amazon-bedrock-mantle` are not listed:
+/// [`super::native::resolve`] rewrites them to the nested entrypoints, though the loader still accepts
+/// them.
 pub const BUILTIN_PACKAGES: &[&str] = &[
     "@opencode/ai/providers/alibaba",
     "@opencode/ai/providers/alibaba/chat",
@@ -63,7 +66,6 @@ pub const BUILTIN_PACKAGES: &[&str] = &[
     "@opencode/ai/providers/amazon-bedrock/mantle/chat",
     "@opencode/ai/providers/amazon-bedrock/mantle/messages",
     "@opencode/ai/providers/amazon-bedrock/mantle/responses",
-    "@opencode/ai/providers/amazon-bedrock-mantle",
     "@opencode/ai/providers/anthropic",
     "@opencode/ai/providers/anthropic-compatible",
     "@opencode/ai/providers/azure",
@@ -88,11 +90,7 @@ pub const BUILTIN_PACKAGES: &[&str] = &[
     "@opencode/ai/providers/google-vertex/messages",
     "@opencode/ai/providers/google-vertex/mistral",
     "@opencode/ai/providers/google-vertex/responses",
-    "@opencode/ai/providers/google-vertex-chat",
-    "@opencode/ai/providers/google-vertex-interactions",
     "@opencode/ai/providers/google-vertex-messages",
-    "@opencode/ai/providers/google-vertex-mistral",
-    "@opencode/ai/providers/google-vertex-responses",
     "@opencode/ai/providers/groq",
     "@opencode/ai/providers/meta",
     "@opencode/ai/providers/meta/chat",
@@ -123,6 +121,106 @@ pub const BUILTIN_PACKAGES: &[&str] = &[
     "@opencode/ai/providers/xai",
     "@opencode/ai/providers/zai",
     "@opencode/ai/providers/zai/chat",
+    "@opencode/ai/providers/zai-coding-plan",
+    "@opencode/ai/providers/zai-coding-plan/chat",
+    "@opencode/ai/providers/zai-coding-plan/messages",
+    "@opencode/ai/providers/zai-coding-plan/responses",
+];
+
+/// Every `@opencode/ai/providers/*` entrypoint upstream's Core bundles (`Provider.builtinPackages`),
+/// including the image and decision entrypoints this build cannot run yet. The models.dev catalog keeps
+/// models whose API names one of these (`loadable`); resolving a package missing from
+/// [`BUILTIN_PACKAGES`] fails as an unsupported package.
+pub const CATALOG_PACKAGES: &[&str] = &[
+    "@opencode/ai/providers/alibaba",
+    "@opencode/ai/providers/alibaba/chat",
+    "@opencode/ai/providers/alibaba/messages",
+    "@opencode/ai/providers/alibaba/responses",
+    "@opencode/ai/providers/alibaba/images",
+    "@opencode/ai/providers/amazon-bedrock",
+    "@opencode/ai/providers/amazon-bedrock/mantle",
+    "@opencode/ai/providers/amazon-bedrock/mantle/chat",
+    "@opencode/ai/providers/amazon-bedrock/mantle/messages",
+    "@opencode/ai/providers/amazon-bedrock/mantle/responses",
+    "@opencode/ai/providers/anthropic",
+    "@opencode/ai/providers/anthropic-compatible",
+    "@opencode/ai/providers/azure",
+    "@opencode/ai/providers/azure/chat",
+    "@opencode/ai/providers/azure/responses",
+    "@opencode/ai/providers/azure/images",
+    "@opencode/ai/providers/baseten",
+    "@opencode/ai/providers/baseten/decisions",
+    "@opencode/ai/providers/cerebras",
+    "@opencode/ai/providers/cloudflare-ai-gateway",
+    "@opencode/ai/providers/cloudflare-ai-gateway/decisions",
+    "@opencode/ai/providers/cloudflare-workers-ai",
+    "@opencode/ai/providers/cloudflare-workers-ai/decisions",
+    "@opencode/ai/providers/cloudflare-workers-ai/images",
+    "@opencode/ai/providers/cohere",
+    "@opencode/ai/providers/cohere/chat",
+    "@opencode/ai/providers/deepinfra",
+    "@opencode/ai/providers/deepseek",
+    "@opencode/ai/providers/digitalocean",
+    "@opencode/ai/providers/digitalocean/decisions",
+    "@opencode/ai/providers/digitalocean/images",
+    "@opencode/ai/providers/digitalocean/responses",
+    "@opencode/ai/providers/fireworks",
+    "@opencode/ai/providers/google",
+    "@opencode/ai/providers/google/interactions",
+    "@opencode/ai/providers/google/images",
+    "@opencode/ai/providers/google-vertex",
+    "@opencode/ai/providers/google-vertex/chat",
+    "@opencode/ai/providers/google-vertex/gemini",
+    "@opencode/ai/providers/google-vertex/interactions",
+    "@opencode/ai/providers/google-vertex/messages",
+    "@opencode/ai/providers/google-vertex/mistral",
+    "@opencode/ai/providers/google-vertex/responses",
+    "@opencode/ai/providers/google-vertex/images",
+    "@opencode/ai/providers/google-vertex-messages",
+    "@opencode/ai/providers/groq",
+    "@opencode/ai/providers/meta",
+    "@opencode/ai/providers/meta/chat",
+    "@opencode/ai/providers/meta/images",
+    "@opencode/ai/providers/meta/messages",
+    "@opencode/ai/providers/meta/responses",
+    "@opencode/ai/providers/minimax",
+    "@opencode/ai/providers/minimax/chat",
+    "@opencode/ai/providers/minimax/images",
+    "@opencode/ai/providers/minimax/messages",
+    "@opencode/ai/providers/minimax/responses",
+    "@opencode/ai/providers/mistral",
+    "@opencode/ai/providers/moonshot",
+    "@opencode/ai/providers/moonshot/chat",
+    "@opencode/ai/providers/moonshot/messages",
+    "@opencode/ai/providers/moonshot/responses",
+    "@opencode/ai/providers/openai",
+    "@opencode/ai/providers/openai/chat",
+    "@opencode/ai/providers/openai/responses",
+    "@opencode/ai/providers/openai/images",
+    "@opencode/ai/providers/openai-compatible",
+    "@opencode/ai/providers/openai-compatible/responses",
+    "@opencode/ai/providers/openai-compatible/images",
+    "@opencode/ai/providers/openai-compatible-responses",
+    "@opencode/ai/providers/opencode/decisions",
+    "@opencode/ai/providers/openrouter",
+    "@opencode/ai/providers/openrouter/decisions",
+    "@opencode/ai/providers/openrouter/images",
+    "@opencode/ai/providers/openrouter/responses",
+    "@opencode/ai/providers/togetherai",
+    "@opencode/ai/providers/typesafe-ai/decisions",
+    "@opencode/ai/providers/venice",
+    "@opencode/ai/providers/venice/responses",
+    "@opencode/ai/providers/vercel-ai-gateway",
+    "@opencode/ai/providers/vercel-ai-gateway/chat",
+    "@opencode/ai/providers/vercel-ai-gateway/messages",
+    "@opencode/ai/providers/vercel-ai-gateway/responses",
+    "@opencode/ai/providers/vercel-ai-gateway/decisions",
+    "@opencode/ai/providers/vercel-ai-gateway/images",
+    "@opencode/ai/providers/xai",
+    "@opencode/ai/providers/xai/images",
+    "@opencode/ai/providers/zai",
+    "@opencode/ai/providers/zai/chat",
+    "@opencode/ai/providers/zai/images",
     "@opencode/ai/providers/zai-coding-plan",
     "@opencode/ai/providers/zai-coding-plan/chat",
     "@opencode/ai/providers/zai-coding-plan/messages",
@@ -352,6 +450,10 @@ pub struct ModelInfo {
     pub provider_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical: Option<String>,
+    /// `Model.Type`: what the model produces, from models.dev (`chat`, `decision`, `image`, open-ended).
+    /// Only chat models are offered for sessions; unset means chat.
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
     pub name: String,
@@ -382,6 +484,7 @@ impl ModelInfo {
             model_id: id.into(),
             provider_id: provider_id.into(),
             canonical: None,
+            kind: None,
             family: None,
             name: id.into(),
             compatibility: None,
@@ -450,6 +553,7 @@ pub fn catalog_compatibility(input: &Compatibility) -> Compatibility {
         cache_format: input.cache_format.clone(),
         supports_thinking_block_binding: input.supports_thinking_block_binding,
         supports_effort_updates: input.supports_effort_updates,
+        media_input: input.media_input.clone(),
         ..Default::default()
     }
 }
@@ -541,18 +645,18 @@ pub fn merge_headers(base: Option<&HeaderMap>, overlay: Option<&HeaderMap>) -> O
     }
 }
 
-/// Settings consumed by Core; native packages never receive them.
-pub const CORE_KEYS: &[&str] = &["chunkTimeout", "compaction", "encoding", "fetch", "headerTimeout", "timeout", "transport"];
-/// Provider-only settings that models do not inherit.
-pub const PROVIDER_ONLY_KEYS: &[&str] = &["chunkTimeout", "headerTimeout", "timeout", "transport"];
+/// The `Provider.Settings` fields OpenCode reads itself; every other key is a provider option for the package.
+pub const SETTINGS_KEYS: &[&str] = &["timeout", "headerTimeout", "chunkTimeout", "compaction", "cache", "transport", "encoding"];
+/// Provider-only settings that models do not inherit (the `Provider.Settings` fields `Model.Settings` lacks).
+pub const PROVIDER_ONLY_KEYS: &[&str] = &["timeout", "headerTimeout", "chunkTimeout", "transport"];
 
 pub(crate) fn omit(settings: &Object, keys: &[&str]) -> Object {
     settings.iter().filter(|(k, _)| !keys.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
-/// `Provider.nativeSettings`.
+/// `Provider.nativeSettings`: the provider options, every settings key OpenCode doesn't read itself.
 pub fn native_settings(settings: &Object) -> Object {
-    omit(settings, CORE_KEYS)
+    omit(settings, SETTINGS_KEYS)
 }
 
 /// `Provider.modelSettings`.

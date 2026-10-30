@@ -174,18 +174,52 @@ const RESPECTS_INLINE_HINTS: &[&str] = &[
 const BREAKPOINT_CAP: i64 = 4;
 
 fn auto_policy() -> CachePolicyObject {
-    CachePolicyObject { tools: Some(true), system: Some(true), messages: Some(CacheMessages::Tail { tail: 1 }), ttl_seconds: None }
+    CachePolicyObject { tools: Some(true), system: Some(true), messages: Some(CacheMessages::Tail { tail: 1 }), ttl: None }
 }
 fn qwen_policy() -> CachePolicyObject {
-    CachePolicyObject { tools: None, system: Some(true), messages: Some(CacheMessages::Tail { tail: 1 }), ttl_seconds: None }
+    CachePolicyObject { tools: None, system: Some(true), messages: Some(CacheMessages::Tail { tail: 1 }), ttl: None }
 }
 
+/// `isAuto`: unset, `"auto"`, or an object that chooses no placement (such as `{ttl}`).
+fn is_auto_policy(policy: Option<&CachePolicy>) -> bool {
+    match policy {
+        None => true,
+        Some(CachePolicy::Mode(m)) => m == "auto",
+        Some(CachePolicy::Object(o)) => o.tools.is_none() && o.system.is_none() && o.messages.is_none(),
+    }
+}
+
+/// `resolve`: `"none"` places nothing, an object that chooses placements is taken as is, anything else is auto.
 fn resolve_policy(policy: Option<&CachePolicy>) -> CachePolicyObject {
     match policy {
-        None => auto_policy(),
-        Some(CachePolicy::Mode(m)) if m == "auto" => auto_policy(),
-        Some(CachePolicy::Mode(_)) => CachePolicyObject::default(),
-        Some(CachePolicy::Object(o)) => o.clone(),
+        Some(CachePolicy::Mode(m)) if m == "none" => CachePolicyObject::default(),
+        Some(CachePolicy::Object(o)) if !is_auto_policy(policy) => o.clone(),
+        _ => auto_policy(),
+    }
+}
+
+/// `requestTTL`: the requested cache lifetime, for routes that send it as a request-level option instead of on
+/// markers.
+pub fn request_ttl(request: &LLMRequest) -> Option<&str> {
+    match request.cache.as_ref()? {
+        CachePolicy::Object(o) => o.ttl.as_deref(),
+        CachePolicy::Mode(_) => None,
+    }
+}
+
+/// `placesMarkers`: whether the cache policy places inline markers, which then carry the requested lifetime.
+pub fn places_markers(request: &LLMRequest) -> bool {
+    let policy = select_policy(request);
+    policy.tools.unwrap_or(false) || policy.system.unwrap_or(false) || policy.messages.is_some()
+}
+
+/// `Cache.openAIRequestTTL`: OpenAI's request-level lifetime. `prompt_cache_retention` takes only `"24h"` and is
+/// the only control before GPT-5.6; every other lifetime goes to `prompt_cache_options.ttl`, which GPT-5.6+, Kimi
+/// and DeepInfra read.
+pub fn openai_request_ttl(ttl: Option<&str>) -> Option<(&'static str, Value)> {
+    match ttl? {
+        "24h" => Some(("prompt_cache_retention", Value::String("24h".into()))),
+        ttl => Some(("prompt_cache_options", serde_json::json!({"ttl": ttl}))),
     }
 }
 
@@ -256,7 +290,7 @@ fn mark_message_at(messages: &mut [Message], index: Option<usize>, hint: &CacheH
 fn select_policy(request: &LLMRequest) -> CachePolicyObject {
     let format = request.compat().cache_format.clone();
     let route = request.model.route.id.as_str();
-    let auto = request.cache.as_ref().map(|c| c.is_auto()).unwrap_or(true);
+    let auto = is_auto_policy(request.cache.as_ref());
     match format.as_deref() {
         Some("alibaba") => {
             return if auto { qwen_policy() } else { CachePolicyObject { tools: Some(false), ..resolve_policy(request.cache.as_ref()) } };
@@ -285,7 +319,7 @@ pub fn apply_cache_policy(request: &mut LLMRequest) {
     if !policy.tools.unwrap_or(false) && !policy.system.unwrap_or(false) && policy.messages.is_none() {
         return;
     }
-    let hint = CacheHint::with_ttl(policy.ttl_seconds);
+    let hint = CacheHint::with_ttl(request_ttl(request).map(String::from));
     let existing = count_tool_hints(&request.tools)
         + request.system.iter().filter(|p| p.cache.is_some()).count() as i64
         + request.messages.iter().flat_map(|m| m.content.iter()).filter(|p| is_cacheable_part(p) && p.cache().is_some()).count() as i64;

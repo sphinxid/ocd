@@ -109,7 +109,8 @@ async fn codex_sign_in_routes_to_codex_with_its_headers_and_eligible_models() {
     let provider = catalog.provider("openai").unwrap();
     let settings = provider.settings.as_ref().unwrap();
     assert_eq!(settings["baseURL"], CODEX_BASE_URL);
-    assert_eq!(settings["encoding"], "zstd");
+    // The v2 catalog gives `openai` a base URL, which the plugin reads as configured: no zstd (as 2.2.2).
+    assert!(settings.get("encoding").is_none());
     assert_eq!(settings["transport"], "websocket");
     let headers = provider.headers.as_ref().unwrap();
     assert_eq!(headers["originator"], "opencode");
@@ -169,7 +170,7 @@ async fn token_sharing_routes_over_http_with_fallback_models_and_session_headers
     let settings = provider.settings.as_ref().unwrap();
     assert_eq!(settings["baseURL"], TOKEN_SHARING_BASE_URL);
     assert_eq!(settings["transport"], "http");
-    assert_eq!(settings["encoding"], "zstd");
+    assert!(settings.get("encoding").is_none());
     assert!(provider.headers.as_ref().is_none_or(|h| !h.contains_key("originator")));
     let mut ids: Vec<&str> = catalog.provider_models("openai").into_iter().map(|m| m.id.as_str()).collect();
     ids.sort();
@@ -249,7 +250,8 @@ async fn api_keys_keep_the_full_catalog_and_retries_but_drop_the_openai_output_l
     let provider = catalog.provider("openai").unwrap();
     let settings = provider.settings.as_ref().unwrap();
     assert_eq!(settings["transport"], "websocket");
-    assert!(settings.get("encoding").is_none() && settings.get("baseURL").is_none());
+    assert!(settings.get("encoding").is_none());
+    assert_eq!(settings["baseURL"], "https://api.openai.com/v1");
     assert!(catalog.model("openai", "gpt-4.1").unwrap().enabled);
     assert!(!catalog.model("openai", "gpt-5.5").unwrap().cost.is_empty());
     assert_eq!(catalog.model("openai", "gpt-6.1-sol").unwrap().limit.input, Some(922_000));
@@ -349,7 +351,7 @@ async fn moves_only_token_sharing_credentials_to_the_new_method_id_and_caches_th
 #[test]
 fn registers_the_context_caps_plugin_after_the_openai_plugin() {
     let ids = oc_core::plugins::BUILTIN_PLUGINS;
-    assert_eq!(ids.len(), 90);
+    assert_eq!(ids.len(), 87);
     let openai = ids.iter().position(|id| *id == "opencode.provider.openai").unwrap();
     assert_eq!(ids[openai + 1], "opencode.provider.openai-context-caps");
     assert!(ids.iter().position(|id| *id == "opencode.provider.chatgpt").unwrap() < openai);

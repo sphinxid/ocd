@@ -201,10 +201,18 @@ async function throughMiddleware(store: Middleware, send: Fetch, input: any, ini
   })
 }
 
+// `Provider.Settings` fields OpenCode reads itself; every other key is a provider option (`Provider.nativeSettings`).
+const SETTINGS_KEYS = ["timeout", "headerTimeout", "chunkTimeout", "compaction", "cache", "transport", "encoding"]
+
+function nativeSettings(settings: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(settings).filter(([key]) => !SETTINGS_KEYS.includes(key)))
+}
+
 function requestSettings(settings: Record<string, unknown> | undefined) {
   if (settings === undefined) return undefined
-  const drop = ["apiKey", "authToken", "baseURL", "chunkTimeout", "compaction", "fetch", "headerTimeout", "timeout", "transport"]
-  const result = Object.fromEntries(Object.entries(settings).filter(([key]) => !drop.includes(key)))
+  // These configure the SDK provider when it is created, not each request.
+  const drop = ["accessToken", "apiKey", "authToken", "baseURL", "fetch"]
+  const result = Object.fromEntries(Object.entries(nativeSettings(settings)).filter(([key]) => !drop.includes(key)))
   return Object.keys(result).length === 0 ? undefined : result
 }
 
@@ -226,18 +234,15 @@ function mapBodyToProviderOptions(model: any, pkg: string) {
 
 function prepareOptions(model: any, pkg: string) {
   const projected = mapBodyToProviderOptions(model, pkg)
+  const settings = model.settings ?? {}
   const options: Record<string, any> = {
     name: model.canonical ?? model.providerID,
-    ...(model.settings ?? {}),
+    ...nativeSettings(settings),
     headers: model.headers,
     body: projected.body,
   }
-  const customFetch = options.fetch
-  const limits = timeouts(options)
-  delete options.headerTimeout
-  delete options.chunkTimeout
-  delete options.compaction
-  delete options.transport
+  const customFetch = settings.fetch
+  const limits = timeouts(settings)
   options.fetch = async (input: any, init?: any) => {
     const opts = { ...(init ?? {}) }
     // The header limit is cleared once headers arrive; the whole-request limit spans the body.
@@ -300,9 +305,6 @@ async function loadSDKFactory(io: BridgeIO, name: string) {
 // Packages upstream bundles in its binary, at the versions it pins (packages/core/package.json);
 // ocd installs exactly those versions on first use.
 const PINNED: Record<string, string> = {
-  "@ai-sdk/cohere": "@ai-sdk/cohere@3.0.27",
-  "@ai-sdk/perplexity": "@ai-sdk/perplexity@3.0.26",
-  "@ai-sdk/vercel": "@ai-sdk/vercel@2.0.39",
   "gitlab-ai-provider": "gitlab-ai-provider@6.19.0",
 }
 
@@ -428,19 +430,6 @@ export class AISDKService {
 // -------------------------------------------------------------------------------------------
 
 type Internal = (service: AISDKService, io: BridgeIO, app: () => unknown, id: string) => void
-
-const factoryPlugin =
-  (pkg: string, factory: string): Internal =>
-  (service, io, _app, id) =>
-    service.hook(
-      "sdk",
-      async (evt: SDKEvent) => {
-        if (evt.package !== pkg) return
-        const mod = await pinned(io, pkg)
-        evt.sdk = (mod[factory] as (options: unknown) => SDK)(evt.options)
-      },
-      id,
-    )
 
 // opencode.provider.gitlab (plugin/provider/gitlab.ts)
 const gitlab: Internal = (service, io, app, id) => {
@@ -653,14 +642,12 @@ const dynamic: Internal = (service, io, _app, id) => {
   }, id)
 }
 
-// ProviderPlugins order: cohere, github-copilot, gitlab, perplexity, sap-ai-core, vercel, ..., dynamic.
+// ProviderPlugins order: github-copilot, gitlab, sap-ai-core, ..., dynamic. Cohere, Perplexity and Vercel are
+// no longer special-cased (2.2): they install from npm like any other AI SDK package.
 const internalPlugins: [string, Internal][] = [
-  ["opencode.provider.cohere", factoryPlugin("@ai-sdk/cohere", "createCohere")],
   ["opencode.provider.github.copilot", githubCopilot],
   ["opencode.provider.gitlab", gitlab],
-  ["opencode.provider.perplexity", factoryPlugin("@ai-sdk/perplexity", "createPerplexity")],
   ["opencode.provider.sap.ai.core", sapAICore],
-  ["opencode.provider.vercel", factoryPlugin("@ai-sdk/vercel", "createVercel")],
   ["opencode.provider.dynamic", dynamic],
 ]
 

@@ -67,6 +67,7 @@ impl Engine {
         let app_ref = app.clone();
         let models = oc_core::models::Models::new(app.db.clone(), app.bus.clone(), oc_util::version::CHANNEL, &app.version);
         models.set_plugins(app.plugins.clone());
+        models.set_lock_root(app.global.locks());
         Arc::new(Engine {
             locations: Locations::new(app.clone(), None),
             app,

@@ -73,10 +73,11 @@ impl CacheBudget {
             return None;
         }
         self.remaining -= 1;
-        Some(if self.ttl1h && shared::ttl_bucket(cache.ttl_seconds) == Some("1h") {
-            json!({"cachePoint": {"type": "default", "ttl": "1h"}})
-        } else {
-            json!({"cachePoint": {"type": "default"}})
+        // Older Claude releases cache for five minutes only, so a one-hour request falls back to the default.
+        let ttl = cache.ttl.as_deref().filter(|ttl| !(*ttl == "1h" && !self.ttl1h));
+        Some(match ttl {
+            Some(ttl) => json!({"cachePoint": {"type": "default", "ttl": ttl}}),
+            None => json!({"cachePoint": {"type": "default"}}),
         })
     }
     fn text(&mut self, text: &str, cache: Option<&CacheHint>) -> Vec<Value> {

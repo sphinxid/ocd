@@ -532,6 +532,38 @@ impl Entry {
     }
 }
 
+/// `Duration.format`: whole seconds as `"30s"`, otherwise milliseconds.
+fn format_duration(duration: std::time::Duration) -> String {
+    if duration.subsec_millis() == 0 && duration.as_secs() > 0 {
+        format!("{}s", duration.as_secs())
+    } else {
+        format!("{}ms", duration.as_millis())
+    }
+}
+
+/// The refresh operation of [`Integrations::refresh_locked`].
+async fn refresh_stored(
+    store: &Arc<dyn CredentialStore>,
+    clock: &Clock,
+    id: &str,
+    implementation: Arc<dyn OAuthMethod>,
+    timeout: std::time::Duration,
+) -> Result<Option<CredentialValue>, String> {
+    // Another location or process may have refreshed while this caller waited.
+    let Some(current) = store.get(id).await.map_err(|e| e.to_string())? else { return Ok(None) };
+    let Some(oauth) = current.value.as_oauth() else { return Ok(None) };
+    if oauth.expires > clock() + REFRESH_WINDOW_MS {
+        return Ok(Some(current.value));
+    }
+    let value = tokio::time::timeout(timeout, implementation.refresh(oauth))
+        .await
+        .map_err(|_| format!("Operation timed out after '{}'", format_duration(timeout)))?
+        .map_err(|e| e.message)?
+        .into_value();
+    store.update(id, CredentialUpdate { label: None, value: Some(value.clone()) }).await.map_err(|e| e.to_string())?;
+    Ok(Some(value))
+}
+
 /// The integration service (`Integration.Interface`): registry, connections, OAuth and command attempts.
 pub struct Integrations {
     store: Arc<dyn CredentialStore>,
@@ -543,7 +575,23 @@ pub struct Integrations {
     command_attempts: Mutex<HashMap<String, CommandAttemptState>>,
     statuses: Mutex<HashMap<String, ConnectionStatus>>,
     events: broadcast::Sender<IntegrationEvent>,
+    /// Root of the cross-process file locks around OAuth refreshes (`<state>/locks`); unset, refreshes are
+    /// coordinated within this process only.
+    lock_root: Mutex<Option<std::path::PathBuf>>,
+    /// How long one OAuth refresh may take ([`REFRESH_TIMEOUT`]).
+    refresh_timeout: Mutex<std::time::Duration>,
 }
+
+/// A credential refresh in flight, shared by every caller for the same credential (`Credential.lock`).
+type PendingRefresh = futures::future::Shared<futures::future::BoxFuture<'static, Result<Option<CredentialValue>, String>>>;
+
+/// Refreshes in flight by credential id. The credential store is global, so the coordination is too: the
+/// operation belongs to the process, not to the first location or session waiting for it.
+static PENDING_REFRESHES: once_cell::sync::Lazy<Mutex<HashMap<String, PendingRefresh>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// How long one OAuth refresh may take.
+pub const REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Options for [`Integrations::connect_oauth`].
 #[derive(Debug, Clone, Default)]
@@ -570,7 +618,20 @@ impl Integrations {
             command_attempts: Mutex::new(HashMap::new()),
             statuses: Mutex::new(HashMap::new()),
             events: broadcast::channel(64).0,
+            lock_root: Mutex::new(None),
+            refresh_timeout: Mutex::new(REFRESH_TIMEOUT),
         })
+    }
+
+    /// Change the refresh time limit (tests).
+    pub fn set_refresh_timeout(&self, timeout: std::time::Duration) {
+        *self.refresh_timeout.lock() = timeout;
+    }
+
+    /// Coordinate OAuth refreshes with other processes sharing the database through file locks under `root`
+    /// (`credential-refresh:<id>`, interoperable with upstream's `EffectFlock`).
+    pub fn set_lock_root(&self, root: Option<std::path::PathBuf>) {
+        *self.lock_root.lock() = root;
     }
 
     pub fn store(&self) -> &Arc<dyn CredentialStore> {
@@ -762,6 +823,15 @@ impl Integrations {
         Ok(self.resolve_connections(&methods, &saved).into_iter().next())
     }
 
+    /// The active connection's **stored** credential, without resolving it (nothing is refreshed), or `None`
+    /// when the integration has no saved credential connection.
+    pub async fn stored(&self, id: &str) -> Option<CredentialValue> {
+        match self.active(id).await.ok().flatten()? {
+            ConnectionInfo::Credential { id, .. } => Some(self.store.get(&id).await.ok().flatten()?.value),
+            ConnectionInfo::Env { .. } => None,
+        }
+    }
+
     /// Resolves a connection into credential material, refreshing OAuth credentials that expire within 5 min.
     pub async fn resolve(&self, connection: &ConnectionInfo) -> Result<Option<CredentialValue>, IntegrationError> {
         let id = match connection {
@@ -781,16 +851,48 @@ impl Integrations {
         if oauth.expires > self.now() + REFRESH_WINDOW_MS {
             return Ok(Some(credential.value));
         }
-        let value = implementation
-            .refresh(oauth)
-            .await
-            .map_err(|e| IntegrationError::authorization(e.message))?
-            .into_value();
-        self.store
-            .update(&credential.id, CredentialUpdate { label: None, value: Some(value.clone()) })
-            .await
-            .map_err(defect)?;
-        Ok(Some(value))
+        self.refresh_locked(&credential.id, implementation).await.map_err(IntegrationError::authorization)
+    }
+
+    /// `Credential.lock(id, refresh)`: concurrent callers for the same credential share the running refresh and
+    /// its result, including failures. The refresh runs in its own task under the cross-process file lock
+    /// `credential-refresh:<id>`, re-reads the stored credential (another location or process may have refreshed
+    /// it meanwhile) and takes at most 30 s.
+    async fn refresh_locked(&self, id: &str, implementation: Arc<dyn OAuthMethod>) -> Result<Option<CredentialValue>, String> {
+        use futures::FutureExt;
+        let pending = {
+            let mut pending = PENDING_REFRESHES.lock();
+            match pending.get(id) {
+                Some(running) => running.clone(),
+                None => {
+                    let (key, store, clock, root) = (id.to_string(), self.store.clone(), self.clock.clone(), self.lock_root.lock().clone());
+                    let timeout = *self.refresh_timeout.lock();
+                    let task = tokio::spawn(async move {
+                        let lease = match &root {
+                            Some(root) => Some(
+                                oc_util::flock::acquire(root, &format!("credential-refresh:{key}"), oc_util::flock::Options::default())
+                                    .await
+                                    .map_err(|e| e.to_string()),
+                            ),
+                            None => None,
+                        };
+                        let result = match lease {
+                            Some(Err(ref error)) => Err(error.clone()),
+                            _ => refresh_stored(&store, &clock, &key, implementation, timeout).await,
+                        };
+                        if let Some(Ok(lease)) = lease {
+                            let _ = lease.release();
+                        }
+                        PENDING_REFRESHES.lock().remove(&key);
+                        result
+                    });
+                    let shared = async move { task.await.unwrap_or_else(|e| Err(e.to_string())) }.boxed().shared();
+                    pending.insert(id.to_string(), shared.clone());
+                    shared
+                }
+            }
+        };
+        pending.await
     }
 
     /// `createCredential`: an explicit label wins, otherwise a unique `"<name>"`, `"<name> 2"`, ... label.
@@ -1100,6 +1202,7 @@ impl Integrations {
             _ => return,
         };
         attempts.remove(attempt_id);
+        tracing::info!(integrationID = integration_id, attemptID = attempt_id, reason = "cancelled", "integration oauth attempt closed");
         scope.cancel();
     }
 
@@ -1122,6 +1225,7 @@ impl Integrations {
                 _ => None,
             };
             if let Some((integration_id, time, scope)) = expire {
+                tracing::info!(integrationID = %integration_id, attemptID = %id, reason = "expired", "integration oauth attempt closed");
                 attempts.insert(
                     id,
                     OAuthAttempt::Terminal(Terminal {

@@ -146,7 +146,7 @@ fn decode_cache_control(value: &Value, field: &str) -> Result<Value, AIError> {
     out.insert("type".into(), json!("ephemeral"));
     match o.get("ttl") {
         None => {}
-        Some(Value::String(t)) if t == "5m" || t == "1h" => {
+        Some(Value::String(t)) if crate::types::is_cache_ttl(t) => {
             out.insert("ttl".into(), Value::String(t.clone()));
         }
         Some(_) => return Err(options_error(field)),
@@ -296,10 +296,9 @@ fn cache_control(bp: &mut Breakpoints, cache: Option<&CacheHint>) -> Option<Valu
         return None;
     }
     bp.remaining -= 1;
-    Some(if shared::ttl_bucket(cache.ttl_seconds) == Some("1h") {
-        json!({"type": "ephemeral", "ttl": "1h"})
-    } else {
-        json!({"type": "ephemeral"})
+    Some(match &cache.ttl {
+        Some(ttl) => json!({"type": "ephemeral", "ttl": ttl}),
+        None => json!({"type": "ephemeral"}),
     })
 }
 

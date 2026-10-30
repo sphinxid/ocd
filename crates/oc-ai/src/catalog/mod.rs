@@ -22,11 +22,13 @@
 pub mod config;
 pub mod copilot;
 pub mod models_dev;
+pub mod models_dev_v1;
 pub mod native;
 pub mod openai;
 pub mod plugins;
 pub mod registry;
 pub mod resolve;
+pub mod transforms;
 pub mod types;
 pub mod variant;
 

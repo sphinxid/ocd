@@ -241,6 +241,9 @@ pub fn body_fields(request: &LLMRequest) -> Result<base::Fields, AIError> {
     let mut f = base::lower_conversation(&updated, &adapter)?;
     options.reasoning_effort = effort;
     base::lower_generation(request, &options, &mut f);
+    if let Some((key, value)) = crate::compile::openai_request_ttl(crate::compile::request_ttl(request)) {
+        f.insert(key.into(), Some(value));
+    }
     f.insert("context_management".into(), management);
     if request.tools.is_empty() {
         f.insert("tools".into(), None);
