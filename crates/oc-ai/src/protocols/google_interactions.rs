@@ -1,7 +1,7 @@
 //! Google Interactions protocol (`protocols/google-interactions.ts`, `providers/google-vertex-interactions.ts`).
 
 use super::lifecycle::Lifecycle;
-use super::shared::{self, flatten_tool_request, match_tool_choice, tool_file_media, tool_result_text, unsupported_content, wrapped_system_update, ToolChoiceMode};
+use super::shared::{self, flatten_tool_request, match_tool_choice, tool_result_text, unsupported_content, wrapped_system_update, ToolChoiceMode};
 use super::tool_stream::{PendingTool, StreamKey, ToolStream};
 use super::{decode_json_frame, route_label, Protocol, Step, StreamParser};
 use crate::error::{classify_provider_failure, provider_error_message, AIError, ProviderFailure};
@@ -28,6 +28,9 @@ fn media_content(asset: &MediaAsset) -> Result<Value, AIError> {
         _ if media_type == "application/pdf" || media_type == "text/csv" => "document",
         _ => return Err(AIError::invalid_request(format!("Google Interactions does not support {media_type} document input"))),
     };
+    if let Some(url) = super::gemini::http_video_url(asset) {
+        return Ok(json!({"type": kind_name, "uri": url, "mime_type": media_type}));
+    }
     if let MediaSource::Ref { provider, id, .. } = &asset.source {
         if provider == "google" {
             return Ok(json!({"type": kind_name, "uri": id, "mime_type": media_type}));
@@ -71,7 +74,7 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                             .iter()
                             .map(|i| match i {
                                 ToolContent::Text { text } => Ok(json!({"type": "text", "text": text})),
-                                ToolContent::File { uri, mime, name } => media_content(&tool_file_media(uri, mime, name.as_deref()).media),
+                                ToolContent::File { uri, mime, name } => media_content(&super::gemini::tool_media(uri, mime, name.as_deref())),
                             })
                             .collect::<Result<Vec<_>, _>>()?,
                     ),
@@ -257,6 +260,7 @@ fn map_usage(usage: &Value, key: &str) -> Usage {
         cache_write_input_tokens: None,
         reasoning_tokens: reasoning,
         total_tokens: u("total_tokens"),
+        cost: None,
         provider_metadata: Some(pm),
     }
 }
@@ -415,10 +419,36 @@ impl Parser {
             "interaction.completed" => {
                 let interaction = event.get("interaction").filter(|i| i.get("status").map(Value::is_string).unwrap_or(false)).ok_or_else(invalid)?;
                 let status = interaction["status"].as_str().unwrap();
+                // `errors: [{code?, message?}]`
+                let errors = match interaction.get("errors") {
+                    None => vec![],
+                    Some(Value::Array(errors))
+                        if errors.iter().all(|e| {
+                            e.as_object().is_some_and(|o| {
+                                o.get("code").map(Value::is_string).unwrap_or(true) && o.get("message").map(Value::is_string).unwrap_or(true)
+                            })
+                        }) =>
+                    {
+                        errors.clone()
+                    }
+                    Some(_) => return Err(invalid()),
+                };
                 if status == "failed" || status == "cancelled" {
+                    let messages: Vec<&str> = errors
+                        .iter()
+                        .filter_map(|e| e.get("message").and_then(Value::as_str))
+                        .filter(|m| !m.trim().is_empty())
+                        .collect();
                     return Err(classify_provider_failure(ProviderFailure {
-                        message: format!("Google Interactions {status}"),
-                        data: Some(interaction.clone()),
+                        message: if messages.is_empty() { format!("Google Interactions {status}") } else { messages.join("\n") },
+                        // The first coded error decides the classification; every message stays visible.
+                        data: Some(
+                            errors
+                                .iter()
+                                .find(|e| e.get("code").and_then(Value::as_str).is_some_and(|c| !c.is_empty()))
+                                .unwrap_or(interaction)
+                                .clone(),
+                        ),
                         raw_body: Some(encode(event)),
                         ..Default::default()
                     }));

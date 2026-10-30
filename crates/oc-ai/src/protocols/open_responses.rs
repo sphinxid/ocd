@@ -111,6 +111,8 @@ pub struct Adapter {
     pub reasoning_text_delta: bool,
     /// Meta: replay unseen completed output items and attach message annotations.
     pub meta: bool,
+    /// Provider-specific media lowering, tried first (xAI sends video as `input_file`).
+    pub lower_media: Option<fn(&MediaPart) -> Option<Value>>,
 }
 
 impl Adapter {
@@ -123,6 +125,7 @@ impl Adapter {
             hosted_tools: vec![],
             reasoning_text_delta: false,
             meta: false,
+            lower_media: None,
         }
     }
 }
@@ -176,7 +179,10 @@ fn message_phase(value: Option<&Value>) -> Option<Value> {
     }
 }
 
-fn lower_media(part: &MediaPart, request: &LLMRequest, adapter: &Adapter, tool_result: bool) -> Result<Value, AIError> {
+fn lower_media(part: &MediaPart, request: &LLMRequest, adapter: &Adapter) -> Result<Value, AIError> {
+    if let Some(lowered) = adapter.lower_media.and_then(|hook| hook(part)) {
+        return Ok(lowered);
+    }
     let key = metadata_key(request);
     let detail = match part.provider_metadata.as_ref().and_then(|pm| pm.get(&key)).and_then(|m| m.get("detail")) {
         None => None,
@@ -190,7 +196,7 @@ fn lower_media(part: &MediaPart, request: &LLMRequest, adapter: &Adapter, tool_r
         None => shared::require_inline_media(adapter.name, &part.media)?.data_url,
     };
     if part.media.kind() != MediaKind::Image {
-        if tool_result && part.media.kind() == MediaKind::Video {
+        if part.media.kind() == MediaKind::Video {
             return Ok(json!({"type": "input_video", "video_url": location}));
         }
         let mut o = Object::new();
@@ -217,21 +223,10 @@ fn lower_media(part: &MediaPart, request: &LLMRequest, adapter: &Adapter, tool_r
     Ok(Value::Object(o))
 }
 
-fn lower_message_media(part: &MediaPart, request: &LLMRequest, adapter: &Adapter) -> Result<Value, AIError> {
-    let lowered = lower_media(part, request, adapter, false)?;
-    if lowered.get("type").and_then(Value::as_str) == Some("input_video") {
-        return Err(AIError::invalid_request(format!("{} user messages do not support input_video", adapter.name)));
-    }
-    Ok(lowered)
-}
-
-fn lower_content_item(item: &ToolContent, request: &LLMRequest, adapter: &Adapter, hosted: bool) -> Result<Value, AIError> {
+fn lower_content_item(item: &ToolContent, request: &LLMRequest, adapter: &Adapter) -> Result<Value, AIError> {
     match item {
         ToolContent::Text { text } => Ok(json!({"type": "input_text", "text": text})),
-        ToolContent::File { uri, mime, name } => {
-            let media = tool_file_media(uri, mime, name.as_deref());
-            if hosted { lower_message_media(&media, request, adapter) } else { lower_media(&media, request, adapter, true) }
-        }
+        ToolContent::File { uri, mime, name } => lower_media(&tool_file_media(uri, mime, name.as_deref()), request, adapter),
     }
 }
 
@@ -297,7 +292,7 @@ fn lower_messages(request: &LLMRequest, adapter: &Adapter) -> Result<Vec<Value>,
                 for part in &message.content {
                     match part {
                         ContentPart::Text(t) => content.push(json!({"type": "input_text", "text": t.text})),
-                        ContentPart::Media(m) => content.push(lower_message_media(m, request, adapter)?),
+                        ContentPart::Media(m) => content.push(lower_media(m, request, adapter)?),
                         _ => return Err(unsupported_content(adapter.name, Role::User, &["text", "media"])),
                     }
                 }
@@ -454,12 +449,12 @@ fn lower_messages(request: &LLMRequest, adapter: &Adapter) -> Result<Vec<Value>,
                                 other => vec![ToolContent::Text { text: tool_result_text(other) }],
                             };
                             let lowered: Result<Vec<Value>, AIError> =
-                                content.iter().map(|i| lower_content_item(i, request, adapter, true)).collect();
+                                content.iter().map(|i| lower_content_item(i, request, adapter)).collect();
                             input.push(json!({"type": "message", "role": "user", "content": lowered?}));
                         }
                         ContentPart::Media(m) => {
                             flush(&mut text_parts, &mut input);
-                            input.push(json!({"type": "message", "role": "user", "content": [lower_message_media(m, request, adapter)?]}));
+                            input.push(json!({"type": "message", "role": "user", "content": [lower_media(m, request, adapter)?]}));
                         }
                         _ => {
                             return Err(unsupported_content(
@@ -479,7 +474,7 @@ fn lower_messages(request: &LLMRequest, adapter: &Adapter) -> Result<Vec<Value>,
                     };
                     let output = match &r.result {
                         ToolResultValue::Content(items) => Value::Array(
-                            items.iter().map(|i| lower_content_item(i, request, adapter, false)).collect::<Result<Vec<_>, _>>()?,
+                            items.iter().map(|i| lower_content_item(i, request, adapter)).collect::<Result<Vec<_>, _>>()?,
                         ),
                         other => json!(tool_result_text(other)),
                     };
@@ -662,6 +657,7 @@ pub fn map_usage(usage: Option<&Value>, key: &str) -> Option<Usage> {
         cache_write_input_tokens: write,
         reasoning_tokens: reasoning,
         total_tokens: shared::total_tokens(input, output, u(&["total_tokens"])),
+        cost: shared::reported_cost(usage),
         provider_metadata: Some(pm),
     })
 }

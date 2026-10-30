@@ -73,7 +73,21 @@ pub fn xai_adapter() -> Adapter {
         ],
         reasoning_text_delta: false,
         meta: false,
+        lower_media: Some(xai_media),
     }
+}
+
+/// xAI takes video as an `input_file` (URL or data URL).
+fn xai_media(part: &MediaPart) -> Option<Value> {
+    if part.media.kind() != crate::media::MediaKind::Video {
+        return None;
+    }
+    let filename = part.filename.clone().unwrap_or_else(|| "file".into());
+    if let Some(url) = part.media.url_value() {
+        return Some(json!({"type": "input_file", "filename": filename, "file_url": url}));
+    }
+    let inline = part.media.inline()?;
+    Some(json!({"type": "input_file", "filename": filename, "file_data": inline.data_url}))
 }
 
 pub struct XaiResponses;
@@ -91,7 +105,18 @@ impl Protocol for XaiResponses {
                 Some(&request.model.route.id),
             ));
         }
-        Ok(finalize(base::body_fields(request, &xai_adapter())?))
+        let min_p = match request.po("minP") {
+            None => None,
+            Some(v) if v.is_number() => Some(v.clone()),
+            Some(_) => return Err(AIError::invalid_request("Expected number | undefined\n  at [\"minP\"]")),
+        };
+        let mut f = base::body_fields(request, &xai_adapter())?;
+        // xAI Responses does not support penalties (they are ignored), but does support top_k.
+        f.insert("presence_penalty".into(), None);
+        f.insert("frequency_penalty".into(), None);
+        f.insert("top_k".into(), request.generation.as_ref().and_then(|g| g.top_k).map(crate::json::num));
+        f.insert("min_p".into(), min_p);
+        Ok(finalize(f))
     }
     fn parser(&self, request: &LLMRequest) -> Box<dyn StreamParser> {
         Box::new(ResponsesParser::new(request, &xai_adapter()))
@@ -155,6 +180,7 @@ pub fn alibaba_adapter() -> Adapter {
         ],
         reasoning_text_delta: false,
         meta: false,
+        lower_media: None,
     }
 }
 
@@ -278,6 +304,7 @@ pub fn meta_adapter() -> Adapter {
         ],
         reasoning_text_delta: false,
         meta: true,
+        lower_media: None,
     }
 }
 
@@ -301,7 +328,11 @@ impl Protocol for MetaResponses {
                 }
             }
         }
-        Ok(finalize(base::body_fields(&req, &meta_adapter())?))
+        let mut f = base::body_fields(&req, &meta_adapter())?;
+        if let Some(Some(Value::Array(input))) = f.get_mut("input") {
+            *input = attach_tool_videos(std::mem::take(input));
+        }
+        Ok(finalize(f))
     }
     fn parser(&self, request: &LLMRequest) -> Box<dyn StreamParser> {
         Box::new(ResponsesParser::new(request, &meta_adapter()))
@@ -310,4 +341,37 @@ impl Protocol for MetaResponses {
 
 pub fn meta_protocol() -> Arc<dyn Protocol> {
     Arc::new(MetaResponses)
+}
+
+/// Meta cannot see video nested in tool results; attach it after the complete result batch.
+fn attach_tool_videos(items: Vec<Value>) -> Vec<Value> {
+    let mut input = vec![];
+    let mut videos: Vec<Value> = vec![];
+    let flush = |input: &mut Vec<Value>, videos: &mut Vec<Value>| {
+        if !videos.is_empty() {
+            input.push(json!({"type": "message", "role": "user", "content": std::mem::take(videos)}));
+        }
+    };
+    for mut item in items {
+        let kind = item.get("type").and_then(Value::as_str);
+        if kind != Some("function_call_output") && kind != Some("custom_tool_call_output") {
+            flush(&mut input, &mut videos);
+            input.push(item);
+            continue;
+        }
+        if let Some(Value::Array(output)) = item.get_mut("output") {
+            let total = output.len();
+            let (moved, kept): (Vec<Value>, Vec<Value>) =
+                output.drain(..).partition(|part| part.get("type").and_then(Value::as_str) == Some("input_video"));
+            videos.extend(moved);
+            item["output"] = if kept.is_empty() && total > 0 {
+                json!("Video attached in the following user message.")
+            } else {
+                Value::Array(kept)
+            };
+        }
+        input.push(item);
+    }
+    flush(&mut input, &mut videos);
+    input
 }

@@ -48,6 +48,10 @@ fn package_for(dir: &str, path: &str) -> Option<&'static str> {
         ("anthropic-messages-cache", _) => "anthropic",
         ("bedrock-converse-cache", _) => "amazon-bedrock",
         ("openrouter", "chat") => "openrouter",
+        ("openrouter-responses", _) => "openrouter/responses",
+        ("digitalocean-responses", _) => "digitalocean/responses",
+        ("venice-responses", _) => "venice/responses",
+        ("bedrock-converse-options", _) => "amazon-bedrock",
         _ => return None,
     })
 }

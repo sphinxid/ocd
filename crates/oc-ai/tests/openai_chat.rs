@@ -155,8 +155,117 @@ async fn stream_errors() {
     assert_eq!(out.last().unwrap().as_ref().unwrap_err().message, "Provider reported an error (finish_reason: error)");
     let out = decode(&req, b"data: {\"error\":{\"message\":\"This model's maximum context length is 128000 tokens\",\"code\":400}}\n\n");
     assert!(out.last().unwrap().as_ref().unwrap_err().is_context_overflow());
-    let out = decode(&req, b"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"late\"}}]}\n\n");
+    let out = decode(
+        &req,
+        b"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\"}]}}]}\n\n",
+    );
     assert_eq!(out.last().unwrap().as_ref().unwrap_err().message, "OpenAI Chat received content after the finish reason");
+}
+
+/// 2.2: text, refusal and reasoning after the finish reason keep streaming (#58851); the first finish reason
+/// sticks.
+#[tokio::test]
+async fn content_after_the_finish_reason_keeps_streaming() {
+    let req = LLMRequest::new(openai("gpt-x"));
+    let body = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"},\"finish_reason\":\"stop\"}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"lo\",\"reasoning_content\":\"late\"},\"finish_reason\":\"length\"}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0}]}}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let events = decode_ok(&req, body.as_bytes());
+    assert_eq!(text_of(&events), "Hello");
+    assert!(events.iter().any(|e| matches!(e, LLMEvent::ReasoningDelta { text, .. } if text == "late")));
+    let LLMEvent::Finish { reason, usage, .. } = events.last().unwrap() else { panic!() };
+    assert_eq!((reason.normalized, reason.raw.as_deref()), (FinishReason::Stop, Some("stop")));
+    assert_eq!(usage.as_ref().unwrap().input_tokens, Some(5));
+}
+
+/// "preserves metadata-only reasoning arriving after the finish reason"
+#[tokio::test]
+async fn metadata_only_reasoning_after_the_finish_reason() {
+    let req = LLMRequest::new(openai("gpt-x"));
+    let details = json!([{"type": "reasoning.encrypted", "data": "opaque", "format": "openai-responses-v1", "index": 0}]);
+    let body = format!(
+        "data: {}\n\ndata: {}\n\n",
+        json!({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
+        json!({"choices": [{"delta": {"reasoning_details": details}}]}),
+    );
+    let events = decode_ok(&req, body.as_bytes());
+    let t = types(&events);
+    assert_eq!(t.iter().filter(|t| **t == "reasoning-start").count(), 1, "{t:?}");
+    assert_eq!(t.iter().filter(|t| **t == "reasoning-end").count(), 1, "{t:?}");
+    let end = events.iter().find_map(|e| match e {
+        LLMEvent::ReasoningEnd { provider_metadata, .. } => provider_metadata.clone(),
+        _ => None,
+    });
+    assert_eq!(end.unwrap()["openai"]["reasoningDetails"], details);
+}
+
+/// "maps unknown finish reasons to unknown and keeps the raw value" (#58608)
+#[tokio::test]
+async fn unknown_finish_reasons_map_to_unknown() {
+    let req = LLMRequest::new(openai("gpt-x"));
+    let body = "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"future_reason\"}]}\n\n";
+    let events = decode_ok(&req, body.as_bytes());
+    assert_eq!(text_of(&events), "Hello");
+    let LLMEvent::Finish { reason, .. } = events.last().unwrap() else { panic!() };
+    assert_eq!((reason.normalized, reason.raw.as_deref()), (FinishReason::Unknown, Some("future_reason")));
+}
+
+fn lookup_tool() -> ToolDefinition {
+    ToolDefinition::new("lookup", "Lookup data", json!({"type": "object"}))
+}
+
+/// "maps shared OpenAI options to Chat fields"
+#[tokio::test]
+async fn maps_shared_openai_options_to_chat_fields() {
+    let mut req = LLMRequest::new(openai("gpt-5-nano")).prompt("Hello").tool(lookup_tool());
+    req.provider_options = Some(
+        json!({
+            "store": true,
+            "serviceTier": "flex",
+            "textVerbosity": "low",
+            "parallelToolCalls": false,
+            "metadata": {"source": "test"},
+            "safetyIdentifier": "user-hash",
+        })
+        .as_object()
+        .cloned()
+        .unwrap(),
+    );
+    let body = compile_body(&req).await.unwrap();
+    for (key, value) in [
+        ("store", json!(true)),
+        ("service_tier", json!("flex")),
+        ("verbosity", json!("low")),
+        ("parallel_tool_calls", json!(false)),
+        ("metadata", json!({"source": "test"})),
+        ("safety_identifier", json!("user-hash")),
+    ] {
+        assert_eq!(body[key], value, "{key}");
+    }
+    assert!(body.get("text").is_none());
+    let keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
+    let tail = &keys[keys.iter().position(|k| *k == "store").unwrap()..];
+    assert_eq!(tail, ["store", "verbosity", "service_tier", "parallel_tool_calls", "metadata", "safety_identifier"]);
+}
+
+/// "maps disableParallelToolUse to parallel_tool_calls only when tools are present"
+#[tokio::test]
+async fn maps_disable_parallel_tool_use_only_with_tools() {
+    let choice = ToolChoice { disable_parallel_tool_use: Some(true), ..ToolChoice::from_str("auto") };
+    let mut with_tools = LLMRequest::new(openai("gpt-x")).prompt("Hello").tool(lookup_tool());
+    with_tools.tool_choice = Some(choice.clone());
+    let mut without_tools = LLMRequest::new(openai("gpt-x")).prompt("Hello");
+    without_tools.tool_choice = Some(choice);
+    let unset = LLMRequest::new(openai("gpt-x")).prompt("Hello").tool(lookup_tool());
+    assert_eq!(compile_body(&with_tools).await.unwrap()["parallel_tool_calls"], json!(false));
+    assert!(compile_body(&without_tools).await.unwrap().get("parallel_tool_calls").is_none());
+    let unset = compile_body(&unset).await.unwrap();
+    for key in ["parallel_tool_calls", "service_tier", "verbosity", "metadata", "safety_identifier"] {
+        assert!(unset.get(key).is_none(), "{key}");
+    }
 }
 
 /// One read can carry several frames: the events of the frames before a failing one are still delivered
@@ -164,13 +273,13 @@ async fn stream_errors() {
 #[tokio::test]
 async fn events_before_a_failing_frame_in_the_same_read_survive() {
     let req = LLMRequest::new(openai("gpt-x"));
-    let finish = "{\"id\": \"c\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"sensitive\"}]}";
+    let finish = "{\"id\": \"c\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"error\"}]}";
     let body = format!("data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"partial\"}}}}]}}\n\ndata: {finish}\n\n");
     let out = decode(&req, body.as_bytes());
     let ok: Vec<LLMEvent> = out.iter().filter_map(|r| r.as_ref().ok().cloned()).collect();
     assert_eq!(types(&ok), vec!["step-start", "text-start", "text-delta"]);
     let err = out.last().unwrap().as_ref().unwrap_err();
-    assert_eq!(err.message, "Provider finish_reason: sensitive");
+    assert_eq!(err.message, "Provider reported an error (finish_reason: error)");
     assert!(err.is_retryable());
     assert_eq!(err.body.as_deref(), Some(finish));
 
@@ -178,5 +287,5 @@ async fn events_before_a_failing_frame_in_the_same_read_survive() {
     let mut driver = StreamDriver::new(&req);
     let (events, failure) = driver.push_events(body.as_bytes());
     assert_eq!(types(&events), vec!["step-start", "text-start", "text-delta"]);
-    assert_eq!(failure.unwrap().message, "Provider finish_reason: sensitive");
+    assert_eq!(failure.unwrap().message, "Provider reported an error (finish_reason: error)");
 }

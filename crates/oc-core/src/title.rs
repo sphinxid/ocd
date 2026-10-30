@@ -102,8 +102,8 @@ impl Engine {
                         Ok(LLMEvent::ProviderError { .. }) => failed = true,
                         Ok(LLMEvent::TextDelta { text, .. }) => out.push_str(&text),
                         Ok(LLMEvent::StepFinish { usage, .. }) => {
-                            let t = crate::publisher::tokens(usage.as_ref());
-                            cost += crate::usage::calculate_cost(&costs, &t);
+                            let (c, t) = crate::usage::record(usage.as_ref(), &costs);
+                            cost += c;
                             tokens.add(&t);
                             any_usage = true;
                         }

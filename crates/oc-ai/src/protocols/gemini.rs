@@ -66,8 +66,33 @@ pub fn content_filtered(reason: &str) -> bool {
     CONTENT_FILTER_REASONS.contains(&reason)
 }
 
-/// `GeminiGenerateContent.mediaPart`: Google file refs → `fileData`, else inline data.
+/// An `http(s)` URL of a video asset, which Gemini fetches itself (`fileData`).
+pub fn http_video_url(asset: &MediaAsset) -> Option<&str> {
+    match &asset.source {
+        MediaSource::Url { url, .. }
+            if asset.kind() == crate::media::MediaKind::Video
+                && (url.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("http://"))
+                    || url.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://"))) =>
+        {
+            Some(url)
+        }
+        _ => None,
+    }
+}
+
+/// `GeminiGenerateContent.toolMedia`: a tool-result `video/*` file with a `gs://` URI is a Google file ref.
+pub fn tool_media(uri: &str, mime: &str, name: Option<&str>) -> MediaAsset {
+    if mime.starts_with("video/") && uri.starts_with("gs://") {
+        return MediaAsset::reference("google", uri, Some(mime.to_string()));
+    }
+    tool_file_media(uri, mime, name).media
+}
+
+/// `GeminiGenerateContent.mediaPart`: Google file refs and `http(s)` video URLs → `fileData`, else inline data.
 pub fn media_part(route: &str, asset: &MediaAsset) -> Result<Value, AIError> {
+    if let Some(url) = http_video_url(asset) {
+        return Ok(json!({"fileData": {"mimeType": asset.media_type(), "fileUri": url}}));
+    }
     if let MediaSource::Ref { provider, id, .. } = &asset.source {
         if provider == "google" {
             return Ok(json!({"fileData": {"mimeType": asset.media_type(), "fileUri": id}}));
@@ -197,13 +222,17 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                             let (texts, files) = shared::content_text_and_files(items);
                             let mut media = vec![];
                             for (uri, mime, name) in files {
-                                let inline = shared::require_inline_media("Gemini", &tool_file_media(uri, mime, name).media)?;
-                                media.push(json!({"inlineData": {"mimeType": inline.mime, "data": inline.base64}}));
+                                let value = media_part("Gemini", &tool_media(uri, mime, name))?;
+                                // Nested fileData can be accepted without the model seeing the video, even on
+                                // newer Gemini models.
+                                if legacy || value.get("fileData").is_some() {
+                                    pending_media.get_or_insert_with(Vec::new).push(value);
+                                } else {
+                                    media.push(value);
+                                }
                             }
                             response.insert("response".into(), json!({"name": r.name, "content": texts.join("\n")}));
-                            if legacy && !media.is_empty() {
-                                pending_media.get_or_insert_with(Vec::new).extend(media);
-                            } else if !media.is_empty() {
+                            if !media.is_empty() {
                                 response.insert("parts".into(), Value::Array(media));
                             }
                         }
@@ -558,6 +587,7 @@ fn map_usage_with(usage: &Value, key: &str, metadata: &Value) -> Option<Usage> {
         cache_write_input_tokens: None,
         reasoning_tokens: thoughts,
         total_tokens: shared::total_tokens(prompt, output, u("totalTokenCount")),
+        cost: shared::reported_cost(usage),
         provider_metadata: Some(pm),
     })
 }
@@ -577,12 +607,16 @@ fn map_continued_usage(requests: &[Value], key: &str) -> Option<Usage> {
         }
         o
     };
-    let usage = object(&[
+    let mut usage = object(&[
         ("promptTokenCount", first("promptTokenCount")),
         ("cachedContentTokenCount", first("cachedContentTokenCount")),
         ("candidatesTokenCount", sum("candidatesTokenCount")),
         ("thoughtsTokenCount", sum("thoughtsTokenCount")),
     ]);
+    // Every continued request is billed on its own.
+    if let Some(cost) = shared::sum_costs(&requests.iter().map(shared::reported_cost).collect::<Vec<_>>()) {
+        usage.insert("cost".into(), json!(cost));
+    }
     let mut metadata = object(&[
         ("promptTokenCount", sum("promptTokenCount")),
         ("cachedContentTokenCount", sum("cachedContentTokenCount")),

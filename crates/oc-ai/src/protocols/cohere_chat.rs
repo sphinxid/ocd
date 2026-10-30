@@ -235,6 +235,7 @@ fn map_usage(usage: &Value) -> Usage {
         cache_write_input_tokens: None,
         reasoning_tokens: u("reasoning_tokens"),
         total_tokens: shared::total_tokens(u("input_tokens"), u("output_tokens"), None),
+        cost: None,
         provider_metadata: Some(pm),
     }
 }

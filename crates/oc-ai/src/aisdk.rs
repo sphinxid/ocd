@@ -646,6 +646,7 @@ fn usage(input: Option<&Value>) -> Option<Usage> {
             (Some(i), Some(o)) => Some(i + o),
             _ => None,
         },
+        cost: None,
         provider_metadata: None,
     };
     if out == Usage::default() { None } else { Some(out) }

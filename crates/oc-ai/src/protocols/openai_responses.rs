@@ -107,6 +107,7 @@ pub fn adapter() -> Adapter {
         ],
         reasoning_text_delta: true,
         meta: false,
+        lower_media: None,
     }
 }
 
@@ -115,6 +116,9 @@ static IMAGE_SIZE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(\d+)x(\d+)$").unwra
 
 pub fn supports_effort_updates(request: &LLMRequest) -> bool {
     if request.po("contextManagement").is_some() {
+        return false;
+    }
+    if request.po("reasoningMode").and_then(Value::as_str) == Some("pro") {
         return false;
     }
     let pro = request
@@ -243,6 +247,21 @@ pub fn body_fields(request: &LLMRequest) -> Result<base::Fields, AIError> {
     base::lower_generation(request, &options, &mut f);
     if let Some((key, value)) = crate::compile::openai_request_ttl(crate::compile::request_ttl(request)) {
         f.insert(key.into(), Some(value));
+    }
+    // `reasoningMode` (`standard | pro`) and `reasoningContext` (`auto | current_turn | all_turns`), decoded
+    // leniently, join the generation's reasoning object.
+    let lenient = |key: &str| request.po(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from);
+    let (mode, context) = (lenient("reasoningMode"), lenient("reasoningContext"));
+    let generated = f.get("reasoning").cloned().flatten();
+    if generated.is_some() || mode.is_some() || context.is_some() {
+        let mut reasoning = generated.and_then(|r| r.as_object().cloned()).unwrap_or_default();
+        if let Some(mode) = mode {
+            reasoning.insert("mode".into(), json!(mode));
+        }
+        if let Some(context) = context {
+            reasoning.insert("context".into(), json!(context));
+        }
+        f.insert("reasoning".into(), Some(Value::Object(reasoning)));
     }
     f.insert("context_management".into(), management);
     if request.tools.is_empty() {

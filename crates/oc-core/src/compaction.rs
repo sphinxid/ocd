@@ -671,8 +671,8 @@ pub fn flatten_and_drop_oldest(
 pub fn fit_output(mut request: LLMRequest, limit_output: u64, limit_context: u64) -> LLMRequest {
     let Some(current) = request.generation.as_ref().and_then(|g| g.max_tokens) else { return request };
     let estimated = estimate_llm_request(&request);
-    let margin = crate::prompt::output_limit(limit_output, limit_context, Some((0, estimated)));
-    let floor = SUMMARY_OUTPUT_FLOOR.min(crate::prompt::output_limit(limit_output, limit_context, Some((estimated, 0))));
+    let margin = crate::prompt::output_limit(limit_output, limit_context, Some((0, estimated)), 0.0);
+    let floor = SUMMARY_OUTPUT_FLOOR.min(crate::prompt::output_limit(limit_output, limit_context, Some((estimated, 0)), 0.0));
     let max_tokens = current.min(margin.max(floor) as f64);
     if max_tokens == current {
         return request;
@@ -837,6 +837,7 @@ impl Run<'_> {
             model.output_limit().max(0) as u64,
             model.context_limit().max(0) as u64,
             Some((budget.max(0) as u64, 0)),
+            0.0,
         );
         req.generation = Some(GenerationOptions { max_tokens: Some(max as f64), ..Default::default() });
         // `session.compaction` may shape the request or provide the summary (`result`).
@@ -883,8 +884,7 @@ impl Run<'_> {
                     streamed.text.push_str(&text);
                 }
                 LLMEvent::StepFinish { usage, .. } => {
-                    let tokens = crate::publisher::tokens(usage.as_ref());
-                    let cost = crate::usage::calculate_cost(&costs, &tokens);
+                    let (cost, tokens) = crate::usage::record(usage.as_ref(), &costs);
                     self.spend(cost, tokens)?;
                 }
                 LLMEvent::Finish { reason, .. } => match reason.normalized {

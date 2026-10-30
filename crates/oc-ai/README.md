@@ -255,7 +255,41 @@ packages otherwise. `${AWS_REGION}` in a base URL takes a string `region` settin
 Model types: `ModelInfo.kind` (`type`), set from the catalog or config `type`. `Catalog` keeps non-chat models out of
 every session-facing lookup and lists them only through `available_models_of(types)`.
 
+## Wire changes of 2.2
+
+- **Errors**: Bedrock's "Too many tokens[, per day], please wait" and any 429 or `ThrottlingException` never read as
+  context overflow; AWS restJson1 error types come from `x-amzn-errortype`, `__type` and `code` (`ns#Name:uri` →
+  `Name`); `budgetlimiterror` is a quota code, `datainspectionfailed` and `moderation_blocked` content-policy codes;
+  `token_quota_exceeded` is a rate limit (the look-behind of upstream's quota regex is checked by hand).
+- **OpenAI Chat**: the shared options `verbosity`, `service_tier`, `parallel_tool_calls` (only with tools), `metadata`
+  and `safety_identifier` on every chat-family route (Groq no longer adds its own); unknown finish reasons map to
+  `unknown`; text, refusal and reasoning after the finish reason keep streaming and the first finish reason sticks.
+- **Reported costs**: `Usage.cost` from a finite, non-negative `usage.cost` (OpenAI Chat, Open Responses, Anthropic,
+  Gemini; summed over Gemini continuations).
+- **Video input**: Anthropic `video` blocks (base64, file id or URL), OpenAI Chat `video_url`, Open Responses
+  `input_video` in user messages too, xAI `input_file`, Meta Messages/Responses move tool-result videos after the
+  results, Gemini and Interactions send `http(s)` videos and `gs://` tool videos as file URIs. Tool-result files with any
+  `scheme://` URI are URL assets; `file:` references fail with "Local file references must be read with
+  Media.file(path) before sending". `detect_media_type` tells AVIF, HEIC, QuickTime and M4A apart by brand.
+- **Options**: Anthropic `speed` (+ the `fast-mode-2026-02-01` beta); OpenAI Responses `reasoningMode` /
+  `reasoningContext` (`pro` disables effort updates); xAI `top_k` and `min_p` without penalties; Bedrock Converse
+  `effort` (per model family, adaptive thinking on Claude 4.6+), adaptive/disabled thinking, `serviceTier`,
+  `guardrail`, `outputFormat` and `requestMetadata`, with every non-connection setting passed as a provider option;
+  Kimi tool schemas keep literal values and schema maps verbatim and fold `prefixItems`/`items` tuples.
+- **Routes**: `openrouter/responses`, `digitalocean/responses`, `venice/responses` (Open Responses, stateless
+  encrypted reasoning by default).
+- Google Interactions failures read their `errors[]` messages and classify by the first coded error.
+
+`tests/wire_2_2.rs` ports upstream's tests for these and cross-checks with the 2.2.2 checkout when `OCD_SCRATCH` and
+`OCD_BUN_PATH` are set: every recorded response of the corpus decodes to the same events as upstream's route, and a
+set of requests with the new options compiles to the same URL, body text and headers.
+
 ## Not ported / gaps
+
+- **Freeform (custom) tools** (`ToolDefinition.freeform`, `custom` tool calls on Chat and Responses): core never
+  declares them, so they are not ported; `custom_tool_call` items in a stream are ignored.
+- **Provider option validation messages**: strict provider options fail with "Invalid <route> provider option
+  `<key>`" (xAI's `minP` uses upstream's Effect Schema text); upstream reports the Effect Schema message.
 
 - **WebSocket client details**: a proxy's own TLS settings (`proxy.tls`, upstream never passes them), Bun's
   handshake timeout (core's 15 s connect timeout applies) and the exact compressed bytes (zlib-rs vs Bun's zlib,

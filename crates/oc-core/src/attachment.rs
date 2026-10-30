@@ -35,8 +35,8 @@ pub fn detect(bytes: &[u8]) -> &'static str {
     if at(0, b"RIFF") && at(8, b"WEBP") {
         return "image/webp";
     }
-    if at(4, b"ftyp") && (at(8, b"avif") || at(8, b"avis")) {
-        return "image/avif";
+    if let Some(mime) = oc_ai::media::iso_bmff_media_type(bytes) {
+        return mime;
     }
     if is_text(bytes) { "text/plain" } else { "application/octet-stream" }
 }
@@ -256,5 +256,14 @@ mod tests {
         assert_eq!(materialize(&bad, None).unwrap_err().message, "Invalid attachment data URL: inline attachment");
         assert_eq!(detect(b"\x89PNG\r\n\x1a\n...."), "image/png");
         assert_eq!(detect(&[0xff, 0xfe, 0x00]), "application/octet-stream");
+    }
+
+    // test/mime.test.ts: HEIC and QuickTime are told apart from MP4 by brand.
+    #[test]
+    fn iso_bmff_brands() {
+        let ftyp = |hex: &str| (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        assert_eq!(detect(&ftyp("000000246674797068656963000000006d6966314d6950726d6961664d694842")), "image/heic");
+        assert_eq!(detect(&ftyp("00000014667479707174202000000200717420200000000877696465")), "video/quicktime");
+        assert_eq!(detect(&ftyp("00000018667479706d69663100000000617669666d69663100000000")), "image/avif");
     }
 }

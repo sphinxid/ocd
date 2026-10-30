@@ -35,16 +35,13 @@ impl Protocol for GroqChat {
         "groq-chat"
     }
     fn body(&self, request: &LLMRequest) -> Result<Value, AIError> {
+        // `parallelToolCalls` and `serviceTier` are the shared OpenAI Chat options now.
         let include = typed(request, "includeReasoning", Value::is_boolean, "Groq")?;
-        let parallel = typed(request, "parallelToolCalls", Value::is_boolean, "Groq")?;
-        let tier = typed(request, "serviceTier", Value::is_string, "Groq")?;
         let user = typed(request, "user", Value::is_string, "Groq")?;
         let gpt_oss = request.model.id.starts_with("openai/gpt-oss-");
         let mut f = body_fields(request, &ChatOptions::default())?;
         f.insert("reasoning_format".into(), if gpt_oss { None } else { Some(json!("parsed")) });
         f.insert("include_reasoning".into(), if gpt_oss { include } else { None });
-        f.insert("parallel_tool_calls".into(), parallel);
-        f.insert("service_tier".into(), tier);
         f.insert("user".into(), user);
         Ok(finalize(f))
     }

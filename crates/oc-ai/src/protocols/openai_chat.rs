@@ -156,13 +156,17 @@ fn lower_media(part: &MediaPart) -> Result<Value, AIError> {
         let inline = shared::require_inline_media(NAME, &part.media)?;
         return Ok(json!({"type": "file", "file": {"filename": part.filename.clone().unwrap_or_else(|| "document.pdf".into()), "file_data": inline.data_url}}));
     }
-    if part.media.kind() != crate::media::MediaKind::Image {
+    let kind = part.media.kind();
+    if kind != crate::media::MediaKind::Image && kind != crate::media::MediaKind::Video {
         return Err(AIError::invalid_request(format!("OpenAI Chat does not support media type {media_type}")));
     }
     let url = match part.media.url_value() {
         Some(u) => u.to_string(),
         None => shared::require_inline_media(NAME, &part.media)?.data_url,
     };
+    if kind == crate::media::MediaKind::Video {
+        return Ok(json!({"type": "video_url", "video_url": {"url": url}}));
+    }
     Ok(json!({"type": "image_url", "image_url": {"url": url}}))
 }
 
@@ -586,8 +590,25 @@ pub fn body_fields(request: &LLMRequest, opts: &ChatOptions) -> Result<Fields, A
     {
         f.insert(key.into(), Some(value));
     }
+    // OpenAI rejects `parallel_tool_calls` unless tools are present.
+    let parallel = if active { super::open_responses::resolve_parallel_tool_calls(request, &po) } else { None };
     if let Some(effort) = po.reasoning_effort.filter(|e| !e.is_empty()) {
         f.insert("reasoning_effort".into(), Some(json!(effort)));
+    }
+    if let Some(verbosity) = po.text_verbosity.filter(|v| !v.is_empty()) {
+        f.insert("verbosity".into(), Some(json!(verbosity)));
+    }
+    if let Some(tier) = po.service_tier.filter(|t| !t.is_empty()) {
+        f.insert("service_tier".into(), Some(json!(tier)));
+    }
+    if let Some(parallel) = parallel {
+        f.insert("parallel_tool_calls".into(), Some(json!(parallel)));
+    }
+    if let Some(metadata) = po.metadata {
+        f.insert("metadata".into(), Some(Value::Object(metadata)));
+    }
+    if let Some(id) = po.safety_identifier.filter(|s| !s.is_empty()) {
+        f.insert("safety_identifier".into(), Some(json!(id)));
     }
     Ok(f)
 }
@@ -705,6 +726,7 @@ pub fn map_usage(usage: &Value, key: &str) -> Option<Usage> {
         cache_write_input_tokens: write,
         reasoning_tokens: reasoning,
         total_tokens: shared::total_tokens(input, output, u(&["total_tokens"])),
+        cost: shared::reported_cost(usage),
         provider_metadata: Some(pm),
     })
 }
@@ -721,7 +743,7 @@ fn map_finish_reason(event: &Value, reason: &str) -> Result<FinishReason, AIErro
         "length" => FinishReason::Length,
         "content_filter" => FinishReason::ContentFilter,
         "function_call" | "tool_calls" => FinishReason::ToolCalls,
-        other => return Err(AIError::unknown_provider(format!("Provider finish_reason: {other}")).with_body(encode(event))),
+        _ => FinishReason::Unknown,
     })
 }
 
@@ -922,21 +944,16 @@ impl ChatParser {
             fields.into_iter().find_map(|f| dstr(&f).map(|t| (f.clone(), t.to_string())))
         };
         let detail_array = delta.and_then(|d| d.get("reasoning_details")).and_then(Value::as_array);
-        let has_late = dstr("content").is_some()
-            || dstr("refusal").is_some()
-            || reasoning.is_some()
-            || detail_array.map(|a| !a.is_empty()).unwrap_or(false)
-            || tool_deltas.iter().any(|t| {
-                crate::json::truthy(t.get("id").unwrap_or(&Value::Null))
-                    || t.get("function").map(|f| truthy_str(f.get("name")) || truthy_str(f.get("arguments"))).unwrap_or(false)
-            });
-        if self.finish.is_some() {
-            if has_late {
-                return Err(AIError::invalid_output(ADAPTER, "OpenAI Chat received content after the finish reason").with_body(encode(event)));
-            }
-            self.usage = usage;
-            return Ok(events);
+        // Text, refusal and reasoning that trail the finish reason keep streaming; only tool calls end it.
+        let late_tool = tool_deltas.iter().any(|t| {
+            crate::json::truthy(t.get("id").unwrap_or(&Value::Null))
+                || t.get("function").map(|f| truthy_str(f.get("name")) || truthy_str(f.get("arguments"))).unwrap_or(false)
+                || t.get("custom").map(|c| truthy_str(c.get("input"))).unwrap_or(false)
+        });
+        if self.finish.is_some() && late_tool {
+            return Err(AIError::invalid_output(ADAPTER, "OpenAI Chat received content after the finish reason").with_body(encode(event)));
         }
+        let first_finish = self.finish.is_none();
         if self.reasoning_field.is_none() {
             self.reasoning_field = reasoning.as_ref().map(|(f, _)| f.clone());
         }
@@ -1023,16 +1040,19 @@ impl ChatParser {
             events.extend(out);
         }
         let incomplete = matches!(finish.as_ref().map(|f| f.normalized), Some(FinishReason::ContentFilter | FinishReason::Length));
-        if finish.is_some() && !incomplete && !self.pending.is_empty() {
+        if finish.is_some() && !incomplete && first_finish && !self.pending.is_empty() {
             return Err(AIError::invalid_output(ADAPTER, "OpenAI Chat tool call delta is missing id or name").with_body(encode(event)));
         }
-        if finish.is_some() && !incomplete && !self.tools.is_empty() {
+        if finish.is_some() && !incomplete && first_finish && !self.tools.is_empty() {
             let mut out = vec![];
             self.tools.finish_all(&mut out)?;
             self.tool_call_events = out;
         }
         self.usage = usage;
-        self.finish = finish;
+        // The first finish reason sticks.
+        if first_finish {
+            self.finish = finish;
+        }
         Ok(events)
     }
 

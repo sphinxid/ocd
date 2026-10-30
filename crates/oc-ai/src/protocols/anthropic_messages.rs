@@ -180,6 +180,7 @@ struct Options {
     thinking: Option<Object>,
     effort: Option<String>,
     service_tier: Option<Value>,
+    speed: Option<Value>,
     metadata: Option<Value>,
     container: Option<Value>,
     inference_geo: Option<Value>,
@@ -245,6 +246,13 @@ fn decode_options(po: Option<&Object>) -> Result<Options, AIError> {
         }
     }
     out.service_tier = get("service_tier").or_else(|| get("serviceTier")).cloned();
+    // Fast mode: `"fast" | "standard"`, any string passes.
+    if let Some(v) = get("speed") {
+        if !v.is_string() {
+            return Err(options_error("speed"));
+        }
+        out.speed = Some(v.clone());
+    }
     if let Some(v) = get("metadata") {
         let o = v.as_object().ok_or_else(|| options_error("metadata"))?;
         let mut m = Object::new();
@@ -422,13 +430,31 @@ fn document_block(source: Value, cc: Option<Value>, part: &MediaPart) -> Value {
     Value::Object(o)
 }
 
-fn lower_media(part: &MediaPart, bp: Option<&mut Breakpoints>) -> Result<Value, AIError> {
+fn lower_media(part: &MediaPart, request: &LLMRequest, bp: Option<&mut Breakpoints>) -> Result<Value, AIError> {
     let media_type = part.media.media_type();
     let mime = media_type.to_lowercase();
     let cc = match bp {
         Some(bp) => cache_control(bp, part.cache.as_ref()),
         None => None,
     };
+    if mime.starts_with("video/") {
+        let source = match part.media.inline() {
+            Some(inline) => json!({"type": "base64", "media_type": mime, "data": inline.base64}),
+            None => match shared::media_reference(&part.media, Some(&request.model.provider), "Messages video")? {
+                shared::MediaReference::Ref(id) if !id.contains("://") => json!({"type": "file", "file_id": id}),
+                shared::MediaReference::Ref(value) | shared::MediaReference::Url(value) | shared::MediaReference::DataUrl(value) => {
+                    json!({"type": "url", "url": value})
+                }
+            },
+        };
+        let mut o = Object::new();
+        o.insert("type".into(), json!("video"));
+        o.insert("source".into(), source);
+        if let Some(cc) = cc {
+            o.insert("cache_control".into(), cc);
+        }
+        return Ok(Value::Object(o));
+    }
     if let Some(id) = file_id(part.metadata.as_ref()) {
         let source = json!({"type": "file", "file_id": id});
         return Ok(if mime.starts_with("image/") { image_block(source, cc, part) } else { document_block(source, cc, part) });
@@ -459,7 +485,7 @@ fn lower_media(part: &MediaPart, bp: Option<&mut Breakpoints>) -> Result<Value, 
     Ok(image_block(json!({"type": "base64", "media_type": inline.mime, "data": inline.base64}), cc, part))
 }
 
-fn lower_tool_result_content(part: &ToolResultPart) -> Result<Value, AIError> {
+fn lower_tool_result_content(part: &ToolResultPart, request: &LLMRequest) -> Result<Value, AIError> {
     match &part.result {
         ToolResultValue::Content(items) => {
             let mut out = vec![];
@@ -467,7 +493,7 @@ fn lower_tool_result_content(part: &ToolResultPart) -> Result<Value, AIError> {
                 match item {
                     ToolContent::Text { text } => out.push(json!({"type": "text", "text": text})),
                     ToolContent::File { uri, mime, name } => {
-                        out.push(lower_media(&tool_file_media(uri, mime, name.as_deref()), None)?);
+                        out.push(lower_media(&tool_file_media(uri, mime, name.as_deref()), request, None)?);
                     }
                 }
             }
@@ -603,7 +629,7 @@ fn lower_messages(request: &LLMRequest, bp: &mut Breakpoints) -> Result<Vec<Valu
                             }
                             content.push(text_block(&t.text, cache_control(bp, t.cache.as_ref())));
                         }
-                        ContentPart::Media(m) => content.push(lower_media(m, Some(bp))?),
+                        ContentPart::Media(m) => content.push(lower_media(m, request, Some(bp))?),
                         _ => return Err(unsupported_content(NAME, Role::User, &["text", "media"])),
                     }
                 }
@@ -703,7 +729,7 @@ fn lower_messages(request: &LLMRequest, bp: &mut Breakpoints) -> Result<Vec<Valu
                     let mut o = Object::new();
                     o.insert("type".into(), json!("tool_result"));
                     o.insert("tool_use_id".into(), json!(scrub_tool_call_id(&r.id)));
-                    o.insert("content".into(), lower_tool_result_content(r)?);
+                    o.insert("content".into(), lower_tool_result_content(r, request)?);
                     if matches!(r.result, ToolResultValue::Error(_)) {
                         o.insert("is_error".into(), json!(true));
                     }
@@ -897,6 +923,7 @@ pub fn body_fields(request: &LLMRequest) -> Result<Fields, AIError> {
     f.insert("inference_geo".into(), options.inference_geo.clone());
     f.insert("metadata".into(), options.metadata.clone());
     f.insert("service_tier".into(), options.service_tier.clone());
+    f.insert("speed".into(), options.speed.clone());
     if let Some(cm) = options.context_management {
         f.insert("context_management".into(), Some(cm));
     }
@@ -917,6 +944,10 @@ pub fn required_betas(body: &Value) -> Vec<&'static str> {
     }
     if messages.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("system") && m.get("output_config").is_some()) {
         betas.push("mid-conversation-output-config-2026-07-01");
+    }
+    // Opus 5.5 accepts `speed` without this header; earlier fast-mode models reject `speed` without it.
+    if body.get("speed").is_some_and(|s| !s.is_null()) {
+        betas.push("fast-mode-2026-02-01");
     }
     if let Some(t) = body.get("thinking").and_then(Value::as_object) {
         if !thinking_off_obj(t) && t.get("block_binding").is_some() {
@@ -1092,6 +1123,27 @@ impl Protocol for MetaMessages {
     fn body(&self, request: &LLMRequest) -> Result<Value, AIError> {
         let (flat, projected) = flatten_tool_request(request);
         let mut fields = body_fields(&projected)?;
+        // Meta cannot see video nested in tool results: it moves to the end of that user message.
+        if let Some(Some(Value::Array(messages))) = fields.get_mut("messages") {
+            for message in messages.iter_mut() {
+                if message.get("role").and_then(Value::as_str) != Some("user") {
+                    continue;
+                }
+                let Some(Value::Array(content)) = message.get_mut("content") else { continue };
+                let mut videos = vec![];
+                for block in content.iter_mut() {
+                    if block.get("type").and_then(Value::as_str) != Some("tool_result") {
+                        continue;
+                    }
+                    let Some(Value::Array(items)) = block.get_mut("content") else { continue };
+                    let (moved, kept): (Vec<Value>, Vec<Value>) =
+                        items.drain(..).partition(|item| item.get("type").and_then(Value::as_str) == Some("video"));
+                    *items = kept;
+                    videos.extend(moved);
+                }
+                content.extend(videos);
+            }
+        }
         if let Some(Some(Value::Array(tools))) = fields.get_mut("tools") {
             for (index, tool) in tools.iter_mut().enumerate() {
                 let Some(native) = flat.get(index).and_then(|t| t.native.as_ref()) else { continue };
@@ -1200,6 +1252,7 @@ fn map_usage(usage: Option<&Value>, key: &str) -> Option<Usage> {
         cache_write_input_tokens: cache_write,
         reasoning_tokens: reasoning,
         total_tokens: shared::total_tokens(input, output, None),
+        cost: shared::reported_cost(usage),
         provider_metadata: Some(pm),
     })
 }
@@ -1226,6 +1279,7 @@ fn merge_usage(left: Option<Usage>, right: Option<Usage>, key: &str) -> Option<U
         cache_write_input_tokens: cache_write,
         reasoning_tokens: right.reasoning_tokens.or(left.reasoning_tokens),
         total_tokens: shared::total_tokens(input, output, None),
+        cost: right.cost.or(left.cost),
         provider_metadata: Some(pm),
     })
 }

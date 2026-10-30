@@ -176,6 +176,20 @@ pub fn language_model(package: &str, model_id: &str, settings: &Object) -> Resul
             // upstream always sets `http: { body }` (an undefined body is a no-op)
             simple_chat(model_id, &mut s, "digitalocean", "digitalocean", "https://inference.do-ai.run/v1", &["DIGITALOCEAN_ACCESS_TOKEN", "DIGITALOCEAN_API_KEY", "DO_INFERENCE_API_KEY"], wrappers::digitalocean_protocol(), compat(json!({"supportsPromptCacheKey": true})))
         }
+        "openrouter/responses" => {
+            gateway_responses(model_id, &mut s, "openrouter-responses", "openrouter", "https://openrouter.ai/api/v1", &["OPENROUTER_API_KEY"])
+        }
+        "digitalocean/responses" => gateway_responses(
+            model_id,
+            &mut s,
+            "digitalocean-responses",
+            "digitalocean",
+            "https://inference.do-ai.run/v1",
+            &["DIGITALOCEAN_ACCESS_TOKEN", "DIGITALOCEAN_API_KEY", "DO_INFERENCE_API_KEY"],
+        ),
+        "venice/responses" => {
+            gateway_responses(model_id, &mut s, "venice-responses", "venice", "https://api.venice.ai/api/v1", &["VENICE_API_KEY"])
+        }
         "openrouter" => simple_chat(model_id, &mut s, "openrouter", "openrouter", "https://openrouter.ai/api/v1", &["OPENROUTER_API_KEY"], Arc::new(wrappers::OpenRouter), compat(json!({"supportsPromptCacheKey": true}))),
         "venice" => venice(model_id, &mut s),
         "zai" | "zai/chat" => {
@@ -217,6 +231,31 @@ fn simple_chat(
     let route = d.apply(chat_route(route_id, provider, provider, Some(base), protocol)).base_url(Some(base_url)).auth(bearer(api_key, env));
     let m = model(route, model_id)?;
     Ok(if compatibility == Compatibility::default() { m } else { with_compat(m, compatibility) })
+}
+
+/// The Open Responses routes of OpenRouter, DigitalOcean and Venice (`<provider>/responses`): `POST
+/// <baseURL>/responses`, the chat route's auth, and stateless encrypted reasoning by default.
+fn gateway_responses(model_id: &str, s: &mut Settings, route_id: &str, provider: &str, base: &str, env: &[&str]) -> Result<LanguageModel> {
+    let api_key = s.string("apiKey");
+    let base_url = s.string("baseURL").unwrap_or_else(|| base.into());
+    // Venice's endpoint query (`queryParams`) applies to both of its routes.
+    let query: Option<IndexMap<String, String>> = if provider == "venice" {
+        s.take("queryParams").and_then(|q| q.as_object().map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect()))
+    } else {
+        None
+    };
+    let mut d = Defaults::from(s);
+    d.provider_options = std::mem::take(&mut s.rest);
+    let defaults = json!({"store": false, "include": ["reasoning.encrypted_content"]});
+    let merged = merge_records(&[defaults.as_object(), Some(&d.provider_options)]).unwrap_or_default();
+    let mut route = d
+        .apply_with_po(responses_route(route_id, provider, provider, Some(base), orp::protocol()), merged)
+        .base_url(Some(base_url))
+        .auth(bearer(api_key, env));
+    if let Some(q) = query {
+        route = route.query(q);
+    }
+    model(route, model_id)
 }
 
 fn anthropic_auth(provider: &str, api_key: Option<String>, auth_token: Option<String>, env: &[&str], label: &str) -> Result<Arc<dyn Auth>> {
@@ -382,9 +421,10 @@ fn amazon_bedrock(model_id: &str, s: &mut Settings) -> Result<LanguageModel> {
     let profile = s.string("profile");
     let region = s.string("region");
     let top_p = s.take("topP").and_then(|v| v.as_f64());
-    let thinking = s.take("thinking");
     let headers = s.headers();
     let body = s.body();
+    // Every other setting is a provider option (thinking, effort, serviceTier, guardrail, ...).
+    let po = std::mem::take(&mut s.rest);
     if mode.as_deref() == Some("bearer") && api_key.is_none() && std::env::var("AWS_BEARER_TOKEN_BEDROCK").is_err() {
         return Err(ProviderConfigurationError::new("amazon-bedrock", "Amazon Bedrock bearer auth requires apiKey"));
     }
@@ -394,10 +434,6 @@ fn amazon_bedrock(model_id: &str, s: &mut Settings) -> Result<LanguageModel> {
     let cred_region = credentials_value.as_ref().and_then(|c| c.get("region")).and_then(Value::as_str).map(String::from);
     let resolved_region = bc::resolve_region(region.as_deref(), cred_region.as_deref());
     let auth = bc::bedrock_auth(bc::BedrockAuthOptions { api_key, credentials, profile, mode, service: None, name: None }, &resolved_region);
-    let mut po = Object::new();
-    if let Some(t) = thinking {
-        po.insert("thinking".into(), t);
-    }
     let d = Defaults {
         headers,
         body,

@@ -229,6 +229,7 @@ impl Client {
     /// Compile a request: options/defaults, tool history, schema projection, cache policy, body lowering,
     /// headers/auth (`compile`).
     pub async fn compile(&self, request: &LLMRequest) -> Result<Compiled, AIError> {
+        crate::compile::reject_local_file_references(request)?;
         let resolved = prepare_request(request);
         let body = resolved.model.route.protocol.body(&resolved)?;
         let mut prepared = transport::prepare_json(&resolved, body.clone()).await?;
@@ -256,12 +257,14 @@ impl Client {
         let hook = options.http;
         if let Some(prepared) = request.model.route.stream.clone() {
             // `compile` then `route.streamPrepared`: no HTTP transport, no terminal-event rule.
+            crate::compile::reject_local_file_references(&request)?;
             let resolved = prepare_request(&request);
             let body = resolved.model.route.protocol.body(&resolved)?;
             return Ok(prepared.stream(resolved, body, hook, cancel));
         }
         if let (Some(executor), Some(channel)) = (options.web_socket, request.model.route.channel.clone()) {
             // `OpenResponsesChannel.transport`: prepare both the channel and the HTTP request.
+            crate::compile::reject_local_file_references(&request)?;
             let resolved = prepare_request(&request);
             let body = resolved.model.route.protocol.body(&resolved)?;
             let parts = transport::json_request_parts(&resolved, body.clone()).await?;

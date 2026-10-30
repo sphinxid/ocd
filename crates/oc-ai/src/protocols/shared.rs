@@ -75,6 +75,20 @@ pub fn sum_tokens(values: &[Option<u64>]) -> Option<u64> {
     Some(values.iter().map(|v| v.unwrap_or(0)).sum())
 }
 
+/// `ProviderShared.reportedBilling(usage)`: the USD `cost` an endpoint reports beside its token usage
+/// (OpenRouter, LiteLLM, OpenCode Zen). A malformed or negative amount reads as absent.
+pub fn reported_cost(usage: &Value) -> Option<f64> {
+    usage.get("cost").and_then(Value::as_f64).filter(|c| c.is_finite() && *c >= 0.0)
+}
+
+/// `sumTokens` over billed amounts (`ProviderShared.sumTokens` applied to `cost`).
+pub fn sum_costs(values: &[Option<f64>]) -> Option<f64> {
+    if values.iter().all(Option::is_none) {
+        return None;
+    }
+    Some(values.iter().map(|v| v.unwrap_or(0.0)).sum())
+}
+
 /// `fitThinkingBudget(budget, maxTokens, minimum)`.
 pub fn fit_thinking_budget(budget: f64, max_tokens: Option<f64>, minimum: f64) -> f64 {
     match max_tokens {
@@ -194,7 +208,6 @@ pub fn media_reference(asset: &MediaAsset, provider: Option<&str>, label: &str) 
     Err(AIError::invalid_request(format!("{label} accepts inline bytes, data URLs, http(s) URLs{accepted}{got}")))
 }
 
-static HTTP_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https?://").unwrap());
 
 /// `toolFileMedia`: lift a tool-result file into a media part.
 pub fn tool_file_media(uri: &str, mime: &str, name: Option<&str>) -> MediaPart {
@@ -203,7 +216,8 @@ pub fn tool_file_media(uri: &str, mime: &str, name: Option<&str>) -> MediaPart {
             crate::media::MediaSource::Base64 { data, .. } => MediaAsset::base64(data, mime),
             _ => parsed,
         },
-        None if HTTP_URL.is_match(uri) => MediaAsset::url(uri, Some(mime.to_string())),
+        // Any URI (`https://`, `gs://`, `s3://`, ...) stays a URL asset.
+        None if uri.contains("://") => MediaAsset::url(uri, Some(mime.to_string())),
         None => MediaAsset::base64(uri, mime),
     };
     MediaPart { media: asset, filename: name.map(String::from), cache: None, metadata: None, provider_metadata: None }

@@ -22,6 +22,8 @@ pub struct Settlement {
     pub raw_finish: Option<String>,
     pub native: Option<Metadata>,
     pub tokens: TokenUsage,
+    /// What the endpoint reported it charged (`Usage.cost`).
+    pub cost: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -875,6 +877,7 @@ impl Publisher {
                         raw_finish: reason.raw.clone(),
                         native: self.native(provider_metadata),
                         tokens: tokens(usage.as_ref()),
+                        cost: usage.as_ref().and_then(|u| u.cost),
                     });
                 }
                 if reason.normalized == FinishReason::ContentFilter {

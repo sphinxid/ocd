@@ -403,7 +403,8 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
             (Some(a), Some(b), Some(s)) => s.files(a, b).await,
             _ => None,
         };
-        let usage = record.finish.as_ref().map(|f| (calculate_cost(&input.cost, &f.tokens), f.tokens));
+        // What an endpoint says it charged beats the catalog; a reported zero is authoritative.
+        let usage = record.finish.as_ref().map(|f| (f.cost.unwrap_or_else(|| calculate_cost(&input.cost, &f.tokens)), f.tokens));
         if record.failure.is_some() {
             publisher.publish_step_failure(usage.map(|u| u.0), usage.map(|u| u.1), end.clone(), files.clone()).await?;
         } else if let (Some(f), Some((cost, tokens))) = (&record.finish, usage) {

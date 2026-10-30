@@ -324,6 +324,105 @@ fn http_body_path<'a>(request: &'a LLMRequest, path: &[&str]) -> Option<&'a Valu
     Some(current)
 }
 
+/// Decoded Bedrock Converse provider options (`Options`); unknown keys are ignored.
+#[derive(Debug, Default)]
+struct Options {
+    thinking: Option<Thinking>,
+    effort: Option<String>,
+    service_tier: Option<String>,
+    output_format: Option<Object>,
+    guardrail: Option<Object>,
+    request_metadata: Option<Object>,
+}
+
+#[derive(Debug)]
+enum Thinking {
+    Enabled(f64),
+    /// `{type: "adaptive", display?}` or `{type: "disabled"}`, sent as decoded.
+    Verbatim(Object),
+}
+
+fn option_error(key: &str) -> AIError {
+    AIError::invalid_request(format!("Invalid Bedrock Converse provider option `{key}`"))
+}
+
+/// Picks the declared keys of a struct option: `required` must be strings, `optional` strings when present.
+fn string_struct(value: &Value, key: &str, required: &[&str], optional: &[&str]) -> Result<Object, AIError> {
+    let o = value.as_object().ok_or_else(|| option_error(key))?;
+    let mut out = Object::new();
+    for k in required {
+        let v = o.get(*k).filter(|v| v.is_string()).ok_or_else(|| option_error(key))?;
+        out.insert((*k).into(), v.clone());
+    }
+    for k in optional {
+        match o.get(*k) {
+            None => {}
+            Some(v) if v.is_string() => {
+                out.insert((*k).into(), v.clone());
+            }
+            Some(_) => return Err(option_error(key)),
+        }
+    }
+    Ok(out)
+}
+
+fn decode_options(request: &LLMRequest) -> Result<Options, AIError> {
+    let mut out = Options::default();
+    let string = |key: &str| -> Result<Option<String>, AIError> {
+        match request.po(key) {
+            None => Ok(None),
+            Some(Value::String(s)) => Ok(Some(s.clone())),
+            Some(_) => Err(option_error(key)),
+        }
+    };
+    if let Some(v) = request.po("thinking") {
+        out.thinking = Some(match v.get("type").and_then(Value::as_str) {
+            Some("enabled") => Thinking::Enabled(v.get("budgetTokens").and_then(Value::as_f64).ok_or_else(|| option_error("thinking"))?),
+            Some("adaptive") => Thinking::Verbatim(string_struct(v, "thinking", &["type"], &["display"])?),
+            Some("disabled") => Thinking::Verbatim(string_struct(v, "thinking", &["type"], &[])?),
+            _ => return Err(option_error("thinking")),
+        });
+    }
+    out.effort = string("effort")?;
+    out.service_tier = string("serviceTier")?;
+    if let Some(v) = request.po("outputFormat") {
+        let o = v.as_object().ok_or_else(|| option_error("outputFormat"))?;
+        let schema = o.get("schema").filter(|s| s.is_object()).ok_or_else(|| option_error("outputFormat"))?;
+        let mut format = string_struct(v, "outputFormat", &["type"], &[])?;
+        format.insert("schema".into(), schema.clone());
+        format.extend(string_struct(v, "outputFormat", &[], &["name", "description"])?);
+        out.output_format = Some(format);
+    }
+    if let Some(v) = request.po("guardrail") {
+        out.guardrail = Some(string_struct(v, "guardrail", &["identifier", "version"], &["trace", "streamProcessingMode"])?);
+    }
+    if let Some(v) = request.po("requestMetadata") {
+        let o = v.as_object().filter(|o| o.values().all(Value::is_string)).ok_or_else(|| option_error("requestMetadata"))?;
+        out.request_metadata = Some(o.clone());
+    }
+    Ok(out)
+}
+
+/// Claude 4.6+ pairs effort with adaptive thinking; earlier Claude models take effort beside a manual budget.
+fn supports_adaptive_thinking(model_id: &str) -> bool {
+    super::shared::claude_version(model_id).is_some_and(|v| v.major > 4 || (v.major == 4 && v.minor >= 6))
+}
+
+/// Reasoning effort, in the field each model family reads.
+fn effort_fields(model_id: &str, effort: &str) -> (&'static str, Value) {
+    if model_id.contains("anthropic") {
+        return ("output_config", json!({"effort": effort}));
+    }
+    // gpt-oss takes the flat chat-completions spelling; newer OpenAI and xAI models take the Responses one.
+    if model_id.contains("openai.gpt-oss") {
+        return ("reasoning_effort", json!(effort));
+    }
+    if model_id.contains("openai.") || model_id.contains("xai.") {
+        return ("reasoning", json!({"effort": effort}));
+    }
+    ("reasoningConfig", json!({"type": "enabled", "maxReasoningEffort": effort}))
+}
+
 /// Ordered Bedrock Converse body.
 pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
     let tool_choice = match &request.tool_choice {
@@ -337,29 +436,30 @@ pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
     };
     let (tools, flattened) = flatten_tool_request(request);
     let g = request.generation_options();
-    let thinking_option = match request.po("thinking") {
-        None => None,
-        Some(v) => {
-            let ok = v.get("type").and_then(Value::as_str) == Some("enabled");
-            let budget = v.get("budgetTokens").and_then(Value::as_f64);
-            match (ok, budget) {
-                (true, Some(b)) => Some(b),
-                _ => return Err(AIError::invalid_request("Invalid Bedrock Converse provider option `thinking`")),
-            }
-        }
-    };
+    let options = decode_options(request)?;
     let high_effort = http_body_path(request, &["additionalModelRequestFields", "reasoningConfig", "maxReasoningEffort"]).and_then(Value::as_str) == Some("high");
-    let max_tokens = if NOVA2.is_match(&request.model.id) && high_effort { None } else { g.max_tokens };
-    let mut thinking: Option<Object> = thinking_option.map(|b| {
-        let mut o = Object::new();
-        o.insert("type".into(), json!("enabled"));
-        o.insert("budget_tokens".into(), num(fit_thinking_budget(b, max_tokens, MIN_THINKING_BUDGET)));
-        o
-    });
-    let disabled = matches!(
-        http_body_path(request, &["additionalModelRequestFields", "thinking", "type"]).and_then(Value::as_str),
-        Some("disabled" | "between_tools")
-    );
+    let max_tokens =
+        if NOVA2.is_match(&request.model.id) && (options.effort.as_deref() == Some("high") || high_effort) { None } else { g.max_tokens };
+    let mut thinking: Option<Object> = match &options.thinking {
+        Some(Thinking::Enabled(budget)) => {
+            let mut o = Object::new();
+            o.insert("type".into(), json!("enabled"));
+            o.insert("budget_tokens".into(), num(fit_thinking_budget(*budget, max_tokens, MIN_THINKING_BUDGET)));
+            Some(o)
+        }
+        Some(Thinking::Verbatim(o)) => Some(o.clone()),
+        None if options.effort.is_some() && supports_adaptive_thinking(&request.model.id) => {
+            let mut o = Object::new();
+            o.insert("type".into(), json!("adaptive"));
+            Some(o)
+        }
+        None => None,
+    };
+    let disabled = thinking.as_ref().and_then(|t| t.get("type")).and_then(Value::as_str) == Some("disabled")
+        || matches!(
+            http_body_path(request, &["additionalModelRequestFields", "thinking", "type"]).and_then(Value::as_str),
+            Some("disabled" | "between_tools")
+        );
     if !disabled && supports_thinking_block_binding(request) {
         let mut t = thinking.unwrap_or_else(|| {
             let mut o = Object::new();
@@ -417,9 +517,9 @@ pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
         }
         Some(Value::Object(o))
     };
-    let additional = if g.top_k.is_none() && thinking.is_none() {
-        None
-    } else {
+    // Converse's base inferenceConfig has no topK, thinking or effort; models accept them as model-specific
+    // fields, so they go through additionalModelRequestFields.
+    let additional = {
         let mut o = Object::new();
         if let Some(k) = g.top_k {
             o.insert("top_k".into(), num(k));
@@ -428,11 +528,37 @@ pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
         if let Some(t) = thinking {
             o.insert("thinking".into(), Value::Object(t));
         }
+        if let Some(effort) = &options.effort {
+            let (key, value) = effort_fields(&request.model.id, effort);
+            o.insert(key.into(), value);
+        }
+        // Converse takes Anthropic betas in the body, and Bedrock rejects `block_binding` without this one.
         if binding {
             o.insert("anthropic_beta".into(), json!([THINKING_BINDING_BETA]));
         }
-        Some(Value::Object(o))
+        if o.is_empty() { None } else { Some(Value::Object(o)) }
     };
+    let guardrail = options.guardrail.map(|g| {
+        let mut o = Object::new();
+        o.insert("guardrailIdentifier".into(), g["identifier"].clone());
+        o.insert("guardrailVersion".into(), g["version"].clone());
+        for key in ["trace", "streamProcessingMode"] {
+            if let Some(v) = g.get(key) {
+                o.insert(key.into(), v.clone());
+            }
+        }
+        Value::Object(o)
+    });
+    let output_config = options.output_format.map(|f| {
+        let mut schema = Object::new();
+        schema.insert("schema".into(), json!(crate::json::encode(&f["schema"])));
+        for key in ["name", "description"] {
+            if let Some(v) = f.get(key) {
+                schema.insert(key.into(), v.clone());
+            }
+        }
+        json!({"textFormat": {"type": f["type"], "structure": {"jsonSchema": schema}}})
+    });
     let mut f: IndexMap<String, Option<Value>> = IndexMap::new();
     f.insert("modelId".into(), Some(json!(request.model.id)));
     f.insert("messages".into(), Some(Value::Array(messages)));
@@ -440,6 +566,10 @@ pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
     f.insert("inferenceConfig".into(), inference);
     f.insert("toolConfig".into(), tool_config);
     f.insert("additionalModelRequestFields".into(), additional);
+    f.insert("serviceTier".into(), options.service_tier.map(|t| json!({"type": t})));
+    f.insert("guardrailConfig".into(), guardrail);
+    f.insert("outputConfig".into(), output_config);
+    f.insert("requestMetadata".into(), options.request_metadata.map(Value::Object));
     Ok(Value::Object(f.into_iter().filter_map(|(k, v)| v.map(|v| (k, v))).collect()))
 }
 
@@ -496,8 +626,16 @@ fn map_usage(usage: &Value, key: &str) -> Option<Usage> {
     }
     let u = |k: &str| crate::json::get_u64(usage, k);
     let input = shared::sum_tokens(&[u("inputTokens"), u("cacheReadInputTokens"), u("cacheWriteInputTokens")]);
+    // Provider metadata is the decoded `BedrockUsageSchema`: its five counts only (`serverToolUsage` and other
+    // members are dropped).
+    let mut decoded = Object::new();
+    for k in ["inputTokens", "outputTokens", "totalTokens", "cacheReadInputTokens", "cacheWriteInputTokens"] {
+        if let Some(v) = usage.get(k).filter(|v| v.is_number()) {
+            decoded.insert(k.into(), v.clone());
+        }
+    }
     let mut pm = Object::new();
-    pm.insert(key.into(), usage.clone());
+    pm.insert(key.into(), Value::Object(decoded));
     Some(Usage {
         context_tokens: None,
         input_tokens: input,
@@ -507,6 +645,7 @@ fn map_usage(usage: &Value, key: &str) -> Option<Usage> {
         cache_write_input_tokens: u("cacheWriteInputTokens"),
         reasoning_tokens: None,
         total_tokens: shared::total_tokens(input, u("outputTokens"), u("totalTokens")),
+        cost: None,
         provider_metadata: Some(pm),
     })
 }

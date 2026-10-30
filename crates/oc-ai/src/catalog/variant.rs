@@ -809,7 +809,10 @@ fn protocol_for(package: &str) -> Option<Protocol> {
         "@opencode/ai/providers/openai-compatible/responses"
         | "@opencode/ai/providers/openai-compatible-responses"
         | "@opencode/ai/providers/google-vertex/responses"
-        | "@opencode/ai/providers/xai" => open_responses,
+        | "@opencode/ai/providers/xai"
+        | "@opencode/ai/providers/digitalocean/responses"
+        | "@opencode/ai/providers/openrouter/responses"
+        | "@opencode/ai/providers/venice/responses" => open_responses,
 
         "@opencode/ai/providers/openai-compatible" => openai_compatible,
         "@opencode/ai/providers/openai/chat" => openai_chat,

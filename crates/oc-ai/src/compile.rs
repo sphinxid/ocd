@@ -1,6 +1,7 @@
 //! Request compilation (`route/client.ts` prepareRequest, `tool-history.ts`, `effort-updates.ts`,
 //! `cache-policy.ts`, `protocols/utils/tool-schema.ts`, `utils/gemini-json-schema.ts`).
 
+use crate::error::AIError;
 use crate::json::Object;
 use crate::types::*;
 use indexmap::IndexMap;
@@ -477,18 +478,41 @@ fn moonshot_node(schema: &Value) -> Value {
                 out.insert("type".into(), t);
             }
             for (key, value) in obj {
+                // Literal values are copied, and schema maps are mapped entry by entry so property names
+                // such as `type` or `items` are never read as keywords.
+                if VALUES.contains(&key.as_str()) {
+                    out.insert(key.clone(), value.clone());
+                    continue;
+                }
+                if SCHEMA_MAPS.contains(&key.as_str()) {
+                    if let Value::Object(map) = value {
+                        out.insert(key.clone(), Value::Object(map.iter().map(|(k, v)| (k.clone(), moonshot_node(v))).collect()));
+                        continue;
+                    }
+                }
                 if key == "items" {
+                    if obj.get("prefixItems").is_some_and(Value::is_array) {
+                        continue;
+                    }
                     if let Value::Array(items) = value {
                         out.insert(key.clone(), tuple_items_schema(items));
                         continue;
                     }
                 }
                 if key == "prefixItems" {
-                    if obj.contains_key("items") {
+                    let Value::Array(prefix) = value else {
+                        if !obj.contains_key("items") {
+                            out.insert("items".into(), Value::Object(Object::new()));
+                        }
                         continue;
+                    };
+                    let mut all = prefix.clone();
+                    match obj.get("items") {
+                        Some(rest @ Value::Object(_)) => all.push(rest.clone()),
+                        Some(Value::Array(rest)) => all.extend(rest.iter().cloned()),
+                        _ => {}
                     }
-                    let items = value.as_array().cloned().unwrap_or_default();
-                    out.insert("items".into(), tuple_items_schema(&items));
+                    out.insert("items".into(), tuple_items_schema(&all));
                     continue;
                 }
                 if key == "unevaluatedItems" {
@@ -741,6 +765,31 @@ pub fn resolve_request_options(request: &LLMRequest) -> LLMRequest {
     req
 }
 
+/// The first step of `compile`: media URLs, provider refs and tool-result file URIs that name a local file
+/// (`file:`) must be read before sending.
+pub fn reject_local_file_references(request: &LLMRequest) -> Result<(), AIError> {
+    static FILE: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?i)^\s*file:").unwrap());
+    let local = request.messages.iter().flat_map(|m| m.content.iter()).any(|part| match part {
+        ContentPart::Media(m) => match &m.media.source {
+            crate::media::MediaSource::Url { url, .. } => FILE.is_match(url),
+            crate::media::MediaSource::Ref { id, .. } => FILE.is_match(id),
+            _ => false,
+        },
+        ContentPart::ToolResult(r) => match &r.result {
+            ToolResultValue::Content(items) => {
+                items.iter().any(|item| matches!(item, ToolContent::File { uri, .. } if FILE.is_match(uri)))
+            }
+            _ => false,
+        },
+        _ => false,
+    });
+    if local {
+        return Err(AIError::invalid_request("Local file references must be read with Media.file(path) before sending"));
+    }
+    Ok(())
+}
+
 /// `prepareRequest`: full compile pipeline before protocol lowering.
 pub fn prepare_request(request: &LLMRequest) -> LLMRequest {
     let mut req = resolve_request_options(request);
@@ -828,5 +877,53 @@ mod tests {
             Value::Object(out),
             json!({"type":"object","properties":{"mode":{"type":["string","null"],"enum":["a",null]},"t":{"items":{"type":"string"}}}})
         );
+    }
+
+    // tool-schema-projection.test.ts "moonshot strips $ref siblings and converts tuple arrays to a schema object"
+    #[test]
+    fn moonshot_tuples_values_and_keyword_like_names() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "linked": { "$ref": "#/$defs/Linked", "description": "drop me" },
+                "tuple": { "type": "array", "items": [{ "type": "string" }, { "type": "number" }] },
+                "prefixTuple": { "type": "array", "prefixItems": [{ "type": "boolean" }, { "type": "string" }] },
+                "closedTuple": { "type": "array", "prefixItems": [{ "type": "string" }, { "type": "number" }], "items": false },
+                "restTuple": { "type": "array", "prefixItems": [{ "type": "string" }], "items": { "type": "number" } },
+                "prefixItems": { "type": "string" },
+                "unevaluatedItems": { "type": "boolean" },
+                "items": { "type": "array", "items": { "type": "string" } },
+                "cart": {
+                    "type": "object",
+                    "default": { "items": ["a", "b"], "$ref": "#/literal", "count": 1 },
+                    "const": { "enum": ["literal"] },
+                    "examples": [{ "items": ["x", "y"] }],
+                },
+            },
+            "dependentRequired": { "items": ["cart"] },
+            "dependencies": { "items": ["cart"], "prefixItems": { "required": ["items"] } },
+        });
+        let expected = json!({
+            "type": "object",
+            "properties": {
+                "linked": { "$ref": "#/$defs/Linked" },
+                "tuple": { "type": "array", "items": { "anyOf": [{ "type": "string" }, { "type": "number" }] } },
+                "prefixTuple": { "type": "array", "items": { "anyOf": [{ "type": "boolean" }, { "type": "string" }] } },
+                "closedTuple": { "type": "array", "items": { "anyOf": [{ "type": "string" }, { "type": "number" }] } },
+                "restTuple": { "type": "array", "items": { "anyOf": [{ "type": "string" }, { "type": "number" }] } },
+                "prefixItems": { "type": "string" },
+                "unevaluatedItems": { "type": "boolean" },
+                "items": { "type": "array", "items": { "type": "string" } },
+                "cart": {
+                    "type": "object",
+                    "default": { "items": ["a", "b"], "$ref": "#/literal", "count": 1 },
+                    "const": { "enum": ["literal"] },
+                    "examples": [{ "items": ["x", "y"] }],
+                },
+            },
+            "dependentRequired": { "items": ["cart"] },
+            "dependencies": { "items": ["cart"], "prefixItems": { "required": ["items"] } },
+        });
+        assert_eq!(Value::Object(moonshot_schema(schema.as_object().unwrap())), expected);
     }
 }

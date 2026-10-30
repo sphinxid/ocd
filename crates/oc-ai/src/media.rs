@@ -184,6 +184,31 @@ pub fn parse_data_url(value: &str) -> Option<MediaAsset> {
     Some(MediaAsset::base64(caps[2].to_string(), caps[1].to_string()))
 }
 
+/// The media type of an ISO-BMFF (`ftyp`) file, shared by `detectMediaType` and core's `Mime.detect`: AVIF, HEIC,
+/// QuickTime and M4A share MP4's container; the major brand tells them apart, and generic HEIF brands list
+/// `avif`/`avis` among the compatible brands that follow the minor version.
+pub fn iso_bmff_media_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() < 12 || &bytes[4..8] != b"ftyp" {
+        return None;
+    }
+    let brand = &bytes[8..12];
+    let box_end = (u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize).min(bytes.len());
+    let compatible: Vec<&[u8]> =
+        if box_end > 16 { (0..(box_end - 16) / 4).map(|i| &bytes[16 + i * 4..20 + i * 4]).collect() } else { vec![] };
+    let generic = brand == b"mif1" || brand == b"msf1";
+    if brand == b"avif" || brand == b"avis" || (generic && compatible.iter().any(|b| *b == b"avif" || *b == b"avis")) {
+        return Some("image/avif");
+    }
+    if generic || [b"heic", b"heix", b"hevc", b"hevx"].iter().any(|b| brand == *b) {
+        return Some("image/heic");
+    }
+    Some(match brand {
+        b"qt  " => "video/quicktime",
+        b"M4A " => "audio/mp4",
+        _ => "video/mp4",
+    })
+}
+
 pub fn detect_media_type(bytes: &[u8]) -> Option<&'static str> {
     let starts = |prefix: &[u8]| bytes.len() >= prefix.len() && &bytes[..prefix.len()] == prefix;
     if starts(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) {
@@ -206,8 +231,8 @@ pub fn detect_media_type(bytes: &[u8]) -> Option<&'static str> {
     if starts(&[0x25, 0x50, 0x44, 0x46]) {
         return Some("application/pdf");
     }
-    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
-        return Some("video/mp4");
+    if let Some(mime) = iso_bmff_media_type(bytes) {
+        return Some(mime);
     }
     if starts(&[0x1a, 0x45, 0xdf, 0xa3]) {
         return Some("video/webm");
@@ -237,6 +262,24 @@ mod tests {
         assert_eq!(asset.media_type(), "image/png");
         assert_eq!(asset.inline().unwrap().data_url, "data:image/png;base64,AAAA");
         assert_eq!(kind_of("application/pdf"), MediaKind::Document);
+    }
+
+    // media.test.ts / core mime.test.ts: "tells ISO-BMFF brands apart".
+    #[test]
+    fn iso_bmff_brands() {
+        let ftyp = |hex: &str| (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        for (hex, mime) in [
+            ("000000206674797061766966000000004d695072617669666d6961666d696631", "image/avif"),
+            ("000000186674797061766973000000006d73663161766973", "image/avif"),
+            ("00000018667479706d69663100000000617669666d69663100000000", "image/avif"),
+            ("000000246674797068656963000000006d6966314d6950726d6961664d694842", "image/heic"),
+            ("00000018667479706d69663100000000686569636d69663100000000", "image/heic"),
+            ("000000206674797069736f6d0000020069736f6d69736f32617663316d703431", "video/mp4"),
+            ("00000014667479707174202000000200717420200000000877696465", "video/quicktime"),
+            ("0000001c667479704d344120000002004d34412069736f6d69736f3200000008", "audio/mp4"),
+        ] {
+            assert_eq!(detect_media_type(&ftyp(hex)), Some(mime), "{hex}");
+        }
     }
 
     #[test]

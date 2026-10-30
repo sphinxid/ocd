@@ -942,6 +942,10 @@ pub struct Usage {
     pub reasoning_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<u64>,
+    /// USD the endpoint says it charged for this request, as OpenRouter, LiteLLM and OpenCode Zen report it in
+    /// `usage.cost`. `0` is authoritative (free or covered by a subscription); absent, callers price the tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_metadata: Option<ProviderMetadata>,
 }

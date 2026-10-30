@@ -69,15 +69,21 @@ pub fn system_parts(agent_system: Option<&str>, tools: &[&str], model: &ModelIde
 /// `generate` hook (core/src/tool/plugin/opencode.ts).
 pub const SESSION_MOVE_GUIDANCE: &str = "When you create a worktree outside the current working directory and intend to use it as your primary working directory, consider using `execute` to call `tools.opencode.session_move` and make the worktree the session's working directory.";
 
+/// Share of the window a primary turn leaves unused when its output limit is fitted to the room left
+/// (`WINDOW_HEADROOM`). Providers count a few tokens more than we do (chat template, tool schemas), and strict ones
+/// reject input plus output past the window. Compaction sizes its summary against its own reserve instead.
+pub const WINDOW_HEADROOM: f64 = 0.01;
+
 /// `outputLimit` (`model-request.ts`): the catalog limit, fitted to the room the prompt leaves in the context
-/// window. `input` is `(measured, estimated)`.
-pub fn output_limit(limit_output: u64, limit_context: u64, input: Option<(u64, u64)>) -> u64 {
+/// window less `headroom`. `input` is `(measured, estimated)`.
+pub fn output_limit(limit_output: u64, limit_context: u64, input: Option<(u64, u64)>, headroom: f64) -> u64 {
     let requested = (if limit_output > 0 { limit_output } else { 32_000 }).min(256_000);
     let Some((measured, estimated)) = input else { return requested };
     if limit_context == 0 {
         return requested;
     }
-    let room = limit_context as i64 - measured as i64 - (estimated as f64 * 1.15).ceil() as i64;
+    let window = (limit_context as f64 * (1.0 - headroom)).floor() as i64;
+    let room = window - measured as i64 - (estimated as f64 * 1.15).ceil() as i64;
     requested.min(room.max(1_024) as u64)
 }
 
@@ -221,11 +227,15 @@ mod tests {
     use super::*;
     #[test]
     fn limits() {
-        assert_eq!(output_limit(0, 0, None), 32_000);
-        assert_eq!(output_limit(400_000, 0, None), 256_000);
+        assert_eq!(output_limit(0, 0, None, 0.0), 32_000);
+        assert_eq!(output_limit(400_000, 0, None, 0.0), 256_000);
         // Summaries no longer have their own 32k cap.
-        assert_eq!(output_limit(64_000, 200_000, None), 64_000);
-        assert_eq!(output_limit(64_000, 100_000, Some((90_000, 10_000))), 1_024);
+        assert_eq!(output_limit(64_000, 200_000, None, 0.0), 64_000);
+        assert_eq!(output_limit(64_000, 100_000, Some((90_000, 10_000)), 0.0), 1_024);
+        // Primary requests leave 1% of the window unused (#59934).
+        assert_eq!(output_limit(64_000, 200_000, Some((150_000, 0)), 0.0), 50_000);
+        assert_eq!(output_limit(64_000, 200_000, Some((150_000, 0)), WINDOW_HEADROOM), 48_000);
+        assert_eq!(output_limit(64_000, 200_000, Some((140_000, 1_000)), WINDOW_HEADROOM), 56_850);
     }
 
     fn image(bytes: usize) -> ContentPart {
