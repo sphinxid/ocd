@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use oc_git::vcs::{BaseSource, BranchOptions, DiffOptions, GitVcs, Mode};
+use oc_git::vcs::{BaseSource, BranchOptions, DiffOptions, GitVcs, Mode, UntrackedMode};
 use oc_schema::types::FileStatus;
 
 fn summary(rows: &[oc_schema::types::FileDiff]) -> Vec<(String, FileStatus, u64, u64)> {
@@ -92,7 +92,7 @@ async fn working_diff_includes_untracked_files_and_matches_per_file_patches() {
     write(project.join("u2.txt"), "second\nline\n");
     write(project.join("bin.dat"), [0u8, 1, 2]);
     let vcs = GitVcs::new(&project, &project);
-    let diffs = vcs.review_diff(Mode::Working, &DiffOptions { context: Some(0), base: None }).await.unwrap();
+    let diffs = vcs.review_diff(Mode::Working, &DiffOptions { context: Some(0), ..Default::default() }).await.unwrap();
     assert_eq!(
         summary(&diffs),
         vec![
@@ -113,7 +113,7 @@ async fn working_diff_includes_untracked_files_and_matches_per_file_patches() {
     let batch = diffs[2].patch.clone();
     std::fs::remove_file(project.join("u2.txt")).unwrap();
     std::fs::remove_file(project.join("bin.dat")).unwrap();
-    let single = vcs.review_diff(Mode::Working, &DiffOptions { context: Some(0), base: None }).await.unwrap();
+    let single = vcs.review_diff(Mode::Working, &DiffOptions { context: Some(0), ..Default::default() }).await.unwrap();
     let u1 = single.iter().find(|d| d.file == "u1.txt").unwrap();
     assert!(u1.patch.contains("+first\n"));
     assert_eq!(u1.patch.lines().filter(|l| l.starts_with('+') || l.starts_with('-')).count(),
@@ -154,7 +154,7 @@ async fn branch_and_committed_diffs_use_the_merge_base_with_the_default_branch()
     let committed = vcs.diff(Mode::Committed, &DiffOptions::default()).await.unwrap();
     assert_eq!(summary(&committed), vec![row("feature.txt", FileStatus::Added, 1, 0)]);
 
-    let error = vcs.diff(Mode::Branch, &DiffOptions { context: None, base: Some("nope".into()) }).await.unwrap_err();
+    let error = vcs.diff(Mode::Branch, &DiffOptions { base: Some("nope".into()), ..Default::default() }).await.unwrap_err();
     assert_eq!(error.message, "No merge base available for nope");
 }
 
@@ -191,11 +191,13 @@ async fn branches_search_limit_and_remote_heads() {
     assert!(all.contains(&"main".to_string()));
     assert!(all.contains(&"origin/main".to_string()));
     assert!(all.contains(&"origin/feature/docs".to_string()));
-    // Upstream only drops names ending in `/HEAD`; `refs/remotes/origin/HEAD` shortens to `origin` and stays.
-    assert!(!all.iter().any(|b| b.ends_with("/HEAD")));
-    // Globs are matched per path segment, like upstream (`*` does not cross `/`).
-    assert_eq!(vcs.branches(&BranchOptions { search: Some(" MAI ".into()), limit: None }).await, vec!["main"]);
-    assert!(vcs.branches(&BranchOptions { search: Some("docs".into()), limit: None }).await.is_empty());
+    // `refs/remotes/origin/HEAD` lists as `origin/HEAD` and is dropped, never as a bare `origin`.
+    assert!(!all.iter().any(|b| b.ends_with("/HEAD") || b == "origin"));
+    // Search is a case-insensitive substring match, so it crosses `/`.
+    let mut found = vcs.branches(&BranchOptions { search: Some(" MAI ".into()), limit: None }).await;
+    found.sort();
+    assert_eq!(found, vec!["main", "origin/main"]);
+    assert_eq!(vcs.branches(&BranchOptions { search: Some("docs".into()), limit: None }).await, vec!["origin/feature/docs"]);
     assert_eq!(vcs.branches(&BranchOptions { search: None, limit: Some(1) }).await.len(), 1);
     let info = vcs.info().await;
     assert_eq!(info.branch.default.as_deref(), Some("main"));
@@ -213,4 +215,116 @@ async fn listings_are_scoped_to_the_location_directory() {
     assert_eq!(status[0].additions, 1);
     let diffs = vcs.diff(Mode::Working, &DiffOptions::default()).await.unwrap();
     assert_eq!(summary(&diffs), vec![row("sub/inner.txt", FileStatus::Added, 1, 0)]);
+}
+
+// vcs.test.ts "lists remote branches without remote HEAD symrefs"
+#[tokio::test]
+async fn lists_remote_branches_without_remote_head_symrefs() {
+    let (_root, project) = project();
+    let directory = project.to_str().unwrap().to_string();
+    git(&project, &["tag", "main"]);
+    git(&project, &["remote", "add", "origin", &directory]);
+    git(&project, &["remote", "add", "fork", &directory]);
+    git(&project, &["fetch", "--quiet", "origin"]);
+    git(&project, &["fetch", "--quiet", "fork"]);
+    git(&project, &["remote", "set-head", "origin", "main"]);
+    git(&project, &["remote", "set-head", "fork", "main"]);
+    let vcs = GitVcs::new(&project, &project);
+    let list = |search: Option<&str>, limit: Option<u64>| {
+        let vcs = vcs.clone();
+        let search = search.map(str::to_string);
+        async move { vcs.branches(&BranchOptions { search, limit }).await }
+    };
+    assert_eq!(list(None, None).await, vec!["main", "fork/main", "origin/main"]);
+    assert_eq!(list(None, Some(2)).await, vec!["main", "fork/main"]);
+    assert_eq!(list(Some("origin"), None).await, vec!["origin/main"]);
+    assert_eq!(list(Some("MAIN"), Some(2)).await, vec!["main", "fork/main"]);
+}
+
+fn folders() -> DiffOptions {
+    DiffOptions { untracked: Some(UntrackedMode::Folders), ..Default::default() }
+}
+
+// vcs.test.ts "lists an untracked folder as one entry and its entries from inside it when asked for folders"
+#[tokio::test]
+async fn lists_an_untracked_folder_as_one_entry_when_asked_for_folders() {
+    let root = tmp();
+    let directory = real(root.path());
+    init_repo(&directory);
+    write(directory.join("keep.txt"), "one\n");
+    write(directory.join(".gitignore"), "artifacts/\nresearch/noisy/a-*\n");
+    commit_all(&directory, "initial");
+    write(directory.join("keep.txt"), "two\n");
+    write(directory.join("research/noisy/z-important.ts"), "keep\n");
+    write(directory.join("research/deep/inner.md"), "inner\n");
+    for index in 0..505 {
+        write(directory.join(format!("research/wide/{index:03}.md")), "wide\n");
+        write(directory.join(format!("research/noisy/a-{index}.log")), "ignored\n");
+    }
+    for index in 0..50 {
+        write(directory.join(format!("artifacts/{index}.txt")), "ignored\n");
+        write(directory.join(format!("research/{index}.md")), format!("line {index}\n"));
+    }
+    let review = |scope: &str| {
+        let vcs = GitVcs::new(directory.join(scope), &directory);
+        async move {
+            let diff = vcs.review_diff(Mode::Working, &folders()).await.unwrap();
+            let all = vcs.review_diff(Mode::Working, &DiffOptions::default()).await.unwrap();
+            let status = vcs.status().await;
+            (diff, all, status)
+        }
+    };
+    let files = |rows: &[oc_schema::types::FileDiff]| rows.iter().map(|row| row.file.clone()).collect::<Vec<_>>();
+
+    let (diff, all, status) = review(".").await;
+    assert_eq!(files(&diff), vec!["keep.txt", "research/"]);
+    assert_eq!((diff[1].status, diff[1].additions, diff[1].deletions), (FileStatus::Added, 0, 0));
+    // Callers that do not ask for folders, such as the TUI and plugins, still get every file.
+    assert_eq!(all.len(), 1 + 50 + 1 + 505 + 1);
+    assert_eq!(status.len(), 1 + 50 + 1 + 505 + 1);
+
+    let (diff, _, _) = review("research").await;
+    assert_eq!(diff.len(), 53);
+    let seven = diff.iter().find(|row| row.file == "research/7.md").unwrap();
+    assert_eq!((seven.status, seven.additions), (FileStatus::Added, 1));
+    assert!(seven.patch.contains("+line 7"));
+    let listed: Vec<String> = diff.iter().filter(|row| row.file.ends_with('/')).map(|row| row.file.clone()).collect();
+    assert_eq!(listed, vec!["research/deep/", "research/noisy/", "research/wide/"]);
+    assert!(!diff.iter().any(|row| row.more.is_some()));
+    assert_eq!(files(&review("research/deep").await.0), vec!["research/deep/inner.md"]);
+
+    let (wide, _, _) = review("research/wide").await;
+    assert_eq!(wide.len(), 501);
+    assert_eq!(wide[499].file, "research/wide/499.md");
+    assert_eq!(
+        serde_json::to_value(&wide[500]).unwrap(),
+        serde_json::json!({"file": "research/wide/", "patch": "", "additions": 0, "deletions": 0, "status": "added", "more": true})
+    );
+
+    // 505 ignored entries sort before the one that lists.
+    let (noisy, _, _) = review("research/noisy").await;
+    assert_eq!(
+        noisy.iter().map(|row| (row.file.clone(), row.more)).collect::<Vec<_>>(),
+        vec![("research/noisy/z-important.ts".to_string(), None)]
+    );
+}
+
+// vcs.test.ts "stops listing an untracked folder after its scan budget and says more were not checked"
+#[tokio::test]
+async fn stops_listing_an_untracked_folder_after_its_scan_budget() {
+    let root = tmp();
+    let directory = real(root.path());
+    init_repo(&directory);
+    write(directory.join(".gitignore"), "huge/a-*\n");
+    commit_all(&directory, "initial");
+    for index in 0..5_000 {
+        write(directory.join(format!("huge/a-{index:04}.log")), "");
+    }
+    write(directory.join("huge/z-visible.ts"), "visible\n");
+    let vcs = GitVcs::new(directory.join("huge"), &directory);
+    let diff = vcs.review_diff(Mode::Working, &folders()).await.unwrap();
+    assert_eq!(
+        diff.iter().map(|row| (row.file.clone(), row.more)).collect::<Vec<_>>(),
+        vec![("huge/".to_string(), Some(true))]
+    );
 }

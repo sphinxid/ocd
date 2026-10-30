@@ -62,6 +62,32 @@ pub enum Mode {
     Committed,
 }
 
+/// `Vcs.Untracked`: how a diff lists untracked files, one by one or each untracked folder as one
+/// `dir/` entry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UntrackedMode {
+    #[default]
+    Files,
+    Folders,
+}
+
+impl UntrackedMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UntrackedMode::Files => "files",
+            UntrackedMode::Folders => "folders",
+        }
+    }
+}
+
+/// Entries a folder listing shows, and checks per Git call.
+pub const MAX_FOLDER_ENTRIES: usize = 500;
+/// Entries a folder listing checks before it stops and reports that more were not checked.
+pub const MAX_FOLDER_SCAN: usize = 5_000;
+/// Time a folder listing spends checking before it stops.
+pub const MAX_FOLDER_SCAN_MS: u128 = 1_000;
+
 /// `Vcs.FileStatus`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VcsFileStatus {
@@ -97,6 +123,8 @@ pub struct DiffOptions {
     /// Context lines; `None` means [`PATCH_CONTEXT_LINES`] (full file).
     pub context: Option<u64>,
     pub base: Option<String>,
+    /// `None` means [`UntrackedMode::Files`].
+    pub untracked: Option<UntrackedMode>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -300,6 +328,27 @@ struct Untracked {
 struct GitDiffOptions {
     context: Option<u64>,
     target: Option<&'static str>,
+    untracked: Option<UntrackedMode>,
+}
+
+/// A folder listing that stopped early ends with an entry for the folder itself, marked `more`.
+fn with_more(mut rows: Vec<FileDiff>, folder: Option<String>) -> Vec<FileDiff> {
+    if let Some(folder) = folder {
+        rows.push(FileDiff {
+            file: folder,
+            patch: String::new(),
+            additions: 0,
+            deletions: 0,
+            status: Kind::Added,
+            more: Some(true),
+        });
+    }
+    rows
+}
+
+/// JS default `Array.prototype.sort`: UTF-16 code unit order.
+fn utf16_cmp(a: &str, b: &str) -> Ordering {
+    a.encode_utf16().cmp(b.encode_utf16())
 }
 
 /// One default branch: `name` (e.g. `main`) and `ref` (e.g. `origin/main`).
@@ -356,32 +405,29 @@ impl GitVcs {
     }
 
     /// `for-each-ref` over heads and remotes, newest commit first; `*/HEAD` refs dropped.
+    /// `refname:short` collapses `refs/remotes/<remote>/HEAD` to the bare remote name, so the
+    /// namespace is stripped instead. Search and limit apply here because ref globs cannot cross
+    /// `/` and `--count` precedes the filter.
     pub async fn branches(&self, options: &BranchOptions) -> Vec<String> {
-        let search = options.search.as_deref().map(|s| {
-            let mut out = String::new();
-            for c in s.trim().chars() {
-                if matches!(c, '*' | '?' | '[' | ']' | '\\') {
-                    out.push('\\');
-                }
-                out.push(c);
-            }
-            out
-        });
-        let mut args = sv(&[
+        let search = options.search.as_deref().map(|s| s.trim().to_lowercase()).unwrap_or_default();
+        let args = sv(&[
             "for-each-ref",
-            "--ignore-case",
             "--sort=refname",
             "--sort=-committerdate",
-            "--format=%(refname:short)",
+            "--format=%(refname:lstrip=2)",
+            "refs/heads",
+            "refs/remotes",
         ]);
-        if let Some(limit) = options.limit.filter(|l| *l > 0) {
-            args.push(format!("--count={limit}"));
+        let items = self
+            .runner()
+            .lines(args, &self.directory)
+            .await
+            .into_iter()
+            .filter(|item| !item.ends_with("/HEAD") && (search.is_empty() || item.to_lowercase().contains(&search)));
+        match options.limit {
+            Some(limit) => items.take(limit as usize).collect(),
+            None => items.collect(),
         }
-        match search.filter(|s| !s.is_empty()) {
-            Some(search) => args.extend([format!("refs/heads/*{search}*"), format!("refs/remotes/*{search}*")]),
-            None => args.extend(sv(&["refs/heads", "refs/remotes"])),
-        }
-        self.runner().lines(args, &self.directory).await.into_iter().filter(|item| !item.ends_with("/HEAD")).collect()
     }
 
     async fn primary_remote(&self) -> Option<String> {
@@ -413,7 +459,7 @@ impl GitVcs {
                 }
             }
         }
-        let list = runner.lines(sv(&["for-each-ref", "--format=%(refname:short)", "refs/heads"]), cwd).await;
+        let list = runner.lines(sv(&["for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"]), cwd).await;
         let configured = runner.run(sv(&["config", "init.defaultBranch"]), cwd, None).await;
         let name = configured.text.trim();
         if !name.is_empty() && list.iter().any(|b| b == name) {
@@ -533,14 +579,17 @@ impl GitVcs {
         Ok(Some(Base { name: root.name, reference, source: BaseSource::Default }))
     }
 
-    async fn status_items(&self) -> Vec<Item> {
-        let text = self
-            .runner()
-            .text(
-                sv(&["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."]),
-                &self.directory,
-            )
-            .await;
+    /// `statusNames`: `git status` with `--untracked-files=<normal|all>`, over `.` or the given
+    /// directory entries.
+    async fn status_items(&self, untracked: &str, names: Option<&[String]>) -> Vec<Item> {
+        let mut args = sv(&["status", "--porcelain=v1"]);
+        args.push(format!("--untracked-files={untracked}"));
+        args.extend(sv(&["--no-renames", "-z", "--"]));
+        match names {
+            Some(names) => args.extend(names.iter().map(|name| format!(":(literal){name}"))),
+            None => args.push(".".to_string()),
+        }
+        let text = self.runner().text(args, &self.directory).await;
         nuls(&text)
             .into_iter()
             .filter_map(|item| {
@@ -552,6 +601,47 @@ impl GitVcs {
                 Some(Item { file: file.to_string(), status: kind(&code), code })
             })
             .collect()
+    }
+
+    /// `statusItems`: untracked files one by one unless the caller asks for folders. With folders,
+    /// Git lists an untracked folder as one `dir/` entry, as `git status` shows it, and a directory
+    /// inside such a folder lists only its immediate entries, with its subfolders again as one
+    /// entry each. The second value is the folder's own `more` row when the listing stopped early.
+    async fn status_list(&self, untracked: UntrackedMode) -> (Vec<Item>, Option<String>) {
+        if untracked == UntrackedMode::Files {
+            return (self.status_items("all", None).await, None);
+        }
+        let list = self.status_items("normal", None).await;
+        let prefix = crate::paths::relative(&self.worktree, &self.directory).replace(std::path::MAIN_SEPARATOR, "/");
+        let folder = format!("{prefix}/");
+        if prefix.is_empty()
+            || !list.iter().any(|item| item.code == "??" && item.file.ends_with('/') && folder.starts_with(&item.file))
+        {
+            return (list, None);
+        }
+        let mut names: Vec<String> = match std::fs::read_dir(&self.directory) {
+            Ok(entries) => entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect(),
+            Err(_) => Vec::new(),
+        };
+        names.sort_by(|a, b| utf16_cmp(a, b));
+        // Ignored entries do not list, so check entries a batch at a time until the listing fills,
+        // the folder runs out, or the scan budget does.
+        let mut entries: Vec<Item> = Vec::new();
+        let started = std::time::Instant::now();
+        let mut checked = 0usize;
+        while checked < names.len()
+            && entries.len() < MAX_FOLDER_ENTRIES
+            && checked < MAX_FOLDER_SCAN
+            && started.elapsed().as_millis() < MAX_FOLDER_SCAN_MS
+        {
+            let end = (checked + MAX_FOLDER_ENTRIES).min(names.len());
+            let batch = &names[checked..end];
+            checked += batch.len();
+            entries.extend(self.status_items("normal", Some(batch)).await);
+        }
+        let more = (entries.len() > MAX_FOLDER_ENTRIES || checked < names.len()).then_some(folder);
+        entries.truncate(MAX_FOLDER_ENTRIES);
+        (entries, more)
     }
 
     async fn diff_names(&self, reference: &str, target: Option<&str>) -> Result<Vec<Item>, DiffError> {
@@ -608,6 +698,10 @@ impl GitVcs {
     }
 
     async fn patch_untracked(&self, file: &str, context: Option<u64>, max: usize) -> Patch {
+        // A folder entry has no patch of its own.
+        if file.ends_with('/') {
+            return Patch { text: String::new(), truncated: false };
+        }
         let mut args = sv(&["diff", "--no-index", "--patch", "--no-ext-diff", "--no-renames"]);
         args.push(Self::unified(context));
         args.extend(["--".to_string(), "/dev/null".to_string(), file.to_string()]);
@@ -616,6 +710,9 @@ impl GitVcs {
     }
 
     async fn stat_untracked(&self, file: &str) -> Option<Stat> {
+        if file.ends_with('/') {
+            return None;
+        }
         let result = self
             .runner()
             .run(sv(&["diff", "--no-index", "--numstat", "--", "/dev/null", file]), &self.worktree, Some(4096))
@@ -718,7 +815,7 @@ impl GitVcs {
     /// `status()`: working-tree status with line counts, sorted like `localeCompare`.
     pub async fn status(&self) -> Vec<VcsFileStatus> {
         let reference = if self.has_head().await { Some("HEAD") } else { None };
-        let (list, stats) = tokio::join!(self.status_items(), async {
+        let (list, stats) = tokio::join!(self.status_items("all", None), async {
             match reference {
                 Some(reference) => self.stats(reference, None).await,
                 None => Vec::new(),
@@ -756,7 +853,7 @@ impl GitVcs {
     /// `diff(mode, {context, base})` as the provider implements it. The `Vcs` service then applies
     /// [`apply_total_patch_budget`] (see [`GitVcs::review_diff`]).
     pub async fn diff(&self, mode: Mode, options: &DiffOptions) -> Result<Vec<FileDiff>, DiffError> {
-        let git_options = GitDiffOptions { context: options.context, target: None };
+        let git_options = GitDiffOptions { context: options.context, target: None, untracked: options.untracked };
         if mode == Mode::Working {
             let reference = if self.has_head().await { Some("HEAD") } else { None };
             return self.track(reference, &git_options).await;
@@ -781,39 +878,47 @@ impl GitVcs {
         let options = GitDiffOptions {
             context: options.context,
             target: if mode == Mode::Committed { Some("HEAD") } else { None },
+            untracked: options.untracked,
         };
         self.diff_against_ref(&reference, &options).await
     }
 
     /// `Vcs.diff`: provider diff with `context ?? PATCH_CONTEXT_LINES`, then the 10 MB total budget.
     pub async fn review_diff(&self, mode: Mode, options: &DiffOptions) -> Result<Vec<FileDiff>, DiffError> {
-        let options =
-            DiffOptions { context: Some(options.context.unwrap_or(PATCH_CONTEXT_LINES)), base: options.base.clone() };
+        let options = DiffOptions {
+            context: Some(options.context.unwrap_or(PATCH_CONTEXT_LINES)),
+            base: options.base.clone(),
+            untracked: options.untracked,
+        };
         Ok(apply_total_patch_budget(self.diff(mode, &options).await?))
     }
 
     async fn track(&self, reference: Option<&str>, options: &GitDiffOptions) -> Result<Vec<FileDiff>, DiffError> {
         match reference {
             None => {
-                let list = self.status_items().await;
-                Ok(self.files(None, list, HashMap::new(), Batch::default(), options).await)
+                let (list, more) = self.status_list(options.untracked.unwrap_or_default()).await;
+                Ok(with_more(self.files(None, list, HashMap::new(), Batch::default(), options).await, more))
             }
             Some(reference) => self.diff_against_ref(reference, options).await,
         }
     }
 
     async fn diff_against_ref(&self, reference: &str, options: &GitDiffOptions) -> Result<Vec<FileDiff>, DiffError> {
-        let (list, stats, extra) = tokio::join!(
+        let (list, stats, (extra, more)) = tokio::join!(
             self.diff_names(reference, options.target),
             self.stats(reference, options.target),
             async {
-                if options.target.is_some() { Vec::new() } else { self.status_items().await }
+                if options.target.is_some() {
+                    (Vec::new(), None)
+                } else {
+                    self.status_list(options.untracked.unwrap_or_default()).await
+                }
             }
         );
         let list = list?;
         let batch = self.batch_patches(reference, &list, options).await;
         let merged = merge(vec![list, extra.into_iter().filter(|item| item.code == "??").collect()]);
-        Ok(self.files(Some(reference), merged, nums(stats), batch, options).await)
+        Ok(with_more(self.files(Some(reference), merged, nums(stats), batch, options).await, more))
     }
 
     async fn batch_patches(&self, reference: &str, list: &[Item], options: &GitDiffOptions) -> Batch {
@@ -823,7 +928,7 @@ impl GitVcs {
         let result = self
             .patch_all(
                 reference,
-                &GitDiffOptions { context: Some(options.context.unwrap_or(PATCH_CONTEXT_LINES)), target: options.target },
+                &GitDiffOptions { context: Some(options.context.unwrap_or(PATCH_CONTEXT_LINES)), target: options.target, untracked: None },
                 MAX_TOTAL_PATCH_BYTES,
             )
             .await;
@@ -837,7 +942,7 @@ impl GitVcs {
         let context = Some(options.context.unwrap_or(PATCH_CONTEXT_LINES));
         let result = match reference {
             Some(reference) if item.code != "??" => {
-                self.patch_file(reference, &item.file, &GitDiffOptions { context, target: options.target }, MAX_PATCH_BYTES)
+                self.patch_file(reference, &item.file, &GitDiffOptions { context, target: options.target, untracked: None }, MAX_PATCH_BYTES)
                     .await
             }
             _ => self.patch_untracked(&item.file, context, MAX_PATCH_BYTES).await,
@@ -928,6 +1033,7 @@ impl GitVcs {
                 additions: stat.map(|s| s.additions).unwrap_or(0),
                 deletions: stat.map(|s| s.deletions).unwrap_or(0),
                 status: item.status,
+                more: None,
             });
         }
         next
@@ -988,6 +1094,7 @@ mod tests {
             additions: 0,
             deletions: 0,
             status: Kind::Modified,
+            more: None,
         };
         let rows = apply_total_patch_budget(vec![row("a", &big), row("b", &"y".repeat(20)), row("c", "z")]);
         assert_eq!(rows[0].patch.len(), big.len());

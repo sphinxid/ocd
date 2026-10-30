@@ -174,7 +174,7 @@ impl RepositoryCache {
         }
         let existing = self.git.discover(local_path).await;
         let origin = match &existing {
-            Some(existing) => self.git.remote(existing, None).await,
+            Some(existing) => self.git.remote(existing, None).await.ok().flatten(),
             None => None,
         };
         let origin_reference = origin.as_deref().and_then(repository::parse);

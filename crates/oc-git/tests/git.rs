@@ -51,7 +51,7 @@ async fn clones_a_remote_and_reads_checkout_metadata() {
         .clone_repository(CloneInput { remote: fixture.remote.clone(), directory: target.clone(), ..Default::default() })
         .await
         .unwrap();
-    assert_eq!(git.remote(&repository, None).await.as_deref(), Some(fixture.remote.as_str()));
+    assert_eq!(git.remote(&repository, None).await.unwrap().as_deref(), Some(fixture.remote.as_str()));
     assert!(git.head(&repository).await.is_some_and(|h| h.len() == 40));
     assert_eq!(git.branch(&repository).await.as_deref(), Some("main"));
     assert_eq!(git.default_remote_branch(&repository, None).await.as_deref(), Some("main"));
@@ -59,8 +59,8 @@ async fn clones_a_remote_and_reads_checkout_metadata() {
     assert_eq!(repository.git_directory, target.join(".git"));
     assert_eq!(repository.common_directory, repository.git_directory);
     assert_eq!(read(target.join("README.md")), "one\n");
-    assert_eq!(git.root_commits(&repository).await.len(), 1);
-    assert!(git.remote(&repository, Some("missing")).await.is_none());
+    assert_eq!(git.root_commits(&repository).await.unwrap().len(), 1);
+    assert!(git.remote(&repository, Some("missing")).await.unwrap().is_none());
 }
 
 #[tokio::test]
@@ -636,4 +636,81 @@ async fn invalid_tree_ids_surface_operation_errors() {
     let error = git.tree_files(&setup.repository, &TreeId::from("0".repeat(40)), &tree).await.unwrap_err();
     assert_eq!(error.operation, oc_git::Operation::ListFiles);
     assert!(error.cause.is_none());
+}
+
+fn init_unborn(directory: &Path) {
+    std::fs::create_dir_all(directory).unwrap();
+    git(directory, &["init", "-q"]);
+    git(directory, &["config", "core.fsmonitor", "false"]);
+    git(directory, &["config", "commit.gpgsign", "false"]);
+    git(directory, &["config", "user.email", "test@opencode.test"]);
+    git(directory, &["config", "user.name", "Test"]);
+}
+
+// git.test.ts "reads no remote and no root commits from an unborn repository"
+#[tokio::test]
+async fn reads_no_remote_and_no_root_commits_from_an_unborn_repository() {
+    let root = tmp();
+    let directory = real(root.path());
+    init_unborn(&directory);
+    let git = Git::new();
+    let repository = git.discover(&directory).await.unwrap();
+    assert_eq!(git.remote(&repository, None).await.unwrap(), None);
+    assert_eq!(git.root_commits(&repository).await.unwrap(), Vec::<String>::new());
+}
+
+// git.test.ts "fingerprint changes with repository metadata, including from a linked worktree"
+#[tokio::test]
+async fn fingerprint_changes_with_repository_metadata() {
+    let root = tmp();
+    let base = real(root.path());
+    let main = base.join("main");
+    let linked = base.join("linked");
+    init_unborn(&main);
+    let service = Git::new();
+    assert_eq!(service.fingerprint(&base.join(".git")).await, None);
+    let unborn = service.fingerprint(&main.join(".git")).await;
+    assert!(unborn.is_some());
+    assert_eq!(service.fingerprint(&main.join(".git")).await, unborn);
+    git(&main, &["commit", "--allow-empty", "-qm", "root"]);
+    let committed = service.fingerprint(&main.join(".git")).await;
+    assert_ne!(committed, unborn);
+    git(&main, &["worktree", "add", "-q", linked.to_str().unwrap()]);
+    let before = service.fingerprint(&linked.join(".git")).await;
+    assert!(before.is_some());
+    git(&main, &["remote", "add", "origin", "git@github.com:owner/repo.git"]);
+    assert_ne!(service.fingerprint(&main.join(".git")).await, committed);
+    assert_ne!(service.fingerprint(&linked.join(".git")).await, before);
+}
+
+// git.test.ts "seeds and rebuilds the store from a source with a split index"
+#[tokio::test]
+async fn seeds_and_rebuilds_the_store_from_a_source_with_a_split_index() {
+    let root = tmp();
+    let base = real(root.path());
+    let project = base.join("project");
+    init_repo(&project);
+    write(project.join("a.txt"), "one\n");
+    commit_all(&project, "initial");
+    git(&project, &["update-index", "--split-index"]);
+    let service = Git::new();
+    let source = service.discover(&project).await.unwrap();
+    let storage = base.join("storage");
+    let repository = service.create(&source.worktree, &storage, Some(&source)).await.unwrap();
+    let input = capture_input(&repository, Some(&source));
+    let before = service.capture(&input).await.unwrap();
+    write(project.join("a.txt"), "two\n");
+    let after = service.capture(&input).await.unwrap();
+    assert_eq!(service.tree_files(&repository, &before, &after).await.unwrap(), strings(&["a.txt"]));
+    service.restore(&repository, &[("a.txt".to_string(), before.clone())]).await.unwrap();
+    assert_eq!(read(project.join("a.txt")), "one\n");
+    std::fs::write(storage.join("index"), "not an index").unwrap();
+    assert_eq!(service.capture(&input).await.unwrap(), before);
+    let shared: Vec<String> = std::fs::read_dir(&storage)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("sharedindex."))
+        .collect();
+    assert_eq!(shared, Vec::<String>::new());
 }

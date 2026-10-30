@@ -150,6 +150,109 @@ impl OperationError {
     pub const TAG: &'static str = "Git.OperationError";
 }
 
+/// `Git.CommandError`: Git could not answer (the spawn failed or it exited with an unexpected status).
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("git {} failed", args.join(" "))]
+pub struct CommandError {
+    pub args: Vec<String>,
+    pub exit_code: Option<i32>,
+    pub cause: Option<String>,
+}
+
+impl CommandError {
+    pub const TAG: &'static str = "Git.CommandError";
+}
+
+/// `stamp`: `<type>:<ino>:<size>:<mtime ms>` of a path, or `missing`.
+fn stamp(target: &Path) -> String {
+    let Ok(info) = std::fs::metadata(target) else { return s("missing") };
+    let kind = if info.is_file() {
+        "File"
+    } else if info.is_dir() {
+        "Directory"
+    } else {
+        "Other"
+    };
+    #[cfg(unix)]
+    let ino = {
+        use std::os::unix::fs::MetadataExt;
+        info.ino().to_string()
+    };
+    #[cfg(not(unix))]
+    let ino = String::new();
+    format!("{kind}:{ino}:{}:{}", info.len(), mtime_ms(&info))
+}
+
+fn read_text(target: &Path) -> Option<String> {
+    std::fs::read_to_string(target).ok()
+}
+
+static GITDIR_LINE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^gitdir:\s*(.+)$").unwrap());
+
+/// `repo.fingerprint`. Covers linked worktrees (gitdir file + commondir), HEAD and the ref it
+/// points at, loose/packed/reftable refs, repository/worktree/global/XDG/system config, and the
+/// cached `opencode` project id, so external `git init`, a first commit or `git remote` edits
+/// change the stamp.
+pub fn fingerprint(dot_git: &Path) -> Option<String> {
+    let dot = std::fs::metadata(dot_git).ok()?;
+    if !dot.is_file() && !dot.is_dir() {
+        return None;
+    }
+    let git_file = if dot.is_file() {
+        let text = read_text(dot_git)?;
+        Some(GITDIR_LINE.captures(&text)?.get(1)?.as_str().trim().to_string())
+    } else {
+        None
+    };
+    let git_dir = match git_file.filter(|file| !file.is_empty()) {
+        Some(file) => {
+            let resolved = crate::paths::resolve(dot_git.parent().unwrap_or(Path::new("/")), &file);
+            std::fs::canonicalize(&resolved).unwrap_or(resolved)
+        }
+        None => dot_git.to_path_buf(),
+    };
+    let common_dir = match read_text(&git_dir.join("commondir")).map(|text| text.trim().to_string()) {
+        Some(commondir) if !commondir.is_empty() => {
+            let resolved = crate::paths::resolve(&git_dir, &commondir);
+            std::fs::canonicalize(&resolved).unwrap_or(resolved)
+        }
+        _ => git_dir.clone(),
+    };
+    let head = read_text(&git_dir.join("HEAD"))?.trim().to_string();
+    let reference = head.strip_prefix("ref:").map(|rest| rest.trim().to_string());
+    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    let home = env("HOME").map(PathBuf::from).unwrap_or_default();
+    let nosystem = ["1", "true", "yes", "on"]
+        .contains(&std::env::var("GIT_CONFIG_NOSYSTEM").unwrap_or_default().to_lowercase().as_str());
+    let mut files = vec![
+        git_dir.join("HEAD"),
+        common_dir.join("config"),
+        common_dir.join("config.worktree"),
+        git_dir.join("config.worktree"),
+        common_dir.join("packed-refs"),
+        common_dir.join("reftable").join("tables.list"),
+        common_dir.join("opencode"),
+    ];
+    if let Some(reference) = &reference {
+        files.push(common_dir.join(reference));
+        files.push(git_dir.join(reference));
+    }
+    files.push(env("GIT_CONFIG_GLOBAL").map(PathBuf::from).unwrap_or_else(|| home.join(".gitconfig")));
+    files.push(
+        env("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config")).join("git").join("config"),
+    );
+    if !nosystem {
+        files.push(env("GIT_CONFIG_SYSTEM").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/etc/gitconfig")));
+    }
+    let stamps: Vec<String> = std::iter::once(dot_git).chain(files.iter().map(PathBuf::as_path)).map(stamp).collect();
+    let parts: Vec<String> = [p(&git_dir), p(&common_dir), head]
+        .into_iter()
+        .chain(files.iter().map(|file| p(file)))
+        .chain(stamps)
+        .collect();
+    Some(parts.join("\0"))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorktreeKind {
@@ -261,6 +364,40 @@ struct Inner {
     /// A clean capture returns the tree last written from the exact index it scanned.
     last_captures: Mutex<HashMap<PathBuf, LastCapture>>,
     prepared_stores: Mutex<HashSet<PathBuf>>,
+    /// Captures queued behind the store lock that have not started yet, by capture key.
+    pending_captures: Mutex<HashMap<String, PendingCapture>>,
+    pending_ids: std::sync::atomic::AtomicU64,
+    /// Untracked files skipped for size, per store, by path, with the stamp they had when skipped.
+    oversized: Mutex<HashMap<PathBuf, HashMap<String, String>>>,
+}
+
+type CaptureResult = Option<Result<TreeId, OperationError>>;
+
+struct PendingCapture {
+    id: u64,
+    receiver: tokio::sync::watch::Receiver<CaptureResult>,
+}
+
+/// Forgets a pending capture once it starts (or is dropped), unless a newer one replaced it.
+struct PendingGuard {
+    inner: Arc<Inner>,
+    key: String,
+    id: u64,
+}
+
+impl PendingGuard {
+    fn release(&self) {
+        let mut pending = self.inner.pending_captures.lock();
+        if pending.get(&self.key).is_some_and(|entry| entry.id == self.id) {
+            pending.remove(&self.key);
+        }
+    }
+}
+
+impl Drop for PendingGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
 }
 
 /// The `Git` service. Cheap to clone; clones share the in-process locks and capture caches.
@@ -605,32 +742,103 @@ impl Git {
         tokio::fs::write(info.join("alternates"), format!("{}\n", p(&seed.common_directory.join("objects"))))
             .await
             .map_err(error("Failed to configure shared Git objects"))?;
-        let _ = tokio::fs::copy(seed.git_directory.join("index"), directory.join("index")).await;
+        let index = directory.join("index");
+        let store = Repository {
+            worktree: worktree.to_path_buf(),
+            git_directory: directory.to_path_buf(),
+            common_directory: directory.to_path_buf(),
+        };
+        if self.seed_index(&store, seed, &index).await.is_err() {
+            remove_file_force(&index).await;
+        }
         Ok(())
+    }
+
+    /// Copy the source index into the store. A split index names a shared index file in its own
+    /// Git directory, so those files are linked in just long enough to rewrite the copy as a
+    /// complete index (`seedIndex`).
+    async fn seed_index(&self, store: &Repository, source: &Repository, target: &Path) -> Result<(), OperationError> {
+        let failed = |message: &'static str| {
+            move |cause: std::io::Error| OperationError::caused(Operation::Refresh, &store.git_directory, message, cause)
+        };
+        copy_index(&source.git_directory.join("index"), target).map_err(failed("Failed to copy the source index"))?;
+        let mut shared: Vec<String> = std::fs::read_dir(&source.git_directory)
+            .map_err(failed("Failed to read the source Git directory"))?
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("sharedindex."))
+            .collect();
+        if shared.is_empty() {
+            return Ok(());
+        }
+        shared.sort();
+        let result = async {
+            for entry in &shared {
+                let from = source.git_directory.join(entry);
+                let to = store.git_directory.join(entry);
+                if std::fs::hard_link(&from, &to).is_err() {
+                    std::fs::copy(&from, &to).map_err(failed("Failed to link the shared index"))?;
+                }
+            }
+            self.repository_operation(
+                Operation::Refresh,
+                store,
+                vec![s("update-index"), s("--no-split-index")],
+                RepoOptions { index: Some(target), ..Default::default() },
+            )
+            .await
+            .map(|_| ())
+        }
+        .await;
+        for entry in &shared {
+            remove_file_force(&store.git_directory.join(entry)).await;
+        }
+        result
     }
 
     // ---------------------------------------------------------------- remote / history
 
-    /// `remote.get`: `git remote get-url <name=origin>`.
-    pub async fn remote(&self, repository: &Repository, name: Option<&str>) -> Option<String> {
-        let result =
-            run(&repository.worktree, vec![s("remote"), s("get-url"), s(name.unwrap_or("origin"))]).await;
-        if result.exit_code != 0 {
-            return None;
-        }
-        Some(result.text().trim().to_string()).filter(|v| !v.is_empty())
+    /// `repo.fingerprint`: spawn-free stamp of the metadata that `discover`, `remote` and
+    /// `root_commits` read for the `.git` entry at `dot_git`; `None` when it isn't a readable
+    /// repository.
+    pub async fn fingerprint(&self, dot_git: &Path) -> Option<String> {
+        fingerprint(dot_git)
     }
 
-    /// `history.rootCommits`: `git rev-list --max-parents=0 HEAD`, sorted.
-    pub async fn root_commits(&self, repository: &Repository) -> Vec<String> {
-        let result = run(&repository.worktree, vec![s("rev-list"), s("--max-parents=0"), s("HEAD")]).await;
-        if result.exit_code != 0 {
-            return Vec::new();
+    async fn command(&self, cwd: &Path, args: Vec<String>) -> Result<RunResult, CommandError> {
+        execute(cwd, args.clone()).await.map_err(|cause| CommandError { args, exit_code: None, cause: Some(cause.to_string()) })
+    }
+
+    /// `remote.get`: `git remote get-url <name=origin>`. `Ok(None)` when the remote doesn't exist
+    /// (exit 2); any other failure is a [`CommandError`].
+    pub async fn remote(&self, repository: &Repository, name: Option<&str>) -> Result<Option<String>, CommandError> {
+        let args = vec![s("remote"), s("get-url"), s(name.unwrap_or("origin"))];
+        let result = self.command(&repository.worktree, args.clone()).await?;
+        if result.exit_code == 2 {
+            return Ok(None);
         }
-        let mut out: Vec<String> =
-            result.text().split('\n').map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
-        out.sort();
-        out
+        if result.exit_code != 0 {
+            return Err(CommandError { args, exit_code: Some(result.exit_code), cause: None });
+        }
+        Ok(Some(result.text().trim().to_string()).filter(|v| !v.is_empty()))
+    }
+
+    /// `history.rootCommits`: `git rev-list --max-parents=0 HEAD`, sorted; empty when HEAD is unborn.
+    pub async fn root_commits(&self, repository: &Repository) -> Result<Vec<String>, CommandError> {
+        let args = vec![s("rev-list"), s("--max-parents=0"), s("HEAD")];
+        let result = self.command(&repository.worktree, args.clone()).await?;
+        if result.exit_code == 0 {
+            let mut out: Vec<String> =
+                result.text().split('\n').map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+            out.sort();
+            return Ok(out);
+        }
+        // `rev-parse -q --verify` exits 1 only when HEAD doesn't resolve, i.e. it is unborn.
+        let verify = self.command(&repository.worktree, vec![s("rev-parse"), s("-q"), s("--verify"), s("HEAD")]).await?;
+        if verify.exit_code == 1 {
+            return Ok(Vec::new());
+        }
+        Err(CommandError { args, exit_code: Some(result.exit_code), cause: None })
     }
 
     /// `history.head`: `git rev-parse HEAD`.
@@ -738,18 +946,20 @@ impl Git {
         repository: &Repository,
         scope: &str,
         index: Option<&Path>,
+        exclude_from: Option<&Path>,
     ) -> Result<Changes, OperationError> {
+        let mut others = vec![s("ls-files"), s("--others")];
+        if let Some(exclude_from) = exclude_from {
+            others.push(format!("--exclude-from={}", p(exclude_from)));
+        }
+        others.extend([s("--exclude-standard"), s("-z"), s("--"), literal_pathspec(scope)]);
         let (tracked, untracked) = tokio::try_join!(
             self.list_paths(
                 repository,
                 vec![s("diff-files"), s("--name-only"), s("-z"), s("--"), literal_pathspec(scope)],
                 index
             ),
-            self.list_paths(
-                repository,
-                vec![s("ls-files"), s("--others"), s("--exclude-standard"), s("-z"), s("--"), literal_pathspec(scope)],
-                index
-            ),
+            self.list_paths(repository, others, index),
         )?;
         Ok(Changes { tracked, untracked })
     }
@@ -856,7 +1066,7 @@ impl Git {
         ignores: Option<&Repository>,
         maximum_untracked_file_bytes: Option<u64>,
     ) -> Result<RefreshResult, OperationError> {
-        let changes = self.list_changes(repository, scope, None).await?;
+        let changes = self.list_changes(repository, scope, None, None).await?;
         let skipped =
             self.update_index(repository, &changes, ignores, maximum_untracked_file_bytes, None, None).await?;
         Ok(RefreshResult { skipped })
@@ -956,41 +1166,80 @@ impl Git {
     /// Changes are listed against the temporary index they are written to, never the store's index.
     async fn attempt_capture(&self, input: &CaptureInput) -> Result<TreeId, OperationError> {
         let repository = &input.repository;
+        let source_exclude = input.ignores.as_ref().map(|ignores| ignores.common_directory.join("info").join("exclude"));
+        let exclude_from = match source_exclude {
+            Some(file) if exists(&file).await => Some(file),
+            _ => None,
+        };
+        let exclude_from = exclude_from.as_deref();
         let (tree, installed) = self
             .with_temporary_index(repository, |index| async move {
                 let scanned = index_fingerprint(&index);
-                let listings: Vec<_> =
-                    input.scopes.iter().map(|scope| self.list_changes(repository, scope, Some(&index))).collect();
+                let listings: Vec<_> = input
+                    .scopes
+                    .iter()
+                    .map(|scope| self.list_changes(repository, scope, Some(&index), exclude_from))
+                    .collect();
                 let changes = futures::future::try_join_all(listings).await?;
                 let last = self.inner.last_captures.lock().get(&repository.git_directory).cloned();
                 let untracked: Vec<String> = changes.iter().flat_map(|c| c.untracked.iter().cloned()).collect();
+                let oversized = self.inner.oversized.lock().get(&repository.git_directory).cloned();
+                let still_oversized: HashSet<String> = match &oversized {
+                    Some(oversized) => {
+                        let checks: Vec<_> = untracked
+                            .iter()
+                            .filter(|file| oversized.contains_key(*file))
+                            .map(|file| async move {
+                                let current = oversized_stamp(input, file).await;
+                                (current.is_some() && current.as_ref() == oversized.get(file)).then(|| file.clone())
+                            })
+                            .collect();
+                        futures::stream::iter(checks).buffered(8).filter_map(futures::future::ready).collect().await
+                    }
+                    None => HashSet::new(),
+                };
                 // Paths the source ignores are listed as untracked on every scan; they leave the index unchanged.
                 let excluded = match (&scanned, &last) {
                     (Some(scanned), Some(last))
                         if &last.fingerprint == scanned && changes.iter().all(|c| c.tracked.is_empty()) =>
                     {
                         Some(match &input.ignores {
-                            Some(ignores) => self.ignored(ignores, &untracked).await?,
+                            Some(ignores) => {
+                                let paths: Vec<String> =
+                                    untracked.iter().filter(|file| !still_oversized.contains(*file)).cloned().collect();
+                                self.ignored(ignores, &paths).await?
+                            }
                             None => HashSet::new(),
                         })
                     }
                     _ => None,
                 };
                 if let (Some(last), Some(excluded)) = (&last, &excluded)
-                    && untracked.iter().all(|file| excluded.contains(file)) {
-                        return Ok(last.tree.clone());
-                    }
-                for change in &changes {
-                    self.update_index(
-                        repository,
-                        change,
-                        input.ignores.as_ref(),
-                        input.maximum_untracked_file_bytes,
-                        Some(&index),
-                        excluded.as_ref(),
-                    )
-                    .await?;
+                    && untracked.iter().all(|file| excluded.contains(file) || still_oversized.contains(file))
+                {
+                    return Ok(last.tree.clone());
                 }
+                let mut skipped = Vec::new();
+                for change in &changes {
+                    skipped.extend(
+                        self.update_index(
+                            repository,
+                            change,
+                            input.ignores.as_ref(),
+                            input.maximum_untracked_file_bytes,
+                            Some(&index),
+                            excluded.as_ref(),
+                        )
+                        .await?,
+                    );
+                }
+                let stamps: Vec<_> = skipped
+                    .iter()
+                    .map(|file| async move { oversized_stamp(input, file).await.map(|stamp| (file.clone(), stamp)) })
+                    .collect();
+                let stamps: HashMap<String, String> =
+                    futures::stream::iter(stamps).buffered(8).filter_map(futures::future::ready).collect().await;
+                self.inner.oversized.lock().insert(repository.git_directory.clone(), stamps);
                 self.write_tree_with(repository, Some(&index)).await
             })
             .await?;
@@ -1006,10 +1255,40 @@ impl Git {
         Ok(tree)
     }
 
-    /// `tree.capture`: record the scoped worktree state as a tree object.
+    /// `tree.capture`: record the scoped worktree state as a tree object. Callers queued behind a
+    /// running capture share the next one, which starts after they all asked, so it still sees
+    /// every change made before each call.
     pub async fn capture(&self, input: &CaptureInput) -> Result<TreeId, OperationError> {
+        let key = serde_json::to_string(&(
+            p(&input.repository.git_directory),
+            p(&input.repository.worktree),
+            &input.scopes,
+            input.ignores.as_ref().map(|ignores| p(&ignores.git_directory)),
+            input.maximum_untracked_file_bytes,
+        ))
+        .unwrap_or_default();
+        let pending = self.inner.pending_captures.lock().get(&key).map(|entry| entry.receiver.clone());
+        if let Some(mut receiver) = pending
+            && let Ok(value) = receiver.wait_for(Option::is_some).await
+            && let Some(result) = value.clone()
+        {
+            return result;
+        }
+        // The leader was cancelled before it finished: run a capture of our own.
+        let id = self.inner.pending_ids.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        self.inner.pending_captures.lock().insert(key.clone(), PendingCapture { id, receiver });
+        let guard = PendingGuard { inner: self.inner.clone(), key, id };
+        let result = self.capture_locked(input, &guard).await;
+        guard.release();
+        let _ = sender.send(Some(result.clone()));
+        result
+    }
+
+    async fn capture_locked(&self, input: &CaptureInput, pending: &PendingGuard) -> Result<TreeId, OperationError> {
         let lock = self.lock_for(&input.repository);
         let _held = lock.lock().await;
+        pending.release();
         let first = self.inner.prepared_stores.lock().insert(input.repository.git_directory.clone());
         if first {
             self.sweep_temporary_indexes(&input.repository).await;
@@ -1056,7 +1335,10 @@ impl Git {
         let temporary = Self::temporary_index(repository);
         let _guard = TempGuard(temporary.clone());
         // The source's stat cache and cache-tree spare recovery from rehashing every tracked file.
-        let copied = source.is_some_and(|source| copy_index(&source.git_directory.join("index"), &temporary).is_ok());
+        let copied = match source {
+            Some(source) => self.seed_index(repository, source, &temporary).await.is_ok(),
+            None => false,
+        };
         let index = repository.git_directory.join("index");
         if copied {
             let _ = std::fs::rename(&temporary, &index);
@@ -1223,6 +1505,7 @@ impl Git {
                     patch: patch_text,
                     status,
                     file,
+                    more: None,
                 }
             })
             .collect();
@@ -1584,6 +1867,13 @@ async fn oversized(path: PathBuf, item: String, maximum: u64) -> Option<String> 
         Ok(info) if info.is_file() && info.len() > maximum => Some(item),
         _ => None,
     }
+}
+
+/// `oversizedStamp`: `<size>:<mtime ms>` for an untracked file still over the capture's size limit.
+async fn oversized_stamp(input: &CaptureInput, file: &str) -> Option<String> {
+    let maximum = input.maximum_untracked_file_bytes.filter(|max| *max > 0)?;
+    let info = tokio::fs::metadata(input.repository.worktree.join(file)).await.ok()?;
+    (info.is_file() && info.len() > maximum).then(|| format!("{}:{}", info.len(), mtime_ms(&info)))
 }
 
 async fn embedded_repository(dotgit: PathBuf, item: String) -> Option<String> {

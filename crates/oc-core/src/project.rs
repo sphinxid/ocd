@@ -41,8 +41,9 @@ pub struct GitRepo {
     pub worktree: PathBuf,
 }
 
-async fn git(cwd: &Path, args: &[&str]) -> Option<String> {
-    let out = tokio::process::Command::new("git")
+/// Runs Git; `None` when it could not start, else its exit code and stdout.
+async fn git_status(cwd: &Path, args: &[&str]) -> Option<(i32, String)> {
+    let out = tokio::process::Command::new(oc_git::process::git_executable())
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
@@ -50,7 +51,11 @@ async fn git(cwd: &Path, args: &[&str]) -> Option<String> {
         .output()
         .await
         .ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    Some((out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).into_owned()))
+}
+
+async fn git(cwd: &Path, args: &[&str]) -> Option<String> {
+    git_status(cwd, args).await.filter(|(code, _)| *code == 0).map(|(_, out)| out)
 }
 
 pub async fn discover_git(dir: &Path) -> Option<GitRepo> {
@@ -113,42 +118,117 @@ fn find_vcs(start: &Path) -> Option<PathBuf> {
     None
 }
 
+/// `remote(repo)`: the hashed normalized `origin` URL. `Err` when Git could not answer (exit 2,
+/// no such remote, is `Ok(None)`).
+async fn remote_id(repo: &GitRepo) -> Result<Option<String>, ()> {
+    let (code, out) = git_status(&repo.worktree, &["remote", "get-url", "origin"]).await.ok_or(())?;
+    match code {
+        0 => Ok(Some(out.trim().to_string())
+            .filter(|origin| !origin.is_empty())
+            .and_then(|origin| normalize_remote(&origin))
+            .map(|n| hash::fast(format!("git-remote:{n}")))),
+        2 => Ok(None),
+        _ => Err(()),
+    }
+}
+
+/// `rootCommit(repo)`: the first sorted root commit; `Ok(None)` when HEAD is unborn.
+async fn root_commit(repo: &GitRepo) -> Result<Option<String>, ()> {
+    let (code, out) = git_status(&repo.worktree, &["rev-list", "--max-parents=0", "HEAD"]).await.ok_or(())?;
+    if code == 0 {
+        let mut roots: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        roots.sort();
+        return Ok(roots.first().map(|s| s.to_string()));
+    }
+    // `rev-parse -q --verify` exits 1 only when HEAD doesn't resolve, i.e. it is unborn.
+    match git_status(&repo.worktree, &["rev-parse", "-q", "--verify", "HEAD"]).await {
+        Some((1, _)) => Ok(None),
+        _ => Err(()),
+    }
+}
+
+/// `gitDiscover`: failures resolve like dev (no remote / no root / own worktree) but aren't cached.
+async fn git_discover(dot_git: &Path) -> (Option<Resolved>, bool) {
+    let Some(repo) = discover_git(dot_git.parent().unwrap_or(Path::new("/"))).await else { return (None, false) };
+    let mut cacheable = true;
+    let previous = cached(&repo.common_directory);
+    let remote = remote_id(&repo).await.unwrap_or_else(|_| {
+        cacheable = false;
+        None
+    });
+    let id = match remote.or_else(|| previous.clone()) {
+        Some(id) => Some(id),
+        None => root_commit(&repo).await.unwrap_or_else(|_| {
+            cacheable = false;
+            None
+        }),
+    };
+    let canonical = if repo.git_directory == repo.common_directory {
+        repo.worktree.clone()
+    } else {
+        match git(&repo.worktree, &["worktree", "list", "--porcelain"]).await {
+            Some(out) => out
+                .lines()
+                .next()
+                .and_then(|l| l.strip_prefix("worktree "))
+                .map(PathBuf::from)
+                .unwrap_or_else(|| repo.worktree.clone()),
+            None => {
+                cacheable = false;
+                repo.worktree.clone()
+            }
+        }
+    };
+    let resolved = Resolved {
+        id: id.unwrap_or_else(|| GLOBAL.into()),
+        previous,
+        directory: repo.worktree.clone(),
+        canonical,
+        vcs: Some(Vcs::Git { store: repo.common_directory }),
+    };
+    (Some(resolved), cacheable)
+}
+
+const GIT_CACHE_CAPACITY: usize = 512;
+
+/// Discovery results keyed by `.git` path plus its metadata fingerprint, so repeat resolves spawn
+/// no Git (`gitCache`).
+#[derive(Default)]
+struct GitCache {
+    entries: std::collections::HashMap<String, Resolved>,
+    order: std::collections::VecDeque<String>,
+}
+
+static GIT_CACHE: std::sync::LazyLock<std::sync::Mutex<GitCache>> = std::sync::LazyLock::new(Default::default);
+
+async fn git_lookup(dot_git: &Path) -> Option<Resolved> {
+    let Some(fingerprint) = oc_git::git::fingerprint(dot_git) else { return git_discover(dot_git).await.0 };
+    let key = format!("{}\0{fingerprint}", dot_git.display());
+    if let Some(hit) = GIT_CACHE.lock().unwrap_or_else(|e| e.into_inner()).entries.get(&key).cloned() {
+        return Some(hit);
+    }
+    let (resolved, cacheable) = git_discover(dot_git).await;
+    if cacheable && let Some(resolved) = &resolved {
+        let mut cache = GIT_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.entries.insert(key.clone(), resolved.clone()).is_none() {
+            cache.order.push_back(key);
+        }
+        while cache.order.len() > GIT_CACHE_CAPACITY {
+            if let Some(oldest) = cache.order.pop_front() {
+                cache.entries.remove(&oldest);
+            }
+        }
+    }
+    resolved
+}
+
 pub async fn resolve(input: &Path) -> Resolved {
     let directory = std::fs::canonicalize(input).unwrap_or_else(|_| input.to_path_buf());
     let native = find_vcs(&directory);
-    if let Some(native) = native.as_ref().filter(|p| p.file_name().is_some_and(|n| n == ".git")) {
-        if let Some(repo) = discover_git(native.parent().unwrap()).await {
-            let previous = cached(&repo.common_directory);
-            let remote = git(&repo.worktree, &["remote", "get-url", "origin"])
-                .await
-                .and_then(|o| normalize_remote(&o))
-                .map(|n| hash::fast(format!("git-remote:{n}")));
-            let root = async {
-                let out = git(&repo.worktree, &["rev-list", "--max-parents=0", "HEAD"]).await?;
-                let mut roots: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-                roots.sort();
-                roots.first().map(|s| s.to_string())
-            };
-            let id = match remote.or_else(|| previous.clone()) {
-                Some(id) => Some(id),
-                None => root.await,
-            };
-            let canonical = if repo.git_directory == repo.common_directory {
-                repo.worktree.clone()
-            } else {
-                git(&repo.worktree, &["worktree", "list", "--porcelain"])
-                    .await
-                    .and_then(|o| o.lines().next().and_then(|l| l.strip_prefix("worktree ")).map(PathBuf::from))
-                    .unwrap_or_else(|| repo.worktree.clone())
-            };
-            return Resolved {
-                id: id.unwrap_or_else(|| GLOBAL.into()),
-                previous,
-                directory: repo.worktree.clone(),
-                canonical,
-                vcs: Some(Vcs::Git { store: repo.common_directory }),
-            };
-        }
+    if let Some(native) = native.as_ref().filter(|p| p.file_name().is_some_and(|n| n == ".git"))
+        && let Some(resolved) = git_lookup(native).await
+    {
+        return resolved;
     }
     if let Some(dot_hg) = native.filter(|p| p.file_name().is_some_and(|n| n == ".hg")) {
         let worktree = dot_hg.parent().unwrap().to_path_buf();
@@ -371,6 +451,7 @@ pub fn persist(bus: &Bus, project: &Resolved) -> anyhow::Result<()> {
     {
         bus.publish("project.updated", info, None);
     }
+    crate::project_icon::spawn_refresh(bus, &project.id);
     let Some(vcs) = &project.vcs else { return Ok(()) };
     let mut directories: Vec<(PathBuf, Option<&str>)> = vec![(project.canonical.clone(), None)];
     if project.directory != project.canonical {

@@ -2041,8 +2041,10 @@ async fn native_vcs(provider: &dyn crate::vcs::Provider, op: &str, input: Value)
         "branches" => json(serde_json::to_value(provider.branches(&scope, &crate::vcs::branch_options(&input)).await.map_err(ApiError::new)?)),
         "status" => json(serde_json::to_value(provider.status(&scope).await.map_err(ApiError::new)?)),
         _ => {
-            let (mode, base, context) = crate::vcs::diff_args(&input);
-            json(serde_json::to_value(provider.diff(&scope, mode, base.as_deref(), context).await.map_err(diff_error)?))
+            let (mode, base, untracked, context) = crate::vcs::diff_args(&input);
+            json(serde_json::to_value(
+                provider.diff(&scope, mode, base.as_deref(), untracked, context).await.map_err(diff_error)?,
+            ))
         }
     }
 }
@@ -2124,9 +2126,10 @@ impl crate::vcs::Provider for PluginVcs {
         scope: &crate::vcs::Scope,
         mode: oc_git::vcs::Mode,
         base: Option<&str>,
+        untracked: Option<oc_git::vcs::UntrackedMode>,
         context: u64,
     ) -> Result<Vec<oc_schema::types::FileDiff>, crate::vcs::ProviderError> {
-        self.review(&self.diff, crate::vcs::diff_input(scope, mode, base, context)).await
+        self.review(&self.diff, crate::vcs::diff_input(scope, mode, base, untracked, context)).await
     }
 }
 

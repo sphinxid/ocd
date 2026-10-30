@@ -5,7 +5,9 @@ Git operations for the opencode Rust port. A port of upstream `packages/core/src
 `worktree.ts` (`worktree/{git,directory}.ts`, `util/slug.ts`), `vcs/patch.ts`, and the git VCS
 provider `plugin/vcs/git.ts` (with the provider-independent parts of `vcs.ts`).
 
-Every operation runs the `git` binary through `tokio::process`, with the same arguments, working
+Every operation runs Git (`process::git_executable()`: `git`, except that on macOS the
+`/usr/bin/git` shim is swapped for the developer tools' own Git, and Windows uses the absolute
+`which git`) through `tokio::process`, with the same arguments, working
 directory and environment as upstream. Store commands run as `git --git-dir <store> --work-tree
 <worktree> …` with `cwd = worktree`. Index writes use `GIT_INDEX_FILE`. Pathspecs use
 `:(literal)`, output is parsed with `-z`, and diffs use `--literal-pathspecs` and
@@ -34,10 +36,11 @@ async fn discover(&self, dir: &Path) -> Option<Repository>;           // nearest
 async fn clone_repository(&self, CloneInput) -> Result<Repository, OperationError>; // --depth 100
 async fn create(&self, worktree, git_directory, seed: Option<&Repository>) -> Result<Repository, OperationError>;
 // remote / history
-async fn remote(&self, &Repository, name: Option<&str>) -> Option<String>;
+async fn fingerprint(&self, dot_git: &Path) -> Option<String>;       // spawn-free metadata stamp (`git::fingerprint`)
+async fn remote(&self, &Repository, name: Option<&str>) -> Result<Option<String>, CommandError>; // exit 2 = no remote
 async fn head / branch(&self, &Repository) -> Option<String>;
 async fn default_remote_branch(&self, &Repository, remote: Option<&str>) -> Option<String>;
-async fn root_commits(&self, &Repository) -> Vec<String>;              // sorted
+async fn root_commits(&self, &Repository) -> Result<Vec<String>, CommandError>; // sorted; [] when HEAD is unborn
 // sync (repository cache)
 async fn fetch_remotes(&self, &Repository, prune: Option<bool>) -> Result<(), OperationError>;
 async fn fetch_branch(&self, &Repository, FetchBranchInput) -> Result<(), OperationError>;
@@ -86,9 +89,9 @@ let vcs = GitVcs::new(location_directory, project_directory);
 GitVcs::init(&worktree).await                    // `git init`; error "Git initialization failed"
 vcs.info().await                                 // Info { provider: None, branch: { current, default } }
 vcs.base().await                                 // Result<Option<Base>, DiffError>; None without HEAD
-vcs.branches(&BranchOptions { search, limit }).await   // Vec<String>
+vcs.branches(&BranchOptions { search, limit }).await   // Vec<String>: `refname:lstrip=2`, searched and limited here
 vcs.status().await                               // Vec<VcsFileStatus>, sorted like localeCompare
-vcs.diff(mode, &DiffOptions { context, base }).await   // provider result; context None = full file (2147483647 lines)
+vcs.diff(mode, &DiffOptions { context, base, untracked }).await // provider result; context None = full file (2147483647 lines)
 vcs.review_diff(mode, &DiffOptions { .. }).await // what `Vcs.diff` returns: context ?? 2147483647, then the 10 MB total budget
 ```
 
@@ -99,7 +102,10 @@ How oc-core's `Vcs` service and the HTTP `vcs.*` endpoints use it:
   `vcs.diff` errors become `DIFF_FAILED_MESSAGE`.
 - `vcs.status` maps to `status()`.
 - `vcs.branch.list` maps to `branches({search, limit: min(limit ?? 50, 100)})`.
-- `vcs.diff` maps to `review_diff(mode, {context, base})`.
+- `vcs.diff` maps to `review_diff(mode, {context, base, untracked})`. With `untracked: Folders` an
+  untracked folder is one `dir/` row (no patch, no counts); inside one, its entries list one level
+  deep: at most 500 rows from at most 5000 checked entries in 1 s, then a
+  `{file: "dir/", patch: "", more: true}` row when it stopped early.
 - `vcs.init` maps to `GitVcs::init`.
 - `vcs::is_branch_metadata(store, file)` decides whether a `filesystem.changed` event should
   refresh branch info.
@@ -130,16 +136,21 @@ Behavior that matches upstream:
   - `[include]\n\tpath = opencode.gitconfig\n` is appended to `config`, separated by a blank
     line, unless it is already present.
   - `objects/info/alternates` is set to `<seed common dir>/objects\n`.
-  - The seed's index is copied, best-effort.
+  - The seed's index is copied, best-effort, keeping its mtime. For a split index the source's
+    `sharedindex.*` files are linked in just long enough for `update-index --no-split-index`
+    (`seedIndex`, also used to rebuild an unreadable index).
   - On first use in a process, an outdated include file is rewritten atomically.
 - **Capture**
   - A temporary index `index.opencode-<ms>-<pid>-<rand>` is created by hard-linking the store
     index, falling back to a copy that keeps the mtime.
-  - Changes are listed with `diff-files` and `ls-files --others --exclude-standard`, both run
-    concurrently.
+  - Changes are listed with `diff-files` and `ls-files --others [--exclude-from=<source
+    info/exclude>] --exclude-standard`, both run concurrently.
+  - Captures queued behind the store lock share the next run (keyed by repository, scopes,
+    ignores and size limit); a caller arriving while one runs queues a new one.
   - Paths are filtered through the source repository's `check-ignore --no-index --stdin -z`
     (exit codes 0 and 1 both succeed).
-  - Untracked files over 2 MiB are skipped.
+  - Untracked files over 2 MiB are skipped and remembered by `size:mtime`, so later captures
+    neither re-check them against the ignore rules nor rewrite the tree for them.
   - Index updates use `update-index --force-remove` and `update-index --add --remove --replace`,
     and embedded repositories are recorded as gitlinks.
   - The tree comes from `write-tree`, and the temporary index is then renamed over the store
@@ -184,8 +195,8 @@ Behavior that matches upstream:
   `commands.start` hook (oc-core).
 - The `Vcs` service shell (provider registry, cached info, `vcs.branch.updated` events) and the
   Mercurial provider (`plugin/vcs/hg.ts`), which belong to oc-core.
-- `Project.resolve` ID derivation (oc-core). It uses `Git::discover`, `Git::remote`,
-  `Git::root_commits` and `Git::worktree_list`.
+- `Project.resolve` ID derivation (oc-core). It caches discovery by `.git` path plus
+  `git::fingerprint`, and runs Git through `process::git_executable()`.
 
 ## Tests
 

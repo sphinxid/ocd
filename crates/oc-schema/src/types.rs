@@ -88,6 +88,10 @@ pub struct FileDiff {
     pub additions: u64,
     pub deletions: u64,
     pub status: FileStatus,
+    /// Marks the entry a folder listing adds for itself when it stopped before showing or checking
+    /// every entry (`more: true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

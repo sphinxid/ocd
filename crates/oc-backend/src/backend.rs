@@ -1490,7 +1490,11 @@ impl Backend for Engine {
             VcsMode::Branch => oc_git::vcs::Mode::Branch,
             VcsMode::Committed => oc_git::vcs::Mode::Committed,
         };
-        match vcs.diff(mode, req.context.map(|c| c.max(0) as u64), req.base.as_deref()).await {
+        let untracked = req.untracked.map(|untracked| match untracked {
+            VcsUntracked::Files => oc_git::vcs::UntrackedMode::Files,
+            VcsUntracked::Folders => oc_git::vcs::UntrackedMode::Folders,
+        });
+        match vcs.diff(mode, req.context.map(|c| c.max(0) as u64), req.base.as_deref(), untracked).await {
             Ok(rows) => conv(rows),
             Err(e) => Err(ApiError::service_unavailable(e.message, Some("vcs".into()))),
         }

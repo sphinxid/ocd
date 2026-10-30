@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use oc_git::vcs::{Base, BranchOptions, DiffError, Info, Mode, VcsFileStatus};
+use oc_git::vcs::{Base, BranchOptions, DiffError, Info, Mode, UntrackedMode, VcsFileStatus};
 use oc_schema::types::FileDiff;
 use serde_json::{Value, json};
 
@@ -73,8 +73,15 @@ pub trait Provider: Send + Sync {
     async fn base(&self, scope: &Scope) -> Result<Option<Base>, ProviderError>;
     async fn branches(&self, scope: &Scope, options: &BranchOptions) -> Result<Vec<String>, String>;
     async fn status(&self, scope: &Scope) -> Result<Vec<VcsFileStatus>, String>;
-    /// `diff({...scope, mode, base?, context, maxOutputBytes})`.
-    async fn diff(&self, scope: &Scope, mode: Mode, base: Option<&str>, context: u64) -> Result<Vec<FileDiff>, ProviderError>;
+    /// `diff({...scope, mode, base?, untracked?, context, maxOutputBytes})`.
+    async fn diff(
+        &self,
+        scope: &Scope,
+        mode: Mode,
+        base: Option<&str>,
+        untracked: Option<UntrackedMode>,
+        context: u64,
+    ) -> Result<Vec<FileDiff>, ProviderError>;
 }
 
 /// A provider failure: its own `Vcs.DiffError`, or anything else.
@@ -122,8 +129,15 @@ impl Provider for Git {
     async fn status(&self, scope: &Scope) -> Result<Vec<VcsFileStatus>, String> {
         Ok(Self::vcs(scope).status().await)
     }
-    async fn diff(&self, scope: &Scope, mode: Mode, base: Option<&str>, context: u64) -> Result<Vec<FileDiff>, ProviderError> {
-        let options = oc_git::vcs::DiffOptions { context: Some(context), base: base.map(str::to_string) };
+    async fn diff(
+        &self,
+        scope: &Scope,
+        mode: Mode,
+        base: Option<&str>,
+        untracked: Option<UntrackedMode>,
+        context: u64,
+    ) -> Result<Vec<FileDiff>, ProviderError> {
+        let options = oc_git::vcs::DiffOptions { context: Some(context), base: base.map(str::to_string), untracked };
         Self::vcs(scope).diff(mode, &options).await.map_err(ProviderError::Diff)
     }
 }
@@ -199,11 +213,17 @@ impl Vcs {
         })
     }
 
-    /// `diff(mode, {context, base})`: `context ?? PATCH_CONTEXT_LINES`, then the 10 MB budget.
-    pub async fn diff(&self, mode: Mode, context: Option<u64>, base: Option<&str>) -> Result<Vec<FileDiff>, DiffError> {
+    /// `diff(mode, {context, base, untracked})`: `context ?? PATCH_CONTEXT_LINES`, then the 10 MB budget.
+    pub async fn diff(
+        &self,
+        mode: Mode,
+        context: Option<u64>,
+        base: Option<&str>,
+        untracked: Option<UntrackedMode>,
+    ) -> Result<Vec<FileDiff>, DiffError> {
         let Some(provider) = &self.provider else { return Ok(vec![]) };
         let rows = provider
-            .diff(&self.scope, mode, base, context.unwrap_or(oc_git::patch::PATCH_CONTEXT_LINES))
+            .diff(&self.scope, mode, base, untracked, context.unwrap_or(oc_git::patch::PATCH_CONTEXT_LINES))
             .await
             .map_err(|e| review_error(e, oc_git::vcs::DIFF_FAILED_MESSAGE))?;
         Ok(oc_git::vcs::apply_total_patch_budget(rows))
@@ -232,11 +252,14 @@ pub fn branches_input(scope: &Scope, options: &BranchOptions) -> Value {
     v
 }
 
-pub fn diff_input(scope: &Scope, mode: Mode, base: Option<&str>, context: u64) -> Value {
+pub fn diff_input(scope: &Scope, mode: Mode, base: Option<&str>, untracked: Option<UntrackedMode>, context: u64) -> Value {
     let mut v = scope.to_json();
     v["mode"] = serde_json::to_value(mode).unwrap_or(Value::Null);
     if let Some(base) = base {
         v["base"] = json!(base);
+    }
+    if let Some(untracked) = untracked {
+        v["untracked"] = json!(untracked.as_str());
     }
     v["context"] = json!(context);
     v["maxOutputBytes"] = json!(oc_git::patch::MAX_TOTAL_PATCH_BYTES);
@@ -250,11 +273,12 @@ pub fn branch_options(input: &Value) -> BranchOptions {
     }
 }
 
-pub fn diff_args(input: &Value) -> (Mode, Option<String>, u64) {
+pub fn diff_args(input: &Value) -> (Mode, Option<String>, Option<UntrackedMode>, u64) {
     let mode = input.get("mode").cloned().and_then(|m| serde_json::from_value(m).ok()).unwrap_or(Mode::Working);
     let base = input.get("base").and_then(Value::as_str).map(String::from);
+    let untracked = input.get("untracked").cloned().and_then(|u| serde_json::from_value(u).ok());
     let context = input.get("context").and_then(Value::as_u64).unwrap_or(oc_git::patch::PATCH_CONTEXT_LINES);
-    (mode, base, context)
+    (mode, base, untracked, context)
 }
 
 #[cfg(test)]
@@ -292,7 +316,14 @@ mod tests {
         async fn status(&self, _: &Scope) -> Result<Vec<VcsFileStatus>, String> {
             Ok(vec![])
         }
-        async fn diff(&self, _: &Scope, _: Mode, _: Option<&str>, _: u64) -> Result<Vec<FileDiff>, ProviderError> {
+        async fn diff(
+            &self,
+            _: &Scope,
+            _: Mode,
+            _: Option<&str>,
+            _: Option<UntrackedMode>,
+            _: u64,
+        ) -> Result<Vec<FileDiff>, ProviderError> {
             self.1.clone()
         }
     }
@@ -317,10 +348,14 @@ mod tests {
         let s = scope();
         assert_eq!(s.to_json(), json!({"directory": "/a/b", "worktree": "/a", "canonical": "/a"}));
         assert_eq!(Scope::from_json(&s.to_json()), Some(s.clone()));
-        let input = diff_input(&s, Mode::Branch, Some("main"), 3);
+        let input = diff_input(&s, Mode::Branch, Some("main"), None, 3);
         assert_eq!(input["mode"], "branch");
         assert_eq!(input["maxOutputBytes"], 10_000_000);
-        assert_eq!(diff_args(&input), (Mode::Branch, Some("main".into()), 3));
+        assert_eq!(diff_args(&input), (Mode::Branch, Some("main".into()), None, 3));
+        let input = diff_input(&s, Mode::Working, None, Some(UntrackedMode::Folders), 3);
+        let keys: Vec<&String> = input.as_object().unwrap().keys().collect();
+        assert_eq!(keys[keys.len() - 4..], ["mode", "untracked", "context", "maxOutputBytes"]);
+        assert_eq!(diff_args(&input), (Mode::Working, None, Some(UntrackedMode::Folders), 3));
     }
 
     #[tokio::test]
@@ -329,10 +364,10 @@ mod tests {
         assert_eq!(serde_json::to_value(vcs.info().await).unwrap(), json!({"provider": "jj", "branch": {}}));
         assert!(vcs.branches(&BranchOptions::default()).await.is_empty());
         assert_eq!(vcs.base().await, Ok(None));
-        assert_eq!(vcs.diff(Mode::Working, None, None).await.unwrap_err().message, oc_git::vcs::DIFF_FAILED_MESSAGE);
+        assert_eq!(vcs.diff(Mode::Working, None, None, None).await.unwrap_err().message, oc_git::vcs::DIFF_FAILED_MESSAGE);
         let own = DiffError { message: "own".into() };
         let vcs = Vcs { provider: Some(Arc::new(Fake("jj", Err(ProviderError::Diff(own.clone()))))), scope: scope() };
-        assert_eq!(vcs.diff(Mode::Working, None, None).await.unwrap_err(), own);
+        assert_eq!(vcs.diff(Mode::Working, None, None, None).await.unwrap_err(), own);
         let none = Vcs { provider: None, scope: scope() };
         assert_eq!(serde_json::to_value(none.info().await).unwrap(), json!({"branch": {}}));
     }
