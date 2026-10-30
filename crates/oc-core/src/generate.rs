@@ -28,14 +28,19 @@ pub enum GenerateError {
     Unavailable { message: String, service: Option<String> },
 }
 
-/// A model's type (`Model.Info.type`, chat when absent). The catalog has no other types yet.
-fn model_type(_model: &oc_ai::catalog::ModelInfo) -> &'static str {
-    "chat"
+/// A model's type (`Model.Info.type`, chat when absent).
+fn model_type(model: &oc_ai::catalog::ModelInfo) -> &str {
+    model.kind.as_deref().unwrap_or("chat")
+}
+
+/// `models.available(["chat", "image", "decision"])`.
+fn generation_models(catalog: &oc_ai::catalog::Catalog) -> Vec<&oc_ai::catalog::ModelInfo> {
+    catalog.available_models_of(&["chat".to_string(), "image".to_string(), "decision".to_string()])
 }
 
 /// `missing`: a ref no model of this type has: another type's model (422) or no model at all (404).
 fn missing(catalog: &oc_ai::catalog::Catalog, model: &ModelRef, kind: &str) -> GenerateError {
-    let other = catalog.available_models().into_iter().find(|m| m.provider_id == model.provider_id && m.id == model.id);
+    let other = generation_models(catalog).into_iter().find(|m| m.provider_id == model.provider_id && m.id == model.id);
     match other {
         Some(other) => GenerateError::UnsupportedModel {
             provider_id: model.provider_id.clone(),
@@ -173,9 +178,9 @@ impl Engine {
         let location = self.location(directory).await.map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
         let catalog = self.models.catalog_at(&location.entries, Some(&location.key)).await.map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
         let typed = catalog
-            .available_models()
+            .available_models_of(&[kind.to_string()])
             .into_iter()
-            .find(|m| m.provider_id == model.provider_id && m.id == model.id && model_type(m) == kind);
+            .find(|m| m.provider_id == model.provider_id && m.id == model.id);
         if let Some(found) = typed {
             // `fromCatalogMedia` with no runtime for this type: the package cannot serve it.
             let package = found.package.clone().unwrap_or_else(|| "unknown".into());

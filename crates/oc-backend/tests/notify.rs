@@ -85,7 +85,7 @@ async fn reloads_announce_only_changed_domains() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
     drain(&mut rx);
 
-    let mut reload = |doc: serde_json::Value| {
+    let reload = |doc: serde_json::Value| {
         let mut doc = doc;
         doc["$schema"] = json!("https://opencode.ai/config.json");
         std::fs::write(&config, doc.to_string()).unwrap();

@@ -445,13 +445,28 @@ impl Backend for Engine {
 
     // ---- model / provider / generate ----------------------------------------------------------
 
-    async fn model_list(&self, ctx: &RequestContext, _req: ModelListRequest) -> Result<Vec<ModelInfo>, ApiError> {
-        // The regenerated `ModelListRequest` carries `?types=`; pass it here (`self.model_list_of(ctx, &types)`).
-        self.model_list_of(ctx, &[]).await
+    async fn model_list(&self, ctx: &RequestContext, req: ModelListRequest) -> Result<Vec<ModelInfo>, ApiError> {
+        // `?types=`: any string (`Model.Type` is open-ended), in request order.
+        let types: Vec<String> = req
+            .types
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|t| serde_json::to_value(t).ok()?.as_str().map(String::from))
+            .collect();
+        self.model_list_of(ctx, &types).await
+    }
+
+    async fn experimental_usage_limits(
+        &self,
+        ctx: &RequestContext,
+        _req: ExperimentalUsageLimitsRequest,
+    ) -> Result<Option<UsageLimitsInfo>, ApiError> {
+        self.usage_limits(ctx).await?.map(from_json).transpose()
     }
 
     async fn model_default(&self, ctx: &RequestContext, _req: ModelDefaultRequest) -> Result<Option<ModelInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
+        self.await_plugins(&loc).await?;
         let catalog = self.catalog(&loc).await?;
         catalog.default_model().map(conv).transpose()
     }
@@ -1711,6 +1726,7 @@ impl Engine {
     /// (`Model.available(types)`). Unknown types list nothing.
     pub async fn model_list_of(&self, ctx: &RequestContext, types: &[String]) -> Result<Vec<ModelInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
+        self.await_plugins(&loc).await?;
         let catalog = self.catalog(&loc).await?;
         catalog.available_models_of(types).into_iter().map(conv).collect()
     }
