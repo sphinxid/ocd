@@ -1719,6 +1719,32 @@ pub struct Patch {
 // Entries
 // ---------------------------------------------------------------------------------------------
 
+/// The integration connection that delivered a config document (`ConfigIntegration.Document`), such as the
+/// OpenCode Console's workspace config. Its providers authenticate with, and only exist for, that connection,
+/// and its policies are those of the organization behind it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct IntegrationSource {
+    #[serde(rename = "integrationID")]
+    pub integration_id: String,
+    /// `Connection.Info`: `{type: "credential", id, label, method}` or `{type: "env", name}`.
+    pub connection: Value,
+    /// Organization behind the connection, named in denials by the document's policies.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization: Option<String>,
+}
+
+impl IntegrationSource {
+    /// `IntegrationConnection.key(connection)`: `credential:<id>` or `env:<name>`.
+    pub fn connection_key(&self) -> Option<String> {
+        let c = self.connection.as_object()?;
+        match c.get("type")?.as_str()? {
+            "credential" => Some(format!("credential:{}", c.get("id")?.as_str()?)),
+            "env" => Some(format!("env:{}", c.get("name")?.as_str()?)),
+            _ => None,
+        }
+    }
+}
+
 /// `Config.Entry`: lowest priority first.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -1728,6 +1754,9 @@ pub enum Entry {
         #[serde(skip_serializing_if = "Option::is_none")]
         path: Option<PathBuf>,
         info: Info,
+        /// Set on a document an integration connection contributes (`ConfigIntegration.Document`).
+        #[serde(flatten)]
+        integration: Option<IntegrationSource>,
     },
     /// A config root directory scanned for Markdown agents/commands, plugins and skills.
     Directory { path: PathBuf },
@@ -1735,7 +1764,14 @@ pub enum Entry {
 
 impl Entry {
     pub fn document(path: Option<PathBuf>, info: Info) -> Entry {
-        Entry::Document { path, info }
+        Entry::Document { path, info, integration: None }
+    }
+    /// The integration connection behind an integration document.
+    pub fn integration(&self) -> Option<&IntegrationSource> {
+        match self {
+            Entry::Document { integration, .. } => integration.as_ref(),
+            Entry::Directory { .. } => None,
+        }
     }
     pub fn info(&self) -> Option<&Info> {
         match self {
@@ -1772,7 +1808,15 @@ impl<'de> Deserialize<'de> for Entry {
                     .get("info")
                     .and_then(Info::decode)
                     .ok_or_else(|| serde::de::Error::custom("invalid Config.Info"))?;
-                Ok(Entry::Document { path, info })
+                let integration = match (o.get("integrationID").and_then(Value::as_str), o.get("connection")) {
+                    (Some(id), Some(connection)) => Some(IntegrationSource {
+                        integration_id: id.to_string(),
+                        connection: connection.clone(),
+                        organization: o.get("organization").and_then(Value::as_str).map(String::from),
+                    }),
+                    _ => None,
+                };
+                Ok(Entry::Document { path, info, integration })
             }
             Some("directory") => {
                 let path = o

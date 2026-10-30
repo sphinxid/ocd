@@ -54,7 +54,9 @@ impl Location {
         let key = directory.display().to_string();
         let directory = std::fs::canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
         let project = project::resolve_and_persist(bus, &directory).await?;
-        let loader = oc_config::load::Loader::new(global, directory.clone(), oc_config::discovery::Options::from_env());
+        // The OpenCode Console's workspace config, when the location is signed in (`Config.integration`).
+        let loader = oc_config::load::Loader::new(global, directory.clone(), oc_config::discovery::Options::from_env())
+            .with_integrations(crate::console_config::documents(&key));
         let (sources, entries) = loader.entries().await.map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(Location { key, directory, project, entries, sources, remote_instructions: Default::default(), closed: Default::default() })
     }
@@ -162,7 +164,7 @@ mod tests {
             key: "/p".into(),
             directory: "/p".into(),
             project: Resolved { id: "global".into(), previous: None, directory: "/p".into(), canonical: "/p".into(), vcs: None },
-            entries: vec![Entry::Document { path: None, info }],
+            entries: vec![Entry::Document { integration: None, path: None, info }],
             sources: Default::default(),
             remote_instructions: Default::default(),
             closed: Default::default(),

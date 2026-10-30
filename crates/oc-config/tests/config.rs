@@ -48,6 +48,7 @@ fn loader(_tmp: &Tmp, directory: &Path, global: &Path, options: Options) -> Load
         directory: directory.to_path_buf(),
         options,
         wellknown: None,
+        integrations: Vec::new(),
     }
 }
 
@@ -238,7 +239,7 @@ fn explicit_file_ranks_below_project_files_and_content_is_highest() {
     assert_eq!(fold::latest(&entries, |i| i.username.as_ref()).map(String::as_str), Some("explicit"));
     assert_eq!(fold::default_agent(&entries), Some("content"));
     let last = entries.last().unwrap();
-    assert!(matches!(last, Entry::Document { path: None, .. }));
+    assert!(matches!(last, Entry::Document { integration: None, path: None, .. }));
 }
 
 #[test]
@@ -329,7 +330,7 @@ unsafe extern "C" {
 #[test]
 fn loads_system_configuration_at_highest_priority() {
     use oc_config::discovery::System;
-    use oc_config::policy::{ManagedState, decision, statements};
+    use oc_config::policy::{decision, statements};
     use oc_config::schema::{PolicyAction, PolicyEffect};
     let tmp = Tmp::new();
     let system = tmp.mkdir("system");
@@ -356,7 +357,7 @@ fn loads_system_configuration_at_highest_priority() {
     assert_eq!(directories, vec![global.as_path(), system.as_path()]);
     assert_eq!(fold::shell(&entries), Some("system"));
     assert_eq!(fold::latest(&entries, |i| i.username.as_ref()).map(String::as_str), Some("system-user"));
-    let policies = statements(&entries, &ManagedState::default());
+    let policies = statements(&entries);
     assert_eq!(decision(&policies, PolicyAction::ToolUse, "shell:ls"), PolicyEffect::Deny);
     assert_eq!(sources.system, Some(ProjectRoot { path: system.clone(), present: true }));
     // The system directory is watched like the global one.
@@ -500,6 +501,7 @@ fn loads_legacy_and_native_file_based_agents() {
     tmp.write("agents/empty.md", "");
     tmp.write("modes/plan.md", "Make a plan.");
     let json_doc = Entry::Document {
+        integration: None,
         path: None,
         info: Info::from_value(&json!({ "agents": { "reviewer": { "description": "JSON description" } } })).unwrap(),
     };
@@ -571,6 +573,7 @@ fn named_color_tokens_are_ignored_natively_but_migrated_for_v1() {
 #[test]
 fn agent_permissions_expand_home_for_path_actions() {
     let entries = vec![Entry::Document {
+        integration: None,
         path: None,
         info: Info::from_value(&json!({
             "permissions": [
@@ -633,9 +636,9 @@ fn commands_fold_with_markdown_directory_slot() {
     tmp.write("command/nested/deploy.md", "Deploy $1");
     tmp.write("commands/bad.md", "---\ntemplate: x\nagent: 1\n---\nBad");
     let entries = vec![
-        Entry::Document { path: None, info: Info::from_value(&json!({ "commands": { "review": { "template": "old" }, "keep": { "template": "k" } } })).unwrap() },
+        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "commands": { "review": { "template": "old" }, "keep": { "template": "k" } } })).unwrap() },
         Entry::Directory { path: tmp.path().to_path_buf() },
-        Entry::Document { path: None, info: Info::from_value(&json!({ "commands": { "keep": { "template": "new" } } })).unwrap() },
+        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "commands": { "keep": { "template": "new" } } })).unwrap() },
     ];
     let commands = sources::commands(&entries);
     assert_eq!(commands.keys().cloned().collect::<Vec<_>>(), vec!["review", "keep", "nested/deploy"]);
@@ -688,7 +691,7 @@ fn skill_sources_and_scanning() {
     tmp.write("opencode/skills/deep/nested/notes.md", "ignored");
     let entries = vec![
         Entry::Directory { path: opencode.clone() },
-        Entry::Document { path: None, info: Info::from_value(&json!({ "skills": ["~/shared", "./relative", "https://example.com/skills", "./relative"] })).unwrap() },
+        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "skills": ["~/shared", "./relative", "https://example.com/skills", "./relative"] })).unwrap() },
     ];
     let home = tmp.path().join("home");
     let project = tmp.path().join("project");
@@ -749,6 +752,7 @@ fn plugin_directory_discovery_and_operations() {
     let entries = vec![
         Entry::Directory { path: root.clone() },
         Entry::Document {
+            integration: None,
             path: Some(doc_path),
             info: Info::from_value(&json!({ "plugins": ["pkg", "-other", "./local", { "package": "x", "options": { "a": 1 } }, file_plugin.to_string_lossy()] })).unwrap(),
         },
@@ -763,14 +767,14 @@ fn plugin_directory_discovery_and_operations() {
         { "type": "add", "target": tmp.path().join("project/local"), "options": {} },
         { "type": "add", "target": "x", "options": { "a": 1 } },
     ]));
-    let bad = vec![Entry::Document { path: None, info: Info::from_value(&json!({ "plugins": ["-"] })).unwrap() }];
+    let bad = vec![Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "plugins": ["-"] })).unwrap() }];
     assert_eq!(sources::plugin_operations(&bad, tmp.path()).unwrap_err(), "Plugin remove operation requires a target");
 }
 
 // --- Folds ------------------------------------------------------------------------------------------
 
 fn doc(value: serde_json::Value) -> Entry {
-    Entry::Document { path: None, info: Info::from_value(&value).unwrap() }
+    Entry::Document { integration: None, path: None, info: Info::from_value(&value).unwrap() }
 }
 
 #[test]
@@ -877,7 +881,7 @@ fn update_shell_preserves_comments() {
 #[test]
 fn entries_serialize_like_the_http_api() {
     let entries = vec![
-        Entry::Document { path: Some("/a/opencode.json".into()), info: Info::from_value(&json!({ "model": "a/b#c", "shell": "x" })).unwrap() },
+        Entry::Document { integration: None, path: Some("/a/opencode.json".into()), info: Info::from_value(&json!({ "model": "a/b#c", "shell": "x" })).unwrap() },
         Entry::Directory { path: "/a/.opencode".into() },
     ];
     assert_eq!(

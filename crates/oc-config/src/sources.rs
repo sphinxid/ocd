@@ -138,7 +138,7 @@ pub fn decode_agent_file(directory: &Path, file: &Path, primary: bool, content: 
         a.insert("mode".into(), Value::String("primary".into()));
     }
     let info = Info::decode(&serde_json::json!({ "agents": { name: agent } }))?;
-    Some(Entry::Document { path: Some(file.to_path_buf()), info })
+    Some(Entry::Document { path: Some(file.to_path_buf()), info, integration: None })
 }
 
 /// Markdown agent documents for one config root (`{agent,agents}/**/*.md`, then `{mode,modes}/*.md`).
@@ -490,7 +490,7 @@ pub fn plugin_operations(entries: &[Entry], location: &Path) -> Result<Vec<Plugi
         .map(|t| PluginOperation::Add { target: t.to_string_lossy().to_string(), options: Map::new() })
         .collect();
     for entry in entries {
-        let Entry::Document { path, info } = entry else { continue };
+        let Entry::Document { path, info, .. } = entry else { continue };
         let directory = path.as_ref().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or(location.to_path_buf());
         for item in info.plugins.iter().flatten() {
             let operation = match parse_plugin(item)? {

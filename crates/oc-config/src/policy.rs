@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::schema::{Entry, Policy, PolicyAction, PolicyEffect, UpdatePolicy};
+use crate::schema::{Entry, PolicyAction, PolicyEffect, UpdatePolicy};
 
 /// `Wildcard.match(input, pattern)`: `*` → `.*`, `?` → `.`, a trailing `" *"` also matches
 /// nothing; backslashes normalized to `/`; case-insensitive on Windows; dot matches newlines.
@@ -36,14 +36,6 @@ pub fn wildcard_match(input: &str, pattern: &str) -> bool {
     regex::Regex::new(&format!("{flags}^{escaped}$")).is_ok_and(|re| re.is_match(&normalized))
 }
 
-/// Connected-Console policy state.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ManagedState {
-    pub statements: Vec<Policy>,
-    /// Organization name for denial messages, when the connection knows it.
-    pub organization: Option<String>,
-}
-
 /// A policy statement tagged with its denial message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Statement {
@@ -55,32 +47,36 @@ pub struct Statement {
 
 pub const CONFIGURATION_POLICY_MESSAGE: &str = "Blocked by configuration policy";
 
-/// `ManagedPolicy.statements`: authored documents reversed (global outranks project), then the
-/// organization's statements.
-pub fn statements(entries: &[Entry], organization: &ManagedState) -> Vec<Statement> {
-    let mut out: Vec<Statement> = entries
-        .iter()
-        .rev()
-        .filter_map(Entry::info)
-        .flat_map(|i| i.policies.iter().flatten())
-        .map(|p| Statement {
-            action: p.action,
-            resource: p.resource.clone(),
-            effect: p.effect,
-            message: CONFIGURATION_POLICY_MESSAGE.into(),
-        })
-        .collect();
-    let message = match &organization.organization {
+/// The denial message of an organization's policies (`blocked(organization)`).
+pub fn organization_message(organization: Option<&str>) -> String {
+    match organization {
         Some(org) if !org.is_empty() => format!("Blocked by {org}'s policy"),
         _ => "Blocked by your organization's policy".to_string(),
-    };
-    out.extend(organization.statements.iter().map(|p| Statement {
-        action: p.action,
-        resource: p.resource.clone(),
-        effect: p.effect,
-        message: message.clone(),
-    }));
-    out
+    }
+}
+
+/// `ManagedPolicy.statements`: every policy statement in config, earliest-loaded first so it wins (managed policy,
+/// then a Console config document, then user and project files), each with the message a denial shows. An
+/// integration document's policies are those of the organization behind its connection.
+pub fn statements(entries: &[Entry]) -> Vec<Statement> {
+    entries
+        .iter()
+        .rev()
+        .filter(|e| e.info().is_some())
+        .flat_map(|entry| {
+            let message = match entry.integration() {
+                Some(source) => organization_message(source.organization.as_deref()),
+                None => CONFIGURATION_POLICY_MESSAGE.to_string(),
+            };
+            let info = entry.info().unwrap();
+            info.policies.iter().flatten().map(move |p| Statement {
+                action: p.action,
+                resource: p.resource.clone(),
+                effect: p.effect,
+                message: message.clone(),
+            })
+        })
+        .collect()
 }
 
 /// Last matching statement for `action` and `resource`.
@@ -148,7 +144,7 @@ pub fn read_update_policy(global_config: &Path) -> UpdatePolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::Info;
+    use crate::schema::{Info, Policy};
 
     #[test]
     fn wildcard() {
@@ -165,9 +161,18 @@ mod tests {
     }
 
     fn doc(policies: Vec<Policy>) -> Entry {
+        Entry::document(None, Info { policies: Some(policies), ..Default::default() })
+    }
+
+    fn console(policies: Vec<Policy>, organization: Option<&str>) -> Entry {
         Entry::Document {
             path: None,
             info: Info { policies: Some(policies), ..Default::default() },
+            integration: Some(crate::schema::IntegrationSource {
+                integration_id: "opencode".into(),
+                connection: serde_json::json!({"type": "credential", "id": "crd_1", "label": "Acme", "method": "oauth"}),
+                organization: organization.map(String::from),
+            }),
         }
     }
 
@@ -181,23 +186,21 @@ mod tests {
         let global = doc(vec![pol(PolicyAction::ProviderUse, "openai", PolicyEffect::Deny)]);
         // entries are lowest priority first: global then project
         let entries = vec![global, project];
-        let state = ManagedState::default();
-        let s = statements(&entries, &state);
+        let s = statements(&entries);
         assert_eq!(s[0].effect, PolicyEffect::Allow);
         assert_eq!(s[1].effect, PolicyEffect::Deny);
         assert_eq!(s[1].message, "Blocked by configuration policy");
         // global (reversed last) outranks project
         assert!(!provider_allowed(&s, "openai"));
 
-        let org = ManagedState {
-            statements: vec![pol(PolicyAction::IntegrationUse, "mcp:*", PolicyEffect::Deny)],
-            organization: Some("Acme".into()),
-        };
-        let s = statements(&[], &org);
-        assert_eq!(s[0].message, "Blocked by Acme's policy");
+        // A Console document loads right after managed policies, so its policies outrank user and project ones.
+        let org = console(vec![pol(PolicyAction::IntegrationUse, "mcp:*", PolicyEffect::Deny)], Some("Acme"));
+        let user = doc(vec![pol(PolicyAction::IntegrationUse, "mcp:github", PolicyEffect::Allow)]);
+        let s = statements(&[org.clone(), user]);
+        assert_eq!(s[1].message, "Blocked by Acme's policy");
         assert!(!mcp_allowed(&s, "github"));
         assert!(skill_allowed(&s, "x"));
-        let s = statements(&[], &ManagedState { organization: None, ..org });
+        let s = statements(&[console(vec![pol(PolicyAction::IntegrationUse, "mcp:*", PolicyEffect::Deny)], None)]);
         assert_eq!(s[0].message, "Blocked by your organization's policy");
     }
 
@@ -208,7 +211,7 @@ mod tests {
             pol(PolicyAction::ToolUse, "shell:git *", PolicyEffect::Allow),
             pol(PolicyAction::ToolUse, "shell:git push *", PolicyEffect::Deny),
         ])];
-        let s = statements(&entries, &ManagedState::default());
+        let s = statements(&entries);
         assert!(tool_denial(&s, "shell", &["git status".into()]).is_none());
         assert!(tool_denial(&s, "shell", &["git push origin".into()]).is_some());
         assert!(tool_denial(&s, "shell", &["ls".into()]).is_some());

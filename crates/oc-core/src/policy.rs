@@ -5,15 +5,15 @@
 
 use oc_ai::catalog::types::Activation;
 use oc_ai::catalog::{CatalogPlugin, ProviderEditor};
-use oc_config::policy::{self, ManagedState, Statement};
+use oc_config::policy::{self, Statement};
 use oc_config::schema::{Entry, PolicyAction, PolicyEffect};
 
 /// Built-in plugin id.
 pub const PLUGIN_ID: &str = "opencode.config.policy";
 
-/// `ManagedPolicy.statements(entries, managed.current())` without Console statements.
+/// `ManagedPolicy.statements(entries)`: Console organization policies arrive as an integration document.
 pub fn statements(entries: &[Entry]) -> Vec<Statement> {
-    policy::statements(entries, &ManagedState::default())
+    policy::statements(entries)
 }
 
 /// The provider transform: providers whose last matching `provider.use` statement denies are removed.
@@ -87,6 +87,7 @@ mod tests {
 
     fn doc(policies: serde_json::Value) -> Entry {
         Entry::Document {
+            integration: None,
             path: None,
             info: Info::from_value(&json!({ "policies": policies })).unwrap(),
         }

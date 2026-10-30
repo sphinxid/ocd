@@ -111,7 +111,7 @@ pub fn load_file(path: &Path) -> Result<Option<Entry>, LoadError> {
     let dir = path.parent().unwrap_or(Path::new("/"));
     let substituted =
         oc_util::variable::substitute(oc_util::variable::Input { text: &text, dir, source: &source, env: None });
-    Ok(parse_info(&substituted, &source).map(|info| Entry::Document { path: Some(path.to_path_buf()), info }))
+    Ok(parse_info(&substituted, &source).map(|info| Entry::Document { path: Some(path.to_path_buf()), info, integration: None }))
 }
 
 /// `loadDirectory`: `opencode.json`, `opencode.jsonc`, then `Directory`.
@@ -148,7 +148,7 @@ pub async fn load_preferences(plist: &Path) -> Vec<Entry> {
     let dir = plist.parent().unwrap_or(Path::new("/"));
     let text = oc_util::variable::substitute(oc_util::variable::Input { text: &text, dir, source: &source, env: None });
     parse_info(&text, &source)
-        .map(|info| Entry::Document { path: Some(plist.to_path_buf()), info })
+        .map(|info| Entry::Document { path: Some(plist.to_path_buf()), info, integration: None })
         .into_iter()
         .collect()
 }
@@ -158,7 +158,7 @@ pub fn load_content(content: &str, directory: &Path) -> Result<Option<Entry>, Lo
     let source = "OPENCODE_CONFIG_CONTENT";
     let text =
         oc_util::variable::substitute(oc_util::variable::Input { text: content, dir: directory, source, env: None });
-    Ok(parse_info(&text, source).map(|info| Entry::Document { path: None, info }))
+    Ok(parse_info(&text, source).map(|info| Entry::Document { path: None, info, integration: None }))
 }
 
 /// Location config loader.
@@ -172,6 +172,8 @@ pub struct Loader {
     pub directory: PathBuf,
     pub options: Options,
     pub wellknown: Option<Arc<dyn WellKnown>>,
+    /// Documents integration connections contribute (`Config.integration`), such as the OpenCode Console's.
+    pub integrations: Vec<Entry>,
 }
 
 impl Loader {
@@ -182,7 +184,14 @@ impl Loader {
             directory: directory.into(),
             options,
             wellknown: None,
+            integrations: Vec::new(),
         }
+    }
+
+    /// Load these integration documents right after managed policies (`Config.integration`).
+    pub fn with_integrations(mut self, integrations: Vec<Entry>) -> Loader {
+        self.integrations = integrations;
+        self
     }
 
     pub fn with_wellknown(mut self, wellknown: Arc<dyn WellKnown>) -> Loader {
@@ -229,7 +238,7 @@ impl Loader {
                     env: variables.as_ref(),
                 });
                 if let Some(info) = parse_info(&substituted, &entry.origin) {
-                    out.push(Entry::Document { path: None, info });
+                    out.push(Entry::Document { path: None, info, integration: None });
                 }
             }
         }
@@ -252,9 +261,10 @@ impl Loader {
         let mut managed_policies: Vec<Entry> = managed
             .iter()
             .filter_map(|entry| match entry {
-                Entry::Document { path, info } if info.policies.is_some() => Some(Entry::Document {
+                Entry::Document { path, info, .. } if info.policies.is_some() => Some(Entry::Document {
                     path: path.clone(),
                     info: Info { policies: info.policies.clone(), ..Default::default() },
+                    integration: None,
                 }),
                 _ => None,
             })
@@ -263,15 +273,18 @@ impl Loader {
         let managed_settings: Vec<Entry> = managed
             .into_iter()
             .map(|entry| match entry {
-                Entry::Document { path, mut info } if info.policies.is_some() => {
+                Entry::Document { path, mut info, integration } if info.policies.is_some() => {
                     info.policies = None;
-                    Entry::Document { path, info }
+                    Entry::Document { path, info, integration }
                 }
                 other => other,
             })
             .collect();
         let wellknown = self.load_wellknown().await?;
-        Ok([managed_policies, wellknown, self.load_local(sources)?, managed_settings].concat())
+        // Integration documents load right after managed policies: every remote, user, and project layer
+        // overrides their settings, and since policies evaluate earliest-loaded first, only managed policies
+        // outrank theirs.
+        Ok([managed_policies, self.integrations.clone(), wellknown, self.load_local(sources)?, managed_settings].concat())
     }
 
     /// Wellknown-less, managed-less local entries, in priority order.

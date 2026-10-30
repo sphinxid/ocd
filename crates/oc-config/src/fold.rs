@@ -17,7 +17,7 @@ use crate::schema::Entry;
 
 fn documents(entries: &[Entry]) -> impl Iterator<Item = (&Option<PathBuf>, &Info)> {
     entries.iter().filter_map(|e| match e {
-        Entry::Document { path, info } => Some((path, info)),
+        Entry::Document { path, info, .. } => Some((path, info)),
         Entry::Directory { .. } => None,
     })
 }

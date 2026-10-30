@@ -145,9 +145,18 @@ agent/provider registries. It uses the functions below to do that work.
 - `matter`, `parse` (retries with `sanitize`), `parse_option` and `sanitize`.
 
 ### `policy`: managed policy and update policy
-- `wildcard_match`, `ManagedState`, `statements(entries, &org)` (documents reversed, then the
-  organization's statements, with verbatim messages), `decision`, `find`, `provider_allowed`,
-  `mcp_allowed`, `skill_allowed` and `tool_denial`.
+- `wildcard_match`, `statements(entries)` (documents reversed so the earliest-loaded wins: managed policy, then
+  an integration document, then user and project files; an integration document's statements read
+  `Blocked by <organization>'s policy`), `decision`, `find`, `provider_allowed`, `mcp_allowed`, `skill_allowed`
+  and `tool_denial`.
+
+### `integration`: integration config documents (`config/integration.ts`)
+- `Entry::Document` carries an optional `IntegrationSource` (`integrationID`, `connection`, `organization`) for
+  a document an integration connection contributes, such as the OpenCode Console's workspace config.
+  `Loader::with_integrations` loads them right after managed policies.
+- `decode_remote(body)` reads only `providers`, `mcp`, `policies` (statements with an unknown action or effect
+  dropped) and `websearch`; `make(...)` strips provider `env`, every `apiKey`/`authToken`/`accessToken` setting and
+  local MCP servers.
 - `decode_update_policy(text)` and `read_update_policy(global_config)` read `config.json`,
   `opencode.json` and `opencode.jsonc`, defaulting to `notify`.
 
