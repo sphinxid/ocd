@@ -16,8 +16,9 @@ agent/provider registries. It uses the functions below to do that work.
   `Lsp`/`LspEntry`/`LspServer`, `Media`/`MediaImage`, `ToolOutput`, `Mcp`/`McpTimeout`/`McpServer`
   (`McpLocal`, `McpRemote`, `McpOAuthSetting`, `McpProtocol`), `Compaction`, `Command`,
   `Reference`, `Plugin`, `Worktree`, `Warming`/`WarmingInfo`/`Duration`, `WebSearch`,
-  `Provider`/`ProviderModel`/`Settings`/`ModelSettings`/`Compatibility`/`Capabilities`/`Variant`/
-  `Cost`/`CostSetting`/`Limit`, `Experimental`/`Policy`, `UpdatePolicy`, `Share`, `Patch`.
+  `Provider`/`ProviderModel` (with `type`)/`Settings`/`ModelSettings`/`VariantSettings` (no `cache`)/`Cache`/`Compatibility`/`Capabilities`/`Variant`/
+  `Cost`/`CostSetting`/`Limit`, `Experimental` (incl. 2.2.2's `media_blob`, `image_generate`/`ImageGenerate`,
+  `schedules`, accepted and normalized; ocd does not act on them)/`Policy`, `UpdatePolicy`, `Share`, `Patch`; `Info.timezone`.
 - `Entry::{Document { path?, info }, Directory { path }}`. Serialization matches the HTTP API
   (`{"type":"document",...}`).
 - Decoding goes through `decode::Decode`, which reproduces Effect Schema:

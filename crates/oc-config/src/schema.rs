@@ -1050,6 +1050,9 @@ pub struct Settings {
     pub chunk_timeout: Option<TimeoutSetting>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
+    /// Prompt-cache settings (`Provider.Cache`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache: Option<Cache>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<Transport>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1058,7 +1061,29 @@ pub struct Settings {
     pub rest: JsonRecord,
 }
 
-const SETTINGS_FIELDS: &[&str] = &["timeout", "headerTimeout", "chunkTimeout", "compaction", "transport", "encoding"];
+/// `Provider.Cache`: `ttl` is sent to the provider as given; each provider accepts its own set.
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub struct Cache {
+    /// Prompt-cache lifetime such as "5m", "30m", "1h" or "24h" (`Provider.CacheTTL`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<String>,
+}
+
+/// `Provider.CacheTTL`: `^\d+(ms|s|m|h|d)$`.
+fn cache_ttl(value: &Value) -> Option<String> {
+    let s = value.as_str()?;
+    let digits = s.bytes().take_while(u8::is_ascii_digit).count();
+    (digits > 0 && matches!(&s[digits..], "ms" | "s" | "m" | "h" | "d")).then(|| s.to_string())
+}
+
+impl Decode for Cache {
+    fn decode(value: &Value) -> Option<Self> {
+        let o = record(value)?;
+        Some(Cache { ttl: opt_with(o, "ttl", cache_ttl)? })
+    }
+}
+
+const SETTINGS_FIELDS: &[&str] = &["timeout", "headerTimeout", "chunkTimeout", "compaction", "cache", "transport", "encoding"];
 
 fn rest_of(o: &crate::decode::Object, known: &[&str]) -> JsonRecord {
     o.iter().filter(|(k, _)| !known.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
@@ -1072,6 +1097,7 @@ impl Decode for Settings {
             header_timeout: opt(o, "headerTimeout")?,
             chunk_timeout: opt(o, "chunkTimeout")?,
             compaction: opt(o, "compaction")?,
+            cache: opt(o, "cache")?,
             transport: opt(o, "transport")?,
             encoding: opt(o, "encoding")?,
             rest: rest_of(o, SETTINGS_FIELDS),
@@ -1085,6 +1111,8 @@ pub struct ModelSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compaction: Option<ProviderCompaction>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache: Option<Cache>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub encoding: Option<Encoding>,
     #[serde(flatten)]
     pub rest: JsonRecord,
@@ -1094,6 +1122,30 @@ impl Decode for ModelSettings {
     fn decode(value: &Value) -> Option<Self> {
         let o = record(value)?;
         Some(ModelSettings {
+            compaction: opt(o, "compaction")?,
+            cache: opt(o, "cache")?,
+            encoding: opt(o, "encoding")?,
+            rest: rest_of(o, &["compaction", "cache", "encoding"]),
+        })
+    }
+}
+
+/// `Config.Model.VariantSettings`: model settings without `cache` (the prompt cache belongs to the model, so a
+/// variant can't change it; a `cache` key is just another provider option).
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub struct VariantSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction: Option<ProviderCompaction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<Encoding>,
+    #[serde(flatten)]
+    pub rest: JsonRecord,
+}
+
+impl Decode for VariantSettings {
+    fn decode(value: &Value) -> Option<Self> {
+        let o = record(value)?;
+        Some(VariantSettings {
             compaction: opt(o, "compaction")?,
             encoding: opt(o, "encoding")?,
             rest: rest_of(o, &["compaction", "encoding"]),
@@ -1279,7 +1331,7 @@ fn release_date(value: &Value) -> Option<String> {
 pub struct Variant {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub settings: Option<ModelSettings>,
+    pub settings: Option<VariantSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<StringRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1397,6 +1449,9 @@ impl Decode for Limit {
 pub struct ProviderModel {
     #[serde(rename = "modelID", skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    /// `Model.Type`: `chat`, `decision`, `image` or any other string; unset means chat.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1431,6 +1486,7 @@ impl Decode for ProviderModel {
         let o = record(value)?;
         Some(ProviderModel {
             model_id: opt(o, "modelID")?,
+            kind: opt(o, "type")?,
             family: opt(o, "family")?,
             name: opt(o, "name")?,
             release_date: opt_with(o, "releaseDate", release_date)?,
@@ -1520,6 +1576,16 @@ pub struct Experimental {
     /// Enable experimental background compaction (accepted; not implemented by ocd).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_compaction: Option<bool>,
+    /// Store new session media once in a deduplicated blob table (accepted; ocd keeps media inline and only
+    /// reads blobs other releases stored).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_blob: Option<bool>,
+    /// Settings for the experimental_image_generate tool (accepted; image generation is not ported).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_generate: Option<ImageGenerate>,
+    /// Enable experimental scheduled tasks (accepted; schedules are not ported, so their routes answer as if off).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedules: Option<bool>,
     /// Maximum subagent nesting depth. Defaults to 1.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_depth: Option<u64>,
@@ -1539,10 +1605,35 @@ impl Decode for Experimental {
             portable_shell_scanner: opt(o, "portable_shell_scanner")?,
             todo: opt(o, "todo")?,
             background_compaction: opt(o, "background_compaction")?,
+            media_blob: opt(o, "media_blob")?,
+            image_generate: opt(o, "image_generate")?,
+            schedules: opt(o, "schedules")?,
             subagent_depth: opt_with(o, "subagent_depth", non_negative_int)?,
             location_idle_timeout: opt(o, "location_idle_timeout")?,
             policies: opt(o, "policies")?,
         })
+    }
+}
+
+/// `experimental.image_generate`: `boolean | {model?: Config.ModelSelection}`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum ImageGenerate {
+    Enabled(bool),
+    Settings {
+        /// Default model for the tool when the agent doesn't choose one, as providerID/modelID.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<ModelSelection>,
+    },
+}
+
+impl Decode for ImageGenerate {
+    fn decode(value: &Value) -> Option<Self> {
+        if let Value::Bool(b) = value {
+            return Some(ImageGenerate::Enabled(*b));
+        }
+        let o = record(value)?;
+        Some(ImageGenerate::Settings { model: opt(o, "model")? })
     }
 }
 
@@ -1590,6 +1681,9 @@ pub struct Info {
     pub enterprise: Option<Enterprise>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
+    /// IANA time zone for schedules, e.g. America/Los_Angeles. Defaults to the server's local zone
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<Ruleset>,
     /// Ordered policies controlling access to providers, tools, and integrations
@@ -1647,6 +1741,7 @@ impl Decode for Info {
             share: opt(o, "share")?,
             enterprise: opt(o, "enterprise")?,
             username: opt(o, "username")?,
+            timezone: opt(o, "timezone")?,
             permissions: opt(o, "permissions")?,
             policies: opt(o, "policies")?,
             agents: opt(o, "agents")?,

@@ -989,3 +989,64 @@ fn accepts_the_2_1_provider_and_model_fields() {
         assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["providers", "bad"]]));
     }
 }
+
+/// 2.2.2 config keys: `timezone`, `experimental.{media_blob,image_generate,schedules}`, prompt-cache settings,
+/// variant settings without `cache`, `models.<m>.type`, and v1 MCP `codemode`.
+#[test]
+fn v2_2_config_keys() {
+    let (encoded, d) = normalized(json!({
+        "username": "u",
+        "timezone": "America/Los_Angeles",
+        "experimental": {
+            "background_compaction": true, "media_blob": true,
+            "image_generate": { "model": "openai/gpt-image-1" }, "schedules": true, "subagent_depth": 2,
+        },
+        "providers": { "custom": {
+            "settings": { "cache": { "ttl": "1h" }, "transport": "http", "baseURL": "https://x" },
+            "models": { "m": {
+                "modelID": "m-1", "type": "image",
+                "settings": { "compaction": { "type": "summary" }, "cache": { "ttl": "5m" }, "encoding": "gzip" },
+                "variants": [{ "id": "high", "settings": { "cache": { "ttl": "bogus" }, "effort": "high" } }],
+            } },
+        } },
+    }));
+    assert!(d.is_empty(), "{d:?}");
+    let keys: Vec<&String> = encoded.as_object().unwrap().keys().collect();
+    assert!(keys.iter().position(|k| *k == "username") < keys.iter().position(|k| *k == "timezone"));
+    assert_eq!(encoded["timezone"], "America/Los_Angeles");
+    assert_eq!(
+        serde_json::to_string(&encoded["experimental"]).unwrap(),
+        r#"{"background_compaction":true,"media_blob":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-1"}},"schedules":true,"subagent_depth":2}"#
+    );
+    let custom = &encoded["providers"]["custom"];
+    assert_eq!(serde_json::to_string(&custom["settings"]).unwrap(), r#"{"cache":{"ttl":"1h"},"transport":"http","baseURL":"https://x"}"#);
+    let m = &custom["models"]["m"];
+    assert_eq!(m["type"], "image");
+    assert_eq!(serde_json::to_string(&m["settings"]).unwrap(), r#"{"compaction":{"type":"summary"},"cache":{"ttl":"5m"},"encoding":"gzip"}"#);
+    // A variant can't change the prompt cache: `cache` is just another provider option there.
+    assert_eq!(m["variants"][0]["settings"], json!({ "cache": { "ttl": "bogus" }, "effort": "high" }));
+
+    assert_eq!(normalized(json!({ "experimental": { "image_generate": false } })).0["experimental"], json!({ "image_generate": false }));
+    for invalid in [
+        json!({ "providers": { "bad": { "settings": { "cache": { "ttl": "1.5h" } } } } }),
+        json!({ "providers": { "bad": { "settings": { "cache": { "ttl": "5 m" } } } } }),
+        json!({ "providers": { "bad": { "models": { "m": { "settings": { "cache": { "ttl": 5 } } } } } } }),
+    ] {
+        let (encoded, d) = normalized(invalid);
+        assert!(encoded["providers"].get("bad").is_none());
+        assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["providers", "bad"]]));
+    }
+    let (encoded, d) = normalized(json!({ "experimental": { "schedules": "yes", "media_blob": true } }));
+    assert_eq!(encoded["experimental"], json!({ "media_blob": true }));
+    assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["experimental", "schedules"]]));
+
+    // v1 MCP servers carry `codemode` through the migration, after `disabled` and before `timeout`.
+    let (encoded, _) = normalized(json!({ "mcp": {
+        "local": { "type": "local", "command": ["x"], "enabled": false, "codemode": false, "timeout": 10 },
+        "remote": { "type": "remote", "url": "https://x", "codemode": true },
+    }}));
+    assert_eq!(
+        serde_json::to_string(&encoded["mcp"]["servers"]).unwrap(),
+        r#"{"local":{"type":"local","command":["x"],"disabled":true,"codemode":false,"timeout":{"startup":10,"catalog":10,"execution":10}},"remote":{"type":"remote","url":"https://x","codemode":true}}"#
+    );
+}

@@ -424,13 +424,14 @@ pub fn normalize(input: &Value) -> NormalizeResult {
     }
 
     type Atomic = fn(&Value, Vec<String>, &mut Diags) -> Option<Value>;
-    let native_atomic: [(&str, Atomic); 12] = [
+    let native_atomic: [(&str, Atomic); 13] = [
         ("$schema", |v, p, d| decode_encoded::<String>(v, p, d)),
         ("shell", |v, p, d| decode_encoded::<String>(v, p, d)),
         ("default_agent", |v, p, d| decode_encoded::<String>(v, p, d)),
         ("share", |v, p, d| decode_encoded::<Share>(v, p, d)),
         ("enterprise", |v, p, d| decode_encoded::<Enterprise>(v, p, d)),
         ("username", |v, p, d| decode_encoded::<String>(v, p, d)),
+        ("timezone", |v, p, d| decode_encoded::<String>(v, p, d)),
         ("snapshots", |v, p, d| decode_encoded::<bool>(v, p, d)),
         ("media", |v, p, d| decode_encoded::<Media>(v, p, d)),
         ("tool_output", |v, p, d| decode_encoded::<ToolOutput>(v, p, d)),
@@ -699,12 +700,22 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                 for key in UNSUPPORTED_EXPERIMENTAL {
                     unsupported_if_present(e, key, p(&["experimental", key]), d);
                 }
-                for key in ["portable_shell_scanner", "todo", "background_compaction"] {
+                for key in ["portable_shell_scanner", "todo", "background_compaction", "media_blob"] {
                     if let Some(v) = e.get(key)
                         && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", key]), d)
                     {
                         result.insert(key.into(), value);
                     }
+                }
+                if let Some(v) = e.get("image_generate")
+                    && let Some(value) = decode_encoded::<crate::schema::ImageGenerate>(v, p(&["experimental", "image_generate"]), d)
+                {
+                    result.insert("image_generate".into(), value);
+                }
+                if let Some(v) = e.get("schedules")
+                    && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", "schedules"]), d)
+                {
+                    result.insert("schedules".into(), value);
                 }
                 if let Some(v) = e.get("subagent_depth")
                     && let Some(value) =

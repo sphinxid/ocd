@@ -346,6 +346,7 @@ pub fn decode_mcp(value: &Value) -> Option<Map<String, Value>> {
             let cwd: Option<String> = opt(o, "cwd")?;
             let environment: Option<IndexMap<String, String>> = opt(o, "environment")?;
             let enabled: Option<bool> = opt(o, "enabled")?;
+            let codemode: Option<bool> = opt(o, "codemode")?;
             let timeout = opt_with(o, "timeout", positive_int)?;
             let mut out = Map::new();
             out.insert("type".into(), json!("local"));
@@ -353,12 +354,14 @@ pub fn decode_mcp(value: &Value) -> Option<Map<String, Value>> {
             insert_opt(&mut out, "cwd", cwd.map(Value::String));
             insert_opt(&mut out, "environment", environment.map(|e| json!(e)));
             insert_opt(&mut out, "enabled", enabled.map(Value::Bool));
+            insert_opt(&mut out, "codemode", codemode.map(Value::Bool));
             insert_opt(&mut out, "timeout", timeout.map(|t| json!(t)));
             Some(out)
         }
         "remote" => {
             let url: String = req(o, "url")?;
             let enabled: Option<bool> = opt(o, "enabled")?;
+            let codemode: Option<bool> = opt(o, "codemode")?;
             let headers: Option<IndexMap<String, String>> = opt(o, "headers")?;
             let oauth = opt_with(o, "oauth", |v| {
                 if v == &Value::Bool(false) {
@@ -382,6 +385,7 @@ pub fn decode_mcp(value: &Value) -> Option<Map<String, Value>> {
             out.insert("type".into(), json!("remote"));
             out.insert("url".into(), json!(url));
             insert_opt(&mut out, "enabled", enabled.map(Value::Bool));
+            insert_opt(&mut out, "codemode", codemode.map(Value::Bool));
             insert_opt(&mut out, "headers", headers.map(|h| json!(h)));
             insert_opt(&mut out, "oauth", oauth);
             insert_opt(&mut out, "timeout", timeout.map(|t| json!(t)));
@@ -407,6 +411,7 @@ pub fn migrate_mcp(info: &Map<String, Value>) -> Value {
         insert_opt(&mut out, "cwd", info.get("cwd").cloned());
         insert_opt(&mut out, "environment", info.get("environment").cloned());
         insert_opt(&mut out, "disabled", disabled);
+        insert_opt(&mut out, "codemode", info.get("codemode").cloned());
         insert_opt(&mut out, "timeout", timeout);
         return Value::Object(out);
     }
@@ -428,6 +433,7 @@ pub fn migrate_mcp(info: &Map<String, Value>) -> Value {
         _ => {}
     }
     insert_opt(&mut out, "disabled", disabled);
+    insert_opt(&mut out, "codemode", info.get("codemode").cloned());
     insert_opt(&mut out, "timeout", timeout);
     Value::Object(out)
 }
