@@ -526,6 +526,116 @@ async fn hook_is_skipped_when_the_sidecar_dies_during_the_call() {
     s.host.shutdown().await;
 }
 
+/// 2.2 plugin API: typed event subscriptions, the `experimental.idle` session hook, and the session instruction
+/// and `experimental.generate` API calls with their endpoint identifiers.
+#[tokio::test]
+async fn v22_event_filter_idle_hook_and_api_calls() {
+    require_bun!();
+    let s = setup();
+    let result = s.host.load(request(&s, vec![add(fixture("v22-plugin"), json!({}))])).await;
+    assert_eq!(result.resolution.enabled_ids(), ["opencode.agent", "fixture.v22", "opencode.browser"]);
+    // A local plugin's source is the configured target (its directory), and its features are its own parts.
+    let inventory = result.inventory(|id| json!({ "id": id }));
+    assert_eq!(inventory[1]["source"], json!({ "type": "local", "path": fixture("v22-plugin") }));
+    assert_eq!(inventory[1]["features"], json!({ "server": true }));
+
+    // `subscribe({types})`: known types only; unknown types are dropped, and none left never emits.
+    assert!(s.host.wants_events());
+    s.host.publish_event(None, &json!({ "id": "evt_1", "created": 1, "type": "plugin.updated", "data": {} }));
+    s.host.publish_event(None, &json!({ "id": "evt_2", "created": 2, "type": "command.updated", "data": {} }));
+    let key = |k: &str| kv_key("fixture.v22", k);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let done = {
+            let kv = s.api.kv.lock();
+            kv.contains_key(&key("all:command.updated")) && kv.contains_key(&key("some:command.updated"))
+        };
+        if done {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "events not delivered");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    {
+        let kv = s.api.kv.lock();
+        assert!(kv.contains_key(&key("all:plugin.updated")));
+        assert!(!kv.contains_key(&key("some:plugin.updated")));
+        assert!(!kv.keys().any(|k| k.starts_with(&key("none:"))));
+    }
+
+    // `session.experimental.idle`: the event reaches the hook as sent; a throwing hook fails the trigger.
+    assert!(s.host.has_hook(&s.location, "session.experimental.idle", None));
+    let background = json!([
+        { "kind": "shell", "sessionID": "ses_idle", "shellID": "sh_1", "command": "sleep 10" },
+        { "kind": "subagent", "sessionID": "ses_idle", "childSessionID": "ses_child", "agent": "general", "description": "look" },
+    ]);
+    let event = json!({ "sessionID": "ses_idle", "background": background });
+    let out = s.host.trigger_hook(&s.location, "session.experimental.idle", event.clone()).await.unwrap();
+    assert_eq!(out, event);
+    assert_eq!(s.api.kv.lock().get(&key("idle:ses_idle")), Some(&event));
+    let failed = s.host.trigger_hook(&s.location, "session.experimental.idle", json!({ "sessionID": "ses_fail", "background": [] })).await;
+    assert!(matches!(&failed, Err(HookError::Failed(message)) if message.contains("idle hook failed")), "{failed:?}");
+
+    // API calls use upstream's endpoint identifiers (the backend maps them to the experimental operations).
+    let call = |method: &'static str, input: Value| {
+        let host = s.host.clone();
+        let location = s.location.clone();
+        async move { host.rpc_call(&location, "fixture.v22", method, input).await }
+    };
+    let put = call("instructions", json!({ "op": "put", "sessionID": "ses_x", "key": "deploy-target", "value": "production" })).await;
+    assert_eq!(put.unwrap_err().kind, "failed");
+    let _ = call("instructions", json!({ "op": "list", "sessionID": "ses_x" })).await;
+    let _ = call("instructions", json!({ "op": "remove", "sessionID": "ses_x", "key": "deploy-target" })).await;
+    for kind in ["text", "legacy", "image", "decisions"] {
+        let _ = call("generate", json!({ "kind": kind, "prompt": "hi" })).await;
+    }
+    let calls: Vec<(String, Value)> =
+        s.api.calls.lock().iter().filter(|(p, _, _)| p.as_deref() == Some("fixture.v22")).map(|(_, m, i)| (m.clone(), i.clone())).collect();
+    let methods: Vec<&str> = calls.iter().map(|(m, _)| m.as_str()).collect();
+    assert_eq!(
+        methods,
+        [
+            "session.instructions.entry.put",
+            "session.instructions.entry.list",
+            "session.instructions.entry.remove",
+            "generate.text",
+            "generate.text",
+            "generate.image",
+            "generate.decisions",
+        ]
+    );
+    assert_eq!(calls[0].1, json!({ "sessionID": "ses_x", "key": "deploy-target", "value": "production" }));
+    assert_eq!(calls[1].1, json!({ "sessionID": "ses_x" }));
+    assert_eq!(calls[3].1, json!({ "prompt": "hi", "model": { "providerID": "mock", "id": "m1" } }));
+    s.host.shutdown().await;
+}
+
+/// 2.2 loader: a package with only a GUI part (and a TUI part) loads under its directory name with nothing to run;
+/// a TUI-only package has no entrypoint for the server.
+#[tokio::test]
+async fn gui_only_and_tui_only_packages() {
+    require_bun!();
+    let s = setup();
+    let result = s.host.load(request(&s, vec![add(fixture("gui-only"), json!({ "flag": true })), add(fixture("tui-only"), json!({}))])).await;
+    assert_eq!(result.resolution.enabled_ids(), ["opencode.agent", "gui-only", "opencode.browser"]);
+    let inventory = result.inventory(|id| json!({ "id": id }));
+    assert_eq!(
+        inventory[1],
+        json!({
+            "id": "gui-only",
+            "source": { "type": "local", "path": fixture("gui-only") },
+            "state": { "status": "active" },
+            "features": { "tui": true, "gui": true },
+        })
+    );
+    let failures = &result.resolution.failures;
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["state"]["error"], format!("Plugin entrypoint not found: {}", fixture("tui-only")));
+    assert_eq!(failures[0]["features"], json!({ "server": true }));
+    s.host.shutdown().await;
+}
+
 /// Installs a real published v2 plugin from npm with `bun add` (upstream cache layout) and runs it.
 /// Needs network: `cargo test -p oc-plugin --test sidecar -- --ignored`.
 #[tokio::test]

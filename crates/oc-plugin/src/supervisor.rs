@@ -35,6 +35,14 @@ pub struct Loaded {
     pub features: Value,
 }
 
+impl Loaded {
+    /// `Plugin.Info.features`: the parts the package lists (`{server?, tui?, rpc?, gui?}`), or `{server: true}`
+    /// when the loader reported none (`slot.plugin.features ?? { server: true }`, core/src/plugin.ts 2.2).
+    pub fn info_features(&self) -> Value {
+        if self.features.is_object() { self.features.clone() } else { json!({ "server": true }) }
+    }
+}
+
 /// What loading one add operation produced.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LoadOutcome {
@@ -195,13 +203,7 @@ where
     for entry in duplicates {
         let (source, features) = match &entry {
             Entry::Internal(_) => (json!({ "type": "builtin" }), json!({ "server": true })),
-            Entry::Package(p) => {
-                let mut features = json!({ "server": true });
-                if let (Some(out), Some(extra)) = (features.as_object_mut(), p.features.as_object()) {
-                    out.extend(extra.clone());
-                }
-                (p.source.clone(), features)
-            }
+            Entry::Package(p) => (p.source.clone(), p.info_features()),
         };
         failures.push(json!({
             "id": entry.id(),

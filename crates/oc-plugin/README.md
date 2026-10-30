@@ -18,10 +18,12 @@ What is out of scope:
 Upstream references used throughout: `packages/plugin/src/*` (public API, adapter, host, runtime)
 and `packages/core/src/plugin/{host,hooks,module,supervisor}.ts`, `packages/core/src/plugin.ts`,
 `packages/core/src/rpc.ts` and `packages/util/src/npm.ts` at commit `4617210822bd`. The bundled
-plugin-facing packages (`@opencode/plugin`, schema, protocol, `effect`) are upstream's v2.1.4, so
-Promise plugins get 2.1's adapter: `ctx.permission.assert`, `ctx.credential.activate`,
-`ctx.session.list`, and thrown tool errors and rejected `tool.execute.before` hooks failing only that
-call.
+plugin-facing packages (`@opencode/plugin`, schema, protocol, `effect`) are upstream's v2.2.2, so
+Promise plugins get 2.2's adapter: `ctx.permission.assert`, `ctx.credential.activate`,
+`ctx.session.list`, thrown tool errors and rejected `tool.execute.before` hooks failing only that
+call, and (2.2) `ctx.session.instructions.entry.{list,put,remove}`, `ctx.experimental.generate.{text,
+image,decisions}` (`ctx.generate.text` is deprecated), `ctx.event.subscribe({types})`, `ctx.model.list({types})`,
+`untracked` on `ctx.vcs.diff` and the `experimental.idle` session hook.
 
 ## Architecture
 
@@ -159,9 +161,10 @@ with HTTP endpoints, is in `src/api.rs`.
 | `aisdk.hook("sdk" \| "language")` | S | registered in the location's AI SDK service in the sidecar (`host/src/aisdk.ts`), after the internal provider plugins' hooks; `providerID` scoping and the copy-back of `sdk` / `language` as in `core/src/plugin/host.ts:157` |
 | `command.list` | S | api `command.list` |
 | `command.transform` / `reload` | S | transform domain `command`; commands carry `execute` handles |
-| `event.subscribe()` | S | `publish_event` → `event` notification; decoded with `OpenCodeEvent`, filtered to server + `rpc.*` events |
+| `event.subscribe({types?})` | S | `publish_event` → `event` notification; decoded with `OpenCodeEvent`, filtered to server + `rpc.*` events; with `types` only those (unknown types are dropped with the warning `ignoring unknown event types` `{pluginID, types}`, and none left never emits), filtered in the sidecar |
 | `experimental.terminal.read` | S | api `persistentPty.read` |
-| `generate.text` | S | api `generate.text` |
+| `experimental.generate.text/image/decisions` | S | api `generate.text` / `generate.image` / `generate.decisions` (operations `experimental.generate.*`, answered like the HTTP endpoints) |
+| `generate.text` (deprecated) | S | api `generate.text` |
 | `integration.list/get/connect.*/oauth.*/command.*` | S | api `integration.*` |
 | `integration.connection.active/resolve/status` | S | api `integration.connection.*` (raw JSON) |
 | `integration.transform` / `reload` | S\* | domain `integration`; OAuth `authorize/refresh/label` are handles and the core drives the flow (use `invoke` with a `scope`) |
@@ -175,6 +178,7 @@ with HTTP endpoints, is in `src/api.rs`.
 | `rpc(definition)` client | S | local RPCs run in the sidecar; others go to api `rpc.call`; `events.subscribe` uses the forwarded event stream |
 | `rpc.register` | S | registry in the sidecar (port of `core/src/rpc.ts`, same failure types and messages); `events.emit` → api `event.publish` |
 | `session.create/get/remove/switchAgent/switchModel/prompt/generate/command/compact/synthetic/interrupt/update/move/wait/context` | S | api `session.*` |
+| `session.instructions.entry.list/put/remove` | S | api `session.instructions.entry.*` (operations `experimental.session.instructions.entry.*`: the session must exist, the key is an `InstructionEntry.Key`) |
 | `session.hook(...)` | S\* | see the hook table below |
 | `shell.hook("create.before")` | S | hook `shell.create.before` |
 | `skill.list`, `skill.transform` / `reload` | S | api `skill.list`; domain `skill` |
@@ -190,7 +194,13 @@ Behavior that matches upstream verbatim:
 
 - The validation message `Plugin must export a default definition with an id and an effect or
   setup function.`
-- `Plugin entrypoint not found: <target>`.
+- `Plugin entrypoint not found: <target>` (neither a server nor a `./gui-experimental` entry).
+- `Plugin options must be JSON to reach its ./gui-experimental`.
+- `Plugin.Info.features` lists the package's own parts, `{server?, tui?, rpc?, gui?}` (`rpc` only with a server
+  entry); built-in plugins and failures report `{server: true}`. A GUI-only package (maybe with a TUI part) loads
+  with its package name (`Host.packageID`) as id and nothing to run. A local plugin's `source.path` is the
+  configured target (its directory), not the entry file. The GUI bundle itself is the desktop app's: ocd watches a
+  local one and keeps its revision, but serves no `plugin.gui`.
 - `Plugin failed to load` for any other load error, with a `ref` of `err_<8 hex>`.
 - `Duplicate plugin ID: <id>`.
 - `Plugin disabled after <domain>.transform failed. Check server logs for details.`
@@ -222,6 +232,7 @@ Callbacks scoped by `providerID` are filtered in the sidecar using `event.model.
 | `session.experimental.ws.handshake` | `..., `**`url, headers`** | `session/model-request.ts:375` | `plugin_request.rs` `ws_hooks` → `model_transport::Interceptor` of the session's Responses WebSocket (primary steps of WebSocket-transport models); runs before the connection is selected, so changed headers reopen the socket | wired |
 | `session.experimental.ws.send` / `receive` | `..., `**`frame`** | `session/model-request.ts:383` / `:387` | same: every outbound frame after the continuation driver built it / every inbound frame before the driver observes it | wired |
 | `session.retry` | `sessionID, agent, model, error, attempt, `**`decision`** | `session/model-request.ts:399` (event built in `session/runner/retry.ts:78`) | `step.rs` after `Policy::decide_raw` (`step::Input::retry_hook`) | wired |
+| `session.experimental.idle` | `sessionID, background[]` (`{kind:"shell", sessionID, shellID, command}` / `{kind:"subagent", sessionID, childSessionID, agent, description}` / `{kind:"image", sessionID, path, model}`); nothing mutable | `session/runner/llm.ts:178` (drain, when a step ran and nothing is pending) | `oc-core` runner `drain` at the idle boundary, after the native `/goal` hook; a hook failure fails the execution | wired |
 | `permission.evaluate` | `sessionID, agent?, action, resources, metadata?, source?, `**`effect, message?`** | `packages/core/src/permission.ts:179` | `oc-core/src/permission.rs` `evaluate_hooked` (assert/ask) via `PermissionContext::evaluate_hook` | wired (also for the "always" re-evaluation of other pending requests, with their stored metadata/source) |
 | `shell.create.before` | **`command, cwd, timeout, shell, env`** | `packages/core/src/shell.ts:274` | `Plugins::shell_before`: shell tool (`CoreHost::shell_create_before`), `!` commands (`shell_cmd.rs`), `shell.create` | wired |
 | `tool.execute.before` | **`tool`** (renameable), `sessionID, agent, messageID, id, `**`input`** | `packages/core/src/tool.ts:104` | `runner.rs` `CoreHooks::before`, for direct calls and calls inside Code Mode (`codemode::execute_with`) | wired (`HookError::Tool` rejects the call with that `Tool.Error`) |
@@ -301,14 +312,14 @@ The core side lives in `oc-core/src/plugins.rs` (`Plugins`, owned by `App`), `oc
 - **API.** `BackendApi` serves HTTP-equivalent methods through an in-process router (same handlers),
   `integration.connection.*` over oc-ai `Integrations`; `CoreApi` serves `<domain>.reload`
   (cache dropped, `<domain>.updated` published), `tool.list`, `event.publish`, `rpc.call`
-  (`rpc.unavailable`), storage (kv table) and `rs:tool.<id>` handles (the native executor with the
+  (the built-in `opencode.goal` RPC, else `rpc.unavailable`), storage (kv table) and `rs:tool.<id>` handles (the native executor with the
   in-flight call's context). `rs:command.<name>` runs native commands in the backend.
 - **Loading.** `Plugins::ensure` on location load (runner and backend location caches) and on
   `Engine::reload_location`; activation is asynchronous like upstream and `await_activation`
   gates prompts, commands, RPC calls and the runner's request assembly. `HostEvent::Watch` files are
   watched (notify, 100 ms debounce, off with `OPENCODE_DISABLE_FILEWATCHER`) and reload their
   locations. `close` on location close/evict. Built-in plugins removed by configuration are gated
-  for tools, `opencode.agent`/`opencode.plan`, `opencode.command`, `opencode.skill`,
+  for tools, `opencode.agent`/`opencode.plan`, `opencode.command`, `opencode.goal`, `opencode.skill`,
   `opencode.browser` and the config plugins for agents, commands, skills, compatibility roots,
   references and MCP.
 - **Inventory.** `plugin.list` = `LoadResult::inventory` with the sidecar's latest package infos;
@@ -538,14 +549,15 @@ Without an override, Bun 1.4.4 is downloaded from the release for this platform:
 BUN=/path/to/bun-1.4.4 scripts/build-plugin-host.sh /path/to/opencode-checkout
 ```
 
-The checkout must be at upstream's `v2.1.4` tag, with `bun install` run at its root (the committed
+The checkout must be at upstream's `v2.2.2` tag, with `bun install` run at its root (the committed
 bundle was built that way with Bun 1.4.4, the version the sidecar runs on).
-`host/build.ts` bundles `host/src/main.ts` with `Bun.build` into `host/dist/host.js` (about 2 MiB):
+`host/build.ts` bundles `host/src/main.ts` with `Bun.build` into `host/dist/host.js` (about 2.6 MiB):
 
 - target bun, ESM, minified;
 - bare imports from `host/src` resolve from the checkout's `packages/plugin`, and
   `@upstream-core/*` resolves from `packages/core/src`;
-- `runtime-modules.ts` is replaced with the static specifier map, without `@opencode/plugin/tui*`;
+- `runtime-modules.ts` is replaced with the static specifier map, without `@opencode/plugin/tui*` (2.2's
+  discovery already skips the desktop-only `gui/` SDK);
 - the HttpApi Scalar/Swagger assets are stubbed, as in upstream's build.
 
 `host/dist/host.js` is committed and embedded with `include_str!`, so building ocd needs neither

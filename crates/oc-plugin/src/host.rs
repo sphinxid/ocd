@@ -107,11 +107,7 @@ impl LoadResult {
                 supervisor::Entry::Internal(id) => out.push(builtin(id)),
                 supervisor::Entry::Package(p) => out.push(
                     self.packages.iter().find(|info| info.get("id").and_then(Value::as_str) == Some(p.id.as_str())).cloned().unwrap_or_else(|| {
-                        let mut features = json!({ "server": true });
-                        if let (Some(out), Some(extra)) = (features.as_object_mut(), p.features.as_object()) {
-                            out.extend(extra.clone());
-                        }
-                        json!({ "id": p.id, "source": p.source, "state": { "status": "active" }, "features": features })
+                        json!({ "id": p.id, "source": p.source, "state": { "status": "active" }, "features": p.info_features() })
                     }),
                 ),
             }

@@ -17,6 +17,8 @@ interface Compiled {
   readonly inputs: ReadonlyArray<Codec>
   readonly output: Codec
   readonly noContent: boolean
+  /** The success schema is a lone `data` wrapper and `output` is its content. */
+  readonly unwrapped: boolean
 }
 
 const compiled = new Map<string, Compiled>()
@@ -50,16 +52,15 @@ function compile(identifier: string): Compiled {
   const data = SchemaAST.isObjects(success.ast)
     ? success.ast.propertySignatures.find((property) => property.name === "data")
     : undefined
-  const output =
+  const unwrapped =
     !noContent &&
     SchemaAST.isObjects(type) &&
     type.indexSignatures.length === 0 &&
     type.propertySignatures.length === 1 &&
     type.propertySignatures[0]?.name === "data" &&
     data !== undefined
-      ? (Schema.make<Schema.Top>(data.type) as Codec)
-      : success
-  const result = { inputs, output, noContent }
+  const output = unwrapped ? (Schema.make<Schema.Top>(data!.type) as Codec) : success
+  const result = { inputs, output, noContent, unwrapped }
   compiled.set(identifier, result)
   return result
 }
@@ -84,11 +85,18 @@ export function encodeInput(identifier: string, input: unknown) {
 }
 
 export function decodeOutput(identifier: string, output: unknown) {
-  const { output: schema, noContent } = compile(identifier)
+  const { output: schema, noContent, unwrapped } = compile(identifier)
   if (noContent) return Effect.succeed(undefined)
+  // Rust removes the wrapper of the endpoints it knows as `{data}` ones; others (such as `generate.text`, whose
+  // `{data}` response is a named schema) arrive with it.
+  if (unwrapped && isWrapped(output)) output = output.data
   return Schema.decodeUnknownEffect(schema)(output).pipe(
     Effect.catch(() => Effect.succeed(output)),
   )
+}
+
+function isWrapped(value: unknown): value is { data: unknown } {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 1 && "data" in value
 }
 
 export type Call = (method: string, input: unknown) => Effect.Effect<unknown, Error>

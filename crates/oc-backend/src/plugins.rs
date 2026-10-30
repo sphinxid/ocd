@@ -19,7 +19,12 @@ fn operation_id(method: &str) -> &str {
     match method {
         "persistentPty.read" => "experimental.persistentPty.read",
         "generate.text" => "experimental.generate.text",
+        "generate.image" => "experimental.generate.image",
+        "generate.decisions" => "experimental.generate.decisions",
         "session.wait" => "experimental.session.wait",
+        "session.instructions.entry.list" => "experimental.session.instructions.entry.list",
+        "session.instructions.entry.put" => "experimental.session.instructions.entry.put",
+        "session.instructions.entry.remove" => "experimental.session.instructions.entry.remove",
         other => other,
     }
 }

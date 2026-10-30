@@ -32,6 +32,8 @@ export interface Generation {
   readonly target: string
   readonly source?: unknown
   readonly features?: Record<string, true>
+  /** The `./gui-experimental` bundle (`Generation.gui` upstream); the desktop app's, never served by ocd. */
+  readonly gui?: { readonly file: string; readonly revision: string; readonly options: Record<string, unknown> }
   readonly effect: (host: any) => Effect.Effect<void, never, Scope.Scope>
 }
 
@@ -535,7 +537,8 @@ function slotInfo(slot: SlotEntry) {
     id: slot.plugin.id,
     source: slot.plugin.source ?? { type: "builtin" },
     state: failure === undefined ? { status: "active" } : { status: "failed", ...failure },
-    features: { server: true, ...slot.plugin.features },
+    // Built-in and SDK plugins are server parts; a package lists its own parts.
+    features: slot.plugin.features ?? { server: true },
   }
 }
 

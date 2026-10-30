@@ -7,6 +7,7 @@
 
 import type { Plugin } from "@opencode/plugin/effect"
 import { Effect, Scope, Stream } from "effect"
+import { EventManifest } from "@opencode/schema/event-manifest"
 import { Tool } from "@opencode/schema/tool"
 import { method } from "./api.js"
 import { declineDefect } from "./decline.js"
@@ -19,7 +20,7 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
   const call = (name: string, input: unknown) =>
     Effect.tryPromise({
       try: (signal) => runtime.api(slot, name, input, signal),
-      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+      catch: (cause) => (cause instanceof Error ? tagged(cause) : new Error(String(cause))),
     })
   const api = (identifier: string) => method(call, identifier) as any
 
@@ -99,13 +100,40 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
       activate: api("credential.activate"),
     },
     event: {
-      subscribe: () => runtime.subscribe(),
+      // `event.subscribe({types})` (core/src/plugin/host.ts 2.2): only the requested server and `rpc.*` types;
+      // unknown types are dropped with a warning, and a request with none left never emits.
+      subscribe: (input?: { readonly types?: ReadonlyArray<string> }) => {
+        if (!input?.types?.length) return runtime.subscribe()
+        const unknown = new Array<string>()
+        const types = new Set(
+          input.types.filter((type) => {
+            if (type.startsWith("rpc.") || EventManifest.Server.has(type)) return true
+            unknown.push(type)
+            return false
+          }),
+        )
+        const events =
+          types.size > 0 ? runtime.subscribe().pipe(Stream.filter((event: any) => types.has(event.type))) : Stream.never
+        if (unknown.length === 0) return events
+        return Stream.unwrap(
+          Effect.sync(() => log("warn", "ignoring unknown event types", { pluginID: slot.plugin.id, types: unknown })).pipe(
+            Effect.as(events),
+          ),
+        )
+      },
     },
     experimental: {
       terminal: {
         read: api("persistentPty.read"),
       },
+      // Stateless generation with a model and a prompt: no session, history or tools.
+      generate: {
+        text: api("generate.text"),
+        image: api("generate.image"),
+        decisions: api("generate.decisions"),
+      },
     },
+    // Deprecated since 2.2: `experimental.generate.text`.
     generate: {
       text: api("generate.text"),
     },
@@ -229,9 +257,34 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
       interrupt: api("session.interrupt"),
       wait: api("session.wait"),
       context: api("session.context"),
+      // Keyed session instructions (2.2): the session must exist and the key must be a valid entry key.
+      instructions: {
+        entry: {
+          list: api("session.instructions.entry.list"),
+          put: api("session.instructions.entry.put"),
+          remove: api("session.instructions.entry.remove"),
+        },
+      },
     },
   }
   return context as unknown as Plugin.Context
 }
 
 export type EventStream = Stream.Stream<any>
+
+// The HTTP-only tags of errors whose core service error (what upstream's in-process host fails with) differs.
+const CORE_TAGS: Record<string, string> = { SessionNotFoundError: "Session.NotFoundError" }
+
+/**
+ * An API failure as upstream's host raises it: a tagged error (`_tag` and the fields of the endpoint's error
+ * body) instead of a plain `Error`, under the core's tag where the HTTP one differs.
+ */
+function tagged(error: Error) {
+  const body = (error as { data?: unknown }).data
+  if (typeof body !== "object" || body === null || typeof (body as { _tag?: unknown })._tag !== "string") return error
+  const { _tag, message: _message, ...fields } = body as Record<string, unknown>
+  const tag = CORE_TAGS[_tag as string] ?? (_tag as string)
+  Object.assign(error, fields, { _tag: tag })
+  error.name = tag
+  return error
+}
