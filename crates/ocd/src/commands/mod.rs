@@ -138,6 +138,8 @@ fn tui_options(input: &Input, server: &connection::Resolved, requested_server: b
         environment: if requested_server { Default::default() } else { connection::session_env().into_iter().collect() },
         service: server.service.clone().map(service_hooks),
         updater: None,
+        // Managed and standalone servers run here; an explicit --server may be on another machine.
+        local_server: !requested_server,
     }
 }
 
@@ -291,7 +293,7 @@ fn debug_paths(global: &Global, input: &Input) -> anyhow::Result<i32> {
 /// `debug heap-dump` (`handlers/debug/heap-dump.ts`): ask an already-running server for a heap snapshot and print
 /// its server-local path. It never starts, replaces or restarts the background service.
 async fn debug_heap_dump(global: &Global, input: &Input) -> anyhow::Result<i32> {
-    let endpoint = match input.str("server") {
+    let endpoint = match crate::cli::settings().server {
         Some(server) => {
             let args = Args { server: Some(server), standalone: false, mismatch: None, on_start: None };
             connection::resolve(global, args).await?.endpoint
@@ -763,7 +765,10 @@ async fn remote_url(client: &Client, config: &ServiceConfig) -> anyhow::Result<S
     };
     match tokio::time::timeout(std::time::Duration::from_secs(3 * 60), wait).await {
         Ok(url) => Ok(url),
-        Err(_) => anyhow::bail!("Timed out waiting for the remote tunnel; run `ocd pair --remote` again to retry"),
+        // The service may not inherit the shell's environment.
+        Err(_) => anyhow::bail!(
+            "Timed out waiting for the remote tunnel; run `ocd pair --remote` again to retry.{EOL}Behind an HTTP proxy, give the background service its address with `ocd service set env HTTPS_PROXY <url>` (and `NO_PROXY` for hosts to reach directly)."
+        ),
     }
 }
 

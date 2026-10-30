@@ -431,9 +431,17 @@ pub async fn run(global: &Global, input: &Input) -> anyhow::Result<i32> {
     if let Some(sep) = argv.iter().position(|a| a == "--") {
         message.extend(argv[sep + 1..].iter().cloned());
     }
-    let server = connection::resolve(global, Args { server: input.str("server"), standalone: input.flag("standalone"), mismatch: None, on_start: None }).await?;
     let format = if input.str("format").as_deref() == Some("json") { Format::Json } else { Format::Default };
     let exit = Arc::new(AtomicI32::new(-1));
+    // A server that cannot be reached is reported like any other run error (JSON with `--format json`).
+    let server = match connection::resolve(global, Args { server: input.str("server"), standalone: input.flag("standalone"), mismatch: None, on_start: None }).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(cause = %e, "run could not resolve its server");
+            report_run_error(format, &exit, &e.to_string(), None);
+            return Ok(1);
+        }
+    };
     let opts = RunInput {
         message,
         continue_last: input.flag("continue"),

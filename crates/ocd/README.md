@@ -29,13 +29,13 @@ files, the HTTP API and `x-opencode-*` headers, Basic-auth username `opencode`, 
 | module | upstream | contents |
 |---|---|---|
 | `cli/spec.rs` | `commands/commands.ts` | `CLI_NAME = "ocd"` and the command tree as data: every command, alias, flag, argument, default, hidden flag and verbatim description |
-| `cli/parse.rs` | `effect/cli` 4.0.1 `internal/lexer.ts`, `internal/parser.ts`, `Primitive.ts`, `CliError.ts` | Effect-compatible lexer, global-flag extraction, per-level scanning (subcommands, parent-flag errors, `--no-` negation, boolean literal consumption, `-abc` splitting, `--` operands), suggestions (Levenshtein ≤ 2), typed decoding (int/choice/key=value/non-empty/pair URL), exact error messages |
-| `cli/help.rs` | `CliOutput.ts`, `internal/help.ts` | help renderer (DESCRIPTION/USAGE/ARGUMENTS/FLAGS/GLOBAL FLAGS/SUBCOMMANDS, column rules, colors when stdout is a TTY and `NO_COLOR` unset), `ERROR`/`ERRORS` blocks (grouped by tag), `--version` |
-| `cli/mod.rs` | `Command.runWith` | control flow: action flags (help > version > wizard > completions), parse errors → help + stderr + exit 1, settings (`--log-level`, `--print-logs`) |
+| `cli/parse.rs` | `effect/cli` 4.0.6 `internal/lexer.ts`, `internal/parser.ts`, `Primitive.ts`, `CliError.ts` | Effect-compatible lexer (4.0.6: `--=x` is a value, `-abc=v` is `-a -b -c=v`), global-flag extraction, per-level scanning (subcommands, parent-flag errors, `--no-` negation, boolean literal consumption, `-abc` splitting, `--` operands), suggestions (Levenshtein ≤ 2), typed decoding (int/choice/key=value/non-empty/pair URL), exact error messages |
+| `cli/help.rs` | `CliOutput.ts`, `internal/help.ts` | help renderer (DESCRIPTION/USAGE/ARGUMENTS/FLAGS/GLOBAL FLAGS/SUBCOMMANDS, column rules; colors as `TerminalCapabilities.canColor`: never with `TERM=dumb` or a non-empty `NO_COLOR`, else when `FORCE_COLOR` is set to anything but `0`/`false` or stdout is a TTY), `ERROR`/`ERRORS` blocks (grouped by tag), `--version` |
+| `cli/mod.rs` | `Command.runWith` | control flow: the tree-wide global flags (built-ins, `--print-logs`, and every command's `withGlobalFlags` declarations), globals outside the active command's scope as `Unrecognized flag` errors, action flags (help > version > wizard > completions), parse errors → help + stderr + exit 1, settings (`--log-level`, `--print-logs`, and the `--standalone`/`--server` server settings read by `connection::resolve`) |
 | `main.rs` | `src/index.ts` | SSH askpass mode, `Global.acquire`, logging (`role=cli`/`server`), `cli starting`, dispatch, `Error: <msg>` + exit 1 for handler failures |
 | `client.rs` | `client/src/promise/generated/client.ts` | HTTP client keyed by operationId (from `assets/openapi.json`): declared vs `UnexpectedStatus`/`Transport` errors, `appendQuery` encoding, SSE decoding of `/api/event` |
 | `service.rs` | `service-config.ts`, `client/src/effect/service.ts`, `service-probe.ts`, `service-contender.ts`, `pty-handoff.ts` | service config file (schema order, legacy repair/migration), probe, `discover`, `incumbent`, `ensure` (contender pool, 25 ms poll, 5→30 s spawn backoff, 120 s limit, 3× timeout recovery, version replacement), `stop`/terminate (SIGTERM, 5 s, SIGKILL), PTY handoff sidecar |
-| `connection.rs` | `server-connection.ts`, `standalone.ts`, `env.ts` | `ServerConnection.resolve` (`--server` probing + messages, `--standalone`/`disabled`, mismatch policies), standalone `serve --stdio --port 0` child with stdin lease |
+| `connection.rs` | `server-connection.ts`, `standalone.ts`, `env.ts` | `ServerConnection.resolve` (the command's own values, else the global server settings; `--server` probing + messages with the fetch error's text, e.g. `Could not reach server at <url>: ECONNREFUSED: Unable to connect. Is the computer able to access the url?`, `--standalone`/`disabled`, mismatch policies), standalone `serve --stdio --port 0` child with stdin lease |
 | `web_ui.rs`, `build.rs` | `app-assets.ts`, `app-archive.ts`, `script/app-assets.ts` | locating the web UI that `serve` serves (see "Web UI") |
 | `serve.rs`, `runtime.rs` | `server-process.ts` | `serve` default/stdio/service modes; service election by binding the fixed port, incumbent check, password persistence, registration + 5 s watchdog; runtime = `oc_storage::Database` → `oc_core::app::App` → `oc_core::runner::Engine` (`oc_core::services::default_services`) → `oc_backend::run_server` |
 | `run.rs` | `run/run.ts`, `run/noninteractive.ts`, `session-target.ts`, `run/ui.ts`, `tui/src/mini/tool.ts` | `ocd run`: message/stdin merge, `--file` preparation, session selection (`--continue`/`--session`/`--fork`), title, prompt + SSE consumption, permission auto-reject/`--auto`, form cancellation, reconcile, default and JSON output, tool inline rendering, exit codes 0/1/130 |
@@ -52,19 +52,22 @@ so the parser is a direct port and is verified against the real framework.
 ## Verification against the real Effect CLI
 
 `tests/golden/*.json` were captured by running upstream's `commands.ts` + `framework/spec.ts`
-(v2.1.4) under `effect@4.0.1` (bun, `--define OPENCODE_CLI_NAME='"ocd"'`) for ~200 command lines (the
-root and `upgrade` descriptions were then substituted with ocd's, and `upgrade` gained ocd's `--yes` flag and
-`--method` description). Apart from the version, the help,
-completions and parse errors match the upstream 2.1.4 binary with `opencode` read as `ocd`:
+(v2.2.2) under `effect@4.0.6` (bun, `--define OPENCODE_CLI_NAME='"ocd"'`) for ~250 command lines, with ocd's
+root and `upgrade` descriptions, ocd's `upgrade --yes` flag and `--method` description patched into the
+harness's copy of `commands.ts`. Apart from the version and those `upgrade` texts, the help, completions and
+parse errors match the upstream 2.2.2 binary with `opencode` read as `ocd` (all 142 non-handler cases checked):
 
-* `cli.json`: `--help` of every command, `--version`, `--completions bash|zsh|fish|sh`, group commands
-  without subcommand, and ~70 parse-error cases (stdout, stderr, exit code).
-* `parse.json`: the decoded handler input (`JSON.stringify(input)` incl. Effect `Option` encoding) for
-  ~90 valid command lines. The binary prints the same with the internal `OPENCODE_CLI_PARSE_DUMP=1`.
-* `assets/completions/{bash,zsh,fish}` are the framework's generated scripts, embedded verbatim.
+* `cli.json`: `--help` of every command, `--version`, `--completions bash|zsh|fish|powershell|sh|pwsh`, group
+  commands without subcommand, ~70 parse-error cases (stdout, stderr, exit code), and the `--server`/`--standalone`
+  scope matrix of `cli/test/server-connection.test.ts`.
+* `parse.json`: the decoded handler input (`JSON.stringify(input)` incl. Effect `Option` encoding) and the
+  server settings the handler sees (`{"server", "standalone"}`, `null` outside their scope) for ~110 valid
+  command lines. The binary prints the same with the internal `OPENCODE_CLI_PARSE_DUMP=1`.
+* `assets/completions/{bash,zsh,fish,powershell}` are the framework's generated scripts, embedded verbatim
+  (`sh` prints bash, `pwsh` powershell).
 
 Observed oracle behaviours reproduced: a group without subcommand prints help and exits **0**
-(the spec says 1; Effect 4.0.1's `ShowHelp` without errors exits 0); `run ... -- x` passes `x`
+(the spec says 1; Effect's `ShowHelp` without errors exits 0); `run ... -- x` passes `x`
 twice (parsed operands + upstream's own `process.argv` re-read), exactly like upstream.
 
 ## Commands
@@ -80,8 +83,8 @@ twice (parsed operands + upstream's own `process.argv` re-read), exactly like up
 | `auth list/export/import/login/logout/switch` | complete; login supports key/external/oauth/command methods and form answers (`--answer`); all prompts are the ported clack ones (the integration choice of `auth login` and `mcp auth` is upstream's integration picker; account and `session export` pickers are `autocomplete`) |
 | `mcp list/add/auth/logout` | complete (strings from `oc_mcp::cli`; `add` uses `oc_config::jsonc_edit`) |
 | `plugin list/check/update/remove` | server plugins via the API; TUI package plugins from `cli.json` are inspected too (installed version from upstream's npm cache layout, update check with `oc_plugin::npm::Npm::check`, `update` reinstalls with `Npm::update`); `remove` edits the global config and `cli.json` |
-| `plugin add` | complete: installs with Bun into upstream's npm cache (`oc_plugin::npm`), resolves the `server`/root and `tui` entrypoints with Bun's module resolution (upstream `Host.resolve`) and writes the global config (`plugins`) or `cli.json`, with upstream's messages. Bun comes from `OCD_BUN_PATH`/`OPENCODE_BUN_PATH` or the pinned 1.4.2 download. TUI plugins are recorded but ocd's TUI does not run them (documented incompatibility) |
-| `models`, `reload`, `api`, `pair`, `session list/delete/export/import`, `stats` | complete (`pair` renders the QR code with the `qrcode` crate; module layout may differ from `uqr`) |
+| `plugin add` | complete: installs with Bun into upstream's npm cache (`oc_plugin::npm`), resolves the `server`/root, `tui` and `gui-experimental` (CommonJS only) entrypoints with Bun's module resolution (upstream `Host.resolve`, including a local directory's own `name`/`exports`) and writes the global config (`plugins`, for a server or GUI part) or `cli.json` (TUI only), with upstream's messages. Bun comes from `OCD_BUN_PATH`/`OPENCODE_BUN_PATH` or the pinned 1.4.2 download. TUI plugins are recorded but ocd's TUI does not run them (documented incompatibility) |
+| `models`, `reload`, `api`, `pair`, `session list/delete/export/import`, `stats` | complete (`pair` renders the QR code like `@opencode/util/qr`: one byte-mode segment, level L, via the `qrcodegen` crate) |
 | `upgrade` | ocd's GitHub releases (`src/release.rs`): `GET /repos/sphinxid/ocd/releases/latest` or `/releases/tags/v<target>` (User-Agent, optional `GITHUB_TOKEN`/`GH_TOKEN`), semver comparison with the build's version part (`0.2.0+3.abc` counts as 0.2.0; a date-stamped or missing build is a local build and needs a confirmation or `--yes`), "already installed" skip, an explicit older target downgrades, the archive for `PLATFORM` checked against `SHA256SUMS` (and GitHub's `digest`), extracted in memory, written next to the real executable path with its permissions, run once (`--version`, empty directories) and renamed over it (Windows: the running exe moves to `ocd.exe.old`, removed on the next start). Fails before downloading when the folder is not writable. A running background service of the channel is restarted through `service restart`'s code path. `--method` is ignored with a warning. Errors use upstream's `UpgradeError` layout |
 | update check | `release::run`/`check`/`apply` behind the TUI's `UpdaterHooks` (`commands/mod.rs` `updater_hooks`): every 10 minutes, the release lookup cached a day in `<cache>/ocd-update.json` (an hour after a failure); policy from `update`/`autoupdate` in the global config (default `notify`; `auto` installs without restarting the service), `OPENCODE_DISABLE_AUTOUPDATE`; local builds never check |
 | `uninstall` | native adaptation: method detection recognises `~/.opencode/bin/opencode` (curl, compared after resolving links), Homebrew cellars, WinGet's `Anomaly.OpenCode` package directory and an npm `package.json` owning the executable (probing the package manager named in its path first). Package-manager commands and the uninstall plan (services, cache, shell PATH lines, package) follow upstream |
@@ -142,6 +145,20 @@ patch against the file (jsdiff `parsePatch`/`reversePatch`/`applyPatch`, ported 
 following of child sessions after the root turn ends.
 
 ## Notes / deviations
+
+* `run` reports a server it cannot reach like any run error (`{"type":"error",...,"sessionID":""}` with
+  `--format json`), exit 1.
+* Service files: the config is written to `<file>.<pid>.tmp` and renamed, retried 20 times 10 ms apart (also the
+  registration write); `XDG_STATE_HOME` is dropped from the saved environment the service is started with. A
+  service port held by another process names it (`PortOwner`: `lsof -nP -iTCP:<port> -sTCP:LISTEN -Fpn`, then
+  `ps -o command=`, 1 s each), e.g. `... already in use by PID 123 (node server.js)`.
+* Shutdown deadline (`shutdown-deadline.ts`): once `serve` gets a stop signal its teardown has 10 s, then
+  `shutdown did not finish within 10s; exiting. Still pending:` and exit 1; a second SIGINT/SIGTERM exits at once
+  with `received <SIG> again during shutdown; ...`. ocd tracks no teardown labels, so the list is always
+  upstream's "nothing tracked" line. Other commands keep the default signal handling (they have no teardown that
+  can hang), and SIGHUP is not turned into SIGTERM.
+* `plugin list` shows server plugins only; upstream also lists configured and discovered TUI plugins (and 2.2
+  only hides a local one whose path a server plugin reports exactly). ocd's TUI does not load TUI plugins.
 
 * Uncaught handler failures print `Error: <message>` (no JS stack); CLI errors that escape the help
   channel print `~effect/cli/CliError/<Tag>: <message>` (first line of `Cause.pretty`).

@@ -251,10 +251,20 @@ pub fn is_installable(spec: &str) -> bool {
 
 /// `Host.resolve(installed)`: the package's `server` (then root) and `tui` entrypoints, resolved
 /// with Bun's module resolution from the installed package directory.
-async fn resolve_entrypoints(bun: &Path, installed: &oc_plugin::Installed) -> anyhow::Result<(Option<String>, Option<String>)> {
+async fn resolve_entrypoints(bun: &Path, installed: &oc_plugin::Installed) -> anyhow::Result<Entrypoints> {
     const SCRIPT: &str = r#"
-const [directory, name] = process.argv.slice(-2)
+const [directory, given] = process.argv.slice(-2)
 const path = require("node:path")
+const fs = require("node:fs")
+// A local directory whose package.json names the package and maps `exports` resolves through them.
+const manifest = (() => {
+  if (given) return undefined
+  try {
+    const value = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"))
+    return value && typeof value === "object" && !Array.isArray(value) ? value : undefined
+  } catch { return undefined }
+})()
+const name = typeof manifest?.name === "string" && manifest.exports !== undefined ? manifest.name : given
 const resolve = (specifier) => { try { return Bun.resolveSync(specifier, directory) } catch { return undefined } }
 const entry = (subpaths) => {
   for (const subpath of subpaths) {
@@ -262,7 +272,9 @@ const entry = (subpaths) => {
     if (found) return found
   }
 }
-console.log(JSON.stringify({ server: entry(["server", ""]), tui: entry(["tui"]) }))
+// The app evaluates the GUI bundle as CommonJS text, so a TypeScript source or an ES module is never a GUI entry.
+const gui = [name ? entry(["gui-experimental"]) : entry(["gui-experimental.cjs", "gui-experimental.js"])].find((file) => file && /\.c?js$/.test(file))
+console.log(JSON.stringify({ server: entry(["server", ""]), tui: entry(["tui"]), gui }))
 "#;
     let out = tokio::process::Command::new(bun)
         .args(["-e", SCRIPT, &installed.directory, &installed.name])
@@ -275,7 +287,26 @@ console.log(JSON.stringify({ server: entry(["server", ""]), tui: entry(["tui"]) 
     }
     let value: Value = serde_json::from_slice(String::from_utf8_lossy(&out.stdout).trim().as_bytes())?;
     let get = |k: &str| value.get(k).and_then(Value::as_str).map(String::from);
-    Ok((get("server"), get("tui")))
+    Ok(Entrypoints { server: get("server"), tui: get("tui"), gui: get("gui") })
+}
+
+/// `Host.Entrypoints` of an installed package.
+struct Entrypoints {
+    server: Option<String>,
+    tui: Option<String>,
+    gui: Option<String>,
+}
+
+/// `configurationTarget`: the server lists packages with a server or GUI part, and the TUI loads their TUI parts
+/// from that list; only a TUI-only package belongs in the TUI's own config.
+fn configuration_target(e: &Entrypoints) -> Option<&'static str> {
+    if e.server.is_some() || e.gui.is_some() {
+        Some("server")
+    } else if e.tui.is_some() {
+        Some("tui")
+    } else {
+        None
+    }
 }
 
 /// `writePluginConfig(configPath, spec)`: appends the package to the global config's `plugins`.
@@ -325,8 +356,9 @@ pub async fn add(global: &Global, input: &Input) -> anyhow::Result<i32> {
     let bun = oc_plugin::bun::BunResolver::new(global.bin.clone()).resolve().await.map_err(|e| anyhow::anyhow!(e))?;
     let npm = oc_plugin::npm::Npm::new(&global.cache, global.locks());
     let installed = npm.add(&bun, &package).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    let (server, tui) = resolve_entrypoints(&bun, &installed).await?;
-    if server.is_some() {
+    let entrypoints = resolve_entrypoints(&bun, &installed).await?;
+    let target = configuration_target(&entrypoints);
+    if target == Some("server") {
         let config_path = resolve_config_path(&global.config);
         let changed = write_plugin_config(&config_path, &package)?;
         if changed {
@@ -336,8 +368,8 @@ pub async fn add(global: &Global, input: &Input) -> anyhow::Result<i32> {
         }
         return Ok(0);
     }
-    if tui.is_none() {
-        anyhow::bail!("Plugin package has no server or TUI entrypoint: {package}");
+    if target.is_none() {
+        anyhow::bail!("Plugin package has no server, GUI, or TUI entrypoint: {package}");
     }
     let cli = oc_config::cli::CliConfig::new(&global.config, &global.state);
     cli.update(|draft| {
@@ -448,5 +480,39 @@ mod tests {
         assert!(is_installable("@scope/pkg@1.2.3"));
         assert!(is_installable("github:user/repo"));
         assert!(!is_installable("./local"));
+    }
+
+    /// `plugin-add.test.ts`: which config a package with server, TUI and GUI parts goes to.
+    #[tokio::test]
+    async fn configures_packages_by_their_parts() {
+        let Ok(bun) = std::env::var("OCD_BUN_PATH") else { return };
+        let name = "@fixture/plugin";
+        let parts: &[(&str, &str, &str)] =
+            &[("server", ".", "./index.js"), ("tui", "./tui", "./tui.js"), ("gui", "./gui-experimental", "./gui-experimental.cjs")];
+        let cases: &[(&[&str], Option<&str>)] = &[
+            (&["gui"], Some("server")),
+            (&["tui", "gui"], Some("server")),
+            (&["server"], Some("server")),
+            (&["server", "tui", "gui"], Some("server")),
+            (&["tui"], Some("tui")),
+            (&[], None),
+        ];
+        for (i, (want, target)) in cases.iter().enumerate() {
+            let root = std::env::temp_dir().join(format!("ocd-plugin-add-{}-{i}", std::process::id()));
+            let directory = root.join("node_modules").join(name);
+            std::fs::create_dir_all(&directory).unwrap();
+            let mut exports = serde_json::Map::new();
+            for (part, key, file) in parts {
+                if want.contains(part) {
+                    exports.insert(key.to_string(), json!(file));
+                    std::fs::write(directory.join(file), "").unwrap();
+                }
+            }
+            std::fs::write(directory.join("package.json"), json!({ "name": name, "exports": exports }).to_string()).unwrap();
+            let installed = oc_plugin::Installed { directory: directory.display().to_string(), name: name.into(), version: None, revision: None };
+            let entrypoints = resolve_entrypoints(Path::new(&bun), &installed).await.unwrap();
+            assert_eq!(configuration_target(&entrypoints), *target, "{want:?}");
+            let _ = std::fs::remove_dir_all(&root);
+        }
     }
 }

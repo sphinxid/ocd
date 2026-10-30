@@ -74,6 +74,8 @@ async fn wait_for_signal() {
         "ctrl-c"
     };
     tracing::info!(signal = name, "server stopping");
+    // The teardown that follows gets `ShutdownDeadline`'s 10 s; a second signal exits at once.
+    crate::shutdown::begin(name);
 }
 
 pub async fn run(global: &Global, opts: Options) -> anyhow::Result<i32> {
@@ -200,9 +202,7 @@ async fn run_service(
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 contended = true;
                 if Instant::now() >= deadline {
-                    anyhow::bail!(
-                        "Managed service port {port} on {hostname} is already in use by another process. Configure another port with `ocd service set port <port>` and start the service again."
-                    );
+                    anyhow::bail!(crate::port_owner::in_use_message(port, &hostname));
                 }
                 let left = deadline.saturating_duration_since(Instant::now());
                 if service::incumbent(&options.file, &url, left.min(service::PROBE_TIMEOUT)).await.is_some() {
@@ -220,9 +220,7 @@ async fn run_service(
             Ok((s, _engine)) => break s,
             Err(e) if addr_in_use(&e) => {
                 if Instant::now() >= deadline {
-                    anyhow::bail!(
-                        "Managed service port {port} on {hostname} is already in use by another process. Configure another port with `ocd service set port <port>` and start the service again."
-                    );
+                    anyhow::bail!(crate::port_owner::in_use_message(port, &hostname));
                 }
                 if service::incumbent(&options.file, &url, service::PROBE_TIMEOUT).await.is_some() {
                     return Ok(0);
@@ -238,7 +236,15 @@ async fn run_service(
     }
     let bound = server.url().to_string();
     let registration = Registration::new(VERSION, &bound, &password);
-    write_registration(&options.file, &registration)?;
+    // Retried like `fs.rename` upstream: a contender may poll the registration file meanwhile.
+    let mut attempt = 0;
+    while let Err(e) = write_registration(&options.file, &registration) {
+        if attempt >= 20 {
+            return Err(e.into());
+        }
+        attempt += 1;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     // Remote access: the tunnel holds the service's route and its URL joins the server's URLs while attached.
     let tunnel = info.remote.clone().map(|remote| {
         let addr = server.local_addr();

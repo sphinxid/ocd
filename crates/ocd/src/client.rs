@@ -309,7 +309,42 @@ impl Client {
     }
 }
 
+/// The message of the error Bun's `fetch` rejects with, for the failures the CLI reports
+/// (`Could not reach server at <url>: <message>`): a refused connection, a failed DNS lookup and the
+/// request timeout (`AbortSignal.timeout`); anything else keeps reqwest's description.
 pub fn error_text(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        return "The operation timed out.".into();
+    }
+    let chain = {
+        let mut parts = vec![];
+        let mut source = std::error::Error::source(e);
+        while let Some(inner) = source {
+            parts.push(inner.to_string());
+            source = inner.source();
+        }
+        parts.join(": ")
+    };
+    if e.is_connect() {
+        let dns = chain.contains("dns error") || chain.contains("failed to lookup address");
+        if dns && let Some(host) = e.url().and_then(|u| u.host_str()) {
+            return format!("getaddrinfo ENOTFOUND {host}");
+        }
+        let refused = {
+            let mut source = std::error::Error::source(e);
+            let mut found = false;
+            while let Some(inner) = source {
+                if inner.downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::ConnectionRefused) {
+                    found = true;
+                }
+                source = inner.source();
+            }
+            found || chain.contains("Connection refused")
+        };
+        if refused {
+            return "ECONNREFUSED: Unable to connect. Is the computer able to access the url?".into();
+        }
+    }
     let mut s = e.to_string();
     let mut source = std::error::Error::source(e);
     while let Some(inner) = source {

@@ -148,10 +148,14 @@ pub fn session_env() -> indexmap::IndexMap<String, String> {
 }
 
 pub async fn resolve(global: &Global, args: Args<'_>) -> anyhow::Result<Resolved> {
-    if args.server.is_some() && args.standalone {
+    // The command's own values win over the global server settings (`args.server ?? Server`).
+    let settings = crate::cli::settings();
+    let requested = args.server.clone().or(settings.server);
+    let standalone = args.standalone || settings.standalone.unwrap_or(false);
+    if requested.is_some() && standalone {
         anyhow::bail!("--server and --standalone cannot be combined");
     }
-    if let Some(server) = args.server {
+    if let Some(server) = requested {
         let endpoint = Endpoint { url: server.clone(), password: env_password() };
         let client = Client::new(&endpoint);
         let info = client.call("server.info", Req::new().timeout(Duration::from_secs(5))).await.map_err(|e| {
@@ -162,14 +166,18 @@ pub async fn resolve(global: &Global, args: Args<'_>) -> anyhow::Result<Resolved
                     anyhow::anyhow!("Server at {} rejected the password", endpoint.url)
                 }
             } else if e.is_transport() {
-                anyhow::anyhow!("Could not reach server at {}", endpoint.url)
+                // `errorMessage(cause.cause)`: the fetch error's own message.
+                let detail = match &e {
+                    crate::client::ClientError::Client { detail: Some(d), .. } => d.clone(),
+                    other => other.to_string(),
+                };
+                anyhow::anyhow!("Could not reach server at {}: {detail}", endpoint.url)
             } else {
-                anyhow::anyhow!("Server at {} did not provide a compatible V2 health response", endpoint.url)
+                anyhow::anyhow!("Server at {} did not provide a compatible V2 health response: {e}", endpoint.url)
             }
         })?;
-        let version = info.get("version").and_then(|v| v.as_str()).ok_or_else(|| {
-            anyhow::anyhow!("Server at {} did not provide a compatible V2 health response", endpoint.url)
-        })?;
+        // `health.version` reads `undefined` in the warning when the server sends none.
+        let version = info.get("version").and_then(|v| v.as_str()).unwrap_or("undefined");
         if version != VERSION {
             crate::term::write_stderr(&format!(
                 "Warning: Server at {} has version {version}; this client is {VERSION}. Continuing anyway.\n",
@@ -179,7 +187,7 @@ pub async fn resolve(global: &Global, args: Args<'_>) -> anyhow::Result<Resolved
         return Ok(Resolved { endpoint, service: None, standalone: None });
     }
     let config = ServiceConfig::new(global);
-    if args.standalone || config.read().disabled == Some(true) {
+    if standalone || config.read().disabled == Some(true) {
         let (child, endpoint) = Standalone::start(&startup_dir())?;
         return Ok(Resolved { endpoint, service: None, standalone: Some(child) });
     }

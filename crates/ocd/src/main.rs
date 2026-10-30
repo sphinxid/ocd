@@ -9,10 +9,12 @@ mod commands;
 mod connection;
 mod release;
 mod remote_tunnel;
+mod port_owner;
 mod run;
 mod runtime;
 mod serve;
 mod service;
+mod shutdown;
 mod term;
 mod ui;
 mod web_ui;
@@ -41,8 +43,11 @@ fn main() {
     if let Outcome::Run(inv) = &outcome
         && std::env::var("OPENCODE_CLI_PARSE_DUMP").as_deref() == Ok("1")
     {
-        println!("HANDLER {} {}", inv.leaf(), inv.input.dump());
+        println!("HANDLER {} {} {}", inv.leaf(), inv.input.dump(), inv.settings.dump());
         return;
+    }
+    if let Outcome::Run(inv) = &outcome {
+        cli::set_settings(inv.settings.clone());
     }
 
     // `Global` (with `$OPENCODE_CONFIG_DIR` as config) is acquired for every command: it creates

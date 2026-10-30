@@ -183,7 +183,7 @@ impl ServiceConfig {
         EnsureOptions {
             file,
             version: check_version.then(|| VERSION.to_string()),
-            env: self.read().env.unwrap_or_default(),
+            env: process_env(self.read().env.unwrap_or_default()),
             command: vec![self_exe(), "serve".into(), "--service".into()],
         }
     }
@@ -209,15 +209,16 @@ impl ServiceConfig {
         info
     }
 
-    /// `write(value)`: `<file>.tmp` (0600) + rename, `JSON.stringify(value, null, 2) + "\n"`.
+    /// `write(value)`: `<file>.<pid>.tmp` (0600) + rename, retried 20 times 10 ms apart for processes that
+    /// update it at the same time; `JSON.stringify(value, null, 2) + "\n"`.
     pub fn write(&self, info: &ServiceInfo) -> std::io::Result<()> {
         let file = self.config_file();
         if let Some(dir) = file.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let tmp = PathBuf::from(format!("{}.tmp", file.display()));
+        let tmp = PathBuf::from(format!("{}.{}.tmp", file.display(), std::process::id()));
         write_private(&tmp, &(serde_json::to_string_pretty(info).unwrap_or_default() + "\n"))?;
-        std::fs::rename(&tmp, &file)
+        retry_rename(&tmp, &file)
     }
 
     /// `ServiceConfig.password(value?)`
@@ -879,4 +880,26 @@ mod tests {
         assert_eq!(serde_json::to_string(&info).unwrap(), r#"{"disabled":false,"remoteAccepted":true,"hostname":"h"}"#);
         assert!(decode_info(r#"{"remoteAccepted":false}"#).is_none());
     }
+}
+
+/// `fs.rename(...).pipe(Effect.retry({ times: 20, schedule: Schedule.spaced("10 millis") }))`.
+pub fn retry_rename(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if attempt >= 20 => return Err(e),
+            Err(_) => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+}
+
+/// `ServiceConfig.processEnv`: the saved environment minus `XDG_STATE_HOME`. Clients find the service at its
+/// registration under the state directory, so the service keeps the one it was launched with.
+pub fn process_env<V>(mut env: indexmap::IndexMap<String, V>) -> indexmap::IndexMap<String, V> {
+    env.shift_remove("XDG_STATE_HOME");
+    env
 }
