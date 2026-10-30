@@ -124,6 +124,12 @@ impl MessageRow {
     }
 }
 
+impl oc_storage::stored::MessageRow for MessageRow {
+    fn row(&mut self) -> (&str, &str, &mut String) {
+        (&self.id, &self.kind, &mut self.data)
+    }
+}
+
 fn message_row(r: &rusqlite::Row) -> rusqlite::Result<MessageRow> {
     Ok(MessageRow { seq: r.get(0)?, id: r.get(1)?, kind: r.get(2)?, data: r.get(3)? })
 }
@@ -169,8 +175,10 @@ pub fn messages(
     }
     let mut rows: Vec<MessageRow> = db.with(|c| {
         let mut s = c.prepare(&sql)?;
-        
-        s.query_map(params_from_iter(args.iter()), message_row)?.collect()
+        let mut rows: Vec<MessageRow> = s.query_map(params_from_iter(args.iter()), message_row)?.collect::<rusqlite::Result<_>>()?;
+        // `decodeMessageRows`: parts a newer release moved to `session_part`, then media from `blob`.
+        oc_storage::stored::restore(c, &mut rows)?;
+        Ok(rows)
     })?;
     if direction == CursorDirection::Previous {
         rows.reverse();
@@ -181,10 +189,16 @@ pub fn messages(
 /// One message by id (any session).
 pub fn message(db: &Database, id: &str) -> anyhow::Result<Option<(String, MessageRow)>> {
     db.with(|c| {
-        c.query_row("SELECT seq, id, type, data, session_id FROM session_message WHERE id = ?", [id], |r| {
-            Ok((r.get::<_, String>(4)?, message_row(r)?))
-        })
-        .optional()
+        let found = c
+            .query_row("SELECT seq, id, type, data, session_id FROM session_message WHERE id = ?", [id], |r| {
+                Ok((r.get::<_, String>(4)?, message_row(r)?))
+            })
+            .optional()?;
+        let Some((session, row)) = found else { return Ok(None) };
+        let mut rows = [row];
+        oc_storage::stored::restore(c, &mut rows)?;
+        let [row] = rows;
+        Ok(Some((session, row)))
     })
 }
 
@@ -196,8 +210,9 @@ pub fn rows_of_types(db: &Database, session: &str, kinds: &[&str]) -> anyhow::Re
     args.extend(kinds.iter().map(|k| Sql::Text(k.to_string())));
     db.with(|c| {
         let mut s = c.prepare(&sql)?;
-        
-        s.query_map(params_from_iter(args.iter()), message_row)?.collect()
+        let mut rows: Vec<MessageRow> = s.query_map(params_from_iter(args.iter()), message_row)?.collect::<rusqlite::Result<_>>()?;
+        oc_storage::stored::restore(c, &mut rows)?;
+        Ok(rows)
     })
 }
 

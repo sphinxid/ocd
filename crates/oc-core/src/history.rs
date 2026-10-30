@@ -93,12 +93,14 @@ fn rows(db: &Database, session: &str, from: Option<i64>, to: Option<i64>) -> any
         let mut s = c.prepare(
             "SELECT seq, id, type, data FROM session_message WHERE session_id = ?1 AND seq >= ?2 AND seq < ?3 ORDER BY seq ASC",
         )?;
-        let r = s
+        let mut rows: Vec<(i64, String, String, String)> = s
             .query_map(rusqlite::params![session, from.unwrap_or(i64::MIN), to.unwrap_or(i64::MAX)], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
             })?
-            .collect();
-        r
+            .collect::<rusqlite::Result<_>>()?;
+        // `decodeMessageRows`: parts a newer release moved to `session_part`, then media from `blob`.
+        oc_storage::stored::restore(c, &mut rows)?;
+        Ok(rows)
     })?;
     Ok(rows
         .into_iter()

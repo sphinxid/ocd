@@ -225,14 +225,23 @@ pub fn get(db: &Database, input: Input) -> anyhow::Result<Result<Value, InvalidR
 
     if input.tools != ToolMode::None {
         for (rf, rt) in &ranges {
+            // Tool parts a newer release moved to `session_part`, then the inline content of messages without part rows.
+            let parts = format!(
+                "FROM session_part AS part JOIN session_message AS message ON message.id = part.message_id JOIN session_v2 AS session ON session.id = message.session_id
+                 WHERE message.type = 'assistant' AND message.time_created >= ? AND message.time_created < ? AND {FORK_FILTER} AND part.type = 'tool'{project_sql}"
+            );
             let base = format!(
                 "FROM session_message AS message JOIN session_v2 AS session ON session.id = message.session_id, json_each(message.data, '$.content') AS content
-                 WHERE message.type = 'assistant' AND message.time_created >= ? AND message.time_created < ? AND {FORK_FILTER} AND json_extract(content.value, '$.type') = 'tool'{project_sql}"
+                 WHERE message.type = 'assistant' AND message.time_created >= ? AND message.time_created < ? AND {FORK_FILTER}
+                   AND NOT EXISTS (SELECT 1 FROM session_part AS part WHERE part.message_id = message.id)
+                   AND json_extract(content.value, '$.type') = 'tool'{project_sql}"
             );
-            let args = with_project(vec![Sql::Integer(*rf), Sql::Integer(*rt)]);
+            let mut args = with_project(vec![Sql::Integer(*rf), Sql::Integer(*rt)]);
+            args.extend(with_project(vec![Sql::Integer(*rf), Sql::Integer(*rt)]));
             if input.tools == ToolMode::Summary {
                 let sql = format!(
-                    "WITH calls AS MATERIALIZED (SELECT json_extract(content.value, '$.state.status') AS status {base})
+                    "WITH calls AS MATERIALIZED (SELECT json_extract(part.data, '$.state.status') AS status {parts}
+                     UNION ALL SELECT json_extract(content.value, '$.state.status') AS status {base})
                      SELECT count(*), count(*) FILTER (WHERE status = 'completed'), count(*) FILTER (WHERE status = 'error'),
                             count(*) FILTER (WHERE status IS NULL OR status NOT IN ('completed', 'error')) FROM calls"
                 );
@@ -246,7 +255,12 @@ pub fn get(db: &Database, input: Input) -> anyhow::Result<Result<Value, InvalidR
                 continue;
             }
             let sql = format!(
-                "SELECT json_extract(content.value, '$.name'), json_extract(content.value, '$.state.status'),
+                "SELECT json_extract(part.data, '$.name'), json_extract(part.data, '$.state.status'),
+                    CASE WHEN json_extract(part.data, '$.time.completed') IS NULL THEN NULL
+                         ELSE json_extract(part.data, '$.time.completed') - coalesce(json_extract(part.data, '$.time.ran'), json_extract(part.data, '$.time.created')) END
+                 {parts}
+                 UNION ALL
+                 SELECT json_extract(content.value, '$.name'), json_extract(content.value, '$.state.status'),
                     CASE WHEN json_extract(content.value, '$.time.completed') IS NULL THEN NULL
                          ELSE json_extract(content.value, '$.time.completed') - coalesce(json_extract(content.value, '$.time.ran'), json_extract(content.value, '$.time.created')) END
                  {base}"

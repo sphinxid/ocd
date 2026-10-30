@@ -223,6 +223,9 @@ pub struct SessionFork {
 pub struct SessionTime {
     pub created: u64,
     pub updated: u64,
+    /// Start of the most recent execution (`time_busy`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub busy: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idle: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -1010,8 +1010,10 @@ impl Engine {
             let mut s = c.prepare(
                 "SELECT id, type, data FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant') ORDER BY seq DESC LIMIT 3",
             )?;
-            let r = s.query_map([session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect();
-            r
+            let mut rows: Vec<(String, String, String)> =
+                s.query_map([session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+            oc_storage::stored::restore(c, &mut rows)?;
+            Ok(rows)
         })?;
         let mut recent = Vec::with_capacity(rows.len());
         for (id, kind, data) in rows {

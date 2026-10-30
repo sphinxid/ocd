@@ -137,9 +137,11 @@ impl Sessions {
             if sid != session || k != kind {
                 return Err(SessionError::PromptConflict(id.into()));
             }
+            let mut payload = serde_json::from_str::<Value>(&payload).unwrap_or(Value::Null);
+            self.bus.db().with(|c| oc_storage::stored::hydrate_inbox(c, &mut [&mut payload]))?;
             return Ok(Some(json!({
                 "id": id, "sessionID": sid, "time": {"created": created}, "type": k,
-                "payload": serde_json::from_str::<Value>(&payload).unwrap_or(Value::Null), "delivery": delivery,
+                "payload": payload, "delivery": delivery,
             })));
         }
         let msg: Option<(String, String, String, i64)> = self.bus.db().with(|c| {
@@ -154,6 +156,9 @@ impl Sessions {
             if sid != session || k != kind {
                 return Err(SessionError::PromptConflict(id.into()));
             }
+            let mut rows = [(id.to_string(), k.clone(), data)];
+            self.bus.db().with(|c| oc_storage::stored::restore(c, &mut rows))?;
+            let [(_, _, data)] = rows;
             let mut payload: Map<String, Value> = serde_json::from_str(&data).unwrap_or_default();
             payload.remove("time");
             return Ok(Some(json!({

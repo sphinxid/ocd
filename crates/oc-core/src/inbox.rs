@@ -79,8 +79,12 @@ fn rows(bus: &Bus, session: &str, filter: &str) -> anyhow::Result<Vec<InboxRow>>
                     time_created: r.get(6)?,
                 })
             })?
-            .collect();
-        r
+            .collect::<rusqlite::Result<Vec<InboxRow>>>()?;
+        let mut rows = r;
+        // `SessionBlob.hydrateInbox`: media a ref keeps in `blob` reads inline.
+        let mut payloads: Vec<&mut Value> = rows.iter_mut().map(|r| &mut r.payload).collect();
+        oc_storage::stored::hydrate_inbox(c, &mut payloads)?;
+        Ok(rows)
     })
 }
 

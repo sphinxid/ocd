@@ -263,8 +263,13 @@ pub async fn import(bus: &Bus, sessions: &Sessions, data: &Value, location: Loca
             (Some(i), Some(v)) => Some(i.min(v) as i64),
             _ => None,
         };
+        // A busy watermark is kept only clamped to its idle transition.
+        let busy = match (t.idle, t.busy) {
+            (Some(i), Some(b)) => Some(i.min(b) as i64),
+            _ => None,
+        };
         c.execute(
-            "UPDATE session_v2 SET cost = ?, tokens_input = ?, tokens_output = ?, tokens_reasoning = ?, tokens_cache_read = ?, tokens_cache_write = ?, time_created = ?, time_updated = ?, time_idle = ?, time_viewed = ?, idle_outcome = ?, time_archived = ? WHERE id = ?",
+            "UPDATE session_v2 SET cost = ?, tokens_input = ?, tokens_output = ?, tokens_reasoning = ?, tokens_cache_read = ?, tokens_cache_write = ?, time_created = ?, time_updated = ?, time_busy = ?, time_idle = ?, time_viewed = ?, idle_outcome = ?, time_archived = ? WHERE id = ?",
             params![
                 info.cost,
                 info.tokens.input as i64,
@@ -274,6 +279,7 @@ pub async fn import(bus: &Bus, sessions: &Sessions, data: &Value, location: Loca
                 info.tokens.cache.write as i64,
                 t.created as i64,
                 imported_at,
+                busy,
                 t.idle.map(|v| v as i64),
                 viewed,
                 t.idle.and(info.outcome).map(|o| serde_json::to_value(o).unwrap().as_str().unwrap().to_string()),

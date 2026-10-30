@@ -5,5 +5,6 @@ pub mod kv;
 pub mod migrate;
 pub mod projector;
 pub mod session;
+pub mod stored;
 
 pub use db::Database;

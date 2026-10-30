@@ -199,6 +199,7 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             )?;
         }
         E::Deleted { session_id } => {
+            crate::stored::release_session(c, session_id)?;
             c.execute("DELETE FROM session_v2 WHERE id = ?", [session_id])?;
         }
         E::AgentSelected { session_id, agent, .. } => {
@@ -317,6 +318,7 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             if n == 0 {
                 return Err(ProjectError::LifecycleConflict(inbox_id.clone()).into());
             }
+            crate::stored::release_message(c, session_id, inbox_id)?;
         }
         E::InboxDeliveryChanged { session_id, inbox_id, delivery } => {
             let from = match delivery {
@@ -399,8 +401,12 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 "DELETE FROM instruction_state WHERE session_id = ? AND through_seq >= ?",
                 params![session_id, boundary],
             )?;
+            crate::stored::release_from(c, session_id, boundary)?;
         }
-        E::ExecutionStarted { .. } => {}
+        // The start of the session's latest execution; `time_updated` is left alone.
+        E::ExecutionStarted { session_id } => {
+            c.execute("UPDATE session_v2 SET time_busy = ? WHERE id = ?", params![created as i64, session_id])?;
+        }
         _ => run(c, e, seq)?,
     }
     Ok(())
@@ -528,7 +534,9 @@ fn project_fork(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<
              ORDER BY seq",
             params![prefix, session_id, parent_id, copied],
         )?;
+        fork_inline_parts(c, session_id, parent_id, &prefix, copied)?;
         fork_keep_ids(c, session_id, parent_id, &prefix)?;
+        fork_record_refs(c, session_id)?;
         reserve_seq(c, session_id, copied)?;
     }
     if let Some(values) = instructions {
@@ -537,6 +545,49 @@ fn project_fork(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<
             "INSERT INTO instruction_state (session_id, epoch_start, through_seq, initial_values, current_values) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
             params![session_id, seq, seq, json, json],
         )?;
+    }
+    Ok(())
+}
+
+/// A parent message whose parts live in `session_part` is copied with them inline, so the fork reads the same.
+fn fork_inline_parts(c: &Connection, session: &str, parent: &str, prefix: &str, copied: i64) -> anyhow::Result<()> {
+    let mut rows: Vec<(i64, String, String, String)> = {
+        let mut s = c.prepare(
+            "SELECT m.seq, m.id, m.type, m.data FROM session_message AS m
+             WHERE m.session_id = ? AND m.seq <= ? AND m.type = 'assistant'
+               AND EXISTS (SELECT 1 FROM session_part AS p WHERE p.message_id = m.id)",
+        )?;
+        let rows = s
+            .query_map(params![parent, copied], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        rows
+    };
+    if rows.is_empty() {
+        return Ok(());
+    }
+    crate::stored::with_parts(c, &mut rows)?;
+    for (seq, _, _, data) in rows {
+        c.execute(
+            "UPDATE session_message SET data = ? WHERE session_id = ? AND id = ?",
+            params![data, session, format!("{prefix}_{seq}")],
+        )?;
+    }
+    Ok(())
+}
+
+/// `SessionBlob.recordRefs` for every copied row: the child keeps the blobs its copies name alive.
+fn fork_record_refs(c: &Connection, session: &str) -> anyhow::Result<()> {
+    if c.query_row("SELECT 1 FROM blob LIMIT 1", [], |_| Ok(())).optional()?.is_none() {
+        return Ok(());
+    }
+    let rows: Vec<(i64, String, String)> = {
+        let mut s = c.prepare("SELECT seq, id, data FROM session_message WHERE session_id = ? AND data LIKE '%\"media:%'")?;
+        let rows = s.query_map([session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+        rows
+    };
+    for (seq, id, data) in rows {
+        let data: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+        crate::stored::record_refs(c, session, &id, seq, &data)?;
     }
     Ok(())
 }
@@ -569,18 +620,50 @@ fn fork_keep_ids(c: &Connection, session: &str, parent: &str, prefix: &str) -> a
 }
 
 fn insert_message(c: &Connection, session: &str, seq: i64, m: &Message) -> rusqlite::Result<()> {
+    let data = m.to_row_data();
     c.execute(
         "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        params![m.id(), session, m.kind(), seq, m.created() as i64, now_ms(), m.to_row_data()],
+        params![m.id(), session, m.kind(), seq, m.created() as i64, now_ms(), data],
     )?;
+    if data.contains("\"media:") {
+        let value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+        crate::stored::record_refs(c, session, m.id(), seq, &value)?;
+    }
     Ok(())
 }
 
-fn update_message(c: &Connection, session: &str, m: &Message) -> rusqlite::Result<()> {
-    c.execute(
-        "UPDATE session_message SET type = ?, time_created = ?, data = ?, time_updated = ? WHERE id = ? AND session_id = ?",
-        params![m.kind(), m.created() as i64, m.to_row_data(), now_ms(), m.id(), session],
-    )?;
+/// `updateMessage`: a message whose parts a newer release moved to `session_part` keeps an empty
+/// `content` envelope in its row and has the parts written there; others are written inline. A
+/// content rewrite also syncs the blob refs the message names.
+fn update_message(c: &Connection, e: &Committing<'_>, session: &str, m: &Message) -> rusqlite::Result<()> {
+    let data = m.to_row_data();
+    let mut row: Map<String, Value> = crate::stored::parse_object(&data);
+    let parts = match (m, row.contains_key("content")) {
+        (Message::Assistant(_), true) => crate::stored::part_rows(c, m.id())?,
+        _ => Vec::new(),
+    };
+    let content = if parts.is_empty() {
+        None
+    } else {
+        let content = row.insert("content".into(), Value::Array(vec![]));
+        Some(content.and_then(|v| if let Value::Array(a) = v { Some(a) } else { None }).unwrap_or_default())
+    };
+    let stored = if content.is_some() { Value::Object(row.clone()).to_string() } else { data.clone() };
+    let seq: Option<i64> = c
+        .query_row(
+            "UPDATE session_message SET type = ?, time_created = ?, data = ?, time_updated = ? WHERE id = ? AND session_id = ? RETURNING seq",
+            params![m.kind(), m.created() as i64, stored, now_ms(), m.id(), session],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(seq) = seq else { return Ok(()) };
+    if let Some(content) = content {
+        crate::stored::write_parts(c, session, m.id(), e.created as i64, &parts, &content)?;
+    }
+    if matches!(e.event, SessionEvent::MessageContentUpdated { .. }) {
+        let value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+        crate::stored::sync_refs(c, session, m.id(), seq, &value)?;
+    }
     Ok(())
 }
 
@@ -588,11 +671,16 @@ fn decode(id: String, kind: String, data: String) -> Option<Message> {
     Message::from_row(&id, &kind, &data).ok()
 }
 
+/// Read one message row for the updater (`decodeAssistantRow`: parts inlined, media refs kept).
 fn query_message(c: &Connection, sql: &str, p: impl rusqlite::Params) -> rusqlite::Result<Option<Message>> {
-    Ok(c
+    let row = c
         .query_row(sql, p, |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
-        .optional()?
-        .and_then(|(i, k, d)| decode(i, k, d)))
+        .optional()?;
+    let Some(row) = row else { return Ok(None) };
+    let mut rows = [row];
+    crate::stored::with_parts(c, &mut rows)?;
+    let [(i, k, d)] = rows;
+    Ok(decode(i, k, d))
 }
 
 fn get_assistant(c: &Connection, session: &str, id: &str) -> rusqlite::Result<Option<Box<Assistant>>> {
@@ -630,13 +718,14 @@ fn running_compaction(c: &Connection, session: &str) -> rusqlite::Result<Option<
 
 fn with_assistant(
     c: &Connection,
+    e: &Committing<'_>,
     session: &str,
     id: &str,
     f: impl FnOnce(&mut Assistant),
 ) -> rusqlite::Result<()> {
     if let Some(mut a) = get_assistant(c, session, id)? {
         f(&mut a);
-        update_message(c, session, &Message::Assistant(a))?;
+        update_message(c, e, session, &Message::Assistant(a))?;
     }
     Ok(())
 }
@@ -661,11 +750,11 @@ fn terminal_snapshot(a: &mut Assistant, snapshot: &Option<String>, files: &Optio
     }
 }
 
-fn clear_current_retry(c: &Connection, session: &str) -> rusqlite::Result<()> {
+fn clear_current_retry(c: &Connection, e: &Committing<'_>, session: &str) -> rusqlite::Result<()> {
     if let Some(mut a) = current_assistant(c, session)? {
         if a.retry.is_some() {
             a.retry = None;
-            update_message(c, session, &Message::Assistant(a))?;
+            update_message(c, e, session, &Message::Assistant(a))?;
         }
     }
     Ok(())
@@ -681,12 +770,12 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
     let s = session.as_str();
     let append = |m: Message| insert_message(c, s, seq, &m);
     let idle = |outcome: Outcome, error: Option<SessionError>| -> rusqlite::Result<()> {
-        clear_current_retry(c, s)?;
+        clear_current_retry(c, e, s)?;
         append(Message::Idle { id: from_event.clone(), metadata: meta.clone(), time: Created { created }, outcome, error })
     };
     match e.event {
         E::MessageContentUpdated { message_id, content, .. } => {
-            with_assistant(c, s, message_id, |a| a.content = content.clone())?;
+            with_assistant(c, e, s, message_id, |a| a.content = content.clone())?;
         }
         E::AgentSelected { agent, previous, .. } => {
             let previous = match previous {
@@ -749,7 +838,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
         E::ExecutionFailed { error, .. } => idle(Outcome::Failed, Some(error.clone()))?,
         E::ExecutionInterrupted { reason, .. } => {
             if *reason == InterruptReason::Shutdown {
-                clear_current_retry(c, s)?
+                clear_current_retry(c, e, s)?
             } else {
                 idle(Outcome::Interrupted, None)?
             }
@@ -812,6 +901,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             if let Some(Message::Shell { id, metadata, time, shell_id, command, .. }) = current {
                 update_message(
                     c,
+                    e,
                     s,
                     &Message::Shell {
                         id,
@@ -841,13 +931,13 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                     sn.start = Some(snap.clone());
                     a.snapshot = Some(sn);
                 }
-                update_message(c, s, &Message::Assistant(a))?;
+                update_message(c, e, s, &Message::Assistant(a))?;
                 return Ok(());
             }
             if let Some(mut cur) = current_assistant(c, s)? {
                 cur.retry = None;
                 cur.time.completed = Some(created);
-                update_message(c, s, &Message::Assistant(cur))?;
+                update_message(c, e, s, &Message::Assistant(cur))?;
             }
             append(Message::Assistant(Box::new(Assistant {
                 id: assistant_message_id.clone(),
@@ -867,10 +957,10 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             })))?;
         }
         E::StepStreamed { assistant_message_id, .. } => {
-            with_assistant(c, s, assistant_message_id, |a| a.time.streamed = Some(created))?
+            with_assistant(c, e, s, assistant_message_id, |a| a.time.streamed = Some(created))?
         }
         E::StepEnded { assistant_message_id, finish, raw_finish, native, cost, tokens, snapshot, files, .. } => {
-            with_assistant(c, s, assistant_message_id, |a| {
+            with_assistant(c, e, s, assistant_message_id, |a| {
                 a.time.completed = Some(created);
                 a.finish = Some(*finish);
                 a.raw_finish = raw_finish.clone();
@@ -882,7 +972,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
         }
         E::StepFailed {
             assistant_message_id, error, finish, raw_finish, native, cost, tokens, snapshot, files, ..
-        } => with_assistant(c, s, assistant_message_id, |a| {
+        } => with_assistant(c, e, s, assistant_message_id, |a| {
             a.time.completed = Some(created);
             a.finish = Some(finish.unwrap_or(FinishReason::Error));
             a.raw_finish = raw_finish.clone();
@@ -895,10 +985,10 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             }
             terminal_snapshot(a, snapshot, files);
         })?,
-        E::TextStarted { assistant_message_id, .. } => with_assistant(c, s, assistant_message_id, |a| {
+        E::TextStarted { assistant_message_id, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
             a.content.push(AssistantContent::Text { text: String::new(), native: None })
         })?,
-        E::TextEnded { assistant_message_id, text, native, .. } => with_assistant(c, s, assistant_message_id, |a| {
+        E::TextEnded { assistant_message_id, text, native, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
             if let Some(AssistantContent::Text { text: t, native: n }) =
                 a.content.iter_mut().rev().find(|c| matches!(c, AssistantContent::Text { .. }))
             {
@@ -906,7 +996,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 *n = native.clone();
             }
         })?,
-        E::ToolInputStarted { assistant_message_id, id, name, .. } => with_assistant(c, s, assistant_message_id, |a| {
+        E::ToolInputStarted { assistant_message_id, id, name, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
             a.content.push(AssistantContent::Tool {
                 id: id.clone(),
                 name: name.clone(),
@@ -916,13 +1006,13 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 time: ToolTime { created, ran: None, completed: None },
             })
         })?,
-        E::ToolInputEnded { assistant_message_id, id, text, .. } => with_assistant(c, s, assistant_message_id, |a| {
+        E::ToolInputEnded { assistant_message_id, id, text, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
             if let Some(AssistantContent::Tool { state: ToolState::Streaming { input }, .. }) = last_tool(a, id) {
                 *input = text.clone();
             }
         })?,
         E::ToolCalled { assistant_message_id, id, input, executed, native, .. } => {
-            with_assistant(c, s, assistant_message_id, |a| {
+            with_assistant(c, e, s, assistant_message_id, |a| {
                 if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
                     *ex = Some(*executed);
                     *n = native.clone();
@@ -932,7 +1022,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             })?
         }
         E::ToolSuccess { assistant_message_id, id, content, metadata, executed, native, .. } => {
-            with_assistant(c, s, assistant_message_id, |a| {
+            with_assistant(c, e, s, assistant_message_id, |a| {
                 if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
                     if let ToolState::Running { input, .. } = st {
                         let input = input.clone();
@@ -945,7 +1035,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             })?
         }
         E::ToolFailed { assistant_message_id, id, error, content, metadata, executed, native, .. } => {
-            with_assistant(c, s, assistant_message_id, |a| {
+            with_assistant(c, e, s, assistant_message_id, |a| {
                 if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
                     let input = match st {
                         ToolState::Streaming { .. } => Some(Map::new()),
@@ -966,14 +1056,14 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 }
             })?
         }
-        E::ReasoningStarted { assistant_message_id, native, .. } => with_assistant(c, s, assistant_message_id, |a| {
+        E::ReasoningStarted { assistant_message_id, native, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
             a.content.push(AssistantContent::Reasoning {
                 text: String::new(),
                 native: native.clone(),
                 time: Some(CompletedTime { created, completed: None }),
             })
         })?,
-        E::ReasoningEnded { assistant_message_id, text, native, .. } => with_assistant(c, s, assistant_message_id, |a| {
+        E::ReasoningEnded { assistant_message_id, text, native, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
             if let Some(AssistantContent::Reasoning { text: t, native: n, time }) = a.content.iter_mut().rev().find(|c| {
                 matches!(c, AssistantContent::Reasoning { time, .. } if time.as_ref().and_then(|t| t.completed).is_none())
             }) {
@@ -985,7 +1075,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             }
         })?,
         E::RetryScheduled { assistant_message_id, attempt, at, error, .. } => {
-            with_assistant(c, s, assistant_message_id, |a| {
+            with_assistant(c, e, s, assistant_message_id, |a| {
                 a.retry = Some(AssistantRetry { attempt: *attempt, at: *at, error: error.clone() })
             })?
         }
@@ -1011,7 +1101,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                     cur.metadata = Some(merged);
                 }
                 cur.status = status;
-                update_message(c, s, &Message::Compaction(cur))?;
+                update_message(c, e, s, &Message::Compaction(cur))?;
             } else {
                 append(Message::Compaction(Box::new(Compaction {
                     id: from_event.clone(),
@@ -1034,7 +1124,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 status: CompactionStatus::Failed { reason: *reason, error: error.clone(), cost: *cost, tokens: *tokens },
             };
             if current.is_some() {
-                update_message(c, s, &Message::Compaction(Box::new(failed)))?;
+                update_message(c, e, s, &Message::Compaction(Box::new(failed)))?;
             } else {
                 append(Message::Compaction(Box::new(failed)))?;
             }

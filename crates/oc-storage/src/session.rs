@@ -28,7 +28,7 @@ pub fn slug() -> String {
     )
 }
 
-pub const SESSION_COLUMNS: &str = "id, project_id, title, parent_id, fork_session_id, fork_boundary, agent, model, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, directory, workspace_id, path, metadata, permission, revert, idle_outcome, time_created, time_updated, time_idle, time_viewed, time_archived";
+pub const SESSION_COLUMNS: &str = "id, project_id, title, parent_id, fork_session_id, fork_boundary, agent, model, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, directory, workspace_id, path, metadata, permission, revert, idle_outcome, time_created, time_updated, time_idle, time_viewed, time_archived, time_busy";
 
 fn json<T: serde::de::DeserializeOwned>(s: Option<String>) -> Option<T> {
     s.and_then(|s| serde_json::from_str(&s).ok())
@@ -89,6 +89,7 @@ pub fn session_from_row(r: &Row) -> rusqlite::Result<SessionInfo> {
         time: SessionTime {
             created: r.get::<_, i64>(21)? as u64,
             updated: r.get::<_, i64>(22)? as u64,
+            busy: r.get::<_, Option<i64>>(26)?.map(|v| v as u64),
             idle: r.get::<_, Option<i64>>(23)?.map(|v| v as u64),
             viewed: r.get::<_, Option<i64>>(24)?.map(|v| v as u64),
             archived: archived.map(|v| v as u64),
@@ -114,8 +115,10 @@ impl Database {
     pub fn session_messages(&self, session: &str) -> anyhow::Result<Vec<(i64, Message)>> {
         let rows: Vec<(i64, String, String, String)> = self.with(|c| {
             let mut s = c.prepare("SELECT seq, id, type, data FROM session_message WHERE session_id = ? ORDER BY seq ASC")?;
-            let r = s.query_map([session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect();
-            r
+            let mut rows: Vec<(i64, String, String, String)> =
+                s.query_map([session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
+            crate::stored::restore(c, &mut rows)?;
+            Ok(rows)
         })?;
         Ok(rows
             .into_iter()
@@ -139,13 +142,15 @@ impl Database {
             let mut s = c.prepare(
                 "SELECT id, type, payload, delivery, enqueued_seq, time_created FROM session_inbox WHERE session_id = ? ORDER BY enqueued_seq ASC",
             )?;
-            let r = s
+            let mut rows: Vec<(String, String, Value, String, i64, i64)> = s
                 .query_map(params![session], |r| {
                     let payload: String = r.get(2)?;
                     Ok((r.get(0)?, r.get(1)?, serde_json::from_str(&payload).unwrap_or(Value::Null), r.get(3)?, r.get(4)?, r.get(5)?))
                 })?
-                .collect();
-            r
+                .collect::<rusqlite::Result<_>>()?;
+            let mut payloads: Vec<&mut Value> = rows.iter_mut().map(|r| &mut r.2).collect();
+            crate::stored::hydrate_inbox(c, &mut payloads)?;
+            Ok(rows)
         })
     }
 }
