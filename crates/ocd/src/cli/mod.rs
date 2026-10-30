@@ -234,6 +234,16 @@ pub fn colors() -> help::Colors {
     help::Colors { on: can_color(var("TERM").as_deref(), var("NO_COLOR").as_deref(), var("FORCE_COLOR").as_deref(), crate::term::stdout_is_tty()) }
 }
 
+/// Whether Bun colors `console.error` (as the 2.2.2 binary does): a `FORCE_COLOR` other than `0` forces it, even with
+/// `NO_COLOR` or `TERM=dumb`; otherwise a non-empty `NO_COLOR` turns it off, else it follows stderr being a TTY.
+fn bun_stderr_colors() -> bool {
+    use std::io::IsTerminal;
+    match std::env::var("FORCE_COLOR").ok().filter(|v| !v.is_empty()) {
+        Some(v) => v != "0",
+        None => std::env::var("NO_COLOR").map(|v| v.is_empty()).unwrap_or(true) && std::io::stderr().is_terminal(),
+    }
+}
+
 fn can_color(term: Option<&str>, no_color: Option<&str>, force_color: Option<&str>, tty: bool) -> bool {
     if term == Some("dumb") {
         return false;
@@ -257,7 +267,13 @@ pub fn emit(root: &Cmd, outcome: &Outcome) -> i32 {
                 return 0;
             }
             let list: Vec<(&str, String)> = errors.iter().map(|e| (e.tag(), e.message())).collect();
-            eprintln!("{}", help::errors(&list, c));
+            let text = help::errors(&list, c);
+            // `Console.error` under Bun prints in red when its stderr colors are on.
+            if bun_stderr_colors() {
+                eprintln!("\x1b[0m\x1b[31m{text}\x1b[0m");
+            } else {
+                eprintln!("{text}");
+            }
             1
         }
         Outcome::Version => {
