@@ -381,6 +381,8 @@ static EXCLUSIONS: Lazy<Vec<Regex>> = Lazy::new(|| {
         r"(?i)rate limit",
         r"(?i)too many requests",
         r"(?i)max[_ ]tokens must be less than",
+        // Bedrock phrases throttling as "Too many tokens[, per day], please wait..."; it is a 429 to retry.
+        r"(?i)too many tokens(?: per day)?, please wait",
     ]
     .iter()
     .map(|p| re(p))
@@ -405,6 +407,7 @@ const QUOTA_CODES: &[&str] = &[
     "usage_not_included",
     "billing_error",
     "gousagelimiterror",
+    "budgetlimiterror",
     "freeusagelimiterror",
     "creditlimitexceeded",
 ];
@@ -429,17 +432,31 @@ const CONTENT_POLICY_CODES: &[&str] = &[
     "content_policy_violation",
     "image_content_policy_violation",
     "refusal",
+    "datainspectionfailed",
+    "moderation_blocked",
 ];
 
 static GATEWAY_CODE_LABEL: Lazy<Regex> = Lazy::new(|| re(r"^[^:\n]+: \[([A-Za-z0-9_.-]+)\]"));
 static AUTH_TEXT: Lazy<Regex> = Lazy::new(|| re(r"(?i)incorrect api key provided"));
 static RATE_LIMIT_TEXT: Lazy<Regex> =
     Lazy::new(|| re(r"(?i)rate increased too quickly|rate[-_\s]?limit|too[_\s]?many[_\s]?requests"));
+// Upstream: `/insufficient[-_\s]?(?:quota|balance)|(?<!token_)quota[-_\s]?exceeded|.../i`. The `regex` crate has no
+// look-behind, so `quota exceeded` is matched on its own and rejected after `token_` (Cerebras's per-minute
+// throttle `token_quota_exceeded` is a rate limit).
 static QUOTA_TEXT: Lazy<Regex> = Lazy::new(|| {
-    re(r"(?i)insufficient[-_\s]?(?:quota|balance)|quota[-_\s]?exceeded|budget exceeded|usage limit|limit exhausted|package has expired|plan does not yet include")
+    re(r"(?i)insufficient[-_\s]?(?:quota|balance)|budget exceeded|usage limit|limit exhausted|package has expired|plan does not yet include")
 });
+static QUOTA_EXCEEDED_TEXT: Lazy<Regex> = Lazy::new(|| re(r"(?i)quota[-_\s]?exceeded"));
+
+fn quota_text(text: &str) -> bool {
+    QUOTA_TEXT.is_match(text)
+        || QUOTA_EXCEEDED_TEXT.find_iter(text).any(|m| {
+            let before = &text.as_bytes()[..m.start()];
+            !(before.len() >= 6 && before[before.len() - 6..].eq_ignore_ascii_case(b"token_"))
+        })
+}
 static CONTENT_POLICY_TEXT: Lazy<Regex> = Lazy::new(|| {
-    re(r"(?i)violating our usage policy|blocked by content filtering policy|content[-_\s]?policy|rejected as a result of our safety system|detected potentially unsafe or sensitive content")
+    re(r"(?i)violating our usage policy|blocked by content filtering policy|content[-_\s]?policy|rejected (?:as a result of our|by the) safety system|detected potentially unsafe or sensitive content")
 });
 static SERVER_ERROR_TEXT: Lazy<Regex> = Lazy::new(|| {
     re(r"(?i)\b(?:try again|(?:please |you can )?retry (?:the |this |your )?request|try (?:the |this |your )?request again|(?:currently |temporarily )?at capacity|overloaded|temporarily unavailable|service[-_\s]?unavailable|(?:server|internal)[-_\s]?error|server (?:is )?busy|provider returned (?:an )?error|resource[-_\s]?exhausted|upstream (?:connect|connection|request)|request buffer limit while retrying upstream)\b")
@@ -484,9 +501,10 @@ fn provider_codes_value(decoded: &Value) -> Vec<String> {
     let response = as_obj(obj.get("response"));
     let response_error = response.and_then(|r| as_obj(r.get("error")));
     let exception = as_obj(obj.get("exception"));
+    let mut out: Vec<String> = obj.get("code").and_then(Value::as_str).map(String::from).into_iter().collect();
+    out.extend(aws_error_type(obj.get("__type")));
+    out.extend(aws_error_type(obj.get("code")));
     let mut values: Vec<Option<&Value>> = vec![
-        obj.get("code"),
-        if obj.get("errors").map(Value::is_array).unwrap_or(false) { obj.get("name") } else { None },
         obj.get("error_type"),
         error.and_then(|e| e.get("code")),
         error.and_then(|e| e.get("type")),
@@ -503,7 +521,22 @@ fn provider_codes_value(decoded: &Value) -> Vec<String> {
     values.push(response_error.and_then(|r| r.get("code")));
     values.push(response.and_then(|r| r.get("error_type")));
     values.push(exception.and_then(|e| e.get("type")));
-    values.into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect()
+    out.extend(values.into_iter().flatten().filter_map(|v| v.as_str().map(String::from)));
+    out
+}
+
+/// `awsErrorType`: AWS restJson1 reports the modeled error in `X-Amzn-Errortype`, `__type` or `code`, possibly
+/// namespaced (`ns#Name`) or suffixed (`Name:uri`). Keep the shape name only.
+fn aws_error_type(value: Option<&Value>) -> Option<String> {
+    value.and_then(Value::as_str).map(aws_error_type_str)
+}
+
+fn aws_error_type_str(value: &str) -> String {
+    let head = value.split(':').next().unwrap_or_default();
+    match head.find('#') {
+        Some(i) => head[i + 1..].to_string(),
+        None => head.to_string(),
+    }
 }
 
 fn provider_codes_str(text: &str) -> Vec<String> {
@@ -528,6 +561,9 @@ pub fn classify_provider_failure(input: ProviderFailure) -> AIError {
     if let Some(cap) = GATEWAY_CODE_LABEL.captures(&input.message) {
         codes.push(cap[1].to_string());
     }
+    if let Some(kind) = input.http.as_ref().and_then(|h| h.headers.get("x-amzn-errortype")) {
+        codes.push(aws_error_type_str(kind));
+    }
     let codes: Vec<String> = codes.into_iter().map(|c| c.to_lowercase()).collect();
     let has = |set: &[&str]| codes.iter().any(|c| set.contains(&c.as_str()));
     let text = [input.message.as_str(), body.as_str()].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join("\n");
@@ -544,7 +580,9 @@ pub fn classify_provider_failure(input: ProviderFailure) -> AIError {
 
     if client_scoped
         && (codes.iter().any(|c| c == "context_length_exceeded" || c == "model_context_window_exceeded" || c == "request_too_large")
-            || is_context_overflow(&text))
+            // 429 bodies are throttles even when their wording matches an overflow phrase (Cerebras's
+            // "too many tokens processed"); text matching stays on for 4xx and statusless stream errors.
+            || (status != Some(429) && !codes.iter().any(|c| c == "throttlingexception") && is_context_overflow(&text)))
     {
         return make(ErrorKind::InvalidRequest {
             parameter: None,
@@ -560,7 +598,7 @@ pub fn classify_provider_failure(input: ProviderFailure) -> AIError {
     if has(CONTENT_POLICY_CODES) || (client_scoped && CONTENT_POLICY_TEXT.is_match(&input.message)) {
         return make(ErrorKind::ContentPolicy);
     }
-    if status == Some(402) || has(QUOTA_CODES) || (status == Some(429) && QUOTA_TEXT.is_match(&text)) {
+    if status == Some(402) || has(QUOTA_CODES) || (status == Some(429) && quota_text(&text)) {
         return make(ErrorKind::QuotaExceeded { retry_after_ms: input.retry_after_ms });
     }
     if status == Some(401) || status == Some(403) || has(AUTH_CODES) || (status == Some(400) && AUTH_TEXT.is_match(&text)) {
