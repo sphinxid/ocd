@@ -108,9 +108,9 @@ never checks.
 `ocd --version` prints ocd's own version next to the opencode version it's compatible with:
 
 ```
-ocd v0.2.2+1a2b3c4 (opencode 2.1.4)
+ocd v0.2.2+1a2b3c4 (opencode 2.2.2)
 ```
 
 `0.2.2` is the release tag and `1a2b3c4` the commit. Providers, plugins and the background service see opencode
-2.1.4 on the `latest` channel, so they treat ocd like upstream. Local builds are described in
+2.2.2 on the `latest` channel, so they treat ocd like upstream. Local builds are described in
 [BUILDING.md](BUILDING.md#version-numbers).

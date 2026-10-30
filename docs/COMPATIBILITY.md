@@ -2,10 +2,10 @@
 
 [← README](../README.md)
 
-ocd targets opencode **2.1.4** (`anomalyco/opencode`, tag `v2.1.4`, commit `68bc26b`). It was first ported from
-branch `v2` at commit `4617210` (2.0.26). It then caught up with 2.1.4 in batches, listed with what each one
-checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like opencode, ocd reports version
-2.1.4.
+ocd targets opencode **2.2.2** (`anomalyco/opencode`, tag `v2.2.2`, commit `098aa7f`). It was first ported from
+branch `v2` at commit `4617210` (2.0.26). It then caught up with 2.1.4 and 2.2.2 in batches, listed with what each
+one checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md) and [UPGRADE-2.2.2.md](UPGRADE-2.2.2.md). Wherever it has to
+look like opencode, ocd reports version 2.2.2.
 
 - [How it is compared](#how-it-is-compared)
 - [Same as upstream](#same-as-upstream)
@@ -15,18 +15,19 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 74 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 98 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
   - the CLI and plugins;
-  - GitHub Copilot, the OpenAI WebSocket transport and the experimental todo list.
+  - GitHub Copilot, the OpenAI WebSocket transport and the experimental todo list;
+  - the 2.2 changes: provider wire, `/goal`, background compaction and tools.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 69 of the 74 scenarios are identical. The other five differ in ways that are expected or harmless:
-  - timing races that also vary between two runs of upstream;
+- **Result:** 95 of the 98 scenarios are identical. The other three differ in ways that are expected or harmless:
   - the intended renames;
-  - the wording of one network error.
+  - the upstream test build's database file name;
+  - a timing race that also varies between two runs of upstream.
 - **Per-crate tests:** each crate has its own test suite, many replaying recorded upstream data.
 
 ## Same as upstream
@@ -34,10 +35,11 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 | Area | Notes |
 |---|---|
 | Sessions and history | Create, fork, revert, export, import and search. The same database file and schema |
-| Agent loop | Steps, tool calls, reasoning, retries, compaction, titles, background jobs and subagents |
+| Agent loop | Steps, tool calls, reasoning, retries, compaction (including background compaction, `experimental.background_compaction`), titles, background jobs and subagents |
+| `/goal` | The command and its controls, the reviewer loop, the `opencode.goal` RPC and its event, and the TUI's footer status and dialog |
 | Permissions and forms | Ask, once, always, and reject with feedback; the question tool |
 | Built-in tools | read, write, edit, patch, glob, grep, shell, webfetch, websearch, todo, task and others. Output limits and scanners checked against 81,787 upstream cases |
-| Code Mode | The JavaScript `execute` tool has its own interpreter. 1,704 of 1,707 recorded upstream programs replay identically; one of the others changed on purpose in 2.1 and is checked against 2.1.4 instead |
+| Code Mode | The JavaScript `execute` tool has its own interpreter. 1,800 of 1,802 programs recorded from upstream 2.2.2 replay identically (the other two depend on how a timed-out tool call is cleaned up) |
 | Project setup | Agents, commands, skills (including remote skill discovery), `AGENTS.md` instructions and references, config files and live reload, configured `instructions` (files, globs and URLs), `policies`, and managed system config (`/etc/opencode` and its platform equivalents) |
 | opencode v1 import | Imports v1 history into the v2 tables byte-identically to upstream, with the same progress badge in the TUI |
 | Chat providers | Anthropic, OpenAI, Google, Bedrock, Mistral, Cohere, OpenAI-compatible, OpenCode Zen, and every models.dev provider using those protocols. 229 recorded upstream streams decode identically |
@@ -48,7 +50,7 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 | MCP servers | stdio and HTTP transports, OAuth and elicitation. Remote servers are sign-in integrations, so `ocd mcp auth` and `/connect` can sign in to them |
 | Server plugins | Tools, hooks, transforms, storage, rpc and events, plus `ocd plugin add/check/update`. They run in a small Bun helper process |
 | AI SDK provider packages | Such as `@ai-sdk/deepseek`, through the same Bun helper |
-| Clients and API | The full TUI. The web UI served by `ocd serve`, built from upstream's 2.1.4 app (88 of 88 compared requests were identical with the 2.0.26 app; the serving code is unchanged in 2.1.4). The HTTP API (149 endpoints, from upstream 2.1.4's OpenAPI document) and the event stream. The background service on port 49374 (28894 on Windows) |
+| Clients and API | The full TUI. The web UI served by `ocd serve`, built from upstream's 2.2.2 app (88 of 88 compared requests were identical with the 2.0.26 app; the serving code is unchanged since). The HTTP API (162 endpoints, from upstream 2.2.2's OpenAPI document) and the event stream. The background service on port 49374 (28894 on Windows) |
 | Git | Status, diffs, branches, snapshots and worktrees |
 | Editor integration (ACP) | `ocd acp`, including the file diffs on permission requests and completed edits |
 | CLI prompts | `ocd auth`, `ocd mcp auth` and `ocd session export` use the same prompts as upstream (pickers, search lists, forms), down to resizing and key handling |
@@ -75,11 +77,15 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 |---|---|
 | TUI plugins (the `tui` entrypoint) | Not planned: they need upstream's SolidJS terminal UI |
 | Third-party packages for upstream's model runtime (`@opencode/ai`) | AI SDK packages do work |
-| Image, speech, video and transcription models | Upstream has these only as library code that nothing in the app calls |
+| Image generation | The `image_generate` tool (on by default in 2.2.2 when a connected provider has image models), the image and decision APIs and models. The endpoints answer as when the feature is off |
+| Scheduled prompts | `/schedule` and `experimental.schedules`. The endpoints answer as when the feature is off |
+| Session media storage | `experimental.media_blob` writes and media URIs. ocd reads media blobs that upstream wrote |
+| Speech, video and transcription models | Upstream has these only as library code that nothing in the app calls |
+| Desktop browser attachment | The built-in `browser` skill is listed and denied to every agent like upstream, but the `experimental.browser` RPC and the `browser.*` Code Mode tools, which work only once the desktop app attaches, are not served |
 | Mercurial repositories | No version-control provider, so its endpoints answer empty |
 | `--wizard` mode | Prints an error |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 |
-| Other experimental 2.1 features | Background compaction, `location_idle_timeout` and the new designs. Their config keys are accepted and do nothing |
+| Other experimental features | `location_idle_timeout` and the new designs. Their config keys are accepted and do nothing |
 | Testing on macOS, Windows and Linux ARM | Release binaries are built for them, but only Linux x86_64 is tested |
 
 ## Different on purpose
@@ -90,4 +96,4 @@ checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md). Wherever it has to look like op
 | TUI working status line | After you press Enter, a line above the prompt shows what's happening: waiting for the model, thinking, writing, running a tool, retrying or compacting. It also shows a timer ticking every second, the output token count and the interrupt key. A running shell command goes on the row below. Upstream shows only its moving progress bar, which ocd keeps, plus a live "Thinking" row in the transcript, which ocd leaves out while the status line shows it |
 | `ocd upgrade` and update checks | Installs from ocd's GitHub releases with checksum verification, and checks once a day instead of every 10 minutes ([details](INSTALL.md#upgrading)) |
 | Heap snapshots | The server has no JavaScript heap, so `POST /api/debug/heap-dump` answers `500 UnknownError`. `ocd debug heap-dump --server URL` still captures one from an upstream server |
-| Version | `ocd --version` shows ocd's own build next to the compatible opencode version. Clients, plugins and the service see 2.1.4 on the `latest` channel ([details](INSTALL.md#versions)) |
+| Version | `ocd --version` shows ocd's own build next to the compatible opencode version. Clients, plugins and the service see 2.2.2 on the `latest` channel ([details](INSTALL.md#versions)) |

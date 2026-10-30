@@ -1,4 +1,4 @@
-# Port state / handoff (last updated 2026-10-27)
+# Port state / handoff (last updated 2026-10-30)
 
 **Name:** the Rust port is **ocd** (user: only the app + binary are ocd; everything else must stay backward-compatible with opencode). TUI logo reads "opencode-d" (oc-tui view_helpers LOGO_RIGHT, breakpoints 31/53). `ocd upgrade` installs ocd's own GitHub releases and the TUI shows an update notice (`crates/ocd/src/release.rs`); `uninstall` unchanged. (binary `ocd`, crate `crates/ocd`). Upstream compatibility surfaces (config/data dirs, opencode.json, .opencode/, OPENCODE_* env, HTTP API, x-opencode-* headers, plugin package names) keep the opencode names on purpose.
 
@@ -7,11 +7,12 @@ Goal (user request): an exact behavioral replica of **opencode v2** in Rust — 
 `docs/PORTING.md`. Specs: `docs/spec/01..08` (~18k lines, all complete).
 
 ## Upstream reference
-- Repo `anomalyco/opencode`, tag `v2.1.4`, commit `68bc26b7da1990ce10ffecfbc1e09eb13aa5d824`, MIT (`LICENSE-opencode`).
+- Repo `anomalyco/opencode`, tag `v2.2.2`, commit `098aa7fd6e02b03d6fc410f0b052038c7d4c5e81`, MIT (`LICENSE-opencode`).
   The port started from branch `v2` at `4617210822bdbb31e5749751afbfb4584ccedac8` (2.0.26) and caught up with
-  2.1.4 in batches (`docs/UPGRADE-2.1.4.md`); the specs in `docs/spec/` still cite the 4617210 sources.
+  2.1.4 (`docs/UPGRADE-2.1.4.md`) and 2.2.2 (`docs/UPGRADE-2.2.2.md`) in batches; the specs in `docs/spec/` still
+  cite the 4617210 sources. The 2.2 tags are not descendants of `v2.1.4`: compare trees, not commit logs.
 - Read-only checkout (may vanish with the session scratchpad; re-clone if missing):
-  `git clone https://github.com/anomalyco/opencode.git && git -C opencode checkout v2.1.4`
+  `git clone https://github.com/anomalyco/opencode.git && git -C opencode checkout v2.2.2`
   (was at `$OCD_SCRATCH/src/opencode`).
 - Toolchain: rustup in `~/.cargo` (Rust 1.99, edition 2024). Always `export PATH=$HOME/.cargo/bin:$PATH`.
   Machine: 8 cores, 13 GB RAM. No git commits (user's global rule: only commit when asked; never add AI attribution).
@@ -22,12 +23,12 @@ Goal (user request): an exact behavioral replica of **opencode v2** in Rust — 
   Core is **event-sourced**: durable session events → projectors → SQLite tables; `event` table stays empty locally
   (persist=false); `event_sequence` holds per-aggregate seq (first event seq 0).
 - DB: `<XDG_DATA_HOME|~/.local/share>/opencode/opencode.db` (release channels), WAL, pragmas in spec 02 §1.3.
-  Fresh DB = run `assets/sql/schema.sql` + insert all 49 ids from `assets/sql/migration_ids.txt`.
+  Fresh DB = run `assets/sql/schema.sql` + insert all 58 ids from `assets/sql/migration_ids.txt`.
 - Paths are XDG on every OS. Log: `<data>/log/opencode.log`, logfmt, trimmed >50MiB → ~25MiB.
 - IDs: 12 hex (48-bit, ts<<12+counter, truncated) + 14 base62; `ses_` descending, others ascending.
 - v2 messages have no "parts": assistant `content[]` items (text/reasoning/tool). Stored `data` excludes `id`/`type`.
 - MCP tools reach the model by default only via the Code Mode `execute` tool → **oc-codemode is required**.
-- The persistent PTY daemon `opencode-pty` (npm `@opencode-ai/pty@0.3.1` since 2.1, 0.2.0 before) is **already Rust** (portable-pty +
+- The persistent PTY daemon `opencode-pty` (npm `@opencode/pty@0.3.3` since 2.2, `@opencode-ai/pty@0.3.1` in 2.1, 0.2.0 before) is **already Rust** (portable-pty +
   libghostty) — reuse rather than rewrite. `@` file picker uses `fff` (MIT Rust core) — usable directly.
 - No LSP client in v2. No Anthropic OAuth in v2. No CLAUDE.md instruction discovery (only AGENTS.md).
 - JS/TS user plugins, TUI plugins and `aisdk:` npm provider packages need a JS runtime — **undecided**
@@ -92,6 +93,21 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-10-30: CAUGHT UP WITH 2.2.2 (`docs/UPGRADE-2.2.2.md`): seven batches, all compared with an upstream 2.2.2
+  binary built from the tag (`OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui` in
+  packages/cli; an exported tree has no git branch). Storage/API (58 migrations, session_part, media blob reads,
+  OpenAPI 162 ops, canonical locations, generate/text), models.dev v2 catalog + Console usage limits/config layer,
+  Code Mode job queue (corpus re-recorded from 2.2.2 with `crates/oc-codemode/tests/recorder`, 1800/1802),
+  provider wire (typed Go/budget/ChatGPT limits, throttling, costs, video), git/fs/tools (fs/watch, vcs folders,
+  icons, pty 0.3.3), TUI/CLI (goal footer/dialog, /usage, effect 4.0.6 global server flags, tunnel proxies),
+  session/plugins (/goal native in `oc-core/src/goal.rs`, experimental.idle, background compaction, sidecar on
+  2.2.2). LATER: image generation, schedules, media blob writes (stubs answer as disabled). The guard wrapper now
+  routes non-loopback traffic to a dead proxy (one early run reached opencode.ai's free tier anonymously).
+- 2026-10-30: 2.2.2 FINAL CHECK: full side-by-side 95/98 identical against the v2.2.2 build (cli_help renames,
+  cli_inventory detached db path, stop_retry_exhausted upstream race). Follow-up fixes: browser skill + denies
+  (`location::browser_denies`, `assets/skill/browser.md`), unlocated events for location-free session routes
+  (`bus::without_location_async`, `Bus::route`), MCP started before the boot burst, failed-plugin domain notifies
+  gated and ordered, prompt estimate from registered tools (`Engine::estimate_tools`). Tests 2076 passed.
 - 2026-10-28: ACP + CLI PROMPTS: ACP permission previews and completed edit/patch diffs (`acp/permission.ts`;
   jsdiff parse/reverse/apply in `oc-tools/src/jsdiff.rs`), identical to 2.1.4 over stdio. Every clack prompt in the
   CLI (confirm/select/multiselect/text/password/autocomplete) and upstream's integration picker are ported

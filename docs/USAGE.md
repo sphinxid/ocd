@@ -2,7 +2,7 @@
 
 [← README](../README.md)
 
-ocd behaves like opencode 2.1.4, so [opencode's documentation](https://opencode.ai/docs) applies too. This page
+ocd behaves like opencode 2.2.2, so [opencode's documentation](https://opencode.ai/docs) applies too. This page
 covers what's specific to ocd.
 
 - [Commands](#commands)

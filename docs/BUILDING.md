@@ -47,9 +47,9 @@ The build works out its version from the git tags, the same way the release work
 
 | Checkout | `ocd --version` |
 |---|---|
-| Exactly at tag `v0.2.2` | `ocd v0.2.2+<commit> (opencode 2.1.4)`, the same as that release's binary |
-| Three commits after `v0.2.2` | `ocd v0.2.2+3.<commit> (opencode 2.1.4)` |
-| No `v*` tag | `ocd v20261027.124153+<commit> (opencode 2.1.4)`: the build time in UTC |
+| Exactly at tag `v0.2.2` | `ocd v0.2.2+<commit> (opencode 2.2.2)`, the same as that release's binary |
+| Three commits after `v0.2.2` | `ocd v0.2.2+3.<commit> (opencode 2.2.2)` |
+| No `v*` tag | `ocd v20261027.124153+<commit> (opencode 2.2.2)`: the build time in UTC |
 | Not a git checkout | The build time and a random hash |
 
 - **Fetch tags first:** run `git fetch --tags` so the latest tag is there.
@@ -63,13 +63,13 @@ The build works out its version from the git tags, the same way the release work
 The web UI is upstream's web app, about 24 MB, so it isn't committed. Without it, `ocd serve` answers 404 for web
 pages, the same as an upstream build made with `--skip-web-ui`. The TUI and CLI don't need it.
 
-To include it, build it from an upstream checkout at `v2.1.4` with Bun 1.4.4, then rebuild ocd. The archive is
+To include it, build it from an upstream checkout at `v2.2.2` with Bun 1.4.4, then rebuild ocd. The archive is
 embedded at compile time. If `node` is on your `PATH`, it must be Node 22.12 or newer (or 20.19+), because the
 app's bundler runs under it.
 
 ```sh
 git clone https://github.com/anomalyco/opencode.git ../opencode
-(cd ../opencode && git checkout v2.1.4 && bun install)
+(cd ../opencode && git checkout v2.2.2 && bun install)
 BUN=bun scripts/build-web-ui.sh ../opencode     # writes crates/ocd/web-ui/app-archive.bin
 cargo build --release -p ocd
 ```
@@ -84,7 +84,7 @@ At runtime ocd looks for the web UI in this order:
 
 `crates/oc-plugin/host/dist/host.js` is committed, so building ocd never needs Bun. If you change the helper's
 TypeScript (`crates/oc-plugin/host/src/`), rebuild the bundle with Bun 1.4.4. You need an upstream checkout at
-`v2.1.4` with `bun install` run:
+`v2.2.2` with `bun install` run:
 
 ```sh
 BUN=/path/to/bun-1.4.4 scripts/build-plugin-host.sh ../opencode
@@ -100,7 +100,7 @@ Some tests need the upstream checkout, the upstream binary or Bun 1.4.4. They fi
 by `OCD_SCRATCH`, and are skipped when it isn't set:
 
 ```
-$OCD_SCRATCH/src/opencode                         upstream checkout (tag v2.1.4, `bun install` done)
+$OCD_SCRATCH/src/opencode                         upstream checkout (tag v2.2.2, `bun install` done)
 $OCD_SCRATCH/up-dist/cli-linux-x64/bin/opencode   upstream binary built from that checkout
 $OCD_SCRATCH/bun144/bun-linux-x64/bun             Bun 1.4.4
 ```

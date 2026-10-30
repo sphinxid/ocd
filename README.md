@@ -5,7 +5,7 @@ It has the same CLI, TUI, HTTP API, config files and data folders, and it starts
 
 - **Drop-in:** it reads your `opencode.json`, `.opencode/`, `~/.config/opencode`, sessions, credentials, plugins
   and `OPENCODE_*` variables. Only the program is renamed: the binary is `ocd` and the logo reads `opencode-d`.
-- **Up to date:** it tracks opencode **2.1.4** (tag `v2.1.4`, commit `68bc26b`) and is compared against it side by
+- **Up to date:** it tracks opencode **2.2.2** (tag `v2.2.2`, commit `098aa7f`) and is compared against it side by
   side ([how](docs/COMPATIBILITY.md#how-it-is-compared)).
 - **One self-contained binary:** TUI, server and web UI. It upgrades itself from its own releases with `ocd upgrade`.
 
@@ -64,13 +64,13 @@ Linux x86_64, release builds of both, the same mock model and isolated folders:
 
 | Status | Areas |
 |---|---|
-| ✅ **Same as upstream** | Sessions and history, the agent loop, permissions, built-in tools, Code Mode, agents/commands/skills, config and policies, all chat providers and sign-in methods (API keys, OAuth, ChatGPT, GitHub Copilot, Azure, AWS and Google cloud credentials), MCP servers, server plugins and AI SDK packages, the editor integration (ACP), the full TUI and `ocd mini`, web UI, HTTP API (149 endpoints), background service, git and worktrees, v1 history import |
+| ✅ **Same as upstream** | Sessions and history, the agent loop, permissions, built-in tools, Code Mode, agents/commands/skills, config and policies, all chat providers and sign-in methods (API keys, OAuth, ChatGPT, GitHub Copilot, Azure, AWS and Google cloud credentials), MCP servers, server plugins and AI SDK packages, the editor integration (ACP), the full TUI and `ocd mini`, web UI, HTTP API (162 endpoints), `/goal`, background compaction, background service, git and worktrees, v1 history import |
 | 🟡 **Small differences** | Plugins run in a Bun helper that is downloaded on first use; a few error texts; code-block colours in `ocd mini` |
-| ⛔ **Not yet** | TUI plugins, image/speech/video models, Mercurial, `--wizard`, most experimental 2.1 features (the todo list is ported) |
+| ⛔ **Not yet** | TUI plugins, image generation and other non-chat models, scheduled prompts, Mercurial, `--wizard`, a few other experimental features |
 | ✨ **Different on purpose** | A working status line in the TUI, `ocd upgrade` from ocd's own releases, `ocd --version` shows ocd's own version |
 
-69 of 74 side-by-side scenarios produce identical output; the rest differ only by timing, the renames and a few
-message wordings. Details: **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
+95 of 98 side-by-side scenarios produce identical output against opencode 2.2.2; the other three differ only by
+the renames, the test build's file name and an upstream timing race. Details: **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
 
 Only Linux x86_64 is tested day to day. The macOS, Windows and ARM64 builds are produced by CI but not tested.
 
@@ -79,7 +79,7 @@ Only Linux x86_64 is tested day to day. The macOS, Windows and ARM64 builds are 
 ```sh
 git clone https://github.com/sphinxid/ocd.git && cd ocd
 cargo build --release -p ocd          # needs Rust 1.85+ and a C compiler
-./target/release/ocd --version        # ocd v0.2.2+1a2b3c4 (opencode 2.1.4)
+./target/release/ocd --version        # ocd v0.2.2+1a2b3c4 (opencode 2.2.2)
 ```
 
 Web UI, version stamping, tests and releases: **[docs/BUILDING.md](docs/BUILDING.md)**.
