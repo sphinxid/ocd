@@ -1140,21 +1140,33 @@ impl App {
         let mid2 = msg_id.clone();
         let revert = self.store.session(&sid).and_then(|s| s.revert.clone()).is_some();
         let model2 = model_ref.clone();
+        // The failure toast's title follows the step that failed (`newSession.recover`, `fail`, `attempt`).
+        let phase = std::sync::Arc::new(std::sync::Mutex::new("Failed to send prompt"));
+        let phase2 = phase.clone();
+        let set = move |title: &'static str| *phase2.lock().unwrap() = title;
         self.spawn(
             async move {
                 if created {
+                    set("Creating a session failed");
                     let mut body = json!({ "id": sid2, "agent": agent_id, "location": { "directory": dir } });
                     if let Some(m) = &model2 {
                         body["model"] = serde_json::to_value(m)?;
                     }
-                    c.session_create(body).await.map_err(|e| anyhow::anyhow!("Creating a session failed: {}", crate::api::error_message(&e)))?;
+                    c.session_create(body).await?;
+                    set("Failed to set up session");
                     if !env.is_empty() {
                         c.environment(&sid2, serde_json::to_value(&env)?).await?;
                     }
                 }
                 if shell {
+                    if !created {
+                        set("Failed to run shell command");
+                    }
                     c.shell(&sid2, &input_text).await?;
                     return Ok(());
+                }
+                if !created {
+                    set(if server_cmd.is_some() { "Failed to run command" } else { "Failed to prepare session" });
                 }
                 if session_agent.as_deref() != Some(agent_id.as_str()) && !created {
                     c.switch_agent(&sid2, &agent_id).await?;
@@ -1180,7 +1192,13 @@ impl App {
                     return Ok(());
                 }
                 if revert {
+                    if !created {
+                        set("Failed to commit revert");
+                    }
                     c.revert_commit(&sid2).await?;
+                }
+                if !created {
+                    set("Failed to send prompt");
                 }
                 let mut body = json!({ "id": mid2, "text": input_text, "delivery": delivery });
                 if !files.is_empty() {
@@ -1205,7 +1223,7 @@ impl App {
                             app.navigate(Route::Home);
                         }
                     }
-                    let title = if shell && !created { "Failed to run shell command" } else { "Failed to send prompt" };
+                    let title = *phase.lock().unwrap();
                     app.toast(Toast::new("error", crate::api::error_message(&e)).title(title));
                 }
             },
