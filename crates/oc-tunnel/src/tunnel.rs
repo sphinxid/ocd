@@ -1,6 +1,7 @@
 //! A running tunnel (`client/src/effect/tunnel.ts`): one bridge session at a time, reconnecting with backoff until
-//! closed or a fatal attach error. Each public connection the relay opens is a TLS session that terminates here,
-//! with the tunnel's own certificate, and is forwarded to the route's `host:port` target.
+//! closed or a fatal error (an attach error that will not change on retry, or a proxy the bridge cannot use). Each
+//! public connection the relay opens is a TLS session that terminates here, with the tunnel's own certificate, and is
+//! forwarded to the route's `host:port` target, after a PROXY protocol header when the route asks for one.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -19,6 +20,9 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use crate::api::{Api, USER_AGENT};
 use crate::bridge::{self, ServerMessage, code, timing};
 use crate::names;
+use crate::proxy_protocol;
+use crate::routes::{Resolved, resolve_routes};
+pub use crate::routes::{Route, Routes};
 use crate::storage::{Identity, parse_date};
 
 /// Bytes queued on the WebSocket before local sockets stop being read.
@@ -32,8 +36,6 @@ const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 const CERTIFICATE_CHECK_FRESH: Duration = Duration::from_secs(12 * 60 * 60);
 const CERTIFICATE_CHECK_DUE: Duration = Duration::from_secs(60);
 const RENEWAL_WINDOW_MS: i64 = 30 * DAY_MS;
-
-pub type Routes = BTreeMap<String, String>;
 
 /// Tunnel events, as the SDK's `ClientEvent`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -53,6 +55,11 @@ pub enum Event {
         attempt: u32,
         #[serde(rename = "delayMs")]
         delay_ms: u64,
+    },
+    /// Another bridge holds a route (`attach_error` `route_conflict`). `routes` are the ones this attach claimed:
+    /// the server does not say which is held.
+    RouteConflict {
+        routes: Vec<String>,
     },
     ConnectionOpened {
         conn: u32,
@@ -82,13 +89,45 @@ pub struct AttachError {
 
 impl std::fmt::Display for AttachError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Bridge attach failed: {}", self.code)
+        if self.code == code::ROUTE_CONFLICT {
+            write!(f, "Bridge attach failed: {} (another client holds a route)", self.code)
+        } else {
+            write!(f, "Bridge attach failed: {}", self.code)
+        }
+    }
+}
+
+/// Why a tunnel stopped for good.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Fatal {
+    /// `OpenTunnelAttachError`
+    Attach(AttachError),
+    /// A plain `Error`: the environment selects a proxy the bridge cannot use.
+    Error(String),
+}
+
+impl std::fmt::Display for Fatal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Fatal::Attach(e) => write!(f, "{e}"),
+            Fatal::Error(message) => f.write_str(message),
+        }
     }
 }
 
 /// Codes that stop the tunnel instead of reconnecting.
 fn fatal_attach_code(value: &str) -> bool {
     value == code::BAD_TOKEN || value == code::CERT_NOT_READY
+}
+
+/// What to do when another bridge holds a route (`onRouteConflict`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OnRouteConflict {
+    /// Retry with backoff, taking the route over once the other bridge goes away.
+    #[default]
+    Retry,
+    /// Stop the tunnel with the `route_conflict` attach error.
+    Fail,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -146,9 +185,11 @@ type EventSink = Arc<dyn Fn(Event) + Send + Sync>;
 type RenewSink = Arc<dyn Fn(Identity) + Send + Sync>;
 
 pub struct Options {
+    /// The API, whose transport also carries the bridge's proxy.
     pub api: Api,
     pub identity: Identity,
     pub routes: Routes,
+    pub on_route_conflict: OnRouteConflict,
     pub on_event: EventSink,
     pub on_renewed: RenewSink,
 }
@@ -157,17 +198,19 @@ pub struct Options {
 enum End {
     Shutdown,
     RoutesChanged,
-    Fatal(AttachError),
+    Fatal(Fatal),
     Retry { error: String, attached: bool },
 }
 
 struct Shared {
     api: Api,
+    on_route_conflict: OnRouteConflict,
     on_event: EventSink,
     on_renewed: RenewSink,
     identity: Mutex<Identity>,
     tls: Mutex<Arc<rustls::ServerConfig>>,
     routes: Mutex<Routes>,
+    resolved: Mutex<BTreeMap<String, Resolved>>,
     status: Mutex<Status>,
     shutdown: watch::Sender<bool>,
     /// Ends the current session early (routes changed or shutdown).
@@ -186,7 +229,7 @@ impl Shared {
 }
 
 /// How the tunnel ended.
-pub type Closed = Result<(), AttachError>;
+pub type Closed = Result<(), Fatal>;
 
 /// A running tunnel.
 pub struct Tunnel {
@@ -198,11 +241,12 @@ pub struct Tunnel {
 impl Tunnel {
     /// Starts the tunnel. Fails only when the identity's certificate or key cannot be loaded.
     pub fn start(options: Options) -> Result<Tunnel, String> {
-        names::validate_routes(options.routes.iter())?;
+        let resolved = resolve_routes(&options.routes)?;
         let tls = server_config(&options.identity)?;
         let (shutdown, _) = watch::channel(false);
         let shared = Arc::new(Shared {
             api: options.api,
+            on_route_conflict: options.on_route_conflict,
             on_event: options.on_event,
             on_renewed: options.on_renewed,
             status: Mutex::new(Status {
@@ -214,6 +258,7 @@ impl Tunnel {
             identity: Mutex::new(options.identity),
             tls: Mutex::new(tls),
             routes: Mutex::new(options.routes),
+            resolved: Mutex::new(resolved),
             shutdown,
             interrupt: Mutex::new(None),
             wake: Notify::new(),
@@ -264,13 +309,20 @@ impl Tunnel {
         self.shared.identity.lock().clone()
     }
 
+    /// `getUrls`: the public URL of each current route.
+    pub fn urls(&self) -> BTreeMap<String, String> {
+        let hostname = self.shared.identity.lock().hostname.clone();
+        crate::routes::public_urls(&self.shared.routes.lock(), &hostname)
+    }
+
     /// Replaces the routes. Changing only targets applies to new connections immediately; adding or removing names
     /// re-attaches the bridge.
     pub fn set_routes(&self, routes: Routes) -> Result<(), String> {
-        names::validate_routes(routes.iter())?;
+        let resolved = resolve_routes(&routes)?;
         let changed = {
             let mut current = self.shared.routes.lock();
             let changed = !same_names(&current, &routes);
+            *self.shared.resolved.lock() = resolved;
             *current = routes.clone();
             changed
         };
@@ -377,7 +429,13 @@ async fn refresh_certificate(shared: Arc<Shared>) {
             let identity = shared.identity.lock();
             (identity.id.clone(), identity.token.clone(), identity.certificate.clone())
         };
-        if let Some(state) = shared.api.current_certificate(&token, &id).await {
+        // Closing the tunnel aborts a check in flight.
+        let mut shutdown = shared.shutdown.subscribe();
+        let checked = tokio::select! {
+            state = shared.api.current_certificate(&token, &id) => state,
+            _ = shutdown.wait_for(|v| *v) => return,
+        };
+        if let Some(state) = checked {
             let text = |key: &str| state.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty());
             if state.get("type").and_then(|v| v.as_str()) == Some("ready")
                 && let (Some(certificate), Some(expiry)) = (text("certificate"), text("expiry"))
@@ -495,7 +553,16 @@ async fn session(shared: &Arc<Shared>, ready: &Arc<Mutex<Option<oneshot::Sender<
         (identity.id.clone(), identity.token.clone(), identity.hostname.clone())
     };
     let url = shared.api.connect_url(&id);
-    let connecting = crate::ws::connect(&url, bridge::WEBSOCKET_SUBPROTOCOL, &[("User-Agent", USER_AGENT)]);
+    let proxy = match shared.api.transport().bridge_proxy(&url) {
+        Ok(proxy) => proxy,
+        Err(message) => {
+            // The environment selects a proxy the bridge cannot use; retrying will not help.
+            shared.interrupt.lock().take();
+            return End::Fatal(Fatal::Error(message));
+        }
+    };
+    let connecting =
+        crate::ws::connect(&url, bridge::WEBSOCKET_SUBPROTOCOL, &[("User-Agent", USER_AGENT)], proxy.as_ref());
     let socket = tokio::select! {
         result = connecting => match result {
             Ok(socket) => socket,
@@ -628,8 +695,12 @@ async fn session(shared: &Arc<Shared>, ready: &Arc<Mutex<Option<oneshot::Sender<
                                     shared.emit(Event::Connected { session, routes });
                                 }
                                 ServerMessage::AttachError { code } => {
-                                    break if fatal_attach_code(&code) {
-                                        End::Fatal(AttachError { code })
+                                    let conflict = code == code::ROUTE_CONFLICT;
+                                    if conflict {
+                                        shared.emit(Event::RouteConflict { routes: routes.clone() });
+                                    }
+                                    break if fatal_attach_code(&code) || (conflict && shared.on_route_conflict == OnRouteConflict::Fail) {
+                                        End::Fatal(Fatal::Attach(AttachError { code }))
                                     } else {
                                         End::Retry { error: format!("attach failed: {code}"), attached: false }
                                     };
@@ -641,9 +712,8 @@ async fn session(shared: &Arc<Shared>, ready: &Arc<Mutex<Option<oneshot::Sender<
                         match message {
                             ServerMessage::Open { conn, sni, peer, .. } => {
                                 let route = names::route_for_sni(&sni, &hostname);
-                                let target = route.as_ref().and_then(|r| shared.routes.lock().get(r).cloned());
-                                let parsed = target.as_deref().and_then(names::parse_target);
-                                let (Some(route), Some(target)) = (route, parsed) else {
+                                let resolved = route.as_ref().and_then(|r| shared.resolved.lock().get(r).cloned());
+                                let (Some(route), Some(resolved)) = (route, resolved) else {
                                     outbound.control(bridge::reset(conn, code::UNKNOWN_ROUTE));
                                     continue;
                                 };
@@ -654,7 +724,8 @@ async fn session(shared: &Arc<Shared>, ready: &Arc<Mutex<Option<oneshot::Sender<
                                 let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
                                 let queued = Arc::new(AtomicUsize::new(0));
                                 let tls = shared.tls.lock().clone();
-                                let task = tokio::spawn(channel(conn, target, tls, inbound_rx, queued.clone(), outbound.clone(), closed_tx.clone()));
+                                let preamble = resolved.proxy_protocol.as_deref().map(|version| proxy_protocol::header(version, &peer, &sni));
+                                let task = tokio::spawn(channel(conn, resolved.target, preamble, tls, inbound_rx, queued.clone(), outbound.clone(), closed_tx.clone()));
                                 if let Some(old) = channels.insert(conn, Channel { route: route.clone(), inbound: inbound_tx, queued, task: task.abort_handle() }) {
                                     old.task.abort();
                                 }
@@ -721,10 +792,13 @@ async fn session(shared: &Arc<Shared>, ready: &Arc<Mutex<Option<oneshot::Sender<
     end
 }
 
-/// Terminates TLS for one public connection and forwards it to the target.
+/// Terminates TLS for one public connection and forwards it to the target, after writing `preamble` (a PROXY
+/// protocol header) when the route has one.
+#[allow(clippy::too_many_arguments)]
 async fn channel(
     conn: u32,
     target: names::Target,
+    preamble: Option<Vec<u8>>,
     tls: Arc<rustls::ServerConfig>,
     mut inbound: mpsc::UnboundedReceiver<Inbound>,
     queued: Arc<AtomicUsize>,
@@ -774,7 +848,7 @@ async fn channel(
             out.control(bridge::end(conn));
         }
     });
-    let result = forward(tls_side, target, tls, &failed).await;
+    let result = forward(tls_side, target, preamble, tls, &failed).await;
     let report = match result {
         Ok(()) => {
             let _ = pump_out.await;
@@ -793,6 +867,7 @@ async fn channel(
 async fn forward(
     io: tokio::io::DuplexStream,
     target: names::Target,
+    preamble: Option<Vec<u8>>,
     tls: Arc<rustls::ServerConfig>,
     failed: &std::sync::atomic::AtomicBool,
 ) -> Result<(), (&'static str, String)> {
@@ -817,6 +892,11 @@ async fn forward(
     let _ = upstream.set_nodelay(true);
     let (mut tls_read, mut tls_write) = tokio::io::split(secure);
     let (mut up_read, mut up_write) = upstream.into_split();
+    if let Some(preamble) = preamble
+        && let Err(e) = up_write.write_all(&preamble).await
+    {
+        return Err(fail(code::UPSTREAM_IO_ERROR, e.to_string()));
+    }
     // Public to local. Like Node, a client that closes without close_notify has simply ended.
     let inbound = async {
         let mut buffer = vec![0u8; 16 * 1024];

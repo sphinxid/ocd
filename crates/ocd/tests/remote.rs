@@ -187,7 +187,7 @@ async fn pair_remote_creates_the_tunnel_and_serves_the_route_through_the_relay()
     };
     assert!(line.contains("level=ERROR"), "{line}");
     assert!(
-        line.contains("cause=\"Cause([Fail(OpenTunnelClientError: Failed to connect tunnel (cause: Error: Bridge attach failed: bad_token))])\""),
+        line.contains("cause=\"Cause([Fail(OpenTunnelClientError: Failed to connect tunnel: Bridge attach failed: bad_token (cause: Error: Bridge attach failed: bad_token))])\""),
         "{line}"
     );
     relay.options(|o| o.attach_error = None);
@@ -212,7 +212,7 @@ async fn service_set_remote_true_fails_when_the_tunnel_cannot_be_created() {
     assert_eq!(set.status.code(), Some(1));
     assert_eq!(
         common::text(&set.stderr),
-        "Setting up remote access; this can take a minute...\nOpenTunnelClientError: Failed to create tunnel {\n  [cause]: ServiceUnavailableError: Fake failure\n}\n"
+        "Setting up remote access; this can take a minute...\nOpenTunnelClientError: Failed to create tunnel: ServiceUnavailableError: Fake failure {\n  [cause]: ServiceUnavailableError: Fake failure\n}\n"
     );
     // Remote access stays off.
     assert!(!env.path("config/opencode/service.json").exists());

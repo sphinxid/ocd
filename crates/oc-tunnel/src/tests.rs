@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::fake::{FakeRelay, Options};
-use crate::{Client, Event, Routes, Storage};
+use crate::{Client, ClientOptions, Event, Routes, Storage};
 
 const ROUTE: &str = "0123456789abcdef";
 
@@ -102,7 +102,20 @@ fn recorder() -> (Recorded, Arc<dyn Fn(Event) + Send + Sync>) {
 }
 
 fn routes(target: &str) -> Routes {
-    [(ROUTE.to_string(), target.to_string())].into_iter().collect()
+    crate::routes::routes([(ROUTE, target)])
+}
+
+/// A client that reads no proxy variables (tests never depend on the environment they run in), with short API retry
+/// delays.
+fn test_client(relay: &FakeRelay, storage: Storage) -> Client {
+    client_with(relay, storage, &[])
+}
+
+fn client_with(relay: &FakeRelay, storage: Storage, env: &[(&str, &str)]) -> Client {
+    let options = ClientOptions { proxy: None, env: Some(crate::proxy::env_of(env)) };
+    let mut client = Client::with_options(relay.api.clone(), storage, options).unwrap();
+    client.set_retry_scale(0.01);
+    client
 }
 
 async fn wait_for(events: &Recorded, f: impl Fn(&Event) -> bool) {
@@ -135,7 +148,7 @@ async fn creates_a_tunnel_and_forwards_tls_connections() {
     let relay = FakeRelay::start(Options::default()).await;
     let dir = tempfile::tempdir().unwrap();
     let storage = Storage::at(dir.path().join("opentunnel"));
-    let client = Client::new(relay.api.clone(), storage.clone());
+    let client = test_client(&relay, storage.clone());
     let target = target().await;
     let (events, sink) = recorder();
     let connection = client.connect("default", routes(&target), Some(sink)).await.unwrap();
@@ -171,7 +184,7 @@ async fn creates_a_tunnel_and_forwards_tls_connections() {
     assert_eq!(csr["dns"], json!([hostname, format!("*.{hostname}")]));
     assert_eq!(csr["signature_valid"], json!(true));
     let create = log.iter().find(|e| e["http"] == "POST /api/tunnel").unwrap();
-    assert_eq!(create["headers"]["user-agent"], "opentunnel-sdk/0.4.1");
+    assert_eq!(create["headers"]["user-agent"], "opentunnel-sdk/0.6.1");
     assert_eq!(create["body"], "{}");
     let upgrade = log.iter().find(|e| e["http"] == "GET /api/tunnel/:id/connect").unwrap();
     assert_eq!(upgrade["headers"]["sec-websocket-protocol"], "opentunnel");
@@ -192,7 +205,7 @@ async fn creates_a_tunnel_and_forwards_tls_connections() {
 async fn reconnects_after_drain_close_and_drop_and_answers_pings() {
     let relay = FakeRelay::start(Options::default()).await;
     let dir = tempfile::tempdir().unwrap();
-    let client = Client::new(relay.api.clone(), Storage::at(dir.path().join("opentunnel")));
+    let client = test_client(&relay, Storage::at(dir.path().join("opentunnel")));
     let target = target().await;
     let (events, sink) = recorder();
     let connection = client.connect("default", routes(&target), Some(sink)).await.unwrap();
@@ -240,15 +253,16 @@ async fn fatal_and_retried_failures() {
     // A rejected token stops the tunnel for good.
     let relay = FakeRelay::start(Options { attach_error: Some("bad_token".into()), ..Options::default() }).await;
     let dir = tempfile::tempdir().unwrap();
-    let client = Client::new(relay.api.clone(), Storage::at(dir.path().join("opentunnel")));
+    let client = test_client(&relay, Storage::at(dir.path().join("opentunnel")));
     let error = client.connect("default", routes(&target), None).await.err().unwrap();
-    assert_eq!(error.to_string(), "Failed to connect tunnel");
+    assert_eq!(error.to_string(), "Failed to connect tunnel: Bridge attach failed: bad_token");
+    assert_eq!(error.code(), Some("bad_token"));
     assert!(error.is_fatal());
 
     // A certificate the server will not issue is fatal too.
     let relay = FakeRelay::start(Options { fail_issuance: Some("rate limited".into()), ..Options::default() }).await;
     let dir = tempfile::tempdir().unwrap();
-    let client = Client::new(relay.api.clone(), Storage::at(dir.path().join("opentunnel")));
+    let client = test_client(&relay, Storage::at(dir.path().join("opentunnel")));
     let error = client.ensure("default").await.unwrap_err();
     assert_eq!(error.to_string(), "Certificate issuance failed: rate limited");
     assert!(error.is_fatal());
@@ -260,15 +274,17 @@ async fn fatal_and_retried_failures() {
         FakeRelay::start(Options { create_error: Some((503, "ServiceUnavailableError".into())), ..Options::default() })
             .await;
     let dir = tempfile::tempdir().unwrap();
-    let client = Client::new(relay.api.clone(), Storage::at(dir.path().join("opentunnel")));
+    let client = test_client(&relay, Storage::at(dir.path().join("opentunnel")));
     let error = client.ensure("default").await.unwrap_err();
-    assert_eq!(error.to_string(), "Failed to create tunnel");
+    assert_eq!(error.to_string(), "Failed to create tunnel: ServiceUnavailableError: Fake failure");
     assert!(!error.is_fatal());
+    // `POST /api/tunnel` is sent again on a 503, six times.
+    assert_eq!(relay.log().iter().filter(|e| e["http"] == "POST /api/tunnel").count(), 7);
 
     // Other attach errors reconnect with backoff.
     let relay = FakeRelay::start(Options { attach_error: Some("replaced".into()), ..Options::default() }).await;
     let dir = tempfile::tempdir().unwrap();
-    let client = Client::new(relay.api.clone(), Storage::at(dir.path().join("opentunnel")));
+    let client = test_client(&relay, Storage::at(dir.path().join("opentunnel")));
     let (events, sink) = recorder();
     let pending = tokio::spawn(async move { client.connect("default", routes(&target), Some(sink)).await.map(|_| ()) });
     wait_for(&events, |e| e == &Event::Disconnected { reason: "attach failed: replaced".into() }).await;
@@ -281,7 +297,7 @@ async fn resumes_an_interrupted_issuance_and_picks_up_renewals() {
     let relay = FakeRelay::start(Options { issuing_polls: 1000, ..Options::default() }).await;
     let dir = tempfile::tempdir().unwrap();
     let storage = Storage::at(dir.path().join("opentunnel"));
-    let client = Client::new(relay.api.clone(), storage.clone());
+    let client = test_client(&relay, storage.clone());
     // Interrupted while the certificate is being issued.
     assert!(tokio::time::timeout(Duration::from_millis(500), client.ensure("default")).await.is_err());
     assert!(storage.load_pending("default").unwrap().is_some());
@@ -301,4 +317,366 @@ async fn resumes_an_interrupted_issuance_and_picks_up_renewals() {
     let renewed = client.ensure("default").await.unwrap();
     assert_ne!(renewed.certificate, identity.certificate);
     assert_eq!(storage.load("default").unwrap().unwrap().certificate, renewed.certificate);
+}
+
+// ---- proxies, retries, route options (0.6.1) -------------------------------------------------------------------
+
+/// Request lines and headers a mock proxy received.
+type ProxyLog = Arc<Mutex<Vec<(String, Vec<String>)>>>;
+
+/// A local HTTP proxy that records each request it gets: `CONNECT` tunnels, and absolute-form requests forwarded one
+/// at a time. It only connects to 127.0.0.1.
+struct MockProxy {
+    url: String,
+    log: ProxyLog,
+}
+
+impl MockProxy {
+    async fn start() -> MockProxy {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let log: ProxyLog = Arc::new(Mutex::new(Vec::new()));
+        let record = log.clone();
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                tokio::spawn(proxy_connection(socket, record.clone()));
+            }
+        });
+        MockProxy { url, log }
+    }
+
+    fn requests(&self) -> Vec<String> {
+        self.log.lock().iter().map(|(line, _)| line.clone()).collect()
+    }
+
+    fn headers(&self, prefix: &str) -> Vec<Vec<String>> {
+        self.log.lock().iter().filter(|(line, _)| line.starts_with(prefix)).map(|(_, h)| h.clone()).collect()
+    }
+}
+
+async fn read_request_head(socket: &mut tokio::net::TcpStream, buffer: &mut Vec<u8>) -> Option<String> {
+    loop {
+        if let Some(i) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&buffer[..i]).to_string();
+            buffer.drain(..i + 4);
+            return Some(head);
+        }
+        let mut chunk = [0u8; 4096];
+        let n = socket.read(&mut chunk).await.ok()?;
+        if n == 0 {
+            return None;
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+    }
+}
+
+async fn proxy_connection(mut socket: tokio::net::TcpStream, log: ProxyLog) {
+    let mut buffer = Vec::new();
+    while let Some(head) = read_request_head(&mut socket, &mut buffer).await {
+        let mut lines = head.split("\r\n").map(String::from);
+        let line = lines.next().unwrap_or_default();
+        let headers: Vec<String> = lines.collect();
+        log.lock().push((line.clone(), headers.clone()));
+        let mut parts = line.split(' ');
+        let (method, target) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("").to_string());
+        if method == "CONNECT" {
+            let Some(port) = target.strip_prefix("127.0.0.1:") else { return };
+            let Ok(mut upstream) =
+                tokio::net::TcpStream::connect(("127.0.0.1", port.parse::<u16>().unwrap_or(0))).await
+            else {
+                let _ = socket.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
+                return;
+            };
+            let _ = socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await;
+            let _ = upstream.write_all(&buffer).await;
+            let _ = tokio::io::copy_bidirectional(&mut socket, &mut upstream).await;
+            return;
+        }
+        let Ok(url) = url::Url::parse(&target) else { return };
+        if url.host_str() != Some("127.0.0.1") {
+            return;
+        }
+        let length = headers
+            .iter()
+            .find_map(|h| h.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap_or(0)))
+            .unwrap_or(0usize);
+        while buffer.len() < length {
+            let mut chunk = [0u8; 4096];
+            match socket.read(&mut chunk).await {
+                Ok(0) | Err(_) => return,
+                Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+            }
+        }
+        let body: Vec<u8> = buffer.drain(..length).collect();
+        let mut forwarded = format!("{method} {} HTTP/1.1\r\n", &url[url::Position::BeforePath..]);
+        for h in &headers {
+            let name = h.split(':').next().unwrap_or("").to_ascii_lowercase();
+            if !name.starts_with("proxy-") && name != "connection" {
+                forwarded.push_str(&format!("{h}\r\n"));
+            }
+        }
+        forwarded.push_str("Connection: close\r\n\r\n");
+        let Ok(mut upstream) = tokio::net::TcpStream::connect(("127.0.0.1", url.port().unwrap_or(80))).await else {
+            return;
+        };
+        let _ = upstream.write_all(forwarded.as_bytes()).await;
+        let _ = upstream.write_all(&body).await;
+        let mut response = Vec::new();
+        let _ = upstream.read_to_end(&mut response).await;
+        if socket.write_all(&response).await.is_err() {
+            return;
+        }
+    }
+}
+
+fn api_host(relay: &FakeRelay) -> String {
+    format!("127.0.0.1:{}", relay.api.port().unwrap())
+}
+
+#[tokio::test]
+async fn api_calls_the_certificate_check_and_the_bridge_go_through_the_proxy() {
+    let relay = FakeRelay::start(Options::default()).await;
+    let proxy = MockProxy::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = client_with(&relay, Storage::at(dir.path().join("opentunnel")), &[("HTTP_PROXY", &proxy.url)]);
+    let target = target().await;
+    let (events, sink) = recorder();
+    let connection = client.connect("default", routes(&target), Some(sink)).await.unwrap();
+    let hostname = connection.tunnel.hostname.clone();
+    // The tunnel works through the proxied bridge.
+    let response = public_request(&relay, &format!("{ROUTE}.{hostname}"), "/via", b"").await.unwrap();
+    assert!(String::from_utf8_lossy(&response).ends_with("POST /via HTTP/1.1 0"));
+    wait_for(&events, |e| matches!(e, Event::ConnectionClosed { .. })).await;
+    connection.close().await;
+
+    let api = format!("http://{}", api_host(&relay));
+    let requests = proxy.requests();
+    let id = &relay.tunnels()[0].0;
+    for expected in [
+        format!("POST {api}/api/tunnel HTTP/1.1"),
+        format!("POST {api}/api/tunnel/{id}/certificate HTTP/1.1"),
+        format!("GET {api}/api/tunnel/{id}/certificate HTTP/1.1"),
+        format!("CONNECT {} HTTP/1.1", api_host(&relay)),
+    ] {
+        assert!(requests.contains(&expected), "{expected} not in {requests:?}");
+    }
+    // API calls carry the SDK's user agent, the certificate check Bun's, and every one tells the proxy to keep the
+    // connection open as Bun does.
+    let gets = proxy.headers(&format!("GET {api}/api/tunnel/{id}/certificate"));
+    let agents: Vec<String> = gets
+        .iter()
+        .filter_map(|h| h.iter().find(|l| l.to_ascii_lowercase().starts_with("user-agent:")).cloned())
+        .map(|l| l.split_once(':').unwrap().1.trim().to_string())
+        .collect();
+    assert!(agents.contains(&"opentunnel-sdk/0.6.1".to_string()), "{agents:?}");
+    assert!(agents.contains(&"Bun/1.4.4".to_string()), "{agents:?}");
+    assert!(gets.iter().all(|h| h.iter().any(|l| l.eq_ignore_ascii_case("proxy-connection: Keep-Alive"))));
+    // The bridge's CONNECT is exactly Bun's.
+    assert_eq!(
+        proxy.headers("CONNECT")[0],
+        vec![format!("Host: {}", api_host(&relay)), "Proxy-Connection: Keep-Alive".to_string()]
+    );
+    // The relay saw nothing directly: everything came through the proxy.
+    assert_eq!(relay.log().iter().filter(|e| e["http"] == "GET /api/tunnel/:id/connect").count(), 1);
+}
+
+#[tokio::test]
+async fn the_proxy_option_and_its_credentials() {
+    let relay = FakeRelay::start(Options::default()).await;
+    let proxy = MockProxy::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let storage = Storage::at(dir.path().join("opentunnel"));
+    let with_credentials = proxy.url.replace("http://", "http://u:p%40x@");
+    let options = ClientOptions { proxy: Some(with_credentials), env: Some(crate::proxy::env_of(&[])) };
+    let client = Client::with_options(relay.api.clone(), storage.clone(), options).unwrap();
+    let target = target().await;
+    let connection = client.connect("default", routes(&target), None).await.unwrap();
+    connection.close().await;
+    let connect = proxy.headers("CONNECT");
+    assert_eq!(connect.len(), 1);
+    assert!(connect[0].contains(&"Proxy-Authorization: Basic dTpwQHg=".to_string()), "{connect:?}");
+    assert!(proxy.requests().iter().any(|r| r.starts_with("POST http://127.0.0.1")));
+
+    // Bun's NO_PROXY exempts hosts even from the explicit proxy.
+    let before = proxy.requests().len();
+    let options =
+        ClientOptions { proxy: Some(proxy.url.clone()), env: Some(crate::proxy::env_of(&[("NO_PROXY", "127.0.0.1")])) };
+    let client = Client::with_options(relay.api.clone(), storage, options).unwrap();
+    let connection = client.connect("default", routes(&target), None).await.unwrap();
+    connection.close().await;
+    assert_eq!(proxy.requests().len(), before);
+
+    // An unusable proxy option fails when the client is made.
+    for (proxy, message) in [
+        (
+            "socks5://127.0.0.1:1080",
+            "The proxy option uses an unsupported proxy scheme 'socks5': OpenTunnel connects through http:// and https:// proxies",
+        ),
+        ("http://[bad", "The proxy option is not a valid proxy URL"),
+    ] {
+        let options = ClientOptions { proxy: Some(proxy.into()), env: None };
+        let error = Client::with_options(relay.api.clone(), Storage::at(dir.path().join("x")), options).err().unwrap();
+        assert_eq!(error.to_string(), message);
+        assert!(error.is_fatal());
+    }
+}
+
+#[tokio::test]
+async fn no_proxy_exempts_hosts_with_each_rule_set() {
+    let relay = FakeRelay::start(Options::default()).await;
+    let proxy = MockProxy::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let storage = Storage::at(dir.path().join("opentunnel"));
+    let target = target().await;
+
+    // Exempt for both: nothing goes through the proxy.
+    let client = client_with(&relay, storage.clone(), &[("HTTP_PROXY", &proxy.url), ("NO_PROXY", "127.0.0.1")]);
+    client.connect("default", routes(&target), None).await.unwrap().close().await;
+    assert_eq!(proxy.requests(), Vec::<String>::new());
+
+    // `no_proxy` with another port exempts nothing.
+    let client = client_with(&relay, storage.clone(), &[("HTTP_PROXY", &proxy.url), ("no_proxy", "127.0.0.1:1")]);
+    client.connect("default", routes(&target), None).await.unwrap().close().await;
+    let requests = proxy.requests();
+    assert!(requests.iter().any(|r| r.starts_with("GET http://")), "{requests:?}");
+    assert!(requests.iter().any(|r| r.starts_with("CONNECT ")), "{requests:?}");
+
+    // A CIDR range with a port: the SDK's rules (the bridge) exempt the host, Bun's (`fetch`) do not.
+    proxy.log.lock().clear();
+    let port = relay.api.port().unwrap();
+    let no_proxy = format!("127.0.0.0/8:{port}");
+    let client = client_with(&relay, storage, &[("HTTP_PROXY", &proxy.url), ("NO_PROXY", &no_proxy)]);
+    client.connect("default", routes(&target), None).await.unwrap().close().await;
+    let requests = proxy.requests();
+    assert!(requests.iter().any(|r| r.starts_with("GET http://")), "{requests:?}");
+    assert!(!requests.iter().any(|r| r.starts_with("CONNECT ")), "{requests:?}");
+}
+
+#[tokio::test]
+async fn unusable_proxies_stop_the_tunnel() {
+    let relay = FakeRelay::start(Options::default()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let storage = Storage::at(dir.path().join("opentunnel"));
+    let target = target().await;
+
+    // Without a tunnel yet, creating it fails as a network error, which is retried by the caller.
+    let socks = client_with(&relay, storage.clone(), &[("HTTP_PROXY", "socks5://127.0.0.1:1")]);
+    let error = socks.connect("default", routes(&target), None).await.err().unwrap();
+    assert_eq!(error.to_string(), format!("Failed to create tunnel: Transport error (POST {}api/tunnel)", relay.api));
+    assert!(!error.is_fatal());
+    assert!(relay.log().is_empty());
+    test_client(&relay, storage.clone()).connect("default", routes(&target), None).await.unwrap().close().await;
+
+    // With a tunnel whose certificate has not expired, an unreachable API is skipped and the bridge refuses the
+    // proxy for good.
+    let cases = [
+        (
+            ("HTTP_PROXY", "socks5://127.0.0.1:1"),
+            "HTTP_PROXY uses an unsupported proxy scheme 'socks5': OpenTunnel connects through http:// and https:// proxies",
+        ),
+        (("http_proxy", "http://[bad"), "http_proxy is not a valid proxy URL"),
+        (
+            ("ALL_PROXY", "socks://127.0.0.1:1"),
+            "ALL_PROXY uses an unsupported proxy scheme 'socks': OpenTunnel connects through http:// and https:// proxies",
+        ),
+    ];
+    for ((name, value), message) in cases {
+        let proxied = client_with(&relay, storage.clone(), &[(name, value)]);
+        let (events, sink) = recorder();
+        let error = proxied.connect("default", routes(&target), Some(sink)).await.err().unwrap();
+        assert_eq!(error.to_string(), format!("Failed to connect tunnel: {message}"));
+        assert!(error.is_fatal(), "{error}");
+        assert_eq!(error.code(), None);
+        let events = events.lock().clone();
+        assert_eq!(events, vec![Event::Connecting { attempt: 0 }, Event::Stopped { error: Some(message.into()) }]);
+    }
+    // `HTTPS_PROXY` is only for https and wss URLs.
+    let https_only = client_with(&relay, storage, &[("HTTPS_PROXY", "socks5://127.0.0.1:1")]);
+    https_only.connect("default", routes(&target), None).await.unwrap().close().await;
+}
+
+#[tokio::test]
+async fn api_failures_are_retried_and_described() {
+    let relay = FakeRelay::start(Options::default()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let storage = Storage::at(dir.path().join("opentunnel"));
+    let client = test_client(&relay, storage.clone());
+    let progress = Arc::new(Mutex::new(Vec::new()));
+    let seen = progress.clone();
+    let on = move |p: crate::Progress| seen.lock().push(p);
+    client.ensure_with_progress("default", Some(&on)).await.unwrap();
+    progress.lock().clear();
+    client.ensure_with_progress("default", Some(&on)).await.unwrap();
+    assert_eq!(*progress.lock(), vec![crate::Progress::CheckingCertificate, crate::Progress::Ready]);
+
+    // Reads are retried on 5xx; once they still fail, a certificate that has not expired keeps serving.
+    relay.clear_log();
+    relay.options(|o| o.certificate_error = Some((500, "Whatever".into())));
+    client.ensure("default").await.unwrap();
+    assert_eq!(relay.log().iter().filter(|e| e["http"] == "GET /api/tunnel/:id/certificate").count(), 7);
+
+    // An error the API answers with is neither retried nor skipped.
+    relay.clear_log();
+    relay.options(|o| o.certificate_error = Some((404, "TunnelNotFoundError".into())));
+    let error = client.ensure("default").await.unwrap_err();
+    assert_eq!(error.to_string(), "Failed to read certificate: TunnelNotFoundError: Fake failure");
+    assert_eq!(relay.log().iter().filter(|e| e["http"] == "GET /api/tunnel/:id/certificate").count(), 1);
+    // A status the endpoint does not declare is described by its status.
+    relay.options(|o| o.certificate_error = Some((409, "Nope".into())));
+    assert_eq!(client.ensure("default").await.unwrap_err().to_string(), "Failed to read certificate: HTTP 409");
+
+    // Invalid routes are reported as the SDK does, with the message twice.
+    let error = client.connect("default", crate::routes::routes([("Bad_Name", "127.0.0.1:1")]), None).await;
+    assert_eq!(error.err().unwrap().to_string(), "Invalid route name 'Bad_Name': Invalid route name 'Bad_Name'");
+}
+
+#[tokio::test]
+async fn route_conflicts_and_proxy_protocol_routes() {
+    let relay = FakeRelay::start(Options::default()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(&relay, Storage::at(dir.path().join("opentunnel")));
+    let target = target().await;
+
+    // A PROXY protocol header reaches the target before the request.
+    let mut with_header = Routes::new();
+    with_header.insert(ROUTE.into(), crate::Route::with_proxy_protocol(target.clone(), "v1"));
+    let connection = client.connect("default", with_header, None).await.unwrap();
+    let hostname = connection.tunnel.hostname.clone();
+    assert_eq!(connection.urls()[ROUTE], format!("https://{ROUTE}.{hostname}"));
+    let response = public_request(&relay, &format!("{ROUTE}.{hostname}"), "/pp", b"").await.unwrap();
+    let text = String::from_utf8_lossy(&response).to_string();
+    assert!(text.contains("PROXY TCP4 127.0.0.1 0.0.0.0 ") && text.ends_with(" 443 0"), "{text}");
+    connection.close().await;
+
+    // `route_conflict` with `Fail` stops the tunnel after telling which routes were claimed.
+    relay.options(|o| o.attach_error = Some("route_conflict".into()));
+    let (events, sink) = recorder();
+    let options = crate::ConnectOptions {
+        routes: routes(&target),
+        on_route_conflict: crate::OnRouteConflict::Fail,
+        on_event: Some(sink),
+    };
+    let error = client.connect_with("default", options).await.err().unwrap();
+    assert_eq!(
+        error.to_string(),
+        "Failed to connect tunnel: Bridge attach failed: route_conflict (another client holds a route)"
+    );
+    assert_eq!(error.code(), Some("route_conflict"));
+    assert!(error.is_fatal());
+    assert!(events.lock().contains(&Event::RouteConflict { routes: vec![ROUTE.into()] }));
+    assert_eq!(
+        serde_json::to_value(Event::RouteConflict { routes: vec![ROUTE.into()] }).unwrap(),
+        json!({"type": "route-conflict", "routes": [ROUTE]})
+    );
+
+    // By default it retries.
+    let (events, sink) = recorder();
+    let pending = tokio::spawn({
+        let client = client.clone();
+        let target = target.clone();
+        async move { client.connect("default", routes(&target), Some(sink)).await.map(|_| ()) }
+    });
+    wait_for(&events, |e| e == &Event::Disconnected { reason: "attach failed: route_conflict".into() }).await;
+    wait_for(&events, |e| matches!(e, Event::Reconnecting { .. })).await;
+    pending.abort();
 }

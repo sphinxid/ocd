@@ -3,7 +3,7 @@ name = "oc-tunnel"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "OpenTunnel client, wire-compatible with @opentunnel/client 0.4.1 (remote access for pair --remote)"
+description = "OpenTunnel client, wire-compatible with @opentunnel/client 0.6.1 (remote access for pair --remote)"
 
 [features]
 # A local stand-in for the OpenTunnel service (HTTP API, bridge WebSocket and public TLS listener), for tests only.

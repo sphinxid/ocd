@@ -3,7 +3,7 @@
 /// The route name for the tunnel hostname itself.
 pub const ROOT_ROUTE: &str = "@";
 
-/// `^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`
+/// `LABEL_PATTERN`, `^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`: a route name other than `@`, and a profile name.
 pub fn is_label(value: &str) -> bool {
     let bytes = value.as_bytes();
     let ok = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit();
@@ -15,8 +15,14 @@ pub fn is_label(value: &str) -> bool {
     }
 }
 
+/// Whether `value` is a route name: `@` or one lowercase DNS label.
 pub fn is_valid_route(value: &str) -> bool {
     value == ROOT_ROUTE || is_label(value)
+}
+
+/// `publicHostname`: `<route>.<hostname>`, or `<hostname>` for `@`.
+pub fn public_hostname(route: &str, hostname: &str) -> String {
+    if route == ROOT_ROUTE { hostname.to_string() } else { format!("{route}.{hostname}") }
 }
 
 pub fn is_valid_profile(value: &str) -> bool {
@@ -71,7 +77,8 @@ pub fn parse_target(value: &str) -> Option<Target> {
     Some(Target { host: host.to_string(), port: port as u16 })
 }
 
-/// `validateRoutes`: the error is the message the SDK throws.
+/// `validateRoutes` for `host:port` targets: the error is the message the SDK throws. Routes with options are
+/// checked by [`crate::routes::resolve_route`].
 pub fn validate_routes<'a>(routes: impl IntoIterator<Item = (&'a String, &'a String)>) -> Result<(), String> {
     for (name, target) in routes {
         if !is_valid_route(name) {

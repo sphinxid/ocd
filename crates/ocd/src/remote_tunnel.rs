@@ -85,7 +85,9 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
 }
 
 /// Holds the route for the life of the service. The client reconnects through network failures itself, so only
-/// setup failures reach the retry here; a rejected token or failed certificate stops it for good. `on_url` gets the
+/// setup failures reach the retry here; a rejected token, failed certificate or unusable proxy (such as a socks5://
+/// `HTTPS_PROXY`, which the bridge cannot connect through) stops it for good (`oc_tunnel::Error::is_fatal`, which
+/// also matches `/unsupported proxy scheme|not a valid proxy URL/` in the message). `on_url` gets the
 /// public URL while the route is attached, and `None` when it is not. Returns when `stop` turns true (closing the
 /// tunnel) or after a fatal error.
 pub async fn run(
@@ -97,7 +99,7 @@ pub async fn run(
     let client = client();
     let mut attempt = 0u32;
     loop {
-        let routes: oc_tunnel::Routes = [(route.clone(), target.clone())].into_iter().collect();
+        let routes = oc_tunnel::routes::routes([(route.clone(), target.clone())]);
         let connected = tokio::select! {
             connected = client.connect(PROFILE, routes, None) => connected,
             _ = stopped(&mut stop) => {
@@ -182,15 +184,16 @@ mod tests {
     #[test]
     fn describes_client_errors() {
         let error = oc_tunnel::Error::Client {
-            message: "Failed to connect tunnel".into(),
+            message: "Failed to connect tunnel: Bridge attach failed: bad_token".into(),
             cause: Some(oc_tunnel::Cause::Attach("bad_token".into())),
         };
         assert_eq!(
             describe(&error),
-            "OpenTunnelClientError: Failed to connect tunnel (cause: Error: Bridge attach failed: bad_token)"
+            "OpenTunnelClientError: Failed to connect tunnel: Bridge attach failed: bad_token (cause: Error: Bridge attach failed: bad_token)"
         );
+        assert!(error.is_fatal());
         let error = oc_tunnel::Error::Client {
-            message: "Failed to read certificate".into(),
+            message: "Failed to read certificate: ServiceUnavailableError: Down".into(),
             cause: Some(oc_tunnel::Cause::Api(oc_tunnel::ApiError {
                 status: Some(503),
                 tag: Some("ServiceUnavailableError".into()),
@@ -199,15 +202,36 @@ mod tests {
         };
         assert_eq!(
             describe(&error),
-            "OpenTunnelClientError: Failed to read certificate (cause: ServiceUnavailableError: Down)"
+            "OpenTunnelClientError: Failed to read certificate: ServiceUnavailableError: Down (cause: ServiceUnavailableError: Down)"
         );
         assert_eq!(
             inspected(error).to_string(),
             format!(
-                "OpenTunnelClientError: Failed to read certificate {{{EOL}  [cause]: ServiceUnavailableError: Down{EOL}}}"
+                "OpenTunnelClientError: Failed to read certificate: ServiceUnavailableError: Down {{{EOL}  [cause]: ServiceUnavailableError: Down{EOL}}}"
             )
         );
         let error = oc_tunnel::Error::Client { message: "Certificate issuance failed: no".into(), cause: None };
         assert_eq!(inspected(error).to_string(), "OpenTunnelClientError: Certificate issuance failed: no");
+    }
+
+    #[test]
+    fn unusable_proxies_are_fatal_like_upstream() {
+        // `/unsupported proxy scheme|not a valid proxy URL/` in the message stops the retry.
+        for message in [
+            "HTTPS_PROXY uses an unsupported proxy scheme 'socks5': OpenTunnel connects through http:// and https:// proxies",
+            "HTTPS_PROXY is not a valid proxy URL",
+        ] {
+            let error = oc_tunnel::Error::Client {
+                message: format!("Failed to connect tunnel: {message}"),
+                cause: Some(oc_tunnel::Cause::Message(message.into())),
+            };
+            assert!(error.is_fatal(), "{message}");
+        }
+        // A network error creating the tunnel is retried.
+        let error = oc_tunnel::Error::Client {
+            message: "Failed to create tunnel: Transport error (POST https://opentunnel.xyz/api/tunnel)".into(),
+            cause: None,
+        };
+        assert!(!error.is_fatal());
     }
 }

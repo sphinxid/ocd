@@ -1,5 +1,5 @@
-//! OpenTunnel client, wire-compatible with `@opentunnel/client` 0.4.1 and `@opentunnel/protocol` 0.4.1 (MIT,
-//! anomalyco/opentunnel), which upstream opencode 2.1.4 uses for `pair --remote`. See README.md for the protocol.
+//! OpenTunnel client, wire-compatible with `@opentunnel/client` 0.6.1 and `@opentunnel/protocol` 0.6.1 (MIT,
+//! anomalyco/opentunnel), which upstream opencode 2.2.2 uses for `pair --remote`. See README.md for the protocol.
 //!
 //! The device holds the tunnel's private key and certificate; the relay only forwards encrypted bytes. Identities
 //! are stored where the SDK and the opentunnel CLI keep them, so a device shares one tunnel with both.
@@ -11,14 +11,18 @@ pub mod csr;
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;
 pub mod names;
+pub mod proxy;
+pub mod proxy_protocol;
+pub mod retry;
+pub mod routes;
 pub mod storage;
 pub mod tunnel;
 pub mod ws;
 
 pub use api::{ApiError, DEFAULT_API, USER_AGENT};
-pub use client::{Client, Connection, Progress};
+pub use client::{Client, ClientOptions, ConnectOptions, Connection, Progress};
 pub use storage::{Identity, Pending, Storage};
-pub use tunnel::{AttachError, Event, Routes};
+pub use tunnel::{AttachError, Event, Fatal, OnRouteConflict, Route, Routes};
 
 /// What an error was caused by.
 #[derive(Debug, Clone, PartialEq)]
@@ -76,12 +80,25 @@ impl Error {
         }
     }
 
-    /// Errors no retry can fix: a rejected token, a certificate the server will not issue, or a defect. opencode's
-    /// remote tunnel stops on these (`fatal` in `services/remote-tunnel.ts`, plus defects, which skip its retry).
+    /// The bridge's `attach_error` code when attaching failed (`OpenTunnelClientError.code`), such as `bad_token`.
+    pub fn code(&self) -> Option<&str> {
+        match self {
+            Error::Client { cause: Some(Cause::Attach(code)), .. } => Some(code),
+            _ => None,
+        }
+    }
+
+    /// Errors no retry can fix: a rejected token, a certificate the server will not issue, a proxy the bridge cannot
+    /// use (such as a `socks5://` `HTTPS_PROXY`), or a defect. opencode's remote tunnel stops on these (`fatal` in
+    /// `services/remote-tunnel.ts`, which matches `/unsupported proxy scheme|not a valid proxy URL/` in the message,
+    /// plus defects, which skip its retry).
     pub fn is_fatal(&self) -> bool {
         match self {
             Error::Client { message, cause } => {
-                matches!(cause, Some(Cause::Attach(_))) || message.starts_with("Certificate issuance failed")
+                matches!(cause, Some(Cause::Attach(_)))
+                    || message.starts_with("Certificate issuance failed")
+                    || message.contains("unsupported proxy scheme")
+                    || message.contains("not a valid proxy URL")
             }
             Error::Storage { .. } => false,
             Error::Defect(_) => true,
