@@ -586,6 +586,18 @@ impl Engine {
         }
     }
 
+    /// The tool definitions `estimatePrompt` counts: the snapshot's (`context.tools.definitions`), as
+    /// registered, before the session hooks that drop or describe them for a request (the `patch` /
+    /// `edit` + `write` swap, the shell's name, the subagent list, a disabled web search), then `execute`.
+    pub fn estimate_tools(&self, loaded: &Loaded) -> Vec<ToolEntry> {
+        let snapshot = &loaded.sel.snapshot;
+        snapshot
+            .definitions(&DefinitionContext::default(), crate::codemode::execute_definition(snapshot))
+            .into_iter()
+            .map(|d| ToolEntry::Tool(ToolDefinition::new(d.name, d.description, d.input_schema)))
+            .collect()
+    }
+
     /// Build the primary request (`baseTranscript` + `request.primary`).
     pub fn request(&self, loaded: &Loaded, step_limit: bool) -> (LLMRequest, Vec<String>) {
         let ctx = self.definition_context(loaded);
@@ -617,7 +629,7 @@ impl Engine {
         if step_limit {
             req.tool_choice = Some(ToolChoice::from_str("none"));
         }
-        let estimate = crate::compaction::estimate_prompt(loaded, &req.tools);
+        let estimate = crate::compaction::estimate_prompt(loaded, &self.estimate_tools(loaded));
         let max = crate::prompt::output_limit(model.output_limit().max(0) as u64, model.context_limit().max(0) as u64, Some(estimate), crate::prompt::WINDOW_HEADROOM);
         req.generation = Some(GenerationOptions { max_tokens: Some(max as f64), ..Default::default() });
         self.session_http(&loaded.sel.session, &mut req);

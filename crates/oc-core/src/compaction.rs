@@ -1246,10 +1246,10 @@ impl Run<'_> {
 }
 
 impl Engine {
-    /// `estimatePrompt(context)` with the session's tool definitions: `(measured, estimated)`.
+    /// `estimatePrompt(context)` with the snapshot's tool definitions (before request hooks, see
+    /// `estimate_tools`): `(measured, estimated)`.
     pub fn estimate_prompt(&self, loaded: &Loaded) -> (u64, u64) {
-        let (req, _) = self.request(loaded, false);
-        estimate_prompt(loaded, &req.tools)
+        estimate_prompt(loaded, &self.estimate_tools(loaded))
     }
 
     /// `estimateContext = measured + estimated`
