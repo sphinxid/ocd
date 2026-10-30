@@ -403,11 +403,21 @@ async fn effect_plugin_agents_skills_and_rejecting_hook() {
     assert_eq!(build["description"], "Build things (from effect plugin)");
     let reviewer = list.iter().find(|a| a["id"] == "reviewer").unwrap();
     assert_eq!(reviewer["mode"], "subagent");
-    // The browser plugin (`post`) still applies to the plugin's agent.
-    assert_eq!(reviewer["permissions"].as_array().unwrap().last().unwrap(), &json!({ "action": "browser", "resource": "*", "effect": "deny" }));
+    // The browser plugin (`post`) still applies to the plugin's agent: its tools' and skill's denies come last.
+    let rules = reviewer["permissions"].as_array().unwrap();
+    assert_eq!(
+        rules[rules.len() - 2..],
+        [json!({ "action": "browser", "resource": "*", "effect": "deny" }), json!({ "action": "skill", "resource": "browser", "effect": "deny" })]
+    );
 
+    // The browser skill follows the plugins' skills (`opencode.browser` is a `post` plugin).
     let skills = s.h.get("/api/skill").await.json();
-    assert!(skills["data"].as_array().unwrap().iter().any(|k| k["id"] == "fixture-skill"), "{skills}");
+    let ids: Vec<&str> = skills["data"].as_array().unwrap().iter().map(|k| k["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["opencode", "report", "fixture-skill", "browser"], "{skills}");
+    let browser = &skills["data"][3];
+    assert_eq!(browser["name"], "Browser");
+    assert_eq!(browser["path"], "/builtin/browser.md");
+    assert!(browser["content"].as_str().unwrap().starts_with("# In-app browser\n\nThe browser tools drive"));
 
     // `tool.execute.before` failing with a Tool.Error rejects the call before it runs.
     let session = s.h.session().await;
@@ -516,6 +526,9 @@ async fn no_sidecar_without_plugins() {
     let agents = s.h.get("/api/agent").await.json();
     let build = agents["data"].as_array().unwrap().iter().find(|a| a["id"] == "build").unwrap().clone();
     assert!(!build["permissions"].to_string().contains("browser"));
+    // So is its skill.
+    let skills = s.h.get("/api/skill").await.json();
+    assert!(!skills["data"].as_array().unwrap().iter().any(|k| k["id"] == "browser"), "{skills}");
     s.shutdown().await;
 }
 

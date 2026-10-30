@@ -1029,11 +1029,7 @@ impl Plugins {
             let mut out = builtin;
             if browser {
                 for agent in out.items.values_mut() {
-                    agent.permissions.push(oc_schema::types::PermissionRule {
-                        action: "browser".into(),
-                        resource: "*".into(),
-                        effect: oc_schema::types::Effect::Deny,
-                    });
+                    agent.permissions.extend(crate::location::browser_denies());
                 }
             }
             return out;
@@ -1054,6 +1050,11 @@ impl Plugins {
         } else {
             builtin
         };
+        // `opencode.browser` (a `post` plugin before the compatibility and skill config plugins) adds its skill.
+        let mut builtin = builtin;
+        if self.builtin_enabled(&location.key, "opencode.browser") {
+            crate::skills::add(&mut builtin, crate::skills::browser());
+        }
         let compat = self.builtin_enabled(&location.key, "opencode.config.compatibility");
         let config = self.builtin_enabled(&location.key, "opencode.config.skill");
         let mut skills = crate::skills::with_sources(builtin, location, global, compat, config).await;

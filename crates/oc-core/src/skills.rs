@@ -9,6 +9,9 @@ use crate::location::Location;
 
 const OPENCODE_CONTENT: &str = include_str!("../../../assets/skill/opencode.md");
 const REPORT_CONTENT: &str = include_str!("../../../assets/skill/report.md");
+/// `BrowserSkill.info.content` (plugin-browser/src/skill.ts), its operation list included.
+const BROWSER_CONTENT: &str = include_str!("../../../assets/skill/browser.md");
+const BROWSER_DESCRIPTION: &str = "Use the in-app browser: open and read pages, click and fill forms, take screenshots, check console and network logs, and profile performance and memory. Load it before your first browser tool call.";
 pub const OPENCODE_DESCRIPTION: &str = "Use this skill for any question about OpenCode itself, including how OpenCode works, using or configuring it, migrating from V1 to V2, troubleshooting it, developing plugins or integrations, using the OpenCode SDK, clients, server, or API, and contributing to the OpenCode codebase. Also use it for OpenCode agents, commands, skills, tools, permissions, MCP servers, providers, models, themes, keybinds, formatters, the CLI, TUI, desktop app, and web app.";
 const REPORT_DESCRIPTION: &str = "Use when the user wants to report an opencode issue or bug. Collect standard diagnostics, add user-specific reproduction context, and publish the issue with GitHub CLI.";
 
@@ -90,6 +93,27 @@ pub fn builtin(location: &Location, version: &str) -> Vec<Skill> {
         out.push(Skill { id: id.into(), name: name.into(), description: Some(description.into()), autoinvoke: None, path: PathBuf::from(path), content });
     }
     out
+}
+
+/// The built-in `browser` skill that the `opencode.browser` plugin adds (plugin-browser/src/skill.ts).
+/// Every agent denies it until a desktop browser attaches, so the model never sees it in the CLI.
+pub fn browser() -> Skill {
+    Skill {
+        id: "browser".into(),
+        name: "Browser".into(),
+        description: Some(BROWSER_DESCRIPTION.into()),
+        autoinvoke: None,
+        path: PathBuf::from("/builtin/browser.md"),
+        content: BROWSER_CONTENT.trim_end_matches('\n').to_string(),
+    }
+}
+
+/// Adds `skill` like the skill editor's `add` (a `Map.set`): an existing id is replaced in place.
+pub fn add(skills: &mut Vec<Skill>, skill: Skill) {
+    match skills.iter_mut().find(|s| s.id == skill.id) {
+        Some(existing) => *existing = skill,
+        None => skills.push(skill),
+    }
 }
 
 /// Applies the compatibility roots and configured skill sources (`post` internal plugins) after

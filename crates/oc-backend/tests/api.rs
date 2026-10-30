@@ -238,6 +238,23 @@ async fn skills_and_commands() {
     let skills = h.get("/api/skill").await.json();
     let ids: Vec<&str> = skills["data"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
     assert_eq!(&ids[..2], &["opencode", "report"]);
+    // `opencode.browser` lists its skill (plugin-browser/src/skill.ts) and denies it to every agent.
+    assert_eq!(ids.last(), Some(&"browser"));
+    let browser = skills["data"].as_array().unwrap().last().unwrap();
+    assert_eq!(browser["name"], "Browser");
+    assert_eq!(browser["path"], "/builtin/browser.md");
+    let content = browser["content"].as_str().unwrap();
+    assert!(content.starts_with("# In-app browser\n"), "{content}");
+    assert!(content.ends_with("- `tools.browser.lighthouse`: Audit the current tab with Lighthouse for accessibility, SEO and best practices. Does not emulate a device or run a performance benchmark. Returns scores and server-local reports."));
+    let agents = h.get("/api/agent").await.json();
+    for agent in agents["data"].as_array().unwrap() {
+        let rules = agent["permissions"].as_array().unwrap();
+        assert_eq!(
+            rules[rules.len() - 2..],
+            [json!({"action": "browser", "resource": "*", "effect": "deny"}), json!({"action": "skill", "resource": "browser", "effect": "deny"})],
+            "{agent}"
+        );
+    }
     let commands = h.get("/api/command").await.json();
     assert_eq!(commands["data"][0], json!({"name": "init", "description": "guided AGENTS.md setup"}));
     assert_eq!(commands["data"][1]["name"], "review");

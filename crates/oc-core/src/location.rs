@@ -25,6 +25,17 @@ pub struct Location {
     closed: std::sync::atomic::AtomicBool,
 }
 
+/// The rules `opencode.browser` appends to every agent: the browser tools and the `browser` skill,
+/// which a desktop attachment allows together (plugin-browser/src/connection.ts `access`).
+pub fn browser_denies() -> [oc_schema::types::PermissionRule; 2] {
+    let deny = |action: &str, resource: &str| oc_schema::types::PermissionRule {
+        action: action.into(),
+        resource: resource.into(),
+        effect: oc_schema::types::Effect::Deny,
+    };
+    [deny("browser", "*"), deny("skill", "browser")]
+}
+
 fn mode_of(m: Option<&oc_config::schema::AgentMode>) -> Option<Mode> {
     let v = serde_json::to_value(m?).ok()?;
     serde_json::from_value(v).ok()
@@ -109,14 +120,11 @@ impl Location {
                 permissions.append(&mut state.permissions);
                 state.permissions = permissions;
             }
-            // The built-in browser plugin, registered after the config agent plugin, appends a browser
-            // deny to every agent until a desktop attachment allows it (plugin-browser/src/connection.ts).
+            // The built-in browser plugin, registered after the config agent plugin, appends the browser
+            // tools' and skill's denies to every agent until a desktop attachment allows them
+            // (plugin-browser/src/connection.ts).
             if browser {
-                state.permissions.push(oc_schema::types::PermissionRule {
-                    action: "browser".into(),
-                    resource: "*".into(),
-                    effect: oc_schema::types::Effect::Deny,
-                });
+                state.permissions.extend(browser_denies());
             }
             out.items.insert(
                 id.clone(),
