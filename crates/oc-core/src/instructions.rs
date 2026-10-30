@@ -415,12 +415,68 @@ mod tests {
             .join("\n")
         );
     }
+    // mcp-instructions.test.ts "lists Code Mode servers as direct tools when the agent cannot use execute".
+    #[test]
+    fn mcp_servers_are_direct_when_execute_is_denied() {
+        let tool = |server: &str, name: &str| oc_mcp::types::Tool {
+            server: server.into(),
+            name: name.into(),
+            description: None,
+            input_schema: None,
+            output_schema: None,
+            codemode: None,
+            raw: Map::new(),
+        };
+        let tools = vec![tool("alpha", "lookup")];
+        let instructions = vec![("alpha".to_string(), "Alpha instructions".to_string())];
+        let deny = |action: &str| oc_schema::PermissionRule {
+            action: action.into(),
+            resource: "*".into(),
+            effect: oc_schema::Effect::Deny,
+        };
+        let allowed = mcp_summaries(instructions.clone(), &tools, &[]);
+        assert!(allowed[0].codemode);
+        let direct = mcp_summaries(instructions.clone(), &tools, &[deny("execute")]);
+        assert_eq!(direct.len(), 1);
+        assert!(!direct[0].codemode);
+        let source = mcp_source(direct);
+        let Read::Value(value) = &source.read else { panic!("expected instructions") };
+        assert_eq!(
+            (source.initial)(value).unwrap(),
+            ["<mcp_instructions>", "  <server name=\"alpha\">", "    Alpha instructions", "  </server>", "</mcp_instructions>"]
+                .join("\n")
+        );
+        let hidden = tools[0].prefixed_name();
+        assert!(mcp_summaries(instructions, &tools, &[deny("execute"), deny(&hidden)]).is_empty());
+    }
     #[test]
     fn date_format() {
         use chrono::TimeZone;
         let d = chrono::Local.with_ymd_and_hms(2026, 10, 5, 12, 0, 0).unwrap();
         assert_eq!(js_date_string(d), "Mon Oct 05 2026");
     }
+}
+
+/// The MCP servers whose instructions this session sees (`McpInstructions.load`): a server is listed when the
+/// session can reach at least one of its tools. Without `execute`, Code Mode server tools are exposed directly, so
+/// such a server is listed as a direct one.
+pub fn mcp_summaries(
+    instructions: Vec<(String, String)>,
+    tools: &[oc_mcp::types::Tool],
+    permissions: &[oc_schema::PermissionRule],
+) -> Vec<oc_mcp::naming::InstructionSummary> {
+    use crate::permission::evaluate;
+    let can_execute = evaluate("execute", "*", permissions).effect != oc_schema::Effect::Deny;
+    instructions
+        .into_iter()
+        .filter_map(|(server, text)| {
+            let owned: Vec<_> = tools.iter().filter(|t| t.server == server).collect();
+            let codemode = can_execute && owned.first().is_none_or(|t| t.codemode != Some(false));
+            let visible =
+                owned.iter().any(|t| evaluate(&t.prefixed_name(), "*", permissions).effect != oc_schema::Effect::Deny);
+            visible.then_some(oc_mcp::naming::InstructionSummary { server, instructions: text, codemode })
+        })
+        .collect()
 }
 
 /// `core/mcp-guidance` (`core/mcp/instructions.ts`).

@@ -147,7 +147,13 @@ impl Registry {
             })
             .cloned()
             .collect();
-        let mut direct: Vec<(String, Arc<dyn Tool>)> = active.iter().filter(|(_, t)| !t.options().codemode).cloned().collect();
+        let execute_enabled = !wholly_disabled("execute", rules);
+        // Without Code Mode its tools would be unreachable, so expose them as direct tools instead.
+        let mut direct: Vec<(String, Arc<dyn Tool>)> = if execute_enabled {
+            active.iter().filter(|(_, t)| !t.options().codemode).cloned().collect()
+        } else {
+            active.clone()
+        };
         // Plain code-unit comparison (`<`/`>`).
         direct.sort_by(|a, b| {
             let a16: Vec<u16> = a.0.encode_utf16().collect();
@@ -159,7 +165,7 @@ impl Registry {
             direct,
             codemode,
             namespaces: self.namespaces.clone(),
-            execute_enabled: !wholly_disabled("execute", rules),
+            execute_enabled,
         }
     }
 }

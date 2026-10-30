@@ -242,16 +242,18 @@ pub fn summarize(inventory: &[CatalogEntry], budget: Option<usize>) -> Summary {
 }
 
 fn prompt(has_more_tools: bool) -> String {
-    let mut out = String::from("# Code Mode\n\nUse the `execute` tool to call the tools listed below. They cannot be called directly");
-    out.push_str(if has_more_tools { ", and neither can `search`. Both" } else { ". They" });
-    out.push_str(" only work inside code you pass to `execute`.\n\n");
+    let mut out = String::from("# Code Mode\n\nThe tools listed below");
     if has_more_tools {
-        out.push_str("The catalog is partial. Inside `execute`, use `search(...)` to find a tool, then call it by the `path` in the result. `search` is synchronous. Call it without `await`; it does not return a Promise. Do not guess tool names.\n\n- ");
+        out.push_str(", and `search`,");
+    }
+    out.push_str(" cannot be called directly: they only work as JavaScript inside the `execute` tool. Every other tool you have is a normal tool call: call it directly, never inside `execute`.\n\n");
+    if has_more_tools {
+        out.push_str("The catalog is partial. Before calling a tool that is not listed below, find it with the global `search(...)` function. Do not guess tool names. Each result's `path` is the complete call expression: write it out as code, for example `await tools.ns.tool_name({ ... })`. Do not use it as a key such as `tools[path]`.\n\n- ");
         out.push_str(SEARCH_SIGNATURE);
     } else {
         out.push_str("The catalog is complete. Do not guess tool names.");
     }
-    out.push_str("\n\n## Available tools");
+    out.push_str("\n\n## Code Mode tools (call only inside `execute`)");
     out
 }
 
@@ -482,7 +484,7 @@ mod tests {
         assert_eq!(summary.total, 1);
         assert_eq!(summary.shown, 1);
         let text = render(&summary);
-        assert!(text.ends_with("## Available tools\n\n- github (1 tool) // GitHub\n  - tools.github.list(): Promise<void> // List things"));
+        assert!(text.ends_with("## Code Mode tools (call only inside `execute`)\n\n- github (1 tool) // GitHub\n  - tools.github.list(): Promise<void> // List things"));
         assert!(text.contains("The catalog is complete."));
     }
 

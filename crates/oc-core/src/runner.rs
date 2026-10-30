@@ -354,20 +354,7 @@ impl Engine {
         let skills = self.app.plugins.skills(&location, &self.app.global, &self.app.version).await;
         let mut sources = self.sources(&session, &location, &permissions, &skills)?;
         // MCP guidance comes first ("most to least shared").
-        let tools = mcp.tools();
-        let summaries: Vec<oc_mcp::naming::InstructionSummary> = mcp
-            .instructions()
-            .into_iter()
-            .filter_map(|(server, text)| {
-                let server_tools: Vec<_> = tools.iter().filter(|t| t.server == server).collect();
-                let codemode = server_tools.first().is_none_or(|t| t.codemode != Some(false));
-                let visible = server_tools
-                    .iter()
-                    .any(|t| evaluate(&t.prefixed_name(), "*", &permissions).effect != Effect::Deny)
-                    && (!codemode || evaluate("execute", "*", &permissions).effect != Effect::Deny);
-                visible.then_some(oc_mcp::naming::InstructionSummary { server, instructions: text, codemode })
-            })
-            .collect();
+        let summaries = instructions::mcp_summaries(mcp.instructions(), &mcp.tools(), &permissions);
         sources.insert(0, instructions::mcp_source(summaries));
         let references = self.app.plugins.references(&location, &self.app.global).await;
         sources.insert(1, crate::reference::source(&references));
