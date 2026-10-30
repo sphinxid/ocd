@@ -1,6 +1,6 @@
 //! Client for opencode's persistent terminals (`packages/core/src/persistent-pty/**`).
 //!
-//! Terminals live in the external `opencode-pty` daemon (npm `@opencode-ai/pty@0.2.0`,
+//! Terminals live in the external `opencode-pty` daemon (npm `@opencode/pty@0.3.3`,
 //! protocol 7) so they survive server restarts. [`PersistentPty`] is the service the HTTP
 //! `persistentPty.*` endpoints and the TUI terminal pane use; see `README.md`.
 
@@ -39,6 +39,33 @@ pub enum Error {
     /// Maps to HTTP `PtyNotFoundError {ptyID, message: "PTY session not found: <id>"}`.
     #[error("PTY session not found: {0}")]
     NotFound(String),
+    /// `PersistentPty.InvalidCwdError`: maps to HTTP 400 `InvalidRequestError` (`kind: "invalid_cwd"`).
+    #[error("{message}")]
+    InvalidCwd { cwd: String, message: String },
+}
+
+/// Node `path.resolve(input)`: joined onto the process cwd when relative, then normalized
+/// lexically (no symlinks resolved).
+fn resolve_path(input: &str) -> String {
+    let path = std::path::Path::new(input);
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")).join(path)
+    };
+    let mut out = std::path::PathBuf::new();
+    for component in joined.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                if out.parent().is_some() {
+                    out.pop();
+                }
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out.to_string_lossy().into_owned()
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -221,6 +248,11 @@ impl PersistentPty {
 
     /// `create(sessionID, input)`: spawns the daemon on first use; publishes `persistent-pty.added`.
     pub async fn create(&self, session_id: &str, input: CreateInput) -> Result<Info> {
+        // Checked before any daemon request, so a bad cwd never spawns the daemon.
+        let cwd = resolve_path(input.cwd.as_deref().unwrap_or("/"));
+        if !std::fs::metadata(&cwd).is_ok_and(|info| info.is_dir()) {
+            return Err(Error::InvalidCwd { message: format!("cwd is not a directory: {cwd}"), cwd });
+        }
         let program = input.command.clone().unwrap_or_else(|| (self.inner.shell)());
         let response = self
             .request(
@@ -228,7 +260,7 @@ impl PersistentPty {
                     "op": "create",
                     "program": program,
                     "args": input.args,
-                    "cwd": input.cwd.clone().unwrap_or_else(|| "/".to_string()),
+                    "cwd": cwd,
                     "title": input.title,
                     "group_id": session_id,
                     "env": input.env,
@@ -464,7 +496,7 @@ fn remove_visible_exit(weak: &Weak<Inner>, id: &str) {
         let service = PersistentPty { inner };
         match service.remove(&id).await {
             Ok(()) | Err(Error::NotFound(_)) => {}
-            Err(Error::Unavailable(message)) => {
+            Err(Error::Unavailable(message) | Error::InvalidCwd { message, .. }) => {
                 tracing::warn!(id = %id, error = %message, "failed to remove visible exited terminal");
             }
         }

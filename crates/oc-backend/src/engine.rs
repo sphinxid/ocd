@@ -34,6 +34,8 @@ pub struct Engine {
     pub shell_owner: Mutex<HashMap<String, String>>,
     /// PTY id → owning location key (PTY services are per location upstream).
     pub pty_owner: Mutex<HashMap<String, String>>,
+    /// Single-file watches over the API (`FileWatch`), global across locations.
+    pub file_watch: Arc<crate::file_watch::FileWatch>,
 }
 
 /// `KvStore` over the `kv` table.
@@ -82,6 +84,7 @@ impl Engine {
                 oc_ai::credentials::process_env(),
             ),
             pty_owner: Mutex::new(HashMap::new()),
+            file_watch: Arc::new(crate::file_watch::FileWatch::new(app_ref.bus.clone())),
             persistent: tokio::sync::OnceCell::new(),
             persistent_options: Mutex::new(None),
         });
@@ -107,6 +110,7 @@ impl Engine {
                 oc_ai::credentials::process_env(),
             ),
             pty_owner: Mutex::new(HashMap::new()),
+            file_watch: Arc::new(crate::file_watch::FileWatch::new(app_ref.bus.clone())),
             persistent: tokio::sync::OnceCell::new(),
             persistent_options: Mutex::new(None),
         });

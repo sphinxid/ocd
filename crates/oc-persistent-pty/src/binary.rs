@@ -1,6 +1,6 @@
 //! `opencode-pty` executable resolution (`persistent-pty/binary.bun.ts`).
 //!
-//! Upstream's compiled build embeds the platform binary from npm `@opencode-ai/pty-<suffix>@0.3.1`
+//! Upstream's compiled build embeds the platform binary from npm `@opencode/pty-<suffix>@0.3.3`
 //! as `{path, version, sha256}` and installs it into
 //! `<global.bin>/opencode-pty/<version>-<sha256[0..16]>/opencode-pty[.exe]`. The Rust port cannot embed
 //! it, so the same bytes are fetched from the npm registry tarball (pinned sha512 `integrity`
@@ -21,15 +21,16 @@ pub fn available() -> bool {
     AVAILABLE
 }
 
-/// Pinned `@opencode-ai/pty` version (`packages/core/package.json:110`).
-pub const VERSION: &str = "0.3.1";
+/// Pinned `@opencode/pty` version (`packages/core/package.json:108`; the package moved from the
+/// `@opencode-ai` scope with 0.3.3).
+pub const VERSION: &str = "0.3.3";
 pub const DEFAULT_REGISTRY: &str = "https://registry.npmjs.org";
 /// Name of the executable (Windows only launches executables with their extension).
 pub const EXECUTABLE: &str = if cfg!(windows) { "opencode-pty.exe" } else { "opencode-pty" };
 /// Path of the executable inside this platform's package tarball.
 pub const TARBALL_ENTRY: &str = if cfg!(windows) { "package/bin/opencode-pty.exe" } else { "package/bin/opencode-pty" };
 
-/// One `@opencode-ai/pty-<suffix>@0.3.1` platform package.
+/// One `@opencode/pty-<suffix>@0.3.3` platform package.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlatformPackage {
     pub suffix: &'static str,
@@ -39,47 +40,47 @@ pub struct PlatformPackage {
     pub sha256: &'static str,
 }
 
-/// Values read from the npm registry for version 0.3.1 (tarballs verified against `integrity`).
+/// `bun.lock` integrity of each 0.3.3 tarball and the sha256 of its installed binary.
 pub const PACKAGES: &[PlatformPackage] = &[
     PlatformPackage {
         suffix: "darwin-arm64",
-        integrity: "sha512-pn3dqOX9F4HZ9Vzjb9UTm4B0dz5w9c8jBsy8/Dp1WzrLOjg91cjx/LzPqXG7rrzD39ygyxnHZE4694f7lh9kuQ==",
-        sha256: "b54a98832ec070c22383f8b1695a4850a44d753e8ea99751ccec659b4a598927",
+        integrity: "sha512-1q9sROkkbGQaG2rxyKT6hW/EN1aDUiST8h6WmQdt1dbgvo3WaYDDjaEWmgwhm7Fhhca+E9WruTfxfVBBDm4Ezg==",
+        sha256: "6d557e7eb38a24c3c24e822e141de0c7d8dc38aa3ee4d86a0892377e02bcb922",
     },
     PlatformPackage {
         suffix: "darwin-x64",
-        integrity: "sha512-uBzxgFUxfGew7yR60YW5ng8is571AHWBg4MqytwDVAwlmkEaAzIvja/nxD+dWaszOq+PtJIaYnNqf4ybmG1JXg==",
-        sha256: "5ed35c398df49cea6c95af79a7e9d61ff37698b537c38676e49448235e2ec85c",
+        integrity: "sha512-dfphCXfoaXGAa1i2P52U7QelcJoANTWimCvuy8xPNPlazrb7ANP+flzQxcy7f6rP/hnbzGLYUMxU0CQocMjwqA==",
+        sha256: "ee28fbb73cdca800be11e5a382d8fcb3bac7c2d7ddc475dda4a292f67f65bafb",
     },
     PlatformPackage {
         suffix: "linux-arm64-gnu",
-        integrity: "sha512-/8GK/hfnHa4O5vvVuFOd/SMr07n19dLmoILjsn8BmTBlBEU5oZClssKoeCDiPigFsVuL2cMBTqb2bONuD5SyDg==",
-        sha256: "716c079de14270d24154e8b4237ece5643671ee687235d1b4b92c4885b0ffd99",
+        integrity: "sha512-MyO+3wIkv6hveEY6Jyd7jgk9PRp1J4y+u0Y5FfUg1SPFUhrFTx9yrHXbSDVbAe7mLmMYu8KhRn4+plk8JXZjyg==",
+        sha256: "9c17168b174c720aaee2b65239ed2057e54e885e0df513302ccc9ee5c0aa6a5c",
     },
     PlatformPackage {
         suffix: "linux-arm64-musl",
-        integrity: "sha512-jemE95Tw4tVPUpmHGqDtTKlSnxFexZT6+R05esxdT9uiVnflK9mR0fLlgZpsgSDEQIZPywo5scA4wgqZaPIWKw==",
-        sha256: "68da5fa91a0938cd00adf90dbe4ba2d33f3da402cd3633e3afbc22bd321fa5d8",
+        integrity: "sha512-L0+x0xald7PKwYcckE8NOFef/FpGQ2k13iunGlHJFIN1gxDpI1XtZQEjASIe4w3vq1nB49L7SnbghzMxUKNtOg==",
+        sha256: "5338ed1696942d92f56f5dceeae277e177f875ac703446411fa34609ee4d78c1",
     },
     PlatformPackage {
         suffix: "linux-x64-gnu",
-        integrity: "sha512-DfU49EkQrE/G+HQZmWg7jvwCTdOkYcFvXFts6MNRycnrtm/K7Qq0SKVGYmZC0J2LN4SmgqCUILzmS+rDNkyw8g==",
-        sha256: "7d617cf2fd494775cc4ed29e87c05c5550e66f4f6bd9c9b603654973852c4536",
+        integrity: "sha512-j1nPB/8nwrJm20s5Gz9Q/8qPQyYowkQNXeLUaz2bilvB5L1Wl8OxOSk39WpcEZYp4gkBNsuguNm1zSZ+++RsKQ==",
+        sha256: "375334d9e20ffd7f7cd111eaaed7802d87ce13c9c15608ec42942b2b5da2e1b7",
     },
     PlatformPackage {
         suffix: "linux-x64-musl",
-        integrity: "sha512-P+/oP0Xkfjecd/NmD+dwYQE+l/cUjhevONBauzjfOWSqd32ltznEpKqbfJW0RldR+Gztr9sJdkAATjRHURX1RQ==",
-        sha256: "c242f41099a4a96b3c900501e402f61ae1c2f17205a4d755768f3fa9a3bfb019",
+        integrity: "sha512-dNPmBprzTiM0u18YBsvC4hXRwi2/SGDbvaZvyfr9VooaC/49YIkKbz9hOVzIry8Q8uaWvXagCiYSQwIdPIfSeA==",
+        sha256: "713933d2e69dc0a03a9bd84dbde88e2826f5d6001eee518ff85be4d0b5a0cf7f",
     },
     PlatformPackage {
         suffix: "win32-arm64",
-        integrity: "sha512-HM2t9xYnFU2NYbFowVINKiVzbTdRtnIf/1kPC5lulLcqWf5g+N/O+uXy4dGqErdun49vJ+MP8EydG52whkE/xQ==",
-        sha256: "6caf0b0a746a9cbd315157d609ee687de4d33d7834beffff473d3c3cd4971274",
+        integrity: "sha512-1v2e97XLZIZein/E7WGyfHOcB1S71pgKp7yq6yCe3OtbDtm5WFnp9mQB+jU2ns1d4ATTp2bJauh7rHFsqaJgeA==",
+        sha256: "713b453733994e2c99d69a023e8a15d4f7eb43a2d2c92ba85f052751d6b73ce1",
     },
     PlatformPackage {
         suffix: "win32-x64",
-        integrity: "sha512-xUpe+TApPY81AII9EXb9MdN2/WyDJB0t3C/vMsSxBQZSvh6mfML7mqt2kK9lQntQn5wz1kmKi05NRr9bHtkzoQ==",
-        sha256: "d097e3435cfff862772f2238f820d0ab5083a6ca2d53f16672cd84c4fe68a2ea",
+        integrity: "sha512-V7B4i/2gQxqHNBVt9q1EpJhIHX+UgPJxle6+XzAkUgwOo/75ncUUbn0hsqBy/tqVMhDSA4n5BHQ32U+X7aYI0w==",
+        sha256: "99181ba38119fa912852ee6bb3884acb434ef778030dc7adc12ba3507407e98b",
     },
 ];
 
@@ -110,9 +111,9 @@ pub fn current_package() -> Option<&'static PlatformPackage> {
     PACKAGES.iter().find(|p| p.suffix == suffix)
 }
 
-/// `<registry>/@opencode-ai/pty-<suffix>/-/pty-<suffix>-<version>.tgz`.
+/// `<registry>/@opencode/pty-<suffix>/-/pty-<suffix>-<version>.tgz`.
 pub fn tarball_url(registry: &str, suffix: &str, version: &str) -> String {
-    format!("{}/@opencode-ai/pty-{suffix}/-/pty-{suffix}-{version}.tgz", registry.trim_end_matches('/'))
+    format!("{}/@opencode/pty-{suffix}/-/pty-{suffix}-{version}.tgz", registry.trim_end_matches('/'))
 }
 
 /// npm `integrity` string (`sha512-<base64>`) of some bytes.
@@ -412,11 +413,11 @@ mod tests {
     fn urls_and_paths() {
         assert_eq!(
             tarball_url("https://registry.npmjs.org/", "linux-x64-gnu", VERSION),
-            "https://registry.npmjs.org/@opencode-ai/pty-linux-x64-gnu/-/pty-linux-x64-gnu-0.3.1.tgz"
+            "https://registry.npmjs.org/@opencode/pty-linux-x64-gnu/-/pty-linux-x64-gnu-0.3.3.tgz"
         );
         assert_eq!(
             install_path(Path::new("/c/bin"), VERSION, PACKAGES[4].sha256),
-            PathBuf::from("/c/bin/opencode-pty/0.3.1-7d617cf2fd494775").join(EXECUTABLE)
+            PathBuf::from("/c/bin/opencode-pty/0.3.3-375334d9e20ffd7f").join(EXECUTABLE)
         );
         assert_eq!(PACKAGES.len(), 8);
     }

@@ -105,7 +105,8 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   shutdown/handoff/get/update (resize then get)/remove/snapshot, connect-token (server-owned, uses
   `get`) and connect (attachments mapped to oc-server's `PersistentPtyAttachment`: output → binary,
   resized → JSON + base64 checkpoint, other events → `to_ws_json`; framed/legacy input → `input` /
-  `control`). `Unavailable` → 503 `{service:"opencode-pty"}`, `NotFound` → 404 `PtyNotFoundError`.
+  `control`). `Unavailable` → 503 `{service:"opencode-pty"}`, `NotFound` → 404 `PtyNotFoundError`,
+  `InvalidCwd` → 400 `InvalidRequestError{message: "cwd is not a directory: <cwd>", kind: "invalid_cwd", field: "cwd"}`.
   `Engine::prepare_pty_handoff()` is the hook for the CLI's service stop/restart (spec 01 §7.5).
 * **shell** (`ShellService`: the runner's, else `oc_core::services::default_services` whose sink
   publishes `shell.created/exited/deleted` to the bus): `shell.list` (running only), `shell.create`
@@ -152,10 +153,16 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   complete`, `command.connect/status/cancel` (oc-ai `Integrations`, upstream error mapping).
 * **credential**: `list/create/update/remove/activate` over `oc_core::models::DbCredentials`.
 * **project**: `project.list`, `project.update` (+ `project.updated`); **worktree.list**.
-* **fs**: `fs.read`, `fs.list`, `fs.find`, `experimental.fs.write`.
+* **fs**: `fs.read`, `fs.list`, `fs.find`, `experimental.fs.write`, `experimental.fs.watch`/`unwatch`
+  (`file_watch::FileWatch`, global on the `Engine`: the file must pass `fs.read` confinement (404
+  `FileNotFoundError`), then its directory is watched for 24 h (renewed by watching again; 256 per
+  location, the soonest-expiring stopped first; swept every 5 min) and each change publishes
+  `filesystem.changed {file, event: "change"|"unlink"}` on the location; a watch whose directory
+  vanishes is forgotten; disabled by `OPENCODE_FILEWATCHER_DISABLE` → 503 `{service: "filewatcher"}`;
+  unwatch is always 204).
 * **command.list**, **skill.list**, **config.get**, **experimental.config.update** (`shell`).
 * **vcs** (git via `oc_git::GitVcs`): `vcs.init` (git; hg → 503), `vcs.get`, `vcs.base`,
-  `vcs.status`, `vcs.branch.list` (limit ≤ 100), `vcs.diff` (review budget).
+  `vcs.status`, `vcs.branch.list` (limit ≤ 100), `vcs.diff` (review budget, `?untracked=files|folders`).
 
 ## Plugins
 

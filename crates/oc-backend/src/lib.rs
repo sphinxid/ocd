@@ -4,6 +4,7 @@
 pub mod backend;
 pub mod catalog;
 pub mod engine;
+pub mod file_watch;
 pub mod fs;
 pub mod fuzzy;
 pub mod locations;

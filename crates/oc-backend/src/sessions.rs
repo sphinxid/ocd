@@ -604,72 +604,62 @@ impl Engine {
     pub async fn diff(&self, id: &str, from: Option<String>, to: Option<String>, context: Option<i64>) -> Result<Vec<api::FileDiffInfo>, ApiError> {
         let session = self.session(id)?;
         let db = &self.app.db;
-        let mut kinds = vec!["user", "idle"];
-        let rows = {
-            let mut rows = store::rows_of_types(db, id, &kinds).map_err(defect)?;
-            for extra in [from.as_deref(), to.as_deref()].into_iter().flatten() {
-                if !rows.iter().any(|r| r.id == extra)
-                    && let Some((sid, row)) = store::message(db, extra).map_err(defect)?
-                        && sid == id {
-                            rows.push(row);
-                        }
-            }
-            rows.sort_by_key(|r| r.seq);
-            rows
-        };
-        kinds.clear();
-        let users: Vec<&store::MessageRow> = rows.iter().filter(|r| r.kind == "user").collect();
-        let markers: Vec<&store::MessageRow> = rows.iter().filter(|r| r.kind == "idle").collect();
-        let resolve = |field: &str, mid: &str| -> Result<&store::MessageRow, ApiError> {
-            let row = rows.iter().find(|r| r.id == mid).ok_or_else(|| ApiError::message_not_found(id, mid))?;
-            if row.kind != "user" {
+        // Only `seq`s and point lookups by id: the `(session_id, type, seq)` index answers these
+        // without reading message rows, which can be megabytes each.
+        let users = store::seqs_of_type(db, id, "user").map_err(defect)?;
+        let markers = store::seqs_of_type(db, id, "idle").map_err(defect)?;
+        let resolve = |field: &str, mid: &str| -> Result<(String, i64), ApiError> {
+            let (row_id, kind, seq) =
+                store::message_ref(db, id, mid).map_err(defect)?.ok_or_else(|| ApiError::message_not_found(id, mid))?;
+            if kind != "user" {
                 return Err(ApiError::invalid_request(format!("Message {mid} is not a user message")).with_field(field));
             }
-            Ok(row)
+            Ok((row_id, seq))
         };
         let anchor = match &from {
             Some(f) => resolve("from", f)?,
-            None => match users.last() {
-                Some(u) => u,
+            None => match store::last_of_type(db, id, "user").map_err(defect)? {
+                Some(user) => user,
                 None => return Ok(vec![]),
             },
         };
         let last = match &to {
             Some(t) => resolve("to", t)?,
-            None => anchor,
+            None => anchor.clone(),
         };
-        if last.seq < anchor.seq {
-            return Err(ApiError::invalid_request(format!("Message {} precedes {}", last.id, anchor.id)).with_field("to"));
+        if last.1 < anchor.1 {
+            return Err(ApiError::invalid_request(format!("Message {} precedes {}", last.0, anchor.0)).with_field("to"));
         }
+        // Without any marker, history predates idle markers and a prompt's turn ends at the next prompt.
         let legacy = markers.is_empty();
-        let opened = markers.iter().rev().find(|r| r.seq < anchor.seq).map(|r| r.seq).unwrap_or(-1);
-        let start = if legacy { anchor.seq } else { users.iter().find(|r| r.seq > opened).map(|r| r.seq).unwrap_or(anchor.seq) };
+        let opened = markers.iter().rev().find(|seq| **seq < anchor.1).copied().unwrap_or(-1);
+        let start = if legacy { anchor.1 } else { users.iter().find(|seq| **seq > opened).copied().unwrap_or(anchor.1) };
         let end = if legacy {
-            users.iter().find(|r| r.seq > last.seq).map(|r| r.seq)
+            users.iter().find(|seq| **seq > last.1).copied()
         } else {
-            markers.iter().find(|r| r.seq > last.seq).map(|r| r.seq)
+            markers.iter().find(|seq| **seq > last.1).copied()
         };
-        let steps: Vec<store::MessageRow> = store::rows_of_types(db, id, &["assistant"])
-            .map_err(defect)?
-            .into_iter()
-            .filter(|r| r.seq > start && end.is_none_or(|e| r.seq < e))
-            .collect();
+        let steps = store::diff_steps(db, id, start, end).map_err(defect)?;
         let (Some(first), Some(final_)) = (steps.first(), steps.last()) else { return Ok(vec![]) };
-        let snap = |r: &store::MessageRow, k: &str| r.data().pointer(&format!("/snapshot/{k}")).and_then(Value::as_str).map(str::to_string);
-        let Some(from_tree) = steps.iter().find_map(|s| snap(s, "start")) else { return Ok(vec![]) };
-        let switches = store::rows_of_types(db, id, &["location-switched"]).map_err(defect)?;
-        if switches.iter().any(|r| r.seq > first.seq && r.seq < final_.seq) {
+        let Some(from_tree) = steps.iter().find_map(|s| s.start.clone().filter(|tree| !tree.is_empty())) else {
+            return Ok(vec![]);
+        };
+        let switches = store::location_switches(db, id).map_err(defect)?;
+        if switches.iter().any(|(seq, _, _)| *seq > first.seq && *seq < final_.seq) {
             return Err(ApiError::invalid_request("Turn range spans a location change").with_field("to"));
         }
-        let before = switches.iter().rev().find(|r| r.seq < first.seq).and_then(|r| r.data().pointer("/location/directory").and_then(Value::as_str).map(str::to_string));
-        let after = switches
-            .iter()
-            .find(|r| r.seq > first.seq)
-            .and_then(|r| r.data().pointer("/previous/location/directory").and_then(Value::as_str).map(str::to_string));
+        let directory_of = |location: &Option<String>| {
+            location
+                .as_deref()
+                .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                .and_then(|value| value.get("directory").and_then(Value::as_str).map(str::to_string))
+        };
+        let before = switches.iter().rev().find(|(seq, _, _)| *seq < first.seq).and_then(|(_, location, _)| directory_of(location));
+        let after = switches.iter().find(|(seq, _, _)| *seq > first.seq).and_then(|(_, _, previous)| directory_of(previous));
         let directory = before.or(after).unwrap_or_else(|| session.location.directory.clone());
-        let recorded = steps.iter().rev().find_map(|s| snap(s, "end"));
+        let recorded = steps.iter().rev().find_map(|s| s.end.clone().filter(|tree| !tree.is_empty()));
         let loc = self.locations.get(&directory).await?;
-        let running = self.is_active(id) && final_.data().pointer("/time/completed").is_none_or(Value::is_null);
+        let running = self.is_active(id) && !final_.completed;
         let to_tree = if running { loc.snapshots.capture().await.map(|t| t.0).or(recorded) } else { recorded };
         let Some(to_tree) = to_tree else { return Ok(vec![]) };
         let diffs = loc

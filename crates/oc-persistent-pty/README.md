@@ -2,7 +2,8 @@
 
 Client side of opencode's persistent terminals, a port of `packages/core/src/persistent-pty/**`
 (plus the handoff sidecar from `packages/client/src/pty-handoff.ts`). The terminals live in the
-external MIT Rust daemon `opencode-pty` (npm `@opencode-ai/pty@0.3.1`, protocol 7), so they
+external MIT Rust daemon `opencode-pty` (npm `@opencode/pty@0.3.3`, protocol 7; renamed from
+`@opencode-ai/pty` with 0.3.3, whose sources upstream now vendors as `packages/process-daemon`), so they
 survive server restarts. Spec: `docs/spec/08-mcp-pty-plugins-misc.md` §2.5–§2.9.
 
 ## Modules
@@ -35,7 +36,7 @@ All methods are `async` and return `Result<_, Error>`. `Error::Unavailable(messa
 | method | endpoint (`{data: …}` wrapping is the server's job) |
 |---|---|
 | `list(Some(session_id))` → `Vec<Info>` (`[]` if no daemon) | `GET /api/experimental/session/:sessionID/terminal` |
-| `create(session_id, CreateInput)` → `Info` (publishes `persistent-pty.added`) | `POST /api/experimental/session/:sessionID/terminal` |
+| `create(session_id, CreateInput)` → `Info` (publishes `persistent-pty.added`); `cwd` (default `/`) is resolved like `path.resolve` and must be a directory, else `Error::InvalidCwd` ("cwd is not a directory: <cwd>", HTTP 400 `kind: "invalid_cwd"`) before the daemon is contacted | `POST /api/experimental/session/:sessionID/terminal` |
 | `read(session_id, lines: Option<i64>)` → `Option<ReadResult>` | `GET …/session/:sessionID/terminal/read?lines=` |
 | `shutdown()` | `POST /api/experimental/persistent-pty/shutdown` (204) |
 | `handoff()` → `Option<Handoff>` | `POST /api/experimental/persistent-pty/handoff` → `{handoff}` |
@@ -94,14 +95,14 @@ An `exited` event seen by any attachment removes the terminal in the background
 
 1. A non-empty `OPENCODE_PTY_BIN` wins.
 2. Unsupported targets fall back to `opencode-pty` on `PATH`.
-3. Otherwise the crate installs into `<global.bin>/opencode-pty/0.3.1-<sha256[0..16]>/opencode-pty` (`opencode-pty.exe`
+3. Otherwise the crate installs into `<global.bin>/opencode-pty/0.3.3-<sha256[0..16]>/opencode-pty` (`opencode-pty.exe`
    on Windows). This is
    the same layout and validation as upstream's embedded asset: 0700 private dirs, no symlinks, owned by
    the current uid, sha256-verified, chmod 755, atomic `opencode-pty.<pid>.<uuid>.tmp` + rename, and the
    same error strings.
 
 When the binary isn't cached, the crate downloads
-`<registry>/@opencode-ai/pty-<os>-<arch>[-gnu|-musl]/-/pty-…-0.3.1.tgz` (`<os>` is `darwin`, `linux` or `win32`). The
+`<registry>/@opencode/pty-<os>-<arch>[-gnu|-musl]/-/pty-…-0.3.3.tgz` (`<os>` is `darwin`, `linux` or `win32`). The
 registry is `$npm_config_registry` or the public registry. The download is checked against the pinned npm `integrity`
 (sha512), `package/bin/opencode-pty` (`opencode-pty.exe` on Windows) is extracted in memory, and its pinned sha256 is checked before install. The platform is chosen from the
 build target, the same as upstream (musl targets use `-musl`).

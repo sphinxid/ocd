@@ -203,6 +203,90 @@ pub fn message(db: &Database, id: &str) -> anyhow::Result<Option<(String, Messag
 }
 
 /// Rows of the given types in sequence order.
+/// `seq`s of a Session's messages of one type, ascending. Selecting only `seq` lets the
+/// `(session_id, type, seq)` index answer without reading message rows.
+pub fn seqs_of_type(db: &Database, session: &str, kind: &str) -> anyhow::Result<Vec<i64>> {
+    db.with(|c| {
+        let mut s =
+            c.prepare("SELECT seq FROM session_message WHERE session_id = ? AND type = ? ORDER BY seq ASC")?;
+        s.query_map(rusqlite::params![session, kind], |r| r.get(0))?.collect()
+    })
+}
+
+/// `(id, type, seq)` of one message of the Session, by point lookup.
+pub fn message_ref(db: &Database, session: &str, id: &str) -> anyhow::Result<Option<(String, String, i64)>> {
+    db.with(|c| {
+        c.query_row(
+            "SELECT id, type, seq FROM session_message WHERE id = ? AND session_id = ?",
+            rusqlite::params![id, session],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+    })
+}
+
+/// `(id, seq)` of the Session's latest message of one type.
+pub fn last_of_type(db: &Database, session: &str, kind: &str) -> anyhow::Result<Option<(String, i64)>> {
+    db.with(|c| {
+        c.query_row(
+            "SELECT id, seq FROM session_message WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1",
+            rusqlite::params![session, kind],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+    })
+}
+
+/// An assistant step of a turn: its snapshot trees and whether it completed.
+pub struct DiffStep {
+    pub seq: i64,
+    pub start: Option<String>,
+    pub end: Option<String>,
+    pub completed: bool,
+}
+
+fn text_column(value: Sql) -> Option<String> {
+    match value {
+        Sql::Text(text) => Some(text),
+        Sql::Integer(n) => Some(n.to_string()),
+        Sql::Real(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// Assistant steps after `start` (and before `end`), reading only their snapshot and completion
+/// fields.
+pub fn diff_steps(db: &Database, session: &str, start: i64, end: Option<i64>) -> anyhow::Result<Vec<DiffStep>> {
+    let bound = if end.is_some() { " AND seq < ?4" } else { "" };
+    let sql = format!(
+        "SELECT seq, json_extract(data, '$.snapshot.start'), json_extract(data, '$.snapshot.end'), json_extract(data, '$.time.completed') FROM session_message WHERE session_id = ?1 AND type = ?2 AND seq > ?3{bound} ORDER BY seq ASC"
+    );
+    let mut args: Vec<Sql> = vec![Sql::Text(session.into()), Sql::Text("assistant".into()), Sql::Integer(start)];
+    args.extend(end.map(Sql::Integer));
+    db.with(|c| {
+        let mut s = c.prepare(&sql)?;
+        s.query_map(params_from_iter(args.iter()), |r| {
+            Ok(DiffStep {
+                seq: r.get(0)?,
+                start: text_column(r.get(1)?),
+                end: text_column(r.get(2)?),
+                completed: !matches!(r.get::<_, Sql>(3)?, Sql::Null),
+            })
+        })?
+        .collect()
+    })
+}
+
+/// `(seq, location JSON, previous.location JSON)` of the Session's location switches, ascending.
+pub fn location_switches(db: &Database, session: &str) -> anyhow::Result<Vec<(i64, Option<String>, Option<String>)>> {
+    db.with(|c| {
+        let mut s = c.prepare(
+            "SELECT seq, json_extract(data, '$.location'), json_extract(data, '$.previous.location') FROM session_message WHERE session_id = ? AND type = 'location-switched' ORDER BY seq ASC",
+        )?;
+        s.query_map([session], |r| Ok((r.get(0)?, text_column(r.get(1)?), text_column(r.get(2)?))))?.collect()
+    })
+}
+
 pub fn rows_of_types(db: &Database, session: &str, kinds: &[&str]) -> anyhow::Result<Vec<MessageRow>> {
     let placeholders = vec!["?"; kinds.len()].join(",");
     let sql = format!("SELECT seq, id, type, data FROM session_message WHERE session_id = ? AND type IN ({placeholders}) ORDER BY seq ASC");

@@ -1032,6 +1032,24 @@ impl Backend for Engine {
         from_json(crate::fs::write(&loc.key, &req.path, &req.body)?)
     }
 
+    async fn experimental_fs_watch(&self, ctx: &RequestContext, req: ExperimentalFsWatchRequest) -> Result<(), ApiError> {
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        // Same confinement as read: the file must exist inside the location.
+        crate::fs::read(&loc, &loc.key, &req.body.path)?;
+        let location = oc_schema::types::LocationRef { directory: loc.key.clone(), workspace_id: ctx.location.workspace_id.clone() };
+        let file = oc_git::paths::resolve(std::path::Path::new(&loc.key), &req.body.path);
+        self.file_watch
+            .watch(&location, &file)
+            .map_err(|error| ApiError::service_unavailable(error.to_string(), Some("filewatcher".into())))
+    }
+
+    async fn experimental_fs_unwatch(&self, ctx: &RequestContext, req: ExperimentalFsUnwatchRequest) -> Result<(), ApiError> {
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        let location = oc_schema::types::LocationRef { directory: loc.key.clone(), workspace_id: ctx.location.workspace_id.clone() };
+        self.file_watch.unwatch(&location, &oc_git::paths::resolve(std::path::Path::new(&loc.key), &req.body.path));
+        Ok(())
+    }
+
     // ---- command / skill / reference ----------------------------------------------------------
 
     async fn command_list(&self, ctx: &RequestContext, _req: CommandListRequest) -> Result<Vec<CommandInfo>, ApiError> {
@@ -1625,6 +1643,9 @@ fn persistent_error(e: oc_persistent_pty::Error) -> ApiError {
     match e {
         oc_persistent_pty::Error::Unavailable(m) => ApiError::service_unavailable(m, Some("opencode-pty".into())),
         oc_persistent_pty::Error::NotFound(id) => ApiError::pty_not_found(id),
+        oc_persistent_pty::Error::InvalidCwd { message, .. } => {
+            ApiError::invalid_request(message).with_kind("invalid_cwd").with_field("cwd")
+        }
     }
 }
 
