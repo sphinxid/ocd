@@ -237,6 +237,7 @@ impl Locations {
             reload: reload.is_some(),
             previous: reload.flatten(),
             projector: self.projector.lock().clone(),
+            runner: self.runner.clone(),
         };
         // `LocationLifecycle` activates the project inside the location's service scope, so the
         // event carries the location (core/src/location-lifecycle.ts:32, bus.ts publish).
@@ -263,6 +264,8 @@ struct Notify {
     /// The services the reload replaced: their projections are the baseline when none was recorded yet.
     previous: Option<Arc<Loc>>,
     projector: Option<LocProjector>,
+    /// Owns the location's MCP servers, which a boot starts.
+    runner: Option<Arc<oc_core::runner::Engine>>,
 }
 
 /// A configuration reload's notifications (upstream reloads each domain State in place): provider and model
@@ -314,7 +317,13 @@ async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_s
     // Booting a location activates the built-in plugins inside one `State.batch`; when the batch
     // ends every State they touched notifies once, in first-change order, and the plugin supervisor
     // then announces its inventory (core/src/plugin.ts `activate`, core/src/state.ts `batch`). With
-    // the default plugin set those are exactly these nine events.
+    // the default plugin set those are exactly these nine events. The MCP State notifies first
+    // (`opencode.config.mcp` is the first plugin to touch a State that notifies): it registers the
+    // configured servers and starts connecting them, announcing each `pending` (or `disabled`) before
+    // the burst (core/src/mcp/index.ts `reconcile`).
+    if let Some(runner) = &notify.runner {
+        runner.mcp(&loc.location).await;
+    }
     for kind in BOOT_NOTIFICATIONS {
         // The git VCS provider registers in the same batch; the Vcs State notify (after models,
         // before agents) refreshes the info and announces the branch when it changed from unknown

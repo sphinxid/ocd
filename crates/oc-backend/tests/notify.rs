@@ -118,3 +118,60 @@ async fn reloads_announce_only_changed_domains() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(drain(&mut rx), ["provider.updated", "model.updated", "provider.updated", "model.updated"]);
 }
+
+/// The MCP State notifies first when a location boots (`opencode.config.mcp` is the first plugin to touch a
+/// State that notifies): its servers announce `disabled` or `pending` before the `*.updated` burst, rather
+/// than starting on the first MCP request. Recorded from the 2.2.2 binary (wire22_mcp_malformed_tools).
+#[tokio::test]
+async fn mcp_servers_start_before_the_boot_burst() {
+    unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
+    let root = tempfile::tempdir().unwrap();
+    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let project = root_path.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    // A server that never answers stays `pending` through the burst.
+    let config = json!({
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": { "servers": {
+            "off": { "type": "local", "command": ["sleep", "5"], "disabled": true },
+            "local": { "type": "local", "command": ["sleep", "5"] },
+        } },
+    });
+    std::fs::write(project.join("opencode.json"), config.to_string()).unwrap();
+    let db = oc_storage::Database::memory().unwrap();
+    let app = oc_core::app::App::new(global(&root_path), db, "1.2.3");
+    let runner = oc_core::runner::Engine::new(app.clone(), &oc_core::services::default_services(&app));
+    let opts = oc_server::ServerOptions { cwd: Some(project.display().to_string()), version: "1.2.3".into(), ready: true, ..Default::default() };
+    let (router, _) = oc_backend::router(app.clone(), Some(runner), &opts).unwrap();
+    let mut rx = app.bus.subscribe();
+    {
+        use tower::ServiceExt;
+        let res = router
+            .clone()
+            .oneshot(axum::http::Request::get("/api/agent").body(axum::body::Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+    }
+    let mut seen = Vec::new();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let Ok(e) = rx.recv().await else { continue };
+            if e.kind == "mcp.status.changed" {
+                seen.push(format!("mcp.status.changed:{}", e.data["server"].as_str().unwrap()));
+            } else if e.kind.ends_with(".updated") && e.kind != "project.updated" {
+                seen.push(e.kind.clone());
+            }
+            if e.kind == "plugin.updated" {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("no plugin.updated");
+    assert_eq!(
+        seen[..4],
+        ["mcp.status.changed:off", "mcp.status.changed:local", "integration.updated", "provider.updated"],
+        "{seen:?}"
+    );
+}

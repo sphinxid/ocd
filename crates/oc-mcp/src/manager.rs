@@ -150,7 +150,11 @@ struct Inner {
     overrides: Mutex<IndexMap<String, Option<ServerConfig>>>,
     applied: Mutex<Option<IndexMap<String, ServerConfig>>>,
     reconcile_lock: tokio::sync::Mutex<()>,
+    sink: Mutex<Option<EventSink>>,
 }
+
+/// Receives every `mcp.*.changed` event synchronously, in publication order (see [`McpManager::on_event`]).
+pub type EventSink = Arc<dyn Fn(&McpEvent) + Send + Sync>;
 
 /// The MCP server registry for one Location. Cheap to clone.
 #[derive(Clone)]
@@ -171,6 +175,7 @@ impl McpManager {
                 overrides: Mutex::new(IndexMap::new()),
                 applied: Mutex::new(None),
                 reconcile_lock: tokio::sync::Mutex::new(()),
+                sink: Mutex::new(None),
             }),
         }
     }
@@ -180,7 +185,18 @@ impl McpManager {
         self.inner.events.subscribe()
     }
 
+    /// Delivers every event to `sink` as it is published, before the broadcast subscribers see it. Upstream
+    /// publishes on the bus directly, so the startup `pending` statuses precede whatever the caller
+    /// publishes after [`McpManager::set_servers`] returns (the location boot's `*.updated` burst).
+    pub fn on_event(&self, sink: EventSink) {
+        *self.inner.sink.lock() = Some(sink);
+    }
+
     fn publish(&self, event: McpEvent) {
+        let sink = self.inner.sink.lock().clone();
+        if let Some(sink) = sink {
+            sink(&event);
+        }
         let _ = self.inner.events.send(event);
     }
 
@@ -234,6 +250,7 @@ impl McpManager {
             }
             *self.inner.applied.lock() = Some(servers);
             // Initial connections stay asynchronous so one slow server does not block startup.
+            let mut starting = Vec::new();
             for (name, entry) in entries {
                 if entry.config.disabled() {
                     entry.set_status(Status::Disabled);
@@ -241,6 +258,15 @@ impl McpManager {
                     self.publish(McpEvent::StatusChanged { server: name });
                     continue;
                 }
+                starting.push((name, entry));
+            }
+            // Upstream forks each startup, and the forked fibers announce `pending` before the State
+            // notification that started them returns; announcing here keeps that order.
+            for (name, entry) in &starting {
+                entry.set_status(Status::Pending);
+                self.publish(McpEvent::StatusChanged { server: name.clone() });
+            }
+            for (name, entry) in starting {
                 let this = self.clone();
                 tokio::spawn(async move {
                     let _guard = this.inner.locks.lock(&name).await;
@@ -249,7 +275,7 @@ impl McpManager {
                         entry.open_startup();
                         return;
                     }
-                    this.start_server(&name, &entry).await;
+                    this.connect_server(&name, &entry).await;
                 });
             }
             return;
@@ -301,10 +327,19 @@ impl McpManager {
 
     fn start_server<'a>(&'a self, name: &'a str, entry: &'a Arc<Entry>) -> futures::future::BoxFuture<'a, ()> {
         Box::pin(async move {
-            let connection_id = uuid::Uuid::new_v4().to_string();
-            let directory = self.inner.options.directory.display().to_string();
+            // Announce the handshake so connect() and credential reconnects don't show a stale
+            // disabled/failed status for the duration of the connection attempt.
             entry.set_status(Status::Pending);
             self.publish(McpEvent::StatusChanged { server: name.to_string() });
+            self.connect_server(name, entry).await;
+        })
+    }
+
+    /// `startServer` after its `pending` announcement.
+    fn connect_server<'a>(&'a self, name: &'a str, entry: &'a Arc<Entry>) -> futures::future::BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let connection_id = uuid::Uuid::new_v4().to_string();
+            let directory = self.inner.options.directory.display().to_string();
             let result = async {
                 let provider = match (&entry.config, &entry.integration_id) {
                     (ServerConfig::Remote(remote), Some(integration_id)) => Some(Arc::new(
@@ -864,6 +899,33 @@ pub fn merge_catalogs(catalogs: Vec<ResourceCatalog>) -> ResourceCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `reconcile` (core/src/mcp/index.ts): the first reconcile announces disabled servers, then forks each
+    /// startup, whose `pending` announcement lands before the State notification returns.
+    #[tokio::test]
+    async fn startup_statuses_are_published_before_set_servers_returns() {
+        let manager = McpManager::new(ManagerOptions {
+            directory: std::env::temp_dir(),
+            client_info: ClientInfo { name: "opencode".into(), version: "test".into() },
+            credentials: None,
+            elicitation: None,
+        });
+        let seen: Arc<Mutex<Vec<McpEvent>>> = Arc::default();
+        let sink_seen = seen.clone();
+        manager.on_event(Arc::new(move |event: &McpEvent| sink_seen.lock().push(event.clone())));
+        let servers: IndexMap<String, ServerConfig> = serde_json::from_value(serde_json::json!({
+            "a": {"type": "local", "command": ["/nonexistent/ocd-mcp-test"]},
+            "off": {"type": "local", "command": ["/nonexistent/ocd-mcp-test"], "disabled": true},
+            "b": {"type": "local", "command": ["/nonexistent/ocd-mcp-test"]},
+        }))
+        .unwrap();
+        manager.set_servers(servers).await;
+        let seen = seen.lock().clone();
+        let status = |server: &str| McpEvent::StatusChanged { server: server.into() };
+        assert_eq!(seen[..3], [status("off"), status("a"), status("b")], "{seen:?}");
+        let statuses: Vec<(String, Status)> = manager.servers().into_iter().map(|s| (s.name, s.status)).collect();
+        assert!(statuses.contains(&("off".into(), Status::Disabled)), "{statuses:?}");
+    }
 
     #[test]
     fn unavailable_messages() {

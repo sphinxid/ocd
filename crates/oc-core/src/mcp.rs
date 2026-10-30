@@ -94,7 +94,16 @@ pub async fn servers(plugins: &crate::plugins::Plugins, location: &Location) -> 
     plugins.mcp_servers(location, oc_mcp::config::merge_documents(s.iter())).await
 }
 
-pub async fn manager(db: &Database, forms: &Forms, location: &Location, version: &str, plugins: &crate::plugins::Plugins) -> Arc<McpManager> {
+/// The location's MCP manager. `sink` receives its events from the first one on (the startup statuses
+/// included), before the servers are set.
+pub async fn manager(
+    db: &Database,
+    forms: &Forms,
+    location: &Location,
+    version: &str,
+    plugins: &crate::plugins::Plugins,
+    sink: oc_mcp::manager::EventSink,
+) -> Arc<McpManager> {
     let manager = Arc::new(McpManager::new(ManagerOptions {
         directory: location.directory.clone(),
         client_info: ClientInfo { name: "opencode".into(), version: version.into() },
@@ -104,6 +113,7 @@ pub async fn manager(db: &Database, forms: &Forms, location: &Location, version:
             Some(oc_schema::types::LocationRef { directory: location.key.clone(), workspace_id: None }),
         ))),
     }));
+    manager.on_event(sink);
     manager.set_servers(servers(plugins, location).await).await;
     manager
 }

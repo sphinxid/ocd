@@ -353,18 +353,16 @@ impl Engine {
         if let Some(m) = mcps.get(&key) {
             return m.clone();
         }
-        let m = crate::mcp::manager(&self.app.db, &self.app.forms, location, &self.app.version, &self.app.plugins).await;
-        let mut rx = m.subscribe();
+        // The manager publishes on the bus as it goes, like upstream's MCP service, so its startup
+        // statuses come before what the location boot publishes next.
         let bus = self.app.bus.clone();
         let loc = oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None };
-        tokio::spawn(async move {
-            while let Ok(ev) = rx.recv().await {
-                use oc_mcp::types::McpEvent as E;
-                let (E::ToolsChanged { server } | E::ResourcesChanged { server } | E::StatusChanged { server } | E::PromptsChanged { server }) = &ev;
-                let data = serde_json::json!({"server": server});
-                bus.publish(ev.event_type(), data, Some(loc.clone()));
-            }
+        let sink: oc_mcp::manager::EventSink = Arc::new(move |ev: &oc_mcp::types::McpEvent| {
+            use oc_mcp::types::McpEvent as E;
+            let (E::ToolsChanged { server } | E::ResourcesChanged { server } | E::StatusChanged { server } | E::PromptsChanged { server }) = ev;
+            bus.publish(ev.event_type(), serde_json::json!({"server": server}), Some(loc.clone()));
         });
+        let m = crate::mcp::manager(&self.app.db, &self.app.forms, location, &self.app.version, &self.app.plugins, sink).await;
         // `Credential.Event.Switched` for a server's integration (an OAuth login through the
         // integration API) brings that server back online with the new credential.
         let mut events = self.app.bus.subscribe();

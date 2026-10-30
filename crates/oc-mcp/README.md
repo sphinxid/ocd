@@ -35,6 +35,7 @@ let manager = McpManager::new(ManagerOptions {
     elicitation: Some(handler),                  // Arc<dyn ElicitationHandler>
 });
 let mut events = manager.subscribe();            // broadcast::Receiver<McpEvent>
+manager.on_event(sink);                          // or a synchronous EventSink, called as each event is published
 
 // Config: fold every document's `mcp` section, drop policy-denied servers, then load.
 let servers = oc_mcp::merge_documents(sections.iter());
@@ -45,6 +46,9 @@ manager.set_servers(servers).await;              // initial load and every `conf
 first call creates all entries `pending`, marks `disabled` ones and starts the rest in the
 background; later calls replace changed servers (deep equality), remove missing ones and leave
 the rest untouched. Runtime `add` overrides win over config; `remove` hides a name until restart.
+The first call's `mcp.status.changed` events (each disabled server, then each starting one) reach the
+sink before it returns, as upstream's forked startups announce `pending` before the MCP State's
+notification returns; core publishes them on the bus through the sink.
 
 | method | behaviour |
 |---|---|
