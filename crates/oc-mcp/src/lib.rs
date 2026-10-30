@@ -12,6 +12,7 @@ pub mod manager;
 pub mod naming;
 pub mod oauth;
 pub mod protocol;
+pub mod tool_check;
 pub mod transport;
 pub mod types;
 

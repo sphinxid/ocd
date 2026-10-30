@@ -881,7 +881,10 @@ impl Client {
 
     /// `_listAllPages`: follows `nextCursor` (stopping on a repeated cursor) up to 64 pages.
     pub async fn list_all(&self, method: &str, key: &str, options: &RequestOptions) -> Result<Vec<Value>, McpError> {
-        let first = self.request(method, None, options).await?;
+        let mut first = self.request(method, None, options).await?;
+        if method == "tools/list" {
+            crate::tool_check::filter_page(&self.config.server, &mut first, self.is_modern());
+        }
         let mut items: Vec<Value> = first.get(key).and_then(Value::as_array).cloned().ok_or_else(|| {
             McpError::sdk(SdkErrorCode::InvalidResult, format!("Invalid result for {method}: {key} must be an array"))
         })?;
@@ -899,7 +902,10 @@ impl Client {
                 ));
             }
             seen.insert(c.clone());
-            let page = self.request(method, Some(json!({"cursor": c})), options).await?;
+            let mut page = self.request(method, Some(json!({"cursor": c})), options).await?;
+            if method == "tools/list" {
+                crate::tool_check::filter_page(&self.config.server, &mut page, self.is_modern());
+            }
             if let Some(more) = page.get(key).and_then(Value::as_array) {
                 items.extend(more.iter().cloned());
             }

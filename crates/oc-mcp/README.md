@@ -17,6 +17,7 @@ behaviour match the TS SDK exactly.
 | `manager` | `mcp/index.ts` | `McpManager` registry/lifecycle |
 | `connection` | `mcp/client.ts` | one connection: transport choice, `?codemode=false`, transient retry, session expiry, teardown |
 | `protocol` | SDK `Protocol`/`Client` | request correlation, timeouts, cancellation, legacy handshake, `2026-07-28` negotiation, server requests, pagination, output-schema validation |
+| `tool_check` | `mcp/client.ts` `ToolCheckingClient`, SDK 2.3.1 era codecs | per-tool `tools/list` validation: tools the negotiated era's `ToolSchema` rejects are dropped with the warning "skipping invalid MCP tool", the rest stay (only when the page without its tools is valid) |
 | `transport::stdio` | `mcp/stdio.ts` | process-group spawn, newline framing (16 MiB frame cap), stderr tail, kill sequence |
 | `transport::http` | SDK `StreamableHTTPClientTransport` | POST JSON/SSE, `Mcp-Session-Id`, GET stream, SSE resumption/reconnect, 401/403 OAuth, DELETE |
 | `oauth` | `mcp/oauth.ts`, SDK `auth.ts` | provider, discovery (RFC 9728/8414/OIDC), DCR, CIMD, PKCE, refresh (de-duplicated), credential mapping, `McpCredentialStore` |
@@ -123,6 +124,8 @@ applied to accepted content. Core maps these to `"global"`-session forms titled
   (upstream's custom stdio transport does not use the sibling probe either).
 - Sampling (`sampling/createMessage`) is not supported (upstream does not declare it).
 - JSON-Schema output validation uses the `jsonschema` crate; its error texts differ from Ajv's.
+- `tools/list` pages are not validated as a whole (a page that fails for another reason than its tools is accepted,
+  where the SDK fails it); per-tool issues are logged in zod's JSON layout but with simplified messages.
 - Network error messages approximate Bun's fetch errors (`Unable to connect. Is the computer able to access the url? (ConnectionRefused)`).
 - Workspace-backed (remote environment) stdio spawning is core's concern; this crate spawns locally.
 - Legacy v1 config normalization diagnostics live in core; `migrate_v1_server` covers the server mapping.
