@@ -60,6 +60,8 @@ fn is_text(bytes: &[u8]) -> bool {
 
 pub struct Input {
     pub uri: String,
+    /// Source metadata the client already knows (`PromptInput.FileAttachment.source`), kept for inline data.
+    pub source: Option<AttachmentSource>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub mention: Option<Mention>,
@@ -165,12 +167,38 @@ fn read_file(uri: &str) -> Result<Resolved, AttachmentError> {
 /// Optional image normalizer (resize/re-encode); returns (base64, mime).
 pub type ImageNormalizer<'a> = &'a (dyn Fn(&str, &str, &str) -> Result<(String, String), String> + Sync);
 
+/// Reads a stored media blob by hash (`SessionBlob.read`): `(mime, bytes)` while some message references it.
+pub type BlobReader<'a> = &'a (dyn Fn(&str) -> Option<(String, Vec<u8>)> + Sync);
+
+/// Image types the resizer can decode; others such as HEIC and AVIF go to the provider unchanged.
+pub const RESIZABLE_IMAGE_MIMES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"];
+
 pub fn materialize(input: &Input, normalize: Option<ImageNormalizer>) -> Result<FileAttachment, AttachmentError> {
+    materialize_with(input, normalize, None)
+}
+
+/// `materializeAttachment`, with stored blobs for `media:` refs (a ref a client got from an
+/// `experimental-media-uri` read, sent back as an attachment; its bytes were normalized when first admitted).
+pub fn materialize_with(input: &Input, normalize: Option<ImageNormalizer>, blobs: Option<BlobReader>) -> Result<FileAttachment, AttachmentError> {
+    if oc_storage::stored::is_media_ref(&input.uri) {
+        let blob = blobs.and_then(|read| read(&input.uri["media:".len()..]));
+        let Some((mime, bytes)) = blob else {
+            return Err(AttachmentError { uri: input.uri.clone(), message: format!("Attachment is no longer stored: {}", input.uri) });
+        };
+        return Ok(FileAttachment {
+            data: base64::engine::general_purpose::STANDARD.encode(&bytes),
+            mime,
+            source: input.source.clone().unwrap_or(AttachmentSource::Inline),
+            name: input.name.clone(),
+            description: input.description.clone(),
+            mention: input.mention.clone(),
+        });
+    }
     let label = label(input);
     let resolved = if input.uri.starts_with("data:") {
         Resolved {
             bytes: decode_data_url(&input.uri, &label)?,
-            source: AttachmentSource::Inline,
+            source: input.source.clone().unwrap_or(AttachmentSource::Inline),
             start: None,
             end: None,
             name: None,
@@ -195,7 +223,7 @@ pub fn materialize(input: &Input, normalize: Option<ImageNormalizer>) -> Result<
     };
     let mut data = base64::engine::general_purpose::STANDARD.encode(&content);
     let mut mime = mime;
-    if mime.starts_with("image/") {
+    if RESIZABLE_IMAGE_MIMES.contains(&mime.as_str()) {
         if let Some(n) = normalize {
             let (d, m) = n(&label, &data, &mime).map_err(|message| AttachmentError { uri: label.clone(), message })?;
             data = d;
@@ -220,11 +248,11 @@ mod tests {
     use super::*;
     #[test]
     fn data_urls() {
-        let i = Input { uri: "data:text/plain,hello%20world".into(), name: None, description: None, mention: None };
+        let i = Input { uri: "data:text/plain,hello%20world".into(), source: None, name: None, description: None, mention: None };
         let a = materialize(&i, None).unwrap();
         assert_eq!(a.mime, "text/plain");
         assert_eq!(a.data, base64::engine::general_purpose::STANDARD.encode("hello world"));
-        let bad = Input { uri: "data:;base64,aGk".into(), name: None, description: None, mention: None };
+        let bad = Input { uri: "data:;base64,aGk".into(), source: None, name: None, description: None, mention: None };
         assert_eq!(materialize(&bad, None).unwrap_err().message, "Invalid attachment data URL: inline attachment");
         assert_eq!(detect(b"\x89PNG\r\n\x1a\n...."), "image/png");
         assert_eq!(detect(&[0xff, 0xfe, 0x00]), "application/octet-stream");

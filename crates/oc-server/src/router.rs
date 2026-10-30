@@ -271,7 +271,7 @@ pub(crate) mod respond {
                 res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
                 res
             }
-            Err(e) => ApiError::defect(format!("failed to encode response: {e}")).into_response(),
+            Err(e) => ApiError::encode_failed(format!("failed to encode response: {e}")).into_response(),
         }
     }
 

@@ -41,7 +41,7 @@ fn run_fake_server() {
             "initialize" => Ok(json!({
                 "protocolVersion": params["protocolVersion"],
                 "capabilities": {"tools": {"listChanged": true}, "prompts": {}, "resources": {}},
-                "serverInfo": {"name": "fake", "version": "1.0.0"},
+                "serverInfo": {"name": "fake", "version": "1.0.0", "title": "  Fake Server  "},
                 "instructions": "  Use the fake server.  \n",
                 "echoClient": {"clientInfo": params["clientInfo"], "capabilities": params["capabilities"]}
             })),
@@ -196,6 +196,13 @@ async fn stdio_lifecycle_tools_and_calls() {
     let infos = manager.servers();
     assert_eq!(infos.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["my.fake", "off"]);
     assert!(infos[0].integration_id.is_none());
+    // `serverInfo.title`, trimmed, only while connected (#58950).
+    assert_eq!(infos[0].title.as_deref(), Some("Fake Server"));
+    assert_eq!(infos[1].title, None);
+    assert_eq!(
+        serde_json::to_value(&infos[0]).unwrap().as_object().unwrap().keys().collect::<Vec<_>>(),
+        vec!["name", "status", "title"]
+    );
 
     // Pagination joined both pages; names sorted; prefixed ids sanitized.
     let tools = manager.tools();

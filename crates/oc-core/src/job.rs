@@ -310,6 +310,7 @@ impl Jobs {
             .filter(|(_, j)| match &j.recovery {
                 Some(JobRecovery::Shell { session_id, .. }) => session_id == session,
                 Some(JobRecovery::Subagent { parent_session_id, .. }) => parent_session_id == session,
+                Some(JobRecovery::Image { session_id, .. }) => session_id == session,
                 None => false,
             })
             .map(|(k, _)| k.clone())

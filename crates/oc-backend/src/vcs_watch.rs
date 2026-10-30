@@ -36,6 +36,11 @@ impl VcsState {
         self.info.lock().clone()
     }
 
+    /// Carry the info over from the services a configuration reload replaced.
+    pub fn seed(&self, info: Option<Info>) {
+        *self.info.lock() = info;
+    }
+
     fn branch(&self) -> Option<String> {
         self.info.lock().as_ref().and_then(|i| i.branch.current.clone())
     }

@@ -45,6 +45,8 @@ impl Backend for Engine {
 
     async fn agent_list(&self, ctx: &RequestContext, _req: AgentListRequest) -> Result<Vec<AgentInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
+        // Plugin agents are part of the list, so wait for the location's plugins first.
+        self.await_plugins(&loc).await?;
         self.agents(&loc).await.list().into_iter().map(conv).collect()
     }
 
@@ -150,22 +152,23 @@ impl Backend for Engine {
     }
 
     async fn session_update(&self, _ctx: &RequestContext, req: SessionUpdateRequest) -> Result<(), ApiError> {
-        self.session_scope(&req.session_id).await?;
+        // Only title regeneration (`title: ""`) runs in the session's location.
+        self.session(&req.session_id)?;
         self.update_session(&req.session_id, req.body).await
     }
 
     async fn session_fork(&self, _ctx: &RequestContext, req: SessionForkRequest) -> Result<SessionInfo, ApiError> {
-        self.session_scope(&req.session_id).await?;
+        self.session(&req.session_id)?;
         self.fork_session(&req.session_id, req.body.before)
     }
 
     async fn session_switch_agent(&self, _ctx: &RequestContext, req: SessionSwitchAgentRequest) -> Result<(), ApiError> {
-        self.session_scope(&req.session_id).await?;
+        self.session(&req.session_id)?;
         self.app.sessions.switch_agent(&req.session_id, &req.body.agent).map_err(session_error)
     }
 
     async fn session_switch_model(&self, _ctx: &RequestContext, req: SessionSwitchModelRequest) -> Result<(), ApiError> {
-        self.session_scope(&req.session_id).await?;
+        self.session(&req.session_id)?;
         self.app.sessions.switch_model(&req.session_id, conv(req.body.model)?).map_err(session_error)
     }
 
@@ -208,7 +211,7 @@ impl Backend for Engine {
     }
 
     async fn experimental_session_wait(&self, _ctx: &RequestContext, req: ExperimentalSessionWaitRequest) -> Result<(), ApiError> {
-        self.session_scope(&req.session_id).await?;
+        self.session(&req.session_id)?;
         if let Some(c) = self.app.coordinator.get() {
             c.await_idle(&req.session_id).await;
         }
@@ -348,7 +351,7 @@ impl Backend for Engine {
     }
 
     async fn session_background(&self, _ctx: &RequestContext, req: SessionBackgroundRequest) -> Result<(), ApiError> {
-        self.session_scope(&req.session_id).await?;
+        self.session(&req.session_id)?;
         self.background(&req.session_id).await
     }
 
@@ -371,6 +374,13 @@ impl Backend for Engine {
     // ---- forms -----------------------------------------------------------------------------
 
     async fn session_form_list(&self, ctx: &RequestContext, req: SessionFormListRequest) -> Result<Vec<FormInfo>, ApiError> {
+        if req.session_id != "global" {
+            // `form-location.ts`: a session whose location is not live has no forms, and is not booted to find out.
+            let session = self.session(&req.session_id)?;
+            if !self.locations.is_live(&session.location.directory) {
+                return Ok(vec![]);
+            }
+        }
         self.form_scope(ctx, &req.session_id).await?;
         self.app.forms.list(Some(&req.session_id)).into_iter().map(from_json).collect()
     }
@@ -447,16 +457,108 @@ impl Backend for Engine {
     }
 
     async fn experimental_generate_text(&self, _ctx: &RequestContext, req: ExperimentalGenerateTextRequest) -> Result<GenerateTextResponse, ApiError> {
-        // Runs at the location whose directory is the global config directory.
+        // Runs at the location whose directory is the global config directory, after its plugins activate.
         let directory = self.app.global.config.display().to_string();
-        self.locations.get(&directory).await?;
+        let loc = self.locations.get(&directory).await?;
+        self.await_plugins(&loc).await?;
         let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
         let model = req.body.model.map(conv).transpose()?;
         match runner.generate_text(&directory, &req.body.prompt, model).await {
             Ok(text) => from_json(json!({"data": {"text": text}})),
-            Err(oc_core::generate::GenerateError::ModelSelection(m)) => Err(ApiError::invalid_request(m)),
-            Err(oc_core::generate::GenerateError::Unavailable { message, service }) => Err(ApiError::service_unavailable(message, service)),
+            Err(e) => Err(generate_error(e)),
         }
+    }
+
+    async fn experimental_generate_image(&self, _ctx: &RequestContext, req: ExperimentalGenerateImageRequest) -> Result<GenerateImageResponse, ApiError> {
+        let directory = self.app.global.config.display().to_string();
+        let loc = self.locations.get(&directory).await?;
+        self.await_plugins(&loc).await?;
+        let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
+        let model: oc_schema::types::ModelRef = conv(req.body.model)?;
+        match runner.generate_media(&directory, "image", &model).await {
+            Ok(data) => from_json(json!({ "data": data })),
+            Err(e) => Err(generate_error(e)),
+        }
+    }
+
+    async fn experimental_generate_decisions(
+        &self,
+        _ctx: &RequestContext,
+        req: ExperimentalGenerateDecisionsRequest,
+    ) -> Result<GenerateDecisionsResponse, ApiError> {
+        let directory = self.app.global.config.display().to_string();
+        let loc = self.locations.get(&directory).await?;
+        let questions = serde_json::to_value(&req.body.questions).map_err(|e| defect(e.to_string()))?;
+        let names: Vec<&str> =
+            questions.as_array().map(|q| q.iter().filter_map(|q| q.get("name").and_then(Value::as_str)).collect()).unwrap_or_default();
+        let unique: std::collections::HashSet<&str> = names.iter().copied().collect();
+        if unique.len() != names.len() {
+            return Err(ApiError::invalid_request("Decision question names must be unique").with_field("questions"));
+        }
+        self.await_plugins(&loc).await?;
+        let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
+        let model: oc_schema::types::ModelRef = conv(req.body.model)?;
+        match runner.generate_media(&directory, "decision", &model).await {
+            Ok(data) => from_json(json!({ "data": data })),
+            Err(e) => Err(generate_error(e)),
+        }
+    }
+
+    async fn experimental_media_get(
+        &self,
+        _ctx: &RequestContext,
+        req: ExperimentalMediaGetRequest,
+    ) -> Result<oc_server::MediaBlob, ApiError> {
+        let blob = self.app.db.with(|c| oc_storage::stored::read_blob(c, &req.hash)).map_err(|e| defect(e.to_string()))?;
+        match blob {
+            Some((mime, data)) => Ok(oc_server::MediaBlob { mime, data: data.into() }),
+            None => Err(ApiError::file_not_found_message(
+                format!("/api/experimental/media/{}", req.hash),
+                format!("Media blob not found: {}", req.hash),
+            )),
+        }
+    }
+
+    // ---- schedules (experimental.schedules is not ported: every location answers as if it were off) ----
+
+    async fn experimental_schedule_create(
+        &self,
+        _ctx: &RequestContext,
+        req: ExperimentalScheduleCreateRequest,
+    ) -> Result<ScheduleInfo, ApiError> {
+        let session = self.session(&req.body.session_id)?;
+        if !std::path::Path::new(&session.location.directory).is_dir() {
+            return Err(ApiError::invalid_request(format!("Session directory does not exist: {}", session.location.directory))
+                .with_kind("schedule"));
+        }
+        Err(schedules_disabled())
+    }
+
+    async fn experimental_schedule_list(&self, _ctx: &RequestContext, req: ExperimentalScheduleListRequest) -> Result<Vec<ScheduleInfo>, ApiError> {
+        self.session(&req.session_id)?;
+        Err(schedules_disabled())
+    }
+
+    async fn experimental_schedule_get(&self, _ctx: &RequestContext, req: ExperimentalScheduleGetRequest) -> Result<ScheduleInfo, ApiError> {
+        Err(self.schedule_find(&req.schedule_id))
+    }
+
+    async fn experimental_schedule_pause(&self, _ctx: &RequestContext, req: ExperimentalSchedulePauseRequest) -> Result<ScheduleInfo, ApiError> {
+        Err(self.schedule_find(&req.schedule_id))
+    }
+
+    async fn experimental_schedule_resume(&self, _ctx: &RequestContext, req: ExperimentalScheduleResumeRequest) -> Result<ScheduleInfo, ApiError> {
+        Err(self.schedule_find(&req.schedule_id))
+    }
+
+    async fn experimental_schedule_delete(&self, _ctx: &RequestContext, req: ExperimentalScheduleDeleteRequest) -> Result<(), ApiError> {
+        Err(self.schedule_find(&req.schedule_id))
+    }
+
+    async fn plugin_gui(&self, ctx: &RequestContext, req: PluginGuiRequest) -> Result<PluginGuiBundle, ApiError> {
+        // No plugin ships a `./gui-experimental` bundle to ocd (GUI plugins are desktop-only).
+        self.locations.get(&ctx.location.directory).await?;
+        Err(ApiError::plugin_not_found(req.id.clone(), format!("No active plugin with a ./gui-experimental bundle: {}", req.id)))
     }
 
     /// The deprecated `POST /api/experimental/generate`: the same handler as `generate/text`.
@@ -511,6 +613,7 @@ impl Backend for Engine {
 
     async fn provider_list(&self, ctx: &RequestContext, _req: ProviderListRequest) -> Result<Vec<ProviderInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
+        self.await_plugins(&loc).await?;
         let catalog = self.catalog(&loc).await?;
         catalog.available_providers().into_iter().map(conv).collect()
     }
@@ -741,15 +844,12 @@ impl Backend for Engine {
 
     // ---- project ------------------------------------------------------------------------------
 
-    async fn project_list(&self, ctx: &RequestContext, req: ProjectListRequest) -> Result<Vec<Project>, ApiError> {
-        // The project group runs behind the location middleware, so the request's location boots (and its
-        // Project resolves, unarchiving it) first.
-        self.locations.get(&ctx.location.directory).await?;
+    async fn project_list(&self, _ctx: &RequestContext, req: ProjectListRequest) -> Result<Vec<Project>, ApiError> {
+        // No location middleware since 2.2: listing neither boots nor unarchives the caller's project.
         oc_core::project::list(&self.app.bus, req.archived == Some(true)).map_err(defect)?.into_iter().map(from_json).collect()
     }
 
-    async fn project_update(&self, ctx: &RequestContext, req: ProjectUpdateRequest) -> Result<Project, ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
+    async fn project_update(&self, _ctx: &RequestContext, req: ProjectUpdateRequest) -> Result<Project, ApiError> {
         let id = req.project_id.clone();
         let not_found = || ApiError::project_not_found(&id);
         let b = req.body;
@@ -822,8 +922,7 @@ impl Backend for Engine {
         store::saved_permissions(&self.app.db, Some(&project)).map_err(defect)?.into_iter().map(from_json).collect()
     }
 
-    async fn permission_saved_update(&self, ctx: &RequestContext, req: PermissionSavedUpdateRequest) -> Result<PermissionSavedInfo, ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
+    async fn permission_saved_update(&self, _ctx: &RequestContext, req: PermissionSavedUpdateRequest) -> Result<PermissionSavedInfo, ApiError> {
         let body = req.body;
         match store::update_saved_permission(&self.app.db, &req.id, body.action.as_deref(), body.resource.as_deref()).map_err(defect)? {
             store::SavedUpdate::Updated(v) => from_json(v),
@@ -835,8 +934,7 @@ impl Backend for Engine {
         }
     }
 
-    async fn permission_saved_remove(&self, ctx: &RequestContext, req: PermissionSavedRemoveRequest) -> Result<(), ApiError> {
-        self.locations.get(&ctx.location.directory).await?;
+    async fn permission_saved_remove(&self, _ctx: &RequestContext, req: PermissionSavedRemoveRequest) -> Result<(), ApiError> {
         store::remove_saved_permission(&self.app.db, &req.id).map_err(defect)
     }
 
@@ -1634,7 +1732,7 @@ impl Engine {
 
     /// The location's web search service with its config `websearch` selection applied
     /// (`false` disables, a provider id pins; the config plugin runs after plugin transforms).
-    fn configure_websearch(&self, loc: &crate::locations::Loc) -> Arc<oc_tools::websearch::WebSearch> {
+    pub(crate) fn configure_websearch(&self, loc: &crate::locations::Loc) -> Arc<oc_tools::websearch::WebSearch> {
         let websearch = self.app.plugins.websearch_for(&loc.key).unwrap_or_else(|| self.websearch.clone());
         if let Some(selection) = oc_core::plugins::config_websearch_selection(&loc.location.entries) {
             websearch.set_config_selection(Some(selection));
@@ -1721,3 +1819,49 @@ fn package_targets(inventory: &[Value]) -> Vec<String> {
     out
 }
 
+
+/// `generateError` (server/src/handlers/generate.ts): `Generate.Error` as protocol errors.
+fn generate_error(error: oc_core::generate::GenerateError) -> ApiError {
+    use oc_core::generate::GenerateError as G;
+    match error {
+        G::ModelNotFound { provider_id, model_id, message } => ApiError::model_not_found(provider_id, model_id, message),
+        G::UnsupportedModel { provider_id, model_id, capability, message } => {
+            ApiError::unsupported_model(provider_id, model_id, capability, message)
+        }
+        G::InvalidRequest { message, field } => {
+            let e = ApiError::invalid_request(message);
+            match field {
+                Some(f) => e.with_field(f),
+                None => e,
+            }
+        }
+        G::ProviderRequest { provider_id, reason, message, status, retry_after_ms } => {
+            ApiError::provider_request(provider_id, reason, message, status, retry_after_ms)
+        }
+        G::Unavailable { message, service } => ApiError::service_unavailable(message, service),
+    }
+}
+
+/// `Schedule.DisabledError` as the server reports it.
+fn schedules_disabled() -> ApiError {
+    ApiError::forbidden("Scheduled tasks are disabled; set experimental.schedules in config")
+}
+
+impl Engine {
+    /// The schedule routes' `find`: a missing row, or one whose session is gone, is a 404; any other is forbidden
+    /// because schedules are off everywhere.
+    fn schedule_find(&self, id: &str) -> ApiError {
+        let session: Result<Option<Option<String>>, _> = self.app.db.with(|c| {
+            use rusqlite::OptionalExtension;
+            c.query_row("SELECT session_id FROM schedule WHERE id = ?", [id], |r| r.get::<_, Option<String>>(0)).optional()
+        });
+        match session {
+            Err(e) => defect(e.to_string()),
+            Ok(None) | Ok(Some(None)) => ApiError::schedule_not_found(id),
+            Ok(Some(Some(session))) => match self.session(&session) {
+                Ok(_) => schedules_disabled(),
+                Err(_) => ApiError::schedule_not_found(id),
+            },
+        }
+    }
+}

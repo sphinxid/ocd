@@ -102,6 +102,8 @@ impl Engine {
         self.session(id)?;
         if let Some(title) = body.title {
             if title.is_empty() {
+                // Regeneration runs in the session's location, which must still exist.
+                self.session_scope(id).await?;
                 match &self.runner {
                     Some(r) => {
                         if let Err(e) = r.generate_title(id).await {
@@ -192,6 +194,7 @@ impl Engine {
                     .map(|f| -> Result<_, ApiError> {
                         Ok(oc_core::attachment::Input {
                             uri: f.uri,
+                            source: f.source.map(conv).transpose()?,
                             name: f.name,
                             description: f.description,
                             mention: f.mention.map(conv).transpose()?,
@@ -206,15 +209,17 @@ impl Engine {
                     max_height: settings.max_height.min(u32::MAX as u64) as u32,
                     max_base64_bytes: settings.max_base64_bytes,
                 };
+                let db = self.app.db.clone();
                 let out = tokio::task::spawn_blocking(move || {
                     let normalize = |label: &str, data: &str, mime: &str| {
                         oc_tools::image::normalize(label, data, mime, &limits)
                             .map(|n| (n.content, n.mime))
                             .map_err(|e| e.to_string())
                     };
+                    let blobs = |hash: &str| db.with(|c| oc_storage::stored::read_blob(c, hash)).ok().flatten();
                     inputs
                         .iter()
-                        .map(|i| oc_core::attachment::materialize(i, Some(&normalize)))
+                        .map(|i| oc_core::attachment::materialize_with(i, Some(&normalize), Some(&blobs)))
                         .collect::<Result<Vec<_>, _>>()
                 })
                 .await
@@ -360,7 +365,8 @@ impl Engine {
     }
 
     pub async fn interrupt(&self, id: &str, resume: bool) -> Result<bool, ApiError> {
-        self.session_scope(id).await?;
+        // Since 2.2 these session routes look up the session only: they work after its directory is deleted.
+        self.session(id)?;
         let Some(c) = self.app.coordinator.get() else { return Ok(false) };
         let interrupted = c.interrupt(id, Some(oc_core::coordinator::Reason::User), false).await;
         if !resume {
@@ -586,7 +592,7 @@ impl Engine {
     }
 
     pub async fn revert_commit(&self, id: &str) -> Result<(), ApiError> {
-        let (session, _) = self.session_scope(id).await?;
+        let session = self.session(id)?;
         if self.is_active(id) {
             return Err(ApiError::session_busy(id));
         }
@@ -682,7 +688,7 @@ impl Engine {
     // ---- instruction entries ---------------------------------------------------------------
 
     pub async fn instruction_list(&self, id: &str) -> Result<Vec<api::InstructionEntryInfo>, ApiError> {
-        self.session_scope(id).await?;
+        self.session(id)?;
         store::instruction_entries(&self.app.db, id, false)
             .map_err(defect)?
             .into_iter()
@@ -691,7 +697,7 @@ impl Engine {
     }
 
     pub async fn instruction_put(&self, id: &str, key: &str, value: Value) -> Result<(), ApiError> {
-        self.session_scope(id).await?;
+        self.session(id)?;
         const MAX: i64 = 256 * 1024;
         let actual = value.to_string().len() as i64;
         if actual > MAX {
@@ -705,7 +711,7 @@ impl Engine {
     }
 
     pub async fn instruction_remove(&self, id: &str, key: &str) -> Result<(), ApiError> {
-        self.session_scope(id).await?;
+        self.session(id)?;
         store::instruction_remove(&self.app.db, id, key).map_err(defect)
     }
 

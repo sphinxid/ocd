@@ -46,6 +46,9 @@ impl Status {
 pub struct ServerInfo {
     pub name: String,
     pub status: Status,
+    /// Display title from the connected server's `serverInfo.title`; absent while disconnected or when not provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(rename = "integrationID", default, skip_serializing_if = "Option::is_none")]
     pub integration_id: Option<String>,
 }
@@ -344,7 +347,7 @@ mod tests {
         assert_eq!(serde_json::to_value(Status::Connected).unwrap(), json!({"status":"connected"}));
         assert_eq!(serde_json::to_value(Status::failed("x")).unwrap(), json!({"status":"failed","error":"x"}));
         assert_eq!(
-            serde_json::to_value(ServerInfo { name: "a".into(), status: Status::needs_auth("y"), integration_id: Some("mcp_1".into()) })
+            serde_json::to_value(ServerInfo { name: "a".into(), status: Status::needs_auth("y"), title: None, integration_id: Some("mcp_1".into()) })
                 .unwrap(),
             json!({"name":"a","status":{"status":"needs_auth","error":"y"},"integrationID":"mcp_1"})
         );

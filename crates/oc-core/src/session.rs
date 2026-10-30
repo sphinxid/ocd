@@ -90,10 +90,11 @@ impl Sessions {
             Some(p) => Some(self.get(p)?),
             None => None,
         };
+        // A new root session stores its directory canonically, so `/p/` and `/p` list together.
         let location = parent
             .as_ref()
             .map(|p| p.location.clone())
-            .or(input.location.clone())
+            .or(input.location.clone().map(|l| LocationRef { directory: crate::location::canonical_directory(&l.directory), ..l }))
             .ok_or_else(|| anyhow::anyhow!("Session.create requires either location or an existing parentID"))?;
         let project = crate::project::resolve_and_persist(&self.bus, Path::new(&location.directory)).await?;
         let subpath = relative(&project.directory, Path::new(&location.directory));

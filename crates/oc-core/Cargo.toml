@@ -63,4 +63,4 @@ axum.workspace = true
 parking_lot.workspace = true
 reqwest.workspace = true
 async-trait.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

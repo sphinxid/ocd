@@ -7,6 +7,7 @@ pub mod engine;
 pub mod fs;
 pub mod fuzzy;
 pub mod locations;
+pub mod notify;
 pub mod persistent;
 pub mod plugins;
 pub mod sessions;

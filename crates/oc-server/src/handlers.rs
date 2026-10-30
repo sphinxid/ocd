@@ -95,15 +95,19 @@ fn event_types(call: &Call) -> Result<Option<Vec<String>>, ApiError> {
     if values.is_empty() {
         return Ok(None);
     }
-    for (index, v) in values.iter().enumerate() {
-        if !(crate::sse::PUBLIC_EVENT_TYPES.contains(v) || v.starts_with("rpc.")) {
-            let at = if values.len() == 1 { "[\"types\"]".to_string() } else { format!("[\"types\"][{index}]") };
-            let literals = crate::sse::PUBLIC_EVENT_TYPES.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" | ");
-            return Err(ApiError::schema(
-                "Query",
-                format!("Expected {literals} | `rpc.${{string}}`, got {v:?}\n  at {at}"),
-            ));
+    // Effect's issue for one item: the literal union, then the `rpc.${string}` template literal.
+    let issue = |at: &str| {
+        let literals = crate::sse::PUBLIC_EVENT_TYPES.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(" | ");
+        format!("Expected {literals}\n  at {at}\nExpected a string matching template literal parts\n  at {at}")
+    };
+    let valid = |v: &str| crate::sse::PUBLIC_EVENT_TYPES.contains(&v) || v.starts_with("rpc.");
+    if let [single] = values.as_slice() {
+        // A single value fails both members of `ArrayEnsure`: the item itself and the one-element array.
+        if !valid(single) {
+            return Err(ApiError::schema("Query", format!("{}\n{}", issue("[\"types\"]"), issue("[\"types\"][0]"))));
         }
+    } else if let Some(index) = values.iter().position(|v| !valid(v)) {
+        return Err(ApiError::schema("Query", issue(&format!("[\"types\"][{index}]"))));
     }
     Ok(Some(values.into_iter().map(str::to_string).collect()))
 }

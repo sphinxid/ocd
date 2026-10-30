@@ -182,6 +182,15 @@ pub enum JobRecovery {
         agent: String,
         description: String,
     },
+    /// A background `experimental_image_generate` job (2.2.2). ocd never starts one, but settles those another
+    /// release left pending in a shared database.
+    #[serde(rename = "image")]
+    Image {
+        #[serde(rename = "sessionID")]
+        session_id: String,
+        path: String,
+        model: String,
+    },
 }
 
 /// `Job.Status`.

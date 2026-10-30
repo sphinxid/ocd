@@ -7,17 +7,18 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// Convert between two serde types with the same JSON shape (core/schema type → generated API
-/// type and back). A mismatch is a server bug, so it becomes a defect (500, empty body).
+/// type and back). A mismatch is a server bug: like a response that fails its schema upstream it is a
+/// `500 UnknownError` ("Server failed to encode its response…") with a logged `ref`.
 pub fn conv<T: DeserializeOwned>(value: impl Serialize) -> Result<T, ApiError> {
-    let json = serde_json::to_value(value).map_err(|e| ApiError::defect(format!("encode failed: {e}")))?;
+    let json = serde_json::to_value(value).map_err(|e| ApiError::encode_failed(format!("encode failed: {e}")))?;
     from_json(json)
 }
 
-/// Decode a JSON value into an API type (defect on mismatch).
+/// Decode a JSON value into an API type (`UnknownError` with a `ref` on mismatch).
 pub fn from_json<T: DeserializeOwned>(json: Value) -> Result<T, ApiError> {
     let text = if tracing::enabled!(tracing::Level::DEBUG) { Some(json.to_string()) } else { None };
     serde_json::from_value(json).map_err(|e| {
-        ApiError::defect(format!(
+        ApiError::encode_failed(format!(
             "value does not match the API schema ({e}){}",
             text.map(|t| format!(": {}", truncate(&t, 2000))).unwrap_or_default()
         ))

@@ -66,21 +66,14 @@ async fn lists_archived_projects_only_when_requested() {
     assert_eq!(all[1]["time"]["archived"], json!(5));
     assert!(all[0]["time"].get("archived").is_none());
 
-    // Over HTTP the request's location boots first (the project routes run behind the location middleware), so the
-    // server's own directory is listed too, most recently active first.
+    // Since 2.2 the project routes take no location: listing boots nothing, so the server's own directory is
+    // not resolved (or unarchived) as a side effect.
     let listed = |v: Value| project_ids(v.as_array().unwrap());
-    let cwd_project = oc_util::hash::fast(format!("directory:{}", h.dir()));
-    assert_eq!(
-        listed(h.get("/api/project").await.json()),
-        vec![cwd_project.clone(), "active".into()]
-    );
-    assert_eq!(
-        listed(h.get("/api/project?archived=false").await.json()),
-        vec![cwd_project.clone(), "active".into()]
-    );
+    assert_eq!(listed(h.get("/api/project").await.json()), vec!["active".to_string()]);
+    assert_eq!(listed(h.get("/api/project?archived=false").await.json()), vec!["active".to_string()]);
     assert_eq!(
         listed(h.get("/api/project?archived=true").await.json()),
-        vec![cwd_project, "active".into(), "archived".into()]
+        vec!["active".to_string(), "archived".into()]
     );
     let r = h.get("/api/project?archived=x").await;
     assert_eq!(r.status, 400);

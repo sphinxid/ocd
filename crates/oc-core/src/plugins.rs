@@ -143,8 +143,15 @@ pub fn builtin_info(id: &str) -> Value {
     json!({ "id": id, "source": { "type": "builtin" }, "features": { "server": true }, "state": { "status": "active" } })
 }
 
+/// Domains whose `*.updated` notify runs through `State.changes` (#56267): it fires only when the
+/// domain's public projection changed since the last notification. Provider and model notify always.
+pub const GATED_DOMAINS: [&str; 7] = ["integration", "agent", "command", "skill", "websearch", "reference", "plugin"];
+
+/// Computes a domain's public projection at a location (serialized JSON), for [`Plugins::domain_changed`].
+pub type Projector = Arc<dyn Fn(String, &'static str) -> BoxFuture<'static, Option<String>> + Send + Sync>;
+
 /// `<domain>.updated` event published when a domain changes (the domain State's `notify`).
-fn domain_event(domain: &str) -> Option<&'static str> {
+pub fn domain_event(domain: &str) -> Option<&'static str> {
     Some(match domain {
         "agent" => "agent.updated",
         "command" => "command.updated",
@@ -284,6 +291,10 @@ pub struct Plugins {
     /// Bumped whenever cached plugin `provider`/`model`/`integration` results are dropped (a
     /// reload, new registrations, a (re)activation): part of [`Plugins::catalog_state`].
     catalog_epoch: std::sync::atomic::AtomicU64,
+    /// Projections of the gated domains (`State.changes`) per (location key, domain), as last notified.
+    /// They outlive a location rebuild, as upstream reloads its States in place.
+    published: Mutex<HashMap<(String, &'static str), String>>,
+    projector: RwLock<Option<Projector>>,
     me: Weak<Plugins>,
 }
 
@@ -314,8 +325,64 @@ impl Plugins {
             catalog_cache: Mutex::new(HashMap::new()),
             watched: Mutex::new(HashSet::new()),
             catalog_epoch: std::sync::atomic::AtomicU64::new(0),
+            published: Mutex::new(HashMap::new()),
+            projector: RwLock::new(None),
             me: me.clone(),
         })
+    }
+
+    /// Installs the function computing domain projections (the backend's list endpoints).
+    pub fn set_projector(&self, projector: Projector) {
+        *self.projector.write() = Some(projector);
+    }
+
+    fn gated(domain: &str) -> Option<&'static str> {
+        GATED_DOMAINS.iter().copied().find(|d| *d == domain)
+    }
+
+    /// `State.changes`: whether `domain`'s projection at `key` differs from the last notified one (recording
+    /// it). Ungated domains, and every domain without a projector, always notify.
+    pub async fn domain_changed(&self, key: &str, domain: &str) -> bool {
+        let Some(domain) = Self::gated(domain) else { return true };
+        let projector = self.projector.read().clone();
+        let Some(projector) = projector else { return true };
+        let Some(projection) = projector(key.to_string(), domain).await else { return true };
+        self.note_projection(key, domain, projection)
+    }
+
+    /// Whether a projection was recorded for `domain` at `key`.
+    pub fn has_projection(&self, key: &str, domain: &str) -> bool {
+        Self::gated(domain).is_some_and(|d| self.published.lock().contains_key(&(key.to_string(), d)))
+    }
+
+    /// Drops the projections recorded at `key` (a fresh boot notifies every domain again).
+    pub fn forget_projections(&self, key: &str) {
+        self.published.lock().retain(|(k, _), _| k != key);
+    }
+
+    /// Records a gated domain's projection at `key`; whether it differs from the last one recorded.
+    pub fn note_projection(&self, key: &str, domain: &str, projection: String) -> bool {
+        let Some(domain) = Self::gated(domain) else { return true };
+        let mut published = self.published.lock();
+        let entry = (key.to_string(), domain);
+        if published.get(&entry) == Some(&projection) {
+            return false;
+        }
+        published.insert(entry, projection);
+        true
+    }
+
+    /// Publishes `<domain>.updated` at `at` unless the domain's projection is unchanged. Runs in its own task
+    /// so a projection that needs the plugin host never waits on the host's event loop.
+    fn notify_domain(&self, key: &str, domain: &str, at: Option<oc_schema::types::LocationRef>) {
+        let Some(kind) = domain_event(domain) else { return };
+        let Some(me) = self.me.upgrade() else { return };
+        let (key, domain) = (key.to_string(), domain.to_string());
+        tokio::spawn(async move {
+            if me.domain_changed(&key, &domain).await {
+                me.bus.publish(kind, json!({}), at);
+            }
+        });
     }
 
     /// Installs the [`PluginApi`] plugins call back into (the backend's, which serves the
@@ -420,8 +487,8 @@ impl Plugins {
                 for domain in domains {
                     self.cache.lock().remove(&(key.clone(), domain.clone()));
                     self.catalog_changed(&domain);
-                    if settled && let Some(kind) = domain_event(&domain) {
-                        self.bus.publish(kind, json!({}), Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None }));
+                    if settled {
+                        self.notify_domain(&key, &domain, Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None }));
                     }
                     if domain == "websearch" && settled {
                         self.search_providers(&key).await;
@@ -470,8 +537,8 @@ impl Plugins {
             let Some(domain) = error.strip_prefix("Plugin disabled after ").and_then(|r| r.split_once(".transform failed")).map(|(d, _)| d) else { continue };
             self.cache.lock().remove(&(key.to_string(), domain.to_string()));
             self.catalog_changed(domain);
-            if let Some(kind) = domain_event(domain) {
-                self.bus.publish(kind, json!({}), at.clone());
+            if domain_event(domain).is_some() {
+                self.notify_domain(key, domain, at.clone());
             }
             let _ = self.changes.send(DomainChange { key: key.to_string(), domain: domain.to_string() });
         }
@@ -1586,8 +1653,8 @@ impl Plugins {
         let method = request.method.as_str();
         if let Some(domain) = method.strip_suffix(".reload") {
             self.invalidate(&key, domain);
-            if let Some(kind) = domain_event(domain) {
-                self.bus.publish(kind, json!({}), Some(oc_schema::types::LocationRef { directory: request.location.directory.clone(), workspace_id: request.location.workspace_id.clone() }));
+            if domain_event(domain).is_some() {
+                self.notify_domain(&key, domain, Some(oc_schema::types::LocationRef { directory: request.location.directory.clone(), workspace_id: request.location.workspace_id.clone() }));
             }
             let _ = self.changes.send(DomainChange { key, domain: domain.to_string() });
             return Some(Ok(Value::Null));

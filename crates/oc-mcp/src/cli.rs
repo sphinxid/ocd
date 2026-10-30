@@ -90,10 +90,10 @@ mod tests {
     #[test]
     fn list_format() {
         let servers = vec![
-            ServerInfo { name: "zeta".into(), status: Status::failed("boom"), integration_id: None },
-            ServerInfo { name: "a".into(), status: Status::Connected, integration_id: None },
-            ServerInfo { name: "mid".into(), status: Status::needs_auth("x"), integration_id: None },
-            ServerInfo { name: "off".into(), status: Status::Disabled, integration_id: None },
+            ServerInfo { name: "zeta".into(), status: Status::failed("boom"), title: None, integration_id: None },
+            ServerInfo { name: "a".into(), status: Status::Connected, title: None, integration_id: None },
+            ServerInfo { name: "mid".into(), status: Status::needs_auth("x"), title: None, integration_id: None },
+            ServerInfo { name: "off".into(), status: Status::Disabled, title: None, integration_id: None },
         ];
         assert_eq!(
             format_list(&servers),

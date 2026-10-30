@@ -1,5 +1,6 @@
 //! Location service cache (`LocationServiceMap`): one lazily built service graph per requested
-//! directory, keyed by the directory string exactly as the client sent it (spec 06 §3, Q11).
+//! directory, keyed by its canonical form (`LocationServiceMap.canonical`: normalized, no trailing
+//! separator), so `/p/` and `/p` share one location.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ const BOOT_NOTIFICATIONS: [&str; 9] = [
 
 /// Services of one loaded location.
 pub struct Loc {
-    /// The requested directory, verbatim (cache key and `location.directory` in responses).
+    /// The canonical requested directory (cache key, `location.get`'s directory and boot events' location).
     pub key: String,
     pub location: Arc<Location>,
     pub snapshots: Snapshots,
@@ -64,6 +65,13 @@ impl Loc {
 
 type Cell = Arc<OnceCell<Arc<Loc>>>;
 
+/// Computes a gated domain's projection for a location (`crate::notify`).
+pub type LocProjector = Arc<dyn Fn(Arc<Loc>, &'static str) -> futures::future::BoxFuture<'static, Option<String>> + Send + Sync>;
+
+/// Locations whose configuration changed: their services are rebuilt, and the rebuild notifies like
+/// upstream's in-place State reload instead of a fresh boot. Holds the replaced services, if any.
+type Reloading = Arc<Mutex<HashMap<String, Option<Arc<Loc>>>>>;
+
 const ACTIVATE_INTERVAL: Duration = Duration::from_secs(60);
 
 pub struct Locations {
@@ -74,6 +82,8 @@ pub struct Locations {
     activated: Mutex<HashMap<String, Instant>>,
     /// Runs before a location is built (the models.dev refresh starts when the first location boots).
     on_build: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    reloading: Reloading,
+    projector: Mutex<Option<LocProjector>>,
 }
 
 fn is_dir(p: &str) -> bool {
@@ -83,18 +93,23 @@ fn is_dir(p: &str) -> bool {
 impl Locations {
     pub fn new(app: Arc<App>, runner: Option<Arc<oc_core::runner::Engine>>) -> Self {
         let map: Arc<Mutex<IndexMap<String, Cell>>> = Arc::new(Mutex::new(IndexMap::new()));
+        let reloading: Reloading = Arc::new(Mutex::new(HashMap::new()));
         // Core reloads configuration and announces `config.updated` for a location: drop the cached
         // services so agents and snapshots are rebuilt on next use.
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             let mut rx = app.bus.subscribe();
             let weak = Arc::downgrade(&map);
+            let reloading = reloading.clone();
             handle.spawn(async move {
                 loop {
                     match rx.recv().await {
                         Ok(e) if e.kind == "config.updated" => {
                             let Some(map) = weak.upgrade() else { break };
-                            if let Some(dir) = e.location.as_ref().map(|l| l.directory.clone()) {
-                                map.lock().shift_remove(&dir);
+                            if let Some(dir) = e.location.as_ref().map(|l| oc_core::location::canonical_directory(&l.directory)) {
+                                let previous = map.lock().shift_remove(&dir);
+                                if let Some(previous) = previous {
+                                    reloading.lock().insert(dir, previous.get().cloned());
+                                }
                             }
                         }
                         Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -132,7 +147,26 @@ impl Locations {
                 }
             });
         }
-        Locations { app, runner, git: Git::new(), map, activated: Mutex::new(HashMap::new()), on_build: Mutex::new(None) }
+        Locations {
+            app,
+            runner,
+            git: Git::new(),
+            map,
+            activated: Mutex::new(HashMap::new()),
+            on_build: Mutex::new(None),
+            reloading,
+            projector: Mutex::new(None),
+        }
+    }
+
+    /// Installs the domain projections the boot and reload notifications compare.
+    pub fn set_projector(&self, projector: LocProjector) {
+        *self.projector.lock() = Some(projector);
+    }
+
+    /// The services of a loaded location, without building them.
+    pub fn loaded(&self, directory: &str) -> Option<Arc<Loc>> {
+        self.map.lock().get(&oc_core::location::canonical_directory(directory)).and_then(|c| c.get().cloned())
     }
 
     pub fn git(&self) -> &Git {
@@ -146,6 +180,8 @@ impl Locations {
 
     /// Get or build the services for `directory`.
     pub async fn get(&self, directory: &str) -> Result<Arc<Loc>, ApiError> {
+        let canonical = oc_core::location::canonical_directory(directory);
+        let directory = canonical.as_str();
         let cell = self.map.lock().entry(directory.to_string()).or_default().clone();
         let result = cell.get_or_try_init(|| self.build(directory)).await.cloned();
         if result.is_err() {
@@ -192,6 +228,16 @@ impl Locations {
         );
         let loc = Arc::new(Loc { key: directory.to_string(), location, snapshots, vcs_state: Default::default() });
         let at = oc_schema::types::LocationRef { directory: directory.to_string(), workspace_id: None };
+        // A configuration reload: the rebuilt services notify like an in-place reload, and keep the VCS info.
+        let reload = self.reloading.lock().remove(directory);
+        if let Some(Some(previous)) = &reload {
+            loc.vcs_state.seed(previous.vcs_state.cached());
+        }
+        let notify = Notify {
+            reload: reload.is_some(),
+            previous: reload.flatten(),
+            projector: self.projector.lock().clone(),
+        };
         // `LocationLifecycle` activates the project inside the location's service scope, so the
         // event carries the location (core/src/location-lifecycle.ts:32, bus.ts publish).
         self.activate(loc.project_id(), Some(at.clone()));
@@ -200,18 +246,71 @@ impl Locations {
             let (app, git, loc2, at2) = (self.app.clone(), self.git.clone(), loc.clone(), at.clone());
             tokio::spawn(async move {
                 app.plugins.await_activation(&loc2.key).await;
-                boot_notifications(&app, &git, &loc2, &at2).await;
+                boot_notifications(&app, &git, &loc2, &at2, notify).await;
                 app.plugins.rebuild(&loc2.location).await;
             });
             return Ok(loc);
         }
-        boot_notifications(&self.app, &self.git, &loc, &at).await;
+        boot_notifications(&self.app, &self.git, &loc, &at, notify).await;
         Ok(loc)
     }
 }
 
-/// The `*.updated` notifications of a location's boot batch, then the branch watcher.
-async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_schema::types::LocationRef) {
+/// How a built location announces itself.
+struct Notify {
+    /// Rebuilt after a configuration change rather than booted.
+    reload: bool,
+    /// The services the reload replaced: their projections are the baseline when none was recorded yet.
+    previous: Option<Arc<Loc>>,
+    projector: Option<LocProjector>,
+}
+
+/// A configuration reload's notifications (upstream reloads each domain State in place): provider and model
+/// always notify (twice: once for the configuration, once for the provider plugins' rebuild), every other
+/// domain only when its projection changed (`State.changes`).
+const RELOAD_NOTIFICATIONS: [&str; 11] = [
+    "integration",
+    "provider",
+    "model",
+    "provider",
+    "model",
+    "command",
+    "agent",
+    "skill",
+    "websearch",
+    "reference",
+    "plugin",
+];
+
+/// The `*.updated` notifications of a location's boot batch (or configuration reload), then the branch watcher.
+async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_schema::types::LocationRef, notify: Notify) {
+    if notify.reload {
+        crate::vcs_watch::refresh(app, loc).await;
+        for domain in RELOAD_NOTIFICATIONS {
+            let gated = oc_core::plugins::GATED_DOMAINS.contains(&domain);
+            if gated && let Some(projector) = &notify.projector {
+                // A location's first notify always fires (its boot); the replaced services' projection is what
+                // it announced, unless a later notify recorded one.
+                if !app.plugins.has_projection(&loc.key, domain)
+                    && let Some(previous) = &notify.previous
+                    && let Some(baseline) = projector(previous.clone(), domain).await
+                {
+                    app.plugins.note_projection(&loc.key, domain, baseline);
+                }
+                let changed = match projector(loc.clone(), domain).await {
+                    Some(projection) => app.plugins.note_projection(&loc.key, domain, projection),
+                    None => true,
+                };
+                if !changed {
+                    continue;
+                }
+            }
+            app.bus.publish(&format!("{domain}.updated"), json!({}), Some(at.clone()));
+        }
+        let (app, git, loc) = (app.clone(), git.clone(), loc.clone());
+        tokio::spawn(async move { crate::vcs_watch::watch(&app, &git, &loc).await });
+        return;
+    }
     // Booting a location activates the built-in plugins inside one `State.batch`; when the batch
     // ends every State they touched notifies once, in first-change order, and the plugin supervisor
     // then announces its inventory (core/src/plugin.ts `activate`, core/src/state.ts `batch`). With
@@ -225,6 +324,8 @@ async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_s
         }
         app.bus.publish(kind, json!({}), Some(at.clone()));
     }
+    // A booted location's first notify always fires: whatever was recorded for an earlier instance is stale.
+    app.plugins.forget_projections(&loc.key);
     // `LocationWatcher` starts once plugins have activated, in the background.
     let (app, git, loc) = (app.clone(), git.clone(), loc.clone());
     tokio::spawn(async move { crate::vcs_watch::watch(&app, &git, &loc).await });
@@ -265,7 +366,12 @@ impl Locations {
 
     /// Drop the cached services of a location without announcing a shutdown (configuration reload).
     pub fn forget(&self, directory: &str) {
-        self.map.lock().shift_remove(directory);
+        self.map.lock().shift_remove(&oc_core::location::canonical_directory(directory));
+    }
+
+    /// `Instance.live`: whether the location is loaded or being built, without booting it.
+    pub fn is_live(&self, directory: &str) -> bool {
+        self.map.lock().contains_key(&oc_core::location::canonical_directory(directory))
     }
 
     /// `LocationServiceMap.invalidate(ref)` (`debug.location.evict`, `vcs.init`, `location.reload`):
@@ -273,6 +379,8 @@ impl Locations {
     /// cancelled, MCP servers stopped via `runner.close_location`), then announce
     /// `location.shutdown`.
     pub async fn evict(&self, directory: &str) {
+        let canonical = oc_core::location::canonical_directory(directory);
+        let directory = canonical.as_str();
         let removed = self.map.lock().shift_remove(directory);
         match &self.runner {
             Some(r) => r.close_location(directory).await,

@@ -85,6 +85,67 @@ where
     }
 }
 
+/// One-shot generations can be billed per attempt, so they retry at most this many times.
+const ONE_SHOT_RETRIES: u32 = 3;
+const NOT_SENT_CODES: &[&str] = &["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"];
+
+/// `notRun`: whether the provider clearly did not run the call (`x-should-retry` decides when present).
+pub fn not_run(error: &AIError) -> bool {
+    let header = error
+        .http
+        .as_ref()
+        .and_then(|h| h.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("x-should-retry")).map(|(_, v)| v.as_str()));
+    match header {
+        Some("true") => return true,
+        Some("false") => return false,
+        _ => {}
+    }
+    match &error.kind {
+        ErrorKind::RateLimit { .. } => true,
+        ErrorKind::ProviderInternal { .. } => matches!(error.http.as_ref().map(|h| h.status), Some(503 | 529)),
+        ErrorKind::Transport { delivery, code, .. } => {
+            delivery.as_deref() == Some("not-sent")
+                || code.as_deref().is_some_and(|c| NOT_SENT_CODES.contains(&c))
+                || (code.as_deref() == Some("ConnectionError") && unreachable_host(error))
+        }
+        _ => false,
+    }
+}
+
+/// Bun reports a refused connection or a failed lookup as `ECONNREFUSED` / `ENOTFOUND` / `EAI_AGAIN`; reqwest
+/// folds them into its connect errors, told apart by the underlying cause.
+fn unreachable_host(error: &AIError) -> bool {
+    let text = format!("{} {}", error.message, error.cause.as_deref().unwrap_or_default()).to_ascii_lowercase();
+    ["connection refused", "dns error", "failed to lookup address", "name or service not known", "temporary failure in name resolution"]
+        .iter()
+        .any(|needle| text.contains(needle))
+}
+
+/// `ModelRetry.retryOneShot`: retries a one-shot call (stateless text, images, decisions) only when the provider
+/// clearly didn't run it (rate limits, overload, unreachable hosts), at most three times, with the shared
+/// backoff and retry-after handling.
+pub async fn one_shot<T, F, Fut>(mut call: F) -> Result<T, AIError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, AIError>>,
+{
+    let mut policy = Policy::default();
+    let mut retries = 0;
+    loop {
+        match call().await {
+            Ok(value) => return Ok(value),
+            Err(cause) => {
+                let Some(decision) = policy.decide(&cause, not_run(&cause)) else { return Err(cause) };
+                if retries >= ONE_SHOT_RETRIES {
+                    return Err(cause);
+                }
+                retries += 1;
+                tokio::time::sleep(Duration::from_millis(decision.delay)).await;
+            }
+        }
+    }
+}
+
 /// Publish `session.retry.scheduled` and sleep until `at`, or until the execution is interrupted (the
 /// caller checks `cancel` afterwards; upstream interrupts the sleeping fiber).
 pub async fn wait(
@@ -141,6 +202,76 @@ mod tests {
         })
         .await;
         assert_eq!(out.unwrap_err().message, "bad key");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    fn http_error(kind: ErrorKind, status: u16, headers: &[(&str, &str)]) -> AIError {
+        let mut e = AIError::new(kind, "failed");
+        e.http = Some(oc_ai::error::HttpContext {
+            url: "http://x".into(),
+            status,
+            headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        });
+        e
+    }
+
+    fn transport(delivery: Option<&str>, code: Option<&str>) -> AIError {
+        AIError::new(
+            ErrorKind::Transport {
+                transport: oc_ai::error::TransportType::Http,
+                operation: oc_ai::error::TransportOperation::Request,
+                code: code.map(Into::into),
+                url: None,
+                phase: None,
+                delivery: delivery.map(Into::into),
+                recovery: None,
+            },
+            "transport",
+        )
+    }
+
+    // model-retry.test.ts: one-shot calls retry only failures the provider never ran.
+    #[test]
+    fn one_shot_retries_only_calls_the_provider_did_not_run() {
+        let internal = || ErrorKind::ProviderInternal { retry_after_ms: None };
+        assert!(not_run(&AIError::new(ErrorKind::RateLimit { retry_after_ms: None, rate_limit: None }, "slow down")));
+        assert!(not_run(&http_error(internal(), 503, &[])));
+        assert!(not_run(&http_error(internal(), 529, &[])));
+        assert!(!not_run(&http_error(internal(), 500, &[])));
+        assert!(not_run(&transport(Some("not-sent"), None)));
+        assert!(not_run(&transport(None, Some("ECONNREFUSED"))));
+        assert!(not_run(&transport(None, Some("EAI_AGAIN"))));
+        assert!(!not_run(&transport(Some("accepted"), Some("ECONNRESET"))));
+        // reqwest's connect errors: a refused connection or failed lookup was never sent; a TLS failure may have been.
+        let mut refused = transport(None, Some("ConnectionError"));
+        refused.message = "error sending request for url (http://127.0.0.1:9/v1): tcp connect error: Connection refused (os error 111)".into();
+        assert!(not_run(&refused));
+        let mut tls = transport(None, Some("ConnectionError"));
+        tls.message = "error sending request: invalid peer certificate: UnknownIssuer".into();
+        assert!(!not_run(&tls));
+        assert!(!not_run(&AIError::new(ErrorKind::Authentication, "bad key")));
+        // `x-should-retry` decides when present.
+        assert!(!not_run(&http_error(ErrorKind::RateLimit { retry_after_ms: None, rate_limit: None }, 429, &[("x-should-retry", "false")])));
+        assert!(not_run(&http_error(internal(), 500, &[("x-should-retry", "true")])));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn one_shot_gives_up_after_three_retries() {
+        let calls = AtomicUsize::new(0);
+        let out: Result<(), AIError> = one_shot(|| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async { Err(AIError::new(ErrorKind::RateLimit { retry_after_ms: None, rate_limit: None }, "slow down")) }
+        })
+        .await;
+        assert_eq!(out.unwrap_err().message, "slow down");
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        let calls = AtomicUsize::new(0);
+        let out: Result<(), AIError> = one_shot(|| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async { Err(http_error(ErrorKind::ProviderInternal { retry_after_ms: None }, 500, &[])) }
+        })
+        .await;
+        assert!(out.is_err());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 

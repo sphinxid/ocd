@@ -47,7 +47,7 @@ the rest untouched. Runtime `add` overrides win over config; `remove` hides a na
 
 | method | behaviour |
 |---|---|
-| `servers() -> Vec<ServerInfo>` | sorted by name; `integrationID` set for OAuth-capable remotes |
+| `servers() -> Vec<ServerInfo>` | sorted by name; `title` = the connected server's trimmed `serverInfo.title` (absent when empty or disconnected); `integrationID` set for OAuth-capable remotes |
 | `status(name)`, `integration_id(name)`, `wait_ready(name)` | current status / OAuth integration id (`mcp_` + sha1(name\0url)[..16]) / await first connect attempt |
 | `add(name, config)` | runtime add/replace, connects immediately (not persisted) |
 | `connect(name)` / `disconnect(name)` / `remove(name)` | stop+start (overrides `disabled`) / stop + `disabled` / remove until restart |

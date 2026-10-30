@@ -27,7 +27,8 @@ engine.environment(session_id)               // app.environments entry (PUT /api
 | module | contents |
 |---|---|
 | `engine` | `Engine` (app, optional runner, models, location cache, websearch, PTY ownership), session-scope helper (`SessionNotFoundError`/`LocationNotFoundError`), wake/is_active via `app.coordinator` |
-| `locations` | `LocationServiceMap`: per-directory (verbatim key) `Loc { location, snapshots }`, single-flight build, `Project.activate` (≤ 1/min, `project.updated`), plugin activation (`Plugins::ensure`; with configured plugins the nine boot `*.updated` notifications wait for it, then the plugin domains are rebuilt), `evict` (`location.shutdown`, plugin location closed), `reload` (503 `{service:"location"}`) |
+| `locations` | `LocationServiceMap`: per-directory `Loc { location, snapshots }` keyed by the canonical directory (`oc_core::location::canonical_directory`: normalized, no trailing separator, like `LocationServiceMap.canonical`), single-flight build, `Project.activate` (≤ 1/min, `project.updated`), plugin activation (`Plugins::ensure`; with configured plugins the nine boot `*.updated` notifications wait for it, then the plugin domains are rebuilt), `evict` (`location.shutdown`, plugin location closed), `reload` (503 `{service:"location"}`), `is_live` (loaded or building, for form polls), configuration reloads (rebuilt services announce provider/model twice and only changed gated domains) |
+| `notify` | `State.changes` projections of the gated catalog domains (integration, agent, command, skill, websearch, reference, plugin) for boot baselines, configuration reloads and plugin domain changes |
 | `plugins` | `BackendApi`, the server's `oc_plugin::PluginApi`: plugin `ctx.*` API calls run through an in-process router (the same handlers, validation, errors and envelopes as HTTP; upstream `ClientApi` names mapped to operation ids, path/query/body split from the OpenAPI document, the plugin's location as `x-opencode-directory`, `session.create` defaulting `location`); `integration.connection.*` over oc-ai `Integrations`; host-service methods and storage via `oc_core::plugins::CoreApi`; `rs:command.<name>` handles run native commands. `install(engine, opts)` is called by `start`/`router` |
 | `sessions` | `session.*` handlers: create/remove (children, interrupt, `Bus.remove`)/update/fork (instruction state + entries)/prompt (attachments via `oc_core::attachment`, skills)/synthetic/compact (input id honoured)/interrupt (resume semantics)/inbox/move/messages/context/revert stage-clear-commit (oc-git `Snapshots`)/diff (`SessionDiff.turn`)/instruction entries/skill activation/commands (built-ins + config templates with `` !`cmd` ``) |
 | `store` | SQL equivalents of `SessionStore.list/messages/message/context`, instruction entries, saved permissions, `Bus.remove`, event-log reads |
@@ -64,8 +65,17 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   Subagent config commands create a child session and start/background a `SubagentJob` through
   `oc_core::host::CoreHost`.
 * **generate**: `session.generate` (`runner.session_generate`; NotFound → 404, else 503
-  `{service:"session generation"}`), `experimental.generate.text` (`runner.generate_text` at the
-  global config directory; ModelSelection → 400, Unavailable → 503 `{service}`).
+  `{service:"session generation"}`), `experimental.generate.text` and its deprecated alias
+  `experimental.generate.textLegacy` (`runner.generate_text` at the global config directory after
+  its plugins activate; `Generate.Error` → 404 `ModelNotFoundError`, 422 `UnsupportedModelError`, 400
+  `InvalidRequestError{field?}`, 502 `ProviderRequestError`, 503 `ServiceUnavailableError`; one-shot
+  retries). `experimental.generate.image` / `.decisions` validate (unique question names) and resolve
+  the ref like upstream, but image and decision models are not ported, so they end in 404/422.
+* **disabled features**: the schedule routes answer as with `experimental.schedules` off (404
+  `SessionNotFoundError` / `ScheduleNotFoundError`, else 403 `ForbiddenError`; 400 `{kind:"schedule"}` when
+  the session's directory is gone), `plugin.gui` is always 404 `PluginNotFoundError`.
+* **media**: `experimental.media.get` serves `blob` rows some message still references
+  (`oc_storage::stored::read_blob`); `media:` prompt attachments re-admit stored bytes.
 * **transfer**: `experimental.session.export` (`oc_core::transfer::export`, `sanitize`),
   `experimental.session.import` (`body.location ?? cwd`; 409 `Session already exists: <id>`).
 * **mcp** (runner `engine.mcp(&location)`): `mcp.list` (`{name,status,integrationID}`),
@@ -110,9 +120,15 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `mcp_<hash>` OAuth integrations (`oc_core::mcp::register_integrations`, upstream `mcp/index.ts`
   `register`); a `credential.switched` for one reconnects its server.
 * **config reload**: `experimental.config.update` reloads every loaded location through
-  `runner.reload_location`; `Locations` drops its cached services on `config.updated`.
-* **prompt attachments**: images are normalized with `oc_tools::image::normalize` under the
-  location's `media.image` limits (`oc_config::fold::media_image`); failures → 400 `{field:"files"}`.
+  `runner.reload_location`; `Locations` drops its cached services on `config.updated` and the rebuild
+  publishes `provider.updated`/`model.updated` (twice) plus the gated domains whose projection changed.
+* **prompt attachments**: png/jpeg/gif/webp/bmp images are normalized with `oc_tools::image::normalize`
+  under the location's `media.image` limits (`oc_config::fold::media_image`; HEIC/AVIF and other types go
+  unchanged); data attachments keep the client's `source`; failures → 400 `{field:"files"}`.
+* **location-free session routes**: `session.update` (except title regeneration), `fork`,
+  `switchAgent`, `switchModel`, `experimental.session.wait`, `revert.commit`, instruction entries,
+  `interrupt` and `background` only look the session up; `project.list`/`update` and
+  `permission.saved.update`/`remove` take no location; a form poll of an unloaded location answers `[]`.
 * **location shutdown**: `debug.location.evict`, `vcs.init` and `location.reload` evict through
   `runner.close_location` (pending permissions rejected, forms cancelled, MCP stopped, watcher
   stopped) before publishing `location.shutdown`; `config.updated` only drops cached services.
@@ -161,8 +177,9 @@ Server plugins run in oc-plugin's Bun sidecar, driven by `oc_core::plugins::Plug
   `provider.*`, `integration.*`, `websearch.*`) include plugin transforms; `shell.create` runs
   `shell.create.before`.
 
-Deviations: `fs.find` ranking approximates fuzzysort/fff; the location cache key is verbatim but
-the runner's own cache is cleared wholesale on evict/reload; 
+Deviations: `fs.find` ranking approximates fuzzysort/fff; the runner's own cache is cleared wholesale
+on evict/reload; a loaded location whose directory is deleted keeps serving until evicted (upstream
+answers 404 `LocationNotFoundError` on its session-location routes); 
 
 ## Tests
 

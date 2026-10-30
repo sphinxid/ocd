@@ -146,6 +146,98 @@ impl Location {
     }
 }
 
+/// Node's `path.normalize` for one flavour: collapse repeated separators, drop `.` segments, resolve
+/// `..` lexically (never above the root), keep a trailing separator. Returns `(root, normalized)`.
+fn normalize_with(path: &str, sep: char, windows: bool) -> (String, String) {
+    let unified: String = if windows { path.replace('/', "\\") } else { path.to_string() };
+    // Root: `/` (posix); `\`, `C:\`, `C:` or `\\server\share\` (win32).
+    let (root, rest) = if !windows {
+        if unified.starts_with('/') { ("/".to_string(), unified.trim_start_matches('/').to_string()) } else { (String::new(), unified) }
+    } else {
+        let b = unified.as_bytes();
+        if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+            let drive = unified[..2].to_string();
+            let after = &unified[2..];
+            if after.starts_with('\\') { (format!("{drive}\\"), after.trim_start_matches('\\').to_string()) } else { (drive, after.to_string()) }
+        } else if unified.starts_with("\\\\") {
+            let parts: Vec<&str> = unified[2..].splitn(3, '\\').collect();
+            if parts.len() >= 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+                (format!("\\\\{}\\{}\\", parts[0], parts[1]), parts.get(2).copied().unwrap_or("").to_string())
+            } else {
+                ("\\".to_string(), unified.trim_start_matches('\\').to_string())
+            }
+        } else if unified.starts_with('\\') {
+            ("\\".to_string(), unified.trim_start_matches('\\').to_string())
+        } else {
+            (String::new(), unified)
+        }
+    };
+    let absolute = root.ends_with(sep);
+    let trailing = rest.ends_with(sep);
+    let mut segments: Vec<&str> = Vec::new();
+    for part in rest.split(sep) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if segments.last().is_some_and(|s| *s != "..") {
+                    segments.pop();
+                } else if !absolute {
+                    segments.push("..");
+                }
+            }
+            other => segments.push(other),
+        }
+    }
+    let mut body = segments.join(&sep.to_string());
+    if body.is_empty() && !absolute {
+        body = ".".into();
+    }
+    if trailing && !body.is_empty() && !(absolute && segments.is_empty()) {
+        body.push(sep);
+    }
+    let normalized = format!("{root}{body}");
+    (root, normalized)
+}
+
+/// `LocationServiceMap.canonical`: equivalent placements of one directory (`/p/`, `/p//`, `/a/../p`) become
+/// one key. Node's `path.normalize` (win32 rules on Windows unless the path starts with `/`, since workspace
+/// refs can hold remote POSIX paths), then one trailing separator is stripped unless the path is the root.
+pub fn canonical_directory(directory: &str) -> String {
+    let windows = cfg!(windows) && !directory.starts_with('/');
+    let sep = if windows { '\\' } else { '/' };
+    let (root, normalized) = normalize_with(directory, sep, windows);
+    if normalized.ends_with(sep) && normalized.len() > root.len() {
+        normalized[..normalized.len() - 1].to_string()
+    } else {
+        normalized
+    }
+}
+
+#[cfg(test)]
+mod canonical_tests {
+    use super::canonical_directory;
+
+    /// `location-layer.test.ts` "variants" and `session-create.test.ts` trailing-slash placements.
+    #[test]
+    fn equivalent_directories_share_one_key() {
+        for (input, expected) in [
+            ("/p", "/p"),
+            ("/p/", "/p"),
+            ("/p//", "/p"),
+            ("//p", "/p"),
+            ("/x//p", "/x/p"),
+            ("/p/./child/../", "/p"),
+            ("/alias/../packages/app", "/packages/app"),
+            ("/", "/"),
+            ("//", "/"),
+            ("/..", "/"),
+            ("/a/b/../../..", "/"),
+        ] {
+            assert_eq!(canonical_directory(input), expected, "{input}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

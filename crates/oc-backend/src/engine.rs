@@ -68,7 +68,7 @@ impl Engine {
         let models = oc_core::models::Models::new(app.db.clone(), app.bus.clone(), oc_util::version::CHANNEL, &app.version);
         models.set_plugins(app.plugins.clone());
         models.set_lock_root(app.global.locks());
-        Arc::new(Engine {
+        let engine = Arc::new(Engine {
             locations: Locations::new(app.clone(), None),
             app,
             runner: None,
@@ -84,14 +84,16 @@ impl Engine {
             pty_owner: Mutex::new(HashMap::new()),
             persistent: tokio::sync::OnceCell::new(),
             persistent_options: Mutex::new(None),
-        })
+        });
+        engine.install_projector();
+        engine
     }
 
     /// Engine over the core session runner (shares its models, credentials and location cache).
     pub fn with_runner(runner: Arc<oc_core::runner::Engine>) -> Arc<Engine> {
         let app = runner.app.clone();
         let app_ref = app.clone();
-        Arc::new(Engine {
+        let engine = Arc::new(Engine {
             locations: Locations::new(app.clone(), Some(runner.clone())),
             app,
             runner: Some(runner),
@@ -107,7 +109,9 @@ impl Engine {
             pty_owner: Mutex::new(HashMap::new()),
             persistent: tokio::sync::OnceCell::new(),
             persistent_options: Mutex::new(None),
-        })
+        });
+        engine.install_projector();
+        engine
     }
 
     /// Options for the persistent PTY service (e.g. a restart handoff taken by the CLI at startup).

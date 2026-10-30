@@ -36,7 +36,8 @@
    "resume_attempts": 0,
    "time_idle": null,
    "time_viewed": null,
-   "idle_outcome": null
+   "idle_outcome": null,
+   "time_busy": null
   },
   {
    "id": "ses_fff000000002AAAAAAAAAAAAAA",
@@ -74,7 +75,8 @@
    "resume_attempts": 0,
    "time_idle": null,
    "time_viewed": null,
-   "idle_outcome": null
+   "idle_outcome": null,
+   "time_busy": null
   },
   {
    "id": "ses_fff000000003AAAAAAAAAAAAAA",
@@ -112,7 +114,8 @@
    "resume_attempts": 0,
    "time_idle": null,
    "time_viewed": null,
-   "idle_outcome": null
+   "idle_outcome": null,
+   "time_busy": null
   },
   {
    "id": "ses_fff000000004AAAAAAAAAAAAAA",
@@ -150,7 +153,8 @@
    "resume_attempts": 0,
    "time_idle": null,
    "time_viewed": null,
-   "idle_outcome": null
+   "idle_outcome": null,
+   "time_busy": null
   },
   {
    "id": "ses_fff000000005AAAAAAAAAAAAAA",
@@ -188,7 +192,8 @@
    "resume_attempts": 0,
    "time_idle": null,
    "time_viewed": null,
-   "idle_outcome": null
+   "idle_outcome": null,
+   "time_busy": null
   }
  ],
  "session_message": [

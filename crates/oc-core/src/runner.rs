@@ -156,6 +156,8 @@ impl Engine {
     }
 
     pub async fn location(&self, directory: &str) -> anyhow::Result<Arc<Location>> {
+        // Equivalent placements (`/p/`, `/p//`) share one location (`LocationServiceMap.canonical`).
+        let directory = &crate::location::canonical_directory(directory);
         if let Some(l) = self.locations.lock().get(directory).cloned() {
             return Ok(l);
         }
@@ -261,6 +263,8 @@ impl Engine {
     /// A location scope closed (`location.shutdown`): reject its pending permissions, cancel its forms (including
     /// MCP elicitations of its servers), shut its MCP servers down and drop the cached location.
     pub async fn close_location(&self, directory: &str) {
+        let directory = crate::location::canonical_directory(directory);
+        let directory = directory.as_str();
         let location = self.locations.lock().remove(directory);
         // Mark it closed before rejecting its interactions, so a step whose permission ask or question is
         // cancelled here sees the shutdown (and continues on a fresh load) rather than a user decline.
@@ -276,7 +280,10 @@ impl Engine {
         crate::console_config::forget(directory);
         let canonical = location.as_ref().map(|l| l.directory.display().to_string()).unwrap_or_else(|| directory.to_string());
         let in_location = |session: &str| {
-            self.app.sessions.get(session).is_ok_and(|s| s.location.directory == directory || s.location.directory == canonical)
+            self.app.sessions.get(session).is_ok_and(|s| {
+                let at = crate::location::canonical_directory(&s.location.directory);
+                at == directory || s.location.directory == canonical
+            })
         };
         self.app.permissions.reject_where(in_location);
         self.app.forms.cancel_where(in_location);

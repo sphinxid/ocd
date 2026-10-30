@@ -95,6 +95,26 @@ impl Engine {
         self.app.jobs.complete_background(&bg.notification_id);
     }
 
+    /// `recoverImage`: an image job pending at the restart becomes its `<image>` notice.
+    async fn recover_image(&self, bg: &Background) {
+        let JobRecovery::Image { session_id, path, model } = &bg.recovery else { return };
+        let body = match bg.status {
+            JobStatus::Running => format!("Image request for {path} was cancelled because the server restarted."),
+            JobStatus::Completed => bg.output.clone().unwrap_or_else(|| format!("Image request finished. Saved image: {path} ({model}).")),
+            JobStatus::Error => bg.error.clone().unwrap_or_else(|| format!("Image request failed for {path}.")),
+            _ => format!("Image request for {path} was cancelled."),
+        };
+        let state = if bg.status == JobStatus::Running { "cancelled" } else { bg.status.as_str() };
+        let text = format!("<image id=\"{}\" state=\"{state}\">\n{body}\n</image>", bg.id);
+        let metadata = json!({ "source": "experimental_image_generate", "jobID": bg.id, "state": state, "path": path });
+        let _ = self
+            .app
+            .sessions
+            .synthetic(session_id, Some(bg.notification_id.clone()), text, Some("Image generation".into()), metadata.as_object().cloned(), None)
+            .await;
+        self.app.jobs.complete_background(&bg.notification_id);
+    }
+
     async fn recover_subagent(self: &Arc<Self>, bg: Background, suspended: &Arc<Mutex<HashSet<String>>>) {
         let JobRecovery::Subagent { parent_session_id, child_session_id, description, .. } = bg.recovery.clone() else { return };
         let parent_of_child: Option<Option<String>> = self
@@ -171,6 +191,7 @@ impl Engine {
             }
             match bg.recovery {
                 JobRecovery::Shell { .. } => self.recover_shell(&bg).await,
+                JobRecovery::Image { .. } => self.recover_image(&bg).await,
                 JobRecovery::Subagent { .. } => self.recover_subagent(bg, &suspended).await,
             }
         }

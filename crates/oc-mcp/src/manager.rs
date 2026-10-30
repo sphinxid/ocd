@@ -505,7 +505,7 @@ impl McpManager {
 
     // ---- public interface -------------------------------------------------------------------
 
-    /// `servers()`: `{name, status, integrationID?}` sorted by name.
+    /// `servers()`: `{name, status, title?, integrationID?}` sorted by name.
     pub fn servers(&self) -> Vec<ServerInfo> {
         let mut servers: Vec<ServerInfo> = self
             .inner
@@ -515,6 +515,7 @@ impl McpManager {
             .map(|(name, entry)| ServerInfo {
                 name: name.clone(),
                 status: entry.status(),
+                title: entry.connection().and_then(|c| server_title(c.client().server_info())),
                 integration_id: entry.integration_id.clone(),
             })
             .collect();
@@ -884,5 +885,25 @@ mod tests {
         let mut names = vec!["b", "A", "a", "C"];
         names.sort_by(|a, b| locale_cmp(a, b));
         assert_eq!(names, vec!["a", "A", "b", "C"]);
+    }
+}
+
+/// `client.getServerVersion()?.title?.trim() || undefined`: the display title a server reports in `serverInfo`.
+pub fn server_title(server_info: Option<Value>) -> Option<String> {
+    let title = server_info?.get("title")?.as_str()?.trim().to_string();
+    (!title.is_empty()).then_some(title)
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::server_title;
+    use serde_json::json;
+
+    #[test]
+    fn titles_are_trimmed_and_empty_ones_dropped() {
+        assert_eq!(server_title(Some(json!({"name": "s", "version": "1", "title": "  Docs Server "}))), Some("Docs Server".into()));
+        assert_eq!(server_title(Some(json!({"name": "s", "title": "   "}))), None);
+        assert_eq!(server_title(Some(json!({"name": "s"}))), None);
+        assert_eq!(server_title(None), None);
     }
 }

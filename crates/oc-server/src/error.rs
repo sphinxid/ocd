@@ -367,6 +367,67 @@ impl ApiError {
     pub fn service_unavailable(message: impl Into<String>, service: Option<String>) -> Self {
         tagged(503, "ServiceUnavailableError", json!({ "message": message.into(), "service": service }))
     }
+
+    /// A response that does not encode against its schema (`schema-error.ts`, kinds `Body` /
+    /// `ResponseHeaders`): `500 UnknownError` with a fresh `ref`, logged with the reason.
+    pub fn encode_failed(reason: impl std::fmt::Display) -> Self {
+        let r = format!("err_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        tracing::error!(r#ref = %r, reason = %reason, "failed to encode response");
+        tagged(
+            500,
+            "UnknownError",
+            json!({ "message": "Server failed to encode its response. Check server logs for details.", "ref": r }),
+        )
+    }
+
+    /// `404 ModelNotFoundError{providerID, modelID, message}`.
+    pub fn model_not_found(provider_id: impl Into<String>, model_id: impl Into<String>, message: impl Into<String>) -> Self {
+        tagged(
+            404,
+            "ModelNotFoundError",
+            json!({ "providerID": provider_id.into(), "modelID": model_id.into(), "message": message.into() }),
+        )
+    }
+
+    /// `422 UnsupportedModelError{providerID, modelID, capability, message}`.
+    pub fn unsupported_model(
+        provider_id: impl Into<String>,
+        model_id: impl Into<String>,
+        capability: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        tagged(
+            422,
+            "UnsupportedModelError",
+            json!({ "providerID": provider_id.into(), "modelID": model_id.into(), "capability": capability.into(), "message": message.into() }),
+        )
+    }
+
+    /// `502 ProviderRequestError{providerID, reason, message, status?, retryAfterMs?}`.
+    pub fn provider_request(
+        provider_id: impl Into<String>,
+        reason: &str,
+        message: impl Into<String>,
+        status: Option<u16>,
+        retry_after_ms: Option<i64>,
+    ) -> Self {
+        tagged(
+            502,
+            "ProviderRequestError",
+            json!({ "providerID": provider_id.into(), "reason": reason, "message": message.into(), "status": status, "retryAfterMs": retry_after_ms }),
+        )
+    }
+
+    /// `404 ScheduleNotFoundError` — `Schedule not found: <id>`.
+    pub fn schedule_not_found(schedule_id: impl Into<String>) -> Self {
+        let id = schedule_id.into();
+        tagged(404, "ScheduleNotFoundError", json!({ "scheduleID": id, "message": format!("Schedule not found: {id}") }))
+    }
+
+    /// `404 PluginNotFoundError{pluginID, message}`.
+    pub fn plugin_not_found(plugin_id: impl Into<String>, message: impl Into<String>) -> Self {
+        tagged(404, "PluginNotFoundError", json!({ "pluginID": plugin_id.into(), "message": message.into() }))
+    }
 }
 
 /// `rpc.call`: any defect becomes `RpcInternalError{type:"rpc.internal", message:"RPC call failed"}`.
