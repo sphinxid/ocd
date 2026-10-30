@@ -51,9 +51,12 @@ pub struct Engine {
     consoles: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// The built-in `opencode.goal` plugin (`/goal`).
     pub goals: crate::goal::Goals,
+    /// Background summaries held per session (`experimental.background_compaction`).
+    pub(crate) precomputed: Mutex<HashMap<String, crate::compaction::Precomputed>>,
     me: std::sync::Weak<Engine>,
 }
 
+#[derive(Clone)]
 pub struct Selected {
     pub session: SessionInfo,
     pub location: Arc<Location>,
@@ -61,11 +64,12 @@ pub struct Selected {
     pub agent: Agent,
     pub permissions: Vec<oc_schema::types::PermissionRule>,
     pub snapshot: Snapshot,
-    pub sources: Vec<Source>,
+    pub sources: Arc<Vec<Source>>,
     pub skills: Vec<oc_config::sources::Skill>,
     pub mcp: Arc<oc_mcp::manager::McpManager>,
 }
 
+#[derive(Clone)]
 pub struct Loaded {
     pub sel: Selected,
     pub resolved: oc_ai::catalog::ResolvedModel,
@@ -109,6 +113,7 @@ impl Engine {
             watches: Mutex::new(HashMap::new()),
             consoles: Mutex::new(HashMap::new()),
             goals: Default::default(),
+            precomputed: Mutex::new(HashMap::new()),
             me: me.clone(),
         })
     }
@@ -301,6 +306,7 @@ impl Engine {
         };
         self.app.permissions.reject_where(in_location);
         self.app.forms.cancel_where(in_location);
+        self.cancel_precomputed(in_location);
         self.app.model_transport.close_where(in_location);
         let mcp = self.mcps.lock().await.remove(&canonical);
         if let Some(mcp) = mcp {
@@ -447,7 +453,7 @@ impl Engine {
         sources.insert(1, crate::reference::source(&references));
         // CodeMode catalog is the most shared source.
         sources.insert(0, crate::codemode::instruction_source(&snapshot));
-        Ok(Selected { session, location, agents, agent, permissions, snapshot, sources, skills, mcp })
+        Ok(Selected { session, location, agents, agent, permissions, snapshot, sources: Arc::new(sources), skills, mcp })
     }
 
     /// The native tool registry of a location: built-ins plus its MCP tools.
@@ -919,6 +925,7 @@ impl Engine {
                 Err(e) if e.downcast_ref::<crate::compaction::Interrupted>().is_some() => return Err(DrainError::Interrupted),
                 Err(e) => return Err(DrainError::Failed(e)),
             }
+            self.precompute(&loaded, false).await.map_err(DrainError::Failed)?;
             let step_limit = loaded.sel.agent.steps.is_some_and(|s| step >= s);
             let (mut request, _) = self.request(&loaded, step_limit);
             let shaped = self.shape_primary(&loaded, &mut request).await.map_err(DrainError::Failed)?;
@@ -1001,7 +1008,13 @@ impl Engine {
             })
             .await;
             match outcome {
-                Ok(Outcome::Completed { needs_continuation }) => return Ok(needs_continuation),
+                Ok(Outcome::Completed { needs_continuation }) => {
+                    // The session is about to go idle, which leaves the background summary time to finish.
+                    if !needs_continuation {
+                        self.precompute(&loaded, true).await.map_err(DrainError::Failed)?;
+                    }
+                    return Ok(needs_continuation);
+                }
                 Ok(Outcome::Retry { error, decision }) => {
                     crate::retry::wait(&self.app.bus, &session_id, &assistant, decision, error, &cancel).await?;
                 }

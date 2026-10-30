@@ -9,13 +9,16 @@
 //!   again:  [S1 + "E9 E10"][E11 … E18][E19]    →  [S2 + "E19"]      S2 covers the whole current conversation
 //! ```
 //!
-//! Background summaries (`experimental.precompute_compaction`) are not ported.
+//! Background summaries (`experimental.background_compaction`): once the context passes 85% of the ceiling, the
+//! prefix the provider just processed is summarized off the critical path and held until automatic compaction is
+//! due, when it is swapped in instead of summarizing from scratch ([`Engine::precompute`]).
 //!
 //! Native (provider-side) compaction is not available: `oc-ai` has no compact endpoint, so a model whose
 //! `compaction` policy is `native` fails with `provider.unsupported-operation`, exactly as upstream does when
 //! `LLMClient.canCompact` is false.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -69,6 +72,16 @@ pub const IMAGE_TOKEN_ESTIMATE: u64 = 1_500;
 pub const PDF_TOKEN_ESTIMATE: u64 = 2_000;
 /// Default `keep` (tokens of recent conversation kept verbatim beside the summary).
 pub const DEFAULT_KEEP: u64 = 15_000;
+/// Share of the compaction ceiling at which a background summary starts.
+pub const PRECOMPUTE_RATIO: f64 = 0.85;
+/// Measured prompt tokens below which a background summary is not worth its cost.
+pub const PRECOMPUTE_MIN_TOKENS: u64 = 64_000;
+/// The most text a swapped-in summary keeps verbatim beside it: twice `keep`, at least 30k, at most a quarter of the
+/// budget. A longer tail would leave the context near the threshold, so compaction summarizes from scratch instead.
+pub const PRECOMPUTED_TAIL_MIN: i64 = 30_000;
+pub const PRECOMPUTED_TAIL_SHARE: f64 = 0.25;
+/// Failed background summaries after which no new one starts until the next compaction.
+pub const PRECOMPUTE_MAX_FAILURES: u32 = 2;
 
 pub const SUMMARY_TEMPLATE: &str = "You MUST use this format for your response (you may omit sections that aren't applicable). Do not include the <template> tags in your response.
 <template>
@@ -201,18 +214,27 @@ pub struct Settings {
     pub buffer: Option<u64>,
     /// Tokens of recent conversation kept verbatim beside the summary.
     pub keep: u64,
+    /// Background summaries (`experimental.background_compaction`).
+    pub precompute: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { auto: true, buffer: None, keep: DEFAULT_KEEP }
+        Settings { auto: true, buffer: None, keep: DEFAULT_KEEP, precompute: false }
     }
 }
 
 impl Settings {
     pub fn from_entries(entries: &[oc_config::schema::Entry]) -> Settings {
         let c = oc_config::fold::compaction(entries);
-        Settings { auto: c.auto.unwrap_or(true), buffer: c.buffer, keep: c.keep.unwrap_or(DEFAULT_KEEP) }
+        Settings {
+            auto: c.auto.unwrap_or(true),
+            buffer: c.buffer,
+            keep: c.keep.unwrap_or(DEFAULT_KEEP),
+            // `Config.latest(entries, "experimental")?.background_compaction === true`: the latest entry that has an
+            // `experimental` object decides.
+            precompute: oc_config::fold::experimental(entries).and_then(|e| e.background_compaction) == Some(true),
+        }
     }
 }
 
@@ -326,10 +348,11 @@ pub fn calculate_ceiling(context: i64, input: Option<i64>, buffer: Option<u64>) 
     Some(window - share.max(if window >= 2 * RESERVE_MIN { RESERVE_MIN } else { 0 }))
 }
 
-/// `summaryRoom`: the largest summary request that leaves `RESERVE_MIN` of the window for the summary. Zero for
-/// an unknown window.
-pub fn summary_room(context: i64, input: Option<i64>) -> i64 {
-    (window(context, input) - RESERVE_MIN).max(0)
+/// `summaryRoom`: the largest summary request that leaves `RESERVE_MIN` of the window for the summary, or less when
+/// the request cannot generate that much (`output`, its output limit). Zero for an unknown window.
+pub fn summary_room(context: i64, input: Option<i64>, output: Option<f64>) -> i64 {
+    let output = output.unwrap_or(RESERVE_MIN as f64);
+    (window(context, input) - (RESERVE_MIN as f64).min(output) as i64).max(0)
 }
 
 /// Another provider's count may describe a native window this model cannot replay, so only the current
@@ -667,12 +690,13 @@ pub fn flatten_and_drop_oldest(
 /// `fitOutput`: `prepare` sizes the output limit for a request of `budget` tokens, but `deliver` can send a
 /// larger one when it cannot shrink the conversation further. Lower the limit to the room the request being sent
 /// leaves in the window. The limit leaves the same margin for a low estimate that primary requests do, but a
-/// summary still gets up to `SUMMARY_OUTPUT_FLOOR` of the room left without the margin.
-pub fn fit_output(mut request: LLMRequest, limit_output: u64, limit_context: u64) -> LLMRequest {
+/// summary still gets up to `SUMMARY_OUTPUT_FLOOR` of the room left without the margin. `size` is the request's
+/// measured size (`(measured, estimated)`), when known; else its character estimate.
+pub fn fit_output(mut request: LLMRequest, limit_output: u64, limit_context: u64, size: Option<(u64, u64)>) -> LLMRequest {
     let Some(current) = request.generation.as_ref().and_then(|g| g.max_tokens) else { return request };
-    let estimated = estimate_llm_request(&request);
-    let margin = crate::prompt::output_limit(limit_output, limit_context, Some((0, estimated)), 0.0);
-    let floor = SUMMARY_OUTPUT_FLOOR.min(crate::prompt::output_limit(limit_output, limit_context, Some((estimated, 0)), 0.0));
+    let input = size.unwrap_or_else(|| (0, estimate_llm_request(&request)));
+    let margin = crate::prompt::output_limit(limit_output, limit_context, Some(input), 0.0);
+    let floor = SUMMARY_OUTPUT_FLOOR.min(crate::prompt::output_limit(limit_output, limit_context, Some((input.0 + input.1, 0)), 0.0));
     let max_tokens = current.min(margin.max(floor) as f64);
     if max_tokens == current {
         return request;
@@ -768,6 +792,67 @@ enum Mode {
     Native,
 }
 
+/// A summary run off the critical path: it covers only `messages`, streams no deltas, and bills into `usage`.
+struct Background {
+    messages: Vec<Message>,
+    usage: Arc<Mutex<Vec<(f64, TokenUsage)>>>,
+}
+
+/// A background summary of everything before `keep_id`, held until automatic compaction is due.
+pub struct Precomputed {
+    first_id: Option<String>,
+    keep_id: String,
+    model: ModelRef,
+    initial: String,
+    /// The longest tail since `keep_id` that compaction still accepts beside this summary.
+    tail_limit: i64,
+    /// Background summaries that failed since the last compaction, this one included once it has.
+    failures: u32,
+    usage: Arc<Mutex<Vec<(f64, TokenUsage)>>>,
+    /// 0 running, 1 succeeded, 2 failed.
+    state: Arc<AtomicU8>,
+    task: tokio::task::JoinHandle<Result<Res, Fail>>,
+}
+
+impl Precomputed {
+    /// Stops the background work (`Fiber.interrupt`).
+    pub fn cancel(&self) {
+        self.task.abort();
+    }
+}
+
+/// Aborts a held summary that is dropped while waited for (an interrupted compaction).
+struct AbortOnDrop(tokio::task::JoinHandle<Result<Res, Fail>>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// `heldIndex`: where the messages kept beside a held summary start, or `None` when the summary no longer describes
+/// this conversation: a compaction or revert since replaced its start, or the model or instructions changed.
+fn held_index(held: &Precomputed, messages: &[Message], initial: &str, model: &ModelRef) -> Option<usize> {
+    if held.first_id.as_deref() != messages.first().map(Message::id) || held.initial != initial {
+        return None;
+    }
+    if held.model.provider_id != model.provider_id || held.model.id != model.id || held.model.variant != model.variant {
+        return None;
+    }
+    messages.iter().position(|m| m.id() == held.keep_id)
+}
+
+/// `tailTokens`: estimated text a swapped-in summary keeps verbatim, every message from `index` on.
+fn tail_tokens(messages: &[Message], index: usize) -> i64 {
+    let text: Vec<String> = messages[index..].iter().map(message_to_text).filter(|t| !t.is_empty()).collect();
+    token_estimate(&text.join("\n\n")) as i64
+}
+
+/// `tailLimit(keep, budget)`
+fn tail_limit(keep: u64, budget: i64) -> i64 {
+    (keep as i64 * 2).max(PRECOMPUTED_TAIL_MIN).min((budget as f64 * PRECOMPUTED_TAIL_SHARE).floor() as i64)
+}
+
 /// The conversation as the runner would send it, after request hooks (`Prepared`).
 struct Prepared {
     request: LLMRequest,
@@ -787,19 +872,32 @@ struct Run<'a> {
     cancel: CancellationToken,
     /// Each model call is billed as soon as it finishes; the compaction's message shows the total.
     spent: Mutex<Option<(f64, TokenUsage)>>,
+    /// A background summary (`precompute`).
+    background: Option<Background>,
 }
 
 impl Run<'_> {
-    fn spend(&self, cost: f64, tokens: TokenUsage) -> anyhow::Result<()> {
-        {
-            let mut g = self.spent.lock();
-            match g.as_mut() {
-                Some((c, t)) => {
-                    *c += cost;
-                    t.add(&tokens);
-                }
-                None => *g = Some((cost, tokens.clone())),
+    /// The messages the summary covers.
+    fn messages(&self) -> &[Message] {
+        self.background.as_ref().map(|b| b.messages.as_slice()).unwrap_or(&self.loaded.messages)
+    }
+
+    fn add_spent(&self, cost: f64, tokens: &TokenUsage) {
+        let mut g = self.spent.lock();
+        match g.as_mut() {
+            Some((c, t)) => {
+                *c += cost;
+                t.add(tokens);
             }
+            None => *g = Some((cost, tokens.clone())),
+        }
+    }
+
+    fn spend(&self, cost: f64, tokens: TokenUsage) -> anyhow::Result<()> {
+        match &self.background {
+            // A background summary keeps its own total until a compaction takes it.
+            Some(background) => background.usage.lock().push((cost, tokens.clone())),
+            None => self.add_spent(cost, &tokens),
         }
         self.engine.app.bus.commit_one(SessionEvent::UsageRecorded {
             session_id: self.session_id.clone(),
@@ -856,8 +954,27 @@ impl Run<'_> {
         Ok(Prepared { request: req, http: shaped.http, result: shaped.result })
     }
 
-    fn fit_output(&self, request: LLMRequest) -> LLMRequest {
-        fit_output(request, self.model.output_limit().max(0) as u64, self.model.context_limit().max(0) as u64)
+    fn fit_output(&self, request: LLMRequest, size: Option<(u64, u64)>) -> LLMRequest {
+        fit_output(request, self.model.output_limit().max(0) as u64, self.model.context_limit().max(0) as u64, size)
+    }
+
+    /// `measuredPrompt`: the prompt size, only while the model, variant and agent that were measured still match;
+    /// they shape the request.
+    fn measured_prompt(&self, messages: &[Message]) -> Option<(u64, u64)> {
+        let model = self.model.model_ref();
+        let Message::Assistant(anchor) = messages.iter().rev().find(|m| has_measured_prompt(m, &model))? else { return None };
+        if anchor.model.id != model.id || anchor.model.variant != model.variant || anchor.agent != self.loaded.sel.agent.id {
+            return None;
+        }
+        Some(estimate_prompt_view(&PromptView {
+            messages,
+            model,
+            provider_metadata_key: metadata_key(self.model),
+            input_modalities: &self.model.capabilities().input,
+            // Unused: there is a measured response.
+            system: vec![],
+            tools: &[],
+        }))
     }
 
     async fn stream(&self, request: LLMRequest, http: Option<Arc<dyn HttpHook>>) -> Result<Streamed, Fail> {
@@ -875,6 +992,7 @@ impl Run<'_> {
                     };
                     return Err(Fail::Ai(AIError::new(ErrorKind::InvalidRequest { parameter: None, classification }, message)));
                 }
+                LLMEvent::TextDelta { text, .. } if self.background.is_some() => streamed.text.push_str(&text),
                 LLMEvent::TextDelta { text, .. } => {
                     self.engine.app.bus.publish_session_ephemeral(
                         &self.session_id,
@@ -915,7 +1033,7 @@ impl Run<'_> {
         Ok(streamed)
     }
 
-    async fn send(&self, mode: &Mode, prepared: &Prepared, request: LLMRequest) -> Result<Res, Fail> {
+    async fn send(&self, mode: &Mode, prepared: &Prepared, request: LLMRequest, size: Option<(u64, u64)>) -> Result<Res, Fail> {
         match mode {
             Mode::Native => Err(failure(
                 "provider.unsupported-operation",
@@ -926,14 +1044,14 @@ impl Run<'_> {
                 // the template gets one reminder before it counts as a failure.
                 let mut prompted = request;
                 prompted.messages.push(LlmMessage::user_text(prompt.clone()));
-                let prompted = self.fit_output(prompted);
+                let prompted = self.fit_output(prompted, size.map(|(m, e)| (m, e + token_estimate(prompt))));
                 let reply = self.stream(prompted.clone(), prepared.http.clone()).await?;
                 if filled(&reply.text) {
                     return Ok(Res { text: reply.text, native: None, metadata: None });
                 }
                 let mut nudged = prompted;
                 nudged.messages.push(LlmMessage::user_text(NUDGE));
-                let nudged = self.fit_output(nudged);
+                let nudged = self.fit_output(nudged, size.map(|(m, e)| (m, e + token_estimate(prompt) + token_estimate(NUDGE))));
                 let retry = self.stream(nudged, prepared.http.clone()).await?;
                 if filled(&retry.text) {
                     return Ok(Res { text: retry.text, native: None, metadata: None });
@@ -956,8 +1074,20 @@ impl Run<'_> {
     /// means the estimate ran low, so the next attempts aim at 85%, 70%, 50%, then 35% of the first rejected
     /// request's estimate, each shortening the transcript again from scratch, and a rejection after those gives
     /// up. A "payload too large" rejection of an unchanged request resends it as text without counting; one on
-    /// text counts as "too long". Other provider errors resend under the session's retry policy.
-    async fn deliver(&self, prepared: &Prepared, mode: Mode, mut target: i64, fit: i64, history: &LLMRequest) -> Result<Res, Fail> {
+    /// text counts as "too long". Other provider errors resend under the session's retry policy. `measured`, when
+    /// given, sizes the unchanged request until the provider rejects it; after that it is only sent as text.
+    /// `history_is_prepared`: `history` is the prepared request itself (no tail to leave out).
+    #[allow(clippy::too_many_arguments)]
+    async fn deliver(
+        &self,
+        prepared: &Prepared,
+        mode: Mode,
+        mut target: i64,
+        fit: i64,
+        history: &LLMRequest,
+        measured_size: Option<(u64, u64)>,
+        history_is_prepared: bool,
+    ) -> Result<Res, Fail> {
         if let Some(text) = &prepared.result {
             return Ok(Res { text: text.clone(), native: None, metadata: None });
         }
@@ -969,22 +1099,24 @@ impl Run<'_> {
         let mut as_text = false;
         let mut fit = fit;
         loop {
+            let measured = if rejections == 0 { measured_size } else { None };
+            // `(request, unchanged, is the prepared request)`
             let unchanged = if as_text {
                 None
-            } else if estimate_llm_request(&prepared.request) as i64 <= fit {
-                Some(prepared.request.clone())
+            } else if measured.map(|(m, e)| m + e).unwrap_or_else(|| estimate_llm_request(&prepared.request)) as i64 <= fit {
+                Some((prepared.request.clone(), true))
             } else if estimate_llm_request(history) as i64 <= target {
-                Some(history.clone())
+                Some((history.clone(), history_is_prepared))
             } else {
                 None
             };
-            let (request, unchanged) = match unchanged {
-                Some(r) => (Some(r), true),
+            let (request, unchanged, is_prepared) = match unchanged {
+                Some((r, p)) => (Some(r), true, p),
                 None => match flatten_and_drop_oldest(history, messages, &model_ref, Some(target)) {
-                    Some(r) => (Some(r), false),
-                    None if rejections > 0 => (None, false),
-                    None if as_text => (flatten_and_drop_oldest(history, messages, &model_ref, None), false),
-                    None => (Some(history.clone()), true),
+                    Some(r) => (Some(r), false, false),
+                    None if rejections > 0 => (None, false, false),
+                    None if as_text => (flatten_and_drop_oldest(history, messages, &model_ref, None), false, false),
+                    None => (Some(history.clone()), true, history_is_prepared),
                 },
             };
             let Some(request) = request else {
@@ -994,7 +1126,8 @@ impl Run<'_> {
                 ));
             };
             let estimate = estimate_llm_request(&request);
-            let cause = match self.send(&mode, prepared, request).await {
+            let size = if is_prepared { measured } else { None };
+            let cause = match self.send(&mode, prepared, request, size).await {
                 Ok(r) => return Ok(r),
                 Err(Fail::Ai(cause)) => cause,
                 Err(other) => return Err(other),
@@ -1007,7 +1140,11 @@ impl Run<'_> {
             }
             if too_large || cause.is_context_overflow() {
                 let Some(step) = SHRINK_STEPS.get(rejections) else { return Err(Fail::Failure(error)) };
-                let first = *rejected.get_or_insert(estimate);
+                let first = *rejected.get_or_insert(size.map(|(m, e)| m + e).unwrap_or(estimate));
+                // The characters can still say the rejected request fits, so it only goes out again as text.
+                if size.is_some() {
+                    as_text = true;
+                }
                 target = (first as f64 * step).floor() as i64;
                 fit = target;
                 rejections += 1;
@@ -1026,22 +1163,33 @@ impl Run<'_> {
     /// The model is sent the whole conversation, including the tail kept beside the summary, then the summary
     /// prompt, so the summary reuses the normal request's prompt cache.
     async fn summarize(&self, budget: i64, keep: u64) -> Result<Res, Fail> {
-        let messages = &self.loaded.messages;
+        let messages = self.messages();
         let Some(split) = split_conversation(messages, keep) else {
             return Err(failure("compaction.unavailable", "Nothing to compact yet"));
         };
+        // A background summary covers all of its messages; what follows them is kept when it is swapped in.
+        let keep_id = if self.background.is_some() { None } else { split.keep_id };
         let previous = previous_compaction(messages).and_then(previous_summary);
         let prompt = build_prompt(previous.is_some(), previous.is_some_and(|s| s.contains(LEGACY_HEADING)));
         let prepared = self.prepare(messages, budget).await?;
+        // Size the unchanged request with the number that decided to compact: the last response's count plus an
+        // estimate of what came after it. Characters overstate a conversation whose old reasoning the provider drops.
+        // A hook can still make this request larger than that count; the provider then rejects it and it is resent as
+        // text. An overflow already proved the count low, so it keeps the character estimate.
+        let measured = if *self.trigger == Trigger::Overflow { None } else { self.measured_prompt(messages) };
         let overhead = (token_estimate(&prompt) + token_estimate(NUDGE)) as i64;
         // Automatic compaction starts past the ceiling, so the whole conversation is sent unchanged while the window
         // can still fit the summary. Below that, the history before the tail is sent instead: unchanged when it
         // fits, and as text otherwise.
         let limit = self.model.limit();
-        let fit = if *self.trigger == Trigger::Overflow { budget } else { budget.max(summary_room(limit.context, limit.input)) };
-        let history = without_tail(&prepared.request, split.keep_id.as_deref());
-        let mut result = self.deliver(&prepared, Mode::Summary { prompt }, budget - overhead, fit - overhead, &history).await?;
-        let Some(keep_id) = split.keep_id else { return Ok(result) };
+        let output = prepared.request.generation.as_ref().and_then(|g| g.max_tokens);
+        let fit = if *self.trigger == Trigger::Overflow { budget } else { budget.max(summary_room(limit.context, limit.input, output)) };
+        let history = without_tail(&prepared.request, keep_id.as_deref());
+        let history_is_prepared = !keep_id.as_deref().is_some_and(|k| prepared.request.messages.iter().any(|m| m.id.as_deref() == Some(k)));
+        let mut result = self
+            .deliver(&prepared, Mode::Summary { prompt }, budget - overhead, fit - overhead, &history, measured, history_is_prepared)
+            .await?;
+        let Some(keep_id) = keep_id else { return Ok(result) };
         // A compaction hook may choose its own kept range.
         let mut metadata = Metadata::new();
         metadata.insert("keepID".into(), Value::String(keep_id));
@@ -1057,7 +1205,7 @@ impl Run<'_> {
         }
         let prepared = self.prepare(messages, budget).await?;
         let history = prepared.request.clone();
-        self.deliver(&prepared, Mode::Native, budget, budget, &history).await
+        self.deliver(&prepared, Mode::Native, budget, budget, &history, None, true).await
     }
 
     fn publish(&self, outcome: Result<Res, SessionError>) -> anyhow::Result<CompactOutcome> {
@@ -1113,6 +1261,11 @@ impl Engine {
     /// `due(context, ceiling)`: false right after a completed compaction, or while the latest measured
     /// response predates the latest native checkpoint; else whether the context estimate reaches the ceiling.
     pub fn compaction_due(&self, loaded: &Loaded, ceiling: Option<i64>) -> bool {
+        self.compaction_due_with(loaded, ceiling, None)
+    }
+
+    /// [`Engine::compaction_due`] with the context's estimate when it is already known.
+    pub fn compaction_due_with(&self, loaded: &Loaded, ceiling: Option<i64>, estimate: Option<(u64, u64)>) -> bool {
         let messages = &loaded.messages;
         if messages.last().is_some_and(is_completed_compaction) {
             return false;
@@ -1125,7 +1278,7 @@ impl Engine {
         }
         match ceiling {
             None => false,
-            Some(c) => self.estimate_context(loaded) as i64 >= c,
+            Some(c) => estimate.map(|(m, e)| m + e).unwrap_or_else(|| self.estimate_context(loaded)) as i64 >= c,
         }
     }
 
@@ -1151,6 +1304,7 @@ impl Engine {
                 return Ok(CompactOutcome::Skipped);
             }
         }
+        let held = self.precomputed.lock().remove(&loaded.sel.session.id);
         let native = session_model.compaction.as_deref() == Some("native");
         let agent_model = if native { None } else { self.compaction_model(loaded).await };
         let model = agent_model.as_ref().unwrap_or(session_model);
@@ -1174,6 +1328,7 @@ impl Engine {
             session_id: loaded.sel.session.id.clone(),
             cancel: cancel.clone(),
             spent: Mutex::new(None),
+            background: None,
         };
         // The runner opened the manual compaction's message when it delivered the `/compact` item. An automatic
         // one opens here, before any wait.
@@ -1185,6 +1340,12 @@ impl Engine {
             })?;
         }
         let work = async {
+            // A summary still being written shows as a running compaction while it is waited for.
+            if let Some(held) = held
+                && let Some(res) = use_precomputed(&run, held, budget, &settings).await
+            {
+                return Ok(res);
+            }
             if native { run.compact_natively(budget).await } else { run.summarize(budget, settings.keep).await }
         };
         let result = tokio::select! {
@@ -1205,6 +1366,158 @@ impl Engine {
             Err(Fail::Ai(cause)) => run.publish(Err(crate::errors::from_ai(&cause))),
             Err(Fail::Defect(e)) => Err(e),
         }
+    }
+}
+
+/// `usePrecomputed`: the held summary plus everything since it, kept verbatim, when it still describes this
+/// conversation and that tail is short. Waits for a summary still being written. `None`, after stopping the
+/// background work, when it cannot be used; compaction then summarizes as usual.
+async fn use_precomputed(run: &Run<'_>, held: Precomputed, budget: i64, settings: &Settings) -> Option<Res> {
+    let messages = &run.loaded.messages;
+    let index = held_index(&held, messages, &run.loaded.initial, &run.model.model_ref());
+    let usable = settings.precompute
+        && *run.trigger != Trigger::Overflow
+        && run.model.compaction.as_deref() != Some("native")
+        && index.is_some_and(|i| tail_tokens(messages, i) <= tail_limit(settings.keep, budget));
+    let Precomputed { keep_id, usage, task, .. } = held;
+    let mut task = AbortOnDrop(task);
+    if !usable {
+        return None;
+    }
+    let mut res = match (&mut task.0).await {
+        Ok(Ok(res)) => res,
+        _ => return None,
+    };
+    // Background calls were billed as they finished; the compaction's message still shows what it cost.
+    for (cost, tokens) in usage.lock().iter() {
+        run.add_spent(*cost, tokens);
+    }
+    let mut metadata = Metadata::new();
+    metadata.insert("keepID".into(), Value::String(keep_id));
+    metadata.extend(res.metadata.take().unwrap_or_default());
+    res.metadata = Some(metadata);
+    Some(res)
+}
+
+impl Engine {
+    /// `precompute`: once the context passes `PRECOMPUTE_RATIO` of the ceiling, summarizes everything before the
+    /// latest response in the background. That is the prefix the provider just processed, so the summary request
+    /// reads it from the prompt cache. The summary is held, not applied: swapping it in now would rewrite the prefix
+    /// and throw away the cache for every step until compaction is actually due. One summary is held per session
+    /// until compaction takes it, or until it fails or falls too far behind, when a newer response replaces it.
+    /// `fresh`: load the session's latest history into the context first (the step before going idle).
+    pub async fn precompute(self: &Arc<Self>, loaded: &Loaded, fresh: bool) -> anyhow::Result<()> {
+        let settings = Settings::from_entries(&loaded.sel.location.entries);
+        if !settings.precompute || !settings.auto {
+            return Ok(());
+        }
+        let reloaded;
+        let loaded = if fresh {
+            let messages = crate::history::load(&self.app.db, &loaded.sel.session.id, crate::history::Boundary::Latest)?;
+            reloaded = Loaded { messages, ..loaded.clone() };
+            &reloaded
+        } else {
+            loaded
+        };
+        if loaded.resolved.compaction.as_deref() == Some("native") {
+            return Ok(());
+        }
+        let limit = loaded.resolved.limit();
+        let Some(ceiling) = calculate_ceiling(limit.context, limit.input, settings.buffer) else { return Ok(()) };
+        let estimate = self.estimate_prompt(loaded);
+        if self.compaction_due_with(loaded, Some(ceiling), Some(estimate)) {
+            return Ok(());
+        }
+        if ((estimate.0 + estimate.1) as f64) < ceiling as f64 * PRECOMPUTE_RATIO {
+            return Ok(());
+        }
+        let model_ref = loaded.resolved.model_ref();
+        let messages = &loaded.messages;
+        let Some(anchor_index) = messages.iter().rposition(|m| has_measured_prompt(m, &model_ref)).filter(|i| *i > 0) else {
+            return Ok(());
+        };
+        let Message::Assistant(anchor) = &messages[anchor_index] else { return Ok(()) };
+        let Some(tokens) = &anchor.tokens else { return Ok(()) };
+        if tokens.input + tokens.cache.read + tokens.cache.write < PRECOMPUTE_MIN_TOKENS {
+            return Ok(());
+        }
+        let session_id = loaded.sel.session.id.clone();
+        let existing = self.precomputed.lock().remove(&session_id);
+        let failed = existing.as_ref().is_some_and(|e| e.state.load(Ordering::SeqCst) == 2);
+        let failures = existing.as_ref().map(|e| e.failures).unwrap_or(0) + failed as u32;
+        if let Some(existing) = existing {
+            let index = held_index(&existing, messages, &loaded.initial, &model_ref);
+            let keep = match index {
+                Some(i) if !failed && tail_tokens(messages, i) <= existing.tail_limit => true,
+                // Summarizing up to the same response again would repeat the same request.
+                Some(_) => existing.keep_id == anchor.id || failures >= PRECOMPUTE_MAX_FAILURES,
+                None => false,
+            };
+            if keep {
+                self.precomputed.lock().insert(session_id, existing);
+                return Ok(());
+            }
+            existing.cancel();
+        }
+        // After a model switch nothing is cached for the new model yet; wait until its first response has written it.
+        if anchor.model.id != model_ref.id || anchor.model.variant != model_ref.variant {
+            return Ok(());
+        }
+        let model = self.compaction_model(loaded).await.unwrap_or_else(|| loaded.resolved.clone());
+        let model_limit = model.limit();
+        let cap = calculate_ceiling(model_limit.context, model_limit.input, settings.buffer)
+            .or_else(|| calculate_ceiling(UNKNOWN_WINDOW, model_limit.input, settings.buffer))
+            .unwrap_or(i64::MAX);
+        let usage = Arc::new(Mutex::new(Vec::new()));
+        let state = Arc::new(AtomicU8::new(0));
+        let background = Background { messages: messages[..anchor_index].to_vec(), usage: usage.clone() };
+        let (engine, context, keep, done) = (self.clone(), loaded.clone(), settings.keep, state.clone());
+        let task = tokio::spawn(async move {
+            let trigger = Trigger::Auto;
+            let run = Run {
+                engine: &engine,
+                loaded: &context,
+                model: &model,
+                trigger: &trigger,
+                session_id: context.sel.session.id.clone(),
+                cancel: CancellationToken::new(),
+                spent: Mutex::new(None),
+                background: Some(background),
+            };
+            let result = run.summarize(cap, keep).await;
+            if let Err(Fail::Defect(error)) = &result {
+                tracing::warn!(%error, "background compaction failed");
+            }
+            done.store(if result.is_ok() { 1 } else { 2 }, Ordering::SeqCst);
+            result
+        });
+        self.precomputed.lock().insert(
+            session_id,
+            Precomputed {
+                first_id: messages.first().map(|m| m.id().to_string()),
+                keep_id: anchor.id.clone(),
+                model: model_ref,
+                initial: loaded.initial.clone(),
+                tail_limit: tail_limit(settings.keep, cap),
+                failures,
+                usage,
+                state,
+                task,
+            },
+        );
+        Ok(())
+    }
+
+    /// Stops the background summaries of the sessions `matches` selects (their location closed).
+    pub fn cancel_precomputed(&self, matches: impl Fn(&str) -> bool) {
+        self.precomputed.lock().retain(|session, held| {
+            if matches(session) {
+                held.cancel();
+                false
+            } else {
+                true
+            }
+        });
     }
 }
 

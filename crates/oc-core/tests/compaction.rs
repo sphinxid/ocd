@@ -91,10 +91,13 @@ fn ceiling() {
 
 #[test]
 fn summary_room_leaves_reserve_for_the_summary() {
-    assert_eq!(summary_room(200_000, None), 184_000);
-    assert_eq!(summary_room(400_000, Some(272_000)), 256_000);
-    assert_eq!(summary_room(10_000, None), 0);
-    assert_eq!(summary_room(0, None), 0);
+    assert_eq!(summary_room(200_000, None, None), 184_000);
+    assert_eq!(summary_room(400_000, Some(272_000), None), 256_000);
+    assert_eq!(summary_room(10_000, None, None), 0);
+    assert_eq!(summary_room(0, None, None), 0);
+    // A request that cannot generate `RESERVE_MIN` leaves only its own output limit free.
+    assert_eq!(summary_room(200_000, None, Some(4_096.0)), 195_904);
+    assert_eq!(summary_room(200_000, None, Some(32_000.0)), 184_000);
 }
 
 #[test]
@@ -116,19 +119,19 @@ fn fit_output_lowers_limit_to_room_left() {
     request.generation = Some(oc_ai::types::GenerationOptions { max_tokens: Some(30_000.0), ..Default::default() });
     // About 160k estimated: the margin leaves 1,024, the floor takes min(32k, 200k - 160k) = 32k → 30k kept.
     request.messages = vec![LlmMessage::user_text("x".repeat(640_000))];
-    let fitted = fit_output(request.clone(), 32_000, 200_000);
+    let fitted = fit_output(request.clone(), 32_000, 200_000, None);
     assert_eq!(fitted.generation.unwrap().max_tokens, Some(30_000.0));
     // About 182k: under 20k of room is left.
     request.messages = vec![LlmMessage::user_text("x".repeat(728_000))];
-    let fitted = fit_output(request.clone(), 32_000, 200_000);
+    let fitted = fit_output(request.clone(), 32_000, 200_000, None);
     assert_eq!(fitted.generation.unwrap().max_tokens, Some(18_000.0));
     // 250k, past the window: the minimum.
     request.messages = vec![LlmMessage::user_text("x".repeat(1_000_000))];
-    let fitted = fit_output(request.clone(), 32_000, 200_000);
+    let fitted = fit_output(request.clone(), 32_000, 200_000, None);
     assert_eq!(fitted.generation.unwrap().max_tokens, Some(1_024.0));
     // No limit set: unchanged.
     request.generation = None;
-    assert!(fit_output(request, 32_000, 200_000).generation.is_none());
+    assert!(fit_output(request, 32_000, 200_000, None).generation.is_none());
 }
 
 #[test]

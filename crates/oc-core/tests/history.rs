@@ -284,3 +284,79 @@ fn system_messages_before_a_native_checkpoint_are_superseded() {
     let expanded = history::load(&db, &sid, Boundary::Local).unwrap();
     assert_eq!(expanded.iter().map(Message::kind).collect::<Vec<_>>(), vec!["user", "system", "user"]);
 }
+
+fn summary(db: &Database, session: &str, text: &str, keep: Option<&str>) -> String {
+    let mut data = json!({ "status": "completed", "reason": "auto", "summary": text, "time": { "created": 0 } });
+    if let Some(k) = keep {
+        data["metadata"] = json!({ "keepID": k });
+    }
+    store(db, session, "compaction", data)
+}
+
+/// Every message of the session, in order (`store.messages({order: "asc"})`).
+fn all(db: &Database, session: &str) -> Vec<Message> {
+    db.session_messages(session).unwrap().into_iter().map(|(_, m)| m).collect()
+}
+
+#[test]
+fn history_from_the_latest_completed_compaction_matches_the_full_transcript_cut_there() {
+    type Build = fn(&Database, &str);
+    let scenarios: [(&str, Build); 4] = [
+        ("none", |db, s| {
+            user(db, s, "a");
+            user(db, s, "b");
+        }),
+        ("one", |db, s| {
+            user(db, s, "a");
+            summary(db, s, "one", None);
+            user(db, s, "b");
+        }),
+        ("several", |db, s| {
+            user(db, s, "a");
+            summary(db, s, "one", None);
+            user(db, s, "b");
+            summary(db, s, "two", None);
+            user(db, s, "c");
+        }),
+        ("failed", |db, s| {
+            user(db, s, "a");
+            summary(db, s, "one", None);
+            user(db, s, "b");
+            store(
+                db,
+                s,
+                "compaction",
+                json!({ "status": "failed", "reason": "auto", "error": { "type": "unknown", "message": "failed" }, "time": { "created": 0 } }),
+            );
+            user(db, s, "c");
+        }),
+    ];
+    for (name, build) in scenarios {
+        let (db, sid) = setup();
+        build(&db, &sid);
+        let all = all(&db, &sid);
+        let start = all
+            .iter()
+            .rposition(|m| matches!(m, Message::Compaction(c) if matches!(c.status, oc_schema::message::CompactionStatus::Completed { .. })))
+            .unwrap_or(0);
+        let history = history::load(&db, &sid, Boundary::Model(&model())).unwrap();
+        assert_eq!(texts(&history), texts(&all[start..]), "{name}");
+    }
+}
+
+#[test]
+fn history_never_decodes_rows_before_the_latest_compaction_or_its_kept_tail() {
+    let (db, sid) = setup();
+    let earlier = [user(&db, &sid, "old 1"), summary(&db, &sid, "one", None), user(&db, &sid, "old 2")];
+    let kept_id = user(&db, &sid, "Kept question");
+    summary(&db, &sid, "two", Some(&kept_id));
+    user(&db, &sid, "After");
+    // Rows the model no longer sees, made undecodable: reading any of them would fail the load.
+    for id in &earlier {
+        db.with(|c| c.execute("UPDATE session_message SET data = json('{}') WHERE id = ?", [id])).unwrap();
+    }
+    let history = history::load(&db, &sid, Boundary::Model(&model())).unwrap();
+    assert_eq!(history.len(), 2);
+    assert_eq!(kept(&history[0]), "[User]: Kept question");
+    assert!(matches!(&history[1], Message::User { text, .. } if text == "After"));
+}
