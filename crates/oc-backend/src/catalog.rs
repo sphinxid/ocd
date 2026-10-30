@@ -36,6 +36,8 @@ pub enum CommandDef {
     Init,
     Review,
     Mcp(oc_mcp::Prompt),
+    /// `/goal` (the built-in `opencode.goal` plugin).
+    Goal,
     Config(Command),
     /// A plugin command: its `execute` function handle in the plugin host.
     Plugin(String),
@@ -66,7 +68,7 @@ pub fn commands(loc: &Loc, prompts: &[oc_mcp::Prompt]) -> IndexMap<String, (Opti
     out
 }
 
-/// The native commands registered before plugins (`opencode.command`, MCP prompts).
+/// The native commands registered before plugins (`opencode.command`, MCP prompts, `opencode.goal`).
 pub fn native(prompts: &[oc_mcp::Prompt]) -> IndexMap<String, (Option<String>, CommandDef)> {
     let mut out = IndexMap::new();
     out.insert("init".to_string(), (Some("guided AGENTS.md setup".to_string()), CommandDef::Init));
@@ -77,6 +79,8 @@ pub fn native(prompts: &[oc_mcp::Prompt]) -> IndexMap<String, (Option<String>, C
     for prompt in prompts {
         out.insert(mcp_command_name(&prompt.server, &prompt.name), (prompt.description.clone(), CommandDef::Mcp(prompt.clone())));
     }
+    // `opencode.goal` registers its command after the command plugin's.
+    out.insert(oc_core::goal::COMMAND.to_string(), (Some(oc_core::goal::DESCRIPTION.to_string()), CommandDef::Goal));
     out
 }
 

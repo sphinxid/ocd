@@ -1068,6 +1068,15 @@ impl Backend for Engine {
         self.app.plugins.await_activation(&loc.key).await;
         let location = oc_plugin::LocationRef::new(loc.key.clone());
         let input = req.body.input.clone().map(|v| serde_json::to_value(v).unwrap_or(Value::Null)).unwrap_or(Value::Null);
+        // The built-in goal plugin's RPC: its `get` answers `{"output": null}` for a session without a goal.
+        if req.rpc_id == oc_core::goal::RPC_ID && self.app.plugins.builtin_enabled(&loc.key, oc_core::goal::PLUGIN_ID) {
+            return match oc_core::goal::rpc(&self.app.db, &req.method, &input) {
+                // Built directly: decoding would turn a `null` output into an absent one.
+                Ok(output) => Ok(RpcOutput { output: Some(output) }),
+                Err((kind, message)) if kind == "rpc.internal" => Err(ApiError::rpc_internal(kind, message)),
+                Err((kind, message)) => Err(ApiError::rpc(kind, message, None)),
+            };
+        }
         let result = match self.app.plugins.host() {
             Some(host) => host.rpc_call(&location, &req.rpc_id, &req.method, input).await,
             None => Err(oc_plugin::RpcFailure { kind: "rpc.unavailable".into(), message: format!("RPC is unavailable: {}", req.rpc_id), data: None }),

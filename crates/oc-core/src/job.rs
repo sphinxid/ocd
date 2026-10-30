@@ -320,6 +320,16 @@ impl Jobs {
         }
     }
 
+    /// `runningBackground`: recovery records of the backgrounded jobs still running.
+    pub fn running_background(&self) -> Vec<JobRecovery> {
+        self.jobs
+            .lock()
+            .values()
+            .filter(|j| j.is_bg && j.info.status == JobStatus::Running)
+            .filter_map(|j| j.recovery.clone())
+            .collect()
+    }
+
     pub fn pending_background(&self) -> Vec<Value> {
         let mut out = Vec::new();
         let mut after: Option<String> = None;

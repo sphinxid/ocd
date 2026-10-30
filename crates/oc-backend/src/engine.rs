@@ -196,6 +196,9 @@ impl Engine {
         if !plugins.builtin_enabled(&loc.key, "opencode.command") {
             native.retain(|_, (_, def)| !matches!(def, crate::catalog::CommandDef::Init | crate::catalog::CommandDef::Review));
         }
+        if !plugins.builtin_enabled(&loc.key, oc_core::goal::PLUGIN_ID) {
+            native.retain(|_, (_, def)| !matches!(def, crate::catalog::CommandDef::Goal));
+        }
         let mut out = if plugins.host().is_some() {
             let list: Vec<(String, Option<String>)> = native.iter().map(|(n, (d, _))| (n.clone(), d.clone())).collect();
             let mut out = IndexMap::new();

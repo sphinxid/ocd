@@ -16,6 +16,7 @@ pub mod discovery;
 pub mod errors;
 pub mod form;
 pub mod generate;
+pub mod goal;
 pub mod history;
 pub mod host;
 pub mod inbox;

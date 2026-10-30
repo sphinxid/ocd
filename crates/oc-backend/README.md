@@ -167,12 +167,17 @@ Server plugins run in oc-plugin's Bun sidecar, driven by `oc_core::plugins::Plug
   (`Npm::check`: `bun info` for registry specs, `git ls-remote` for Git specs; failures count as
   current), `outdated` set like upstream. **`plugin.update`**: `Npm::update` per target, then the
   location's plugins reload; failures answer upstream's 503.
-* **`rpc.call`**: `Plugin.awaitActivation`, then the sidecar registry; failures map to upstream's
-  `RpcError` (400) / `RpcInternalError` (500, `rpc.internal`/`rpc.invalid_output`); unknown ids
-  answer `rpc.unavailable` / `RPC is unavailable: <id>`.
+* **`rpc.call`**: `Plugin.awaitActivation`, then the built-in goal plugin's `opencode.goal` RPC
+  (`get {sessionID}` → `{"output": Goal.State | null}`, answered natively unless `-opencode.goal`), then
+  the sidecar registry; failures map to upstream's `RpcError` (400) / `RpcInternalError` (500,
+  `rpc.internal`/`rpc.invalid_output`); unknown ids answer `rpc.unavailable` / `RPC is unavailable: <id>`.
 * **`session.prompt`**: awaits activation and runs the `session.prompt` hook before attachments
   are materialised (the message id is generated first when the hook exists).
-* **`session.command`**: awaits activation; plugin commands execute through their handle.
+* **`session.command`**: awaits activation; plugin commands execute through their handle. `goal`
+  (`opencode.goal`, registered after the command plugin's commands and MCP prompts) runs
+  `oc_core::runner::Engine::goal_command` and admits its kickoff (a described synthetic message, or a
+  prompt when the command carries attachments) or resume continuation; its errors are
+  `CommandExecutionError`s with upstream's texts.
 * Domain listings (`agent.*`, `command.list`, `skill.list`, `reference.list`, `model.*`,
   `provider.*`, `integration.*`, `websearch.*`) include plugin transforms; `shell.create` runs
   `shell.create.before`.

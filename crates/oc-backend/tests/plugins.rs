@@ -510,7 +510,7 @@ async fn no_sidecar_without_plugins() {
     assert!(!s.h.app.plugins.host().is_some_and(|h| h.is_running()));
     let list = s.h.get("/api/plugin").await.json();
     let ids: Vec<&str> = list["data"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
-    assert_eq!(ids.len(), 86);
+    assert_eq!(ids.len(), 89);
     assert!(!ids.contains(&"opencode.browser"));
     // The browser deny is gone with its plugin.
     let agents = s.h.get("/api/agent").await.json();

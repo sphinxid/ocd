@@ -84,6 +84,10 @@ pub async fn shape(
 ) -> Result<Shaped, HookError> {
     let mut shaped = Shaped::default();
     let hook = kind.hook();
+    // The goal plugin's `context` hook (a `pre` plugin, after the command plugin).
+    if kind == Kind::Primary && plugins.builtin_enabled(key, crate::goal::PLUGIN_ID) {
+        crate::goal::remind(plugins.db(), session_id, &mut req.messages);
+    }
     omit_openai_output_limit(plugins, key, kind, model, req);
     default_text_verbosity(plugins, key, model, req);
     if plugins.has_hook(key, hook, Some(&model.provider_id)) {

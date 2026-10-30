@@ -37,7 +37,7 @@ use crate::location::Location;
 
 /// Built-in (internal) plugin ids in activation order (`core/src/plugin/internal.ts` `pre`, the
 /// provider and web-search plugins, `post`), as `plugin.list` reports them.
-pub const BUILTIN_PLUGINS: [&str; 87] = [
+pub const BUILTIN_PLUGINS: [&str; 90] = [
     "opencode.tool.input.repair",
     "opencode.config.worktree",
     "opencode.config.mcp",
@@ -47,6 +47,7 @@ pub const BUILTIN_PLUGINS: [&str; 87] = [
     "opencode.agent",
     "opencode.plan",
     "opencode.command",
+    "opencode.goal",
     "opencode.skill",
     "opencode.vcs.hg",
     "opencode.models.dev",
@@ -96,10 +97,12 @@ pub const BUILTIN_PLUGINS: [&str; 87] = [
     "opencode.tool.edit",
     "opencode.tool.glob",
     "opencode.tool.grep",
+    "opencode.tool.image-generate",
     "opencode.tools",
     "opencode.tools.mcp-resources",
     "opencode.tool.question",
     "opencode.tool.read",
+    "opencode.tool.schedule",
     "opencode.tool.shell",
     "opencode.tool.skill",
     "opencode.tool.subagent",
@@ -128,7 +131,7 @@ pub const BUILTIN_PLUGINS: [&str; 87] = [
 ];
 
 /// Index of the first `post` internal plugin in [`BUILTIN_PLUGINS`].
-const POST_START: usize = 70;
+const POST_START: usize = 73;
 
 /// The ocd-native internal plugins in upstream order.
 pub fn internal_plugins() -> InternalPlugins {
@@ -1669,6 +1672,12 @@ impl Plugins {
             }
             "rpc.call" => {
                 let id = request.input.get("rpcID").and_then(Value::as_str).unwrap_or_default();
+                // The built-in goal plugin's RPC.
+                if id == crate::goal::RPC_ID && self.builtin_enabled(&key, crate::goal::PLUGIN_ID) {
+                    let method = request.input.get("method").and_then(Value::as_str).unwrap_or_default();
+                    let input = request.input.get("input").cloned().unwrap_or(Value::Null);
+                    return Some(crate::goal::rpc(&self.db, method, &input).map_err(|(kind, message)| ApiError::named(kind, message)));
+                }
                 Some(Err(ApiError::named("rpc.unavailable", format!("RPC is unavailable: {id}"))))
             }
             _ => None,
@@ -1676,6 +1685,11 @@ impl Plugins {
     }
 
     fn kv(&self) -> &oc_storage::Database {
+        &self.db
+    }
+
+    /// The server database.
+    pub fn db(&self) -> &oc_storage::Database {
         &self.db
     }
 }

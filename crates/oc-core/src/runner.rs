@@ -49,6 +49,8 @@ pub struct Engine {
     watches: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// OpenCode Console config task per location directory (polling and `credential.switched`).
     consoles: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// The built-in `opencode.goal` plugin (`/goal`).
+    pub goals: crate::goal::Goals,
     me: std::sync::Weak<Engine>,
 }
 
@@ -106,6 +108,7 @@ impl Engine {
             titles: Mutex::new(Default::default()),
             watches: Mutex::new(HashMap::new()),
             consoles: Mutex::new(HashMap::new()),
+            goals: Default::default(),
             me: me.clone(),
         })
     }
@@ -115,6 +118,7 @@ impl Engine {
         let driver: Arc<dyn Driver> = Arc::new(ExecutionDriver { engine: self.clone() });
         if self.app.coordinator.set(crate::coordinator::Coordinator::new(driver)).is_ok() {
             crate::plan::spawn(self.app.clone());
+            self.goal_spawn();
             self.app.plugins.set_tool_source(Arc::new(RunnerTools(Arc::downgrade(self))));
             // Plugin MCP transforms changed: reconcile the location's servers.
             let mut changes = self.app.plugins.subscribe_changes();
@@ -166,12 +170,22 @@ impl Engine {
         let loc = Arc::new(Location::load(&self.app.global, &self.app.bus, std::path::Path::new(directory)).await?);
         loc.fetch_instructions(None).await;
         crate::reference::refresh(&self.app, crate::reference::list(&loc, &self.app.global));
-        let loc = {
+        let (loc, inserted) = {
             let mut locations = self.locations.lock();
             // A concurrent load may have won; keep one location per key.
-            locations.entry(directory.to_string()).or_insert(loc).clone()
+            match locations.get(directory) {
+                Some(existing) => (existing.clone(), false),
+                None => {
+                    locations.insert(directory.to_string(), loc.clone());
+                    (loc, true)
+                }
+            }
         };
         self.app.plugins.ensure(&loc);
+        // The goal plugin's activation pauses goals an earlier process left active.
+        if inserted && self.app.plugins.builtin_enabled(&loc.key, crate::goal::PLUGIN_ID) {
+            self.goal_scan();
+        }
         self.watch(directory, &loc);
         self.console_watch(directory);
         Ok(loc)
@@ -716,6 +730,8 @@ impl Engine {
         let mut continuing = false;
         let mut step: u32 = 1;
         let mut entering = true;
+        // Whether a step ran in this drain: only drains that ran the model reach the idle hook.
+        let mut stepped = false;
         if !force {
             let Some(pending) = inbox::next_promotable(bus, session_id, Scope::Input)? else { return Ok(()) };
             if promotable == Scope::Steer && pending.delivery == oc_schema::event::Delivery::Queue && !pending.is_control() {
@@ -802,7 +818,20 @@ impl Engine {
                     }
                 }
                 if !force && !continuing && (pending.is_none() || (pending.as_ref().unwrap().delivery == oc_schema::event::Delivery::Queue && promotable == Scope::Steer)) {
-                    return Ok(());
+                    // Control-only drains such as a manual compaction never ran the model, so they skip the hook.
+                    if pending.is_some() || !stepped {
+                        return Ok(());
+                    }
+                    // The session would go idle; a plugin may admit input to keep this execution working.
+                    tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => return Err(DrainError::Interrupted),
+                        result = self.idle_hook(session_id) => result.map_err(DrainError::Failed)?,
+                    }
+                    if !inbox::has(bus, session_id, None)? {
+                        return Ok(());
+                    }
+                    continue;
                 }
                 let selected = self.prepare_context(session_id).await?;
                 let scope = if entering && !continuing { promotable } else { Scope::Steer };
@@ -824,10 +853,27 @@ impl Engine {
                 break self.load(selected).await?;
             };
             continuing = self.run_step(ready, step, cancel.clone()).await?;
+            stepped = true;
             step += 1;
             force = false;
             entering = false;
         }
+    }
+
+    /// `hooks.trigger("session", "experimental.idle", {sessionID, background})`: the built-in goal plugin's hook,
+    /// then the plugins'. A plugin hook failure fails the execution.
+    async fn idle_hook(self: &Arc<Self>, session_id: &str) -> anyhow::Result<()> {
+        let session = self.app.sessions.get(session_id)?;
+        let key = crate::location::canonical_directory(&session.location.directory);
+        let background = self.outstanding(session_id);
+        if self.goal_enabled(&session) {
+            self.goal_idle(session_id, &background).await;
+        }
+        if self.app.plugins.has_hook(&key, "session.experimental.idle", None) {
+            let event = serde_json::json!({ "sessionID": session_id, "background": background });
+            self.app.plugins.trigger(&key, "session.experimental.idle", event).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+        Ok(())
     }
 
     /// `FiberMap.run(titles, sessionID, title.generate(sessionID), { onlyIfMissing: true })`; false when one
@@ -1103,6 +1149,8 @@ struct LocalTools {
 #[async_trait]
 impl ToolRunner for LocalTools {
     async fn run(&self, call: ToolCall, progress: step::Progress, cancel: CancellationToken) -> ToolRun {
+        // A tool call can arrive during a reload; its permission check reads the session's agent.
+        self.engine.app.plugins.await_activation(&self.key).await;
         let host: Arc<dyn oc_tools::ToolHost> = Arc::new(crate::host::CoreHost {
             app: self.engine.app.clone(),
             skills: self.skills.clone(),

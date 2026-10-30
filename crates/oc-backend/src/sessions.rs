@@ -804,6 +804,7 @@ impl Engine {
         let mut model_switch: Option<ModelRef> = None;
         let text = match def {
             crate::catalog::CommandDef::Plugin(_) => return Err(failed("Plugin commands run in the plugin host".into())),
+            crate::catalog::CommandDef::Goal => return self.goal_command(id, body).await.map_err(failed),
             crate::catalog::CommandDef::Init => {
                 crate::catalog::append(&crate::catalog::PROMPT_INITIALIZE.replace("${path}", &project_dir), &body.text)
             }
@@ -934,6 +935,36 @@ impl Engine {
             self.wake(id, Scope::Input);
         }
         Ok(())
+    }
+
+    /// The `goal` command (`GoalPlugin` `execute`): write the goal, then admit what it asks for through the
+    /// session API (`ctx.session.prompt` / `ctx.session.synthetic`).
+    async fn goal_command(&self, id: &str, body: api::SessionCommandBody) -> Result<(), String> {
+        let Some(runner) = self.runner.clone() else { return Err("Session runner is not available".into()) };
+        let attached = body.files.as_ref().is_some_and(|f| !f.is_empty())
+            || body.agents.as_ref().is_some_and(|a| !a.is_empty())
+            || body.skills.as_ref().is_some_and(|s| !s.is_empty());
+        let error = |e: ApiError| e.to_string();
+        match runner.goal_command(id, &body.text, attached).await? {
+            oc_core::goal::Admit::None => Ok(()),
+            oc_core::goal::Admit::Prompt { text, metadata } => {
+                let prompt = api::SessionPromptBody {
+                    id: None,
+                    text,
+                    files: body.files,
+                    agents: body.agents,
+                    skills: body.skills,
+                    metadata: Some(from_json(Value::Object(metadata)).map_err(error)?),
+                    delivery: body.delivery,
+                    resume: None,
+                };
+                self.prompt(id, prompt).await.map(|_| ()).map_err(error)
+            }
+            oc_core::goal::Admit::Synthetic { text, description, metadata, delivery } => {
+                let delivery = if delivery { self::delivery(body.delivery) } else { None };
+                runner.goal_synthetic(id, text, description, metadata, delivery).await.map_err(|e| e.to_string())
+            }
+        }
     }
 
     /// Config command run as a subagent: child session + background `SubagentJob`.

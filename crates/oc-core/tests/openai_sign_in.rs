@@ -351,7 +351,7 @@ async fn moves_only_token_sharing_credentials_to_the_new_method_id_and_caches_th
 #[test]
 fn registers_the_context_caps_plugin_after_the_openai_plugin() {
     let ids = oc_core::plugins::BUILTIN_PLUGINS;
-    assert_eq!(ids.len(), 87);
+    assert_eq!(ids.len(), 90);
     let openai = ids.iter().position(|id| *id == "opencode.provider.openai").unwrap();
     assert_eq!(ids[openai + 1], "opencode.provider.openai-context-caps");
     assert!(ids.iter().position(|id| *id == "opencode.provider.chatgpt").unwrap() < openai);
