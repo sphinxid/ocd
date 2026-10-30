@@ -170,16 +170,30 @@ pub fn build_rows_with(
         .chain(running_compactions.iter().copied())
         .chain(messages.iter().filter(|m| inputs.contains(&m.id)))
         .collect();
+    // An execution failure that repeats the error of the turn's last step or compaction is already on screen.
+    let mut shown_error: Option<&crate::api::types::SessionError> = None;
     for m in ordered {
         if m.kind != "assistant" {
-            // Idle markers only close the turn (`reduceSessionRows`); a failed execution's error shows
-            // on its step or as the "Session failed" toast.
             if m.kind == "idle" {
+                if let Some(err) = &m.error
+                    && shown_error.is_none_or(|s| s.kind != err.kind || s.message != err.message)
+                {
+                    entries.push(Proj {
+                        entry: Entry::Message(m.id.clone()),
+                        path: vec![],
+                        closes_previous: true,
+                        reasoning_done: None,
+                    });
+                }
+                shown_error = None;
                 flush(&mut entries, &mut steps);
                 continue;
             }
             if m.kind == "synthetic" && m.description.as_deref().unwrap_or("").trim().is_empty() {
                 continue;
+            }
+            if m.kind == "compaction" && m.status.as_deref() != Some("running") {
+                shown_error = if m.status.as_deref() == Some("failed") { m.error.as_ref() } else { None };
             }
             let path = if instruction_paths(m).is_empty() {
                 vec![]
@@ -197,6 +211,7 @@ pub fn build_rows_with(
             continue;
         }
         steps.push(m);
+        shown_error = m.error.as_ref();
         let (mut text_n, mut reason_n) = (0, 0);
         for part in &m.content {
             let pid = match part {
@@ -369,6 +384,12 @@ pub struct RCtx<'a> {
     pub index: Option<&'a HashMap<String, usize>>,
     /// Precomputed [`is_legacy`] of `messages`.
     pub legacy: Option<bool>,
+    /// The location's providers (which models OpenCode Console serves).
+    pub providers: &'a [ProviderInfo],
+    /// The location's OpenCode Console usage limits, once loaded and signed in.
+    pub usage: Option<&'a crate::util::usage_limits::Info>,
+    /// First shortcut of `model.list`, or `/models` (the usage-limit notices' key).
+    pub models_key: String,
 }
 
 impl RCtx<'_> {
@@ -580,7 +601,7 @@ pub fn tool_output(t: &ToolPart) -> Option<String> {
 }
 
 fn tool_error(t: &ToolPart) -> Option<String> {
-    if t.state.status == "error" { t.state.error.as_ref().map(|e| e.message.clone()) } else { None }
+    if t.state.status == "error" { t.state.error.as_ref().map(|e| locale::strip_ansi(&e.message)) } else { None }
 }
 
 fn is_denied(e: &str) -> bool {
@@ -997,7 +1018,11 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
             block(ctx, header, vec![], tool_error(t).map(|e| (e, if failed { th.text.muted } else { th.text.feedback.error.base })), None)
         }
         "subagent" => {
-            let session = str_of(&meta, "sessionID").or(str_of(&meta, "sessionId")).map(|s| s.to_string());
+            // A failed continuation may name an unrelated session, such as the parent itself.
+            let session = str_of(&meta, "sessionID")
+                .or(str_of(&meta, "sessionId"))
+                .or(if status == "error" { None } else { str_of(&input, "sessionID") })
+                .map(|s| s.to_string());
             let description = str_of(&input, "description");
             let continuation = str_of(&input, "sessionID").is_some();
             let running = status == "running" || session.as_ref().is_some_and(|id| ctx.running_sessions.contains(id));
@@ -1005,14 +1030,14 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
             let agent = titlecase(str_of(&input, "agent").or(str_of(&input, "subagent_type")).unwrap_or("General"));
             let head = if continuation { "Continue subagent".to_string() } else { format!("{agent} Subagent") };
             let label = format!("{head} — {}{}", description.unwrap_or("Subagent"), model.map(|m| format!(" · {m}")).unwrap_or_default());
-            let icon = if continuation { "↳" } else if running { "│" } else if status == "completed" { "✓" } else { "│" };
+            let icon = if running { "│" } else if continuation { "↳" } else if status == "completed" { "✓" } else { "│" };
             let badge = if status == "completed" && str_of(&meta, "status") == Some("running") {
                 Some(Seg::new(" Background ", Style::default().bg(th.dec(th.background.base).tui()).fg(th.text.muted.tui())))
             } else {
                 None
             };
             let click = session.map(Click::Navigate);
-            inline_tool(ctx, t, icon, "Delegating…", description.is_some(), !continuation && running, vec![s(label, th.text.muted)], None, click, badge)
+            inline_tool(ctx, t, icon, "Delegating…", description.is_some(), running, vec![s(label, th.text.muted)], None, click, badge)
         }
         "execute" => {
             let loading = status == "streaming" || status == "running";
@@ -1087,7 +1112,7 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
         }
         _ => {
             let loading = status == "streaming" || status == "running";
-            let out_s = output.clone().unwrap_or_default().trim().to_string();
+            let out_s = locale::strip_ansi(output.clone().unwrap_or_default().trim());
             let entries: Vec<(String, Value)> = input.as_object().map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
             let expandable = !entries.is_empty() || !out_s.is_empty();
             let key = format!("tool:{}", t.id);
@@ -1289,6 +1314,84 @@ pub fn retry_secs(at: i64, now: i64) -> i64 {
     ((at - now) as f64 / 1000.0).ceil().max(0.0) as i64
 }
 
+/// `useLimitNotice`: why a turn stopped at a usage limit or for lack of credits, and how to keep going.
+pub struct LimitNotice {
+    pub title: String,
+    pub body: String,
+    pub key: Option<String>,
+    pub link: Option<(String, String)>,
+}
+
+pub fn limit_notice(ctx: &RCtx, m: &Message, error: &SessionError) -> Option<LimitNotice> {
+    use crate::util::usage_limits as ul;
+    let reset = ul::refusal_reset(Some(error)).or_else(|| ul::retry_reset(Some(error), m.time.completed.unwrap_or(m.time.created)));
+    let resets = reset.map(|r| format!("Resets {}. ", ul::format_reset_at(r, ctx.now))).unwrap_or_default();
+    let model = m.model.clone().unwrap_or_default();
+    let name = ctx.models.iter().find(|x| x.provider_id == model.provider_id && x.id == model.id).map(|x| x.name.clone()).unwrap_or_else(|| model.id.clone());
+    let key = Some(ctx.models_key.clone());
+    match error.kind.as_str() {
+        "provider.go-limit" => {
+            let title = ["OpenCode Go".to_string(), ul::go_limit_name(Some(error)).unwrap_or_default(), "usage limit reached".into()]
+                .into_iter()
+                .filter(|p| !p.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            Some(LimitNotice {
+                title,
+                body: format!("{resets}Switch to a free model with"),
+                key,
+                link: Some(("Or turn on Extra Usage on your Go page to keep going now:".into(), ul::go_limit_link(Some(error)))),
+            })
+        }
+        "provider.model-budget-limit" => Some(LimitNotice { title: format!("{name} usage limit reached"), body: format!("{resets}Switch model with"), key, link: None }),
+        "provider.budget-limit" => Some(LimitNotice {
+            title: "Usage limit reached".into(),
+            body: format!("{resets}Paid models are paused. Switch to a free model with"),
+            key,
+            link: None,
+        }),
+        _ if error.status == Some(402) && ul::served_by_console(ctx.providers.iter().find(|p| p.id == model.provider_id)) => Some(LimitNotice {
+            title: format!("{} is out of credits", ctx.usage.and_then(|u| u.workspace.name.clone()).unwrap_or_else(|| "Your workspace".into())),
+            body: "Paid models are paused until an admin adds credits in OpenCode Console.".into(),
+            key: None,
+            link: None,
+        }),
+        _ => None,
+    }
+}
+
+/// `UsageLimitNotice`: a box at margin 2 with a left `┃` border in `border.base`, padded 1 left, top and bottom.
+pub fn limit_notice_lines(ctx: &RCtx, n: &LimitNotice) -> Vec<SLine> {
+    let th = ctx.t();
+    let w = ctx.width.saturating_sub(4).max(1);
+    let bar = || vec![pad(2), s("┃", th.border), pad(1)];
+    let mut out = vec![SLine::new(bar())];
+    for l in wrap(&[s(n.title.clone(), th.text.base)], w, Wrap::Word) {
+        out.push(SLine::new(l).prefixed(&bar()));
+    }
+    let mut body = vec![s(n.body.clone(), th.text.muted)];
+    if let Some(k) = &n.key {
+        body.push(s(" ", th.text.muted));
+        body.push(s(k.clone(), th.text.base));
+        body.push(s(" to continue.", th.text.muted));
+    }
+    for l in wrap(&body, w, Wrap::Word) {
+        out.push(SLine::new(l).prefixed(&bar()));
+    }
+    if let Some((label, href)) = &n.link {
+        out.push(SLine::new(bar()));
+        for l in wrap(&[s(label.clone(), th.text.muted)], w, Wrap::Word) {
+            out.push(SLine::new(l).prefixed(&bar()));
+        }
+        let click = Some(Click::Custom(format!("open-url:{href}")));
+        for l in crate::app::integration::wrap_opentui(href, w) {
+            out.push(SLine::new(vec![s(l, th.text.base)]).prefixed(&bar()).on_click(click.clone()));
+        }
+    }
+    out.push(SLine::new(bar()));
+    out
+}
+
 fn render_footer(ctx: &RCtx, id: &str) -> Vec<SLine> {
     let Some(m) = ctx.message(id) else { return vec![] };
     let th = ctx.t();
@@ -1309,6 +1412,8 @@ fn render_footer(ctx: &RCtx, id: &str) -> Vec<SLine> {
             for l in wrap(&second, ctx.width.saturating_sub(3), Wrap::Word) {
                 out.push(SLine::new(l).prefixed(&[pad(3)]));
             }
+        } else if let Some(notice) = limit_notice(ctx, m, e) {
+            out.extend(limit_notice_lines(ctx, &notice));
         } else {
             for l in wrap(&[s(format!("Error: {}", e.message), th.text.feedback.error.base)], ctx.width.saturating_sub(3), Wrap::Word) {
                 out.push(SLine::new(l).prefixed(&[pad(3)]));
@@ -1484,7 +1589,7 @@ fn render_message(ctx: &RCtx, id: &str, light: bool) -> Vec<SLine> {
                 let child = if source.as_deref() == Some("subagent") { str_of(&md, "childID").map(|s| Click::Navigate(s.to_string())) } else { None };
                 return vec![SLine::new(clip(&[pad(3), s(heading, color), s(suffix, th.text.muted)], w)).on_click(child)];
             }
-            inline_row(ctx, "◈", th.text.muted, true, false, false, false, "Notice", vec![s(text, th.text.muted)], None, None, None)
+            inline_row(ctx, if source.as_deref() == Some("goal") { "◎" } else { "◈" }, th.text.muted, true, false, false, false, "Notice", vec![s(text, th.text.muted)], None, None, None)
         }
         "skill" => inline_row(ctx, "→", th.text.muted, true, false, false, false, "Skill", vec![s(format!("Skill {}", m.name.as_deref().unwrap_or("")), th.text.muted)], None, None, None),
         "compaction" => {
@@ -1959,6 +2064,71 @@ mod tests {
         let low = build_rows(&msgs, &HashSet::new(), &[], false, "low", &HashSet::new());
         assert!(matches!(low[1], Row::Group { kind: GroupKind::Activity, .. }));
         assert_eq!(low.len(), 4);
+    }
+
+    /// Rows as `session-rows.test.ts` lists them: `message:<id>` / `footer:<id>`.
+    fn row_ids(msgs: serde_json::Value, inputs: &[&str]) -> Vec<String> {
+        let msgs: Vec<Message> = serde_json::from_value(msgs).unwrap();
+        let inputs: HashSet<String> = inputs.iter().map(|s| s.to_string()).collect();
+        build_rows(&msgs, &inputs, &[], false, "medium", &HashSet::new())
+            .into_iter()
+            .map(|r| match r {
+                Row::Entry(Entry::Message(id)) => format!("message:{id}"),
+                Row::Entry(Entry::Footer(id)) => format!("footer:{id}"),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    fn failed(id: &str, kind: &str, message: &str) -> serde_json::Value {
+        serde_json::json!({ "type": "idle", "id": id, "outcome": "failed", "error": { "type": kind, "message": message }, "time": { "created": 2 } })
+    }
+
+    fn step(id: &str, kind: &str, message: &str) -> serde_json::Value {
+        serde_json::json!({ "type": "assistant", "id": id, "agent": "build", "model": { "id": "m", "providerID": "p" }, "content": [],
+            "error": { "type": kind, "message": message }, "time": { "created": 1 } })
+    }
+
+    fn failed_compaction(reason: &str, kind: &str, message: &str) -> serde_json::Value {
+        serde_json::json!({ "type": "compaction", "id": "compaction", "status": "failed", "reason": reason,
+            "error": { "type": kind, "message": message }, "time": { "created": 2 } })
+    }
+
+    #[test]
+    fn shows_an_execution_failure_that_happened_before_any_step() {
+        let user = |id: &str, text: &str| serde_json::json!({ "type": "user", "id": id, "text": text, "time": { "created": 1 } });
+        let (k, m) = ("provider.no-route", "Model unavailable: opencode/gpt-5.5");
+        let rows = row_ids(serde_json::json!([user("user", "Are you there?"), failed("idle", k, m), user("next", "Try again"), failed("idle-next", k, m)]), &[]);
+        assert_eq!(rows, ["message:user", "message:idle", "message:next", "message:idle-next"]);
+    }
+
+    #[test]
+    fn shows_an_execution_failure_once_when_its_last_step_already_shows_the_error() {
+        let (k, m) = ("provider.quota", "Insufficient account funds");
+        assert_eq!(row_ids(serde_json::json!([step("assistant", k, m), failed("idle", k, m)]), &[]), ["footer:assistant"]);
+        assert_eq!(row_ids(serde_json::json!([failed_compaction("auto", k, m), failed("idle", k, m)]), &[]), ["message:compaction"]);
+    }
+
+    #[test]
+    fn shows_an_execution_failure_that_differs_from_the_last_steps_error() {
+        let rows = row_ids(serde_json::json!([step("assistant", "aborted", "Step interrupted"), failed("idle", "tool.execution", "Tool crashed")]), &[]);
+        assert_eq!(rows, ["footer:assistant", "message:idle"]);
+        let rows = row_ids(
+            serde_json::json!([failed_compaction("manual", "provider.timeout", "Compaction timed out"), failed("idle", "unknown", "Instructions could not be loaded")]),
+            &[],
+        );
+        assert_eq!(rows, ["message:compaction", "message:idle"]);
+    }
+
+    #[test]
+    fn keeps_an_execution_failure_in_place_ahead_of_the_prompt_it_left_pending() {
+        let stranded = serde_json::json!({ "type": "user", "id": "stranded", "text": "Go", "time": { "created": 1 } });
+        let model = serde_json::json!({ "type": "model-switched", "id": "model", "model": { "id": "other", "providerID": "provider" }, "time": { "created": 3 } });
+        let idle = failed("idle", "unknown", "Instructions could not be loaded");
+        let want = ["message:idle", "message:model", "message:stranded"];
+        assert_eq!(row_ids(serde_json::json!([stranded, idle, model]), &["stranded"]), want);
+        // A resync loads projected messages before pending input.
+        assert_eq!(row_ids(serde_json::json!([idle, model, stranded]), &["stranded"]), want);
     }
 
     #[test]

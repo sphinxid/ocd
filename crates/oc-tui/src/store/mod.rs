@@ -18,6 +18,8 @@ pub enum Catalog {
     Integrations,
     Vcs,
     Shells,
+    /// `GET /api/experimental/usage/limits` (`data.location.usage`): loaded only where something reads it.
+    UsageLimits,
 }
 
 /// Follow-up reads requested by event handling.
@@ -45,6 +47,9 @@ pub struct LocationData {
     pub mcp: Option<Vec<McpServer>>,
     pub integrations: Option<Vec<Value>>,
     pub shells: Vec<ShellInfo>,
+    /// The Go allowance and Console budgets of the OpenCode Console workspace the location is signed in
+    /// to: `None` until loaded, `Some(None)` when it isn't signed in.
+    pub usage_limits: Option<Option<crate::util::usage_limits::Info>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -65,6 +70,8 @@ pub struct Store {
     pub loaded: HashSet<String>,
     /// Shells observed per location.
     pub generation: u64,
+    /// Location catalogs that were loaded or are loading (`hasLocation`): events refetch only these.
+    pub requested: HashSet<(String, Catalog)>,
 }
 
 impl Store {
@@ -78,6 +85,39 @@ impl Store {
 
     pub fn location_mut(&mut self, dir: &str) -> &mut LocationData {
         self.locations.entry(dir.to_string()).or_default()
+    }
+
+    /// Records that a location catalog is being loaded.
+    pub fn mark_requested(&mut self, dir: &str, cat: Catalog) {
+        self.requested.insert((dir.to_string(), cat));
+    }
+
+    /// `hasLocation`: the catalog was loaded or is loading for this location.
+    pub fn catalog_active(&self, dir: &str, cat: Catalog) -> bool {
+        if self.requested.contains(&(dir.to_string(), cat)) {
+            return true;
+        }
+        let Some(l) = self.locations.get(dir) else { return false };
+        match cat {
+            Catalog::Agents => l.agents.is_some(),
+            Catalog::Commands => l.commands.is_some(),
+            Catalog::Models => l.models.is_some(),
+            Catalog::Providers => l.providers.is_some(),
+            Catalog::References => l.references.is_some(),
+            Catalog::Skills => l.skills.is_some(),
+            Catalog::Mcp => l.mcp.is_some(),
+            Catalog::Integrations => l.integrations.is_some(),
+            Catalog::Vcs => l.vcs.is_some(),
+            Catalog::Shells => false,
+            Catalog::UsageLimits => l.usage_limits.is_some(),
+        }
+    }
+
+    /// `refreshLocation`: reload a catalog only where it was loaded or is loading.
+    fn refresh_catalog(&self, fx: &mut Vec<Effect>, dir: &str, cat: Catalog) {
+        if self.catalog_active(dir, cat) {
+            fx.push(Effect::Catalog(dir.to_string(), cat));
+        }
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {
@@ -658,6 +698,12 @@ impl Store {
                 });
             }
             "session.step.failed" => {
+                // A budget refusal means the cached usage limits are out of date, which is what the refusal sends people to.
+                if let Some(loc) = &ev.location
+                    && matches!(d.pointer("/error/type").and_then(|t| t.as_str()), Some("provider.budget-limit" | "provider.model-budget-limit"))
+                {
+                    self.refresh_catalog(&mut fx, &loc.directory, Catalog::UsageLimits);
+                }
                 let c = ev.created;
                 let d2 = d.clone();
                 self.edit_assistant(&sid, &s("assistantMessageID"), move |m| {
@@ -936,8 +982,7 @@ impl Store {
                 let error: SessionError = d.get("error").and_then(|e| serde_json::from_value(e.clone()).ok()).unwrap_or(SessionError {
                     kind: "compaction.failed".into(),
                     message: "Compaction failed before recording an error".into(),
-                    status: None,
-                    retry_after_ms: None,
+                    ..Default::default()
                 });
                 let reason = d.get("reason").and_then(|v| v.as_str()).unwrap_or("manual").to_string();
                 let created = ev.created;
@@ -993,30 +1038,32 @@ impl Store {
         // Location-scoped catalog invalidations.
         if let Some(loc) = &ev.location {
             let dir = loc.directory.clone();
+            // Catalogs reload only where they were loaded or are loading (`refreshLocation`).
             let cat = match ev.kind.as_str() {
-                "provider.updated" => vec![Catalog::Providers],
-                "model.updated" => vec![Catalog::Models],
-                "agent.updated" => vec![Catalog::Agents],
-                "command.updated" => vec![Catalog::Commands],
-                "skill.updated" => vec![Catalog::Skills],
-                "reference.updated" => vec![Catalog::References],
-                "integration.updated" => vec![Catalog::Integrations, Catalog::Models, Catalog::Providers],
-                "mcp.status.changed" => vec![Catalog::Mcp],
-                _ => vec![],
+                "provider.updated" => Some(Catalog::Providers),
+                "model.updated" => Some(Catalog::Models),
+                "agent.updated" => Some(Catalog::Agents),
+                "command.updated" => Some(Catalog::Commands),
+                "skill.updated" => Some(Catalog::Skills),
+                "reference.updated" => Some(Catalog::References),
+                "mcp.status.changed" => Some(Catalog::Mcp),
+                // The event names only the current branch. Reload the rest: the default branch and provider can
+                // change with it, and a read served before the location's VCS provider loaded has neither.
+                "vcs.branch.updated" => Some(Catalog::Vcs),
+                _ => None,
             };
-            for c in cat {
-                fx.push(Effect::Catalog(dir.clone(), c));
+            if let Some(c) = cat {
+                self.refresh_catalog(&mut fx, &dir, c);
             }
             match ev.kind.as_str() {
-                "vcs.branch.updated" => {
-                    let branch = d.get("branch").cloned().unwrap_or(Value::Null);
-                    let ld = self.location_mut(&dir);
-                    let mut vcs = ld.vcs.take().unwrap_or(json!({}));
-                    if !vcs.get("branch").is_some_and(|b| b.is_object()) {
-                        vcs["branch"] = json!({});
+                "integration.updated" => {
+                    self.refresh_catalog(&mut fx, &dir, Catalog::UsageLimits);
+                    let catalogs = [Catalog::Integrations, Catalog::Models, Catalog::Providers];
+                    if catalogs.iter().any(|c| self.catalog_active(&dir, *c)) {
+                        for c in catalogs {
+                            fx.push(Effect::Catalog(dir.clone(), c));
+                        }
                     }
-                    vcs["branch"]["current"] = branch;
-                    ld.vcs = Some(vcs);
                 }
                 "shell.created" => {
                     if let Some(info) = d.get("info").and_then(|i| serde_json::from_value::<ShellInfo>(i.clone()).ok()) {
@@ -1027,7 +1074,9 @@ impl Store {
                 }
                 "shell.exited" | "shell.deleted" => {
                     let id = s("id");
-                    self.location_mut(&dir).shells.retain(|s| s.id != id);
+                    if let Some(ld) = self.locations.get_mut(&dir) {
+                        ld.shells.retain(|s| s.id != id);
+                    }
                 }
                 _ => {}
             }
@@ -1039,8 +1088,9 @@ impl Store {
             let integration = d.get("integrationID").and_then(|v| v.as_str()).map(|s| s.to_string());
             let credential = d.get("credentialID").and_then(|v| v.as_str()).map(|s| s.to_string());
             for dir in dirs {
+                self.refresh_catalog(&mut fx, &dir, Catalog::UsageLimits);
                 if ev.kind == "credential.updated" {
-                    fx.push(Effect::Catalog(dir, Catalog::Integrations));
+                    self.refresh_catalog(&mut fx, &dir, Catalog::Integrations);
                     continue;
                 }
                 if let Some(list) = self.location_mut(&dir).integrations.as_mut() {
@@ -1055,8 +1105,10 @@ impl Store {
                         }
                     }
                 }
-                fx.push(Effect::Catalog(dir.clone(), Catalog::Models));
-                fx.push(Effect::Catalog(dir, Catalog::Providers));
+                if [Catalog::Integrations, Catalog::Models, Catalog::Providers].iter().any(|c| self.catalog_active(&dir, *c)) {
+                    fx.push(Effect::Catalog(dir.clone(), Catalog::Models));
+                    fx.push(Effect::Catalog(dir, Catalog::Providers));
+                }
             }
         }
         fx

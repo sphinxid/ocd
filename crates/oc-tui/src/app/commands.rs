@@ -139,6 +139,7 @@ impl App {
         v.push(cmd("model.cycle_favorite", "Favorite cycle", "Agent").hidden());
         v.push(cmd("model.cycle_favorite_reverse", "Favorite cycle reverse", "Agent").hidden());
         v.push(cmd("agent.list", "Switch agent", "Agent").slash("agents"));
+        v.push(cmd("usage.show", "View usage", "Agent").slash("usage"));
         v.push(cmd("mcp.list", "MCP servers", "Agent").slash("mcps"));
         v.push(cmd("agent.cycle", "Agent cycle", "Agent").hidden());
         v.push(cmd("variant.cycle", "Variant cycle", "Agent"));
@@ -383,6 +384,7 @@ impl App {
                 self.cycle_models(fav, id.ends_with("reverse"));
             }
             "mcp.list" => self.open_mcp_dialog(),
+            "usage.show" => self.open_usage(),
             "provider.connect" => self.open_integrations(true, None, false),
             "opencode.settings" => self.open_settings(None),
             "opencode.status" => self.open_status(),
@@ -1054,7 +1056,14 @@ impl App {
 
     /// `DialogModel` (legacy layout): Favorites and Recent sections while not searching, then every
     /// model in the server's order (grouped by provider when connected, free first).
+    /// Open the model picker (`DialogModel`). Spend moves with every request, so the picker shows fresh
+    /// limits (re-rendering it after a favorite toggle does not reload them).
     pub fn open_model_dialog(&mut self, provider: Option<String>) {
+        self.usage_load(true);
+        self.model_dialog(provider);
+    }
+
+    pub(super) fn model_dialog(&mut self, provider: Option<String>) {
         let models: Vec<ModelInfo> = self.model_list().into_iter().filter(|m| m.status != "deprecated" && provider.as_ref().is_none_or(|p| &m.provider_id == p)).collect();
         let providers = self.providers();
         let pname = |id: &str| providers.iter().find(|p| p.id == id).map(|p| p.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string());
@@ -1120,6 +1129,7 @@ impl App {
         s.current = self.current_model().map(|m| format!("{}/{}", m.provider_id, m.id));
         s.actions = vec![
             Action::new("model.dialog.provider", if connected { "Connect an integration" } else { "View all integrations" }).dialog_level(),
+            Action::new("model.dialog.usage", "Usage").dialog_level().hidden(self.usage_info().is_none()),
             Action::new("model.dialog.favorite", "Favorite").hidden(!connected),
         ];
         let mut d = Dialog::select("model", s, Size::Medium);

@@ -165,10 +165,10 @@ fn full_layout_split_gutters_and_card_gaps() {
     loaded(a.diff.as_mut().unwrap());
     let lines = render(&mut a, 140, 40);
     let joined = lines.join("\n");
-    // Tree of 35 columns, cards inset by 2: the left side pads its single-digit numbers after the
-    // sign to the right side's width; the right side starts at x = 88.
-    assert_eq!(col(&lines[3], "1    export"), 39, "{joined}");
-    assert_eq!(col(&lines[9], "6 -    return a - b"), 39, "{joined}");
+    // Tree of 35 columns, cards inset by 2: both sides size their numbers to the digits of the
+    // furthest hunk range end (`@@ -1,9 +1,10 @@`: 2, OpenTUI 0.7 `minDigits`); the right side starts at x = 88.
+    assert_eq!(col(&lines[3], "1   export"), 39, "{joined}");
+    assert_eq!(col(&lines[9], "6 -   return a - b"), 39, "{joined}");
     assert_eq!(col(&lines[9], "7 +   return b - a"), 90, "{joined}");
     assert_eq!(col(&lines[12], "10 + export"), 89, "{joined}");
     // The card gap spans the insets and runs straight after the last patch row.

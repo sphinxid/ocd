@@ -18,7 +18,7 @@ fn execute_code(input: &Value) -> Option<String> {
 /// The output text: the error message, or the completed text content without ANSI codes.
 fn output_text(t: &ToolPart) -> Option<String> {
     match t.state.status.as_str() {
-        "error" => t.state.error.as_ref().map(|e| e.message.clone()).filter(|m| !m.is_empty()),
+        "error" => t.state.error.as_ref().map(|e| locale::strip_ansi(&e.message)).filter(|m| !m.is_empty()),
         "completed" => {
             let text: Vec<String> = t.state.content.iter().flatten().filter(|c| c.kind == "text").filter_map(|c| c.text.clone()).collect();
             let text = locale::strip_ansi(text.join("\n").trim());

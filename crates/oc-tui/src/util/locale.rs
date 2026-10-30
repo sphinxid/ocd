@@ -95,6 +95,9 @@ pub fn truncate_left(s: &str, len: usize) -> String {
 }
 
 pub fn truncate_middle(s: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
     let count = s.chars().count();
     if count <= max {
         return s.to_string();
@@ -102,12 +105,10 @@ pub fn truncate_middle(s: &str, max: usize) -> String {
     let keep_start = (max.saturating_sub(1) + 1) / 2;
     let keep_end = max.saturating_sub(1) / 2;
     let start: String = s.chars().take(keep_start).collect();
-    let end: String = if keep_end == 0 {
-        // JS slice(-0) returns the whole string.
-        s.to_string()
-    } else {
-        s.chars().skip(count - keep_end).collect()
-    };
+    if keep_end == 0 {
+        return format!("{start}…");
+    }
+    let end: String = s.chars().skip(count - keep_end).collect();
     format!("{start}…{end}")
 }
 
@@ -366,6 +367,14 @@ pub fn is_default_title(title: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncate_middle_narrow_widths() {
+        let cases = [(0, ""), (1, "…"), (2, "a…"), (3, "a…j"), (4, "ab…j"), (9, "abcd…ghij"), (10, "abcdefghij")];
+        for (max, want) in cases {
+            assert_eq!(truncate_middle("abcdefghij", max), want, "max {max}");
+        }
+    }
 
     #[test]
     fn durations() {

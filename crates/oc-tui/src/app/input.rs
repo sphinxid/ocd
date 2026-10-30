@@ -673,7 +673,9 @@ impl App {
             let kind = if mime == "application/pdf" { "PDF" } else { "Image" };
             let label = self.editor.next_attachment_label(kind);
             let uri = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes));
-            self.editor.insert_chip(&label, ChipKind::Paste, json!({ "uri": uri, "name": name, "mime": mime }), true);
+            // `path` is the local file the attachment was read from; it stays in the TUI.
+            let path = crate::util::paths::resolve(&p);
+            self.editor.insert_chip(&label, ChipKind::Paste, json!({ "uri": uri, "name": name, "mime": mime, "path": path }), true);
         }
         true
     }
@@ -1094,6 +1096,7 @@ impl App {
         let mut entry = self.editor.info();
         entry.mode = Some(if shell { "shell".into() } else { "normal".into() });
         let (files, agents, skills) = self.editor.api_parts();
+        let files = crate::util::paths::prompt_files_for_server(files, self.opts.local_server);
         self.history.append(entry);
         self.editor = crate::ui::prompt::Editor::new();
         self.autocomplete = None;
@@ -1358,6 +1361,10 @@ impl App {
             ("export-result", "return") => self.close_dialog(),
             (super::update::PURPOSE, _) => self.update_dialog_key(key),
             ("execute", "c") => self.execute_copy("code"),
+            (super::goal::PURPOSE, _) => {
+                let sid = d.data.as_str().unwrap_or("").to_string();
+                self.goal_key(key, &sid);
+            }
             ("plugin-error", "c" | "i") => self.error_details_key(key),
             ("execute", "o") => self.execute_copy("output"),
             ("go-connect", "o" | "c") => self.go_connect_key(key),
@@ -1405,6 +1412,7 @@ impl App {
 
     fn dialog_select(&mut self, purpose: &str, v: &str, d: &dialog::Dialog) {
         match purpose {
+            super::usage::PURPOSE => self.open_usage_model(v),
             "plugins" => self.plugins_select(v),
             "palette" => {
                 self.dialogs.clear();
@@ -1605,7 +1613,7 @@ impl App {
                     self.models.set_favorite(p, m, !fav);
                     let provider = self.dialogs.last().and_then(|d| d.data.get("provider").and_then(|p| p.as_str()).map(|p| p.to_string()));
                     let (filter, selected) = self.dialogs.last_mut().and_then(|d| d.sel()).map(|s| (s.filter.clone(), s.selected_value())).unwrap_or_default();
-                    self.open_model_dialog(provider);
+                    self.model_dialog(provider);
                     if let Some(sel) = self.dialogs.last_mut().and_then(|d| d.sel()) {
                         if !filter.is_empty() {
                             sel.set_filter(filter.clone());
@@ -1624,6 +1632,7 @@ impl App {
             ("model", "model.dialog.provider") => {
                 self.run_command("provider.connect", None);
             }
+            ("model", "model.dialog.usage") => self.open_usage(),
             ("session", "session.pin.toggle") => {
                 if let Some(v) = v {
                     self.pins.toggle(&v);
@@ -2211,6 +2220,24 @@ impl App {
     }
 
     pub fn on_click(&mut self, c: Click) {
+        if matches!(&c, Click::Custom(x) if x == super::view::TOAST_CLICK) {
+            let action = self.toast.take().and_then(|t| t.action);
+            if !self.toast_queue.is_empty() {
+                let next = self.toast_queue.remove(0);
+                self.toast(next);
+            }
+            if let Some((_, command)) = action {
+                self.run_command(&command, None);
+            }
+            self.dirty = true;
+            return;
+        }
+        if let Click::Custom(x) = &c
+            && let Some(url) = x.strip_prefix("open-url:")
+        {
+            let _ = super::integration::open_url(url);
+            return;
+        }
         if let Click::Custom(x) = &c
             && x.starts_with("diff.")
         {
@@ -2223,6 +2250,10 @@ impl App {
         {
             let what = what.to_string();
             self.onboarding_click(&what);
+            return;
+        }
+        if matches!(&c, Click::Custom(x) if x == super::goal::CLICK) {
+            self.goal_click();
             return;
         }
         if matches!(&c, Click::Custom(x) if x == "location.move") {

@@ -52,6 +52,18 @@ fn digits(n: usize) -> usize {
     n.max(1).to_string().len()
 }
 
+/// `PatchDiff`'s `gutter.minDigits` (OpenTUI 0.7): hunks and split sides share one width, the digits of the last
+/// line any hunk header's range reaches on either side.
+fn min_digits(patch: &str) -> usize {
+    let re = regex::Regex::new(r"(?m)^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@").unwrap();
+    let mut max: i64 = 1;
+    for c in re.captures_iter(patch) {
+        let n = |i: usize, default: i64| c.get(i).and_then(|m| m.as_str().parse::<i64>().ok()).unwrap_or(default);
+        max = max.max(n(1, 0) + n(2, 1) - 1).max(n(3, 0) + n(4, 1) - 1);
+    }
+    max.to_string().len()
+}
+
 /// Paint one gutter row: cleared to white spaces, then the number and the `after` sign.
 fn paint_gutter(buf: &mut Buffer, y: usize, g: &Gutter, number: Option<usize>, sign: Option<(&str, Color)>, fg: Color) {
     for x in 0..g.width {
@@ -140,6 +152,7 @@ fn patch_diff(diff: &str, width: usize, theme: &RunTheme, suppress: bool) -> Buf
     let b = &theme.block;
     let bg = |c: Color| if suppress { Color::TRANSPARENT } else { c };
     let mut parts: Vec<Buffer> = Vec::new();
+    let min = min_digits(diff);
     for (hi, h) in hunks(diff).iter().enumerate() {
         if hi > 0 {
             let mut row = Buffer::new(width as u16, 1);
@@ -149,7 +162,7 @@ fn patch_diff(diff: &str, width: usize, theme: &RunTheme, suppress: bool) -> Buf
             parts.push(row);
         }
         let max = h.lines.iter().map(|l| l.number).max().unwrap_or(1);
-        let d = digits(max);
+        let d = digits(max).max(min);
         let g = Gutter { width: 1 + d + 1 + 2, after_width: 2, padding_right: 1 };
         let code_w = width.saturating_sub(g.width).max(1);
         let mut rows: Vec<(Option<&DLine>, Vec<StyledChunk>)> = Vec::new();
@@ -248,6 +261,7 @@ pub fn render(snap: &ToolSnapshot, theme: &RunTheme, _syntax: &MiniSyntax, width
 /// `PatchDiff` as the permission dock shows it: unified, line numbers, line backgrounds.
 pub fn patch_diff_dock(diff: &str, width: usize, b: &super::theme::BlockTheme, fg: Color) -> Buffer {
     let mut parts: Vec<Buffer> = Vec::new();
+    let min = min_digits(diff);
     for (hi, h) in hunks(diff).iter().enumerate() {
         if hi > 0 {
             let mut row = Buffer::new(width as u16, 1);
@@ -256,7 +270,7 @@ pub fn patch_diff_dock(diff: &str, width: usize, b: &super::theme::BlockTheme, f
             parts.push(row);
         }
         let max = h.lines.iter().map(|l| l.number).max().unwrap_or(1);
-        let d = digits(max);
+        let d = digits(max).max(min);
         let gw = 1 + d + 1 + 2;
         let code_w = width.saturating_sub(gw).max(1);
         let mut rows: Vec<(char, Option<usize>, Vec<StyledChunk>)> = Vec::new();

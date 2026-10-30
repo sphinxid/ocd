@@ -210,6 +210,22 @@ impl Client {
         let env: LocationEnvelope<Value> = self.json(self.loc(self.request(Method::GET, "/api/vcs"), dir)).await?;
         Ok(env.data)
     }
+    /// `experimental.usage.limits`: the OpenCode Console workspace limits, `None` when not signed in.
+    pub async fn usage_limits(&self, dir: Option<&str>) -> anyhow::Result<Option<crate::util::usage_limits::Info>> {
+        let env: LocationEnvelope<Option<crate::util::usage_limits::Info>> =
+            self.json(self.loc(self.request(Method::GET, "/api/experimental/usage/limits"), dir)).await?;
+        Ok(env.data)
+    }
+    /// `rpc.call`: a plugin RPC method; the reply's `output`.
+    pub async fn rpc_call(&self, rpc: &str, method: &str, input: Value, dir: Option<&str>) -> anyhow::Result<Value> {
+        let path = format!("/api/rpc/{}/{}", urlencode(rpc), urlencode(method));
+        let mut r = self.request(Method::POST, &path);
+        if let Some(d) = dir {
+            r = r.query(&[("location[directory]", d)]);
+        }
+        let v: Value = self.json(r.json(&serde_json::json!({ "input": input }))).await?;
+        Ok(v.get("output").cloned().unwrap_or(Value::Null))
+    }
 
     /// `integration.oauth.connect`: start an OAuth attempt (`{attemptID, url, instructions, mode, time}`).
     pub async fn integration_oauth_connect(&self, integration: &str, method: &str, answer: Option<Value>, dir: Option<&str>) -> anyhow::Result<Value> {

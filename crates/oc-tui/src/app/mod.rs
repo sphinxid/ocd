@@ -7,6 +7,7 @@ pub mod composer;
 pub mod diffview;
 pub mod escape;
 pub mod go_upsell;
+pub mod goal;
 pub mod event_loop;
 pub mod stats;
 pub mod input;
@@ -25,6 +26,7 @@ pub mod tabs;
 pub mod tcache;
 pub mod terminal;
 pub mod update;
+pub mod usage;
 pub mod view;
 pub mod workspace;
 
@@ -80,6 +82,9 @@ pub struct TuiOptions {
     pub service: Option<ServiceHooks>,
     /// The CLI's update checks (`TuiInput.updater`); `None` hides `/update` and the update notice.
     pub updater: Option<update::UpdaterHooks>,
+    /// `server.local`: the server runs on this machine, so it can read file paths from this terminal
+    /// (pasted attachments send their source path). False for `--server`.
+    pub local_server: bool,
 }
 
 /// An async endpoint resolution (`Service.ensure` behind a managed-service control).
@@ -322,6 +327,11 @@ pub struct App {
     pub config_watch: config_watch::ConfigWatch,
     /// The open `/connect` dialogs and their sign-in attempts.
     pub integration: integration::Flows,
+    /// The routed session's `/goal` (goal plugin RPC).
+    pub goal: goal::GoalTracker,
+    /// Usage-limit warnings already shown (`<provider>/<model>:low|reached`): each shows once per
+    /// process, however many sessions use the model (one `App` per process).
+    pub usage_warned: HashSet<String>,
 }
 
 impl App {
@@ -442,6 +452,8 @@ impl App {
             disabled_builtins: HashSet::new(),
             config_watch: Default::default(),
             integration: Default::default(),
+            goal: Default::default(),
+            usage_warned: HashSet::new(),
             config,
             opts,
         };
@@ -809,6 +821,14 @@ impl App {
                     self.spawn(async move { c.session_active().await }, |app, r| {
                         if let Ok(v) = r {
                             app.store.apply_active(&v);
+                            // Sessions created before this connection (while disconnected, or before the client
+                            // started) never delivered `session.created`; without their info a running child never
+                            // joins its root's family.
+                            let missing: Vec<String> =
+                                app.store.active.iter().filter(|(id, running)| **running && app.store.session(id).is_none()).map(|(id, _)| id.clone()).collect();
+                            for id in missing {
+                                app.fetch_session(&id);
+                            }
                             app.dirty = true;
                         }
                     });
@@ -1001,6 +1021,7 @@ impl App {
     }
 
     pub fn fetch_catalog(&mut self, dir: &str, cat: Catalog) {
+        self.store.mark_requested(dir, cat);
         let c = self.client.clone();
         let d = dir.to_string();
         macro_rules! fetch {
@@ -1033,6 +1054,17 @@ impl App {
                 });
             }
             Catalog::Vcs => fetch!(vcs, vcs),
+            Catalog::UsageLimits => {
+                let d2 = d.clone();
+                self.spawn(async move { c.usage_limits(Some(&d2)).await }, move |app, r| {
+                    // A failed load keeps what was loaded before (`load` swallows errors).
+                    if let Ok(v) = r {
+                        app.store.location_mut(&d).usage_limits = Some(v);
+                        app.usage_limits_changed();
+                        app.dirty = true;
+                    }
+                });
+            }
             Catalog::Shells => {
                 let d2 = d.clone();
                 self.spawn(async move { c.shell_list(Some(&d2)).await }, move |app, r| {
@@ -1132,13 +1164,30 @@ impl App {
                 crate::attention::notify(self, "question", "Input needs response", title.as_deref());
             }
             "session.execution.succeeded" | "session.execution.interrupted" => {
+                if ev.kind == "session.execution.succeeded"
+                    && let Some(sid) = ev.session_id()
+                {
+                    let sid = sid.to_string();
+                    self.usage_turn_ended(&sid);
+                }
                 let child = ev.session_id().and_then(|s| self.store.session(s)).is_some_and(|s| s.parent_id.is_some());
+                // A running subagent's report wakes the session again, so it isn't done yet. Only direct
+                // children count (`hasRunningChild`); subagent sounds stay as they were.
+                if ev.kind == "session.execution.succeeded"
+                    && !child
+                    && let Some(sid) = ev.session_id()
+                    && self.store.family_of(sid).iter().any(|c| {
+                        c != sid && self.store.session(c).and_then(|s| s.parent_id.as_deref()) == Some(sid) && self.store.status(c) == "running"
+                    })
+                {
+                    return;
+                }
                 crate::attention::notify(self, if child { "subagent_done" } else { "done" }, "Session done", None);
             }
             "session.execution.failed" => {
                 let msg = ev.data.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("Session failed").to_string();
-                // The free-limit notice in the transcript replaces the toast and the notification.
-                let free_limit = ev.data.pointer("/error/type").and_then(|t| t.as_str()) == Some("provider.free-limit");
+                // The free-limit and Go-limit notices in the transcript replace the toast and the notification.
+                let free_limit = matches!(ev.data.pointer("/error/type").and_then(|t| t.as_str()), Some("provider.free-limit" | "provider.go-limit"));
                 if !free_limit {
                     crate::attention::notify(self, "error", &msg, None);
                     if ev.session_id().and_then(|s| self.store.session(s)).is_none_or(|s| s.parent_id.is_none()) {
@@ -1147,6 +1196,7 @@ impl App {
                 }
             }
             "session.step.failed" => self.free_limit_hit(&ev),
+            goal::CHANGED => self.goal_event(&ev.data),
             "credential.switched" => {
                 // The active credential moved to the front: an open account manager follows.
                 let dirs: Vec<String> = self.store.locations.keys().cloned().collect();
@@ -1169,6 +1219,7 @@ impl App {
 
     fn on_connected(&mut self) {
         self.sync_location();
+        self.goal_reconnected();
         let c = self.client.clone();
         self.spawn(async move { c.info().await }, |app, r| {
             app.terminals_available = match r {
@@ -1262,6 +1313,8 @@ impl App {
     pub fn tick(&mut self) {
         self.frame += 1;
         self.watch_config();
+        self.usage_tick();
+        self.goal_tick();
         if let Some(t) = &self.toast
             && let Some(shown) = t.shown
             && shown.elapsed() >= Duration::from_millis(t.duration)
@@ -1364,5 +1417,7 @@ mod todo_tests;
 mod update_tests;
 #[cfg(test)]
 mod fuzz_tests;
+#[cfg(test)]
+mod usage_tests;
 #[cfg(test)]
 mod perf;

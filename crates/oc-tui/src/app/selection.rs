@@ -66,15 +66,30 @@ impl App {
         if text.trim().is_empty() { None } else { Some(text) }
     }
 
-    /// `copy()`: write the selection to the clipboard; never clears it.
+    /// `copy()`: write the selection to the clipboard; never clears it. A selection over the focused
+    /// prompt copies its pasted texts instead of their `[Pasted ~N lines]` placeholders (`getClipboardText`).
     pub fn copy_selection(&mut self) -> bool {
-        let Some(text) = self.selection_text() else { return false };
+        let Some(mut text) = self.selection_text() else { return false };
+        if self.selection_in_prompt() {
+            text = crate::state::expand_pasted_text_placeholders(&text, &self.editor.info().pasted);
+        }
         if crate::clipboard::write(&text) {
             self.info("Copied to clipboard");
         } else {
             self.toast(super::Toast::new("error", "Failed to copy to clipboard"));
         }
         true
+    }
+
+    /// The selection covers the prompt, and the prompt has the focus.
+    fn selection_in_prompt(&self) -> bool {
+        let Some(s) = &self.selection else { return false };
+        let r = self.prompt_rect;
+        if r.width == 0 || r.height == 0 || !self.dialogs.is_empty() || self.right_focus {
+            return false;
+        }
+        let ((_, y0), (_, y1)) = s.range();
+        y0 < r.bottom() && y1 >= r.y
     }
 
     pub fn clear_selection(&mut self) -> bool {

@@ -16,7 +16,7 @@ use crate::util::locale;
 use serde_json::{Map, Value, json};
 
 /// `INTEGRATION_PRIORITY`: the "Popular" integrations, in this order.
-const PRIORITY: [&str; 6] = ["opencode-go", "opencode", "openai", "github-copilot", "anthropic", "google"];
+const PRIORITY: [&str; 6] = ["opencode", "opencode-go", "openai", "github-copilot", "anthropic", "google"];
 /// Device-flow codes such as "R283-GOUEO"; when present they are copied instead of the URL.
 const OAUTH_CODE: &str = r"[A-Z0-9]{4}-[A-Z0-9]{4,5}";
 const PURPOSE: &str = "integration";

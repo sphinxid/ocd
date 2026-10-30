@@ -71,6 +71,20 @@ fn digits(n: usize) -> usize {
     n.max(1).to_string().len()
 }
 
+/// The gutter's `minDigits` (`PatchDiff`, OpenTUI 0.7 `gutter`): the digits of the last line any hunk
+/// header's range reaches on either side, so hunks and split sides line up.
+pub fn header_digits(hunks: &[Hunk]) -> usize {
+    let re = regex::Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@").unwrap();
+    let mut max: i64 = 1;
+    for h in hunks {
+        if let Some(c) = re.captures(&h.header) {
+            let n = |i: usize, default: i64| c.get(i).and_then(|m| m.as_str().parse::<i64>().ok()).unwrap_or(default);
+            max = max.max(n(1, 0) + n(2, 1) - 1).max(n(3, 0) + n(4, 1) - 1);
+        }
+    }
+    max.to_string().len()
+}
+
 fn highlight_lines(lines: &[&DLine], o: &DiffOpts) -> Vec<Vec<Seg>> {
     let code: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
     highlight(&code.join("\n"), o.filetype, o.syntax)
@@ -85,7 +99,7 @@ pub fn render(hunks: &[Hunk], width: usize, o: &DiffOpts) -> Vec<SLine> {
     let t = o.theme;
     let d = &t.diff;
     let max_num = hunks.iter().flat_map(|h| h.lines.iter()).flat_map(|l| [l.old.unwrap_or(0), l.new.unwrap_or(0)]).max().unwrap_or(1);
-    let nw = digits(max_num);
+    let nw = digits(max_num).max(header_digits(hunks));
     let mut out = Vec::new();
     for (hi, h) in hunks.iter().enumerate() {
         if hi > 0 {
@@ -233,7 +247,8 @@ pub fn render_viewer(hunks: &[Hunk], width: usize, split: bool, gutter_pad: usiz
         let old = all.clone().filter_map(|l| if l.kind == Kind::Add { None } else { l.old }).max().unwrap_or(1);
         let new = all.clone().filter_map(|l| if l.kind == Kind::Remove { None } else { l.new }).max().unwrap_or(1);
         let uni = all.filter_map(|l| if l.kind == Kind::Remove { l.old } else { l.new }).max().unwrap_or(1);
-        (digits(old), digits(new), digits(uni))
+        let min = header_digits(hunks);
+        (digits(old).max(min), digits(new).max(min), digits(uni).max(min))
     };
     let nw = if split { left_digits.max(right_digits) } else { unified_digits };
     let gutter = |num: Option<usize>, kind: Option<&Kind>, extra: usize, first: bool| -> Vec<Seg> {

@@ -333,7 +333,7 @@ fn plugins_dialog() {
     a.on_key(Stroke::ctrl("a"));
     let lines = render(&mut a, 100, 30);
     let joined = lines.join("\n");
-    assert!(contains(&lines, "TUI") && contains(&lines, "opencode.btw") && contains(&lines, "opencode.sidebar.mcp"), "{joined}");
+    assert!(contains(&lines, "TUI") && contains(&lines, "opencode.btw") && contains(&lines, "opencode.sidebar.limit"), "{joined}");
     assert!(row(&lines, "hide internal ctrl+a").trim_end().ends_with("disable enter"), "{joined}");
     // Enter disables the focused built-in for this run.
     a.on_key(Stroke::key("return"));
@@ -346,7 +346,9 @@ fn plugins_dialog() {
     assert!(a.builtin_active("opencode.btw"));
     // Server plugins: a failed one shows its error.
     a.plugins.server = Some(vec![
-        json!({"id": "acme", "source": {"type": "package", "target": "acme@1.0.0", "version": "1.0.0", "outdated": true}, "features": {}, "state": {"status": "active"}}),
+        json!({"id": "acme", "source": {"type": "package", "target": "acme@1.0.0", "version": "1.0.0", "outdated": true}, "features": {"server": true}, "state": {"status": "active"}}),
+        // A package without a server part runs nothing there (2.2): not listed.
+        json!({"id": "tui-only", "source": {"type": "package", "target": "tui-only@1.0.0", "version": "1.0.0"}, "features": {"tui": true}, "state": {"status": "active"}}),
         json!({"id": "broken", "source": {"type": "local", "path": "/work/proj/plugin.ts"}, "features": {}, "state": {"status": "failed", "error": "boom", "ref": "ref_1"}}),
     ]);
     a.on_key(Stroke::ctrl("a"));
@@ -354,6 +356,7 @@ fn plugins_dialog() {
     let joined = lines.join("\n");
     assert!(row(&lines, "acme").trim_end().ends_with("1.0.0, update available"), "{joined}");
     assert!(row(&lines, "broken").trim_end().ends_with("failed, local"), "{joined}");
+    assert!(!joined.contains("tui-only"), "{joined}");
     assert!(row(&lines, "check for updates").contains("check for updates ctrl+r"), "{joined}");
     a.on_key(Stroke::key("down"));
     let lines = render(&mut a, 100, 30);

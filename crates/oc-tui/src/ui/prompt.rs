@@ -600,6 +600,10 @@ impl Editor {
                     if let Some(n) = c.data.get("name") {
                         v["name"] = n.clone();
                     }
+                    // The local source path, turned into `source` (or dropped) by `prompt_files_for_server`.
+                    if let Some(p) = c.data.get("path") {
+                        v["path"] = p.clone();
+                    }
                     files.push(v);
                 }
                 ChipKind::Agent => agents.push(json!({ "name": c.data.get("name").cloned().unwrap_or(Value::Null), "mention": mention })),

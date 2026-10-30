@@ -23,6 +23,25 @@ pub struct PastedText {
     pub source: PastedSource,
 }
 
+/// `expandPastedTextPlaceholders` (`src/prompt/part.ts`): put each pasted text back in place of its
+/// `[Pasted ~N lines]` placeholder, in document order, matching literally from where the previous one ended.
+pub fn expand_pasted_text_placeholders(text: &str, pasted: &[PastedText]) -> String {
+    let mut parts: Vec<&PastedText> = pasted.iter().collect();
+    // `toSorted` is stable.
+    parts.sort_by(|a, b| a.source.start.partial_cmp(&b.source.start).unwrap_or(std::cmp::Ordering::Equal));
+    let mut cursor = 0;
+    let mut result = String::new();
+    for part in parts {
+        let Some(found) = text[cursor..].find(&part.source.text) else { continue };
+        let index = cursor + found;
+        result.push_str(&text[cursor..index]);
+        result.push_str(&part.text);
+        cursor = index + part.source.text.len();
+    }
+    result.push_str(&text[cursor..]);
+    result
+}
+
 /// `PromptInfo` (`src/prompt/history.tsx`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PromptInfo {

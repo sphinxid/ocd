@@ -27,6 +27,9 @@ fn s(text: impl Into<String>, c: Rgba) -> Seg {
     Seg::new(text, fg(c))
 }
 
+/// Click target of the visible toast.
+pub const TOAST_CLICK: &str = "toast.activate";
+
 impl App {
     /// Render the whole UI.
     pub fn draw(&mut self, f: &mut Frame) {
@@ -52,8 +55,9 @@ impl App {
         }
         self.draw_tab_menu(buf, area, &t);
         self.draw_toast(buf, area, &t);
-        // The execute detail follows its live tool part.
+        // The execute detail follows its live tool part; the usage dialogs follow the limits.
         self.refresh_execute_dialog();
+        self.refresh_usage_dialog();
         if let Some(mut d) = self.dialogs.pop() {
             let kb = self.keybinds.clone();
             let (rect, hits, c) = dialog::render(buf, area, &mut d, &t, &kb);
@@ -280,6 +284,9 @@ impl App {
         };
         let provider = if term_w < 44 { String::new() } else { provider };
         let variant = self.current_variant();
+        // What the workspace's limits leave for the model, once it is running low.
+        let limit = self.prompt_limit();
+        let limit_text = limit.as_ref().map(|(t, _)| t.clone());
         let auto = self.autoaccept;
         let width = term_w.saturating_sub(if term_w < 44 { 9 } else { 13 });
         let text = |a: &Option<String>, au: bool, m: &str, p: &str, v: &Option<String>| -> String {
@@ -301,6 +308,9 @@ impl App {
                 parts.push("·".into());
                 parts.push(v.clone());
             }
+            if let Some(l) = &limit_text {
+                parts.push(format!(" {l}"));
+            }
             parts.join(" ")
         };
         let short_provider = provider.rsplit(" / ").next().unwrap_or(&provider).to_string();
@@ -313,7 +323,7 @@ impl App {
         let fit = candidates.iter().find(|(au, m, p)| sw(&text(&agent_label, *au, m, p, &variant)) <= width).cloned();
         let (au, m, p) = fit.unwrap_or_else(|| {
             let prefix = agent_label.as_ref().map(|a| sw(&format!("{a} · "))).unwrap_or(0);
-            let suffix = variant.as_ref().map(|v| sw(&format!(" · {v}"))).unwrap_or(0);
+            let suffix = variant.as_ref().map(|v| sw(&format!(" · {v}"))).unwrap_or(0) + limit_text.as_ref().map(|l| sw(&format!("  {l}"))).unwrap_or(0);
             let m = locale::truncate_width(&model_name, 9.max(width.saturating_sub(prefix + suffix))).replace(" …", "…");
             (false, m, String::new())
         });
@@ -340,6 +350,10 @@ impl App {
             segs.push(s("·", t.text.muted));
             segs.push(pad(1));
             segs.push(Seg::new(v, bold(fg(t.text.feedback.warning.base))));
+        }
+        if let Some((l, danger)) = limit {
+            segs.push(pad(2));
+            segs.push(s(l, if danger { t.text.feedback.error.base } else { t.text.muted }));
         }
         segs
     }
@@ -418,7 +432,17 @@ impl App {
             let status = self.usage_status();
             let sid = self.session_id().map(|x| x.to_string());
             let subagents = sid.as_ref().map(|s| self.store.family_of(s).iter().filter(|id| *id != s && self.store.is_running(id)).count()).unwrap_or(0);
-            let live = subagents > 0;
+            // Running shell commands of this session (the location's in-flight shells).
+            let shells = sid
+                .as_ref()
+                .map(|s| {
+                    self.loc()
+                        .map(|l| l.shells.iter().filter(|sh| sh.metadata.as_ref().and_then(|m| m.get("sessionID")).and_then(|v| v.as_str()) == Some(s.as_str())).count())
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0);
+            let live = subagents > 0 || shells > 0;
+            let goal = if sid.is_some() { self.goal_item(t) } else { None };
             let command = kb.shortcut("command.palette.show");
             let (usage_ok, shortcuts_ok) = if status.is_empty() {
                 (false, term_w >= 44)
@@ -435,16 +459,30 @@ impl App {
                     (false, false)
                 }
             };
-            if live || !status.is_empty() {
+            if goal.is_some() || live || !status.is_empty() {
                 if live {
                     let key = kb.shortcut("session.child.first");
                     if !key.is_empty() {
                         right.push(s(format!("{key} "), t.text.base));
                     }
-                    right.push(s(format!("{subagents} subagent{}", if subagents == 1 { "" } else { "s" }), t.text.muted));
+                    if subagents > 0 {
+                        right.push(s(format!("{subagents} subagent{}", if subagents == 1 { "" } else { "s" }), t.text.muted));
+                    }
+                    if subagents > 0 && shells > 0 {
+                        right.push(s(" · ", t.text.muted));
+                    }
+                    if shells > 0 {
+                        right.push(s(format!("{shells} shell{}", if shells == 1 { "" } else { "s" }), t.text.muted));
+                    }
+                }
+                if let Some(g) = goal.clone() {
+                    if live {
+                        right.push(s(" · ", t.text.muted));
+                    }
+                    right.push(g);
                 }
                 if show_details && usage_ok {
-                    if live {
+                    if live || goal.is_some() {
                         right.push(s(" · ", t.text.muted));
                     }
                     right.push(s(status.join(" · "), t.text.muted));
@@ -491,6 +529,20 @@ impl App {
             let mut ln = l.clone();
             ln.bg = None;
             draw_lines(buf, row, &[ln], 0, "");
+        }
+        // The footer's `◎ goal` item opens the goal dialog.
+        if let Some(last) = lines.last()
+            && lines.len() as u16 <= area.height
+        {
+            let mut x = area.x as usize;
+            for sg in &last.segs {
+                if sg.text.starts_with("◎ goal") {
+                    let y = area.y + lines.len() as u16 - 1;
+                    self.hits.push((Rect::new(x as u16, y, sg.width() as u16, 1), Click::Custom(super::goal::CLICK.into())));
+                    break;
+                }
+                x += sg.width();
+            }
         }
         if self.dialogs.is_empty() && self.prompt_focusable() && !self.right_focus {
             *cursor = c.map(|(x, y)| (area.x + x, area.y + y));
@@ -842,6 +894,8 @@ impl App {
             }
             lines.push(SLine::blank());
         }
+        // Limit block (the `opencode.sidebar.limit` built-in): what the usage limits leave for the selected model.
+        lines.extend(self.sidebar_limit_lines(t));
         // MCP block.
         let servers = self.loc().and_then(|l| l.mcp.clone()).unwrap_or_default();
         if !servers.is_empty() && self.builtin_active("opencode.sidebar.mcp") {
@@ -950,6 +1004,8 @@ impl App {
             put(buf, rect.right() - 1, yy, "┃", fg(border), 1);
         }
         draw_lines(buf, Rect::new(x + 3, y + 1, w.saturating_sub(6), h.saturating_sub(2)), &body, 0, "");
+        // A click on the toast dismisses it and runs its action (`toast.activate`); it sits above everything else.
+        self.hits.insert(0, (rect, Click::Custom(TOAST_CLICK.into())));
     }
 
     pub(super) fn draw_reconnecting(&mut self, buf: &mut Buffer, area: Rect, t: &Theme) {

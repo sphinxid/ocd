@@ -57,6 +57,15 @@ pub struct SessionError {
     /// Milliseconds until a rate or usage limit resets (`provider.free-limit`).
     #[serde(rename = "retryAfterMs", default, skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<f64>,
+    /// The provider's refusal (`provider.*-limit` errors), whose body names the limit and its reset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<ErrorResponse>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ErrorResponse {
+    #[serde(default)]
+    pub body: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

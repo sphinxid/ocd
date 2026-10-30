@@ -335,6 +335,26 @@ fn neutral_scale(t: &V1Resolved) -> anyhow::Result<Map<String, Value>> {
     Ok(out)
 }
 
+/// `dialogBackground`: dialogs float over the session, so a see-through panel would let the content
+/// underneath show through them. Fall back to the first visible surface color, made opaque.
+pub fn dialog_background(t: &V1Resolved) -> anyhow::Result<String> {
+    if t.get("backgroundPanel")?.a == 255 {
+        return Ok("$background.raised.base".into());
+    }
+    let mut visible = None;
+    for k in ["backgroundPanel", "backgroundMenu", "backgroundElement", "background"] {
+        let c = t.get(k)?;
+        if c.a > 0 {
+            visible = Some(c);
+            break;
+        }
+    }
+    Ok(match visible {
+        Some(c) => format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b),
+        None => (if t.get("text")?.luminance() > 0.5 { "#000000" } else { "#ffffff" }).to_string(),
+    })
+}
+
 fn migrate_mode(t: &V1Resolved, mode: &str) -> anyhow::Result<Value> {
     let color = |k: &str| -> anyhow::Result<Value> { Ok(Value::String(t.get(k)?.hex())) };
     let selected = selected_foreground(t, t.get("primary")?)?.hex();
@@ -447,7 +467,7 @@ fn migrate_mode(t: &V1Resolved, mode: &str) -> anyhow::Result<Value> {
         },
         "@dialog": {
             "background": {
-                "base": "$background.raised.base",
+                "base": dialog_background(t)?,
                 "action": { "primary": { "$hovered": "$background.raised.high" } },
             },
         },

@@ -319,6 +319,9 @@ impl App {
             home: Some(env.home.clone()),
             index,
             legacy,
+            providers: self.loc().and_then(|l| l.providers.as_deref()).unwrap_or(&[]),
+            usage: self.usage_info(),
+            models_key: self.models_key(),
         }
     }
 
@@ -344,6 +347,12 @@ impl App {
         (d.r, d.g, d.b, d.a, d.src).hash(&mut h);
         self.store.session(sid).and_then(|s| s.agent.as_deref()).hash(&mut h);
         self.location_dir().hash(&mut h);
+        // The usage-limit notices read the providers, the workspace name and the `model.list` key.
+        for p in self.loc().and_then(|l| l.providers.as_deref()).unwrap_or(&[]) {
+            (&p.id, &p.integration_id).hash(&mut h);
+        }
+        self.usage_info().and_then(|u| u.workspace.name.as_deref()).hash(&mut h);
+        self.models_key().hash(&mut h);
         h.finish()
     }
 

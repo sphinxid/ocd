@@ -45,7 +45,20 @@ fn specificity(group: &str) -> usize {
 /// `treeSitterToTextChunks(content, highlights, syntaxStyle, {enabled, baseHighlight})`.
 /// `fg` is the renderable's default foreground for chunks without a style color.
 pub fn to_chunks(content: &str, highlights: &[Highlight], syntax: &MiniSyntax, conceal_enabled: bool, base_highlight: Option<&str>, fg: Color) -> Vec<StyledChunk> {
+    to_chunks_ranged(content, highlights, syntax, conceal_enabled, base_highlight, fg).0
+}
+
+/// [`to_chunks`] plus each chunk's source byte range (`sourceRanges`; a conceal replacement covers the text it hides).
+pub fn to_chunks_ranged(
+    content: &str,
+    highlights: &[Highlight],
+    syntax: &MiniSyntax,
+    conceal_enabled: bool,
+    base_highlight: Option<&str>,
+    fg: Color,
+) -> (Vec<StyledChunk>, Vec<(usize, usize)>) {
     let mut chunks = Vec::new();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
     let default = syntax.default_style().copied();
     let base = base_highlight.and_then(|b| syntax.get(b)).copied();
     #[derive(Clone, Copy)]
@@ -84,6 +97,7 @@ pub fn to_chunks(content: &str, highlights: &[Highlight], syntax: &MiniSyntax, c
                 };
                 if !replacement.is_empty() {
                     chunks.push(chunk_of(&replacement, default.as_ref(), fg));
+                    ranges.push((current, bd.offset));
                 }
             } else {
                 let mut groups: Vec<(usize, &Highlight)> = active.iter().map(|i| (*i, &highlights[*i])).collect();
@@ -115,10 +129,12 @@ pub fn to_chunks(content: &str, highlights: &[Highlight], syntax: &MiniSyntax, c
                 }
                 let style = if any { Some(merged) } else { default };
                 chunks.push(chunk_of(text, style.as_ref(), fg));
+                ranges.push((current, bd.offset));
             }
         } else if current < bd.offset {
             let style = base.or(default);
             chunks.push(chunk_of(slice(current, bd.offset), style.as_ref(), fg));
+            ranges.push((current, bd.offset));
         }
         if bd.start {
             active.push(bd.idx);
@@ -153,8 +169,9 @@ pub fn to_chunks(content: &str, highlights: &[Highlight], syntax: &MiniSyntax, c
     if current < content.len() {
         let style = base.or(default);
         chunks.push(chunk_of(&content[current..], style.as_ref(), fg));
+        ranges.push((current, content.len()));
     }
-    chunks
+    (chunks, ranges)
 }
 
 /// Byte offset of every line start.

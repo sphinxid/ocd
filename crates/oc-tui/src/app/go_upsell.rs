@@ -66,11 +66,14 @@ fn prompt_shape(p: &crate::state::PromptInfo) -> Value {
 }
 
 impl App {
-    /// `session.step.failed` with the free-limit error on the routed session.
+    /// `session.step.failed` with the free-limit or Go-limit error on the routed session: restore the
+    /// prompt, and offer OpenCode Go on the first free allowance hit in a day.
     pub fn free_limit_hit(&mut self, ev: &Event) {
-        if ev.data.pointer("/error/type").and_then(|t| t.as_str()) != Some("provider.free-limit") {
+        let kind = ev.data.pointer("/error/type").and_then(|t| t.as_str());
+        if !matches!(kind, Some("provider.free-limit" | "provider.go-limit")) {
             return;
         }
+        let go_limit = kind == Some("provider.go-limit");
         let Some(sid) = ev.session_id().map(|s| s.to_string()) else { return };
         if self.session_id() != Some(sid.as_str()) {
             return;
@@ -98,7 +101,7 @@ impl App {
                 }
             }
         }
-        if !self.dialogs.is_empty() {
+        if go_limit || !self.dialogs.is_empty() {
             return;
         }
         let stored = self.keyed.get(STORAGE).unwrap_or(Value::Null);

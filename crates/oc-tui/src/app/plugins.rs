@@ -22,6 +22,7 @@ pub const BUILTINS: &[&str] = &[
     "opencode.prompt.footer",
     "opencode.sidebar.context",
     "opencode.sidebar.footer",
+    "opencode.sidebar.limit",
     "opencode.sidebar.mcp",
     "opencode.sidebar.todo",
     "opencode.stats",
@@ -144,6 +145,8 @@ impl App {
             .clone()
             .unwrap_or_default()
             .into_iter()
+            // A package without a server part runs nothing there; its TUI part has its own row.
+            .filter(|p| p.pointer("/features/server") == Some(&Value::Bool(true)) || p.pointer("/state/status").and_then(|s| s.as_str()) == Some("failed"))
             .map(|p| {
                 let key = format!("server:{}", p.get("id").and_then(|i| i.as_str()).map(str::to_string).unwrap_or_else(|| self.plugin_source(&p)));
                 let internal = p.pointer("/source/type").and_then(|t| t.as_str()) == Some("builtin");

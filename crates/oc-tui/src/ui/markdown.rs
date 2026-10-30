@@ -84,6 +84,30 @@ impl<'a> Ctx<'a> {
     }
 }
 
+/// Bare `http(s)://` URLs in plain text as `detectLinks` (OpenTUI 0.7) finds them: up to whitespace, `<`, `>`, `"`
+/// or a backtick, without trailing `.,!?;:]}'` or an unbalanced `)`. Byte ranges.
+pub fn bare_urls(text: &str) -> Vec<(usize, usize)> {
+    static BARE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r#"(?i)https?://[^\s<>"`]+"#).unwrap());
+    let mut out = Vec::new();
+    for m in BARE.find_iter(text) {
+        let mut url = m.as_str();
+        let open = url.matches('(').count();
+        let mut close = url.matches(')').count();
+        while let Some(last) = url.chars().last() {
+            if last == ')' && close > open {
+                close -= 1;
+            } else if !".,!?;:]}'".contains(last) {
+                break;
+            }
+            url = &url[..url.len() - last.len_utf8()];
+        }
+        if !url.is_empty() {
+            out.push((m.start(), m.start() + url.len()));
+        }
+    }
+    out
+}
+
 /// Render markdown text to lines of at most `width` cells.
 pub fn render(text: &str, width: usize, o: &MdOpts) -> Vec<SLine> {
     let width = width.max(4);
@@ -326,7 +350,24 @@ pub fn render(text: &str, width: usize, o: &MdOpts) -> Vec<SLine> {
                     code.push_str(&t);
                 } else {
                     let s = c.style();
-                    c.push_text(&t, s);
+                    if c.link.is_some() {
+                        c.push_text(&t, s);
+                    } else {
+                        // OpenTUI 0.7's `detectLinks` gives bare URLs the link label's look.
+                        let label = c.st(md.link_text);
+                        let bare = s.patch(Style { fg: label.fg, ..Style::default() }).add_modifier(Modifier::UNDERLINED);
+                        let mut at = 0;
+                        for (a, b) in bare_urls(&t) {
+                            if a > at {
+                                c.push_text(&t[at..a], s);
+                            }
+                            c.push_text(&t[a..b], bare);
+                            at = b;
+                        }
+                        if at < t.len() {
+                            c.push_text(&t[at..], s);
+                        }
+                    }
                 }
             }
             Event::Code(t) => {
@@ -430,6 +471,13 @@ fn render_table(t: &Table, width: usize, border: Style) -> Vec<SLine> {
 mod tests {
     use super::*;
     use crate::theme::{Mode, OPENCODE_V2, resolve};
+
+    #[test]
+    fn finds_bare_urls_like_detect_links() {
+        let t = "see https://bare.url/path. and (https://x.y/a_(b)) or HTTP://Q.r/s?x=1, `https://no` <https://z>";
+        let found: Vec<&str> = bare_urls(t).into_iter().map(|(a, b)| &t[a..b]).collect();
+        assert_eq!(found, ["https://bare.url/path", "https://x.y/a_(b)", "HTTP://Q.r/s?x=1", "https://no", "https://z"]);
+    }
 
     fn lines(text: &str, conceal: bool) -> Vec<String> {
         let doc: serde_json::Value = serde_json::from_str(OPENCODE_V2).unwrap();

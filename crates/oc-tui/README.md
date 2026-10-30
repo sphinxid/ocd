@@ -26,6 +26,7 @@ pub struct TuiOptions {
     pub environment: HashMap<String, String>, // env forwarded to new sessions
     pub service: Option<ServiceHooks>,    // managed background service: reconnect / restart
     pub updater: Option<UpdaterHooks>,    // update notice and `/update` (see below)
+    pub local_server: bool,               // `server.local`: the server runs here (pasted files send their path)
 }
 
 pub struct UpdaterHooks {
@@ -99,8 +100,10 @@ does not touch.
   then read from the controlling terminal.
 
 Upstream's mini tests are ported next to each module. `testdata/scrollback.json` and
-`testdata/footer.json` are goldens produced by running upstream's own modules under Bun with
-OpenTUI's test renderer; the tests compare every cell (text, colors, attributes).
+`testdata/footer.json` are goldens produced by running upstream 2.2.2's own modules under Bun with
+OpenTUI 0.7.0's test renderer; the tests compare every cell (text, colors, attributes). Against 0.6.8 two things
+changed and are ported: diff gutters size their numbers to the furthest hunk range end (`minDigits`) in every hunk,
+and bare `http(s)://` URLs in markdown take the link label's look (`detectLinks`; also in the full TUI).
 
 Remaining differences from upstream:
 
@@ -128,8 +131,25 @@ The modules below cover the main session and home screens and all dialogs. They 
   worktrees; `ctrl+n` creates a new worktree.
 - **Worktrees dialog** (`/worktrees`): move, new, delete (press twice to confirm,
   force-delete prompt) and refresh.
-- **Pair dialog** (`/pair`): one-time links and a QR code from the `qrcode` crate, drawn
-  like `uqr` `renderUnicodeCompact`.
+- **Pair dialog** (`/pair`): one-time links and a QR code drawn like `@opencode/util/qr`
+  `renderUnicodeCompact` (`oc_util::qr`, byte mode).
+- **`/goal` status** (2.2, `feature-plugins/prompt/goal.tsx`, `app/goal.rs`): the routed session's goal from the
+  goal plugin's RPC (`POST /api/rpc/opencode.goal/get`, `{"input":{"sessionID"}}` → `{"output": State|null}`;
+  an error means no goal), fetched when the session changes and on every reconnect, kept current from
+  `rpc.opencode.goal.changed` (a turn counter drops fetch replies older than a change). The prompt footer shows
+  `◎ goal` / `◎ goal paused` / `◎ goal met` (muted / warning / success) after the running subagents and shells and
+  before the usage; a click opens the goal dialog (objective, `◎ Active|Paused|Met`, the reason; `pause p`,
+  `resume r`, `clear x` run the `goal` server command; failures toast "Failed to update the goal"), or toasts how to
+  start one. The goal kickoff notice uses `◎`. No hover color.
+- **OpenCode Console usage limits** (2.2, `component/usage.tsx`, `util/usage-limits.ts`; `app/usage.rs`,
+  `util/usage_limits.rs`): `GET /api/experimental/usage/limits` per location, loaded lazily (the first `/usage`, the
+  model picker, or a Console-served model in the prompt) and reloaded only where loaded (budget refusals,
+  `credential.*`, `integration.updated`, a finished turn of the routed session). `/usage` ("View usage") lists the
+  limited models (the amount left only on the selected row) and opens a model's limits; the model picker gets
+  `Usage ctrl+u`; the prompt shows `$X left` / `Limit reached` when the model runs low; the sidebar gets the
+  `opencode.sidebar.limit` block; warnings toast once per model and level; refused turns show the Go / budget /
+  model budget / out-of-credits notices (the Go page link opens on click; no OSC 8). Toasts are clickable (dismiss
+  and run their action). The new-designs details (`ModelDetail` usage, dialog descriptions) are not ported.
 - **Copy:** mouse drag-select copies on release when `terminal.copy` is `"select"`. In
   `"manual"` mode, right-click copies. While a selection exists, `esc` and `ctrl+c` follow
   `handleSelectionKey`.

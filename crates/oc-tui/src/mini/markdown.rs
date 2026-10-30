@@ -100,10 +100,132 @@ fn text_buffer(chunks: &[StyledChunk], width: usize, mode: WrapMode) -> Buffer {
     buf
 }
 
-/// A `CodeRenderable` with `filetype: "markdown"` and conceal.
+/// A `CodeRenderable` with `filetype: "markdown"` and conceal, its chunks passed through `detectLinks`.
 fn markdown_code(content: &str, width: usize, st: &MdStyle, base: Option<&str>) -> Buffer {
-    let chunks = to_chunks(content, &markdown_highlights(content), st.syntax, true, base, st.fg);
+    let highlights = markdown_highlights(content);
+    let (chunks, ranges) = super::highlight::to_chunks_ranged(content, &highlights, st.syntax, true, base, st.fg);
+    let chunks = style_bare_urls(content, &highlights, chunks, &ranges, st);
     text_buffer(&chunks, width, WrapMode::Word)
+}
+
+/// `detectLinks` (OpenTUI 0.7, `lib/detect-links.ts`) as far as it shows without OSC 8 links: bare `http(s)://`
+/// URLs outside code, link destinations and link labels take the `markup.link.label` style (its colors replace
+/// the chunk's, its attributes add to them). Trailing punctuation, unbalanced `)` and concealed emphasis
+/// delimiters stay outside the URL.
+fn style_bare_urls(content: &str, highlights: &[super::highlight::Highlight], chunks: Vec<StyledChunk>, ranges: &[(usize, usize)], st: &MdStyle) -> Vec<StyledChunk> {
+    static PREFIX: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?i)https?://").unwrap());
+    static BARE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| regex::Regex::new(r#"(?i)https?://[^\s<>"`]+"#).unwrap());
+    if !PREFIX.is_match(content) {
+        return chunks;
+    }
+    let Some(style) = st.syntax.get("markup.link.label").or_else(|| st.syntax.get("markup")).copied() else { return chunks };
+    let mut taken: Vec<(usize, usize)> = Vec::new();
+    let mut raw: Vec<(usize, usize)> = Vec::new();
+    let mut delimiters: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut labels: std::collections::HashMap<usize, (usize, usize)> = std::collections::HashMap::new();
+    for h in highlights {
+        let text = content.get(h.start..h.end).unwrap_or("");
+        if h.group == "conceal" && h.meta.conceal.as_deref() == Some("") && !text.is_empty() && text.chars().all(|c| matches!(c, '*' | '_' | '~')) {
+            delimiters.entry(h.end).or_insert(h.start);
+        }
+        if h.group == "markup.raw" || h.group.starts_with("markup.raw.") {
+            raw.push((h.start, h.end));
+        }
+        if h.group == "markup.link.label" {
+            let e = labels.entry(h.end).or_insert((h.start, h.end));
+            if h.start < e.0 {
+                *e = (h.start, h.end);
+            }
+        }
+        if (h.group == "markup.link.url" || h.group == "string.special.url") && h.end > h.start {
+            taken.push((h.start, h.end));
+        }
+    }
+    // A link destination also links its label.
+    for (start, _) in taken.clone() {
+        let b = content.as_bytes();
+        let mut label_end = start;
+        if label_end > 0 && b[label_end - 1] == b'<' {
+            label_end -= 1;
+        }
+        while label_end > 0 && (b[label_end - 1] as char).is_whitespace() {
+            label_end -= 1;
+        }
+        if label_end < 2 || b[label_end - 1] != b'(' || b[label_end - 2] != b']' {
+            continue;
+        }
+        if let Some(l) = labels.get(&(label_end - 2)) {
+            taken.push(*l);
+        }
+    }
+    let mut bare: Vec<(usize, usize)> = Vec::new();
+    for m in BARE.find_iter(content) {
+        let start = m.start();
+        let mut url = m.as_str();
+        let open = url.matches('(').count();
+        let mut close = url.matches(')').count();
+        while !url.is_empty() {
+            if let Some(&d) = delimiters.get(&(start + url.len()))
+                && d >= start
+            {
+                url = &url[..d - start];
+                continue;
+            }
+            let last = url.chars().last().unwrap();
+            if last == ')' && close > open {
+                close -= 1;
+            } else if !".,!?;:]}'".contains(last) {
+                break;
+            }
+            url = &url[..url.len() - last.len_utf8()];
+        }
+        let end = start + url.len();
+        if url.is_empty() || raw.iter().chain(taken.iter()).any(|(a, b)| *a < end && *b > start) {
+            continue;
+        }
+        bare.push((start, end));
+    }
+    if bare.is_empty() {
+        return chunks;
+    }
+    let mut out = Vec::new();
+    for (index, chunk) in chunks.into_iter().enumerate() {
+        let Some(&(start, end)) = ranges.get(index) else {
+            out.push(chunk);
+            continue;
+        };
+        // A conceal replacement is not the text it covers.
+        if chunk.text.is_empty() || content.get(start..end) != Some(chunk.text.as_str()) {
+            out.push(chunk);
+            continue;
+        }
+        let mut at = start;
+        for &(a, b) in bare.iter().filter(|(a, b)| *b > start && *a < end) {
+            let (ls, le) = (a.max(at), b.min(end));
+            if ls >= le {
+                continue;
+            }
+            if ls > at {
+                out.push(StyledChunk { text: chunk.text[at - start..ls - start].to_string(), ..chunk.clone() });
+            }
+            let mut linked = StyledChunk { text: chunk.text[ls - start..le - start].to_string(), ..chunk.clone() };
+            if let Some(fg) = style.fg {
+                linked.fg = fg;
+            }
+            if let Some(bg) = style.bg {
+                linked.bg = bg;
+            }
+            linked.attrs |= style.attrs();
+            out.push(linked);
+            at = le;
+        }
+        if at == start {
+            out.push(chunk);
+        } else if at < end {
+            out.push(StyledChunk { text: chunk.text[at - start..].to_string(), ..chunk });
+        }
+    }
+    out
 }
 
 static BLANK_END: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| regex::Regex::new(r"\n[ \t]*\n$").unwrap());

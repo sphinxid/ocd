@@ -56,7 +56,7 @@ fn keeps_popular_integrations_first_and_sorts_the_rest_alphabetically() {
         integration("opencode", "OpenCode Zen", json!({})),
         integration("opencode-go", "OpenCode Go", json!({})),
     ];
-    assert_eq!(ids(&integration_options(&list)), ["opencode-go", "opencode", "openai", "anthropic", "mistral", "custom-z"]);
+    assert_eq!(ids(&integration_options(&list)), ["opencode", "opencode-go", "openai", "anthropic", "mistral", "custom-z"]);
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn keeps_mcp_integrations_above_popular_integrations_without_relying_on_their_id
         integration("opencode", "OpenCode Zen", json!({})),
         integration("opencode-go", "OpenCode Go", json!({})),
     ];
-    assert_eq!(ids(&integration_options(&list)), ["github", "linear", "opencode-go", "opencode", "openai"]);
+    assert_eq!(ids(&integration_options(&list)), ["github", "linear", "opencode", "opencode-go", "openai"]);
 }
 
 #[test]

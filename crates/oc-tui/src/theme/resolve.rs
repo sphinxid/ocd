@@ -144,6 +144,10 @@ pub fn expand(def: &mut Value) {
     expand_tokens(def);
     if let Some(d) = def.get_mut("@dialog").filter(|d| d.is_object()) {
         expand_tokens(d);
+        // `@dialog["@footer"]` (2.2): footer overrides, expanded like the dialog's own tokens.
+        if let Some(f) = d.get_mut("@footer").filter(|f| f.is_object()) {
+            expand_tokens(f);
+        }
     }
 }
 
@@ -273,6 +277,8 @@ pub struct Theme {
     pub syntax: SyntaxTokens,
     pub markdown: MarkdownTokens,
     pub dialog: Option<Box<Theme>>,
+    /// `surface("dialog.footer")` (set on the dialog view when the theme overrides `@dialog["@footer"]`).
+    pub footer: Option<Box<Theme>>,
     pub mode: Option<Mode>,
 }
 
@@ -320,6 +326,16 @@ impl Theme {
         match &self.dialog {
             Some(d) => d,
             None => self,
+        }
+    }
+
+    /// `surface("dialog.footer")`: the dialog surface with the theme's `@dialog["@footer"]` overrides; the
+    /// dialog view itself when there are none.
+    pub fn dialog_footer(&self) -> &Theme {
+        let dialog = self.dialog();
+        match &dialog.footer {
+            Some(f) => f,
+            None => dialog,
         }
     }
 }
@@ -632,6 +648,7 @@ fn build_view(tokens: &Value, hues: &[(String, [Rgba; 9])], categorical: &[[Rgba
             code_block: g("markdown.codeBlock")?,
         },
         dialog: None,
+        footer: None,
         mode: None,
     })
 }
@@ -653,11 +670,17 @@ pub fn resolve_definition(def: &Value) -> anyhow::Result<Theme> {
     }
     let base = tokens_of(&def);
     let mut theme = build_view(&base, &hues, &categorical)?;
-    let dialog_tokens = match def.get("@dialog").filter(|d| d.is_object()) {
-        Some(over) => contextualize(&base, over),
+    let dialog_def = def.get("@dialog").filter(|d| d.is_object());
+    let dialog_tokens = match dialog_def {
+        Some(over) => contextualize(&base, &tokens_of(over)),
         None => base.clone(),
     };
-    let dialog = build_view(&dialog_tokens, &hues, &categorical)?;
+    let mut dialog = build_view(&dialog_tokens, &hues, &categorical)?;
+    // The footer override layers on the dialog surface, so footers keep every dialog token they don't override.
+    if let Some(footer) = dialog_def.and_then(|d| d.get("@footer")).filter(|f| f.is_object()) {
+        let footer = build_view(&contextualize(&dialog_tokens, footer), &hues, &categorical)?;
+        dialog.footer = Some(Box::new(footer));
+    }
     theme.dialog = Some(Box::new(dialog));
     Ok(theme)
 }
@@ -669,6 +692,9 @@ pub fn resolve_document(doc: &Value, mode: Mode) -> anyhow::Result<Theme> {
     t.mode = Some(effective);
     if let Some(d) = t.dialog.as_mut() {
         d.mode = Some(effective);
+        if let Some(f) = d.footer.as_mut() {
+            f.mode = Some(effective);
+        }
     }
     Ok(t)
 }

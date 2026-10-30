@@ -279,6 +279,8 @@ pub struct Select {
     pub locked: bool,
     /// `moveTo(next, true)`: the next render scrolls the selected row to the middle of the list.
     pub center: bool,
+    /// Only the selected row shows its footer (`/usage`: shared spend would look counted twice).
+    pub footer_active_only: bool,
 }
 
 /// Display row of a select list.
@@ -520,6 +522,10 @@ pub struct TextDialog {
     pub post: Vec<SLine>,
     /// A footer that renders nothing still takes its gap row (a legacy `DialogFooter` without actions).
     pub empty_footer_gap: bool,
+    /// `DialogHeader titleView`: styled title segments drawn instead of the bold `title`.
+    pub title_view: Option<Vec<Seg>>,
+    /// Renders nothing inside the dialog box (a `<Show>` whose condition went false).
+    pub empty: bool,
 }
 
 impl TextDialog {
@@ -1067,6 +1073,9 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
 }
 
 fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme) -> Vec<SLine> {
+    if td.empty {
+        return Vec::new();
+    }
     let ins = td.inset.unwrap_or(DIALOG_INSET);
     let inner = w.saturating_sub(ins * 2);
     let mut v = vec![text_header(td, t, w)];
@@ -1147,6 +1156,17 @@ fn header_at(title: &str, right: &str, t: &Theme, w: usize, inset: usize) -> SLi
 
 fn text_header(td: &TextDialog, t: &Theme, w: usize) -> SLine {
     let ins = td.inset.unwrap_or(DIALOG_INSET);
+    if let Some(view) = &td.title_view {
+        let close = td.close_label.as_str();
+        let avail = w.saturating_sub(ins * 2 + sw(close));
+        let title = clip(view, avail);
+        let used: usize = title.iter().map(|s| s.width()).sum();
+        let mut segs = vec![pad(ins)];
+        segs.extend(title);
+        segs.push(pad(w.saturating_sub(ins * 2 + used + sw(close))));
+        segs.push(seg(close, fg(t.text.muted)));
+        return SLine::new(segs).on_click(Some(Click::Custom("esc".into())));
+    }
     let Some((extra, grows)) = &td.title_extra else {
         return header_at(&td.title, &td.close_label, t, w, ins);
     };
@@ -1251,7 +1271,13 @@ fn select_lines(sel: &mut Select, w: usize, term_h: usize, term_w: usize, size: 
                     } else {
                         segs.push(pad(li - 1));
                     }
-                    let footer = if flat { o.search_footer.clone().or(o.category.clone()).or(o.footer.clone()) } else { o.footer.clone() };
+                    let footer = if sel.footer_active_only && !active {
+                        None
+                    } else if flat {
+                        o.search_footer.clone().or(o.category.clone()).or(o.footer.clone())
+                    } else {
+                        o.footer.clone()
+                    };
                     let footer_w = footer.as_deref().map(sw).unwrap_or(0);
                     let row_right = w.saturating_sub(1 + (li - 1));
                     let used: usize = segs.iter().map(|s| s.width()).sum();

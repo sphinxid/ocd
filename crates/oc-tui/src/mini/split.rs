@@ -1,4 +1,4 @@
-//! The split-footer terminal renderer (OpenTUI 0.6.8 `screenMode: "split-footer"` with
+//! The split-footer terminal renderer (OpenTUI 0.7.0 `screenMode: "split-footer"` with
 //! `externalOutputMode: "capture-stdout"`): scrollback commits are appended above a footer region
 //! that is repainted in place at the bottom of the main screen. Ports `split-scrollback.zig`, the
 //! split paths of `renderer.zig` (`appendSplitFooterSnapshotCommit`, `writeSnapshotCommit`, footer
