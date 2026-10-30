@@ -480,7 +480,7 @@
   "args": [
    "--version"
   ],
-  "stdout": "ocd v2.1.4\n",
+  "stdout": "ocd v2.2.2\n",
   "stderr": "",
   "code": 0
  },
@@ -488,7 +488,7 @@
   "args": [
    "-v"
   ],
-  "stdout": "ocd v2.1.4\n",
+  "stdout": "ocd v2.2.2\n",
   "stderr": "",
   "code": 0
  },
@@ -497,7 +497,7 @@
    "run",
    "-v"
   ],
-  "stdout": "ocd v2.1.4\n",
+  "stdout": "ocd v2.2.2\n",
   "stderr": "",
   "code": 0
  },
@@ -506,7 +506,7 @@
    "debug",
    "--version"
   ],
-  "stdout": "ocd v2.1.4\n",
+  "stdout": "ocd v2.2.2\n",
   "stderr": "",
   "code": 0
  },

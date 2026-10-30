@@ -26,7 +26,7 @@ fn help_version_completions_and_errors_match_effect_cli() {
         }
         // The captured version line has no ocd build; a build from a tagged checkout prints one.
         let version = common::version_line();
-        let expected_out = if expected_out == "ocd v2.1.4\n" { version.as_str() } else { expected_out };
+        let expected_out = if expected_out == "ocd v2.2.2\n" { version.as_str() } else { expected_out };
         let refs: Vec<&str> = a.iter().map(String::as_str).collect();
         let out = env.run(&refs);
         let (stdout, stderr, code) = (common::text(&out.stdout), common::text(&out.stderr), out.status.code().unwrap_or(-1));

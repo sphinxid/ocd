@@ -1,13 +1,13 @@
 # ocd (CLI binary)
 
-`ocd` is the Rust port of upstream `packages/cli` (opencode v2, `@opencode/cli` 2.1.4), built as if
+`ocd` is the Rust port of upstream `packages/cli` (opencode v2, `@opencode/cli` 2.2.2), built as if
 upstream's `OPENCODE_CLI_NAME` build constant were `ocd`. Spec: `docs/spec/01-cli-config-service.md`
 §0–§5, §7–§16. Build/test: `cargo build -p ocd`, `cargo test -p ocd`.
 
 ## Identity vs. compatibility
 
 The program identity is `ocd`: root command name in help/usage/errors (`ocd <subcommand>`,
-`Unrecognized flag: --x in command ocd run`), `--version` (`ocd v2.1.4`), completion scripts
+`Unrecognized flag: --x in command ocd run`), `--version` (`ocd v2.2.2`), completion scripts
 (`###-begin-ocd-completions-###`), the root description (`ocd command line interface`), and every
 message naming the executable (`Usage: ocd service ...`, `` run `ocd service unset disabled` ``,
 `ocd acp: ...`, `ocd mini requires a TTY stdout`, `ocd upgrade` retries, `ocd stats` card heading,

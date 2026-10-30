@@ -150,7 +150,7 @@ fn service_lifecycle_debug_config_and_models() {
     assert_eq!(common::text(&start.stdout), format!("http://127.0.0.1:{port}\n"), "{}", common::text(&start.stderr));
     let registration: Value = serde_json::from_str(&std::fs::read_to_string(env.path("state/opencode/service.json")).unwrap()).unwrap();
     assert_eq!(registration["url"], format!("http://127.0.0.1:{port}"));
-    assert_eq!(registration["version"], "2.1.4");
+    assert_eq!(registration["version"], "2.2.2");
     // the generated password was persisted in the service config
     let config: Value = serde_json::from_str(&std::fs::read_to_string(env.path("config/opencode/service.json")).unwrap()).unwrap();
     assert_eq!(config["password"], registration["password"]);

@@ -25,7 +25,7 @@ permissions:
 env:
   RUST_VERSION: "1.99.0"
   UPSTREAM_REPO: https://github.com/anomalyco/opencode.git
-  UPSTREAM_COMMIT: 68bc26b7da1990ce10ffecfbc1e09eb13aa5d824
+  UPSTREAM_COMMIT: 098aa7fd6e02b03d6fc410f0b052038c7d4c5e81
   BUN_VERSION: "1.4.4"
   CARGO_ZIGBUILD_VERSION: "0.24.0"
   ZIG_VERSION: "0.17.0"

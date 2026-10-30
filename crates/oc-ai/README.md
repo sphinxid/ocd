@@ -23,7 +23,7 @@ use futures::StreamExt;
 
 // 1. Build the catalog once (and again whenever config, credentials or models.dev change).
 let models_dev = std::sync::Arc::new(ModelsDev::with_reqwest(
-    ModelsDevOptions::from_env(oc_ai::credentials::user_agent("latest", "2.1.4", "opencode")),
+    ModelsDevOptions::from_env(oc_ai::credentials::user_agent("latest", "2.2.2", "opencode")),
     cache,                        // Arc<dyn CatalogCache> backed by the SQLite `kv` table
 ));
 let snapshots = models_dev.get().await?;               // file → KV cache → embedded snapshot → network

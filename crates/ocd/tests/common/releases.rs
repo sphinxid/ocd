@@ -273,7 +273,7 @@ pub fn zip(entries: &[(String, &[u8], u32)]) -> Vec<u8> {
     out
 }
 
-/// A stand-in for a release binary: prints `ocd v<build> (opencode 2.1.4)` for `--version`, and otherwise runs
+/// A stand-in for a release binary: prints `ocd v<build> (opencode 2.2.2)` for `--version`, and otherwise runs
 /// `real` with the same arguments (so a background service started from it is a real one).
 #[cfg(unix)]
 pub fn fake_binary(build: &str, real: Option<&std::path::Path>) -> Vec<u8> {
@@ -281,5 +281,5 @@ pub fn fake_binary(build: &str, real: Option<&std::path::Path>) -> Vec<u8> {
         Some(r) => format!("exec '{}' \"$@\"\n", r.display()),
         None => "echo \"unexpected arguments: $*\" >&2\nexit 3\n".to_string(),
     };
-    format!("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"ocd v{build} (opencode 2.1.4)\"\n  exit 0\nfi\n{rest}").into_bytes()
+    format!("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"ocd v{build} (opencode 2.2.2)\"\n  exit 0\nfi\n{rest}").into_bytes()
 }
