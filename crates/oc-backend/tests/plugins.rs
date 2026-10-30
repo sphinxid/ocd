@@ -111,9 +111,52 @@ async fn mock(turns: Vec<Turn>) -> Mock {
 struct Setup {
     h: Harness,
     mock: Mock,
+    /// Every event since before the location booted.
+    events: Mutex<tokio::sync::broadcast::Receiver<oc_core::bus::Event>>,
 }
 
 impl Setup {
+    /// The `*.updated` catalog notifications (not `project.updated`) published until the `n`th `plugin.updated`
+    /// since the last call.
+    async fn updates_until_plugin_updated(&self, n: usize) -> Vec<String> {
+        let mut seen = Vec::new();
+        let mut plugins = 0;
+        let found = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let next = self.events.lock().try_recv();
+                match next {
+                    Ok(e) => {
+                        if e.kind.ends_with(".updated") && e.kind != "project.updated" {
+                            seen.push(e.kind.clone());
+                        }
+                        if e.kind == "plugin.updated" {
+                            plugins += 1;
+                            if plugins == n {
+                                return;
+                            }
+                        }
+                    }
+                    Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+                }
+            }
+        })
+        .await;
+        assert!(found.is_ok(), "{n} plugin.updated not seen: {seen:?}");
+        seen
+    }
+
+    /// The `*.updated` notifications published so far.
+    fn updates(&self) -> Vec<String> {
+        let mut events = self.events.lock();
+        let mut seen = Vec::new();
+        while let Ok(e) = events.try_recv() {
+            if e.kind.ends_with(".updated") && e.kind != "project.updated" {
+                seen.push(e.kind.clone());
+            }
+        }
+        seen
+    }
+
     /// The tool names offered in the `n`th model request.
     fn tools(&self, n: usize) -> Vec<Value> {
         self.mock.bodies.lock().get(n).and_then(|b| b["tools"].as_array().cloned()).unwrap_or_default()
@@ -173,10 +216,11 @@ async fn setup_with(plugins: Value, turns: Vec<Turn>, extra: Value) -> Setup {
     let engine = oc_backend::Engine::new(app.clone());
     let h = Harness { app, engine, router, root, cwd };
     // Boot the location and wait for its plugins.
+    let events = Mutex::new(h.app.bus.subscribe());
     let r = h.get("/api/location").await;
     assert_eq!(r.status, 200);
     h.app.plugins.await_activation(&h.dir()).await;
-    Setup { h, mock }
+    Setup { h, mock, events }
 }
 
 fn kv_key(plugin: &str, key: &str) -> String {
@@ -511,6 +555,44 @@ async fn storage_events_and_rpc() {
     s.h.get("/api/location").await;
     s.h.app.plugins.await_activation(&s.h.dir()).await;
     assert_eq!(s.h.app.db.kv_get(&kv_key("fixture.storage", "boots")).unwrap(), Some(json!({ "count": 2 })));
+    s.shutdown().await;
+}
+
+/// A transform that throws disables its plugin (`State.group`). The domain whose rebuild failed announced the value
+/// built without the plugin, so its refresh changes nothing (`State.changes`): only the plugin's other domains and
+/// the inventory are announced again. Recorded from the 2.2.2 binary (plugin_inventory).
+#[tokio::test]
+async fn failing_transform_announces_only_changed_domains() {
+    require_bun!();
+    let s = setup(json!([fixture("bad-transform")]), vec![]).await;
+    let boot = s.updates_until_plugin_updated(1).await;
+    assert_eq!(
+        boot,
+        [
+            "integration.updated",
+            "provider.updated",
+            "model.updated",
+            "agent.updated",
+            "command.updated",
+            "skill.updated",
+            "websearch.updated",
+            "reference.updated",
+            "plugin.updated"
+        ]
+    );
+    // Reading the lists runs the throwing skill transform if the boot rebuild has not yet.
+    for path in ["/api/command", "/api/skill", "/api/plugin"] {
+        assert_eq!(s.h.get(path).await.status, 200);
+    }
+    let after = s.updates_until_plugin_updated(1).await;
+    assert_eq!(after, ["command.updated", "plugin.updated"]);
+    let plugins = s.h.get("/api/plugin").await.json();
+    let bad = plugins["data"].as_array().unwrap().iter().find(|p| p["id"] == "fixture.bad").unwrap().clone();
+    assert_eq!(bad["state"]["status"], "failed", "{bad}");
+    let commands = s.h.get("/api/command").await.json();
+    assert!(!commands["data"].to_string().contains("bad-first"), "{commands}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(s.updates(), Vec::<String>::new());
     s.shutdown().await;
 }
 

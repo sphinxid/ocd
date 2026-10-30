@@ -298,7 +298,17 @@ pub struct Plugins {
     /// They outlive a location rebuild, as upstream reloads its States in place.
     published: Mutex<HashMap<(String, &'static str), String>>,
     projector: RwLock<Option<Projector>>,
+    /// Each location's queue of notifications (see [`Plugins::notice`]).
+    notices: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Notice>>>,
     me: Weak<Plugins>,
+}
+
+/// A location notification published in order with the location's others.
+enum Notice {
+    /// `<domain>.updated` unless the domain's projection is unchanged.
+    Domain { domain: String, kind: &'static str, at: Option<oc_schema::types::LocationRef> },
+    /// `plugin.updated`.
+    Inventory { at: Option<oc_schema::types::LocationRef> },
 }
 
 impl Plugins {
@@ -330,6 +340,7 @@ impl Plugins {
             catalog_epoch: std::sync::atomic::AtomicU64::new(0),
             published: Mutex::new(HashMap::new()),
             projector: RwLock::new(None),
+            notices: Mutex::new(HashMap::new()),
             me: me.clone(),
         })
     }
@@ -379,13 +390,41 @@ impl Plugins {
     /// so a projection that needs the plugin host never waits on the host's event loop.
     fn notify_domain(&self, key: &str, domain: &str, at: Option<oc_schema::types::LocationRef>) {
         let Some(kind) = domain_event(domain) else { return };
-        let Some(me) = self.me.upgrade() else { return };
-        let (key, domain) = (key.to_string(), domain.to_string());
-        tokio::spawn(async move {
-            if me.domain_changed(&key, &domain).await {
-                me.bus.publish(kind, json!({}), at);
-            }
-        });
+        self.notice(key, Notice::Domain { domain: domain.to_string(), kind, at });
+    }
+
+    /// Queues a location notification. Each location publishes its notifications in the order they were
+    /// queued, like upstream's States notifying one after another (a disabled plugin's refreshed domains,
+    /// then its inventory). The queue runs in its own task, so a projection that needs the plugin host never
+    /// waits on the host's event loop.
+    fn notice(&self, key: &str, notice: Notice) {
+        let tx = {
+            let mut notices = self.notices.lock();
+            notices
+                .entry(key.to_string())
+                .or_insert_with(|| {
+                    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Notice>();
+                    let (me, key) = (self.me.clone(), key.to_string());
+                    tokio::spawn(async move {
+                        while let Some(notice) = rx.recv().await {
+                            let Some(me) = me.upgrade() else { return };
+                            match notice {
+                                Notice::Domain { domain, kind, at } => {
+                                    if me.domain_changed(&key, &domain).await {
+                                        me.bus.publish(kind, json!({}), at);
+                                    }
+                                }
+                                Notice::Inventory { at } => {
+                                    me.bus.publish("plugin.updated", json!({}), at);
+                                }
+                            }
+                        }
+                    });
+                    tx
+                })
+                .clone()
+        };
+        let _ = tx.send(notice);
     }
 
     /// Installs the [`PluginApi`] plugins call back into (the backend's, which serves the
@@ -540,12 +579,16 @@ impl Plugins {
             let Some(domain) = error.strip_prefix("Plugin disabled after ").and_then(|r| r.split_once(".transform failed")).map(|(d, _)| d) else { continue };
             self.cache.lock().remove(&(key.to_string(), domain.to_string()));
             self.catalog_changed(domain);
-            if domain_event(domain).is_some() {
+            // The failed domain is compared with what it last announced. With nothing recorded since the
+            // location booted, that is the boot burst (or the rebuild that failed), which upstream computes
+            // after the failure disabled the plugin (`State.get` rebuilds without the failed group before its
+            // notify reads the value): unchanged, so `State.changes` publishes nothing.
+            if domain_event(domain).is_some() && (Self::gated(domain).is_none() || self.has_projection(key, domain)) {
                 self.notify_domain(key, domain, at.clone());
             }
             let _ = self.changes.send(DomainChange { key: key.to_string(), domain: domain.to_string() });
         }
-        self.bus.publish("plugin.updated", json!({}), at);
+        self.notice(key, Notice::Inventory { at });
     }
 
     /// Rebuilds every domain plugins transform at the location, like the domain States' notify at

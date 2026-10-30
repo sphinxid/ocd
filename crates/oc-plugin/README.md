@@ -324,7 +324,9 @@ The core side lives in `oc-core/src/plugins.rs` (`Plugins`, owned by `App`), `oc
   references and MCP.
 - **Inventory.** `plugin.list` = `LoadResult::inventory` with the sidecar's latest package infos;
   `plugin.updated` is published when the inventory changes after the first activation (a plugin
-  disabled by a failing transform first refreshes its domains, like upstream's `State.group`).
+  disabled by a failing transform first refreshes its domains, like upstream's `State.group`). A location's
+  domain notifications and `plugin.updated` are published in order from one queue per location; the domain
+  whose transform failed announces nothing new, as it already announced the value built without the plugin.
 - **Catalog.** `Models::catalog_at` keeps each location's built catalog (an immutable, shared
   `Catalog`) and rebuilds it only when an input changes: the models.dev data, the location's
   `providers`/`model` config, the integrations and their connections, or the plugins' catalog state
