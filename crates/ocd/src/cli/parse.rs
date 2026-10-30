@@ -1,4 +1,4 @@
-//! Effect CLI (`effect/cli` 4.0.1) compatible lexer and parser: `internal/lexer.ts`,
+//! Effect CLI (`effect/cli` 4.0.6) compatible lexer and parser: `internal/lexer.ts`,
 //! `internal/parser.ts`, `internal/command.ts` (`makeParser`), `Primitive.ts`, `CliError.ts`.
 //! The observable behaviour (which tokens bind where, error texts and their order) matches the
 //! TypeScript CLI; verified against golden captures of the real framework (`tests/golden`).
@@ -61,6 +61,8 @@ pub fn lex(argv: &[String]) -> (Vec<Tok>, Vec<String>) {
             tokens.push(Tok::Value(arg.clone()));
         } else if let Some(rest) = arg.strip_prefix("--") {
             match rest.find('=') {
+                // `--=x` names no flag: it is a value (4.0.6).
+                Some(0) => tokens.push(Tok::Value(arg.clone())),
                 Some(eq) => tokens.push(Tok::Long { name: rest[..eq].into(), raw: arg.clone(), value: Some(rest[eq + 1..].into()) }),
                 None => tokens.push(Tok::Long { name: rest.into(), raw: arg.clone(), value: None }),
             }
@@ -68,8 +70,13 @@ pub fn lex(argv: &[String]) -> (Vec<Tok>, Vec<String>) {
             let flags = &arg[1..];
             match flags.find('=') {
                 Some(eq) => {
-                    let flag = &flags[..eq];
-                    tokens.push(Tok::Short { flag: flag.into(), raw: format!("-{flag}"), value: Some(flags[eq + 1..].into()) })
+                    // `-abc=v` is `-a -b -c=v` (4.0.6).
+                    let mut chars: Vec<char> = flags[..eq].chars().collect();
+                    let flag = chars.pop().map(String::from).unwrap_or_default();
+                    for ch in chars {
+                        tokens.push(Tok::Short { flag: ch.to_string(), raw: format!("-{ch}"), value: None });
+                    }
+                    tokens.push(Tok::Short { raw: format!("-{flag}"), flag, value: Some(flags[eq + 1..].into()) })
                 }
                 None => {
                     for ch in flags.chars() {
@@ -840,6 +847,16 @@ mod tests {
         assert_eq!(t[5], Tok::Value("-5".into()));
         assert_eq!(t[6], Tok::Short { flag: "c".into(), raw: "-c".into(), value: Some("false".into()) });
         assert_eq!(t[7], Tok::Value("-".into()));
+    }
+
+    #[test]
+    fn lexes_like_effect_4_0_6() {
+        let (t, _) = lex(&s(&["--=x", "-abc=v", "-=1"]));
+        assert_eq!(t[0], Tok::Value("--=x".into()));
+        assert_eq!(t[1], Tok::Short { flag: "a".into(), raw: "-a".into(), value: None });
+        assert_eq!(t[2], Tok::Short { flag: "b".into(), raw: "-b".into(), value: None });
+        assert_eq!(t[3], Tok::Short { flag: "c".into(), raw: "-c".into(), value: Some("v".into()) });
+        assert_eq!(t[4], Tok::Short { flag: "".into(), raw: "-".into(), value: Some("1".into()) });
     }
 
     #[test]

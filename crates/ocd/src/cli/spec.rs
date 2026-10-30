@@ -79,6 +79,8 @@ pub struct Cmd {
     pub subcommands: Vec<Cmd>,
     /// Whether a handler is registered (`$` for groups).
     pub handler: bool,
+    /// `Command.withGlobalFlags`: settings accepted anywhere on this command and its descendants.
+    pub globals: Vec<FlagDef>,
 }
 
 impl Cmd {
@@ -96,6 +98,10 @@ impl Cmd {
     }
     pub fn find(&self, name: &str) -> Option<&Cmd> {
         self.subcommands.iter().find(|c| c.name == name || c.alias == Some(name))
+    }
+    fn globals(mut self, g: Vec<FlagDef>) -> Cmd {
+        self.globals = g;
+        self
     }
 }
 
@@ -139,17 +145,30 @@ fn arg(key: &'static str, name: &'static str, description: &'static str, mode: A
 }
 
 fn cmd(name: &'static str, description: &'static str, params: Vec<Param>) -> Cmd {
-    Cmd { name, alias: None, description, params, subcommands: vec![], handler: true }
+    Cmd { name, alias: None, description, params, subcommands: vec![], handler: true, globals: vec![] }
 }
 fn group(name: &'static str, description: &'static str, subcommands: Vec<Cmd>) -> Cmd {
-    Cmd { name, alias: None, description, params: vec![], subcommands, handler: false }
+    Cmd { name, alias: None, description, params: vec![], subcommands, handler: false, globals: vec![] }
 }
 
+/// `Standalone` (`GlobalFlag.Setting("standalone")`).
+pub fn standalone_flag() -> FlagDef {
+    boolean("standalone", "standalone").desc("Run with a private server instead of the background service")
+}
+
+/// `Server` (`GlobalFlag.Setting("server")`).
+pub fn server_flag() -> FlagDef {
+    string("server", "server").desc("Connect to a server URL instead of the background service")
+}
+
+/// `ServerFlags`: the server settings, accepted anywhere in the commands that declare them (2.2).
+fn server_flags() -> Vec<FlagDef> {
+    vec![standalone_flag(), server_flag()]
+}
+
+/// `ServerParams`: the root (default TUI) keeps them as its own flags.
 fn server_params() -> Vec<Param> {
-    vec![
-        boolean("standalone", "standalone").desc("Run with a private server instead of the background service").p(),
-        string("server", "server").desc("Connect to a server URL instead of the background service").p(),
-    ]
+    server_flags().into_iter().map(FlagDef::p).collect()
 }
 
 fn permission_params() -> Vec<Param> {
@@ -182,8 +201,8 @@ pub fn global_flags() -> Vec<FlagDef> {
         boolean("help", "help").alias("h").desc("Show help information"),
         boolean("version", "version").alias("v").desc("Show version information"),
         boolean("wizard", "wizard").desc("Start wizard mode for a command"),
-        flag("completions", "completions", Prim::Choice(&["bash", "zsh", "fish", "sh"]), Arity::Optional)
-            .metavar("<bash|zsh|fish|sh>")
+        flag("completions", "completions", Prim::Choice(&["bash", "zsh", "fish", "powershell", "sh", "pwsh"]), Arity::Optional)
+            .metavar("<bash|zsh|fish|powershell|sh|pwsh>")
             .desc("Print shell completion script"),
         flag(
             "logLevel",
@@ -254,27 +273,25 @@ pub fn root() -> Cmd {
         cmd(
             "api",
             "Make a request to the running server",
-            with(
-                server_params(),
-                vec![
-                    arg(
-                        "request",
-                        "operation | method path",
-                        "OpenAPI operation ID, or an HTTP method followed by a path",
-                        ArgMode::Variadic { min: 1, max: Some(2) },
-                    ),
-                    string("data", "data").alias("d").desc("Request body").p(),
-                    flag("header", "header", Prim::Str, Arity::Many).alias("H").desc("Request header in name:value form").p(),
-                    flag("param", "param", Prim::KeyValue, Arity::Optional).desc("OpenAPI path or query parameter").p(),
-                ],
-            ),
-        ),
+            vec![
+                arg(
+                    "request",
+                    "operation | method path",
+                    "OpenAPI operation ID, or an HTTP method followed by a path",
+                    ArgMode::Variadic { min: 1, max: Some(2) },
+                ),
+                string("data", "data").alias("d").desc("Request body").p(),
+                flag("header", "header", Prim::Str, Arity::Many).alias("H").desc("Request header in name:value form").p(),
+                flag("param", "param", Prim::KeyValue, Arity::Optional).desc("OpenAPI path or query parameter").p(),
+            ],
+        )
+        .globals(server_flags()),
         group(
             "debug",
             "Debugging and troubleshooting tools",
             vec![
-                cmd("agents", "List all agents", vec![]),
-                cmd("config", "List configuration sources", vec![]),
+                cmd("agents", "List all agents", vec![]).globals(server_flags()),
+                cmd("config", "List configuration sources", vec![]).globals(server_flags()),
                 cmd(
                     "heap-dump",
                     "Write a heap snapshot of the running server and print its path",
@@ -282,9 +299,9 @@ pub fn root() -> Cmd {
                         string("directory", "directory")
                             .desc("Directory to write the snapshot into instead of the server's log directory")
                             .p(),
-                        string("server", "server").desc("Connect to a server URL instead of the background service").p(),
                     ],
-                ),
+                )
+                .globals(vec![server_flag()]),
                 cmd("paths", "Show global paths (data, config, cache, state)", vec![paths_arg]),
             ],
         ),
@@ -292,12 +309,12 @@ pub fn root() -> Cmd {
             "auth",
             "manage integrations and credentials",
             vec![
-                cmd("list", "list integrations and credentials", with(server_params(), vec![format(&["default", "json"], "default")])),
+                cmd("list", "list integrations and credentials", vec![format(&["default", "json"], "default")]),
                 cmd(
                     "login",
                     "connect an integration",
                     with(
-                        server_params(),
+                        vec![],
                         vec![
                             arg("target", "target", "Integration ID, name, or well-known provider URL", ArgMode::Optional),
                             string("method", "method").desc("Authentication method ID").p(),
@@ -311,7 +328,7 @@ pub fn root() -> Cmd {
                     "logout",
                     "log out of a saved account",
                     with(
-                        server_params(),
+                        vec![],
                         vec![
                             arg("target", "target", "Integration ID or name", ArgMode::Optional),
                             arg(
@@ -327,7 +344,7 @@ pub fn root() -> Cmd {
                     "export",
                     "print stored credentials, including secrets, as JSON",
                     with(
-                        server_params(),
+                        vec![],
                         vec![arg(
                             "target",
                             "target",
@@ -340,7 +357,7 @@ pub fn root() -> Cmd {
                     "import",
                     "import credentials exported by auth export",
                     with(
-                        server_params(),
+                        vec![],
                         vec![arg("file", "file", "JSON file to import (reads stdin when omitted)", ArgMode::Optional)],
                     ),
                 ),
@@ -348,7 +365,7 @@ pub fn root() -> Cmd {
                     "switch",
                     "switch the active account for an integration",
                     with(
-                        server_params(),
+                        vec![],
                         vec![
                             arg("target", "target", "Integration ID or name", ArgMode::Optional),
                             arg(
@@ -361,12 +378,13 @@ pub fn root() -> Cmd {
                     ),
                 ),
             ],
-        ),
+        )
+        .globals(server_flags()),
         group(
             "mcp",
             "Manage MCP (Model Context Protocol) servers",
             vec![
-                cmd("list", "List configured MCP servers and their status", vec![]),
+                cmd("list", "List configured MCP servers and their status", vec![]).globals(server_flags()),
                 cmd(
                     "add",
                     "Add an MCP server to your configuration",
@@ -393,20 +411,21 @@ pub fn root() -> Cmd {
                     "name",
                     "Name of the MCP server",
                     ArgMode::Optional,
-                )]),
+                )]).globals(server_flags()),
                 cmd("logout", "Remove stored OAuth credentials for an MCP server", vec![arg(
                     "name",
                     "name",
                     "Name of the MCP server",
                     ArgMode::Required,
-                )]),
+                )]).globals(server_flags()),
             ],
         ),
         group(
             "plugin",
             "Manage plugins",
             vec![
-                cmd("list", "List plugins", vec![boolean("builtin", "builtin").desc("Include built-in server plugins").p()]),
+                cmd("list", "List plugins", vec![boolean("builtin", "builtin").desc("Include built-in server plugins").p()])
+                    .globals(server_flags()),
                 cmd("add", "Install a plugin and add it to the global configuration", vec![arg(
                     "package",
                     "package",
@@ -418,13 +437,13 @@ pub fn root() -> Cmd {
                     "target",
                     "Configured package target",
                     ArgMode::Optional,
-                )]),
+                )]).globals(server_flags()),
                 cmd("update", "Update package plugins", vec![arg(
                     "target",
                     "target",
                     "Configured package target; omit to update all outdated plugins",
                     ArgMode::Optional,
-                )]),
+                )]).globals(server_flags()),
                 cmd("remove", "Remove a plugin from global configuration", vec![arg(
                     "package",
                     "package",
@@ -433,12 +452,12 @@ pub fn root() -> Cmd {
                 )]),
             ],
         ),
-        cmd("models", "List all available models", server_params()),
+        cmd("models", "List all available models", vec![]).globals(server_flags()),
         cmd(
             "stats",
             "Show shareable usage statistics",
             with(
-                server_params(),
+                vec![],
                 vec![
                     flag("days", "days", Prim::Int(IntCheck::Min(0)), Arity::Optional).desc("Show the last N days; 0 means today").p(),
                     flag("year", "year", Prim::Int(IntCheck::Between(1970, 9999)), Arity::Optional).desc("Show a calendar year").p(),
@@ -454,12 +473,13 @@ pub fn root() -> Cmd {
                     boolean("json", "json").desc("Output statistics as JSON").p(),
                 ],
             ),
-        ),
+        )
+        .globals(server_flags()),
         cmd(
             "mini",
             "Start the minimal interactive interface",
             with(
-                server_params(),
+                vec![],
                 vec![
                     continue_flag(),
                     session_flag(),
@@ -476,13 +496,14 @@ pub fn root() -> Cmd {
                     boolean("demo", "demo").hidden().p(),
                 ],
             ),
-        ),
+        )
+        .globals(server_flags()),
         cmd(
             "run",
             "Run OpenCode with a message",
             with(
                 with(
-                    server_params(),
+                    vec![],
                     vec![
                         arg("message", "message", "Message to send", ArgMode::Variadic { min: 0, max: None }),
                         continue_flag(),
@@ -498,7 +519,8 @@ pub fn root() -> Cmd {
                 ),
                 permission_params(),
             ),
-        ),
+        )
+        .globals(server_flags()),
         group(
             "session",
             "Manage sessions",
@@ -507,7 +529,7 @@ pub fn root() -> Cmd {
                     "list",
                     "List top-level sessions in the current project, newest first",
                     with(
-                        server_params(),
+                        vec![],
                         vec![
                             flag("maxCount", "max-count", Prim::Int(IntCheck::Min(1)), Arity::Optional)
                                 .alias("n")
@@ -520,13 +542,13 @@ pub fn root() -> Cmd {
                 cmd(
                     "delete",
                     "Delete a session and its child sessions",
-                    with(server_params(), vec![arg("sessionID", "sessionID", "Session ID to delete", ArgMode::Required)]),
+                    with(vec![], vec![arg("sessionID", "sessionID", "Session ID to delete", ArgMode::Required)]),
                 ),
                 cmd(
                     "export",
                     "Export session data as JSON",
                     with(
-                        server_params(),
+                        vec![],
                         vec![
                             arg("session", "session", "Session ID to export", ArgMode::Optional),
                             boolean("sanitize", "sanitize").desc("Redact sensitive transcript and file data").p(),
@@ -537,7 +559,7 @@ pub fn root() -> Cmd {
                     "import",
                     "Import session data from a JSON file or URL",
                     with(
-                        server_params(),
+                        vec![],
                         vec![
                             arg("file", "file", "JSON file or URL to import", ArgMode::Required),
                             string("directory", "directory").desc("Directory in which to import the session").p(),
@@ -545,7 +567,8 @@ pub fn root() -> Cmd {
                     ),
                 ),
             ],
-        ),
+        )
+        .globals(server_flags()),
         group(
             "service",
             "Manage the background server",
@@ -569,7 +592,7 @@ pub fn root() -> Cmd {
                 ]),
             ],
         ),
-        cmd("reload", "Reload configuration", server_params()),
+        cmd("reload", "Reload configuration", vec![]).globals(server_flags()),
         cmd("pair", "Print one-time links to connect a browser or app", vec![
             flag("url", "url", Prim::PairUrl, Arity::Optional).desc("Use an external HTTP(S) server URL in pairing links").p(),
             boolean("remote", "remote")

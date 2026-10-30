@@ -126,8 +126,8 @@ _ocd() {
 _ocd_upgrade() {
   local -a specs
   specs=(
-    '(--method -m)--method[Ignored: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
-    '(--method -m)-m[Ignored: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)--method[Ignored\: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)-m[Ignored\: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
     '(--yes -y --no-yes)--yes[Replace a local build without asking (required without an interactive terminal)]'
     '(--yes -y --no-yes)-y[Replace a local build without asking (required without an interactive terminal)]'
     '(--yes -y --no-yes)--no-yes[Disable yes]'
@@ -139,8 +139,8 @@ _ocd_upgrade() {
 _ocd_update() {
   local -a specs
   specs=(
-    '(--method -m)--method[Ignored: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
-    '(--method -m)-m[Ignored: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)--method[Ignored\: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
+    '(--method -m)-m[Ignored\: ocd installs only from its GitHub releases]:value:(curl npm pnpm bun yarn vp brew winget)'
     '(--yes -y --no-yes)--yes[Replace a local build without asking (required without an interactive terminal)]'
     '(--yes -y --no-yes)-y[Replace a local build without asking (required without an interactive terminal)]'
     '(--yes -y --no-yes)--no-yes[Disable yes]'
@@ -173,9 +173,6 @@ _ocd_acp() {
 _ocd_api() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--data -d)--data[Request body]:value:'
     '(--data -d)-d[Request body]:value:'
     '(--header -H)--header[Request header in name\:value form]:value:'
@@ -239,7 +236,6 @@ _ocd_debug_heap_dump() {
   local -a specs
   specs=(
     '(--directory)--directory[Directory to write the snapshot into instead of the server'\''s log directory]:value:'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
   )
   _arguments "${specs[@]}"
 }
@@ -306,9 +302,6 @@ _ocd_auth() {
 _ocd_auth_list() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--format)--format[Output format]:value:(default json)'
   )
   _arguments "${specs[@]}"
@@ -317,9 +310,6 @@ _ocd_auth_list() {
 _ocd_auth_login() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--method)--method[Authentication method ID]:value:'
     '(--answer)--answer[Provider form answer (key=value; repeat for multiple fields)]:value:'
     ':Integration ID, name, or well-known provider URL:'
@@ -330,9 +320,6 @@ _ocd_auth_login() {
 _ocd_auth_logout() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     ':Integration ID or name:'
     ':Credential ID or label (opens an account picker when omitted):'
   )
@@ -342,9 +329,6 @@ _ocd_auth_logout() {
 _ocd_auth_export() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     ':Integration ID or name (exports every integration when omitted):'
   )
   _arguments "${specs[@]}"
@@ -353,9 +337,6 @@ _ocd_auth_export() {
 _ocd_auth_import() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     ':JSON file to import (reads stdin when omitted):'
   )
   _arguments "${specs[@]}"
@@ -364,9 +345,6 @@ _ocd_auth_import() {
 _ocd_auth_switch() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     ':Integration ID or name:'
     ':Credential ID or label (opens an account picker when omitted):'
   )
@@ -538,21 +516,11 @@ _ocd_plugin_remove() {
 }
 
 _ocd_models() {
-  local -a specs
-  specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
-  )
-  _arguments "${specs[@]}"
 }
 
 _ocd_stats() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--days)--days[Show the last N days; 0 means today]:integer:'
     '(--year)--year[Show a calendar year]:integer:'
     '(--all --no-all)--all[Show lifetime statistics]'
@@ -576,9 +544,6 @@ _ocd_stats() {
 _ocd_mini() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--continue -c --no-continue)--continue[Continue the last session]'
     '(--continue -c --no-continue)-c[Continue the last session]'
     '(--continue -c --no-continue)--no-continue[Disable continue]'
@@ -600,9 +565,6 @@ _ocd_mini() {
 _ocd_run() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--continue -c --no-continue)--continue[Continue the last session]'
     '(--continue -c --no-continue)-c[Continue the last session]'
     '(--continue -c --no-continue)--no-continue[Disable continue]'
@@ -672,9 +634,6 @@ _ocd_session() {
 _ocd_session_list() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--max-count -n)--max-count[Limit to N most recent sessions (default\: 100)]:integer:'
     '(--max-count -n)-n[Limit to N most recent sessions (default\: 100)]:integer:'
     '(--format)--format[Output format]:value:(table json)'
@@ -685,9 +644,6 @@ _ocd_session_list() {
 _ocd_session_delete() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     ':Session ID to delete:'
   )
   _arguments "${specs[@]}"
@@ -696,9 +652,6 @@ _ocd_session_delete() {
 _ocd_session_export() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--sanitize --no-sanitize)--sanitize[Redact sensitive transcript and file data]'
     '(--sanitize --no-sanitize)--no-sanitize[Disable sanitize]'
     ':Session ID to export:'
@@ -709,9 +662,6 @@ _ocd_session_export() {
 _ocd_session_import() {
   local -a specs
   specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
     '(--directory)--directory[Directory in which to import the session]:value:'
     ':JSON file or URL to import:'
   )
@@ -814,13 +764,6 @@ _ocd_service_unset() {
 }
 
 _ocd_reload() {
-  local -a specs
-  specs=(
-    '(--standalone --no-standalone)--standalone[Run with a private server instead of the background service]'
-    '(--standalone --no-standalone)--no-standalone[Disable standalone]'
-    '(--server)--server[Connect to a server URL instead of the background service]:value:'
-  )
-  _arguments "${specs[@]}"
 }
 
 _ocd_pair() {

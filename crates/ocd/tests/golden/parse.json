@@ -1,7 +1,7 @@
 [
  {
   "args": [],
-  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -9,7 +9,7 @@
   "args": [
    "somedir"
   ],
-  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"somedir\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"somedir\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -17,7 +17,7 @@
   "args": [
    "-c"
   ],
-  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -29,7 +29,7 @@
    "hi",
    "--auto"
   ],
-  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":true,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses_1\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"hi\"}}\n",
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":true,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses_1\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"hi\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -38,7 +38,7 @@
    "--session",
    "run"
   ],
-  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"run\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"run\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -46,7 +46,7 @@
   "args": [
    "--yolo"
   ],
-  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":true,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":true,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -54,7 +54,7 @@
   "args": [
    "--dangerously-skip-permissions"
   ],
-  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":true,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":true,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -64,7 +64,7 @@
    "--server",
    "http://x"
   ],
-  "stdout": "HANDLER ocd {\"standalone\":true,\"server\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://x\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER ocd {\"standalone\":true,\"server\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://x\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -72,7 +72,7 @@
   "args": [
    "upgrade"
   ],
-  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"yes\":false}\n",
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"yes\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -83,7 +83,7 @@
    "-m",
    "npm"
   ],
-  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"v1.2.3\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"npm\"},\"yes\":false}\n",
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"v1.2.3\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"npm\"},\"yes\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -92,7 +92,7 @@
    "update",
    "1.0.0"
   ],
-  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"1.0.0\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"yes\":false}\n",
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"1.0.0\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"yes\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -102,7 +102,7 @@
    "--dry-run",
    "-f"
   ],
-  "stdout": "HANDLER uninstall {\"dryRun\":true,\"force\":true}\n",
+  "stdout": "HANDLER uninstall {\"dryRun\":true,\"force\":true} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -110,7 +110,7 @@
   "args": [
    "acp"
   ],
-  "stdout": "HANDLER acp {\"login\":false}\n",
+  "stdout": "HANDLER acp {\"login\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -119,7 +119,7 @@
    "acp",
    "--login"
   ],
-  "stdout": "HANDLER acp {\"login\":true}\n",
+  "stdout": "HANDLER acp {\"login\":true} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -134,7 +134,7 @@
    "--param",
    "a=2"
   ],
-  "stdout": "HANDLER api {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"request\":[\"session.list\"],\"data\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":[],\"param\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"a\":\"2\",\"b\":\"c=d\"}}}\n",
+  "stdout": "HANDLER api {\"request\":[\"session.list\"],\"data\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":[],\"param\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"a\":\"2\",\"b\":\"c=d\"}}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -150,7 +150,7 @@
    "-H",
    "c: d"
   ],
-  "stdout": "HANDLER api {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"request\":[\"GET\",\"/api/info\"],\"data\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"{}\"},\"header\":[\"a:b\",\"c: d\"],\"param\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER api {\"request\":[\"GET\",\"/api/info\"],\"data\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"{}\"},\"header\":[\"a:b\",\"c: d\"],\"param\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -159,7 +159,7 @@
    "debug",
    "agents"
   ],
-  "stdout": "HANDLER agents {}\n",
+  "stdout": "HANDLER agents {} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -168,7 +168,7 @@
    "debug",
    "config"
   ],
-  "stdout": "HANDLER config {}\n",
+  "stdout": "HANDLER config {} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -177,7 +177,7 @@
    "debug",
    "paths"
   ],
-  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -187,7 +187,7 @@
    "paths",
    "db"
   ],
-  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"db\"}}\n",
+  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"db\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -198,7 +198,7 @@
    "--format",
    "json"
   ],
-  "stdout": "HANDLER list {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"json\"}\n",
+  "stdout": "HANDLER list {\"format\":\"json\"} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -214,7 +214,7 @@
    "--answer",
    "b=2"
   ],
-  "stdout": "HANDLER login {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"openai\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"key\"},\"answer\":[\"a=1\",\"b=2\"]}\n",
+  "stdout": "HANDLER login {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"openai\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"key\"},\"answer\":[\"a=1\",\"b=2\"]} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -225,7 +225,7 @@
    "x",
    "y"
   ],
-  "stdout": "HANDLER logout {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"},\"credential\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"y\"}}\n",
+  "stdout": "HANDLER logout {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"},\"credential\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"y\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -234,7 +234,7 @@
    "auth",
    "export"
   ],
-  "stdout": "HANDLER export {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER export {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -244,7 +244,7 @@
    "import",
    "f.json"
   ],
-  "stdout": "HANDLER import {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"file\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"f.json\"}}\n",
+  "stdout": "HANDLER import {\"file\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"f.json\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -254,7 +254,7 @@
    "switch",
    "x"
   ],
-  "stdout": "HANDLER switch {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"},\"credential\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER switch {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"},\"credential\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -263,7 +263,7 @@
    "mcp",
    "list"
   ],
-  "stdout": "HANDLER list {}\n",
+  "stdout": "HANDLER list {} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -278,7 +278,7 @@
    "A=1",
    "--global"
   ],
-  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[],\"url\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://x\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"A\":\"1\"}},\"env\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"global\":true}\n",
+  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[],\"url\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://x\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"A\":\"1\"}},\"env\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"global\":true} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -294,7 +294,7 @@
    "-y",
    "pkg"
   ],
-  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[\"npx\",\"-y\",\"pkg\"],\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"env\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"K\":\"V\"}},\"global\":false}\n",
+  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[\"npx\",\"-y\",\"pkg\"],\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"env\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":{\"K\":\"V\"}},\"global\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -306,7 +306,7 @@
    "cmd",
    "arg"
   ],
-  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[\"cmd\",\"arg\"],\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"env\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"global\":false}\n",
+  "stdout": "HANDLER add {\"name\":\"srv\",\"command\":[\"cmd\",\"arg\"],\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"env\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"global\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -315,7 +315,7 @@
    "mcp",
    "auth"
   ],
-  "stdout": "HANDLER auth {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER auth {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -325,7 +325,7 @@
    "auth",
    "s"
   ],
-  "stdout": "HANDLER auth {\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"s\"}}\n",
+  "stdout": "HANDLER auth {\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"s\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -335,7 +335,7 @@
    "logout",
    "s"
   ],
-  "stdout": "HANDLER logout {\"name\":\"s\"}\n",
+  "stdout": "HANDLER logout {\"name\":\"s\"} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -345,7 +345,7 @@
    "list",
    "--builtin"
   ],
-  "stdout": "HANDLER list {\"builtin\":true}\n",
+  "stdout": "HANDLER list {\"builtin\":true} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -355,7 +355,7 @@
    "add",
    "pkg@1"
   ],
-  "stdout": "HANDLER add {\"package\":\"pkg@1\"}\n",
+  "stdout": "HANDLER add {\"package\":\"pkg@1\"} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -364,7 +364,7 @@
    "plugin",
    "check"
   ],
-  "stdout": "HANDLER check {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER check {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -374,7 +374,7 @@
    "check",
    "x"
   ],
-  "stdout": "HANDLER check {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"}}\n",
+  "stdout": "HANDLER check {\"target\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"x\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -383,7 +383,7 @@
    "plugin",
    "update"
   ],
-  "stdout": "HANDLER update {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER update {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -393,7 +393,7 @@
    "remove",
    "pkg"
   ],
-  "stdout": "HANDLER remove {\"package\":\"pkg\"}\n",
+  "stdout": "HANDLER remove {\"package\":\"pkg\"} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -402,7 +402,7 @@
    "models",
    "--standalone"
   ],
-  "stdout": "HANDLER models {\"standalone\":true,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER models {} {\"server\":null,\"standalone\":true}\n",
   "stderr": "",
   "code": 0
  },
@@ -421,7 +421,7 @@
    "3",
    "--json"
   ],
-  "stdout": "HANDLER stats {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"days\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"year\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"all\":false,\"project\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\".\"},\"models\":true,\"tools\":true,\"cost\":true,\"full\":true,\"limit\":3,\"json\":true}\n",
+  "stdout": "HANDLER stats {\"days\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"year\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"all\":false,\"project\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\".\"},\"models\":true,\"tools\":true,\"cost\":true,\"full\":true,\"limit\":3,\"json\":true} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -431,7 +431,7 @@
    "--year",
    "2026"
   ],
-  "stdout": "HANDLER stats {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"days\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"year\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":2026},\"all\":false,\"project\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"models\":false,\"tools\":false,\"cost\":false,\"full\":false,\"limit\":5,\"json\":false}\n",
+  "stdout": "HANDLER stats {\"days\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"year\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":2026},\"all\":false,\"project\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"models\":false,\"tools\":false,\"cost\":false,\"full\":false,\"limit\":5,\"json\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -440,7 +440,7 @@
    "stats",
    "--all"
   ],
-  "stdout": "HANDLER stats {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"days\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"year\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"all\":true,\"project\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"models\":false,\"tools\":false,\"cost\":false,\"full\":false,\"limit\":5,\"json\":false}\n",
+  "stdout": "HANDLER stats {\"days\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"year\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"all\":true,\"project\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"models\":false,\"tools\":false,\"cost\":false,\"full\":false,\"limit\":5,\"json\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -460,7 +460,7 @@
    "p",
    "--demo"
   ],
-  "stdout": "HANDLER mini {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":true,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":5},\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"a/b\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"plan\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"p\"},\"demo\":true}\n",
+  "stdout": "HANDLER mini {\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":true,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":5},\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"a/b\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"plan\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"p\"},\"demo\":true} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -469,7 +469,7 @@
    "mini",
    "--no-replay"
   ],
-  "stdout": "HANDLER mini {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":false},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"demo\":false}\n",
+  "stdout": "HANDLER mini {\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":false},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"demo\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -478,7 +478,7 @@
    "mini",
    "--replay=false"
   ],
-  "stdout": "HANDLER mini {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":false},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"demo\":false}\n",
+  "stdout": "HANDLER mini {\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"replay\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":false},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"demo\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -488,7 +488,7 @@
    "hello",
    "world"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"hello\",\"world\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"hello\",\"world\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -515,7 +515,7 @@
    "--auto",
    "msg"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"msg\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses\"},\"fork\":true,\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"p/m#v\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"a\"},\"format\":\"json\",\"file\":[\"a\",\"b\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"t\"},\"thinking\":true,\"auto\":true,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses\"},\"fork\":true,\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"p/m#v\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"a\"},\"format\":\"json\",\"file\":[\"a\",\"b\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"t\"},\"thinking\":true,\"auto\":true,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -526,7 +526,7 @@
    "--foo",
    "bar"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"--foo\",\"bar\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"--foo\",\"bar\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -537,7 +537,7 @@
    "--",
    "b"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"a\",\"b\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"a\",\"b\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -547,7 +547,7 @@
    "--yolo",
    "x"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":true,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":true,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -557,7 +557,7 @@
    "--title=",
    "x"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -570,7 +570,7 @@
    "--format",
    "json"
   ],
-  "stdout": "HANDLER list {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"maxCount\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":5},\"format\":\"json\"}\n",
+  "stdout": "HANDLER list {\"maxCount\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":5},\"format\":\"json\"} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -580,7 +580,7 @@
    "delete",
    "ses_1"
   ],
-  "stdout": "HANDLER delete {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"sessionID\":\"ses_1\"}\n",
+  "stdout": "HANDLER delete {\"sessionID\":\"ses_1\"} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -589,7 +589,7 @@
    "session",
    "export"
   ],
-  "stdout": "HANDLER export {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"sanitize\":false}\n",
+  "stdout": "HANDLER export {\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"sanitize\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -600,7 +600,7 @@
    "ses_1",
    "--sanitize"
   ],
-  "stdout": "HANDLER export {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses_1\"},\"sanitize\":true}\n",
+  "stdout": "HANDLER export {\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses_1\"},\"sanitize\":true} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -612,7 +612,7 @@
    "--directory",
    "/tmp"
   ],
-  "stdout": "HANDLER import {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"file\":\"f.json\",\"directory\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"/tmp\"}}\n",
+  "stdout": "HANDLER import {\"file\":\"f.json\",\"directory\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"/tmp\"}} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -621,7 +621,7 @@
    "service",
    "start"
   ],
-  "stdout": "HANDLER start {}\n",
+  "stdout": "HANDLER start {} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -630,7 +630,7 @@
    "service",
    "restart"
   ],
-  "stdout": "HANDLER restart {}\n",
+  "stdout": "HANDLER restart {} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -639,7 +639,7 @@
    "service",
    "status"
   ],
-  "stdout": "HANDLER status {}\n",
+  "stdout": "HANDLER status {} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -648,7 +648,7 @@
    "service",
    "stop"
   ],
-  "stdout": "HANDLER stop {}\n",
+  "stdout": "HANDLER stop {} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -657,7 +657,7 @@
    "service",
    "get"
   ],
-  "stdout": "HANDLER get {\"key\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER get {\"key\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -668,7 +668,7 @@
    "env",
    "NAME"
   ],
-  "stdout": "HANDLER get {\"key\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"env\"},\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"NAME\"}}\n",
+  "stdout": "HANDLER get {\"key\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"env\"},\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"NAME\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -679,7 +679,7 @@
    "port",
    "5000"
   ],
-  "stdout": "HANDLER set {\"key\":\"port\",\"value\":\"5000\",\"nestedValue\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER set {\"key\":\"port\",\"value\":\"5000\",\"nestedValue\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -691,7 +691,7 @@
    "A",
    "B"
   ],
-  "stdout": "HANDLER set {\"key\":\"env\",\"value\":\"A\",\"nestedValue\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"B\"}}\n",
+  "stdout": "HANDLER set {\"key\":\"env\",\"value\":\"A\",\"nestedValue\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"B\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -702,7 +702,7 @@
    "env",
    "A"
   ],
-  "stdout": "HANDLER unset {\"key\":\"env\",\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"A\"}}\n",
+  "stdout": "HANDLER unset {\"key\":\"env\",\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"A\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -710,7 +710,7 @@
   "args": [
    "reload"
   ],
-  "stdout": "HANDLER reload {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER reload {} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -718,7 +718,7 @@
   "args": [
    "pair"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":false}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -728,7 +728,7 @@
    "--url",
    "http://example.com/base/"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://example.com/base\"},\"remote\":false,\"yes\":false}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://example.com/base\"},\"remote\":false,\"yes\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -737,7 +737,7 @@
    "pair",
    "--remote"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":true,\"yes\":false}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":true,\"yes\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -745,7 +745,7 @@
   "args": [
    "serve"
   ],
-  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"cors\":[],\"service\":false,\"stdio\":false}\n",
+  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"cors\":[],\"service\":false,\"stdio\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -762,7 +762,7 @@
    "http://b",
    "--service"
   ],
-  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"0.0.0.0\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"cors\":[\"http://a\",\"http://b\"],\"service\":true,\"stdio\":false}\n",
+  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"0.0.0.0\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"cors\":[\"http://a\",\"http://b\"],\"service\":true,\"stdio\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -773,7 +773,7 @@
    "--port",
    "0"
   ],
-  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"cors\":[],\"service\":false,\"stdio\":true}\n",
+  "stdout": "HANDLER serve {\"hostname\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"port\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":0},\"cors\":[],\"service\":false,\"stdio\":true} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -783,7 +783,7 @@
    "run",
    "x"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -794,7 +794,7 @@
    "--log-level",
    "debug"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -804,7 +804,7 @@
    "debug",
    "paths"
   ],
-  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}}\n",
+  "stdout": "HANDLER paths {\"name\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -815,7 +815,7 @@
    "yes",
    "msg"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -825,7 +825,7 @@
    "--thinking",
    "msg"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -836,7 +836,7 @@
    "a",
    "x"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[\"a\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[\"a\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -846,7 +846,7 @@
    "-c=false",
    "x"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -855,7 +855,7 @@
    "run",
    "-5"
   ],
-  "stdout": "HANDLER run {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"message\":[\"-5\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"-5\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -864,7 +864,7 @@
    "pair",
    "-y"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":true}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":true} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -874,7 +874,7 @@
    "--remote",
    "--yes"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":true,\"yes\":true}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":true,\"yes\":true} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -883,7 +883,7 @@
    "pair",
    "--no-yes"
   ],
-  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":false}\n",
+  "stdout": "HANDLER pair {\"url\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"remote\":false,\"yes\":false} {\"server\":null,\"standalone\":null}\n",
   "stderr": "",
   "code": 0
  },
@@ -893,7 +893,273 @@
    "-m",
    "winget"
   ],
-  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"winget\"},\"yes\":false}\n",
+  "stdout": "HANDLER upgrade {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"method\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"winget\"},\"yes\":false} {\"server\":null,\"standalone\":null}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "list",
+   "--server",
+   "http://127.0.0.1:1"
+  ],
+  "stdout": "HANDLER list {\"maxCount\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"table\"} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "--server",
+   "http://127.0.0.1:1",
+   "list"
+  ],
+  "stdout": "HANDLER list {\"maxCount\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"table\"} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--server",
+   "http://127.0.0.1:1",
+   "session",
+   "list"
+  ],
+  "stdout": "HANDLER list {\"maxCount\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"table\"} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "models",
+   "--server",
+   "http://127.0.0.1:1"
+  ],
+  "stdout": "HANDLER models {} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "hello",
+   "--server",
+   "http://127.0.0.1:1"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hello\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "debug",
+   "--server",
+   "http://127.0.0.1:1",
+   "agents"
+  ],
+  "stdout": "HANDLER agents {} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "--server",
+   "http://127.0.0.1:1",
+   "auth",
+   "linear"
+  ],
+  "stdout": "HANDLER auth {\"name\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"linear\"}} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--server",
+   "http://127.0.0.1:1"
+  ],
+  "stdout": "HANDLER ocd {\"standalone\":false,\"server\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"http://127.0.0.1:1\"},\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false,\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":null}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "--standalone",
+   "run",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "auth",
+   "--standalone",
+   "list"
+  ],
+  "stdout": "HANDLER list {\"format\":\"default\"} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "debug",
+   "heap-dump",
+   "--server",
+   "http://x"
+  ],
+  "stdout": "HANDLER heap-dump {\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":\"http://x\",\"standalone\":null}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "list",
+   "--standalone",
+   "--builtin"
+  ],
+  "stdout": "HANDLER list {\"builtin\":true} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "check",
+   "--server",
+   "u"
+  ],
+  "stdout": "HANDLER check {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":\"u\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "plugin",
+   "update",
+   "--standalone"
+  ],
+  "stdout": "HANDLER update {\"target\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "reload",
+   "--standalone"
+  ],
+  "stdout": "HANDLER reload {} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "stats",
+   "--server",
+   "u",
+   "--json"
+  ],
+  "stdout": "HANDLER stats {\"days\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"year\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"all\":false,\"project\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"models\":false,\"tools\":false,\"cost\":false,\"full\":false,\"limit\":5,\"json\":true} {\"server\":\"u\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mini",
+   "--standalone"
+  ],
+  "stdout": "HANDLER mini {\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"replay\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"replayLimit\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"prompt\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"demo\":false} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "api",
+   "--server",
+   "u",
+   "server.info"
+  ],
+  "stdout": "HANDLER api {\"request\":[\"server.info\"],\"data\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"header\":[],\"param\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":\"u\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "debug",
+   "config",
+   "--standalone"
+  ],
+  "stdout": "HANDLER config {} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "list",
+   "--standalone"
+  ],
+  "stdout": "HANDLER list {} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "mcp",
+   "logout",
+   "x",
+   "--server",
+   "u"
+  ],
+  "stdout": "HANDLER logout {\"name\":\"x\"} {\"server\":\"u\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "delete",
+   "ses_1",
+   "--standalone"
+  ],
+  "stdout": "HANDLER delete {\"sessionID\":\"ses_1\"} {\"server\":null,\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "session",
+   "import",
+   "f.json",
+   "--server",
+   "u"
+  ],
+  "stdout": "HANDLER import {\"file\":\"f.json\",\"directory\":{\"_id\":\"Option\",\"_tag\":\"None\"}} {\"server\":\"u\",\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "auth",
+   "list",
+   "--standalone",
+   "--server",
+   "u"
+  ],
+  "stdout": "HANDLER list {\"format\":\"default\"} {\"server\":\"u\",\"standalone\":true}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-cs=ses",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  }

@@ -329,22 +329,18 @@ _ocd_api()
   case "$prev" in
   esac
 
-  local _used_0="" _used_1="" _used_2="" _used_3="" _used_4=""
+  local _used_0="" _used_1="" _used_2=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --data|-d) _used_2=1 ;;
-      --header|-H) _used_3=1 ;;
-      --param) _used_4=1 ;;
+      --data|-d) _used_0=1 ;;
+      --header|-H) _used_1=1 ;;
+      --param) _used_2=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --data -d"
-  [[ -n "$_used_3" ]] || _filtered_flags+=" --header -H"
-  [[ -n "$_used_4" ]] || _filtered_flags+=" --param"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --data -d"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --header -H"
+  [[ -n "$_used_2" ]] || _filtered_flags+=" --param"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -421,16 +417,14 @@ _ocd_debug_heap_dump()
   case "$prev" in
   esac
 
-  local _used_0="" _used_1=""
+  local _used_0=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
       --directory) _used_0=1 ;;
-      --server) _used_1=1 ;;
     esac
   done
   local _filtered_flags=""
   [[ -n "$_used_0" ]] || _filtered_flags+=" --directory"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -534,18 +528,14 @@ _ocd_auth_list()
       ;;
   esac
 
-  local _used_0="" _used_1="" _used_2=""
+  local _used_0=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --format) _used_2=1 ;;
+      --format) _used_0=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --format"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --format"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -565,20 +555,16 @@ _ocd_auth_login()
   case "$prev" in
   esac
 
-  local _used_0="" _used_1="" _used_2="" _used_3=""
+  local _used_0="" _used_1=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --method) _used_2=1 ;;
-      --answer) _used_3=1 ;;
+      --method) _used_0=1 ;;
+      --answer) _used_1=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --method"
-  [[ -n "$_used_3" ]] || _filtered_flags+=" --answer"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --method"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --answer"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -594,27 +580,6 @@ _ocd_auth_logout()
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
 
-  # Flag value completions
-  case "$prev" in
-  esac
-
-  local _used_0="" _used_1=""
-  for ((i = 1; i < cword; i++)); do
-    case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-    esac
-  done
-  local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-
-  # Complete flags (filtered) and subcommands
-  if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
-    return
-  fi
-
 }
 
 _ocd_auth_export()
@@ -622,27 +587,6 @@ _ocd_auth_export()
   local cur prev words cword i
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
-
-  # Flag value completions
-  case "$prev" in
-  esac
-
-  local _used_0="" _used_1=""
-  for ((i = 1; i < cword; i++)); do
-    case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-    esac
-  done
-  local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-
-  # Complete flags (filtered) and subcommands
-  if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
-    return
-  fi
 
 }
 
@@ -652,27 +596,6 @@ _ocd_auth_import()
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
 
-  # Flag value completions
-  case "$prev" in
-  esac
-
-  local _used_0="" _used_1=""
-  for ((i = 1; i < cword; i++)); do
-    case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-    esac
-  done
-  local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-
-  # Complete flags (filtered) and subcommands
-  if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
-    return
-  fi
-
 }
 
 _ocd_auth_switch()
@@ -680,27 +603,6 @@ _ocd_auth_switch()
   local cur prev words cword i
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
-
-  # Flag value completions
-  case "$prev" in
-  esac
-
-  local _used_0="" _used_1=""
-  for ((i = 1; i < cword; i++)); do
-    case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-    esac
-  done
-  local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-
-  # Complete flags (filtered) and subcommands
-  if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
-    return
-  fi
 
 }
 
@@ -908,27 +810,6 @@ _ocd_models()
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
 
-  # Flag value completions
-  case "$prev" in
-  esac
-
-  local _used_0="" _used_1=""
-  for ((i = 1; i < cword; i++)); do
-    case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-    esac
-  done
-  local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-
-  # Complete flags (filtered) and subcommands
-  if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
-    return
-  fi
-
 }
 
 _ocd_stats()
@@ -941,36 +822,32 @@ _ocd_stats()
   case "$prev" in
   esac
 
-  local _used_0="" _used_1="" _used_2="" _used_3="" _used_4="" _used_5="" _used_6="" _used_7="" _used_8="" _used_9="" _used_10="" _used_11=""
+  local _used_0="" _used_1="" _used_2="" _used_3="" _used_4="" _used_5="" _used_6="" _used_7="" _used_8="" _used_9=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --days) _used_2=1 ;;
-      --year) _used_3=1 ;;
-      --all|--no-all) _used_4=1 ;;
-      --project) _used_5=1 ;;
-      --models|--no-models) _used_6=1 ;;
-      --tools|--no-tools) _used_7=1 ;;
-      --cost|--no-cost) _used_8=1 ;;
-      --full|--no-full) _used_9=1 ;;
-      --limit) _used_10=1 ;;
-      --json|--no-json) _used_11=1 ;;
+      --days) _used_0=1 ;;
+      --year) _used_1=1 ;;
+      --all|--no-all) _used_2=1 ;;
+      --project) _used_3=1 ;;
+      --models|--no-models) _used_4=1 ;;
+      --tools|--no-tools) _used_5=1 ;;
+      --cost|--no-cost) _used_6=1 ;;
+      --full|--no-full) _used_7=1 ;;
+      --limit) _used_8=1 ;;
+      --json|--no-json) _used_9=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --days"
-  [[ -n "$_used_3" ]] || _filtered_flags+=" --year"
-  [[ -n "$_used_4" ]] || _filtered_flags+=" --all --no-all"
-  [[ -n "$_used_5" ]] || _filtered_flags+=" --project"
-  [[ -n "$_used_6" ]] || _filtered_flags+=" --models --no-models"
-  [[ -n "$_used_7" ]] || _filtered_flags+=" --tools --no-tools"
-  [[ -n "$_used_8" ]] || _filtered_flags+=" --cost --no-cost"
-  [[ -n "$_used_9" ]] || _filtered_flags+=" --full --no-full"
-  [[ -n "$_used_10" ]] || _filtered_flags+=" --limit"
-  [[ -n "$_used_11" ]] || _filtered_flags+=" --json --no-json"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --days"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --year"
+  [[ -n "$_used_2" ]] || _filtered_flags+=" --all --no-all"
+  [[ -n "$_used_3" ]] || _filtered_flags+=" --project"
+  [[ -n "$_used_4" ]] || _filtered_flags+=" --models --no-models"
+  [[ -n "$_used_5" ]] || _filtered_flags+=" --tools --no-tools"
+  [[ -n "$_used_6" ]] || _filtered_flags+=" --cost --no-cost"
+  [[ -n "$_used_7" ]] || _filtered_flags+=" --full --no-full"
+  [[ -n "$_used_8" ]] || _filtered_flags+=" --limit"
+  [[ -n "$_used_9" ]] || _filtered_flags+=" --json --no-json"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -990,32 +867,28 @@ _ocd_mini()
   case "$prev" in
   esac
 
-  local _used_0="" _used_1="" _used_2="" _used_3="" _used_4="" _used_5="" _used_6="" _used_7="" _used_8="" _used_9=""
+  local _used_0="" _used_1="" _used_2="" _used_3="" _used_4="" _used_5="" _used_6="" _used_7=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --continue|-c|--no-continue) _used_2=1 ;;
-      --session|-s) _used_3=1 ;;
-      --fork|--no-fork) _used_4=1 ;;
-      --replay|--no-replay) _used_5=1 ;;
-      --replay-limit) _used_6=1 ;;
-      --model|-m) _used_7=1 ;;
-      --agent) _used_8=1 ;;
-      --prompt) _used_9=1 ;;
+      --continue|-c|--no-continue) _used_0=1 ;;
+      --session|-s) _used_1=1 ;;
+      --fork|--no-fork) _used_2=1 ;;
+      --replay|--no-replay) _used_3=1 ;;
+      --replay-limit) _used_4=1 ;;
+      --model|-m) _used_5=1 ;;
+      --agent) _used_6=1 ;;
+      --prompt) _used_7=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --continue -c --no-continue"
-  [[ -n "$_used_3" ]] || _filtered_flags+=" --session -s"
-  [[ -n "$_used_4" ]] || _filtered_flags+=" --fork --no-fork"
-  [[ -n "$_used_5" ]] || _filtered_flags+=" --replay --no-replay"
-  [[ -n "$_used_6" ]] || _filtered_flags+=" --replay-limit"
-  [[ -n "$_used_7" ]] || _filtered_flags+=" --model -m"
-  [[ -n "$_used_8" ]] || _filtered_flags+=" --agent"
-  [[ -n "$_used_9" ]] || _filtered_flags+=" --prompt"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --continue -c --no-continue"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --session -s"
+  [[ -n "$_used_2" ]] || _filtered_flags+=" --fork --no-fork"
+  [[ -n "$_used_3" ]] || _filtered_flags+=" --replay --no-replay"
+  [[ -n "$_used_4" ]] || _filtered_flags+=" --replay-limit"
+  [[ -n "$_used_5" ]] || _filtered_flags+=" --model -m"
+  [[ -n "$_used_6" ]] || _filtered_flags+=" --agent"
+  [[ -n "$_used_7" ]] || _filtered_flags+=" --prompt"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -1039,36 +912,32 @@ _ocd_run()
       ;;
   esac
 
-  local _used_0="" _used_1="" _used_2="" _used_3="" _used_4="" _used_5="" _used_6="" _used_7="" _used_8="" _used_9="" _used_10="" _used_11=""
+  local _used_0="" _used_1="" _used_2="" _used_3="" _used_4="" _used_5="" _used_6="" _used_7="" _used_8="" _used_9=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --continue|-c|--no-continue) _used_2=1 ;;
-      --session|-s) _used_3=1 ;;
-      --fork|--no-fork) _used_4=1 ;;
-      --model|-m) _used_5=1 ;;
-      --agent) _used_6=1 ;;
-      --format) _used_7=1 ;;
-      --file|-f) _used_8=1 ;;
-      --title) _used_9=1 ;;
-      --thinking|--no-thinking) _used_10=1 ;;
-      --auto|--no-auto) _used_11=1 ;;
+      --continue|-c|--no-continue) _used_0=1 ;;
+      --session|-s) _used_1=1 ;;
+      --fork|--no-fork) _used_2=1 ;;
+      --model|-m) _used_3=1 ;;
+      --agent) _used_4=1 ;;
+      --format) _used_5=1 ;;
+      --file|-f) _used_6=1 ;;
+      --title) _used_7=1 ;;
+      --thinking|--no-thinking) _used_8=1 ;;
+      --auto|--no-auto) _used_9=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --continue -c --no-continue"
-  [[ -n "$_used_3" ]] || _filtered_flags+=" --session -s"
-  [[ -n "$_used_4" ]] || _filtered_flags+=" --fork --no-fork"
-  [[ -n "$_used_5" ]] || _filtered_flags+=" --model -m"
-  [[ -n "$_used_6" ]] || _filtered_flags+=" --agent"
-  [[ -n "$_used_7" ]] || _filtered_flags+=" --format"
-  [[ -n "$_used_8" ]] || _filtered_flags+=" --file -f"
-  [[ -n "$_used_9" ]] || _filtered_flags+=" --title"
-  [[ -n "$_used_10" ]] || _filtered_flags+=" --thinking --no-thinking"
-  [[ -n "$_used_11" ]] || _filtered_flags+=" --auto --no-auto"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --continue -c --no-continue"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --session -s"
+  [[ -n "$_used_2" ]] || _filtered_flags+=" --fork --no-fork"
+  [[ -n "$_used_3" ]] || _filtered_flags+=" --model -m"
+  [[ -n "$_used_4" ]] || _filtered_flags+=" --agent"
+  [[ -n "$_used_5" ]] || _filtered_flags+=" --format"
+  [[ -n "$_used_6" ]] || _filtered_flags+=" --file -f"
+  [[ -n "$_used_7" ]] || _filtered_flags+=" --title"
+  [[ -n "$_used_8" ]] || _filtered_flags+=" --thinking --no-thinking"
+  [[ -n "$_used_9" ]] || _filtered_flags+=" --auto --no-auto"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -1133,20 +1002,16 @@ _ocd_session_list()
       ;;
   esac
 
-  local _used_0="" _used_1="" _used_2="" _used_3=""
+  local _used_0="" _used_1=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --max-count|-n) _used_2=1 ;;
-      --format) _used_3=1 ;;
+      --max-count|-n) _used_0=1 ;;
+      --format) _used_1=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --max-count -n"
-  [[ -n "$_used_3" ]] || _filtered_flags+=" --format"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --max-count -n"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --format"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -1162,27 +1027,6 @@ _ocd_session_delete()
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
 
-  # Flag value completions
-  case "$prev" in
-  esac
-
-  local _used_0="" _used_1=""
-  for ((i = 1; i < cword; i++)); do
-    case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-    esac
-  done
-  local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-
-  # Complete flags (filtered) and subcommands
-  if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
-    return
-  fi
-
 }
 
 _ocd_session_export()
@@ -1191,22 +1035,14 @@ _ocd_session_export()
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
 
-  # Flag value completions
-  case "$prev" in
-  esac
-
-  local _used_0="" _used_1="" _used_2=""
+  local _used_0=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --sanitize|--no-sanitize) _used_2=1 ;;
+      --sanitize|--no-sanitize) _used_0=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --sanitize --no-sanitize"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --sanitize --no-sanitize"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -1226,18 +1062,14 @@ _ocd_session_import()
   case "$prev" in
   esac
 
-  local _used_0="" _used_1="" _used_2=""
+  local _used_0=""
   for ((i = 1; i < cword; i++)); do
     case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-      --directory) _used_2=1 ;;
+      --directory) _used_0=1 ;;
     esac
   done
   local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-  [[ -n "$_used_2" ]] || _filtered_flags+=" --directory"
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --directory"
 
   # Complete flags (filtered) and subcommands
   if [[ "$cur" == -* ]]; then
@@ -1361,27 +1193,6 @@ _ocd_reload()
   local cur prev words cword i
   local _command_index="$1"
   _init_completion -n "$COMP_WORDBREAKS" || return
-
-  # Flag value completions
-  case "$prev" in
-  esac
-
-  local _used_0="" _used_1=""
-  for ((i = 1; i < cword; i++)); do
-    case "${words[i]%%=*}" in
-      --standalone|--no-standalone) _used_0=1 ;;
-      --server) _used_1=1 ;;
-    esac
-  done
-  local _filtered_flags=""
-  [[ -n "$_used_0" ]] || _filtered_flags+=" --standalone --no-standalone"
-  [[ -n "$_used_1" ]] || _filtered_flags+=" --server"
-
-  # Complete flags (filtered) and subcommands
-  if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
-    return
-  fi
 
 }
 
