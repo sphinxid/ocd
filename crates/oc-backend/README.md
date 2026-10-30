@@ -130,11 +130,18 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `switchAgent`, `switchModel`, `experimental.session.wait`, `revert.commit`, instruction entries,
   `interrupt` and `background` only look the session up; `project.list`/`update` and
   `permission.saved.update`/`remove` take no location; a form poll of an unloaded location answers `[]`.
+  The events these session routes publish (`session.renamed`, `session.metadata.updated`,
+  `session.permissions`, `session.archived`/`unarchived`, `session.agent.selected`, `session.model.selected`,
+  `session.forked`, `session.revert.committed`, the background notice's inbox events) carry no envelope
+  `location` (`oc_core::bus::without_location`); plugins still receive them in the session's location.
+* **MCP at boot**: a booted location starts its MCP servers before the `*.updated` burst, so each server's
+  `disabled`/`pending` `mcp.status.changed` precedes it, as upstream's MCP State notifies first.
 * **location shutdown**: `debug.location.evict`, `vcs.init` and `location.reload` evict through
   `runner.close_location` (pending permissions rejected, forms cancelled, MCP stopped, watcher
   stopped) before publishing `location.shutdown`; `config.updated` only drops cached services.
 * **skills** come from `oc_core::skills::list` (built-ins, configured and remote sources,
-  compatibility roots).
+  compatibility roots). `opencode.browser` adds the built-in `browser` skill after the plugins' skills and
+  denies it, with the browser tools, to every agent (plugin-browser/src/skill.ts, connection.ts).
 * **restart recovery**: `run_server` calls `runner.resume_suspended()` after the server is ready.
 * **forms** (`app.forms`): `session.form.list/create/get/cancel/reply` (ownership check,
   `global` sentinel, upstream tags: Conflict / InvalidRequest{field:"fields"} /

@@ -164,12 +164,14 @@ impl Backend for Engine {
 
     async fn session_switch_agent(&self, _ctx: &RequestContext, req: SessionSwitchAgentRequest) -> Result<(), ApiError> {
         self.session(&req.session_id)?;
-        self.app.sessions.switch_agent(&req.session_id, &req.body.agent).map_err(session_error)
+        // `session.switchAgent` and `session.switchModel` run outside any location since 2.2.
+        oc_core::bus::without_location(|| self.app.sessions.switch_agent(&req.session_id, &req.body.agent)).map_err(session_error)
     }
 
     async fn session_switch_model(&self, _ctx: &RequestContext, req: SessionSwitchModelRequest) -> Result<(), ApiError> {
         self.session(&req.session_id)?;
-        self.app.sessions.switch_model(&req.session_id, conv(req.body.model)?).map_err(session_error)
+        let model = conv(req.body.model)?;
+        oc_core::bus::without_location(|| self.app.sessions.switch_model(&req.session_id, model)).map_err(session_error)
     }
 
     async fn session_move(&self, _ctx: &RequestContext, req: SessionMoveRequest) -> Result<(), ApiError> {

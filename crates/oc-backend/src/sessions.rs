@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use oc_core::bus::without_location as unlocated;
 use oc_core::inbox::{self, Scope};
 use oc_core::session::{CreateInput, PromptInput, SessionError};
 use oc_schema::event::{Delivery, InboxItem, InstructionEntryValue, SessionEvent};
@@ -113,17 +114,19 @@ impl Engine {
                     None => tracing::debug!(session = id, "title generation requested but no session runner is installed"),
                 }
             } else {
-                self.app.sessions.rename(id, &title).map_err(session_error)?;
+                unlocated(|| self.app.sessions.rename(id, &title)).map_err(session_error)?;
             }
         }
         if let Some(m) = body.metadata {
-            self.app.sessions.set_metadata(id, conv(m)?).map_err(session_error)?;
+            let metadata = conv(m)?;
+            unlocated(|| self.app.sessions.set_metadata(id, metadata)).map_err(session_error)?;
         }
         if let Some(p) = body.permissions {
-            self.app.sessions.set_permissions(id, conv(p)?).map_err(session_error)?;
+            let permissions = conv(p)?;
+            unlocated(|| self.app.sessions.set_permissions(id, permissions)).map_err(session_error)?;
         }
         if let Some(archived) = body.archived {
-            let result = if archived { self.app.sessions.archive(id) } else { self.app.sessions.unarchive(id) };
+            let result = unlocated(|| if archived { self.app.sessions.archive(id) } else { self.app.sessions.unarchive(id) });
             result.map_err(session_error)?;
         }
         Ok(())
@@ -163,9 +166,9 @@ impl Engine {
             .into_iter()
             .map(|(key, value, removed)| InstructionEntryValue { key, value, removed })
             .collect();
-        self.app
-            .bus
-            .commit_one(SessionEvent::Forked {
+        // The fork route runs outside any location since 2.2, so `session.forked` carries none.
+        unlocated(|| {
+            self.app.bus.commit_one(SessionEvent::Forked {
                 session_id: new_id.clone(),
                 parent_id: parent.id.clone(),
                 boundary: ForkBoundary {
@@ -175,7 +178,8 @@ impl Engine {
                 instructions,
                 instruction_entries: Some(entries),
             })
-            .map_err(|e| defect(format!("{e:#}")))?;
+        })
+        .map_err(|e| defect(format!("{e:#}")))?;
         let s = self.session(&new_id).map_err(|_| defect("forked session missing"))?;
         self.session_api(&s)
     }
@@ -597,7 +601,8 @@ impl Engine {
             return Err(ApiError::session_busy(id));
         }
         tracing::info!(session = id, "session.revert.commit");
-        self.app.sessions.commit_revert(&session).map_err(|e| defect(format!("{e:#}")))
+        // The route runs outside any location since 2.2 (unlike a commit staged by the next prompt).
+        unlocated(|| self.app.sessions.commit_revert(&session)).map_err(|e| defect(format!("{e:#}")))
     }
 
     /// `SessionDiff.turn`.
@@ -916,9 +921,8 @@ impl Engine {
         }
         lines.push(String::new());
         lines.push("The backgrounded work is still unfinished. Move on to other work if you can. If there is nothing else useful to do, finish your response. Do not wait, sleep, poll, or report the backgrounded work as complete until a later completion notification is added to the conversation.".to_string());
-        self.app
-            .sessions
-            .synthetic(id, None, lines.join("\n"), None, None, None)
+        // The route runs outside any location since 2.2, so the admitted input's events carry none.
+        oc_core::bus::without_location_async(self.app.sessions.synthetic(id, None, lines.join("\n"), None, None, None))
             .await
             .map_err(session_error)?;
         if self.session(id)?.revert.is_none() {

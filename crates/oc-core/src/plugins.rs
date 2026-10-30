@@ -466,10 +466,10 @@ impl Plugins {
                         if !host.wants_events() {
                             continue;
                         }
-                        let location = env
-                            .location
-                            .as_ref()
-                            .map(|l| LocationRef { directory: l.directory.clone(), workspace_id: l.workspace_id.clone() });
+                        let location = plugins
+                            .bus
+                            .route(&env)
+                            .map(|l| LocationRef { directory: l.directory, workspace_id: l.workspace_id });
                         let wire = serde_json::to_value(&*env).unwrap_or(Value::Null);
                         host.publish_event(location.as_ref(), &wire);
                     }

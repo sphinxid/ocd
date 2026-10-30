@@ -17,14 +17,32 @@ thread_local! {
     static NO_LOCATION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Runs `f` with ephemeral events published without a location. Plugin code publishes outside a
-/// location's service scope upstream (e.g. `context.progress` of a plugin tool), so its events
-/// carry none.
+tokio::task_local! {
+    static NO_LOCATION_TASK: ();
+}
+
+/// Runs `f` with events (ephemeral and durable) published without a location. Upstream's
+/// `bus.publish` takes the envelope location from the ambient Location service, so code that runs
+/// outside one publishes none: plugin code (e.g. `context.progress` of a plugin tool) and the
+/// session routes that have no location middleware since 2.2 (`session.update`, `session.fork`,
+/// `session.switchAgent`, `session.switchModel`, `session.revert.commit`, `session.background`;
+/// protocol/src/groups/session.ts).
 pub fn without_location<R>(f: impl FnOnce() -> R) -> R {
     let previous = NO_LOCATION.with(|c| c.replace(true));
     let out = f();
     NO_LOCATION.with(|c| c.set(previous));
     out
+}
+
+/// [`without_location`] for a future: events the future publishes from its own task carry no
+/// location (tasks it spawns are not affected, like work upstream forks into a location's scope).
+pub async fn without_location_async<F: std::future::Future>(f: F) -> F::Output {
+    NO_LOCATION_TASK.scope((), f).await
+}
+
+/// Whether the caller publishes outside any location (see [`without_location`]).
+fn unlocated() -> bool {
+    NO_LOCATION.with(|c| c.get()) || NO_LOCATION_TASK.try_with(|_| ()).is_ok()
 }
 
 #[derive(Clone)]
@@ -74,9 +92,24 @@ impl Bus {
             .flatten()
     }
 
+    /// The location a live subscriber scoped to one location receives `env` in: its envelope location, or
+    /// for an unlocated session event the session's owner (the parent for `session.forked`), as
+    /// upstream's `Bus.subscribe` routes them (core/src/bus.ts `prepareRoutes`). `None` reaches every location.
+    pub fn route(&self, env: &Envelope) -> Option<LocationRef> {
+        if let Some(location) = &env.location {
+            return Some(location.clone());
+        }
+        if !env.kind.starts_with("session.") {
+            return None;
+        }
+        let key = if env.kind == "session.forked" { "parentID" } else { "sessionID" };
+        let owner = env.data.get(key).and_then(Value::as_str)?;
+        self.session_location(owner)
+    }
+
     /// Ephemeral event (never stored).
     pub fn publish(&self, kind: &str, data: Value, location: Option<LocationRef>) -> Event {
-        let location = if NO_LOCATION.with(|c| c.get()) { None } else { location };
+        let location = if unlocated() { None } else { location };
         let env = Arc::new(Envelope {
             id: oc_schema::id::event(),
             created: oc_schema::id::now_ms(),
@@ -126,6 +159,7 @@ impl Bus {
         let after = self.session_location(&session);
         let mut out = Vec::with_capacity(events.len());
         let mut usage = false;
+        let unlocated = unlocated();
         for ((e, id), seq) in events.into_iter().zip(ids).zip(seqs) {
             usage |= matches!(
                 &e.event,
@@ -137,6 +171,8 @@ impl Bus {
             // Execution lifecycle events come from the global coordinator upstream (no Location service in
             // context), so their envelopes carry no location.
             let location = match &e.event {
+                // Published outside any Location scope (see `without_location`).
+                _ if unlocated => None,
                 SessionEvent::ExecutionStarted { .. }
                 | SessionEvent::ExecutionSucceeded { .. }
                 | SessionEvent::ExecutionFailed { .. }
