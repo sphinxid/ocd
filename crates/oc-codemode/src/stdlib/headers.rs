@@ -112,12 +112,10 @@ fn is_http_whitespace(c: u16) -> bool {
 }
 
 /// A validated header name, lowercased.
-fn header_name(name: &JsStr, method: &str) -> JsResult<String> {
+fn header_name(name: &JsStr, _method: &str) -> JsResult<String> {
     let units = name.units();
     if units.is_empty() || !units.iter().all(|&c| is_token_char(c)) {
-        // Bun's `has` closes the quote with a double quote.
-        let close = if method == "has" { "\"" } else { "'" };
-        return Err(type_error(format!("Invalid header name: '{}{close}", name.to_rust())));
+        return Err(type_error(format!("Invalid header name: '{}'", name.to_rust())));
     }
     Ok(name.to_rust().to_ascii_lowercase())
 }
@@ -130,7 +128,7 @@ fn header_value(name: &JsStr, value: &JsStr) -> JsResult<String> {
     let trimmed = &units[start..end.max(start)];
     let text = String::from_utf16_lossy(trimmed);
     if trimmed.iter().any(|&c| c == 0 || c == 0x0A || c == 0x0D || c > 0xFF) {
-        return Err(type_error(format!("Header '{}' has invalid value: '{text}'", name.to_rust())));
+        return Err(type_error(format!("Header '{}' has invalid value", name.to_rust())));
     }
     Ok(text)
 }

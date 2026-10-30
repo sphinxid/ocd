@@ -227,7 +227,16 @@ fn doc_tags(schema: &Map<String, Json>) -> Vec<String> {
     if type_str(schema) == Some("integer") {
         tags.push("@integer".into());
     }
+    // Effect 4.0.6 bounds every integer by the safe-integer range; those bounds say nothing.
+    let integer = type_str(schema) == Some("integer");
     for key in ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength"] {
+        let bound = schema.get(key).and_then(|v| v.as_f64());
+        if integer
+            && ((key == "minimum" && bound == Some(-9007199254740991.0))
+                || (key == "maximum" && bound == Some(9007199254740991.0)))
+        {
+            continue;
+        }
         if let Some(n) = schema.get(key).and_then(js_number) {
             tags.push(format!("@{key} {n}"));
         }
@@ -398,10 +407,13 @@ fn render(schema: &Json, ctx: &Ctx, depth: usize, seen: &HashSet<String>) -> Str
         some => some,
     };
     if let Some(alternatives) = alternatives {
-        let items: Vec<Json> = match alternatives {
+        let mut items: Vec<Json> = match alternatives {
             Json::Array(a) => a.clone(),
             _ => Vec::new(),
         };
+        if items.iter().any(|i| type_str(obj(i)) == Some("number")) {
+            items.retain(|i| !effect_number_sentinel(obj(i)));
+        }
         if items.iter().any(|i| type_str(obj(i)) == Some("number"))
             && items.iter().all(|i| type_str(obj(i)) == Some("number") || effect_number_sentinel(obj(i)))
         {

@@ -4,6 +4,9 @@
 //! (including the WPT forgiving-base64 fixture), plus URL input and setter matrices that pin Bun's WebKit URL
 //! behavior, and edge cases for coercion, receivers, live iteration, and error texts.
 
+#[path = "common/dump.rs"]
+mod dump;
+
 use std::sync::Arc;
 
 use oc_codemode::codemode::{CodeMode, ExecutionLimits};
@@ -18,6 +21,7 @@ fn check(cases: &[(&str, &str)]) {
     let runtime = CodeMode::new(Vec::new(), Arc::new(NoTools), Vec::new(), ExecutionLimits::default()).unwrap();
     let mut failures = Vec::new();
     for (code, expected) in cases {
+        dump::case("stdlib_web", code, expected);
         let result = runtime.execute_blocking(code);
         let actual = serde_json::to_string(&result.to_json()).unwrap();
         if normalize(&actual) != normalize(expected) {
@@ -828,7 +832,7 @@ return { headers, json: JSON.stringify({ headers }), text: `${headers}`, type: t
             r####"function message(run) { try { run(); return null } catch (error) { return error instanceof TypeError ? error.message : error } }
 const headers = new Headers()
 return [message(() => Headers()), message(() => new Headers(null)), message(() => new Headers(1)), message(() => new Headers("a=1")), message(() => new Headers(new Set(["ab"]))), message(() => new Headers(() => 1)), message(() => new Headers([["name"]])), message(() => new Headers([["a", "b", "c"]])), message(() => new Headers({ "bad name": "x" })), message(() => new Headers({ name: "bad\u0000value" })), message(() => headers.get("invalid\u0100")), message(() => headers.has({})), message(() => headers.set("a", "invalid\u0100")), message(() => headers.append("a")), message(() => headers.forEach()), message(() => headers.forEach(1)), message(() => { const get = headers.get; return get("a") }), message(() => new Headers(tools)), message(() => new Headers(Symbol.iterator)), message(() => headers.delete("a b")), message(() => headers.set("A-B", " x\ny ")), message(() => new Headers([["x", "a\u0100"]]))]"####,
-            r####"{"ok":true,"value":["Constructor Headers requires 'new'.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.",null,"new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","new Headers(...) expects iterable [name, value] pairs.","new Headers(...) expects iterable [name, value] pairs.","Invalid header name: 'bad name'","Header 'name' has invalid value: 'bad\u0000value'","Invalid header name: 'invalidĀ'","Invalid header name: '[object Object]\"","Header 'a' has invalid value: 'invalidĀ'","Headers.append requires 2 arguments.","Headers.forEach requires 1 argument.","Headers.forEach expects a function callback.","Headers.prototype.get called on incompatible receiver undefined.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","Invalid header name: 'a b'","Header 'A-B' has invalid value: 'x\ny'","Header 'x' has invalid value: 'aĀ'"],"toolCalls":[]}"####,
+            r####"{"ok":true,"value":["Constructor Headers requires 'new'.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.",null,"new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","new Headers(...) expects iterable [name, value] pairs.","new Headers(...) expects iterable [name, value] pairs.","Invalid header name: 'bad name'","Header 'name' has invalid value","Invalid header name: 'invalidĀ'","Invalid header name: '[object Object]'","Header 'a' has invalid value","Headers.append requires 2 arguments.","Headers.forEach requires 1 argument.","Headers.forEach expects a function callback.","Headers.prototype.get called on incompatible receiver undefined.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","new Headers(...) expects a record of names to values, iterable [name, value] pairs, or Headers.","Invalid header name: 'a b'","Header 'A-B' has invalid value","Header 'x' has invalid value"],"toolCalls":[]}"####,
         ),
         (
             r####"const h = new Headers([["Set-Cookie","a=1"],["z","1"],["a","2"],["set-cookie","b=2"],["Cookie","c"],["cookie","d"], ["A","3"], ["x-a", "  \t v  "]])
@@ -992,7 +996,7 @@ for (const v of ["  a  ", "\ta\t", "\na\r", " ", "a b", "aÿ", "\u0080", "a\rb",
 for (const n of ["", " a", "a:", "aé", "ok-Name_1!#$%&'*+.^`|~", "(", "a/b", "[x]", "a\"b", "{"]) out.push(m(() => { h.set(n, "v"); return h.get(n) }))
 out.push(m(() => h.get("a b")), m(() => h.has("a b")), m(() => h.delete("a b")), m(() => h.has("")), m(() => h.get("")), m(() => h.append("", "x")), m(() => new Headers({ "": "x" })), m(() => new Headers([["", "x"]])), m(() => new Headers({ a: "\n" }).get("a")))
 return out"####,
-            r####"{"ok":true,"value":["a","a","a","","a b","aÿ","","TypeError: Header 'x' has invalid value: 'a\rb'","TypeError: Header 'x' has invalid value: 'a\u0000'","a\u000bb","TypeError: Header 'x' has invalid value: 'xĀ'","TypeError: Invalid header name: ''","TypeError: Invalid header name: ' a'","TypeError: Invalid header name: 'a:'","TypeError: Invalid header name: 'aé'","v","TypeError: Invalid header name: '('","TypeError: Invalid header name: 'a/b'","TypeError: Invalid header name: '[x]'","TypeError: Invalid header name: 'a\"b'","TypeError: Invalid header name: '{'","TypeError: Invalid header name: 'a b'","TypeError: Invalid header name: 'a b\"","TypeError: Invalid header name: 'a b'","TypeError: Invalid header name: '\"","TypeError: Invalid header name: ''","TypeError: Invalid header name: ''","TypeError: Invalid header name: ''","TypeError: Invalid header name: ''",""],"toolCalls":[]}"####,
+            r####"{"ok":true,"value":["a","a","a","","a b","aÿ","","TypeError: Header 'x' has invalid value","TypeError: Header 'x' has invalid value","a\u000bb","TypeError: Header 'x' has invalid value","TypeError: Invalid header name: ''","TypeError: Invalid header name: ' a'","TypeError: Invalid header name: 'a:'","TypeError: Invalid header name: 'aé'","v","TypeError: Invalid header name: '('","TypeError: Invalid header name: 'a/b'","TypeError: Invalid header name: '[x]'","TypeError: Invalid header name: 'a\"b'","TypeError: Invalid header name: '{'","TypeError: Invalid header name: 'a b'","TypeError: Invalid header name: 'a b'","TypeError: Invalid header name: 'a b'","TypeError: Invalid header name: ''","TypeError: Invalid header name: ''","TypeError: Invalid header name: ''","TypeError: Invalid header name: ''","TypeError: Invalid header name: ''",""],"toolCalls":[]}"####,
         ),
         (
             r####"const h = new Headers()

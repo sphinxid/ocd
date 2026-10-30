@@ -4,6 +4,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
+
 use super::coerce::coerce_to_string;
 use super::errors::{type_error, ErrorType, JsResult, Thrown};
 use super::function::{native, NResult, NativeFn};
@@ -199,7 +201,11 @@ impl Drop for ExtensionGuard {
     }
 }
 
-/// A host function as a program function. A global's calls run inside the host's extension hooks.
+/// A host function as a program function. Arguments cross in; for a global, the `extension.before` hook runs before
+/// the host function is called, so a call it denies never reaches the host. The host's result, or what it threw,
+/// crosses out so the program catches a copy, and `extension.after` sees how the call ended. Functions inside
+/// results are part of a value's API and skip the hooks. A denied call fails the way the global would: an async
+/// global rejects its promise, a sync one throws.
 pub fn wrap(rt: &Rt, f: Arc<dyn HostFunction>, label: &str, extension: Option<String>) -> Value {
     let label = label.to_string();
     let name = f.name().to_string();
@@ -217,58 +223,39 @@ pub fn wrap(rt: &Rt, f: Arc<dyn HostFunction>, label: &str, extension: Option<St
                         Err(e) => return NResult::err(e),
                     }
                 }
-                let (rt2, f2, label2, extension2) = (rt.clone(), f.clone(), label.clone(), extension.clone());
-                let settle = move |rt: &Rt, result: Result<HostValue, HostValue>| -> JsResult<Value> {
-                    match result {
-                        Ok(v) => from_host(rt, &v, &label2, 0),
-                        Err(reason) => Err(Thrown::Value(from_host(rt, &reason, &label2, 0)?)),
+                let host = rt.tools.host.clone();
+                let invocation = extension.as_ref().map(|extension| ExtensionInvocation {
+                    id: rt.tools.next_call_id(),
+                    extension: extension.clone(),
+                    name: label.clone(),
+                    args: args.clone(),
+                });
+                let hooked = Hooked { host, invocation, label: label.clone() };
+                if f.asynchronous() {
+                    let f = f.clone();
+                    let work: BoxFuture<'static, Result<HostValue, HostValue>> = Box::pin(async move {
+                        hooked.before().await?;
+                        let called = f.call(args);
+                        hooked.settle(called).await
+                    });
+                    return NResult::Ready(pending(rt, work, label.clone(), site.node));
+                }
+                if let Err(reason) = hooked.blocking_before(rt) {
+                    return NResult::err(reason);
+                }
+                match f.call(args) {
+                    HostCall::Pending(work) => {
+                        let work: BoxFuture<'static, Result<HostValue, HostValue>> =
+                            Box::pin(async move { hooked.settle(HostCall::Pending(work)).await });
+                        NResult::Ready(pending(rt, work, label.clone(), site.node))
                     }
-                };
-                match extension2 {
-                    None => match f2.call(args) {
-                        HostCall::Ready(r) => NResult::Ready(settle(&rt2, r)),
-                        HostCall::Pending(fut) => {
-                            let rt3 = rt2.clone();
-                            NResult::Ready(
-                                rt2.pending
-                                    .create(&rt2, site, Box::pin(async move { settle(&rt3, fut.await) }))
-                                    .map(Value::Object),
-                            )
-                        }
-                    },
-                    Some(extension) => {
-                        let host = rt2.tools.host.clone();
-                        let invocation = ExtensionInvocation {
-                            id: rt2.tools.next_call_id(),
-                            extension,
-                            name: label.clone(),
-                            args: args.clone(),
-                        };
-                        // The host function runs first, as upstream calls it before wrapping it in the hooks.
-                        let called = f2.call(args);
-                        let is_promise = matches!(called, HostCall::Pending(_));
-                        let hooked = async move {
-                            host.extension_before(&invocation).await?;
-                            let mut guard = ExtensionGuard { host: host.clone(), call: Some(invocation) };
-                            let result = match called {
-                                HostCall::Ready(r) => r,
-                                HostCall::Pending(fut) => fut.await,
-                            };
-                            let call = guard.call.take().unwrap();
-                            let observed = match &result {
-                                Ok(_) => CallResult::Success(None),
-                                Err(e) => CallResult::Failure(format!("{e:?}")),
-                            };
-                            host.extension_after(&call, &observed);
-                            result
-                        };
-                        let rt3 = rt2.clone();
-                        let settled = async move { settle(&rt3, hooked.await) };
-                        if is_promise {
-                            NResult::Ready(rt2.pending.create(&rt2, site, Box::pin(settled)).map(Value::Object))
-                        } else {
-                            NResult::future(settled)
-                        }
+                    ready => {
+                        let settled = rt.runner.block_on(rt, hooked.settle(ready));
+                        NResult::Ready(match settled {
+                            Err(e) => Err(e),
+                            Ok(Ok(v)) => from_host(rt, &v, &label, 0),
+                            Ok(Err(reason)) => Err(cross(rt, &reason, &label)),
+                        })
                     }
                 }
             }),
@@ -276,6 +263,78 @@ pub fn wrap(rt: &Rt, f: Arc<dyn HostFunction>, label: &str, extension: Option<St
             callback: true,
         },
     ))
+}
+
+/// What the host threw, as the program catches it.
+fn cross(rt: &Rt, reason: &HostValue, label: &str) -> Thrown {
+    match from_host(rt, reason, label, 0) {
+        Ok(v) => Thrown::Value(v),
+        Err(e) => e,
+    }
+}
+
+/// The hooks around one call (none for functions inside results).
+struct Hooked {
+    host: Arc<dyn crate::host::Host>,
+    invocation: Option<ExtensionInvocation>,
+    label: String,
+}
+
+impl Hooked {
+    async fn before(&self) -> Result<(), HostValue> {
+        match &self.invocation {
+            Some(call) => self.host.extension_before(call).await,
+            None => Ok(()),
+        }
+    }
+
+    // The `before` hook of a synchronous global holds the current job.
+    fn blocking_before(&self, rt: &Rt) -> JsResult<()> {
+        if self.invocation.is_none() {
+            return Ok(());
+        }
+        match rt.runner.block_on(rt, self.before())? {
+            Ok(()) => Ok(()),
+            Err(reason) => Err(cross(rt, &reason, &self.label)),
+        }
+    }
+
+    // The host's outcome, with `extension.after` observing how the call ended.
+    async fn settle(self, called: HostCall) -> Result<HostValue, HostValue> {
+        let mut guard = ExtensionGuard { host: self.host.clone(), call: self.invocation };
+        let result = match called {
+            HostCall::Ready(r) => r,
+            HostCall::Pending(work) => work.await,
+        };
+        if let Some(call) = guard.call.take() {
+            let observed = match &result {
+                Ok(_) => CallResult::Success(None),
+                Err(e) => CallResult::Failure(format!("{e:?}")),
+            };
+            self.host.extension_after(&call, &observed);
+        }
+        result
+    }
+}
+
+// An asynchronous host call: the program holds a promise that settles when the host's work does.
+fn pending(rt: &Rt, work: BoxFuture<'static, Result<HostValue, HostValue>>, label: String, site: Option<crate::ast::Loc>) -> JsResult<Value> {
+    let promise = rt.runner.new_promise(rt)?;
+    let resolving = rt.runner.resolving(&promise, site);
+    rt.runner.host(Box::pin(async move {
+        let outcome = work.await;
+        Box::new(move || {
+            let rt = super::rt();
+            match outcome {
+                Ok(v) => match from_host(&rt, &v, &label, 0) {
+                    Ok(value) => resolving.resolve(&rt, value),
+                    Err(e) => resolving.reject(&rt, e),
+                },
+                Err(reason) => resolving.reject(&rt, cross(&rt, &reason, &label)),
+            }
+        }) as Box<dyn FnOnce()>
+    }));
+    Ok(Value::Object(promise))
 }
 
 

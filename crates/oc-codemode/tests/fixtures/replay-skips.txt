@@ -2,4 +2,3 @@
 # Format: <test file>\t<seq>\t<reason>
 promise.test.ts	64	upstream waits for an uninterruptible tool cleanup (400 ms) past the timeout; Rust host futures are dropped immediately, so no TimeoutExceeded warning
 promise.test.ts	65	same as seq 64 (uninterruptible tool cleanup past the timeout)
-errors.test.ts	29	recorded on 2.0.26, where the host stack overflowed first; since 2.1 (jobs run to completion) upstream reports the located call-depth error, covered by tests/upstream_2_1.rs

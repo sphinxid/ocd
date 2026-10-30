@@ -40,6 +40,7 @@
 {"file":"array-callbacks-test262.test.ts","test":"Test262 Array callback adaptations > test/built-ins/Array/prototype/toSorted/comparefn-default.js","counts":{"execute":1}}
 {"file":"array-callbacks-test262.test.ts","test":"Test262 Array callback adaptations > test/built-ins/Array/prototype/toSorted/immutable.js","counts":{"execute":1}}
 {"file":"array-callbacks-test262.test.ts","test":"Test262 Array callback adaptations > test/built-ins/Array/prototype/toSorted/zero-or-one-element.js","counts":{"execute":1}}
+{"file":"array-callbacks-test262.test.ts","test":"Array callback regressions > flatMap skips holes in callback results while retaining explicit undefined","counts":{"execute":1}}
 {"file":"array-callbacks-test262.test.ts","test":"Array callback regressions > reduce and reduceRight find the first present element","counts":{"execute":1}}
 {"file":"array-callbacks-test262.test.ts","test":"Array callback regressions > reduce and reduceRight reject arrays containing only holes","counts":{"execute":1}}
 {"file":"array-callbacks-test262.test.ts","test":"Array callback regressions > findLast returns the value observed before predicate mutation","counts":{"execute":1}}
@@ -100,6 +101,7 @@
 {"file":"generator-test262.test.ts","test":"confined generators > does not close when iterator acquisition or next-result validation fails","counts":{"execute":1}}
 {"file":"generator-test262.test.ts","test":"confined generators > reports synchronous iterator failures before queued promise reactions","counts":{"execute":1}}
 {"file":"generator-test262.test.ts","test":"confined generators > a generator's return() through for...of or destructuring surfaces a failing close, as break does","counts":{"execute":1}}
+{"file":"generator-test262.test.ts","test":"generator protocol misuse > a sync generator method borrowed by an async generator throws a catchable TypeError","counts":{"execute":1}}
 {"file":"parity.test.ts","test":"H2: string property access reads as undefined (not a throw) > unknown property on a string is undefined","counts":{"execute":2}}
 {"file":"parity.test.ts","test":"H2: string property access reads as undefined (not a throw) > optional chaining + fallback on a string does not throw","counts":{"execute":1}}
 {"file":"parity.test.ts","test":"H2: string property access reads as undefined (not a throw) > the real MCP pattern: result is a JSON string, defensive read falls through","counts":{"execute":1}}
@@ -238,7 +240,7 @@
 {"file":"parity.test.ts","test":"Object.freeze, seal, and preventExtensions > typed arrays with elements cannot be frozen; wrappers freeze their properties only","counts":{"execute":2}}
 {"file":"parity.test.ts","test":"Object.getPrototypeOf and Object.create > getPrototypeOf returns the built-in prototypes for objects and primitives","counts":{"execute":1}}
 {"file":"parity.test.ts","test":"Object.getPrototypeOf and Object.create > getPrototypeOf rejects null, undefined, and symbols","counts":{"execute":3}}
-{"file":"parity.test.ts","test":"Object.getPrototypeOf and Object.create > Object.create links the prototype: inherited reads, in, and own-only keys","counts":{"execute":1}}
+{"file":"parity.test.ts","test":"Object.getPrototypeOf and Object.create > Object.create links the prototype: inherited reads, in, own-only keys, and inherited for...in","counts":{"execute":1}}
 {"file":"parity.test.ts","test":"Object.getPrototypeOf and Object.create > Object.create rejects non-object prototypes and property descriptors","counts":{"execute":4}}
 {"file":"parity.test.ts","test":"structuredClone > deep-copies data values and keeps shared references shared","counts":{"execute":1}}
 {"file":"parity.test.ts","test":"structuredClone > regexps reset lastIndex, errors keep name, message, and cause, and extras are dropped","counts":{"execute":1}}
@@ -380,6 +382,12 @@
 {"file":"limits.test.ts","test":"one built-in cannot build an unbounded value > strings: repeat, pad, concat, join, +, template, JSON.stringify","counts":{"execute":9}}
 {"file":"limits.test.ts","test":"one built-in cannot build an unbounded value > arrays: constructor, length, Array.from, concat, flat","counts":{"execute":6}}
 {"file":"limits.test.ts","test":"one built-in cannot build an unbounded value > promises: too many pending at once, while settled ones do not count","counts":{"execute":3}}
+{"file":"limits.test.ts","test":"the host stays in control > other host work keeps running while one long job runs","counts":{"execute":1}}
+{"file":"limits.test.ts","test":"the host stays in control > a loop of only built-in calls still times out","counts":{"execute":1}}
+{"file":"limits.test.ts","test":"the host stays in control > serializing shared references still times out","counts":{"execute":1}}
+{"file":"limits.test.ts","test":"the host stays in control > copying out shared references still times out","counts":{"execute":1}}
+{"file":"limits.test.ts","test":"the host stays in control > reporting many unhandled rejections still times out","counts":{"execute":1}}
+{"file":"limits.test.ts","test":"the host stays in control > nesting deeper than the host stack fails cleanly, and the next run is unaffected","counts":{"execute":2}}
 {"file":"openapi.test.ts","test":"OpenAPI.fromSpec > covers a representative API from generation through execution","counts":{"fromSpec":1,"schemaCall":8,"execute":1,"openapiInvoke":4}}
 {"file":"openapi.test.ts","test":"OpenAPI.fromSpec > generates supported operations and reports unsupported transports","counts":{"fromSpec":1,"schemaCall":2}}
 {"file":"openapi.test.ts","test":"OpenAPI.fromSpec > preserves operation path sanitization and collision handling","counts":{"fromSpec":1}}
@@ -459,6 +467,8 @@
 {"file":"json-callbacks-test262.test.ts","test":"CodeMode JSON callback boundaries > revivers and replacers see the holder as this","counts":{"execute":1}}
 {"file":"json-callbacks-test262.test.ts","test":"CodeMode JSON callback boundaries > prototype-named keys parse as own data and reach the reviver","counts":{"execute":1}}
 {"file":"json-callbacks-test262.test.ts","test":"CodeMode JSON callback boundaries > JSON.stringify serializes prototype-named own keys","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Number and Math > Number.toString truncates the radix before checking its range","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Number and Math > Number.toString keeps invalid radixes catchable as RangeError","counts":{"execute":2}}
 {"file":"stdlib.test.ts","test":"Number and Math > Math.random returns a number in [0, 1)","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"Number and Math > Number exposes native non-finite constants","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"Number and Math > Number valueOf returns its primitive receiver","counts":{"execute":1}}
@@ -485,7 +495,7 @@
 {"file":"stdlib.test.ts","test":"RegExp > global exec advances lastIndex across calls","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"RegExp > lastIndex is writable and stores a number","counts":{"execute":2}}
 {"file":"stdlib.test.ts","test":"RegExp > a non-numeric lastIndex runs from 0; non-global exec and test leave it alone","counts":{"execute":1}}
-{"file":"stdlib.test.ts","test":"RegExp > String methods read and update lastIndex like exec","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"RegExp > String methods read and update lastIndex like exec","counts":{"execute":5}}
 {"file":"stdlib.test.ts","test":"RegExp > split, search, and matchAll leave lastIndex unchanged like JS","counts":{"execute":5}}
 {"file":"stdlib.test.ts","test":"RegExp > String methods leave lastIndex untouched without g or y","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"RegExp > an unmatched string pattern returns null","counts":{"execute":1}}
@@ -530,6 +540,8 @@
 {"file":"stdlib.test.ts","test":"Set > SameValueZero: NaN is findable","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"Set > for...of iterates values","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"Set > sets cross the boundary as arrays; JSON.stringify keeps {} like JS","counts":{"execute":2}}
+{"file":"stdlib.test.ts","test":"Uint8Array > from maps the original values with thisArg, after consuming the source","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Uint8Array > from rejects a non-callable mapper even for an empty source","counts":{"execute":3}}
 {"file":"stdlib.test.ts","test":"Uint8Array > constructs from a length, an array, an iterable, or another Uint8Array","counts":{"execute":5}}
 {"file":"stdlib.test.ts","test":"Uint8Array > index reads and writes clamp to a byte and ignore out-of-range writes, like JS","counts":{"execute":3}}
 {"file":"stdlib.test.ts","test":"Uint8Array > iteration, spread, destructuring, and Array.from","counts":{"execute":1}}
@@ -586,6 +598,14 @@
 {"file":"stdlib.test.ts","test":"CodeMode values at intra-CodeMode checkpoints > regexes stay callable through Object.values","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"CodeMode values at intra-CodeMode checkpoints > Object.* helpers see CodeMode values as empty objects, never internals","counts":{"execute":5}}
 {"file":"stdlib.test.ts","test":"CodeMode values at intra-CodeMode checkpoints > the host boundary still serializes JSON forms: results, JSON.stringify, and tool arguments","counts":{"execute":3}}
+{"file":"stdlib.test.ts","test":"Uint8Array callback methods > typed-array searches do not coerce '1' into a byte","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Uint8Array callback methods > typed-array searches do not coerce true into a byte","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Uint8Array callback methods > typed-array searches do not coerce false into a byte","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Uint8Array callback methods > typed-array searches do not coerce null into a byte","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Uint8Array callback methods > typed-array searches do not coerce {} into a byte","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Uint8Array callback methods > typed-array searches do not coerce undefined into a byte","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Uint8Array callback methods > typed-array searches do not coerce NaN into a byte","counts":{"execute":1}}
+{"file":"stdlib.test.ts","test":"Uint8Array callback methods > typed-array searches keep numeric matching and start-index coercion","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"Uint8Array callback methods > map and filter return new Uint8Arrays with clamped bytes","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"Uint8Array callback methods > find, findIndex, findLast, findLastIndex, some, every, and forEach","counts":{"execute":1}}
 {"file":"stdlib.test.ts","test":"Uint8Array callback methods > reduce and reduceRight","counts":{"execute":4}}
@@ -620,6 +640,9 @@
 {"file":"tool-paths.test.ts","test":"tool arguments cross in a useful form where JSON.stringify would give {} > Set and URLSearchParams; RegExp and Map stay {} like JSON","counts":{"execute":1}}
 {"file":"tool-paths.test.ts","test":"tools.search alias > tools.search(...) behaves like the bare search(...) when no tool owns that path","counts":{"execute":3}}
 {"file":"tool-paths.test.ts","test":"tools.search alias > a registered root-level search tool takes precedence","counts":{"execute":1}}
+{"file":"tool-paths.test.ts","test":"search results used like a Promise > search(...) can be read, awaited, or chained","counts":{"execute":1}}
+{"file":"tool-paths.test.ts","test":"search results used like a Promise > the Promise methods stay out of data views","counts":{"execute":1}}
+{"file":"tool-paths.test.ts","test":"search results used like a Promise > invalid input throws at the call, so try/catch sees it in either style","counts":{"execute":2}}
 {"file":"tool-paths.test.ts","test":"tool references under == > compare by identity against data objects without converting them","counts":{"execute":1}}
 {"file":"lexical-test262.test.ts","test":"Test262 lexical temporal dead zones > program and block bindings exist before initialization","counts":{"execute":1}}
 {"file":"lexical-test262.test.ts","test":"Test262 lexical temporal dead zones > self-initialization and closure assignment observe the TDZ","counts":{"execute":1}}
@@ -644,6 +667,13 @@
 {"file":"enumeration.test.ts","test":"for...in > supports let declarations and bare identifiers","counts":{"execute":2}}
 {"file":"enumeration.test.ts","test":"for...in > enumerates namespaces and tools from the supplied tools","counts":{"execute":1}}
 {"file":"enumeration.test.ts","test":"for...in > non-object values enumerate like JS: strings by index, everything else nothing","counts":{"execute":2}}
+{"file":"enumeration.test.ts","test":"for...in > visits inherited enumerable keys after own keys","counts":{"execute":1}}
+{"file":"enumeration.test.ts","test":"for...in > walks every level, skipping keys a nearer level already has","counts":{"execute":1}}
+{"file":"enumeration.test.ts","test":"for...in > orders integer-like keys first on each level","counts":{"execute":1}}
+{"file":"enumeration.test.ts","test":"for...in > a non-enumerable nearer property shadows an enumerable inherited one","counts":{"execute":2}}
+{"file":"enumeration.test.ts","test":"for...in > a null prototype ends the walk","counts":{"execute":2}}
+{"file":"enumeration.test.ts","test":"for...in > arrays and strings only visit their indexes, since built-in methods are non-enumerable","counts":{"execute":2}}
+{"file":"enumeration.test.ts","test":"for...in > visits enumerable properties a program adds to a built-in prototype","counts":{"execute":4}}
 {"file":"set-methods-test262.test.ts","test":"Set composition Test262 parity > combines Sets without mutating either operand","counts":{"execute":1}}
 {"file":"set-methods-test262.test.ts","test":"Set composition Test262 parity > preserves the specified result order","counts":{"execute":1}}
 {"file":"set-methods-test262.test.ts","test":"Set composition Test262 parity > accepts Maps as Set-like operands","counts":{"execute":1}}
@@ -977,6 +1007,7 @@
 {"file":"codemode.test.ts","test":"CodeMode call hooks > surround the tools actually invoked, with decoded input","counts":{"execute":2}}
 {"file":"codemode.test.ts","test":"CodeMode call hooks > surround each call to an extension global, with its arguments, but not functions inside results","counts":{"execute":1}}
 {"file":"codemode.test.ts","test":"CodeMode call hooks > a failing before hook denies the call; the program catches the host's error","counts":{"execute":4}}
+{"file":"codemode.test.ts","test":"CodeMode call hooks > a before hook runs before the host function, so a denied call never reaches the host","counts":{"execute":2}}
 {"file":"codemode.test.ts","test":"CodeMode call hooks > see a tool defect as the failure the program gets, and an interrupted extension call","counts":{"execute":2}}
 {"file":"codemode.test.ts","test":"CodeMode call hooks > observes interrupted calls","counts":{"execute":1}}
 {"file":"codemode.test.ts","test":"CodeMode call hooks > observes running calls interrupted during completion","counts":{"execute":1}}
@@ -1214,6 +1245,49 @@
 {"file":"promise.test.ts","test":"promise construction > a never-settled promise is abandoned silently at the return","counts":{"execute":1}}
 {"file":"promise.test.ts","test":"promise construction > an un-awaited constructed rejection is reported like any unhandled rejection","counts":{"execute":1}}
 {"file":"promise.test.ts","test":"promise construction > resolver functions vanish at the data boundary like JSON.stringify","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"jobs run to completion > updates to shared state between awaits are not lost","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"jobs run to completion > an async function runs to its first await before its caller continues","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"jobs run to completion > a combinator's reaction runs after the continuations a preempted job queued first","counts":{"execute":4}}
+{"file":"promise.test.ts","test":"jobs run to completion > a job that never awaits still times out while other jobs wait for it","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > then vs await","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > adopt promise from async fn","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > resolve with promise","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > await thenable","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > finally","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > finally rejected","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > Promise.all","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > Promise.all empty","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > Promise.race","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > Promise.allSettled","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > Promise.any","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > async generator","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > async generator return","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > for await sync iterable","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > for await async gen","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > nested async","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > await rejected","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > then handler returns promise","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > withResolvers","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > sync generator in async","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > async return await","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > yield* sync in async gen","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > break in for await sync","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > for await rejected value","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > unhandled then later handled","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > generator return in finally","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > async gen await in finally","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > thenable job then throws","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"job order matches V8 > Promise.try","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"a program that can never finish > fails at once, without a timeout, at the stuck await in the program's own await","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"a program that can never finish > fails at once, without a timeout, at the stuck await in an async function whose result the program returns","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"a program that can never finish > fails at once, without a timeout, at the stuck await in an async function the program awaits","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"a program that can never finish > fails at once, without a timeout, at the stuck await in a later await in an async body the program awaits","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"a program that can never finish > fails when the unsettleable promise is deep inside other async work","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"a program that can never finish > cannot be caught by the program","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"a program that can never finish > is not stalled while a tool call that settles a hand-made promise is still running","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"a program that can never finish > is not stalled while a tool call it waits on is still running","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"host results > a tool result settles after the jobs already queued, like I/O","counts":{"execute":1}}
+{"file":"promise.test.ts","test":"host results > an awaited interruption passes catch and finally and interrupts the program","counts":{"execute":1}}
 {"file":"var-hoisting-test262.test.ts","test":"var hoisting Test262 parity > test/language/statements/variable/S12.2_A1.js: use before declaration reads undefined","counts":{"execute":1}}
 {"file":"var-hoisting-test262.test.ts","test":"var hoisting Test262 parity > test/language/statements/variable/S12.2_A3.js: nested functions redeclare or assign","counts":{"execute":1}}
 {"file":"var-hoisting-test262.test.ts","test":"var hoisting Test262 parity > test/language/statements/variable/S12.2_A6_T1.js: var inside try and catch is hoisted","counts":{"execute":1}}
@@ -1254,6 +1328,10 @@
 {"file":"extensions.test.ts","test":"values are converted at the boundary, never shared > only interpreter primitives come out","counts":{"execute":2}}
 {"file":"extensions.test.ts","test":"values are converted at the boundary, never shared > a value that cannot come out carries a location like any built-in error, sync or async","counts":{"execute":3}}
 {"file":"extensions.test.ts","test":"values are converted at the boundary, never shared > a class instance cannot come out","counts":{"execute":1}}
+{"file":"extensions.test.ts","test":"Effect globals > the runtime requires what the Effect globals require","counts":{}}
+{"file":"extensions.test.ts","test":"Effect globals > an Effect global is a promise that runs with the execution's services","counts":{"execute":1}}
+{"file":"extensions.test.ts","test":"Effect globals > a failing Effect rejects with the host's error","counts":{"execute":1}}
+{"file":"extensions.test.ts","test":"Effect globals > a denying before hook stops the Effect before it runs","counts":{"execute":1}}
 {"file":"extensions.test.ts","test":"host errors > a synchronous throw becomes the matching program error","counts":{"execute":1}}
 {"file":"extensions.test.ts","test":"host errors > a host Error arrives with its cause and own data; what cannot cross is left behind","counts":{"execute":1}}
 {"file":"extensions.test.ts","test":"host errors > a thrown or rejected value crosses like a return, so the program catches what was thrown","counts":{"execute":5}}
@@ -1300,7 +1378,11 @@
 {"file":"for-await-test262.test.ts","test":"Test262 for-await-of adaptations > preserves iterator protocol keys through object copies","counts":{"execute":1}}
 {"file":"for-await-test262.test.ts","test":"Test262 for-await-of adaptations > rejects malformed iterator protocol results","counts":{"execute":1}}
 {"file":"for-await-test262.test.ts","test":"Test262 for-await-of adaptations > rejects objects without an iterator protocol method","counts":{"execute":1}}
+{"file":"errors.test.ts","test":"source syntax > reports a syntax error with its location and what code must look like","counts":{"execute":1}}
+{"file":"errors.test.ts","test":"source syntax > explains that imports and exports aren't available","counts":{"execute":2}}
 {"file":"errors.test.ts","test":"source syntax > rejects TypeScript-only syntax","counts":{"execute":1}}
+{"file":"errors.test.ts","test":"source syntax > locates a syntax error on a later line","counts":{"execute":1}}
+{"file":"errors.test.ts","test":"source syntax > rejects empty code","counts":{"execute":1}}
 {"file":"errors.test.ts","test":"error identity > Error.isError is true for every Error value and nothing else","counts":{"execute":1}}
 {"file":"errors.test.ts","test":"error identity > awaiting the same rejected promise twice yields the same error object","counts":{"execute":1}}
 {"file":"errors.test.ts","test":"error identity > allSettled reasons for the same failure are identical","counts":{"execute":1}}
@@ -3860,6 +3942,7 @@
 {"file":"test262.test.ts","test":"built-ins/Promise/all/resolve-ignores-late-rejection-deferred.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/all/resolve-ignores-late-rejection.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/all/resolve-non-thenable.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/Promise/all/resolve-thenable.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/allSettled/capability-resolve-throws-no-close.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/allSettled/is-function.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/allSettled/iter-arg-is-false-reject.js","counts":{"execute":1}}
@@ -3886,6 +3969,7 @@
 {"file":"test262.test.ts","test":"built-ins/Promise/allSettled/reject-ignored-immed.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/allSettled/resolve-ignores-late-rejection-deferred.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/allSettled/resolve-ignores-late-rejection.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/Promise/allSettled/resolve-thenable.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/allSettled/resolves-to-array.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/allSettled/returns-promise.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/any/invoke-resolve.js","counts":{"execute":1}}
@@ -3948,18 +4032,22 @@
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/reject-settled-rejected.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-fulfilled-non-obj.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-fulfilled-non-thenable.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-fulfilled-prms-cstm-then.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-fulfilled-self.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-fulfilled-thenable.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-rejected-non-obj.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-rejected-non-thenable.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-rejected-prms-cstm-then.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-rejected-self.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-pending-rejected-thenable.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-fulfilled-non-obj.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-fulfilled-non-thenable.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-fulfilled-prms-cstm-then.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-fulfilled-self.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-fulfilled-thenable.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-rejected-non-obj.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-rejected-non-thenable.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-rejected-prms-cstm-then.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-rejected-self.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/resolve-settled-rejected-thenable.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/prototype/then/rxn-handler-fulfilled-invoke-strict.js","counts":{"execute":1}}
@@ -4029,6 +4117,8 @@
 {"file":"test262.test.ts","test":"built-ins/Promise/resolve-non-obj-immed.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/resolve-non-thenable-deferred.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/resolve-non-thenable-immed.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/Promise/resolve-prms-cstm-then-deferred.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/Promise/resolve-prms-cstm-then-immed.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/resolve-self.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/resolve-thenable-deferred.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/Promise/resolve-thenable-immed.js","counts":{"execute":1}}
@@ -5216,8 +5306,8 @@
 {"file":"test262.test.ts","test":"built-ins/String/S9.8_A4_T1.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S15.5.3.2_A1.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S15.5.3.2_A2.js","counts":{"execute":1}}
-{"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S15.5.3.2_A3_T1.js","counts":{}}
-{"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js","counts":{}}
+{"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S15.5.3.2_A3_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S15.5.3.2_A4.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S9.7_A1.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/String/fromCharCode/S9.7_A2.1.js","counts":{"execute":1}}
@@ -5942,7 +6032,15 @@
 {"file":"test262.test.ts","test":"built-ins/WeakSet/prototype/has/this-not-object-throw-string.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/WeakSet/prototype/has/this-not-object-throw-undefined.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/WeakSet/undefined-newtarget.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.10_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.11_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.11_T2.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.12_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.12_T2.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.12_T3.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.1_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.2_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A1.2_T2.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A3_T1.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A3_T2.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A3_T3.js","counts":{"execute":1}}
@@ -5955,7 +6053,15 @@
 {"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A5.4.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A5.6.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURI/S15.1.3.1_A5.7.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.10_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.11_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.11_T2.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.12_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.12_T2.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.12_T3.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.1_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.2_T1.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A1.2_T2.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A3_T1.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A3_T2.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"built-ins/decodeURIComponent/S15.1.3.2_A3_T3.js","counts":{"execute":1}}
@@ -11310,6 +11416,7 @@
 {"file":"test262.test.ts","test":"language/statements/async-generator/params-trailing-comma-single.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"language/statements/async-generator/rest-param-strict-body.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"language/statements/async-generator/rest-params-trailing-comma-early-error.js","counts":{"execute":1}}
+{"file":"test262.test.ts","test":"language/statements/async-generator/return-undefined-implicit-and-explicit.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"language/statements/async-generator/yield-as-binding-identifier-escaped.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"language/statements/async-generator/yield-as-binding-identifier.js","counts":{"execute":1}}
 {"file":"test262.test.ts","test":"language/statements/async-generator/yield-as-identifier-reference-escaped.js","counts":{"execute":1}}

@@ -190,6 +190,14 @@ async fn test262_sample_matches_upstream() {
     )
     .unwrap()
     .with_program_globals(Arc::new(harness));
+    let slow_runtime = CodeMode::new(
+        Vec::new(),
+        Arc::new(NoTools),
+        Vec::new(),
+        ExecutionLimits { timeout_ms: Some(60_000.0), ..Default::default() },
+    )
+    .unwrap()
+    .with_program_globals(Arc::new(harness));
     let (mut total, mut passed, mut skipped, mut failures) = (0, 0, 0, Vec::new());
     let only = std::env::var("TEST262_ONLY").ok();
     for path in files {
@@ -202,7 +210,12 @@ async fn test262_sample_matches_upstream() {
             }
             let Some(expected) = record.get("result").and_then(decode) else { continue };
             total += 1;
-            let ours = runtime.execute(record["code"].as_str().unwrap_or("")).await.to_json();
+            let mut ours = runtime.execute(record["code"].as_str().unwrap_or("")).await.to_json();
+            // A few files loop 65 536 times (decodeURI's S15.1.3.*_A1.*), which takes seconds in an unoptimized build
+            // on a loaded machine: when upstream finished, give a timed-out run more time instead of failing it.
+            if ours["error"]["kind"] == "TimeoutExceeded" && expected["error"]["kind"] != "TimeoutExceeded" {
+                ours = slow_runtime.execute(record["code"].as_str().unwrap_or("")).await.to_json();
+            }
             if json_eq(&ours, &expected) || timed_out_both(&ours, &expected) {
                 passed += 1;
             } else if skips.contains_key(&name) {

@@ -1,0 +1,372 @@
+diff -ru -x record.ts -x tool-schema-impl.ts -x tool-schema.ts codemode-orig/src/codemode.ts codemode-rec/src/codemode.ts
+--- codemode-orig/src/codemode.ts	2026-10-29 17:43:42.000000000 +0000
++++ codemode-rec/src/codemode.ts	2026-10-29 23:43:48.638259244 +0000
+@@ -1,6 +1,7 @@
+ import { Effect, Schema } from "effect"
+ import type { Extension } from "./extension.js"
+-import { executeProgram } from "./interpreter/execute.js"
++import { executeRecorded } from "./interpreter/execute.js"
++import * as Recorder from "./record.js"
+ import { extensionGlobals } from "./interpreter/extensions.js"
+ import { globalNames } from "./interpreter/globals.js"
+ import { type Services, type ToolDescription, ToolRuntime } from "./tool-runtime.js"
+@@ -159,6 +160,21 @@
+ >(
+   options: Options<Provided, Extensions> = {},
+ ): Runtime<Environment<Provided, Extensions>> => {
++  if (!Recorder.enabled) return makeRuntime(options)
++  try {
++    return makeRuntime(options)
++  } catch (error) {
++    Recorder.makeError(options, error)
++    throw error
++  }
++}
++
++const makeRuntime = <
++  const Provided extends Record<string, unknown> = {},
++  const Extensions extends ReadonlyArray<Extension> = [],
++>(
++  options: Options<Provided, Extensions>,
++): Runtime<Environment<Provided, Extensions>> => {
+   const prepared = ToolRuntime.prepare<Environment<Provided, Extensions>>(
+     (options.tools ?? {}) as Tools<Services<Provided>>,
+   )
+@@ -173,9 +189,24 @@
+   }
+   return {
+     get catalog() {
+-      return prepared.catalog
++      if (!Recorder.enabled) return prepared.catalog
++      const catalog = prepared.catalog
++      Recorder.catalog(prepared.root, catalog)
++      return catalog
+     },
+     execute: (code) =>
+-      executeProgram(code, prepared, limits, options.hooks ?? {}, (ctx) => extensionGlobals(ctx, extensions)),
++      Recorder.execution(
++        "codemode",
++        { code, root: prepared.root, limits, hooks: options.hooks ?? {}, extensions },
++        (recording) =>
++          executeRecorded(
++            code,
++            prepared,
++            limits,
++            options.hooks ?? {},
++            (ctx) => extensionGlobals(ctx, extensions),
++            recording,
++          ),
++      ),
+   }
+ }
+diff -ru -x record.ts -x tool-schema-impl.ts -x tool-schema.ts codemode-orig/src/interpreter/execute.ts codemode-rec/src/interpreter/execute.ts
+--- codemode-orig/src/interpreter/execute.ts	2026-10-29 17:43:42.000000000 +0000
++++ codemode-rec/src/interpreter/execute.ts	2026-10-29 23:43:48.639259244 +0000
+@@ -8,6 +8,7 @@
+ import { Interpreter } from "./interpreter.js"
+ import { formatLocation } from "./model.js"
+ import type { Runner } from "./runner.js"
++import * as Recorder from "../record.js"
+ 
+ export const executeProgram = <R>(
+   code: string,
+@@ -15,6 +16,18 @@
+   limits: ResolvedExecutionLimits,
+   hooks: ToolRuntime.Hooks<R>,
+   globals?: (ctx: Interpreter<R>) => ReadonlyArray<readonly [string, Value]>,
++): Effect.Effect<Result, never, R> =>
++  Recorder.execution("executeProgram", { code, root: prepared.root, limits, hooks, extensions: null }, (recording) =>
++    executeRecorded(code, prepared, limits, hooks, globals, recording),
++  )
++
++export const executeRecorded = <R>(
++  code: string,
++  prepared: ToolRuntime.Prepared<R>,
++  limits: ResolvedExecutionLimits,
++  hooks: ToolRuntime.Hooks<R>,
++  globals: ((ctx: Interpreter<R>) => ReadonlyArray<readonly [string, Value]>) | undefined,
++  recording: Recorder.Execution | undefined,
+ ): Effect.Effect<Result, never, R> => {
+   if (code.trim().length === 0) {
+     return Effect.succeed({
+@@ -27,7 +40,7 @@
+   // Allocate execution state inside suspension so reused Effects never share it.
+   return Effect.suspend(() => {
+     const builtins = createBuiltins()
+-    const tools = ToolRuntime.make(prepared, limits.maxToolCalls, hooks)
++    const tools = ToolRuntime.make(prepared, limits.maxToolCalls, hooks, recording)
+     const logs: Array<string> = []
+     const logged = () => (logs.length > 0 ? { logs: [...logs] } : {})
+     // Set only after copy-out so timeouts cannot report invalid values as completed.
+diff -ru -x record.ts -x tool-schema-impl.ts -x tool-schema.ts codemode-orig/src/interpreter/extensions.ts codemode-rec/src/interpreter/extensions.ts
+--- codemode-orig/src/interpreter/extensions.ts	2026-10-29 17:43:42.000000000 +0000
++++ codemode-rec/src/interpreter/extensions.ts	2026-10-29 23:56:04.408320691 +0000
+@@ -27,6 +27,7 @@
+   type Value,
+ } from "./objects.js"
+ import { describeValue, isOpaque } from "./references.js"
++import * as Recorder from "../record.js"
+ 
+ /**
+  * The global bindings of one run's extensions. Everything crossing the boundary is converted: plain data and
+@@ -142,21 +143,28 @@
+       const args = values.map((item, index) => toHost(item, `Argument ${index + 1} to ${label}`))
+       const cross = (reason: unknown) => new Throw(fromHost(reason, label))
+       const call = describe?.(args)
+-      const hooks = ctx.tools.hooks
++      const recorded = Recorder.enabled ? Recorder.ExtensionCallRecording.start(ctx.tools, label, call, args, value) : undefined
++      const hooks = recorded === undefined ? ctx.tools.hooks : recorded.hooks(ctx.tools.hooks)
+       const before = call && hooks["extension.before"]?.(call).pipe(Effect.mapError(cross))
+       const after = call && hooks["extension.after"]
+       const settle = (effect: Effect.Effect<unknown, unknown, R>) =>
+         (after ? hooked(call, undefined, after, effect) : effect).pipe(
++          (settled) => (recorded === undefined ? settled : recorded.settle(settled)),
+           Effect.mapBoth({ onFailure: cross, onSuccess: (result) => fromHost(result, label) }),
+         )
++      const invoke = () => {
++        const host = callHost<R>(value, args)
++        recorded?.returned(host.async ? "promise" : host.threw ? "throw" : "value")
++        return host
++      }
+       // A denied call fails the way the global would: an async global rejects its promise, a sync one throws.
+       if (isAsync(value))
+         return pending(
+-          Effect.andThen(before ?? Effect.void, settle(Effect.suspend(() => callHost<R>(value, args).effect))),
++          Effect.andThen(before ?? Effect.void, settle(Effect.suspend(() => invoke().effect))),
+           site,
+         )
+       if (before) yield ctx.runner.blocking(before)
+-      const host = callHost<R>(value, args)
++      const host = invoke()
+       if (host.async) return pending(settle(host.effect), site)
+       return (yield ctx.runner.blocking(settle(host.effect))) as Value
+     })
+@@ -188,12 +196,13 @@
+   try {
+     const result: unknown = value.apply(undefined, args)
+     // Extension.Services adds an Effect global's requirements to R.
+-    if (Effect.isEffect(result)) return { async: true, effect: result as Effect.Effect<unknown, unknown, R> }
++    if (Effect.isEffect(result))
++      return { async: true, threw: false, effect: result as Effect.Effect<unknown, unknown, R> }
+     if (result instanceof Promise)
+-      return { async: true, effect: Effect.tryPromise({ try: () => result, catch: (reason) => reason }) }
+-    return { async: false, effect: Effect.succeed(result) }
++      return { async: true, threw: false, effect: Effect.tryPromise({ try: () => result, catch: (reason) => reason }) }
++    return { async: false, threw: false, effect: Effect.succeed(result) }
+   } catch (reason) {
+-    return { async: false, effect: Effect.fail(reason) }
++    return { async: false, threw: true, effect: Effect.fail(reason) }
+   }
+ }
+ 
+diff -ru -x record.ts -x tool-schema-impl.ts -x tool-schema.ts codemode-orig/src/openapi/index.ts codemode-rec/src/openapi/index.ts
+--- codemode-orig/src/openapi/index.ts	2026-10-29 17:43:42.000000000 +0000
++++ codemode-rec/src/openapi/index.ts	2026-10-29 23:44:15.434278258 +0000
+@@ -18,6 +18,7 @@
+   validateBaseUrl,
+ } from "./spec.js"
+ import type { Operation, Options, Result, Skipped, Tools } from "./types.js"
++import * as Recorder from "../record.js"
+ 
+ export type {
+   AuthResolver,
+@@ -35,7 +36,9 @@
+  * Builds one CodeMode tool per representable OpenAPI 3.x operation. Auth remains host-side,
+  * tools require `HttpClient.HttpClient`, and unrepresentable operations land in `skipped`.
+  */
+-export const fromSpec = (options: Options): Result => {
++export const fromSpec = (options: Options): Result => recordedFromSpec(options)
++
++const fromSpecImpl = (options: Options): Result => {
+   const document = options.spec
+   const schemes = securitySchemes(document)
+   const defaultSecurity = securityRequirements(document.security)
+@@ -130,3 +133,5 @@
+   }
+   setTool(tools[head] as Tools, rest, tool)
+ }
++
++const recordedFromSpec = Recorder.fromSpec<Options, Result>(fromSpecImpl)
+diff -ru -x record.ts -x tool-schema-impl.ts -x tool-schema.ts codemode-orig/src/openapi/runtime.ts codemode-rec/src/openapi/runtime.ts
+--- codemode-orig/src/openapi/runtime.ts	2026-10-29 17:43:42.000000000 +0000
++++ codemode-rec/src/openapi/runtime.ts	2026-10-29 23:44:15.434278258 +0000
+@@ -3,12 +3,20 @@
+ import { ToolError, toolError } from "../tool-error.js"
+ import { isRecord, own } from "./spec.js"
+ import type { AppliedAuth, Credential, Plan, SecurityScheme } from "./types.js"
++import * as Recorder from "../record.js"
+ 
+ const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
+ const maxErrorBodyChars = 1_024
+ const maxResponseBodyBytes = 50 * 1024 * 1024
+ 
+ export const invoke = (plan: Plan, input: unknown): Effect.Effect<unknown, unknown, HttpClient.HttpClient> =>
++  Recorder.HttpRecording.wrap(plan, input, (recorded) => invokeRecorded(plan, input, recorded))
++
++const invokeRecorded = (
++  plan: Plan,
++  input: unknown,
++  recorded: Recorder.HttpRecording | undefined,
++): Effect.Effect<unknown, unknown, HttpClient.HttpClient> =>
+   Effect.gen(function* () {
+     const value = isRecord(input) ? input : {}
+ 
+@@ -21,6 +29,7 @@
+     request = HttpClientRequest.setHeaders(request, auth.headers)
+ 
+     const client = yield* HttpClient.HttpClient
++    recorded?.request(request)
+     const response = yield* client
+       .execute(request)
+       .pipe(
+@@ -28,7 +37,9 @@
+           toolError(`${plan.operation.method} ${plan.operation.path} failed: transport error`, cause),
+         ),
+       )
++    recorded?.response(response)
+     const text = yield* readResponseBody(response, plan)
++    recorded?.body(text)
+     const mediaType = response.headers["content-type"]?.split(";")[0]?.trim().toLowerCase()
+     const json = mediaType === "application/json" || mediaType?.endsWith("+json") === true
+     const decoded = text === "" ? Option.some(null) : json ? decodeJson(text) : Option.none()
+diff -ru -x record.ts -x tool-schema-impl.ts -x tool-schema.ts codemode-orig/src/tool-runtime.ts codemode-rec/src/tool-runtime.ts
+--- codemode-orig/src/tool-runtime.ts	2026-10-29 17:43:42.000000000 +0000
++++ codemode-rec/src/tool-runtime.ts	2026-10-29 23:43:48.640259245 +0000
+@@ -10,7 +10,8 @@
+   inputTypeScript,
+   isEmptyInput,
+   outputTypeScript,
+-} from "./tool-schema.js"
++} from "./tool-schema-impl.js"
++import * as Recorder from "./record.js"
+ import { isNamespace, type Namespace } from "./namespace.js"
+ import { isTool, type Tool } from "./tool.js"
+ import type { Tools } from "./tools.js"
+@@ -385,6 +386,7 @@
+   prepared: Prepared<R>,
+   maxToolCalls: number | undefined,
+   hooks: Hooks<R> = {},
++  recording?: Recorder.Execution,
+ ): ToolRuntime<R> => {
+   const calls: Array<ToolCall> = []
+   const root = prepared.root
+@@ -396,27 +398,50 @@
+     calls.push(call)
+   }
+ 
+-  const executeTool = (name: string, tool: Tool<R>, args: Array<Json | undefined>) =>
++  const executeTool = (
++    name: string,
++    tool: Tool<R>,
++    args: Array<Json | undefined>,
++    recorded?: Recorder.ToolCallRecording,
++  ) =>
+     Effect.gen(function* () {
+       const normalized = args.length === 0 ? [{}] : args
+-      if (normalized.length !== 1)
+-        throw new ToolRuntimeError("InvalidToolInput", `Tool '${name}' expects at most one input object.`)
++      if (normalized.length !== 1) {
++        const arity = new ToolRuntimeError("InvalidToolInput", `Tool '${name}' expects at most one input object.`)
++        recorded?.decodeArity(arity)
++        throw arity
++      }
+       const input = yield* Effect.try({
+         try: () => decodeToolInput(tool, normalized[0]),
+-        catch: (cause) =>
+-          new ToolRuntimeError(
++        catch: (cause) => {
++          const invalid = new ToolRuntimeError(
+             "InvalidToolInput",
+             `Invalid input for tool '${name}': ${String(cause)}`,
+             name === "search" ? [] : ["The signature may have changed. Use search to get the current signature."],
+-          ),
++          )
++          recorded?.decodeFailed(invalid)
++          return invalid
++        },
++      })
++      recorded?.decoded(input)
++      yield* Effect.sync(() => {
++        if (recorded === undefined) return recordCall({ name })
++        try {
++          recordCall({ name })
++        } catch (error) {
++          recorded.admitFailed(error)
++          throw error
++        }
++        recorded.admitted(calls.length)
+       })
+-      yield* Effect.sync(() => recordCall({ name }))
++      const callHooks = recorded === undefined ? hooks : recorded.hooks(hooks)
+       return yield* hooked(
+         { name, input },
+-        hooks["tool.before"],
+-        hooks["tool.after"],
++        callHooks["tool.before"],
++        callHooks["tool.after"],
+         Effect.gen(function* () {
+-          const raw = yield* Effect.suspend(() => tool.execute(input)).pipe(
++          const run = Effect.suspend(() => tool.execute(input))
++          const raw = yield* (recorded === undefined ? run : recorded.tool(run)).pipe(
+             Effect.catchCause((cause) => {
+               if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
+               return Effect.fail(
+@@ -440,20 +465,49 @@
+       )
+     })
+ 
+-  return {
++  const runtime: ToolRuntime<R> = {
+     calls,
+     hooks,
+     keys: (path) => namespaceKeys(root, path),
+-    search: (args) => Effect.suspend(() => executeTool("search", makeSearchTool(prepared.searchIndex), args)),
++    search: (args) =>
++      recording === undefined
++        ? Effect.suspend(() => executeTool("search", makeSearchTool(prepared.searchIndex), args))
++        : Effect.suspend(() => {
++            const recorded = Recorder.ToolCallRecording.start(recording, "search", undefined, args)!
++            return recorded.call(
++              Effect.suspend(() => executeTool("search", makeSearchTool(prepared.searchIndex), args, recorded)),
++            )
++          }),
+     execute: (path, args) =>
+-      Effect.suspend(() => {
+-        const segments = canonicalSegments(path)
+-        // Models often write `tools.search(...)` for the bare `search(...)`; honor it unless a tool owns that path.
+-        if (segments.length === 1 && segments[0] === "search" && lookup(root, segments) === undefined)
+-          return executeTool("search", makeSearchTool(prepared.searchIndex), args)
+-        return executeTool(segments.join("."), resolve(root, path, prepared.searchIndex), args)
+-      }),
++      recording === undefined
++        ? Effect.suspend(() => {
++            const segments = canonicalSegments(path)
++            // Models often write `tools.search(...)` for the bare `search(...)`; honor it unless a tool owns that path.
++            if (segments.length === 1 && segments[0] === "search" && lookup(root, segments) === undefined)
++              return executeTool("search", makeSearchTool(prepared.searchIndex), args)
++            return executeTool(segments.join("."), resolve(root, path, prepared.searchIndex), args)
++          })
++        : Effect.suspend(() => {
++            const segments = canonicalSegments(path)
++            const alias = segments.length === 1 && segments[0] === "search" && lookup(root, segments) === undefined
++            const recorded = Recorder.ToolCallRecording.start(recording, alias ? "search" : segments.join("."), path, args)!
++            return recorded.call(
++              Effect.suspend(() => {
++                if (alias) return executeTool("search", makeSearchTool(prepared.searchIndex), args, recorded)
++                let tool: Tool<R>
++                try {
++                  tool = resolve(root, path, prepared.searchIndex)
++                } catch (error) {
++                  recorded.resolveFailed(error)
++                  throw error
++                }
++                return executeTool(segments.join("."), tool, args, recorded)
++              }),
++            )
++          }),
+   }
++  Recorder.bindTools(runtime, recording)
++  return runtime
+ }
+ 
+ export * as ToolRuntime from "./tool-runtime.js"

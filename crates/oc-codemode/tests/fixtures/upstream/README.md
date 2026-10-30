@@ -1,19 +1,24 @@
 # Upstream CodeMode fixtures
 
 Recordings of every program the upstream `@opencode/codemode` test suite (TypeScript, Effect 4) executes, for the
-Rust replay harness of `oc-codemode`. They are generated, never hand-edited: run
+Rust replay harness of `oc-codemode`. The current set was recorded from upstream v2.2.2 with Bun 1.4.4. They are
+generated, never hand-edited: run
 
 ```sh
-$B/packages/codemode-rec/record.sh            # B = scratch build of the opencode monorepo
+tests/recorder/record.sh UPSTREAM CORPUS WORK [OUT]   # an opencode checkout with node_modules, the test262 corpus
+python3 -I tests/recorder/install.py OUT tests/fixtures/upstream
 ```
 
-`packages/codemode-rec` is a copy of `packages/codemode` with recording instrumentation that is inert unless
-`CODEMODE_RECORD_DIR` is set. `record.sh` deletes everything here except this README, runs the regular suite
-(pass 1), then the vendored test262 corpus copied in from the read-only checkout (pass 2), then
-`script/record-extras.ts`. Instrumented files: `src/record.ts` (all encoding and output), `src/interpreter/execute.ts`,
-`src/tool-runtime.ts`, `src/interpreter/extensions.ts`, `src/codemode.ts`, `src/tool-schema.ts` (a recording shim
-over the renamed `src/tool-schema-impl.ts`), `src/openapi/index.ts`, `src/openapi/runtime.ts`, plus the test preload
-`record-preload.ts`. Library behaviour is unchanged: the instrumented suite has the same pass/fail result as upstream.
+`record.sh` builds `WORK/packages/codemode-rec`: a copy of upstream's `packages/codemode` with the recording kit in
+`tests/recorder/` applied (`record.ts` holds all encoding and output and is inert unless `CODEMODE_RECORD_DIR` is set;
+`tool-schema.ts` is a recording shim over the renamed `src/tool-schema-impl.ts`; `hooks.patch` adds the recording
+calls to `codemode.ts`, `tool-runtime.ts`, `interpreter/execute.ts`, `interpreter/extensions.ts`, `openapi/index.ts`
+and `openapi/runtime.ts`; `record-preload.ts` tracks the running test; `record-extras.ts` writes
+`search-signature.json`). It runs the regular suite (pass 1), then the vendored test262 corpus (pass 2). Library
+behaviour is unchanged: the instrumented suite has the same pass/fail result as upstream (2.2.2: 1 480 and 13 330
+passing tests, no failures). `install.py` replaces everything here except this README and keeps the test262 sample
+described at the end. `tests/recorder/stdlib-check.ts` re-checks the expectations of the `tests/stdlib_*.rs` parity
+cases against upstream.
 
 ## Files
 
@@ -77,7 +82,7 @@ another record. Fields, in order:
 | `code` | program source exactly as given. test262 code is `"use strict";\n` + file source, plus `\nfor (let i = 0; i < 100; i++) await null` for `flags: [async]` files |
 | `limits` | `{timeoutMs?, maxToolCalls?, maxOutputBytes?}`, only the ones set |
 | `hooks` | names of the hooks configured on the runtime (`"tool.before"`, `"tool.after"`, `"extension.before"`, `"extension.after"`) |
-| `extensions` | `[{name, globals: [globalName, ...]}]` in configuration order; `null` for `via: "executeProgram"` |
+| `extensions` | `[{name, globals: [globalName, ...], async: [globalName, ...]}]` in configuration order (`async` lists the globals for which `Extension.isAsync` holds); `null` for `via: "executeProgram"` |
 | `tree` | the runtime's tool trie (below) |
 | `events` | everything that crossed the host boundary, in `t` order (below) |
 | `result` | the `CodeMode.Result` the execution produced (`{ok: true, value, warnings?, logs?, truncated?, toolCalls}` or `{ok: false, error: {kind, message, location?, suggestions?}, logs?, truncated?, toolCalls}`) |
@@ -89,9 +94,8 @@ The test262 harness (`assert`, `assert.sameValue`, `assert.notSameValue`, `asser
 provided as native host globals by upstream `test/test262/run.ts` (port that file's semantics, including its failure
 message formats) and is not an extension, so it produces no events. The test passes when: for `negative` frontmatter, `result.ok === false`
 (and for parse-phase negatives `error.kind === "ParseError"`); otherwise `result.ok === true` and, for async files,
-`$DONE` was called without an error. Parse the frontmatter from `code`. Two test262 files
-(`built-ins/String/fromCharCode/S15.5.3.2_A3_T{1,2}.js`) fail in the YAML frontmatter parser before execution and have
-no record; skipped files (`skipped.txt`) are not run.
+`$DONE` was called without an error. Parse the frontmatter from `code`. Skipped files
+(`skipped.txt`) are not run.
 
 ### Tool trie (`tree`)
 
@@ -199,8 +203,9 @@ operations; such a tool would be reported `false` even though it never awaited (
 | `label` | the program-facing name: the global's name, or `<global>.<path>` for a function found inside a value returned by an extension (e.g. `"fetch.json"`) |
 | `global` | `true` for a configured global (runs inside extension hooks), `false` for a function inside a result (no hooks) |
 | `extension`, `name` | globals only: extension name and global name |
+| `async` | whether the called function is asynchronous (`Extension.isAsync`) |
 | `args` | arguments after crossing to host values |
-| `returned` | how the host function returned: `"value"`, `"throw"`, or `"promise"` |
+| `returned` | how the host function returned: `"value"`, `"throw"`, or `"promise"`. A call the `extension.before` hook denies never reaches the host; it is recorded with `"promise"` for an async global and `"throw"` for a sync one |
 | `outcome` | `"success"` (then `value`, the host value before it crosses back into the program), `"failure"` (then `error`, `errorClass`, `errorValue`, `channel`), or `"interrupted"`; hooks included |
 | `settledT` | `t` when it settled |
 
@@ -259,4 +264,4 @@ machine load; `built-ins/RegExp/character-class-escape-non-whitespace.js` hits i
 ## Sampling note (Rust port)
 
 The checked-in `test262/` shards keep a deterministic quarter of the recorded test262 executions (records whose
-`sha1(test)` is divisible by 4: 3 333 of 13 303) to keep the repository small; `record.sh` regenerates the full set.
+`sha1(test)` is divisible by 4: 3 340 of 13 330) to keep the repository small; `record.sh` regenerates the full set.

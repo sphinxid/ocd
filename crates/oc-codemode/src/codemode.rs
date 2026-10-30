@@ -14,7 +14,7 @@ use crate::data::{json_number, to_boundary};
 use crate::host::{Extension, Host};
 use crate::interp::errors::{Diagnostic, DiagnosticKind, Thrown};
 use crate::interp::eval::Frame;
-use crate::interp::exec::{executor, reset_executor};
+use crate::interp::runner::Outcome;
 use crate::interp::globals::{globals, normalize_error, GLOBAL_NAMES};
 use crate::interp::{new_env, set_rt, Binding, Builtins, Interp, Interrupt, Site};
 use crate::tool_runtime::{Prepared, ToolDescription, ToolEntry, ToolRuntime};
@@ -240,7 +240,9 @@ impl CodeMode {
             tool_calls: Vec::new(),
         });
         // Break reference cycles so every object of this run is released.
-        reset_executor();
+        if let Some(rt) = crate::interp::current_rt() {
+            rt.runner.teardown();
+        }
         set_rt(None);
         crate::interp::teardown_envs();
         crate::object::teardown_registry();
@@ -254,7 +256,7 @@ impl CodeMode {
         let deadline = self.limits.timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
         let rt = Rc::new(Interp {
             builtins: Builtins::new(),
-            pending: Default::default(),
+            runner: Default::default(),
             tools: ToolRuntime::new(self.prepared.clone(), self.host.clone(), self.limits.max_tool_calls),
             logs: RefCell::new(Vec::new()),
             templates: RefCell::new(HashMap::new()),
@@ -274,12 +276,7 @@ impl CodeMode {
         let program = match crate::parser::parse(code) {
             Ok(p) => Rc::new(p),
             Err(e) => {
-                return ExecResult::Failure {
-                    error: Diagnostic::new(DiagnosticKind::ParseError, e.message),
-                    logs: None,
-                    truncated: false,
-                    tool_calls: Vec::new(),
-                };
+                return ExecResult::Failure { error: parse_diagnostic(&e), logs: None, truncated: false, tool_calls: Vec::new() };
             }
         };
         // Program code has no receiver: top-level `this` is undefined, as in a module.
@@ -301,15 +298,15 @@ impl CodeMode {
         let rt2 = rt.clone();
         let returned: Rc<RefCell<Option<Json>>> = Rc::new(RefCell::new(None));
         let slot = returned.clone();
-        let root = executor().spawn(async move {
+        // The program's body, as the first job: its completion value, copied out for the host.
+        let main = Box::pin(async move {
             let frame = Frame::new(rt2.clone(), 0, Site::default());
             let value = frame.run(&global, &program).await?;
             let json = to_boundary(&rt2, value, Site::default()).await?;
             *slot.borrow_mut() = Some(json.unwrap_or(Json::Null));
             Ok(crate::value::Value::Undefined)
         });
-        let exec = executor();
-        let finished = exec.run_until(&|| root.is_done(), deadline, &|| cancelled.load(Ordering::Relaxed));
+        let outcome = rt.runner.run(&rt, main);
         let timeout_failure = |rt: &Rc<Interp>| ExecResult::Failure {
             error: Diagnostic::new(
                 DiagnosticKind::TimeoutExceeded,
@@ -319,14 +316,16 @@ impl CodeMode {
             truncated: false,
             tool_calls: calls(rt),
         };
-        if !finished {
-            rt.pending.interrupt();
-            return timeout_failure(&rt);
-        }
-        match root.exit().unwrap() {
-            Ok(_) => {
+        match outcome {
+            Outcome::Stopped | Outcome::Done(Err(Thrown::Interrupt)) => {
+                rt.runner.interrupt();
+                timeout_failure(&rt)
+            }
+            Outcome::Done(Ok(_)) => {
                 let value = returned.borrow_mut().take().unwrap_or(Json::Null);
-                let warnings = rt.pending.interrupt();
+                // Host work the program left running is interrupted, not awaited.
+                rt.runner.interrupt();
+                let warnings = rt.runner.diagnostics();
                 ExecResult::Success {
                     value: normalize_numbers(value),
                     warnings: if warnings.is_empty() { None } else { Some(warnings) },
@@ -335,19 +334,51 @@ impl CodeMode {
                     tool_calls: calls(&rt),
                 }
             }
-            Err(Thrown::Interrupt) => {
-                rt.pending.interrupt();
-                if cancelled.load(Ordering::Relaxed) || self.limits.timeout_ms.is_some() {
-                    return timeout_failure(&rt);
-                }
-                timeout_failure(&rt)
-            }
-            Err(e) => {
+            Outcome::Done(Err(e)) => {
                 let error = normalize_error(&e);
-                rt.pending.interrupt();
+                rt.runner.interrupt();
                 ExecResult::Failure { error, logs: logs(&rt), truncated: false, tool_calls: calls(&rt) }
             }
         }
+    }
+}
+
+/// A located `ParseError` for acorn's syntax errors (`parseDiagnostic`). Nesting too deep for the parser is the
+/// host-stack overflow upstream hits instead, which normalizes to the nesting-depth failure.
+fn parse_diagnostic(error: &crate::parser::ParseError) -> Diagnostic {
+    if error.depth {
+        return Diagnostic::new(DiagnosticKind::ExecutionFailure, "Execution exceeded the maximum nesting depth.");
+    }
+    let location = crate::interp::errors::Location { line: error.line, column: error.column + 1 };
+    // Acorn appends ` (line:column)` to its messages.
+    let reason = match error.message.rfind(" (") {
+        Some(i)
+            if error.message.ends_with(')')
+                && error.message[i + 2..error.message.len() - 1]
+                    .split_once(':')
+                    .map(|(l, c)| {
+                        !l.is_empty()
+                            && !c.is_empty()
+                            && l.bytes().all(|b| b.is_ascii_digit())
+                            && c.bytes().all(|b| b.is_ascii_digit())
+                    })
+                    .unwrap_or(false) =>
+        {
+            &error.message[..i]
+        }
+        _ => error.message.as_str(),
+    };
+    let text = if reason == "'import' and 'export' may appear only with 'sourceType: module'" {
+        "Imports and exports aren't available. Call tools through `tools` and use the built-in globals.".to_string()
+    } else {
+        let sentence = if reason.ends_with('.') { reason.to_string() } else { format!("{reason}.") };
+        format!("{sentence} Code must be plain JavaScript written as a program body.")
+    };
+    Diagnostic {
+        kind: DiagnosticKind::ParseError,
+        message: format!("SyntaxError: {text} (line {}, col {})", location.line, location.column),
+        location: Some(location),
+        suggestions: None,
     }
 }
 

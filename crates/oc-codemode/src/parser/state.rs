@@ -229,7 +229,13 @@ impl Parser {
 
     pub(super) fn raise_err(&self, pos: usize, message: &str) -> Box<ParseError> {
         let (line, column) = get_line_info(&self.input, pos);
-        Box::new(ParseError { message: format!("{message} ({line}:{column})"), pos: pos as u32, line, column })
+        Box::new(ParseError {
+            message: format!("{message} ({line}:{column})"),
+            pos: pos as u32,
+            line,
+            column,
+            depth: false,
+        })
     }
 
     pub(super) fn raise(&self, pos: usize, message: &str) -> PErr {
@@ -247,7 +253,9 @@ impl Parser {
     pub(super) fn enter_depth(&mut self) -> R<()> {
         self.depth += 1;
         if self.depth > MAX_DEPTH {
-            return Err(self.raise(self.start, "Maximum call stack size exceeded"));
+            let mut error = self.raise_err(self.start, "Maximum call stack size exceeded");
+            error.depth = true;
+            return Err(PErr::Syntax(error));
         }
         Ok(())
     }

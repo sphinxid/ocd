@@ -341,9 +341,7 @@ fn search_global(rt: &Rt) -> Value {
         NativeFn {
             call: Rc::new(|rt, site, _, args| {
                 let rt = rt.clone();
-                NResult::future(async move {
-                    crate::tool_runtime::run_tool(&rt, crate::tool_runtime::ToolTarget::Search, args, site).await
-                })
+                NResult::future(async move { crate::tool_runtime::run_search(&rt, args, site).await })
             }),
             construct: None,
             callback: false,

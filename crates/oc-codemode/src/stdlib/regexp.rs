@@ -644,7 +644,18 @@ pub fn exec_raw(rx: &RegExpData, text: &[u16]) -> Option<RawMatch> {
         }
         return None;
     }
-    match find_at(&rx.compiled, text, last_index as usize, flags.sticky) {
+    let mut start = last_index as usize;
+    // A Unicode-mode regex never starts inside a surrogate pair: JavaScriptCore (Bun 1.4.4) and V8 move back to the
+    // pair's lead surrogate.
+    if flags.full_unicode()
+        && start > 0
+        && start < text.len()
+        && (0xDC00..0xE000).contains(&text[start])
+        && (0xD800..0xDC00).contains(&text[start - 1])
+    {
+        start -= 1;
+    }
+    match find_at(&rx.compiled, text, start, flags.sticky) {
         None => {
             if stateful {
                 rx.set_last_index(0.0);
@@ -765,12 +776,16 @@ pub fn symbol_match_all(rx: &RegExpData, text: &JsStr, mut each: impl FnMut(&Reg
     Ok(())
 }
 
-/// The matches `String.prototype.replace` substitutes: one, or all for a global regex. Like JSC, a non-global
-/// regex searches from the start (a sticky one is anchored there) and leaves `lastIndex` alone.
+/// The matches `String.prototype.replace` substitutes: one, or all for a global regex. A non-global regex searches
+/// from the start and leaves `lastIndex` alone, except that a sticky one matches at `lastIndex` and updates it, as
+/// RegExpBuiltinExec does (JavaScriptCore in Bun 1.4.4 agrees).
 pub fn replace_matches(rx: &RegExpData, text: &JsStr) -> Vec<RawMatch> {
     let flags = rx.compiled.flags;
     if !flags.global {
-        return find_at(&rx.compiled, text.units(), 0, flags.sticky).into_iter().collect();
+        if flags.sticky {
+            return exec_raw(rx, text.units()).into_iter().collect();
+        }
+        return find_at(&rx.compiled, text.units(), 0, false).into_iter().collect();
     }
     rx.set_last_index(0.0);
     let mut out = Vec::new();

@@ -7,7 +7,7 @@ use serde_json::{Map, Number};
 
 use crate::interp::callback::Callback;
 use crate::interp::errors::{invalid_data, range_error, type_error, JsResult};
-use crate::interp::eval::{await_promise, call_value};
+use crate::interp::eval::call_value;
 use crate::interp::limits::MAX_VALUE_DEPTH;
 use crate::interp::{Rt, Site};
 use crate::object::{define_data, get, keys, record, Obj, ObjKind};
@@ -53,6 +53,8 @@ async fn walk(rt: &Rt, value: Value, replacer: Option<&Callback>, boundary: bool
 impl Walk<'_> {
     fn visit(&mut self, holder: Obj, key: PropKey, depth: usize) -> futures::future::LocalBoxFuture<'_, JsResult<Option<Json>>> {
         Box::pin(async move {
+            // Shared references expand into a tree, so the work is not bounded by the value's size or depth.
+            self.rt.interrupt.check()?;
             if depth > MAX_VALUE_DEPTH {
                 return Err(range_error(format!("Value exceeds the maximum depth of {MAX_VALUE_DEPTH}.")));
             }
@@ -66,7 +68,7 @@ impl Walk<'_> {
                 ));
             }
             let settled = match &raw {
-                Value::Object(o) if o.is_promise() => await_promise(self.rt, o).await?,
+                Value::Object(o) if o.is_promise() => crate::interp::runner::await_value(self.rt, raw.clone(), None).await?,
                 _ => raw,
             };
             let key_value = key.to_value();

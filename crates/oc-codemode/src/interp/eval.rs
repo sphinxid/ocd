@@ -1,18 +1,17 @@
 //! The AST evaluator. Port of `interpreter/interpreter.ts`.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use futures::future::LocalBoxFuture;
 
 use super::coerce::{coerce_to_number, coerce_to_string, to_primitive, Hint};
 use super::errors::*;
-use super::exec::{yield_now, Deferred, Exit};
 use super::function::{make_function, Closure, FuncImpl, NResult};
-use super::iteration::{self, builtin_cursor, Step};
+use super::iteration::{self, builtin_cursor};
 use super::limits::{check_string_length, MAX_CALL_DEPTH};
-use super::promises::{resolve_promise, resolve_promise_value, SelfSlot};
+use super::generators::{suspend_body, GeneratorHandle, ReqKind};
 use super::references::reject_circular_insertion;
 use super::{new_env, Binding, Env, Rt, Site};
 use crate::ast::*;
@@ -349,31 +348,6 @@ fn uses_arguments(f: &Function) -> bool {
     func(f)
 }
 
-/// Generator machinery shared by a generator object and its body.
-pub struct GenRequest {
-    kind: ReqKind,
-    value: Value,
-    response: Rc<Deferred>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ReqKind {
-    Next,
-    Return,
-    Throw,
-}
-
-#[derive(Default)]
-pub struct GenState {
-    started: Cell<bool>,
-    completed: Cell<bool>,
-    draining: Cell<bool>,
-    active: RefCell<Option<GenRequest>>,
-    pending: RefCell<VecDeque<GenRequest>>,
-    available: RefCell<Option<Rc<Deferred>>>,
-    body: RefCell<Option<LocalBoxFuture<'static, JsResult<Value>>>>,
-}
-
 /// One activation: the top-level program or a single function call.
 pub struct Frame {
     pub rt: Rt,
@@ -381,7 +355,8 @@ pub struct Frame {
     pub depth: Cell<usize>,
     /// The call site this frame runs under (Effect's `CallSite` context).
     pub ambient: Site,
-    pub generator: RefCell<Option<Rc<GenState>>>,
+    /// The generator whose body this frame runs, where `yield` suspends.
+    pub generator: RefCell<Option<Rc<GeneratorHandle>>>,
     pub gen_async: Cell<bool>,
 }
 
@@ -391,19 +366,17 @@ pub async fn call_value(rt: &Rt, callable: &Value, this: Value, args: Vec<Value>
     frame.call(callable.clone(), this, args, None, None).await
 }
 
-/// `ctx.await(promise)`: settle a promise, deferring the continuation one turn.
-pub async fn await_promise(rt: &Rt, promise: &Obj) -> JsResult<Value> {
-    let ObjKind::Promise(cell) = promise.kind() else { return Ok(Value::Object(promise.clone())) };
-    rt.pending.mark_observed(promise);
-    let exit = cell.wait().await;
-    yield_now().await;
-    exit
+/// Await: suspends the innermost async body until `value` settles; a stall while it waits is reported at `node`.
+pub async fn await_value(rt: &Rt, value: Value, node: Option<Loc>) -> JsResult<Value> {
+    super::runner::await_value(rt, value, node).await
 }
 
-/// Root `awaitValue`: adopt a value as a promise and await it.
-pub async fn await_value(rt: &Rt, value: Value) -> JsResult<Value> {
-    let promise = resolve_promise(rt, value, Site::default())?;
-    await_promise(rt, &promise).await
+/// A native promise, or an object with a callable `then`.
+fn is_thenable(value: &Value) -> bool {
+    match value {
+        Value::Object(o) => o.is_promise() || object::get(o, &PropKey::str("then")).map(|t| t.js_typeof() == "function").unwrap_or(false),
+        _ => false,
+    }
 }
 
 impl Frame {
@@ -563,18 +536,14 @@ impl Frame {
             }
         }
         // The implicit async body adopts returned promises before copy-out.
-        resolve_promise_value(&self.rt, value, None).await
+        if is_thenable(&value) { self.await_value(value, None).await } else { Ok(value) }
     }
 
     // ---- awaiting ----
 
-    async fn await_promise(&self, promise: &Obj) -> JsResult<Value> {
-        await_promise(&self.rt, promise).await
-    }
-
-    pub async fn await_value(&self, value: Value) -> JsResult<Value> {
-        let promise = resolve_promise(&self.rt, value, self.site(None))?;
-        let result = self.await_promise(&promise).await;
+    /// The continuation runs from the job queue, so the stack below it is gone when it resumes.
+    pub async fn await_value(&self, value: Value, node: Option<Loc>) -> JsResult<Value> {
+        let result = await_value(&self.rt, value, node).await;
         self.depth.set(0);
         result
     }
@@ -596,9 +565,16 @@ impl Frame {
                 self.var_decl(env, d).await?;
                 Ok(Completion::Normal)
             }),
-            Stmt::Return { argument, .. } => match argument {
+            Stmt::Return { argument, loc } => match argument {
                 None => ready(Ok(Completion::Return(Value::Undefined))),
-                Some(a) => Box::pin(async move { Ok(Completion::Return(self.eval(env, a).await?)) }),
+                Some(a) => Box::pin(async move {
+                    let value = self.eval(env, a).await?;
+                    // An async generator awaits what it returns, as it awaits what it yields.
+                    if self.gen_async.get() && self.generator.borrow().is_some() {
+                        return Ok(Completion::Return(self.await_value(value, Some(*loc)).await?));
+                    }
+                    Ok(Completion::Return(value))
+                }),
             },
             Stmt::Block(b) => Box::pin(self.block(env, b)),
             Stmt::If { test, consequent, alternate, .. } => Box::pin(async move {
@@ -821,13 +797,13 @@ impl Frame {
             self.predeclare_pattern(&outer, pattern, mutable, loc)?;
         }
         let right_value = self.eval(&outer, right).await?;
-        let cursor = builtin_cursor(&self.rt, &right_value);
-        let iterator = if cursor.is_none() {
+        let builtin = builtin_cursor(&self.rt, &right_value);
+        let custom = if builtin.is_none() {
             iteration::custom_iterator(&self.rt, &right_value, Some(node), awaiting, self.site(Some(node))).await?
         } else {
             None
         };
-        if iterator.is_none() && cursor.is_none() {
+        if custom.is_none() && builtin.is_none() {
             return Err(invalid_data_at(
                 format!(
                     "{} requires an iterable value, received {}.",
@@ -837,6 +813,13 @@ impl Frame {
                 node,
             ));
         }
+        // `for await` over a synchronous iterator drives it through CreateAsyncFromSyncIterator, as JS does.
+        let iterator = if awaiting && !custom.as_ref().is_some_and(|c| c.asynchronous) {
+            Some(iteration::async_from_sync(&self.rt, builtin.clone(), custom.clone(), Some(node)))
+        } else {
+            custom
+        };
+        let cursor = if iterator.is_none() { builtin } else { None };
         let assignment = match left {
             ForHead::Pat(p) => {
                 if matches!(p, Pat::Rest { .. } | Pat::Assign { .. }) {
@@ -852,29 +835,16 @@ impl Frame {
         };
         let close = || async {
             match (&iterator, &cursor) {
-                (Some(it), _) => iteration::close_iterator(&self.rt, it, Some(node), awaiting, self.site(Some(node))).await,
-                (None, Some(c)) => {
-                    c.close().await?;
-                    if awaiting {
-                        yield_now().await;
-                    }
-                    Ok(())
-                }
+                (Some(it), _) => iteration::close_iterator(&self.rt, it, Some(node), self.site(Some(node))).await,
+                (None, Some(c)) => c.close().await,
                 _ => Ok(()),
             }
         };
         loop {
-            let current = match (&iterator, &cursor) {
-                (Some(it), _) => {
-                    iteration::next_iterator_result(&self.rt, it, Some(node), awaiting, self.site(Some(node))).await?
-                }
+            let step = match (&iterator, &cursor) {
+                (Some(it), _) => iteration::next_iterator_result(&self.rt, it, Some(node), self.site(Some(node))).await?,
                 (None, Some(c)) => c.next().await?,
                 _ => unreachable!(),
-            };
-            let step = if cursor.is_some() && awaiting {
-                Step { done: current.done, value: self.await_value(current.value).await? }
-            } else {
-                current
             };
             if step.done {
                 return Ok(Completion::Normal);
@@ -919,14 +889,31 @@ impl Frame {
         }
     }
 
-    // for...in over null/undefined iterates nothing, like JS.
+    // for...in over null/undefined iterates nothing, like JS. After the own keys come each prototype's enumerable
+    // string keys, skipping any key a nearer level has, even as a non-enumerable property.
     fn enumerable_keys(&self, value: &Value, node: Loc) -> JsResult<Vec<JsStr>> {
         match value {
             Value::Tool(t) => Ok(self.rt.tools.keys(t.path())?.into_iter().map(JsStr::from).collect()),
             Value::Undefined | Value::Null => Ok(Vec::new()),
             _ => {
                 let source = crate::stdlib::object::enumerable_source(&self.rt, "for...in", value, Some(node))?;
-                Ok(object::keys(&source))
+                let mut chain = vec![source.clone()];
+                // A string's characters stand in an array, but its prototype is String.prototype.
+                let mut proto = self.rt.builtins.primitive_prototype(value).cloned().or_else(|| source.proto());
+                while let Some(p) = proto {
+                    proto = p.proto();
+                    chain.push(p);
+                }
+                let mut out = Vec::new();
+                for (depth, target) in chain.iter().enumerate() {
+                    for key in object::keys(target) {
+                        let prop = PropKey::Str(key.clone());
+                        if !chain[..depth].iter().any(|level| object::has_own(level, &prop)) {
+                            out.push(key);
+                        }
+                    }
+                }
+                Ok(out)
             }
         }
     }
@@ -1351,6 +1338,8 @@ impl Frame {
                         return self.invoke_function(o.clone(), c, this, args, node).await;
                     }
                     if let Some(n) = o.native_fn() {
+                        // A loop made only of built-in calls has no program call or loop back-edge to count.
+                        self.rt.interrupt.check()?;
                         let n = n.clone();
                         let site = self.site(node);
                         let result = (n.call)(&self.rt, site, this, args).resolve().await;
@@ -1364,18 +1353,27 @@ impl Frame {
         })
     }
 
-    // Fork at the call site so admission and hooks occur when the call is made.
+    // The call returns its promise at once. Arguments cross on the caller's stack, since `toJSON` is program code, and a
+    // promise argument is awaited first; the host call starts once they have crossed, so admission and hooks happen at
+    // the call site, and runs concurrently with the program.
     fn create_tool_call_promise(&self, path: Vec<Rc<str>>, args: Vec<Value>, node: Option<Loc>) -> JsResult<Obj> {
         let rt = self.rt.clone();
         let site = self.site(node);
-        self.rt.pending.create(
-            &self.rt,
-            site,
-            Box::pin(async move {
-                let path: Vec<String> = path.iter().map(|s| s.to_string()).collect();
-                crate::tool_runtime::run_tool(&rt, crate::tool_runtime::ToolTarget::Path(path), args, site).await
-            }),
-        )
+        let made = self.rt.runner.resolving(&self.rt.runner.new_promise(&self.rt)?, None);
+        let promise = made.promise.clone();
+        let task = async move {
+            let mut json = Vec::with_capacity(args.len());
+            for arg in args {
+                match crate::data::to_boundary(&rt, arg, site).await {
+                    Ok(j) => json.push(j),
+                    Err(error) => return made.reject(&rt, error),
+                }
+            }
+            let path: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+            crate::tool_runtime::start_tool(&rt, crate::tool_runtime::ToolTarget::Path(path), json, made, node);
+        };
+        self.rt.runner.spawn_async(Box::pin(task), &promise);
+        Ok(promise)
     }
 
     async fn call_arguments(&self, env: &Env, nodes: &[ExprOrSpread]) -> JsResult<Vec<Value>> {
@@ -1491,14 +1489,19 @@ impl Frame {
             bind.await?;
             return body.await;
         }
+        // The body runs now, nested in the caller's job, until it first suspends; its completion settles the promise.
+        let made = super::promises::capability(&self.rt, None)?;
+        let promise = made.promise.clone();
         let rt = self.rt.clone();
-        let promise = self.rt.pending.create_with_self(&self.rt, self.site(node), move |own: SelfSlot| {
-            Box::pin(async move {
+        let task = async move {
+            let completion = async move {
                 bind.await?;
-                let value = body.await?;
-                resolve_promise_value(&rt, value, Some(own)).await
-            })
-        })?;
+                body.await
+            }
+            .await;
+            made.settle_with(&rt, completion);
+        };
+        self.rt.runner.spawn_async(Box::pin(task), &promise);
         Ok(Value::Object(promise))
     }
 
@@ -1521,40 +1524,38 @@ impl Frame {
         fn_obj: &Obj,
         asynchronous: bool,
     ) -> Value {
-        let state = Rc::new(GenState::default());
-        *state.body.borrow_mut() = Some(run);
-        *invocation.generator.borrow_mut() = Some(state.clone());
+        // The body a generator object resumes: a `return()` request ends it with the returned value.
+        let body: LocalBoxFuture<'static, JsResult<Value>> = Box::pin(async move {
+            match run.await {
+                Err(Thrown::GeneratorReturn(v)) => Ok(v),
+                other => other,
+            }
+        });
+        let handle = Rc::new(GeneratorHandle::new(asynchronous, body, invocation.clone()));
+        *invocation.generator.borrow_mut() = Some(handle.clone());
         invocation.gen_async.set(asynchronous);
         let proto = match object::get(fn_obj, &PropKey::str("prototype")) {
             Ok(Value::Object(p)) => p,
+            _ if asynchronous => self.rt.builtins.async_generator.clone(),
             _ => self.rt.builtins.generator.clone(),
         };
-        let handle = Rc::new(super::generators::GeneratorHandle {
-            asynchronous,
-            state: RefCell::new(Some(state)),
-            frame: RefCell::new(Some(invocation)),
-        });
         Value::Object(Obj::new(Some(proto), ObjKind::Generator(handle)))
     }
 
-    async fn suspend_generator(&self, value: Value, node: Loc) -> JsResult<Value> {
-        let state = self.generator.borrow().clone();
-        let Some(state) = state else { return Err(type_error_at("Generator has no active request.", node)) };
-        let active = state.active.borrow_mut().take();
-        let Some(active) = active else { return Err(type_error_at("Generator has no active request.", node)) };
-        active.response.complete(Ok(iteration::iter_result(&self.rt, value, false)));
-        let request = take_generator_request(&state).await;
-        let (kind, rvalue) = (request.kind, request.value.clone());
-        *state.active.borrow_mut() = Some(request);
-        match kind {
-            ReqKind::Next => Ok(rvalue),
-            ReqKind::Throw => Err(Thrown::Value(rvalue)),
+    // Yield `value` and continue with the request that resumes the body: `next` supplies the value of the `yield`,
+    // `throw` throws there, and `return` unwinds through `finally` blocks (an async generator awaits the value first).
+    async fn suspend_generator(&self, value: Value) -> JsResult<Value> {
+        let generator = self.generator.borrow().clone();
+        let Some(generator) = generator else { return Err(type_error("yield is only valid inside a generator.")) };
+        let request = suspend_body(&self.rt, &generator, value).await;
+        match request.kind {
+            ReqKind::Next => Ok(request.value),
+            ReqKind::Throw => Err(Thrown::Value(request.value)),
             ReqKind::Return => {
                 if self.gen_async.get() {
-                    let v = self.await_value(rvalue).await?;
-                    Err(Thrown::GeneratorReturn(v))
+                    Err(Thrown::GeneratorReturn(self.await_value(request.value, None).await?))
                 } else {
-                    Err(Thrown::GeneratorReturn(rvalue))
+                    Err(Thrown::GeneratorReturn(request.value))
                 }
             }
         }
@@ -1571,20 +1572,22 @@ impl Frame {
         if delegate {
             return self.delegate_yield(value, node).await;
         }
-        let yielded = if self.gen_async.get() { self.await_value(value).await? } else { value };
-        self.suspend_generator(yielded, node).await
+        let yielded = if self.gen_async.get() { self.await_value(value, Some(node)).await? } else { value };
+        self.suspend_generator(yielded).await
     }
 
     async fn delegate_yield(&self, value: Value, node: Loc) -> JsResult<Value> {
         let asynchronous = self.gen_async.get();
-        if let Some(cursor) = builtin_cursor(&self.rt, &value) {
+        let builtin = builtin_cursor(&self.rt, &value);
+        if let Some(cursor) = &builtin
+            && !asynchronous
+        {
             loop {
                 let step = cursor.next().await?;
                 if step.done {
                     return Ok(Value::Undefined);
                 }
-                let v = if asynchronous { self.await_value(step.value).await? } else { step.value };
-                match self.suspend_generator(v, node).await {
+                match self.suspend_generator(step.value).await {
                     Ok(_) => continue,
                     Err(e @ Thrown::GeneratorReturn(_)) => {
                         cursor.close().await?;
@@ -1599,9 +1602,19 @@ impl Frame {
             }
         }
         let site = self.site(Some(node));
-        let iterator = iteration::custom_iterator(&self.rt, &value, Some(node), asynchronous, site).await?;
-        let Some(iterator) = iterator else {
+        let custom = if builtin.is_none() {
+            iteration::custom_iterator(&self.rt, &value, Some(node), asynchronous, site).await?
+        } else {
+            None
+        };
+        if builtin.is_none() && custom.is_none() {
             return Err(type_error_at("yield* requires a compatible iterable value.", node));
+        }
+        // An async generator delegates to a synchronous iterator through CreateAsyncFromSyncIterator, as JS does.
+        let iterator = if asynchronous && !custom.as_ref().is_some_and(|c| c.asynchronous) {
+            iteration::async_from_sync(&self.rt, builtin, custom, Some(node))
+        } else {
+            custom.unwrap()
         };
         let mut kind = ReqKind::Next;
         let mut input = Value::Undefined;
@@ -1613,9 +1626,10 @@ impl Frame {
             };
             if method.is_nullish() {
                 if kind == ReqKind::Return {
+                    let input = if asynchronous { self.await_value(input, Some(node)).await? } else { input };
                     return Err(Thrown::GeneratorReturn(input));
                 }
-                iteration::close_iterator(&self.rt, &iterator, Some(node), asynchronous, site).await?;
+                iteration::close_iterator(&self.rt, &iterator, Some(node), site).await?;
                 return Err(type_error_at("The delegated iterator does not provide a throw() method.", node));
             }
             let label = match kind {
@@ -1627,30 +1641,18 @@ impl Frame {
             let called = self
                 .call(method, Value::Object(iterator.iterator.clone()), vec![input.clone()], Some(node), None)
                 .await?;
-            let called = if iterator.asynchronous { self.await_value(called).await? } else { called };
+            let called = if iterator.asynchronous { self.await_value(called, Some(node)).await? } else { called };
             let result = iteration::require_iterator_object(called, &format!("Iterator {label}() result"), Some(node))?;
             let done = object::get(&result, &PropKey::str("done"))?.truthy();
-            let raw = object::get(&result, &PropKey::str("value"))?;
-            let result_value = if asynchronous && !iterator.asynchronous {
-                iteration::await_async_from_sync_value(
-                    &self.rt,
-                    &iterator,
-                    raw,
-                    Some(node),
-                    kind != ReqKind::Return && !done,
-                    site,
-                )
-                .await?
-            } else {
-                raw
-            };
+            let result_value = object::get(&result, &PropKey::str("value"))?;
             if done {
                 if kind == ReqKind::Return {
                     return Err(Thrown::GeneratorReturn(result_value));
                 }
                 return Ok(result_value);
             }
-            match self.suspend_generator(result_value, node).await {
+            // Delegated values are yielded as they are; an async generator's inner promise already settled them.
+            match self.suspend_generator(result_value).await {
                 Ok(v) => {
                     kind = ReqKind::Next;
                     input = v;
@@ -1725,9 +1727,9 @@ impl Frame {
             }),
             Expr::Update { op, prefix, argument, loc } => Box::pin(self.update(env, *op, *prefix, argument, *loc)),
             // Await always suspends, including for plain values.
-            Expr::Await { argument, .. } => Box::pin(async move {
+            Expr::Await { argument, loc } => Box::pin(async move {
                 let value = self.eval(env, argument).await?;
-                self.await_value(value).await
+                self.await_value(value, Some(*loc)).await
             }),
             Expr::Yield { argument, delegate, loc } => Box::pin(self.yield_expr(env, argument, *delegate, *loc)),
             Expr::New { callee, arguments, loc } => Box::pin(self.new_expr(env, callee, arguments, *loc)),
@@ -2412,132 +2414,6 @@ pub fn materialize(rt: &Rt, thrown: &Thrown) -> Value {
         other => {
             let message = super::globals::normalize_error(other).message;
             Value::Object(super::globals::create_error_value(rt.builtins.error(ErrorType::Error), Some(&message)))
-        }
-    }
-}
-
-async fn take_generator_request(state: &Rc<GenState>) -> GenRequest {
-    if let Some(r) = state.pending.borrow_mut().pop_front() {
-        return r;
-    }
-    let available = Deferred::new();
-    *state.available.borrow_mut() = Some(available.clone());
-    let _ = available.wait().await;
-    state.pending.borrow_mut().pop_front().expect("generator request")
-}
-
-/// `request(kind, value)` on a generator: the synchronous part runs now; the returned future awaits the response.
-pub fn generator_request(
-    rt: &Rt,
-    handle: &Rc<super::generators::GeneratorHandle>,
-    kind: ReqKind,
-    value: Value,
-) -> LocalBoxFuture<'static, Exit> {
-    let Some(state) = handle.state.borrow().clone() else { return Box::pin(std::future::ready(Ok(Value::Undefined))) };
-    let Some(frame) = handle.frame.borrow().clone() else { return Box::pin(std::future::ready(Ok(Value::Undefined))) };
-    let asynchronous = handle.asynchronous;
-    let rt = rt.clone();
-    let response = Deferred::new();
-    let request = GenRequest { kind, value: value.clone(), response: response.clone() };
-    let result = |rt: &Rt, value: Value, done: bool| iteration::iter_result(rt, value, done);
-    if !asynchronous && state.active.borrow().is_some() {
-        return Box::pin(std::future::ready(Err(type_error("Generator is already running."))));
-    }
-    if asynchronous && (state.completed.get() || (!state.started.get() && kind != ReqKind::Next)) {
-        state.started.set(true);
-        state.completed.set(true);
-        state.pending.borrow_mut().push_back(request);
-        if state.draining.get() {
-            return Box::pin(async move { response.wait().await });
-        }
-        state.draining.set(true);
-        let (s2, f2) = (state.clone(), frame.clone());
-        rt.pending.fork(Box::pin(async move {
-            complete_generator_requests(&f2, &s2, true).await;
-            s2.draining.set(false);
-            Ok(Value::Undefined)
-        }));
-        return Box::pin(async move { response.wait().await });
-    }
-    if state.completed.get() {
-        let out = if kind == ReqKind::Throw {
-            Err(Thrown::Value(value))
-        } else {
-            Ok(result(&rt, if kind == ReqKind::Return { value } else { Value::Undefined }, true))
-        };
-        return Box::pin(std::future::ready(out));
-    }
-    if !state.started.get() && kind != ReqKind::Next {
-        state.completed.set(true);
-        let out = if kind == ReqKind::Throw { Err(Thrown::Value(value)) } else { Ok(result(&rt, value, true)) };
-        return Box::pin(std::future::ready(out));
-    }
-    state.pending.borrow_mut().push_back(request);
-    let available = state.available.borrow_mut().take();
-    if let Some(a) = available {
-        a.complete(Ok(Value::Undefined));
-    }
-    if !state.started.get() {
-        state.started.set(true);
-        let run = state.body.borrow_mut().take();
-        let (s2, f2, rt2) = (state.clone(), frame.clone(), rt.clone());
-        rt.pending.fork(Box::pin(async move {
-            let req = take_generator_request(&s2).await;
-            *s2.active.borrow_mut() = Some(req);
-            let exit: Exit = match run {
-                None => Ok(Value::Undefined),
-                Some(run) => {
-                    let outcome = run.await;
-                    match outcome {
-                        Ok(v) => {
-                            if asynchronous {
-                                f2.await_value(v).await
-                            } else {
-                                Ok(v)
-                            }
-                        }
-                        Err(Thrown::GeneratorReturn(v)) => {
-                            if asynchronous {
-                                f2.await_value(v).await
-                            } else {
-                                Ok(v)
-                            }
-                        }
-                        Err(e) => Err(e),
-                    }
-                }
-            };
-            if matches!(exit, Err(Thrown::Interrupt)) {
-                return Err(Thrown::Interrupt);
-            }
-            let active = s2.active.borrow_mut().take();
-            if let Some(active) = active {
-                active.response.complete(exit.map(|v| iteration::iter_result(&rt2, v, true)));
-            }
-            complete_generator_requests(&f2, &s2, asynchronous).await;
-            s2.completed.set(true);
-            Ok(Value::Undefined)
-        }));
-    }
-    Box::pin(async move { response.wait().await })
-}
-
-async fn complete_generator_requests(frame: &Rc<Frame>, state: &Rc<GenState>, asynchronous: bool) {
-    loop {
-        let next = state.pending.borrow_mut().pop_front();
-        let Some(pending) = next else { return };
-        match pending.kind {
-            ReqKind::Throw => {
-                pending.response.complete(Err(Thrown::Value(pending.value)));
-            }
-            ReqKind::Return if asynchronous => {
-                let resolved = frame.await_value(pending.value).await;
-                pending.response.complete(resolved.map(|v| iteration::iter_result(&frame.rt, v, true)));
-            }
-            kind => {
-                let v = if kind == ReqKind::Return { pending.value } else { Value::Undefined };
-                pending.response.complete(Ok(iteration::iter_result(&frame.rt, v, true)));
-            }
         }
     }
 }

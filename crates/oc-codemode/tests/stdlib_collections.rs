@@ -2,6 +2,9 @@
 //! printed for it (cases ported from upstream stdlib, callbacks, parity, enumeration, and test262-derived tests,
 //! plus edge cases for holes, integrity levels, coercion, and live iteration).
 
+#[path = "common/dump.rs"]
+mod dump;
+
 use std::sync::Arc;
 
 use oc_codemode::codemode::{CodeMode, ExecutionLimits};
@@ -17,6 +20,7 @@ pub fn check(cases: &[(&str, &str)]) {
     let runtime = CodeMode::new(Vec::new(), Arc::new(NoTools), Vec::new(), ExecutionLimits::default()).unwrap();
     let mut failures = Vec::new();
     for (code, expected) in cases {
+        dump::case("stdlib_collections", code, expected);
         let result = runtime.execute_blocking(code);
         let actual = serde_json::to_string(&result.to_json()).unwrap();
         if normalize(&actual) != normalize(expected) {

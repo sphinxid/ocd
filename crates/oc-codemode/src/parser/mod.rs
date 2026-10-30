@@ -48,6 +48,8 @@ pub struct ParseError {
     pub line: u32,
     /// 0-based UTF-16 column of the error (acorn's `err.loc.column`).
     pub column: u32,
+    /// The nesting-depth guard fired: upstream overflows the host stack here (a `RangeError`, not a syntax error).
+    pub depth: bool,
 }
 
 impl fmt::Display for ParseError {

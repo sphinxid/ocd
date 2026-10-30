@@ -194,6 +194,12 @@ pub trait HostFunction: Send + Sync {
         0
     }
     fn call(&self, args: Vec<HostValue>) -> HostCall;
+    /// Whether the global is asynchronous (upstream: an `async` function or one marked with `Extension.async`). A
+    /// call to it always returns a promise, so a call the `extension.before` hook denies rejects that promise; a
+    /// synchronous global's denied call throws, and the hook holds the program's current job.
+    fn asynchronous(&self) -> bool {
+        false
+    }
 }
 
 /// A host function from a closure.
@@ -216,6 +222,36 @@ where
     fn call(&self, args: Vec<HostValue>) -> HostCall {
         (self.f)(args)
     }
+}
+
+/// An asynchronous host function from a closure (upstream `Extension.async`).
+pub struct AsyncFnHostFunction<F>(pub FnHostFunction<F>);
+
+impl<F> HostFunction for AsyncFnHostFunction<F>
+where
+    F: Fn(Vec<HostValue>) -> HostCall + Send + Sync,
+{
+    fn name(&self) -> &str {
+        &self.0.name
+    }
+    fn length(&self) -> usize {
+        self.0.length
+    }
+    fn call(&self, args: Vec<HostValue>) -> HostCall {
+        (self.0.f)(args)
+    }
+    fn asynchronous(&self) -> bool {
+        true
+    }
+}
+
+/// An asynchronous host function value (see [`HostFunction::asynchronous`]).
+pub fn host_fn_async(
+    name: impl Into<String>,
+    length: usize,
+    f: impl Fn(Vec<HostValue>) -> HostCall + Send + Sync + 'static,
+) -> HostValue {
+    HostValue::Function(Arc::new(AsyncFnHostFunction(FnHostFunction { name: name.into(), length, f })))
 }
 
 pub fn host_fn(

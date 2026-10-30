@@ -186,7 +186,7 @@ pub enum ObjKind {
     Error(RefCell<Option<Rc<PendingThrow>>>),
     Function(crate::interp::function::FuncKind),
     Arguments,
-    Promise(Rc<crate::interp::exec::FiberCell>),
+    Promise(Rc<crate::interp::runner::PromiseState>),
     Generator(Rc<crate::interp::generators::GeneratorHandle>),
     Iterator(Rc<dyn crate::interp::iteration::Cursor>),
     Date(Cell<f64>),

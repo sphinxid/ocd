@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 
-use crate::host::{host_fn, HostCall, HostFunction, HostValue, HttpClient, HttpRequest, HttpResponse, SimpleExtension};
+use crate::host::{host_fn, host_fn_async, HostCall, HostFunction, HostValue, HttpClient, HttpRequest, HttpResponse, SimpleExtension};
 
 pub const TIMEOUT_MS: u64 = 30_000;
 
@@ -26,6 +26,10 @@ impl HostFunction for Fetch {
     }
     fn length(&self) -> usize {
         1
+    }
+    // Core's `fetch` is an `async` function.
+    fn asynchronous(&self) -> bool {
+        true
     }
     fn call(&self, args: Vec<HostValue>) -> HostCall {
         // `URL.parse(String(input))?.protocol === "file:"`: the host never reads local files for a program.
@@ -145,14 +149,14 @@ fn response_value(response: HttpResponse) -> HostValue {
     let text_of = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
     let text = {
         let b = body.clone();
-        host_fn("text", 0, move |_| {
+        host_fn_async("text", 0, move |_| {
             let t = text_of(&b);
             HostCall::Pending(Box::pin(async move { Ok(HostValue::String(t)) }))
         })
     };
     let json = {
         let b = body.clone();
-        host_fn("json", 0, move |_| {
+        host_fn_async("json", 0, move |_| {
             let t = text_of(&b);
             HostCall::Pending(Box::pin(async move {
                 let parsed = crate::stdlib::json::parse_json(&crate::value::JsStr::from(t.as_str()))
@@ -163,7 +167,7 @@ fn response_value(response: HttpResponse) -> HostValue {
     };
     let bytes = {
         let b = body.clone();
-        host_fn("bytes", 0, move |_| {
+        host_fn_async("bytes", 0, move |_| {
             let v = (*b).clone();
             HostCall::Pending(Box::pin(async move { Ok(HostValue::Bytes(v)) }))
         })

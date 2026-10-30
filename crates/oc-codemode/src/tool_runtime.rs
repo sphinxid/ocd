@@ -9,7 +9,11 @@ use serde_json::{json, Map, Value as Json};
 
 use crate::data::{from_json, quote, to_boundary};
 use crate::host::{CallResult, Host, ToolCallError, ToolInvocation};
-use crate::interp::errors::{tool_runtime_error, DiagnosticKind, JsResult, Thrown};
+use futures::future::LocalBoxFuture;
+
+use crate::ast::Loc;
+use crate::interp::errors::{locate, tool_runtime_error, DiagnosticKind, JsResult, Thrown};
+use crate::interp::runner::Resolving;
 use crate::interp::{Rt, Site};
 use crate::tool_schema::{
     input_properties, is_empty_input, is_identifier_segment, output_typescript, schema_to_typescript, ToolSchema,
@@ -456,81 +460,110 @@ impl Drop for AfterGuard {
     }
 }
 
-/// Runs one host tool: arguments cross as JSON and the result comes back as program values.
-pub async fn run_tool(rt: &Rt, target: ToolTarget, args: Vec<Value>, site: Site) -> JsResult<Value> {
+/// One host tool call (`ToolRuntime.execute`/`search`): resolution, input decoding, admission, hooks, the call, and
+/// output handling. Its synchronous part (everything up to the first host suspension) runs when it is first polled.
+fn tool_work(rt: &Rt, target: ToolTarget, json_args: Vec<Option<Json>>) -> LocalBoxFuture<'static, Result<Option<Json>, Thrown>> {
+    let rt = rt.clone();
+    Box::pin(async move {
+        let tools = &rt.tools;
+        let (name, def) = match target {
+            ToolTarget::Search => ("search".to_string(), None),
+            ToolTarget::Path(path) => {
+                let rc: Vec<std::rc::Rc<str>> = path.iter().map(|s| std::rc::Rc::from(s.as_str())).collect();
+                let segments = canonical_segments(&rc);
+                // Models often write `tools.search(...)` for the bare `search(...)`; honor it unless a tool owns it.
+                if segments.len() == 1 && segments[0] == "search" && tools.prepared.lookup(&segments).is_none() {
+                    ("search".to_string(), None)
+                } else {
+                    let def = tools.prepared.resolve(&segments)?;
+                    (segments.join("."), Some(def))
+                }
+            }
+        };
+        let normalized: Vec<Option<Json>> = if json_args.is_empty() { vec![Some(json!({}))] } else { json_args };
+        if normalized.len() != 1 {
+            return Err(tool_runtime_error(
+                DiagnosticKind::InvalidToolInput,
+                format!("Tool '{name}' expects at most one input object."),
+                Vec::new(),
+            ));
+        }
+        let raw_input = normalized.into_iter().next().unwrap();
+        let invalid = |message: String| {
+            tool_runtime_error(
+                DiagnosticKind::InvalidToolInput,
+                format!("Invalid input for tool '{name}': {message}"),
+                if def.is_none() {
+                    Vec::new()
+                } else {
+                    vec!["The signature may have changed. Use search to get the current signature.".into()]
+                },
+            )
+        };
+        let (input, search_request) = match &def {
+            None => {
+                let request = decode_search_input(raw_input.as_ref()).map_err(invalid)?;
+                (Some(Json::Object(request.clone())), Some(request))
+            }
+            Some(_) => (tools.host.decode_input(&name, raw_input).map_err(invalid)?, None),
+        };
+        tools.record_call(&name)?;
+        let invocation = ToolInvocation { id: tools.next_call_id(), name: name.clone(), input: input.clone() };
+        let host = tools.host.clone();
+        host.tool_before(&invocation).await.map_err(tool_error)?;
+        let mut guard = AfterGuard { host: host.clone(), call: Some(invocation.clone()) };
+        let outcome: Result<Option<Json>, Thrown> = match search_request {
+            Some(request) => Ok(Some(tools.prepared.search(&request))),
+            None => match host.call(&name, input).await {
+                Ok(value) => Ok(if def.as_ref().unwrap().output.is_none() { None } else { value }),
+                Err(ToolCallError::Failure(m)) => Err(Thrown::ToolFailure(m.into())),
+                Err(ToolCallError::InvalidOutput(m)) => Err(tool_runtime_error(
+                    DiagnosticKind::InvalidToolOutput,
+                    format!("Invalid output from tool '{name}': {m}"),
+                    Vec::new(),
+                )),
+            },
+        };
+        let call = guard.call.take().unwrap();
+        let result = match &outcome {
+            Ok(v) => CallResult::Success(v.clone()),
+            Err(Thrown::ToolFailure(m)) => CallResult::Failure(m.to_string()),
+            Err(Thrown::ToolRuntime(e)) => CallResult::Failure(e.message.clone()),
+            Err(_) => CallResult::Failure(String::new()),
+        };
+        host.tool_after(&call, &result);
+        outcome
+    })
+}
+
+/// Starts a tool call as host work that runs concurrently with the program; `made` settles in a later job, after
+/// the jobs already queued, like I/O. A defect is located at `site`, the call that started the work.
+pub fn start_tool(rt: &Rt, target: ToolTarget, json_args: Vec<Option<Json>>, made: Resolving, site: Option<Loc>) {
+    let work = tool_work(rt, target, json_args);
+    rt.runner.host(Box::pin(async move {
+        let outcome = work.await;
+        Box::new(move || {
+            let rt = crate::interp::rt();
+            match outcome {
+                Ok(value) => {
+                    let value = from_json(&rt, value.as_ref());
+                    made.resolve(&rt, value)
+                }
+                Err(error) => made.reject(&rt, locate(error, site)),
+            }
+        }) as Box<dyn FnOnce()>
+    }));
+}
+
+/// The built-in `search`: arguments cross as JSON, then the call runs to completion before any other job, and the
+/// result comes back as values that can also be awaited or chained like a Promise.
+pub async fn run_search(rt: &Rt, args: Vec<Value>, site: Site) -> JsResult<Value> {
     let mut json_args: Vec<Option<Json>> = Vec::with_capacity(args.len());
     for a in args {
         json_args.push(to_boundary(rt, a, site).await?);
     }
-    let tools = &rt.tools;
-    let (name, def) = match target {
-        ToolTarget::Search => ("search".to_string(), None),
-        ToolTarget::Path(path) => {
-            let rc: Vec<std::rc::Rc<str>> = path.iter().map(|s| std::rc::Rc::from(s.as_str())).collect();
-            let segments = canonical_segments(&rc);
-            // Models often write `tools.search(...)` for the bare `search(...)`; honor it unless a tool owns it.
-            if segments.len() == 1 && segments[0] == "search" && tools.prepared.lookup(&segments).is_none() {
-                ("search".to_string(), None)
-            } else {
-                let def = tools.prepared.resolve(&segments)?;
-                (segments.join("."), Some(def))
-            }
-        }
-    };
-    let normalized: Vec<Option<Json>> = if json_args.is_empty() { vec![Some(json!({}))] } else { json_args };
-    if normalized.len() != 1 {
-        return Err(tool_runtime_error(
-            DiagnosticKind::InvalidToolInput,
-            format!("Tool '{name}' expects at most one input object."),
-            Vec::new(),
-        ));
-    }
-    let raw_input = normalized.into_iter().next().unwrap();
-    let invalid = |message: String| {
-        tool_runtime_error(
-            DiagnosticKind::InvalidToolInput,
-            format!("Invalid input for tool '{name}': {message}"),
-            if def.is_none() {
-                Vec::new()
-            } else {
-                vec!["The signature may have changed. Use search to get the current signature.".into()]
-            },
-        )
-    };
-    let (input, search_request) = match &def {
-        None => {
-            let request = decode_search_input(raw_input.as_ref()).map_err(invalid)?;
-            (Some(Json::Object(request.clone())), Some(request))
-        }
-        Some(_) => (tools.host.decode_input(&name, raw_input).map_err(invalid)?, None),
-    };
-    tools.record_call(&name)?;
-    let invocation = ToolInvocation { id: tools.next_call_id(), name: name.clone(), input: input.clone() };
-    let host = tools.host.clone();
-    host.tool_before(&invocation).await.map_err(tool_error)?;
-    let mut guard = AfterGuard { host: host.clone(), call: Some(invocation.clone()) };
-    let outcome: Result<Option<Json>, Thrown> = match search_request {
-        Some(request) => Ok(Some(tools.prepared.search(&request))),
-        None => match host.call(&name, input).await {
-            Ok(value) => Ok(if def.as_ref().unwrap().output.is_none() { None } else { value }),
-            Err(ToolCallError::Failure(m)) => Err(Thrown::ToolFailure(m.into())),
-            Err(ToolCallError::InvalidOutput(m)) => Err(tool_runtime_error(
-                DiagnosticKind::InvalidToolOutput,
-                format!("Invalid output from tool '{name}': {m}"),
-                Vec::new(),
-            )),
-        },
-    };
-    let call = guard.call.take().unwrap();
-    let result = match &outcome {
-        Ok(v) => CallResult::Success(v.clone()),
-        Err(Thrown::ToolFailure(m)) => CallResult::Failure(m.to_string()),
-        Err(Thrown::ToolRuntime(e)) => CallResult::Failure(e.message.clone()),
-        Err(_) => CallResult::Failure(String::new()),
-    };
-    host.tool_after(&call, &result);
-    let value = outcome?;
-    Ok(from_json(rt, value.as_ref()))
+    let value = rt.runner.block_on(rt, tool_work(rt, ToolTarget::Search, json_args))??;
+    Ok(crate::interp::promises::promise_like(rt, from_json(rt, value.as_ref())))
 }
 
 fn tool_error(e: ToolCallError) -> Thrown {

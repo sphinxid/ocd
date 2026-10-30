@@ -1,377 +1,252 @@
-//! Promises: supervised fibers, the pending-work registry, resolution, combinators, and reactions.
-//! Port of `interpreter/promises.ts`.
+//! Promise built-ins: capabilities, reactions that call program code, combinators, `then`/`catch`/`finally`, the
+//! constructor, and the promise-like `search` results. Port of `interpreter/promises.ts`; the abstract operations
+//! (settle, resolve, then) live in [`super::runner`].
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use futures::future::LocalBoxFuture;
-use indexmap::IndexMap;
-
-use super::callback::{apply_collection_callback, is_supported_callback};
+use super::callback::is_supported_callback;
 use super::errors::*;
-use super::eval::{await_promise, call_value, materialize};
-use super::exec::{executor, yield_now, Deferred, Exit, FiberCell, WaitAny};
-use super::function::{arg, constructor, fn_, native, requires_new, receiver, method, methods, NResult, NativeFn};
-use super::globals::{create_aggregate_error_value, normalize_error};
+use super::eval::{call_value, materialize};
+use super::function::{arg, constructor, fn_, method, methods, native, receiver, requires_new, NResult, NativeFn};
+use super::globals::create_aggregate_error_value;
 use super::iteration;
-use super::limits::MAX_PENDING_PROMISES;
+use super::runner::{Exit, Reaction, Resolving};
 use super::{describe_value, Rt, Site};
-use crate::object::{define, get, record, Obj, ObjKind, HIDDEN};
-use crate::value::{PropKey, Value};
+use crate::ast::Loc;
+use crate::object::{define, record, Obj, ObjKind, HIDDEN};
+use crate::value::Value;
 
-pub type SelfSlot = Rc<RefCell<Option<Obj>>>;
-
-/// Observation only controls rejection reporting; program completion interrupts all promise work.
-#[derive(Default)]
-pub struct Pending {
-    active: RefCell<IndexMap<usize, Obj>>,
-    failures: RefCell<BTreeMap<u64, Diagnostic>>,
-    next_id: Cell<u64>,
+/// NewPromiseCapability(%Promise%): a pending promise with the host functions that settle it once. A built-in's own
+/// failure that rejects it is located at `site`, the call that created it.
+pub fn capability(rt: &Rt, site: Option<Loc>) -> JsResult<Resolving> {
+    let promise = rt.runner.new_promise(rt)?;
+    Ok(rt.runner.resolving(&promise, site))
 }
 
-fn cell_of(promise: &Obj) -> Option<&Rc<FiberCell>> {
-    match promise.kind() {
-        ObjKind::Promise(c) => Some(c),
-        _ => None,
-    }
+// A `resolve`/`reject` handed to an executor or thenable: calling it settles the capability.
+fn resolving_functions(rt: &Rt, resolving: &Resolving) -> (Value, Value) {
+    let (r1, r2) = (resolving.clone(), resolving.clone());
+    let resolve = fn_(&rt.builtins.function, "resolve", 1, move |rt, _, _, args| {
+        r1.resolve(rt, arg(&args, 0));
+        NResult::ok(Value::Undefined)
+    });
+    let reject = fn_(&rt.builtins.function, "reject", 1, move |rt, _, _, args| {
+        r2.reject(rt, Thrown::Value(arg(&args, 0)));
+        NResult::ok(Value::Undefined)
+    });
+    (Value::Object(resolve), Value::Object(reject))
 }
 
-impl Pending {
-    pub fn active_count(&self) -> usize {
-        self.active.borrow().len()
-    }
+/// Runs program code as a job of its own: `body` is the task.
+fn start(rt: &Rt, body: impl std::future::Future<Output = ()> + 'static) {
+    rt.runner.spawn(Box::pin(body));
+}
 
-    /// Forks `body` as a promise that starts immediately.
-    pub fn create(&self, rt: &Rt, site: Site, body: LocalBoxFuture<'static, JsResult<Value>>) -> JsResult<Obj> {
-        if self.active.borrow().len() >= MAX_PENDING_PROMISES {
-            return Err(range_error(format!(
-                "Too many pending promises (limit {MAX_PENDING_PROMISES}); await promises before creating more."
-            )));
-        }
-        // Allocate before forking so reruns get distinct IDs and diagnostics retain creation order.
-        let id = self.next_id.get();
-        self.next_id.set(id + 1);
-        let node = site.node;
-        let cell = executor().spawn(async move { body.await.map_err(|e| locate(e, node)) });
-        let promise = Obj::new(Some(rt.builtins.promise.clone()), ObjKind::Promise(cell.clone()));
-        self.active.borrow_mut().insert(cell.id, promise.clone());
-        cell.promise_id.set(Some(id));
-        let weak = Rc::downgrade(&cell);
-        cell.add_observer(Box::new(move |exit: &Exit| {
-            let rt = super::rt();
-            let Some(cell) = weak.upgrade() else { return };
-            rt.pending.active.borrow_mut().shift_remove(&cell.id);
-            let interrupted = matches!(exit, Err(Thrown::Interrupt));
-            if exit.is_ok() || interrupted || cell.observed.get() {
-                cell.promise_id.set(None);
+/// A promise reaction that calls program code: the handler runs as a job, and its result or failure settles the
+/// derived promise. A missing handler passes the outcome through.
+fn handler_reaction(on_fulfilled: Option<Value>, on_rejected: Option<Value>, derived: Option<Resolving>) -> Rc<Reaction> {
+    Reaction::new(move |settled: Exit| {
+        let rt = super::rt();
+        let handler = if settled.is_ok() { on_fulfilled } else { on_rejected };
+        let handler = match handler {
+            Some(h) if !matches!(settled, Err(Thrown::Interrupt)) => h,
+            _ => {
+                if let Some(d) = derived {
+                    d.settle_with(&rt, settled);
+                }
                 return;
             }
-            let Err(error) = exit else { return };
-            let failure = normalize_error(error);
-            rt.pending.failures.borrow_mut().insert(
-                id,
-                Diagnostic {
-                    message: format!("Unhandled rejection from an un-awaited promise: {}", failure.message),
-                    ..failure
-                },
-            );
-        }));
-        Ok(promise)
-    }
-
-    /// Resolution bodies need the promise's own identity to reject `resolve(promise)` self-resolution.
-    pub fn create_with_self(
-        &self,
-        rt: &Rt,
-        site: Site,
-        body: impl FnOnce(SelfSlot) -> LocalBoxFuture<'static, JsResult<Value>>,
-    ) -> JsResult<Obj> {
-        let slot: SelfSlot = Rc::new(RefCell::new(None));
-        let promise = self.create(rt, site, body(slot.clone()))?;
-        *slot.borrow_mut() = Some(promise.clone());
-        Ok(promise)
-    }
-
-    /// Observation must be recorded when responsibility transfers, before the consumer runs.
-    pub fn mark_observed(&self, promise: &Obj) {
-        if let Some(cell) = cell_of(promise) {
-            cell.observed.set(true);
-            if let Some(id) = cell.promise_id.take() {
-                self.failures.borrow_mut().remove(&id);
+        };
+        let argument = match &settled {
+            Ok(v) => v.clone(),
+            Err(e) => materialize(&rt, e),
+        };
+        let rt2 = rt.clone();
+        start(&rt, async move {
+            match call_value(&rt2, &handler, Value::Undefined, vec![argument], Site::default()).await {
+                Ok(result) => {
+                    if let Some(d) = derived {
+                        d.resolve(&rt2, result)
+                    }
+                }
+                Err(error) => {
+                    if let Some(d) = derived {
+                        d.reject(&rt2, error)
+                    }
+                }
             }
-        }
-    }
-
-    /// Starts supervised background work that is not a promise (generator bodies).
-    pub fn fork(&self, body: LocalBoxFuture<'static, JsResult<Value>>) {
-        executor().spawn(body);
-    }
-
-    pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        self.failures.borrow().values().cloned().collect()
-    }
-
-    /// Interrupts every fiber still running and returns the unhandled-rejection warnings.
-    pub fn interrupt(&self) -> Vec<Diagnostic> {
-        let exec = executor();
-        loop {
-            let alive = exec.alive();
-            if alive.is_empty() {
-                break;
-            }
-            for id in alive {
-                exec.interrupt(id);
-            }
-        }
-        self.active.borrow_mut().clear();
-        self.diagnostics()
-    }
-}
-
-/// Await a promise's fiber without marking or yielding (`pending.await`).
-async fn fiber_exit(promise: &Obj) -> Exit {
-    match cell_of(promise) {
-        Some(cell) => cell.wait().await,
-        None => Ok(Value::Object(promise.clone())),
-    }
-}
-
-fn capability(rt: &Rt, name: &str, settle: impl Fn(Value) + 'static) -> Value {
-    Value::Object(fn_(&rt.builtins.function, name, 1, move |_, _, _, args| {
-        settle(arg(&args, 0));
-        NResult::ok(Value::Undefined)
-    }))
-}
-
-/// Promise resolution: adopt promises and callable thenables recursively.
-pub fn resolve_promise_value(rt: &Rt, value: Value, own: Option<SelfSlot>) -> LocalBoxFuture<'static, JsResult<Value>> {
-    let rt = rt.clone();
-    Box::pin(async move {
-        if let (Some(own), Value::Object(o)) = (&own, &value)
-            && let Some(p) = own.borrow().as_ref()
-            && Obj::ptr_eq(p, o)
-        {
-            return Err(type_error("Chaining cycle detected: a promise cannot resolve with itself."));
-        }
-        let Value::Object(o) = &value else { return Ok(value) };
-        if o.is_promise() {
-            return await_promise(&rt, o).await;
-        }
-        let then = get(o, &PropKey::str("then"))?;
-        if then.js_typeof() != "function" {
-            return Ok(value);
-        }
-        // Promise resolution invokes a thenable's method in a later job.
-        yield_now().await;
-        let deferred = Deferred::new();
-        let (d1, d2) = (deferred.clone(), deferred.clone());
-        let resolve = capability(&rt, "resolve", move |v| {
-            d1.complete(Ok(v));
         });
-        let reject = capability(&rt, "reject", move |v| {
-            d2.complete(Err(Thrown::Value(v)));
-        });
-        if let Err(e) = call_value(&rt, &then, value.clone(), vec![resolve, reject], Site::default()).await {
-            if matches!(e, Thrown::Interrupt) {
-                return Err(e);
-            }
-            deferred.complete(Err(e));
-        }
-        let settled = deferred.wait().await?;
-        resolve_promise_value(&rt, settled, own).await
     })
-}
-
-pub fn resolve_promise(rt: &Rt, value: Value, site: Site) -> JsResult<Obj> {
-    if let Value::Object(o) = &value
-        && o.is_promise()
-    {
-        return Ok(o.clone());
-    }
-    let rt2 = rt.clone();
-    rt.pending.create_with_self(rt, site, move |own| resolve_promise_value(&rt2, value, Some(own)))
-}
-
-/// NewPromiseCapability: a pending promise with the resolve/reject callables that settle it exactly once.
-fn promise_capability(rt: &Rt, site: Site) -> JsResult<(Obj, Value, Value, Rc<Deferred>)> {
-    let deferred = Deferred::new();
-    let (d0, rt0) = (deferred.clone(), rt.clone());
-    let promise = rt.pending.create_with_self(rt, site, move |own| {
-        Box::pin(async move {
-            let value = d0.wait().await?;
-            resolve_promise_value(&rt0, value, Some(own)).await
-        })
-    })?;
-    let (d1, d2) = (deferred.clone(), deferred.clone());
-    let resolve = capability(rt, "resolve", move |v| {
-        d1.complete(Ok(v));
-    });
-    let reject = capability(rt, "reject", move |v| {
-        d2.complete(Err(Thrown::Value(v)));
-    });
-    Ok((promise, resolve, reject, deferred))
-}
-
-async fn settle_after_turn<T>(result: T) -> T {
-    yield_now().await;
-    result
 }
 
 const STATICS: [&str; 8] = ["all", "allSettled", "race", "any", "resolve", "reject", "withResolvers", "try"];
 
 fn invoke_static(rt: &Rt, site: Site, name: &'static str, args: Vec<Value>) -> NResult {
+    let node = site.node;
     match name {
-        "resolve" => NResult::Ready(resolve_promise(rt, arg(&args, 0), site).map(Value::Object)),
-        "reject" => {
-            let reason = arg(&args, 0);
-            NResult::Ready(rt.pending.create(rt, site, Box::pin(async move { Err(Thrown::Value(reason)) })).map(Value::Object))
-        }
-        "withResolvers" => NResult::Ready(promise_capability(rt, site).map(|(promise, resolve, reject, _)| {
-            Value::Object(record(&rt.builtins.object, vec![("promise", Value::Object(promise)), ("resolve", resolve), ("reject", reject)]))
+        "resolve" => NResult::Ready(rt.runner.promise_resolve(rt, arg(&args, 0)).map(Value::Object)),
+        "reject" => NResult::Ready(capability(rt, node).map(|made| {
+            made.reject(rt, Thrown::Value(arg(&args, 0)));
+            Value::Object(made.promise)
+        })),
+        "withResolvers" => NResult::Ready(capability(rt, node).map(|made| {
+            let (resolve, reject) = resolving_functions(rt, &made);
+            Value::Object(record(
+                &rt.builtins.object,
+                vec![("promise", Value::Object(made.promise)), ("resolve", resolve), ("reject", reject)],
+            ))
         })),
         "try" => {
             let f = arg(&args, 0);
             if f.js_typeof() != "function" {
                 return NResult::err(type_error(format!("Promise.try expects a function, received {}.", describe_value(&f))));
             }
+            let made = match capability(rt, node) {
+                Ok(m) => m,
+                Err(e) => return NResult::err(e),
+            };
             let rt = rt.clone();
             NResult::future(async move {
                 let rest = args.get(1..).map(|s| s.to_vec()).unwrap_or_default();
-                match call_value(&rt, &f, Value::Undefined, rest, site).await {
-                    Ok(v) => resolve_promise(&rt, v, site).map(Value::Object),
-                    Err(Thrown::Interrupt) => Err(Thrown::Interrupt),
-                    Err(e) => rt.pending.create(&rt, site, Box::pin(async move { Err(e) })).map(Value::Object),
+                match call_value(&rt, &f, Value::Undefined, rest, Site::default()).await {
+                    Ok(v) => made.resolve(&rt, v),
+                    Err(e) => made.reject(&rt, e),
                 }
+                Ok(Value::Object(made.promise))
             })
         }
         _ => {
-            let rt2 = rt.clone();
-            let source = arg(&args, 0);
-            NResult::Ready(
-                rt.pending
-                    .create(rt, site, Box::pin(async move { combinator(&rt2, name, source, site).await }))
-                    .map(Value::Object),
-            )
+            let rt = rt.clone();
+            let iterable = arg(&args, 0);
+            NResult::future(async move { combinator(&rt, name, iterable, site).await })
         }
     }
 }
 
-async fn combinator(rt: &Rt, name: &'static str, source: Value, site: Site) -> JsResult<Value> {
-    let cursor = iteration::iterate(rt, &source, None, site).await?;
-    let Some(cursor) = cursor else {
-        return Err(type_error(format!(
-            "Promise.{name} expects a synchronous iterable, received {}.",
-            describe_value(&source)
-        )));
+// Promise.all, allSettled, race, and any: each element is resolved to a promise and observed through a reaction, so
+// the result settles in the job where the deciding element's reaction runs, or at once for an empty input. A failure
+// while iterating rejects the result.
+async fn combinator(rt: &Rt, name: &'static str, iterable: Value, site: Site) -> JsResult<Value> {
+    let made = capability(rt, site.node)?;
+    struct State {
+        values: Vec<Value>,
+        reasons: Vec<Value>,
+        remaining: usize,
+        attached: Vec<(Obj, Rc<Reaction>)>,
+    }
+    let state = Rc::new(RefCell::new(State { values: Vec::new(), reasons: Vec::new(), remaining: 1, attached: Vec::new() }));
+    // Once the result settles early, the remaining members' reactions can do nothing: detach them so a member that
+    // stays pending for the rest of the program does not keep them.
+    let decided = {
+        let state = state.clone();
+        move |rt: &Rt, settle: &dyn Fn()| {
+            settle();
+            let attached = std::mem::take(&mut state.borrow_mut().attached);
+            for (item, reaction) in &attached {
+                rt.runner.detach(item, reaction);
+            }
+        }
     };
-    let mut items: Vec<Obj> = Vec::new();
-    loop {
-        let step = cursor.next().await?;
-        if step.done {
-            break;
+    let finish = {
+        let (state, made) = (state.clone(), made.clone());
+        move |rt: &Rt| {
+            let done = {
+                let mut s = state.borrow_mut();
+                s.remaining -= 1;
+                s.remaining == 0
+            };
+            if !done {
+                return;
+            }
+            if name == "any" {
+                let reasons = state.borrow().reasons.clone();
+                let error = create_aggregate_error_value(rt, reasons, "All promises were rejected", None);
+                made.reject(rt, Thrown::Value(Value::Object(error)));
+                return;
+            }
+            let values = state.borrow().values.clone();
+            made.resolve(rt, Value::Object(Obj::array(&rt.builtins.array, values)));
         }
-        let item = resolve_promise(rt, step.value, site)?;
-        rt.pending.mark_observed(&item);
-        items.push(item);
+    };
+    let finish = Rc::new(finish);
+    let decided = Rc::new(decided);
+    let outcome: JsResult<()> = async {
+        let cursor = iteration::iterate(rt, &iterable, None, site).await?;
+        let Some(cursor) = cursor else {
+            return Err(type_error(format!(
+                "Promise.{name} expects a synchronous iterable, received {}.",
+                describe_value(&iterable)
+            )));
+        };
+        let mut index = 0usize;
+        loop {
+            let step = cursor.next().await?;
+            if step.done {
+                break;
+            }
+            let item = rt.runner.promise_resolve(rt, step.value)?;
+            let at = index;
+            index += 1;
+            {
+                let mut s = state.borrow_mut();
+                s.values.push(Value::Undefined);
+                s.reasons.push(Value::Undefined);
+                s.remaining += 1;
+            }
+            let called = Rc::new(Cell::new(false));
+            let (state2, made2, finish2, decided2) = (state.clone(), made.clone(), finish.clone(), decided.clone());
+            let reaction = Reaction::new(move |settled: Exit| {
+                if called.replace(true) {
+                    return;
+                }
+                let rt = super::rt();
+                if name == "race" || matches!(settled, Err(Thrown::Interrupt)) {
+                    return decided2(&rt, &|| made2.settle_with(&rt, settled.clone()));
+                }
+                match name {
+                    "all" => match settled {
+                        Err(e) => decided2(&rt, &|| made2.reject(&rt, e.clone())),
+                        Ok(v) => {
+                            state2.borrow_mut().values[at] = v;
+                            finish2(&rt)
+                        }
+                    },
+                    "any" => match settled {
+                        Ok(v) => decided2(&rt, &|| made2.resolve(&rt, v.clone())),
+                        Err(e) => {
+                            let reason = materialize(&rt, &e);
+                            state2.borrow_mut().reasons[at] = reason;
+                            finish2(&rt)
+                        }
+                    },
+                    _ => {
+                        let entry = match settled {
+                            Ok(v) => record(&rt.builtins.object, vec![("status", Value::str("fulfilled")), ("value", v)]),
+                            Err(e) => record(
+                                &rt.builtins.object,
+                                vec![("status", Value::str("rejected")), ("reason", materialize(&rt, &e))],
+                            ),
+                        };
+                        state2.borrow_mut().values[at] = Value::Object(entry);
+                        finish2(&rt)
+                    }
+                }
+            });
+            state.borrow_mut().attached.push((item.clone(), reaction.clone()));
+            rt.runner.then(&item, reaction);
+        }
+        if name == "race" && index == 0 {
+            return Err(type_error("Promise.race([]) would never settle; provide at least one promise or value."));
+        }
+        finish(rt);
+        Ok(())
     }
-    let cells: Vec<Rc<FiberCell>> = items.iter().filter_map(|i| cell_of(i).cloned()).collect();
-    match name {
-        "all" => {
-            let failure: Rc<RefCell<Option<Thrown>>> = Rc::new(RefCell::new(None));
-            for cell in &cells {
-                let f = failure.clone();
-                cell.add_observer(Box::new(move |exit: &Exit| {
-                    if let Err(e) = exit
-                        && f.borrow().is_none()
-                    {
-                        *f.borrow_mut() = Some(e.clone());
-                    }
-                }));
-            }
-            let (f, cs) = (failure.clone(), cells.clone());
-            let outcome: JsResult<Vec<Value>> = WaitAny::new(cells.clone(), move || {
-                if let Some(e) = f.borrow().clone() {
-                    return Some(Err(e));
-                }
-                if cs.iter().all(|c| c.is_done()) {
-                    return Some(Ok(cs.iter().map(|c| c.exit().unwrap().unwrap_or_default()).collect()));
-                }
-                None
-            })
-            .await;
-            let outcome = settle_after_turn(outcome).await?;
-            Ok(Value::Object(Obj::array(&rt.builtins.array, outcome)))
-        }
-        "allSettled" => {
-            let mut outcomes = Vec::new();
-            for item in &items {
-                match fiber_exit(item).await {
-                    Ok(v) => outcomes.push(Value::Object(record(
-                        &rt.builtins.object,
-                        vec![("status", Value::str("fulfilled")), ("value", v)],
-                    ))),
-                    Err(Thrown::Interrupt) => return Err(Thrown::Interrupt),
-                    Err(e) => outcomes.push(Value::Object(record(
-                        &rt.builtins.object,
-                        vec![("status", Value::str("rejected")), ("reason", materialize(rt, &e))],
-                    ))),
-                }
-            }
-            yield_now().await;
-            Ok(Value::Object(Obj::array(&rt.builtins.array, outcomes)))
-        }
-        "race" => {
-            if items.is_empty() {
-                return Err(type_error("Promise.race([]) would never settle; provide at least one promise or value."));
-            }
-            let winner: Rc<RefCell<Option<Exit>>> = Rc::new(RefCell::new(None));
-            for cell in &cells {
-                let w = winner.clone();
-                cell.add_observer(Box::new(move |exit: &Exit| {
-                    if w.borrow().is_none() {
-                        *w.borrow_mut() = Some(exit.clone());
-                    }
-                }));
-            }
-            let w = winner.clone();
-            let exit = WaitAny::new(cells.clone(), move || w.borrow().clone()).await;
-            settle_after_turn(exit).await
-        }
-        _ => {
-            // any
-            let fulfilled: Rc<RefCell<Option<Exit>>> = Rc::new(RefCell::new(None));
-            let reasons: Rc<RefCell<Vec<Option<Value>>>> = Rc::new(RefCell::new(vec![None; cells.len()]));
-            for (index, cell) in cells.iter().enumerate() {
-                let (f, r) = (fulfilled.clone(), reasons.clone());
-                cell.add_observer(Box::new(move |exit: &Exit| {
-                    if f.borrow().is_some() {
-                        return;
-                    }
-                    match exit {
-                        Ok(v) => *f.borrow_mut() = Some(Ok(v.clone())),
-                        Err(Thrown::Interrupt) => *f.borrow_mut() = Some(Err(Thrown::Interrupt)),
-                        Err(e) => r.borrow_mut()[index] = Some(materialize(&super::rt(), e)),
-                    }
-                }));
-            }
-            let (f, r) = (fulfilled.clone(), reasons.clone());
-            let exit: Exit = WaitAny::new(cells.clone(), move || {
-                if let Some(x) = f.borrow().clone() {
-                    return Some(x);
-                }
-                if r.borrow().iter().all(|x| x.is_some()) {
-                    let errors: Vec<Value> = r.borrow().iter().map(|x| x.clone().unwrap()).collect();
-                    let rt = super::rt();
-                    let value = create_aggregate_error_value(&rt, errors, "All promises were rejected", None);
-                    return Some(Err(Thrown::Value(Value::Object(value))));
-                }
-                None
-            })
-            .await;
-            settle_after_turn(exit).await
-        }
+    .await;
+    if let Err(error) = outcome {
+        made.reject(rt, error);
     }
+    Ok(Value::Object(made.promise))
 }
 
 fn reaction_handler(value: &Value, method: &str) -> JsResult<Option<Value>> {
@@ -386,68 +261,86 @@ fn reaction_handler(value: &Value, method: &str) -> JsResult<Option<Value>> {
     Ok(None)
 }
 
-// Teardown bypasses handlers; settled reactions yield once so handlers never run inline.
-async fn reaction_exit(source: &Obj) -> JsResult<Exit> {
-    let exit = fiber_exit(source).await;
-    if matches!(exit, Err(Thrown::Interrupt)) {
-        return Err(Thrown::Interrupt);
-    }
-    yield_now().await;
-    Ok(exit)
-}
-
 fn instance_method(rt: &Rt, site: Site, name: &'static str, this: Value, args: Vec<Value>) -> JsResult<Value> {
     let method = format!("Promise.prototype.{name}");
     let promise = receiver(&this, &method, |o| o.is_promise())?;
-    rt.pending.mark_observed(&promise);
+    then_on(rt, site, name, &promise, args)
+}
+
+fn then_on(rt: &Rt, site: Site, name: &'static str, promise: &Obj, args: Vec<Value>) -> JsResult<Value> {
+    let method = format!("Promise.prototype.{name}");
     if name == "finally" {
         let cleanup = reaction_handler(&arg(&args, 0), &method)?;
-        let rt2 = rt.clone();
-        let source = promise.clone();
-        return rt
-            .pending
-            .create(
-                rt,
-                site,
-                Box::pin(async move {
-                    let exit = reaction_exit(&source).await?;
-                    let Some(cleanup) = cleanup else { return exit };
-                    let call = apply_collection_callback(&cleanup, &method)?;
-                    let result = call(&rt2, Vec::new(), Value::Undefined, site).await?;
-                    let rt3 = rt2.clone();
-                    let intermediate = rt2.pending.create(
-                        &rt2,
-                        site,
-                        Box::pin(async move {
-                            let p = resolve_promise(&rt3, result, site)?;
-                            await_promise(&rt3, &p).await?;
-                            exit
-                        }),
-                    )?;
-                    await_promise(&rt2, &intermediate).await
-                }),
-            )
-            .map(Value::Object);
+        return chain_finally(rt, promise, cleanup, site.node).map(Value::Object);
     }
     let on_fulfilled = if name == "then" { reaction_handler(&arg(&args, 0), &method)? } else { None };
     let on_rejected = reaction_handler(&arg(&args, if name == "then" { 1 } else { 0 }), &method)?;
-    let rt2 = rt.clone();
-    rt.pending
-        .create_with_self(rt, site, move |own| {
-            Box::pin(async move {
-                let exit = reaction_exit(&promise).await?;
-                let handler = if exit.is_ok() { on_fulfilled } else { on_rejected };
-                let Some(handler) = handler else { return exit };
-                let input = match &exit {
-                    Ok(v) => v.clone(),
-                    Err(e) => materialize(&rt2, e),
+    let made = capability(rt, site.node)?;
+    let derived = made.promise.clone();
+    rt.runner.then(promise, handler_reaction(on_fulfilled, on_rejected, Some(made)));
+    Ok(Value::Object(derived))
+}
+
+// Promise.prototype.finally: the cleanup runs as a reaction, then the original outcome passes through once the
+// cleanup's own result settles; a failing cleanup wins.
+fn chain_finally(rt: &Rt, source: &Obj, cleanup: Option<Value>, site: Option<Loc>) -> JsResult<Obj> {
+    let made = capability(rt, site)?;
+    let promise = made.promise.clone();
+    let Some(cleanup) = cleanup else {
+        rt.runner.then(
+            source,
+            Reaction::new(move |settled| {
+                let rt = super::rt();
+                made.settle_with(&rt, settled);
+            }),
+        );
+        return Ok(promise);
+    };
+    rt.runner.then(
+        source,
+        Reaction::new(move |settled: Exit| {
+            let rt = super::rt();
+            if matches!(settled, Err(Thrown::Interrupt)) {
+                return made.settle_with(&rt, settled);
+            }
+            let rt2 = rt.clone();
+            start(&rt, async move {
+                let rt = rt2;
+                let result = match call_value(&rt, &cleanup, Value::Undefined, Vec::new(), Site::default()).await {
+                    Ok(r) => r,
+                    Err(error) => return made.reject(&rt, error),
                 };
-                let call = apply_collection_callback(&handler, &method)?;
-                let result = call(&rt2, vec![input], Value::Undefined, site).await?;
-                resolve_promise_value(&rt2, result, Some(own)).await
-            })
-        })
-        .map(Value::Object)
+                let after = match rt.runner.promise_resolve(&rt, result) {
+                    Ok(p) => p,
+                    Err(error) => return made.reject(&rt, error),
+                };
+                // The spec chains `then(valueThunk)` onto the cleanup's promise: one more job before the outcome passes.
+                let derived = match capability(&rt, site) {
+                    Ok(d) => d,
+                    Err(error) => return made.reject(&rt, error),
+                };
+                let d2 = derived.clone();
+                rt.runner.then(
+                    &after,
+                    Reaction::new(move |cleaned: Exit| {
+                        let rt = super::rt();
+                        match cleaned {
+                            Ok(_) => d2.resolve(&rt, Value::Undefined),
+                            Err(e) => d2.reject(&rt, e),
+                        }
+                    }),
+                );
+                rt.runner.then(
+                    &derived.promise,
+                    Reaction::new(move |cleaned: Exit| {
+                        let rt = super::rt();
+                        made.settle_with(&rt, if cleaned.is_ok() { settled } else { cleaned });
+                    }),
+                );
+            });
+        }),
+    );
+    Ok(promise)
 }
 
 fn construct_promise(rt: &Rt, site: Site, executor: Value) -> NResult {
@@ -456,21 +349,69 @@ fn construct_promise(rt: &Rt, site: Site, executor: Value) -> NResult {
             "new Promise(...) expects an executor function (e.g. new Promise((resolve, reject) => { ... })).",
         ));
     }
+    let made = match capability(rt, site.node) {
+        Ok(m) => m,
+        Err(e) => return NResult::err(e),
+    };
+    let (resolve, reject) = resolving_functions(rt, &made);
     let rt = rt.clone();
     NResult::future(async move {
-        let (promise, resolve, reject, deferred) = promise_capability(&rt, site)?;
-        match call_value(&rt, &executor, Value::Undefined, vec![resolve, reject], site).await {
-            Ok(_) => {}
-            Err(Thrown::Interrupt) => return Err(Thrown::Interrupt),
-            Err(e) => {
-                deferred.complete(Err(e));
-            }
+        if let Err(error) = call_value(&rt, &executor, Value::Undefined, vec![resolve, reject], Site::default()).await {
+            made.reject(&rt, error);
         }
-        Ok(Value::Object(promise))
+        Ok(Value::Object(made.promise))
     })
 }
 
+/// Lets a synchronous object result also be awaited or chained like a Promise. It inherits non-enumerable
+/// then/catch/finally that settle with a plain copy, so data views never show them and awaiting does not recurse.
+pub fn promise_like(rt: &Rt, value: Value) -> Value {
+    if let Value::Object(o) = &value
+        && matches!(o.kind(), ObjKind::Ordinary)
+        && o.proto().is_some_and(|p| Obj::ptr_eq(&p, &rt.builtins.object))
+    {
+        o.set_proto(Some(promise_like_prototype(rt)));
+    }
+    value
+}
+
+thread_local! {
+    static PROMISE_LIKE: RefCell<Option<(usize, Obj)>> = const { RefCell::new(None) };
+}
+
+fn promise_like_prototype(rt: &Rt) -> Obj {
+    let key = Rc::as_ptr(rt) as usize;
+    if let Some(cached) = PROMISE_LIKE.with(|c| c.borrow().as_ref().filter(|(k, _)| *k == key).map(|(_, p)| p.clone())) {
+        return cached;
+    }
+    let proto = Obj::ordinary(&rt.builtins.object);
+    let settled = |rt: &Rt, this: &Value, name: &str| -> JsResult<Obj> {
+        let source = receiver(this, name, |_| true)?;
+        let copy = Obj::ordinary(&rt.builtins.object);
+        {
+            let props = source.0.props.borrow();
+            let mut out = copy.0.props.borrow_mut();
+            for (key, slot) in props.iter() {
+                out.insert(key.clone(), slot.clone());
+            }
+        }
+        rt.runner.promise_resolve(rt, Value::Object(copy))
+    };
+    let table = ["then", "catch", "finally"]
+        .into_iter()
+        .map(|name| {
+            method(name, if name == "then" { 2 } else { 1 }, move |rt, site, this, args| {
+                NResult::Ready(settled(rt, &this, name).and_then(|p| then_on(rt, site, name, &p, args)))
+            })
+        })
+        .collect();
+    methods(&rt.builtins.function, &proto, table);
+    PROMISE_LIKE.with(|c| *c.borrow_mut() = Some((key, proto.clone())));
+    proto
+}
+
 pub fn promise_global(rt: &Rt) -> Value {
+    PROMISE_LIKE.with(|c| c.borrow_mut().take());
     let b = &rt.builtins;
     let proto = &b.promise;
     let promise = constructor(
@@ -490,11 +431,7 @@ pub fn promise_global(rt: &Rt) -> Value {
             &b.function,
             name,
             1,
-            NativeFn {
-                call: Rc::new(move |rt, site, _, args| invoke_static(rt, site, name, args)),
-                construct: None,
-                callback: false,
-            },
+            NativeFn { call: Rc::new(move |rt, site, _, args| invoke_static(rt, site, name, args)), construct: None, callback: false },
         );
         define(&promise, name, Value::Object(f), HIDDEN);
     }
@@ -504,10 +441,11 @@ pub fn promise_global(rt: &Rt) -> Value {
         vec![
             method("then", 2, |rt, site, this, args| NResult::Ready(instance_method(rt, site, "then", this, args))),
             method("catch", 1, |rt, site, this, args| NResult::Ready(instance_method(rt, site, "catch", this, args))),
-            method("finally", 1, |rt, site, this, args| {
-                NResult::Ready(instance_method(rt, site, "finally", this, args))
-            }),
+            method("finally", 1, |rt, site, this, args| NResult::Ready(instance_method(rt, site, "finally", this, args))),
         ],
     );
+    if let Ok(Value::Object(then)) = crate::object::get(proto, &crate::value::PropKey::str("then")) {
+        *rt.runner.intrinsic_then.borrow_mut() = Some(then);
+    }
     Value::Object(promise)
 }

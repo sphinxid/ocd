@@ -5,7 +5,6 @@ pub mod callback;
 pub mod coerce;
 pub mod errors;
 pub mod eval;
-pub mod exec;
 pub mod extensions;
 pub mod function;
 pub mod generators;
@@ -14,6 +13,7 @@ pub mod iteration;
 pub mod limits;
 pub mod promises;
 pub mod references;
+pub mod runner;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -260,7 +260,7 @@ impl Interrupt {
 /// One program execution: the tool bridge, promise registry, captured logs, and the global scope built once.
 pub struct Interp {
     pub builtins: Builtins,
-    pub pending: promises::Pending,
+    pub runner: runner::Runner,
     pub tools: ToolRuntime,
     pub logs: RefCell<Vec<String>>,
     /// Template objects by site: a tag sees the same `strings` array every time its literal is evaluated.
@@ -279,6 +279,11 @@ pub type Rt = Rc<Interp>;
 /// The runtime of the current interpreter thread.
 pub fn rt() -> Rt {
     CURRENT.with(|c| c.borrow().clone().expect("no interpreter runtime on this thread"))
+}
+
+/// The runtime of the current interpreter thread, if one is running.
+pub fn current_rt() -> Option<Rt> {
+    CURRENT.with(|c| c.borrow().clone())
 }
 
 pub fn set_rt(rt: Option<Rt>) {

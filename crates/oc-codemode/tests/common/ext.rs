@@ -15,6 +15,8 @@ pub struct Replay {
     pub name: String,
     pub length: usize,
     pub events: Events,
+    /// Upstream `Extension.isAsync` of the recorded function.
+    pub asynchronous: bool,
 }
 
 impl HostFunction for Replay {
@@ -23,6 +25,9 @@ impl HostFunction for Replay {
     }
     fn length(&self) -> usize {
         self.length
+    }
+    fn asynchronous(&self) -> bool {
+        self.asynchronous
     }
     fn call(&self, _args: Vec<HostValue>) -> HostCall {
         let event = {
@@ -72,7 +77,20 @@ pub fn to_host(value: &Json, label: &str, events: &Events) -> HostValue {
                 }),
                 "$function" => {
                     let name = v.as_str().unwrap_or("").to_string();
-                    HostValue::Function(Arc::new(Replay { label: label.to_string(), name, length: 0, events: events.clone() }))
+                    let asynchronous = events
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .find(|e| e["label"] == label)
+                        .and_then(|e| e["async"].as_bool())
+                        .unwrap_or(false);
+                    HostValue::Function(Arc::new(Replay {
+                        label: label.to_string(),
+                        name,
+                        length: 0,
+                        events: events.clone(),
+                        asynchronous,
+                    }))
                 }
                 "$date" => HostValue::Date(match v.as_str() {
                     Some(iso) => chrono::DateTime::parse_from_rfc3339(iso).map(|d| d.timestamp_millis() as f64).unwrap_or(f64::NAN),
@@ -138,8 +156,18 @@ pub fn replay_extensions(record: &Json) -> Vec<Arc<dyn oc_codemode::host::Extens
             .iter()
             .map(|g| {
                 let name = g.as_str().unwrap().to_string();
-                let f: Arc<dyn HostFunction> =
-                    Arc::new(Replay { label: name.clone(), name: name.clone(), length: 1, events: events.clone() });
+                let asynchronous = match ext.get("async").and_then(|a| a.as_array()) {
+                    Some(names) => names.iter().any(|n| n.as_str() == Some(name.as_str())),
+                    // Recordings from before the field existed: core's `fetch` is the only async global.
+                    None => ext["name"] == "web" && name == "fetch",
+                };
+                let f: Arc<dyn HostFunction> = Arc::new(Replay {
+                    label: name.clone(),
+                    name: name.clone(),
+                    length: 1,
+                    events: events.clone(),
+                    asynchronous,
+                });
                 (name, f)
             })
             .collect();

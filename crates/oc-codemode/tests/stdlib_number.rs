@@ -4,6 +4,9 @@
 //! host error texts, the libm-backed functions, `hypot`/`pow`/`round`, and `sumPrecise` (sampled from fuzzing
 //! against the host).
 
+#[path = "common/dump.rs"]
+mod dump;
+
 use std::sync::Arc;
 
 use oc_codemode::codemode::{CodeMode, ExecutionLimits};
@@ -27,6 +30,7 @@ fn check(cases: &[(&str, &str)]) {
     let runtime = CodeMode::new(Vec::new(), Arc::new(NoTools), Vec::new(), ExecutionLimits::default()).unwrap();
     let mut failures = Vec::new();
     for (code, expected) in cases {
+        dump::case("stdlib_number", code, expected);
         let actual = runtime.execute_blocking(code).to_json();
         let expected: Json = serde_json::from_str(expected).expect("expected JSON");
         if !same(&actual, &expected) {

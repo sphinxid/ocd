@@ -8,10 +8,11 @@ use futures::future::LocalBoxFuture;
 
 use super::errors::{type_error, type_error_at, JsResult};
 use super::eval::call_value;
-use super::exec::yield_now;
+use super::function::{arg, fn_, NResult};
+use super::runner::Resolving;
 use super::{Rt, Site};
 use crate::ast::Loc;
-use crate::object::{get, record, Obj, ObjKind};
+use crate::object::{define, get, record, Obj, ObjKind, HIDDEN};
 use crate::value::{JsStr, PropKey, Sym, Value};
 
 /// One pull from an iterator, as `for...of` sees it.
@@ -323,120 +324,174 @@ pub async fn custom_iterator(
     Ok(Some(CustomIterator { iterator: object, next, asynchronous: !async_method.is_nullish() }))
 }
 
-/// One step of a program-defined iterator. `awaiting` is the `for await` adaptation of a sync iterator.
-pub async fn next_iterator_result(
-    rt: &Rt,
-    iterator: &CustomIterator,
-    node: Option<Loc>,
-    awaiting: bool,
-    site: Site,
-) -> JsResult<Step> {
+/// One step of a program-defined iterator; an asynchronous iterator's result is awaited.
+pub async fn next_iterator_result(rt: &Rt, iterator: &CustomIterator, node: Option<Loc>, site: Site) -> JsResult<Step> {
     let site = Site { node: node.or(site.node), depth: site.depth };
-    if iterator.asynchronous {
-        let called = call_value(rt, &iterator.next, Value::Object(iterator.iterator.clone()), Vec::new(), site).await?;
-        let settled = super::eval::await_value(rt, called).await?;
-        let object = require_iterator_object(settled, "Iterator next() result", node)?;
-        let done = get(&object, &PropKey::str("done"))?.truthy();
-        return Ok(Step { done, value: get(&object, &PropKey::str("value"))? });
-    }
-    let called = call_value(rt, &iterator.next, Value::Object(iterator.iterator.clone()), Vec::new(), site).await;
-    let called = match called {
-        Ok(v) => v,
-        Err(e) => {
-            if awaiting {
-                yield_now().await;
-            }
-            return Err(e);
-        }
-    };
-    let captured = (|| -> JsResult<Step> {
-        let object = require_iterator_object(called, "Iterator next() result", node)?;
-        Ok(Step { done: get(&object, &PropKey::str("done"))?.truthy(), value: get(&object, &PropKey::str("value"))? })
-    })();
-    let captured = match captured {
-        Ok(s) => s,
-        Err(e) => {
-            if awaiting {
-                yield_now().await;
-            }
-            return Err(e);
-        }
-    };
-    if !awaiting {
-        return Ok(captured);
-    }
-    let value = await_async_from_sync_value(rt, iterator, captured.value, node, !captured.done, site).await?;
-    Ok(Step { done: captured.done, value })
-}
-
-pub async fn await_async_from_sync_value(
-    rt: &Rt,
-    iterator: &CustomIterator,
-    value: Value,
-    node: Option<Loc>,
-    close_on_rejection: bool,
-    site: Site,
-) -> JsResult<Value> {
-    match super::eval::await_value(rt, value).await {
-        Ok(v) => Ok(v),
-        Err(e) => {
-            if close_on_rejection && !matches!(e, super::errors::Thrown::Interrupt) {
-                let _ = close_iterator(rt, iterator, node, false, site).await;
-            }
-            Err(e)
-        }
-    }
+    let called = call_value(rt, &iterator.next, Value::Object(iterator.iterator.clone()), Vec::new(), site).await?;
+    let called = if iterator.asynchronous { super::runner::await_value(rt, called, node).await? } else { called };
+    let object = require_iterator_object(called, "Iterator next() result", node)?;
+    Ok(Step { done: get(&object, &PropKey::str("done"))?.truthy(), value: get(&object, &PropKey::str("value"))? })
 }
 
 /// IteratorClose (sync) or AsyncIteratorClose.
-pub async fn close_iterator(
-    rt: &Rt,
-    iterator: &CustomIterator,
-    node: Option<Loc>,
-    awaiting: bool,
-    site: Site,
-) -> JsResult<()> {
+pub async fn close_iterator(rt: &Rt, iterator: &CustomIterator, node: Option<Loc>, site: Site) -> JsResult<()> {
     let close = get(&iterator.iterator, &PropKey::str("return"))?;
     if close.is_nullish() {
-        if iterator.asynchronous || !awaiting {
-            return Ok(());
-        }
-        yield_now().await;
         return Ok(());
     }
     let site = Site { node: node.or(site.node), depth: site.depth };
     let method = require_iterator_method(close, "Iterator return", node)?;
-    if iterator.asynchronous {
-        let called = call_value(rt, &method, Value::Object(iterator.iterator.clone()), Vec::new(), site).await?;
-        let settled = super::eval::await_value(rt, called).await?;
-        require_iterator_object(settled, "Iterator return() result", node)?;
-        return Ok(());
-    }
-    let called = call_value(rt, &method, Value::Object(iterator.iterator.clone()), Vec::new(), site).await;
-    let called = match called {
-        Ok(v) => v,
-        Err(e) => {
-            if awaiting {
-                yield_now().await;
-            }
-            return Err(e);
-        }
-    };
-    let captured = require_iterator_object(called, "Iterator return() result", node)
-        .and_then(|o| get(&o, &PropKey::str("value")));
-    let captured = match captured {
-        Ok(v) => v,
-        Err(e) => {
-            if awaiting {
-                yield_now().await;
-            }
-            return Err(e);
-        }
-    };
-    if awaiting {
-        super::eval::await_value(rt, captured).await?;
-    }
+    let called = call_value(rt, &method, Value::Object(iterator.iterator.clone()), Vec::new(), site).await?;
+    let called = if iterator.asynchronous { super::runner::await_value(rt, called, node).await? } else { called };
+    require_iterator_object(called, "Iterator return() result", node)?;
     Ok(())
+}
+
+// CreateAsyncFromSyncIterator: an async iterator over a synchronous one. Each `next()` promise settles a job after the
+// value does, and a rejected value closes the synchronous iterator first; `return()` calls the synchronous iterator's
+// own `return`, or settles at once when it has none.
+pub fn async_from_sync(rt: &Rt, builtin: Option<CursorRef>, custom: Option<CustomIterator>, node: Option<Loc>) -> CustomIterator {
+    let source = Rc::new(AsyncFromSync { builtin, custom, node });
+    let function = &rt.builtins.function;
+    let adapter_method = |name: &'static str, source: Rc<AsyncFromSync>| {
+        fn_(function, name, 1, move |rt, _, _, args| {
+            let made = match super::promises::capability(rt, source.node) {
+                Ok(m) => m,
+                Err(e) => return NResult::err(e),
+            };
+            let (rt, source) = (rt.clone(), source.clone());
+            NResult::future(async move {
+                let promise = made.promise.clone();
+                if let Err(error) = source.request(&rt, name, args, &made).await {
+                    made.reject(&rt, error);
+                }
+                Ok(Value::Object(promise))
+            })
+        })
+    };
+    let next = adapter_method("next", source.clone());
+    let close = adapter_method("return", source.clone());
+    let raise = adapter_method("throw", source);
+    let adapter = Obj::ordinary(&rt.builtins.object);
+    define(&adapter, "next", Value::Object(next.clone()), HIDDEN);
+    define(&adapter, "return", Value::Object(close), HIDDEN);
+    define(&adapter, "throw", Value::Object(raise), HIDDEN);
+    CustomIterator { iterator: adapter, next: Value::Object(next), asynchronous: true }
+}
+
+struct AsyncFromSync {
+    builtin: Option<CursorRef>,
+    custom: Option<CustomIterator>,
+    node: Option<Loc>,
+}
+
+impl AsyncFromSync {
+    fn site(&self) -> Site {
+        Site::at(self.node)
+    }
+
+    async fn call(&self, method: Value, args: Vec<Value>, label: &str) -> JsResult<Step> {
+        let custom = self.custom.as_ref().unwrap();
+        let called = call_value(&super::rt(), &method, Value::Object(custom.iterator.clone()), args, self.site()).await?;
+        let object = require_iterator_object(called, label, self.node)?;
+        Ok(Step { done: get(&object, &PropKey::str("done"))?.truthy(), value: get(&object, &PropKey::str("value"))? })
+    }
+
+    async fn close_sync(&self, rt: &Rt) -> JsResult<()> {
+        match &self.custom {
+            Some(custom) => close_iterator(rt, custom, self.node, self.site()).await,
+            None => self.builtin.as_ref().unwrap().close().await,
+        }
+    }
+
+    async fn request(self: &Rc<Self>, rt: &Rt, name: &str, args: Vec<Value>, made: &Resolving) -> JsResult<()> {
+        match name {
+            "next" => {
+                // IteratorNext passes the value `next` received, when it received one.
+                let step = match &self.custom {
+                    None => self.builtin.as_ref().unwrap().next().await?,
+                    Some(custom) => self.call(custom.next.clone(), args, "Iterator next() result").await?,
+                };
+                self.settle(rt, step, true, made);
+            }
+            "return" => {
+                let method = match &self.custom {
+                    Some(custom) => get(&custom.iterator, &PropKey::str("return"))?,
+                    None => Value::Undefined,
+                };
+                if method.is_nullish() {
+                    if let Some(builtin) = &self.builtin {
+                        builtin.close().await?;
+                    }
+                    made.resolve(rt, iter_result(rt, arg(&args, 0), true));
+                    return Ok(());
+                }
+                let method = require_iterator_method(method, "Iterator return", self.node)?;
+                let step = self.call(method, args, "Iterator return() result").await?;
+                self.settle(rt, step, false, made);
+            }
+            _ => {
+                let method = match &self.custom {
+                    Some(custom) => get(&custom.iterator, &PropKey::str("throw"))?,
+                    None => Value::Undefined,
+                };
+                if method.is_nullish() {
+                    self.close_sync(rt).await?;
+                    made.reject(rt, type_error_located("The delegated iterator does not provide a throw() method.".into(), self.node));
+                    return Ok(());
+                }
+                let method = require_iterator_method(method, "Iterator throw", self.node)?;
+                let step = self.call(method, args, "Iterator throw() result").await?;
+                self.settle(rt, step, true, made);
+            }
+        }
+        Ok(())
+    }
+
+    fn settle(self: &Rc<Self>, rt: &Rt, step: Step, close_on_rejection: bool, made: &Resolving) {
+        let done = step.done;
+        let source = self.clone();
+        let made2 = made.clone();
+        // A rejected value closes the synchronous iterator first (the rejection wins over a failing close).
+        let rejected = Rc::new(move |reason: super::errors::Thrown| -> Option<futures::future::LocalBoxFuture<'static, ()>> {
+            if done || !close_on_rejection || matches!(reason, super::errors::Thrown::Interrupt) {
+                made2.reject(&super::rt(), reason);
+                return None;
+            }
+            let (source, made) = (source.clone(), made2.clone());
+            Some(Box::pin(async move {
+                let rt = super::rt();
+                let _ = source.close_sync(&rt).await;
+                made.reject(&rt, reason);
+            }))
+        });
+        let wrapper = match rt.runner.promise_resolve(rt, step.value) {
+            Ok(w) => w,
+            Err(error) => {
+                if let Some(task) = rejected(error) {
+                    rt.runner.enqueue(move || {
+                        super::rt().runner.spawn(task);
+                    });
+                }
+                return;
+            }
+        };
+        let made = made.clone();
+        rt.runner.then(
+            &wrapper,
+            super::runner::Reaction::new(move |settled| {
+                let rt = super::rt();
+                match settled {
+                    Ok(v) => made.resolve(&rt, iter_result(&rt, v, done)),
+                    Err(e) => {
+                        if let Some(task) = rejected(e) {
+                            rt.runner.spawn(task);
+                        }
+                    }
+                }
+            }),
+        );
+    }
 }
 
 /// A cursor over a program-defined iterator.
@@ -447,11 +502,11 @@ pub fn custom_cursor(rt: &Rt, iterator: CustomIterator, node: Option<Loc>, site:
     FnCursor::new(
         move || {
             let (rt, it) = (rt1.clone(), it1.clone());
-            Box::pin(async move { next_iterator_result(&rt, &it, node, false, site).await })
+            Box::pin(async move { next_iterator_result(&rt, &it, node, site).await })
         },
         move || {
             let (rt, it) = (rt2.clone(), it2.clone());
-            Box::pin(async move { close_iterator(&rt, &it, node, false, site).await })
+            Box::pin(async move { close_iterator(&rt, &it, node, site).await })
         },
     )
 }

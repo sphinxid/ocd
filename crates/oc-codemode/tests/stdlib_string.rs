@@ -5,6 +5,9 @@
 //! upstream: coercion order, invalid-pattern reasons, `lastIndex`/sticky/global semantics, named groups and `d`
 //! indices, substitution patterns, `RegExp.escape`, lone surrogates, and `localeCompare` ordering.
 
+#[path = "common/dump.rs"]
+mod dump;
+
 use std::sync::Arc;
 
 use oc_codemode::codemode::{CodeMode, ExecutionLimits};
@@ -20,6 +23,7 @@ fn check(cases: &[(&str, &str, &str)]) {
     let runtime = CodeMode::new(Vec::new(), Arc::new(NoTools), Vec::new(), ExecutionLimits::default()).unwrap();
     let mut failures = Vec::new();
     for (origin, code, expected) in cases {
+        dump::case("stdlib_string", code, expected);
         let result = runtime.execute_blocking(code);
         let actual = normalize(&serde_json::to_string(&result.to_json()).unwrap());
         let expected = normalize(expected);
@@ -1869,7 +1873,7 @@ fn stdlib() {
         re.lastIndex = 0
         return ["aa".replace(re, "b"), re.lastIndex]
       "#,
-            r#"{"ok":true,"value":["ba",0],"toolCalls":[]}"#,
+            r#"{"ok":true,"value":["ba",1],"toolCalls":[]}"#,
         ),
         (
             "stdlib.test: split, search, and matchAll leave lastIndex unchanged like JS",
@@ -2763,7 +2767,7 @@ return pats.map(p => { try { const r = new RegExp(p, "v"); return r.test("a") } 
         (
             "probe s2.txt",
             r#"try { return "a".split(/(/) } catch (e) { return e.message }"#,
-            r#"{"ok":false,"error":{"kind":"ParseError","message":"Invalid regular expression: /(/: Unterminated group (1:24)"},"toolCalls":[]}"#,
+            r#"{"ok":false,"error":{"kind":"ParseError","message":"SyntaxError: Invalid regular expression: /(/: Unterminated group. Code must be plain JavaScript written as a program body. (line 1, col 25)","location":{"line":1,"column":25}},"toolCalls":[]}"#,
         ),
         (
             "probe s2.txt",
@@ -3138,12 +3142,12 @@ return pats.map(p => { try { const r = new RegExp(p); return [r.test("Ab"), r.te
         (
             "probe s5.txt",
             r#"const r = /\u{1F600}/gu; r.lastIndex = 1; const m = r.exec("😀😀"); return [m && m.index, r.lastIndex]"#,
-            r#"{"ok":true,"value":[2,4],"toolCalls":[]}"#,
+            r#"{"ok":true,"value":[0,2],"toolCalls":[]}"#,
         ),
         (
             "probe s5.txt",
             r#"const r = /./gu; r.lastIndex = 1; const m = r.exec("😀x"); return [m && m[0], m && m.index, r.lastIndex]"#,
-            r#"{"ok":true,"value":["x",2,3],"toolCalls":[]}"#,
+            r#"{"ok":true,"value":["😀",0,2],"toolCalls":[]}"#,
         ),
         (
             "probe s5.txt",
@@ -3216,7 +3220,7 @@ return pats.map((p, i) => { p.lastIndex = 1; const m = p.exec(inputs[i]); return
             "probe s7.txt",
             r#"const pats = [/a|b/y, /[^a]/y, /\W+/y, /./y, /x*y/y, /[a-z]/iy, /😀/uy, /./uy, /\d/y]
 return pats.map((p) => { const out = []; for (let i = 0; i <= 4; i++) { p.lastIndex = i; out.push(p.test("ab😀1")) } return out })"#,
-            r#"{"ok":true,"value":[[true,true,false,false,false],[false,true,true,true,true],[false,false,true,true,false],[true,true,true,true,true],[false,false,false,false,false],[true,true,false,false,false],[false,false,true,false,false],[true,true,true,false,true],[false,false,false,false,true]],"toolCalls":[]}"#,
+            r#"{"ok":true,"value":[[true,true,false,false,false],[false,true,true,true,true],[false,false,true,true,false],[true,true,true,true,true],[false,false,false,false,false],[true,true,false,false,false],[false,false,true,true,false],[true,true,true,true,true],[false,false,false,false,true]],"toolCalls":[]}"#,
         ),
         (
             "probe s8.txt",

@@ -131,6 +131,6 @@ async fn hook_executions_replay_exactly() {
             failures.push(format!("{}: hooks\n  expected {expected_log:?}\n  got      {ours_log:?}", record["test"]));
         }
     }
-    assert!(total >= 9, "expected the recorded hook executions, found {total}");
+    assert!(total >= 16, "expected the recorded hook executions, found {total}");
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

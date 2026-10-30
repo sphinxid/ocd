@@ -1,4 +1,2 @@
 # test262 files whose upstream result is not reproduced exactly, with the reason.
 built-ins/Array/S15.4.5.2_A1_T1.js # writes index 4294967294; arrays here are dense and cap at 10 000 000 elements (RangeError: Invalid array length)
-built-ins/RegExp/regexp-modifiers/add-ignoreCase-affects-slash-lower-p.js # JavaScriptCore (upstream's host regex) ignores (?i:) for \p{Lu}; regress applies it, as the spec requires
-built-ins/RegExp/regexp-modifiers/add-ignoreCase-affects-slash-upper-p.js # same JavaScriptCore modifier quirk for \P{Lu}
