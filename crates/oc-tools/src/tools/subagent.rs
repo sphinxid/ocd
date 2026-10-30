@@ -34,6 +34,7 @@ pub fn background_text(session_id: &str) -> String {
         format!("The subagent is working in the background (sessionID: {session_id}). You will be notified automatically when it finishes."),
         "DO NOT sleep, poll for progress, ask the subagent for status, or duplicate this subagent's work; avoid working with the same files or topics it is using.".into(),
         "Work on non-overlapping tasks, or briefly tell the user what you launched and end your response.".into(),
+        "To send it follow-ups or change its instructions while it runs, call subagent again with this sessionID.".into(),
     ]
     .join("\n")
 }
@@ -67,17 +68,33 @@ struct Input {
 pub struct SubagentTool;
 
 impl SubagentTool {
-    async fn resolve_model(&self, ctx: &ToolContext, input: &str) -> Result<ModelRef, ToolError> {
+    pub(crate) async fn resolve_model(&self, ctx: &ToolContext, input: &str) -> Result<ModelRef, ToolError> {
         let reference = parse_model(input).ok_or_else(|| {
             ToolError::new(format!("Invalid model \"{input}\". Use \"providerID/modelID\" or \"providerID/modelID#variant\"."))
         })?;
-        let models = ctx.host.models_available().await.map_err(|m| ToolError::with_cause("Unable to list models", ErrorCause::Error(m)))?;
-        let model = models.iter().find(|m| m.provider_id == reference.provider_id && m.id == reference.id).ok_or_else(|| {
-            ToolError::new(format!(
-                "Model \"{}/{}\" is not available. Use the models tool to see what is available.",
-                reference.provider_id, reference.id
-            ))
-        })?;
+        let unable = |m: String| ToolError::with_cause("Unable to list models", ErrorCause::Error(m));
+        let matches = |m: &crate::host::ModelSummary| m.provider_id == reference.provider_id && m.id == reference.id;
+        let models = ctx.host.models_available().await.map_err(unable)?;
+        let Some(model) = models.iter().find(|m| matches(m)) else {
+            // `models.available(["image", "decision"])`: image models are listed first.
+            let mut other = None;
+            for (kind, article) in [("image", "an image"), ("decision", "a decision")] {
+                if ctx.host.models_list(&[kind.to_string()]).await.map_err(unable)?.iter().any(matches) {
+                    other = Some(article);
+                    break;
+                }
+            }
+            return Err(ToolError::new(match other {
+                Some(article) => format!(
+                    "Model \"{}/{}\" is {article} model; subagents need a chat model. Use the models tool to find one.",
+                    reference.provider_id, reference.id
+                ),
+                None => format!(
+                    "Model \"{}/{}\" is not available. Use the models tool to see what is available.",
+                    reference.provider_id, reference.id
+                ),
+            }));
+        };
         if let Some(variant) = &reference.variant {
             if !model.variants.iter().any(|v| v == variant) {
                 return Err(ToolError::new(if model.variants.is_empty() {

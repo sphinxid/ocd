@@ -1,6 +1,8 @@
 //! `patch` (`core/src/tool/plugin/patch.ts`).
 
 use std::collections::HashMap;
+
+use indexmap::IndexMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -146,24 +148,44 @@ impl PatchTool {
 
     async fn run(&self, hunks: Vec<Hunk>, ctx: &ToolContext, applied: &mut Vec<Applied>) -> Result<Vec<FileDiff>, ToolError> {
         let mut prepared: Vec<Prepared> = Vec::new();
-        let mut updates: HashMap<PathBuf, String> = HashMap::new();
+        // Each path's content after the hunks so far (`None`: deleted), in first-touched order
+        // (a JS `Map`), so later hunks chain onto files an earlier hunk added, moved or deleted.
+        let mut updates: IndexMap<PathBuf, Option<String>> = IndexMap::new();
         for hunk in &hunks {
             let target = self.resolve_target(ctx, hunk.path()).await?;
             match hunk {
                 Hunk::Add { contents, .. } => {
                     let content = if contents.ends_with('\n') || contents.is_empty() { contents.clone() } else { format!("{contents}\n") };
                     let after = bom::split(&content).text;
+                    updates.insert(target.absolute.clone(), Some(content.clone()));
                     prepared.push(Prepared { op: Op::Add, target, content, before: String::new(), after, move_target: None });
                 }
                 Hunk::Delete { .. } => {
-                    let text = file_mutation::read_text(&target.absolute).map_err(|e| {
-                        verification(format!("Failed to delete {}: {}", target.resource, e.patch_message()))
-                    })?;
-                    prepared.push(Prepared { op: Op::Delete, target, content: String::new(), before: text.text, after: String::new(), move_target: None });
+                    let before = match updates.get(&target.absolute) {
+                        Some(None) => {
+                            return Err(verification(format!("Failed to delete {}: file does not exist", target.resource)));
+                        }
+                        Some(Some(previous)) => bom::split(previous).text,
+                        None => {
+                            file_mutation::read_text(&target.absolute)
+                                .map_err(|e| {
+                                    verification(format!("Failed to delete {}: {}", target.resource, e.patch_message()))
+                                })?
+                                .text
+                        }
+                    };
+                    updates.insert(target.absolute.clone(), None);
+                    prepared.push(Prepared { op: Op::Delete, target, content: String::new(), before, after: String::new(), move_target: None });
                 }
                 Hunk::Update { path, move_path, chunks } => {
                     let original = match updates.get(&target.absolute) {
-                        Some(previous) => previous.clone(),
+                        Some(None) => {
+                            return Err(verification(format!(
+                                "Failed to read file to update {}: file does not exist",
+                                target.absolute.to_string_lossy()
+                            )));
+                        }
+                        Some(Some(previous)) => previous.clone(),
                         None => {
                             let text = file_mutation::read_text(&target.absolute).map_err(|e| {
                                 verification(format!(
@@ -177,13 +199,21 @@ impl PatchTool {
                     };
                     let before = bom::split(&original).text;
                     let update = grammar::derive(path, chunks, &original).map_err(verification)?;
-                    let move_target = match move_path {
+                    let moved = match move_path {
                         Some(dest) => Some(self.resolve_target(ctx, dest).await?),
                         None => None,
                     };
+                    // A move onto the file itself is a plain update.
+                    let move_target = moved.filter(|dest| dest.absolute != target.absolute);
                     let content = grammar::join_bom(&update.content, update.bom);
-                    if move_target.is_none() {
-                        updates.insert(target.absolute.clone(), content.clone());
+                    match &move_target {
+                        Some(dest) => {
+                            updates.insert(target.absolute.clone(), None);
+                            updates.insert(dest.absolute.clone(), Some(content.clone()));
+                        }
+                        None => {
+                            updates.insert(target.absolute.clone(), Some(content.clone()));
+                        }
                     }
                     prepared.push(Prepared { op: Op::Update, target, content, before, after: update.content, move_target });
                 }
@@ -236,12 +266,8 @@ impl PatchTool {
             }
         }
         let mut formatted: HashMap<PathBuf, String> = HashMap::new();
-        let mut distinct: Vec<PathBuf> = Vec::new();
-        for item in applied.iter().filter(|a| a.op != Op::Delete) {
-            if !distinct.contains(&item.target) {
-                distinct.push(item.target.clone());
-            }
-        }
+        let distinct: Vec<PathBuf> =
+            updates.iter().filter(|(_, value)| value.is_some()).map(|(target, _)| target.clone()).collect();
         for target in distinct {
             let display = target.to_string_lossy().into_owned();
             let current = file_mutation::read_text(&target).map_err(|e| fail(format!("Failed to read {display}"), e, applied))?;

@@ -29,7 +29,7 @@ The wire protocol follows the request path: `.../responses` answers Open Respons
 SSE events, a `"stream": false` body a chat-completions JSON answer, anything else chat-completions chunks (`reasoning`,
 `cut` and `stall` apply to chat completions, Responses and Anthropic Messages; `finish` sets the Anthropic
 `stop_reason`). GET requests answer the JSON registered with
-`Mock.routes[path] = (status, body)`, else 404. A GET with `Upgrade: websocket` opens a WebSocket on which every
+`Mock.routes[path] = (status, body[, headers])` (a str body is sent as text/plain), else 404. A GET with `Upgrade: websocket` opens a WebSocket on which every
 `response.create` text frame consumes a turn the same way and is answered with the same Responses events as text
 frames. Response IDs are `resp_<n>` per mock instance (`resp_t<n>` for title requests, so a title racing the first
 step never shifts the step's IDs). Extra turn fields:
@@ -113,10 +113,14 @@ class Mock:
                     self.send_response(404)
                     self.end_headers()
                     return
-                payload = json.dumps(route[1]).encode()
+                # A str body is sent as text/plain; a third element adds response headers (e.g. `location`).
+                text = isinstance(route[1], str)
+                payload = route[1].encode() if text else json.dumps(route[1]).encode()
                 self.send_response(route[0])
-                self.send_header("content-type", "application/json")
+                self.send_header("content-type", "text/plain" if text else "application/json")
                 self.send_header("content-length", str(len(payload)))
+                for key, value in (route[2] if len(route) > 2 else {}).items():
+                    self.send_header(key, value)
                 self.end_headers()
                 self.wfile.write(payload)
 

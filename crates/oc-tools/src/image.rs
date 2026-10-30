@@ -5,7 +5,11 @@ use oc_schema::ToolContent;
 
 use crate::tool::ImageLimits;
 
-const JPEG_QUALITIES: [u8; 5] = [80, 85, 70, 55, 40];
+const JPEG_QUALITIES: [u8; 4] = [80, 70, 55, 40];
+/// A fitting PNG at most this large (base64) passes through unchanged.
+const PNG_PASSTHROUGH_MAX_BASE64_BYTES: u64 = 384 * 1024;
+/// A PNG with at most this many pixels passes through unchanged, and is tried as PNG first.
+const SMALL_PNG_MAX_PIXELS: u64 = 256 * 256;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImageError {
@@ -60,7 +64,39 @@ fn base64_len(n: usize) -> u64 {
     (n as u64).div_ceil(3) * 4
 }
 
-/// `Image.normalize(resource, {content (base64), mime})`.
+/// Samples an evenly spaced grid of up to 64×64 pixels; transparent when more than 5% of the
+/// samples have alpha below 250.
+fn has_transparency(pixels: &image::RgbaImage) -> bool {
+    let (width, height) = (pixels.width(), pixels.height());
+    let columns = width.min(64);
+    let rows = height.min(64);
+    let mut transparent = 0u64;
+    for row in 0..rows {
+        let y = (((row as f64 + 0.5) * height as f64) / rows as f64).floor() as u32;
+        for column in 0..columns {
+            let x = (((column as f64 + 0.5) * width as f64) / columns as f64).floor() as u32;
+            if pixels.get_pixel(x.min(width - 1), y.min(height - 1))[3] < 250 {
+                transparent += 1;
+            }
+        }
+    }
+    transparent as f64 / (columns as u64 * rows as u64) as f64 > 0.05
+}
+
+fn encode_png(image: &image::DynamicImage) -> Option<Vec<u8>> {
+    let mut png = Vec::new();
+    image.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+    Some(png)
+}
+
+fn encode_jpeg(image: &image::DynamicImage, quality: u8) -> Option<Vec<u8>> {
+    let rgb = image::DynamicImage::ImageRgb8(image.to_rgb8());
+    let mut jpeg = Vec::new();
+    rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality)).ok()?;
+    Some(jpeg)
+}
+
+/// `Image.normalize(resource, {content (base64), mime})` (`image/photon-normalize.ts`).
 pub fn normalize(resource: &str, content_b64: &str, mime: &str, limits: &ImageLimits) -> Result<Normalized, ImageError> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content_b64.as_bytes())
@@ -68,8 +104,11 @@ pub fn normalize(resource: &str, content_b64: &str, mime: &str, limits: &ImageLi
     let decoded = image::load_from_memory(&bytes).map_err(|_| ImageError::Decode { resource: resource.to_string() })?;
     let (width, height) = (decoded.width(), decoded.height());
     let size = content_b64.len() as u64;
-    if width <= limits.max_width && height <= limits.max_height && size <= limits.max_base64_bytes {
-        return Ok(Normalized { content: content_b64.to_string(), mime: mime.to_string() });
+    let unchanged = || Ok(Normalized { content: content_b64.to_string(), mime: mime.to_string() });
+    let fits = width <= limits.max_width && height <= limits.max_height && size <= limits.max_base64_bytes;
+    let small_png = size <= PNG_PASSTHROUGH_MAX_BASE64_BYTES || width as u64 * height as u64 <= SMALL_PNG_MAX_PIXELS;
+    if fits && (!limits.auto_resize || mime != "image/png" || small_png) {
+        return unchanged();
     }
     let size_error = || ImageError::Size {
         resource: resource.to_string(),
@@ -83,26 +122,41 @@ pub fn normalize(resource: &str, content_b64: &str, mime: &str, limits: &ImageLi
     if !limits.auto_resize {
         return Err(size_error());
     }
-    for (w, h) in candidate_sizes(width, height, limits.max_width, limits.max_height) {
-        let resized = decoded.resize_exact(w, h, image::imageops::FilterType::Lanczos3);
-        let mut png = Vec::new();
-        if resized.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).is_ok()
-            && base64_len(png.len()) <= limits.max_base64_bytes
-        {
-            return Ok(Normalized { content: base64::engine::general_purpose::STANDARD.encode(&png), mime: "image/png".into() });
+    let transparent = mime != "image/jpeg" && has_transparency(&decoded.to_rgba8());
+    let encoded = |content: Vec<u8>, mime: &str| Normalized {
+        content: base64::engine::general_purpose::STANDARD.encode(content),
+        mime: mime.to_string(),
+    };
+    // An image that already fits only changes when JPEG makes it smaller.
+    if fits {
+        if transparent {
+            return unchanged();
         }
-        let rgb = image::DynamicImage::ImageRgb8(resized.to_rgb8());
-        for quality in JPEG_QUALITIES {
-            let mut jpeg = Vec::new();
-            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality);
-            if rgb.write_with_encoder(encoder).is_err() {
-                continue;
-            }
-            if base64_len(jpeg.len()) <= limits.max_base64_bytes {
-                return Ok(Normalized {
-                    content: base64::engine::general_purpose::STANDARD.encode(&jpeg),
-                    mime: "image/jpeg".into(),
-                });
+        return match encode_jpeg(&decoded, JPEG_QUALITIES[0]) {
+            Some(jpeg) if base64_len(jpeg.len()) < size => Ok(encoded(jpeg, "image/jpeg")),
+            _ => unchanged(),
+        };
+    }
+    for (w, h) in candidate_sizes(width, height, limits.max_width, limits.max_height) {
+        let resized = if (w, h) == (width, height) {
+            decoded.clone()
+        } else {
+            decoded.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
+        };
+        let png_first = transparent || w as u64 * h as u64 <= SMALL_PNG_MAX_PIXELS;
+        let jpegs = JPEG_QUALITIES.iter().map(|quality| ("image/jpeg", Some(*quality)));
+        let encoders: Vec<(&str, Option<u8>)> = if png_first {
+            std::iter::once(("image/png", None)).chain(jpegs).collect()
+        } else {
+            jpegs.chain(std::iter::once(("image/png", None))).collect()
+        };
+        for (mime, quality) in encoders {
+            let candidate = match quality {
+                Some(quality) => encode_jpeg(&resized, quality),
+                None => encode_png(&resized),
+            };
+            if let Some(candidate) = candidate.filter(|c| base64_len(c.len()) <= limits.max_base64_bytes) {
+                return Ok(encoded(candidate, mime));
             }
         }
     }
@@ -185,6 +239,54 @@ mod tests {
         let strict = ImageLimits { auto_resize: false, ..limits };
         let err = normalize("b.png", &big, "image/png", &strict).unwrap_err();
         assert_eq!(err.to_string(), format!("Image b.png is 40x30 with base64 size {}, exceeding configured limits 20x20/1000000 bytes", big.len()));
+    }
+
+    fn png_from(width: u32, height: u32, pixel: impl Fn(u32, u32, u32) -> u8) -> String {
+        let img = image::RgbaImage::from_fn(width, height, |x, y| image::Rgba([0, 1, 2, 3].map(|c| pixel(x, y, c))));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    // tool-read.test.ts "stores large opaque PNG screenshots as JPEG"
+    #[test]
+    fn stores_large_opaque_png_screenshots_as_jpeg() {
+        let (width, height) = (2000u32, 1125u32);
+        let content = png_from(width, height, |x, y, c| {
+            let index = ((y * width + x) * 4 + c) as u64;
+            if c == 3 { 255 } else { ((index * 31 + (index >> 7)) % 256) as u8 }
+        });
+        let result = normalize("screenshot.png", &content, "image/png", &ImageLimits::default()).unwrap();
+        assert_eq!(result.mime, "image/jpeg");
+        assert!(result.content.len() < content.len());
+        let decoded =
+            image::load_from_memory(&base64::engine::general_purpose::STANDARD.decode(result.content).unwrap()).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (width, height));
+    }
+
+    // tool-read.test.ts "keeps fitting PNGs that are small, transparent, or smaller than their JPEG"
+    #[test]
+    fn keeps_fitting_pngs_that_are_small_transparent_or_smaller_than_their_jpeg() {
+        let mut seed: u32 = 1;
+        let blocks: Vec<u8> = (0..500 * 375)
+            .map(|_| {
+                seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+                ((seed >> 31) * 255) as u8
+            })
+            .collect();
+        let transparent = png_from(600, 600, |x, y, c| {
+            if c == 3 { if y < 120 { 0 } else { 255 } } else { ((((y * 600 + x) * 4 + c) * 31 + x) % 256) as u8 }
+        });
+        let small = png_from(1000, 1000, |_, y, c| if c == 3 { 255 } else { (y % 256) as u8 });
+        let diagram =
+            png_from(2000, 1500, |x, y, c| if c == 3 { 255 } else { blocks[((y / 4) * 500 + x / 4) as usize] });
+        assert!(transparent.len() > 384 * 1024);
+        assert!(small.len() <= 384 * 1024);
+        assert!(diagram.len() > 384 * 1024);
+        for content in [transparent, small, diagram] {
+            let result = normalize("image.png", &content, "image/png", &ImageLimits::default()).unwrap();
+            assert_eq!(result, Normalized { content, mime: "image/png".into() });
+        }
     }
 
     #[test]

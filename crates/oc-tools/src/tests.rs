@@ -20,10 +20,26 @@ struct MockHost {
     requests: Mutex<Vec<PermissionRequest>>,
     deny: Mutex<Option<PermissionError>>,
     form: Mutex<Option<FormResponse>>,
+    /// `(type, model)` of every enabled model.
+    models: Mutex<Vec<(&'static str, crate::host::ModelSummary)>>,
 }
 
 #[async_trait]
 impl ToolHost for MockHost {
+    async fn models_available(&self) -> Result<Vec<crate::host::ModelSummary>, String> {
+        self.models_list(&[]).await
+    }
+
+    async fn models_list(&self, types: &[String]) -> Result<Vec<crate::host::ModelSummary>, String> {
+        let types: Vec<&str> = if types.is_empty() { vec!["chat"] } else { types.iter().map(String::as_str).collect() };
+        Ok(types
+            .into_iter()
+            .flat_map(|kind| {
+                self.models.lock().iter().filter(|(t, _)| *t == kind).map(|(_, m)| m.clone()).collect::<Vec<_>>()
+            })
+            .collect())
+    }
+
     async fn ask_permission(&self, request: PermissionRequest) -> Result<(), PermissionError> {
         self.requests.lock().push(request);
         match self.deny.lock().clone() {
@@ -198,6 +214,52 @@ async fn edit_unchanged_result_fails() {
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "it\u{2019}s here\n");
 }
 
+// tool-subagent.test.ts failures table (model resolution)
+#[tokio::test]
+async fn subagent_model_failures() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let model = |id: &str, variants: &[&str]| crate::host::ModelSummary {
+        provider_id: "test".into(),
+        id: id.into(),
+        name: id.into(),
+        family: None,
+        released: 0.0,
+        variants: variants.iter().map(|v| v.to_string()).collect(),
+        cost: json!([]),
+        status: "active".into(),
+    };
+    *host.models.lock() = vec![
+        ("chat", model("override", &["fast"])),
+        ("chat", model("plain", &[])),
+        ("image", model("painter", &[])),
+        ("decision", model("classifier", &[])),
+    ];
+    let ctx = context(dir.path(), host.clone());
+    let tool = tools::subagent::SubagentTool;
+    let failures = [
+        ("test/missing", "Model \"test/missing\" is not available. Use the models tool to see what is available."),
+        ("test/override#slow", "Variant \"slow\" is not available for \"test/override\". Available: fast."),
+        ("test/plain#high", "Model \"test/plain\" has no variants. Omit the variant."),
+        (
+            "test/painter",
+            "Model \"test/painter\" is an image model; subagents need a chat model. Use the models tool to find one.",
+        ),
+        (
+            "test/classifier",
+            "Model \"test/classifier\" is a decision model; subagents need a chat model. Use the models tool to find one.",
+        ),
+    ];
+    for (input, message) in failures {
+        assert_eq!(tool.resolve_model(&ctx, input).await.unwrap_err().message, message);
+    }
+    assert_eq!(tool.resolve_model(&ctx, "test/override#fast").await.unwrap().variant.as_deref(), Some("fast"));
+    let background = tools::subagent::background_text("ses_child");
+    assert!(background.ends_with(
+        "\nTo send it follow-ups or change its instructions while it runs, call subagent again with this sessionID."
+    ));
+}
+
 #[tokio::test]
 async fn permission_outcomes() {
     let dir = tempfile::tempdir().unwrap();
@@ -240,6 +302,60 @@ async fn external_directory_request() {
     assert_eq!(requests[1].action, "read");
     assert_eq!(requests[1].resources, vec![path.clone()]);
     assert_eq!(ok.metadata.as_ref().unwrap()["truncated"], json!(false));
+}
+
+// tool-patch.test.ts "preserves files across self-moves and multi-hunk moves in one patch"
+#[tokio::test]
+async fn patch_self_moves_and_multi_hunk_moves() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let ctx = context(dir.path(), host.clone());
+    std::fs::write(dir.path().join("same.txt"), "before\n").unwrap();
+    std::fs::write(dir.path().join("old.txt"), "a\nb\nc\n").unwrap();
+    let tool = tools::patch::PatchTool::new(Arc::new(Formatter::new()));
+    let patch = [
+        "*** Begin Patch",
+        "*** Update File: same.txt",
+        "*** Move to: ./same.txt",
+        "@@",
+        "-before",
+        "+after",
+        "*** Update File: old.txt",
+        "@@",
+        "-a",
+        "+A",
+        "*** Update File: old.txt",
+        "*** Move to: moved.txt",
+        "@@",
+        "-b",
+        "+B",
+        "*** Update File: moved.txt",
+        "@@",
+        "-c",
+        "+C",
+        "*** End Patch",
+    ]
+    .join("\n");
+    run(&tool, json!({"patchText": patch}), ctx.clone()).await.unwrap();
+    assert_eq!(std::fs::read_to_string(dir.path().join("same.txt")).unwrap(), "after\n");
+    assert!(!dir.path().join("old.txt").exists());
+    assert_eq!(std::fs::read_to_string(dir.path().join("moved.txt")).unwrap(), "A\nB\nC\n");
+
+    // Later hunks see files an earlier hunk deleted or added.
+    let gone = ["*** Begin Patch", "*** Delete File: same.txt", "*** Delete File: same.txt", "*** End Patch"].join("\n");
+    let error = run(&tool, json!({"patchText": gone}), ctx.clone()).await.unwrap_err();
+    assert_eq!(error.message, "patch verification failed: Failed to delete same.txt: file does not exist");
+    let update = ["*** Begin Patch", "*** Delete File: same.txt", "*** Update File: same.txt", "@@", "-after", "+x", "*** End Patch"].join("\n");
+    let error = run(&tool, json!({"patchText": update}), ctx.clone()).await.unwrap_err();
+    let absolute = dir.path().join("same.txt");
+    assert_eq!(
+        error.message,
+        format!("patch verification failed: Failed to read file to update {}: file does not exist", absolute.display())
+    );
+    let added = ["*** Begin Patch", "*** Add File: new.txt", "+one", "*** Update File: new.txt", "@@", "-one", "+two", "*** End Patch"].join("\n");
+    run(&tool, json!({"patchText": added}), ctx.clone()).await.unwrap();
+    assert_eq!(std::fs::read_to_string(dir.path().join("new.txt")).unwrap(), "two\n");
+    assert_eq!(std::fs::read_to_string(dir.path().join("same.txt")).unwrap(), "after\n");
 }
 
 #[tokio::test]

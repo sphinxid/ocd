@@ -134,9 +134,9 @@ agent/provider registries. It uses the functions below to do that work.
 - `SUBAGENT_PREFIX`.
 
 ### `template`: evaluating command templates
-- `expand(template, input)` handles `$1..$N` (the last placeholder takes the rest),
-  `$ARGUMENTS`, appending the input when no placeholder is present, and the JavaScript quirks of
-  `$0`.
+- `expand(template, input)` handles `$1..$N` (the last placeholder takes the rest) and
+  `$ARGUMENTS` in one pass, so argument text is never expanded again, and appends the input when
+  no placeholder is present. `$0` stays literal (e.g. awk's `{print $0}`), as in opencode 2.2.
 - `parse_arguments` and `shell_commands`.
 - `evaluate(template, input, run).await` runs `` !`cmd` `` with a concurrency of 2 and keeps the
   output in order. Failures produce the verbatim

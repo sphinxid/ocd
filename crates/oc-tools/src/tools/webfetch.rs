@@ -7,6 +7,9 @@ use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use futures::future::BoxFuture;
+
+use crate::host::PermissionError;
 use crate::html;
 use crate::tool::{DefinitionContext, ErrorCause, Tool, ToolContext, ToolDefinition, ToolError, ToolOptions, ToolResult, decode, meta};
 
@@ -69,8 +72,34 @@ fn trace_headers() -> reqwest::header::HeaderMap {
     map
 }
 
+/// Redirects followed before a fetch fails (`MAX_REDIRECTS`).
+pub const MAX_REDIRECTS: usize = 10;
+const REDIRECT_STATUSES: [u16; 5] = [301, 302, 303, 307, 308];
+
+/// A fetch failure: a message, or a redirect target the permission rules deny.
+#[derive(Debug)]
+enum FetchError {
+    Message(String),
+    Permission(PermissionError),
+}
+
+impl From<String> for FetchError {
+    fn from(message: String) -> Self {
+        FetchError::Message(message)
+    }
+}
+
+/// Checks a redirect target against the permission rules (`assertNotDenied`).
+type RedirectCheck<'a> = &'a (dyn Fn(String) -> BoxFuture<'static, Result<(), PermissionError>> + Send + Sync);
+
 impl WebFetchTool {
-    pub fn new(http: reqwest::Client) -> Self {
+    /// Redirects are followed by the tool, never by the client, so each new URL is checked
+    /// against the permission rules first.
+    pub fn new() -> Self {
+        let http = oc_util::http::client_builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_default();
         Self { http }
     }
 
@@ -88,29 +117,65 @@ impl WebFetchTool {
         Ok(response)
     }
 
-    async fn fetch(&self, url: &str, format: &str) -> Result<(Vec<u8>, String), String> {
-        let mut response = self.request(url, format, USER_AGENT).await?;
-        if response.status().as_u16() == 403
-            && response.headers().get("cf-mitigated").and_then(|v| v.to_str().ok()) == Some("challenge")
-        {
-            response = self.request(url, format, "opencode").await?;
+    /// `execute`: GET `url`, following up to [`MAX_REDIRECTS`] redirects whose targets the
+    /// permission rules don't deny; a non-2xx final response is a status error.
+    async fn execute(
+        &self,
+        check: RedirectCheck<'_>,
+        url: &str,
+        format: &str,
+        agent: &str,
+    ) -> Result<reqwest::Response, (FetchError, bool)> {
+        let mut current = url.to_string();
+        let mut redirects = 0;
+        loop {
+            let response = self.request(&current, format, agent).await.map_err(|m| (m.into(), false))?;
+            let status = response.status().as_u16();
+            let location = response.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_string);
+            let Some(location) = location.filter(|_| REDIRECT_STATUSES.contains(&status)) else {
+                if !response.status().is_success() {
+                    let challenge = status == 403
+                        && response.headers().get("cf-mitigated").and_then(|v| v.to_str().ok()) == Some("challenge");
+                    let message = format!("StatusCode: non 2xx status code ({status} GET {current})");
+                    return Err((message.into(), challenge));
+                }
+                return Ok(response);
+            };
+            if redirects >= MAX_REDIRECTS {
+                return Err((format!("Too many redirects (more than {MAX_REDIRECTS})").into(), false));
+            }
+            let next = match url::Url::parse(&current).and_then(|base| base.join(&location)) {
+                Ok(next) if next.scheme() == "http" || next.scheme() == "https" => next.to_string(),
+                Ok(_) => return Err(("URL must use http:// or https://".to_string().into(), false)),
+                Err(_) => {
+                    let message = format!("{} cannot be parsed as a URL.", crate::util::js::quote(&location));
+                    return Err((message.into(), false));
+                }
+            };
+            check(next.clone()).await.map_err(|error| (FetchError::Permission(error), false))?;
+            current = next;
+            redirects += 1;
         }
-        let status = response.status();
-        if !status.is_success() {
-            return Err(format!("StatusCode: non 2xx status code ({} GET {url})", status.as_u16()));
-        }
+    }
+
+    async fn fetch(&self, check: RedirectCheck<'_>, url: &str, format: &str) -> Result<(Vec<u8>, String), FetchError> {
+        let response = match self.execute(check, url, format, USER_AGENT).await {
+            Ok(response) => response,
+            Err((_, true)) => self.execute(check, url, format, "opencode").await.map_err(|(error, _)| error)?,
+            Err((error, false)) => return Err(error),
+        };
         let content_type = response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
         let mime = mime_from(&content_type);
         if is_image_attachment(&mime) {
-            return Err(format!("Unsupported fetched image content type: {mime}"));
+            return Err(format!("Unsupported fetched image content type: {mime}").into());
         }
         if !is_textual_mime(&mime) {
-            return Err(format!("Unsupported fetched file content type: {mime}"));
+            return Err(format!("Unsupported fetched file content type: {mime}").into());
         }
         let too_large = || format!("Response too large (exceeds {MAX_RESPONSE_BYTES} byte limit)");
         if let Some(length) = response.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<u64>().ok()) {
             if length > MAX_RESPONSE_BYTES as u64 {
-                return Err(too_large());
+                return Err(too_large().into());
             }
         }
         let mut body = Vec::new();
@@ -118,7 +183,7 @@ impl WebFetchTool {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|_| format!("Transport error (GET {url})"))?;
             if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-                return Err(too_large());
+                return Err(too_large().into());
             }
             body.extend_from_slice(&chunk);
         }
@@ -154,13 +219,23 @@ impl Tool for WebFetchTool {
         if let Some(t) = input.timeout {
             metadata.insert("timeout".into(), json!(t));
         }
-        super::assert(&ctx, "webfetch", vec![input.url.clone()], Some(vec!["*".into()]), Some(metadata))
+        super::assert(&ctx, "webfetch", vec![input.url.clone()], Some(vec!["*".into()]), Some(metadata.clone()))
             .await
             .map_err(super::perm(leaf.clone()))?;
+        // Redirect targets only fail on a deny; they never ask.
+        let check = |url: String| -> BoxFuture<'static, Result<(), PermissionError>> {
+            let mut metadata = metadata.clone();
+            metadata.insert("url".into(), json!(url));
+            let request = ctx.permission("webfetch", vec![url], None, Some(metadata));
+            let host = ctx.host.clone();
+            Box::pin(async move { host.check_permission(request).await })
+        };
         let seconds = input.timeout.unwrap_or(DEFAULT_TIMEOUT_SECONDS);
-        let (body, content_type) = match tokio::time::timeout(Duration::from_secs_f64(seconds), self.fetch(&input.url, &format)).await {
+        let fetched = tokio::time::timeout(Duration::from_secs_f64(seconds), self.fetch(&check, &input.url, &format)).await;
+        let (body, content_type) = match fetched {
             Err(_) => return Err(fail("Request timed out".into())),
-            Ok(Err(message)) => return Err(fail(message)),
+            Ok(Err(FetchError::Message(message))) => return Err(fail(message)),
+            Ok(Err(FetchError::Permission(error))) => return Err(super::perm(leaf.clone())(error)),
             Ok(Ok(result)) => result,
         };
         let content = String::from_utf8_lossy(&body);
@@ -210,11 +285,106 @@ mod tests {
                 socket.write_all(response.as_bytes()).await.unwrap();
             }
         });
-        let tool = WebFetchTool::new(reqwest::Client::new());
-        let (body, ct) = tool.fetch(&format!("http://{addr}/html"), "markdown").await.unwrap();
+        let tool = WebFetchTool::new();
+        let allow = |_: String| -> BoxFuture<'static, Result<(), PermissionError>> { Box::pin(async { Ok(()) }) };
+        let (body, ct) = tool.fetch(&allow, &format!("http://{addr}/html"), "markdown").await.unwrap();
         assert_eq!(convert(&String::from_utf8_lossy(&body), &ct, "markdown"), "# Title");
-        assert_eq!(tool.fetch(&format!("http://{addr}/img"), "markdown").await.unwrap_err(), "Unsupported fetched image content type: image/png");
+        let image = tool.fetch(&allow, &format!("http://{addr}/img"), "markdown").await.unwrap_err();
+        assert_eq!(message(image), "Unsupported fetched image content type: image/png");
         let url = format!("http://{addr}/missing");
-        assert_eq!(tool.fetch(&url, "markdown").await.unwrap_err(), format!("StatusCode: non 2xx status code (404 GET {url})"));
+        let missing = tool.fetch(&allow, &url, "markdown").await.unwrap_err();
+        assert_eq!(message(missing), format!("StatusCode: non 2xx status code (404 GET {url})"));
+    }
+
+    fn message(error: FetchError) -> String {
+        match error {
+            FetchError::Message(message) => message,
+            FetchError::Permission(error) => format!("{error:?}"),
+        }
+    }
+
+    /// A local server answering each request with `respond(path)`; returns its address and the
+    /// paths it was asked for.
+    async fn serve(
+        respond: impl Fn(&str) -> String + Send + Sync + 'static,
+    ) -> (std::net::SocketAddr, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let paths = seen.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else { return };
+                let mut buf = vec![0u8; 4096];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = request.split(' ').nth(1).unwrap_or("").to_string();
+                paths.lock().unwrap().push(path.clone());
+                let _ = socket.write_all(respond(&path).as_bytes()).await;
+            }
+        });
+        (addr, seen)
+    }
+
+    fn redirect(status: u16, location: &str) -> String {
+        format!("HTTP/1.1 {status} Moved\r\nlocation: {location}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+    }
+
+    // tool-webfetch.test.ts "follows redirects, checking each target against the rules without asking"
+    #[tokio::test]
+    async fn follows_redirects_checking_each_target() {
+        let (addr, seen) = serve(|path| {
+            if path == "/start" {
+                redirect(302, "/target")
+            } else {
+                "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok".into()
+            }
+        })
+        .await;
+        let checks = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = checks.clone();
+        let check = move |url: String| -> BoxFuture<'static, Result<(), PermissionError>> {
+            recorded.lock().unwrap().push(url);
+            Box::pin(async { Ok(()) })
+        };
+        let tool = WebFetchTool::new();
+        let (body, _) = tool.fetch(&check, &format!("http://{addr}/start"), "text").await.unwrap();
+        assert_eq!(body, b"ok");
+        assert_eq!(*checks.lock().unwrap(), vec![format!("http://{addr}/target")]);
+        assert_eq!(*seen.lock().unwrap(), vec!["/start", "/target"]);
+    }
+
+    // tool-webfetch.test.ts "stops at a redirect target the rules deny"
+    #[tokio::test]
+    async fn stops_at_a_redirect_target_the_rules_deny() {
+        let target = "http://169.254.169.254/latest/meta-data";
+        let (addr, seen) = serve(move |_| redirect(302, target)).await;
+        let deny = |_: String| -> BoxFuture<'static, Result<(), PermissionError>> {
+            Box::pin(async { Err(PermissionError::Blocked { message: "Permission denied: webfetch".into() }) })
+        };
+        let error = WebFetchTool::new().fetch(&deny, &format!("http://{addr}/start"), "text").await.unwrap_err();
+        assert!(matches!(error, FetchError::Permission(PermissionError::Blocked { ref message }) if message == "Permission denied: webfetch"));
+        assert_eq!(*seen.lock().unwrap(), vec!["/start"]);
+    }
+
+    // tool-webfetch.test.ts "rejects redirects to non-HTTP schemes and endless redirect chains"
+    #[tokio::test]
+    async fn rejects_non_http_redirects_and_endless_chains() {
+        let checks = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let counted = checks.clone();
+        let check = move |_: String| -> BoxFuture<'static, Result<(), PermissionError>> {
+            *counted.lock().unwrap() += 1;
+            Box::pin(async { Ok(()) })
+        };
+        let (addr, _) = serve(|_| redirect(301, "file:///etc/passwd")).await;
+        let error = WebFetchTool::new().fetch(&check, &format!("http://{addr}/a"), "text").await.unwrap_err();
+        assert_eq!(message(error), "URL must use http:// or https://");
+        assert_eq!(*checks.lock().unwrap(), 0);
+
+        let (addr, seen) = serve(|path| redirect(307, &format!("{path}x"))).await;
+        let error = WebFetchTool::new().fetch(&check, &format!("http://{addr}/a"), "text").await.unwrap_err();
+        assert_eq!(message(error), format!("Too many redirects (more than {MAX_REDIRECTS})"));
+        assert_eq!(seen.lock().unwrap().len(), MAX_REDIRECTS + 1);
     }
 }

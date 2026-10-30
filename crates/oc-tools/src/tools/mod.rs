@@ -91,7 +91,7 @@ pub fn builtin(services: &Services) -> (Vec<Arc<dyn crate::tool::Tool>>, Vec<cra
     tools.push(Arc::new(skill::SkillTool));
     tools.push(Arc::new(subagent::SubagentTool));
     tools.push(Arc::new(todo::TodoTool));
-    tools.push(Arc::new(webfetch::WebFetchTool::new(services.http.clone())));
+    tools.push(Arc::new(webfetch::WebFetchTool::new()));
     tools.push(Arc::new(websearch::WebSearchTool::new(services.websearch.clone())));
     tools.push(Arc::new(write::WriteTool::new(services.formatter.clone())));
     (tools, vec![opencode::namespace()])

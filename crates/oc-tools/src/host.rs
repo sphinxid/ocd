@@ -309,6 +309,11 @@ pub trait ToolHost: Send + Sync {
     // ---------------------------------------------------------------- permissions & forms
     async fn ask_permission(&self, request: PermissionRequest) -> Result<(), PermissionError>;
 
+    /// `Permission.assertNotDenied`: fails only on a deny, never asks.
+    async fn check_permission(&self, _request: PermissionRequest) -> Result<(), PermissionError> {
+        Ok(())
+    }
+
     async fn ask_form(&self, _request: FormRequest) -> Result<FormResponse, String> {
         Err(unsupported("forms"))
     }

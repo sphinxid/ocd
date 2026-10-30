@@ -28,6 +28,24 @@ impl ToolHost for CoreHost {
         self.app.plugins.websearch_for(self.location.as_deref()?)
     }
 
+    async fn check_permission(&self, r: PermissionRequest) -> Result<(), PermissionError> {
+        let input = AssertInput {
+            id: None,
+            session_id: r.session_id,
+            action: r.action,
+            resources: r.resources,
+            save: r.save,
+            metadata: r.metadata,
+            source: Some(Source { kind: "tool".into(), message_id: r.source.message_id, id: r.source.call_id }),
+            agent: r.agent,
+        };
+        self.app.permissions.assert_not_denied(input).await.map_err(|e| match e {
+            CoreError::Declined => PermissionError::Declined,
+            CoreError::Corrected { feedback } => PermissionError::Corrected { feedback },
+            blocked @ CoreError::Blocked { .. } => PermissionError::Blocked { message: blocked.to_string() },
+        })
+    }
+
     async fn ask_permission(&self, r: PermissionRequest) -> Result<(), PermissionError> {
         let input = AssertInput {
             id: None,
@@ -323,6 +341,11 @@ impl ToolHost for CoreHost {
             crate::worktree::WorktreeError::Git { force_required: Some(true), .. } => WorktreeRemoveError::ForceRequired,
             other => WorktreeRemoveError::Other(other.to_string()),
         })
+    }
+
+    async fn models_available(&self) -> Result<Vec<ModelSummary>, String> {
+        let catalog = self.location.as_deref().and_then(|key| self.app.plugins.catalog(key)).ok_or("models are unavailable")?;
+        Ok(catalog.available_models().into_iter().map(model_summary).collect())
     }
 
     async fn models_list(&self, types: &[String]) -> Result<Vec<ModelSummary>, String> {

@@ -63,7 +63,7 @@ Each method has a default that reports the capability as unavailable. The except
 
 | area | methods |
 |---|---|
-| permissions / forms | `ask_permission(PermissionRequest) -> Result<(), PermissionError>`, `ask_form(FormRequest) -> FormResponse` |
+| permissions / forms | `ask_permission(PermissionRequest) -> Result<(), PermissionError>`, `check_permission(PermissionRequest)` (`assertNotDenied`: fails only on a deny, never asks; webfetch checks each redirect target with it), `ask_form(FormRequest) -> FormResponse` |
 | read tool | `load_instructions(session, paths)`: nested AGENTS.md |
 | skills | `get_skill(id)`, `list_skills()` |
 | sessions | `session_get/create/switch_agent/switch_model/prompt/interrupt/rename/move/synthetic`, `session_environment` |
@@ -118,12 +118,12 @@ Each method has a default that reports the capability as unavailable. The except
 
 | module | upstream |
 |---|---|
-| `tools::{read, edit, write, patch, grep, glob, shell, webfetch, websearch, question, skill, subagent, todo}` | `core/src/tool/plugin/*.ts` (`todo`: `todowrite`, which oc-core keeps only where `experimental.todo` is on) |
+| `tools::{read, edit, write, patch, grep, glob, shell, webfetch, websearch, question, skill, subagent, todo}` | `core/src/tool/plugin/*.ts` (`todo`: `todowrite`, which oc-core keeps only where `experimental.todo` is on). `webfetch` uses its own client that never follows redirects: it follows up to 10 itself, checking each target with `check_permission`. `patch` chains later hunks onto files an earlier hunk added, moved or deleted, and a move onto the file itself is a plain update. `subagent` names image and decision models in its "needs a chat model" error. |
 | `tools::opencode` (6 tools + namespace + `SYSTEM_HINT`), `tools::mcp_resource`, `tools::mcp::McpTool` | `opencode.ts`, `mcp-resource.ts`, `tool/mcp.ts` |
 | `file_access`, `file_mutation`, `file_diff`, `jsdiff` (byte-exact jsdiff 8.0.4 port: `createTwoFilesPatch`, `structuredPatch`, `parsePatch`, `reversePatch`, `applyPatch`) | `file-access.ts`, `file-mutation.ts`, `file-diff.ts` |
 | `patch` (grammar, 4-pass seek), `validate` (Effect-compatible issues) | `util/src/patch.ts`, `tool/runtime.ts` |
-| `ripgrep` (args, JSON parsing, binary locate/download of 15.1.0 into `<cache>/bin`) | `ripgrep.ts`, `ripgrep/binary.ts` |
+| `ripgrep` (args, JSON parsing with lines cut at 2000 UTF-16 units like a UTF-8 round trip, binary locate/download of 15.1.0 into `<cache>/bin`, verified against the pinned per-platform SHA-256 before it is written) | `ripgrep.ts`, `ripgrep/binary.ts` |
 | `shell::{select, parse, scan, service, result}`: tree-sitter (legacy) and portable scanners | `shell/*.ts`, `shell.ts` |
 | `html` (htmlparser2 8.0.2 + `html-markdown.ts` transliteration) | `tool/html-markdown.ts`, `webfetch.ts` |
 | `websearch` (service, 5 providers, Console provider) | `websearch.ts`, `plugin/websearch/*` |
-| `formatter` (26 built-ins, overrides), `image` (resize ladder), `mime`, `tool_output` | `formatter*.ts`, `image*.ts`, `mime.ts`, `tool-output.ts` |
+| `formatter` (26 built-ins, overrides), `image` (`photon-normalize.ts` rules: fitting PNGs over 384 KiB and 256×256 px that are opaque become JPEG q80 when smaller; the resize ladder tries PNG first only for transparent or small sizes, then JPEG 80/70/55/40), `mime`, `tool_output` | `formatter*.ts`, `image*.ts`, `mime.ts`, `tool-output.ts` |

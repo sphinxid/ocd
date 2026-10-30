@@ -162,8 +162,43 @@ pub fn parse_grep_line(line: &str) -> Result<Option<GrepMatch>, RipgrepError> {
         });
     }
     submatches.truncate(MAX_SUBMATCHES);
-    let text = if js::utf16_len(text) > 2_000 { format!("{}...", js::utf16_prefix(text, 2_000)) } else { text.to_string() };
+    let text = if js::utf16_len(text) > MAX_LINE_CHARS { truncate_line(text) } else { text.to_string() };
     Ok(Some(GrepMatch { path: normalize_path(path), line, offset, text, submatches }))
+}
+
+const MAX_LINE_CHARS: usize = 2_000;
+
+/// `Buffer.from(text.slice(0, MAX_LINE_CHARS), "utf8").toString() + "..."`: a cut inside a
+/// surrogate pair leaves a lone high surrogate, which UTF-8 encoding turns into U+FFFD.
+fn truncate_line(text: &str) -> String {
+    let prefix = js::utf16_prefix(text, MAX_LINE_CHARS);
+    let split = js::utf16_len(prefix) < MAX_LINE_CHARS;
+    format!("{prefix}{}...", if split { "\u{FFFD}" } else { "" })
+}
+
+/// `RipgrepBinary.verify`: a download is only written and run when it matches the pinned hash
+/// (release assets can be replaced after publication).
+pub fn verify(bytes: &[u8], filename: &str, expected: &str) -> Result<(), String> {
+    use sha2::Digest;
+    let actual: String = sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
+    if actual != expected {
+        return Err(format!("ripgrep download {filename} failed SHA-256 verification: expected {expected}, got {actual}"));
+    }
+    Ok(())
+}
+
+/// SHA-256 of each release asset, from the `<asset>.sha256` files published with ripgrep 15.1.0.
+fn sha256(platform: &str) -> &'static str {
+    match platform {
+        "aarch64-apple-darwin" => "378e973289176ca0c6054054ee7f631a065874a352bf43f0fa60ef079b6ba715",
+        "aarch64-unknown-linux-gnu" => "2b661c6ef508e902f388e9098d9c4c5aca72c87b55922d94abdba830b4dc885e",
+        "x86_64-apple-darwin" => "64811cb24e77cac3057d6c40b63ac9becf9082eedd54ca411b475b755d334882",
+        "x86_64-unknown-linux-musl" => "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599",
+        "aarch64-pc-windows-msvc" => "00d931fb5237c9696ca49308818edb76d8eb6fc132761cb2a1bd616b2df02f8e",
+        "i686-pc-windows-msvc" => "725be85a1e8f92878a548f40ee4f6df64bc93b809586462b3c6d884e1de1e83a",
+        "x86_64-pc-windows-msvc" => "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a",
+        _ => "",
+    }
 }
 
 fn platform() -> Result<(&'static str, &'static str), String> {
@@ -248,6 +283,7 @@ impl Ripgrep {
         if bytes.is_empty() {
             return Err(format!("failed to download ripgrep from {url}"));
         }
+        verify(&bytes, &filename, sha256(platform))?;
         std::fs::write(&archive, &bytes).map_err(|e| e.to_string())?;
         let dir = self.bin.join(format!("ripgrep-{}", oc_schema::id::create(false, None)));
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -422,6 +458,29 @@ mod tests {
         assert_eq!(m.submatches[0], Submatch { text: "x".into(), start: 4, end: 5 });
         assert!(parse_grep_line(r#"{"type":"begin","data":{}}"#).unwrap().is_none());
         assert!(parse_grep_line("nope").is_err());
+    }
+
+    #[test]
+    fn truncates_long_lines_like_a_utf8_round_trip() {
+        let long = "a".repeat(2_500);
+        assert_eq!(truncate_line(&long), format!("{}...", "a".repeat(2_000)));
+        // The cut falls inside the emoji's surrogate pair: the lone high surrogate becomes U+FFFD.
+        let split = format!("{}😀tail", "a".repeat(1_999));
+        assert_eq!(truncate_line(&split), format!("{}\u{FFFD}...", "a".repeat(1_999)));
+        let whole = format!("{}😀tail", "a".repeat(1_998));
+        assert_eq!(truncate_line(&whole), format!("{}😀...", "a".repeat(1_998)));
+    }
+
+    // ripgrep.test.ts "RipgrepBinary.verify"
+    #[test]
+    fn verifies_downloads_against_the_pinned_hash() {
+        use sha2::Digest;
+        let bytes = b"ripgrep archive";
+        let hash: String = sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
+        assert!(verify(bytes, "ripgrep.tar.gz", &hash).is_ok());
+        let error = verify(bytes, "ripgrep.tar.gz", &"0".repeat(64)).unwrap_err();
+        assert!(error.starts_with("ripgrep download ripgrep.tar.gz failed SHA-256 verification"));
+        assert_eq!(error, format!("ripgrep download ripgrep.tar.gz failed SHA-256 verification: expected {}, got {hash}", "0".repeat(64)));
     }
 
     #[tokio::test]

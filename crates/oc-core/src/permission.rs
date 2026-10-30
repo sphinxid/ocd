@@ -225,6 +225,28 @@ impl Permissions {
         }
     }
 
+    /// `assertNotDenied`: fails only when the rules (or the `permission.evaluate` hook) deny;
+    /// `ask` and `allow` both pass without creating a request.
+    pub async fn assert_not_denied(&self, input: AssertInput) -> Result<(), PermissionError> {
+        let Some((result, message)) = self.evaluate_hooked(&input).await else {
+            return Err(PermissionError::Blocked {
+                rules: vec![],
+                permission: input.action.clone(),
+                resources: input.resources.clone(),
+                reason: Some(format!("Session not found: {}", input.session_id)),
+            });
+        };
+        match result {
+            Evaluated::Deny(rules) => Err(PermissionError::Blocked {
+                rules: rules.into_iter().filter(|r| wildcard::matches(&input.action, &r.action)).collect(),
+                permission: input.action.clone(),
+                resources: input.resources.clone(),
+                reason: message,
+            }),
+            Evaluated::Allow(_) | Evaluated::Ask(_) => Ok(()),
+        }
+    }
+
     /// `ask`: returns the request id and effect without waiting.
     pub async fn ask(&self, input: AssertInput) -> (String, Effect) {
         let mut request = Self::request(&input);
@@ -386,7 +408,8 @@ mod tests {
 
     impl PermissionContext for Ctx {
         fn configured(&self, session_id: &str, _agent: Option<&str>) -> Option<Ruleset> {
-            (session_id != "ses_gone").then(|| vec![PermissionRule { action: "*".into(), resource: "*".into(), effect: Effect::Ask }])
+            let effect = if session_id == "ses_deny" { Effect::Deny } else { Effect::Ask };
+            (session_id != "ses_gone").then(|| vec![PermissionRule { action: "*".into(), resource: "*".into(), effect }])
         }
         fn saved(&self, _session_id: &str) -> Vec<PermissionRule> {
             self.saved.lock().clone()
@@ -425,6 +448,18 @@ mod tests {
             source: None,
             agent: Some("build".into()),
         }
+    }
+
+    // permission.test.ts "checks for a deny without asking"
+    #[tokio::test]
+    async fn checks_for_a_deny_without_asking() {
+        let ctx = Arc::new(Ctx::default());
+        let perms = Permissions::new(ctx.clone());
+        perms.assert_not_denied(input("per_a", "ses_1", "a.txt", false)).await.unwrap();
+        assert!(perms.list().is_empty());
+        let error = perms.assert_not_denied(input("per_b", "ses_deny", "a.txt", false)).await.unwrap_err();
+        assert!(matches!(error, PermissionError::Blocked { ref permission, .. } if permission == "read"));
+        assert!(perms.list().is_empty());
     }
 
     #[tokio::test]
