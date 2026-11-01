@@ -2185,6 +2185,11 @@ async fn native_worktree(strategy: &dyn crate::worktree::Strategy, op: &str, inp
             e.data = Some(json!({ "message": message, "forceRequired": force_required }));
             e
         }
+        crate::worktree::StrategyError::DirectoryUnavailable(directory) => {
+            let mut e = ApiError::named("Worktree.DirectoryUnavailableError", format!("Worktree directory unavailable: {directory}"));
+            e.data = Some(json!({ "directory": directory }));
+            e
+        }
         crate::worktree::StrategyError::Other(message) => ApiError::new(message),
     };
     let path = |k: &str| input.get(k).and_then(Value::as_str).map(std::path::PathBuf::from).ok_or_else(|| ApiError::new(format!("Missing {k}")));
@@ -2223,7 +2228,10 @@ impl PluginStrategy {
         let plugins = self.plugins.upgrade().ok_or_else(|| crate::worktree::StrategyError::Other("Plugin host is not running".into()))?;
         plugins.call_handle(&self.key, handle, vec![input]).await.map_err(|e| {
             // `operationError` keeps git and operation errors as they are.
-            if matches!(e.name.as_deref(), Some("Worktree.OperationError" | "Git.WorktreeError")) {
+            let directory = e.data.as_ref().and_then(|d| d.get("directory")).and_then(Value::as_str);
+            if let (Some("Worktree.DirectoryUnavailableError"), Some(directory)) = (e.name.as_deref(), directory) {
+                crate::worktree::StrategyError::DirectoryUnavailable(directory.to_string())
+            } else if matches!(e.name.as_deref(), Some("Worktree.OperationError" | "Git.WorktreeError")) {
                 let force_required = e.data.as_ref().and_then(|d| d.get("forceRequired")).and_then(Value::as_bool);
                 crate::worktree::StrategyError::Worktree { message: e.message, force_required }
             } else {

@@ -36,17 +36,30 @@ pub enum WorktreeError {
 }
 
 /// A strategy failure: a git/operation error carried as is (`Git.WorktreeError`,
-/// `Worktree.OperationError`), or anything else, which `operationError` wraps.
+/// `Worktree.OperationError`), a `Worktree.DirectoryUnavailableError` (also kept), or anything
+/// else, which `operationError` wraps.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StrategyError {
     Worktree { message: String, force_required: Option<bool> },
+    DirectoryUnavailable(String),
     Other(String),
+}
+
+impl From<oc_git::WorktreeStrategyError> for StrategyError {
+    fn from(error: oc_git::WorktreeStrategyError) -> Self {
+        match error {
+            oc_git::WorktreeStrategyError::Git(w) => StrategyError::Worktree { force_required: w.force_required, message: w.to_string() },
+            oc_git::WorktreeStrategyError::DirectoryUnavailable { directory } => StrategyError::DirectoryUnavailable(directory.display().to_string()),
+            other => StrategyError::Other(other.to_string()),
+        }
+    }
 }
 
 impl StrategyError {
     fn into_error(self, strategy: &str, operation: &str) -> WorktreeError {
         match self {
             StrategyError::Worktree { message, force_required } => WorktreeError::Git { message, force_required },
+            StrategyError::DirectoryUnavailable(directory) => WorktreeError::DirectoryUnavailable(directory),
             StrategyError::Other(message) => WorktreeError::Operation(format!("Worktree strategy {strategy} failed to {operation}: {message}")),
         }
     }
@@ -71,19 +84,13 @@ impl Strategy for GitStrategy {
         oc_git::GitWorktreeStrategy::ID
     }
     async fn create(&self, directory: &Path, source: &Path, branch: Option<&str>) -> Result<PathBuf, StrategyError> {
-        oc_git::GitWorktreeStrategy::new(oc_git::Git::new()).create(directory, source, branch).await.map_err(|e| StrategyError::Other(e.to_string()))
+        Ok(oc_git::GitWorktreeStrategy::new(oc_git::Git::new()).create(directory, source, branch).await?)
     }
     async fn remove(&self, directory: &Path, force: bool) -> Result<(), StrategyError> {
-        oc_git::GitWorktreeStrategy::new(oc_git::Git::new()).remove(directory, force).await.map_err(|e| {
-            let force_required = match &e {
-                oc_git::WorktreeStrategyError::Git(w) => w.force_required,
-                _ => None,
-            };
-            StrategyError::Worktree { message: e.to_string(), force_required }
-        })
+        Ok(oc_git::GitWorktreeStrategy::new(oc_git::Git::new()).remove(directory, force).await?)
     }
     async fn list(&self, root: &Path) -> Result<Vec<oc_git::ListEntry>, StrategyError> {
-        oc_git::GitWorktreeStrategy::new(oc_git::Git::new()).list(root).await.map_err(|e| StrategyError::Other(e.to_string()))
+        Ok(oc_git::GitWorktreeStrategy::new(oc_git::Git::new()).list(root).await?)
     }
 }
 
@@ -335,4 +342,23 @@ pub fn list(bus: &Bus, project_id: &str) -> anyhow::Result<Vec<Value>> {
             .collect();
         r
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `operationError` keeps a strategy's `DirectoryUnavailableError`: the git strategy in a
+    // directory that is no git repository (a Mercurial project, say).
+    #[tokio::test]
+    async fn git_strategy_keeps_directory_unavailable() {
+        let root = tempfile::tempdir().unwrap();
+        let source = std::fs::canonicalize(root.path()).unwrap();
+        let error = GitStrategy.create(&source.join("wt"), &source, None).await.unwrap_err();
+        assert_eq!(error, StrategyError::DirectoryUnavailable(source.display().to_string()));
+        let message = error.into_error("git", "create").to_string();
+        assert_eq!(message, format!("Worktree directory unavailable: {}", source.display()));
+        let other = StrategyError::Other("boom".into()).into_error("git", "create");
+        assert_eq!(other.to_string(), "Worktree strategy git failed to create: boom");
+    }
 }
