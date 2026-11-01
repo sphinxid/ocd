@@ -1097,6 +1097,16 @@ impl Backend for Engine {
                 Err((kind, message)) => Err(ApiError::rpc(kind, message, None)),
             };
         }
+        // The built-in browser plugin's RPC. `attach` stays pending while the desktop is attached; the
+        // request going away (the desktop disconnecting) drops this future, which detaches it.
+        if req.rpc_id == oc_core::browser::RPC_ID && self.app.plugins.builtin_enabled(&loc.key, oc_core::browser::PLUGIN_ID) {
+            let at = oc_schema::types::LocationRef { directory: loc.key.clone(), workspace_id: ctx.location.workspace_id.clone() };
+            return match self.app.plugins.browsers.call(&loc.key, &at, &req.method, input, Some(&oc_server::validate::schema_issue)).await {
+                Ok(Value::Null) => from_json(json!({})),
+                Ok(output) => from_json(json!({ "output": output })),
+                Err(f) => Err(ApiError::rpc(f.kind, f.message, f.data)),
+            };
+        }
         let result = match self.app.plugins.host() {
             Some(host) => host.rpc_call(&location, &req.rpc_id, &req.method, input).await,
             None => Err(oc_plugin::RpcFailure { kind: "rpc.unavailable".into(), message: format!("RPC is unavailable: {}", req.rpc_id), data: None }),

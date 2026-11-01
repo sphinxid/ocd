@@ -93,6 +93,37 @@ pub fn items_issue(component: &str, key: &str, items: &[Value]) -> Option<String
     None
 }
 
+/// Definitions of schemas validated with [`schema_issue`] (`$defs`), by name, kept for the process.
+static DEFINITIONS: LazyLock<parking_lot::RwLock<HashMap<String, &'static Value>>> = LazyLock::new(Default::default);
+
+/// Validate `value` against a JSON Schema document of an Effect schema (`Schema.toJsonSchemaDocument`, its
+/// definitions under `$defs`); `Some(message)` describes the first issue like Effect's `SchemaError`. Used for
+/// the inputs of plugin RPC methods, which are not part of the OpenAPI document.
+pub fn schema_issue(schema: &Value, value: &Value) -> Option<String> {
+    if let Some(defs) = schema.get("$defs").and_then(Value::as_object) {
+        let missing: Vec<(&String, &Value)> = {
+            let known = DEFINITIONS.read();
+            defs.iter().filter(|(name, _)| !known.contains_key(*name)).collect()
+        };
+        if !missing.is_empty() {
+            let mut known = DEFINITIONS.write();
+            for (name, def) in missing {
+                known.entry(name.clone()).or_insert_with(|| Box::leak(Box::new(def.clone())));
+            }
+        }
+    }
+    let mut path = Vec::new();
+    BETWEEN.set(true);
+    let issue = check(schema, None, value, &mut path).err().map(|lines| lines.join("\n"));
+    BETWEEN.set(false);
+    issue
+}
+
+thread_local! {
+    /// Set while [`schema_issue`] checks: `minimum` with `maximum` is Effect's `isBetween`.
+    static BETWEEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 fn deref(schema: &Value) -> (&Value, Option<&str>) {
     let mut current = schema;
     let mut name = None;
@@ -100,7 +131,8 @@ fn deref(schema: &Value) -> (&Value, Option<&str>) {
         let Some(r) = current.get("$ref").and_then(Value::as_str) else { break };
         let n = r.rsplit('/').next().unwrap_or(r);
         name.get_or_insert(n);
-        match DOC.components.get(n) {
+        let found = if r.starts_with("#/$defs/") { DEFINITIONS.read().get(n).copied() } else { DOC.components.get(n) };
+        match found {
             Some(next) => current = next,
             None => break,
         }
@@ -239,6 +271,14 @@ fn check(schema: &Value, name: Option<&str>, v: &Value, path: &mut Vec<Seg>) -> 
                 && n <= m
             {
                 return Err(issue(path, format!("Expected a value greater than {}", fmt(m))));
+            }
+            // A plugin schema's bounded range is one `isBetween` check (the OpenAPI document's pairs are
+            // separate checks, such as an Int's safe range).
+            if BETWEEN.get()
+                && let (Some(min), Some(max)) = (schema.get("minimum").and_then(Value::as_f64), schema.get("maximum").and_then(Value::as_f64))
+                && !(n >= min && n <= max)
+            {
+                return Err(issue(path, format!("Expected a value between {} and {}", fmt(min), fmt(max))));
             }
             if let Some(m) = schema.get("minimum").and_then(Value::as_f64)
                 && n < m
@@ -610,6 +650,36 @@ mod tests {
             None
         );
         assert_eq!(msg("session.update", json!({"title": "ok", "bogus": 1})), None);
+    }
+
+    // The `experimental.browser` RPC's `result` input; expected strings are upstream's answers.
+    #[test]
+    fn plugin_rpc_inputs() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"sessionID": {"$ref": "#/$defs/Session.ID"}, "outcome": {"$ref": "#/$defs/Test.Outcome"}},
+            "required": ["sessionID", "outcome"],
+            "$defs": {
+                "Session.ID": {"type": "string", "pattern": "^ses"},
+                "Test.FileID": {"type": "string", "pattern": "^file_[a-f0-9-]{36}$"},
+                "Test.Outcome": {"anyOf": [
+                    {"type": "object", "properties": {"type": {"type": "string", "enum": ["success"]}, "result": {"type": "object", "properties": {"files": {"type": "array", "items": {"type": "object", "properties": {"id": {"$ref": "#/$defs/Test.FileID"}}, "required": ["id"]}}}, "required": ["files"]}}, "required": ["type", "result"]},
+                    {"type": "object", "properties": {"type": {"type": "string", "enum": ["failure"]}, "code": {"type": "string"}}, "required": ["type", "code"]}
+                ]}
+            }
+        });
+        let issue = |v: Value| schema_issue(&schema, &v);
+        assert_eq!(issue(json!({"sessionID": 1, "outcome": {}})).unwrap(), "Expected Session.ID\n  at [\"sessionID\"]");
+        assert_eq!(issue(json!({"sessionID": "x", "outcome": {}})).unwrap(), "Expected a string starting with \"ses\"\n  at [\"sessionID\"]");
+        assert_eq!(issue(json!({"sessionID": "ses", "outcome": {"type": "nope"}})).unwrap(), "Expected Test.Outcome\n  at [\"outcome\"]");
+        assert_eq!(issue(json!({"sessionID": "ses", "outcome": {"type": "failure"}})).unwrap(), "Missing key\n  at [\"outcome\"][\"code\"]");
+        assert_eq!(
+            issue(json!({"sessionID": "ses", "outcome": {"type": "success", "result": {"files": [{"id": "file_1"}]}}})).unwrap(),
+            "Expected a string matching the RegExp ^file_[a-f0-9-]{36}$\n  at [\"outcome\"][\"result\"][\"files\"][0][\"id\"]"
+        );
+        assert_eq!(issue(json!({"sessionID": "ses", "outcome": {"type": "failure", "code": "x"}})), None);
+        let port = json!({"type": "object", "properties": {"port": {"type": "integer", "minimum": 1, "maximum": 65535}}, "required": ["port"]});
+        assert_eq!(schema_issue(&port, &json!({"port": 0})).unwrap(), "Expected a value between 1 and 65535\n  at [\"port\"]");
     }
 
     #[test]

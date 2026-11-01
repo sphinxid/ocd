@@ -184,9 +184,13 @@ Server plugins run in oc-plugin's Bun sidecar, driven by `oc_core::plugins::Plug
   current), `outdated` set like upstream. **`plugin.update`**: `Npm::update` per target, then the
   location's plugins reload; failures answer upstream's 503.
 * **`rpc.call`**: `Plugin.awaitActivation`, then the built-in goal plugin's `opencode.goal` RPC
-  (`get {sessionID}` → `{"output": Goal.State | null}`, answered natively unless `-opencode.goal`), then
-  the sidecar registry; failures map to upstream's `RpcError` (400) / `RpcInternalError` (500,
-  `rpc.internal`/`rpc.invalid_output`); unknown ids answer `rpc.unavailable` / `RPC is unavailable: <id>`.
+  (`get {sessionID}` → `{"output": Goal.State | null}`, answered natively unless `-opencode.goal`), the
+  built-in browser plugin's `experimental.browser` RPC (`oc_core::browser::Browsers::call`, unless
+  `-opencode.browser`; inputs checked with `oc_server::validate::schema_issue` against the generated
+  `assets/browser/schemas.json`), then the sidecar registry; failures map to upstream's `RpcError` (400) /
+  `RpcInternalError` (500, `rpc.internal`/`rpc.invalid_output`); unknown ids answer `rpc.unavailable` /
+  `RPC is unavailable: <id>`. The browser's `attach` stays pending while the desktop is attached; the
+  request going away drops the handler future, which detaches the desktop (its session allows removed).
 * **`session.prompt`**: awaits activation and runs the `session.prompt` hook before attachments
   are materialised (the message id is generated first when the hook exists).
 * **`session.command`**: awaits activation; plugin commands execute through their handle. `goal`
@@ -217,7 +221,12 @@ commands, agents and skills; a rejecting `tool.execute.before`; `permission.eval
 denying `.env` reads; `tool.execute.after`, `session.prompt`, `session.context` and
 `shell.create.before`; storage, `ctx.event.subscribe` and `rpc.call`; provider/model/integration/
 websearch transforms and a Code Mode plugin tool with hooks on the nested call; built-in plugin
-removal without starting Bun; local plugin hot reload. `tests/aisdk.rs` configures oc-plugin's
+removal without starting Bun; local plugin hot reload. `tests/browser.rs` attaches a stand-in desktop
+over the `experimental.browser` routes: the grant and removal of the session allows, replacement, detach and
+session deletion, the `browser.*` tools through Code Mode answered from the control events (outputs decoded
+with the operation schemas, captures saved, uploads sent as bytes, desktop failures, invalid results, unknown
+tabs, refused URLs), the request timeout with its `cancel` event, a desktop leaving mid-request, and tunnels
+to a loopback server ending with the attachment. `tests/aisdk.rs` configures oc-plugin's
 fixture AI SDK provider package (`aisdk:file://...`) and runs prompts through the AI SDK bridge:
 text, reasoning, a tool call and usage; plugin `aisdk.sdk` / `aisdk.language` and `session.http.*`
 hooks; a provider HTTP error and a package that fails to initialize.

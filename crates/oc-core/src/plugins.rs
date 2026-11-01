@@ -269,6 +269,8 @@ pub struct Plugins {
     pub openai: Arc<crate::openai::OpenAi>,
     /// The built-in Azure provider plugin's Entra ID token hooks.
     pub azure: Arc<crate::azure::Azure>,
+    /// The built-in browser plugin's desktop attachments (`opencode.browser`).
+    pub browsers: Arc<crate::browser::Browsers>,
     /// Each location's latest model catalog, for built-in hooks that look up the request's model
     /// (`Model.Service.get` in upstream's plugins).
     catalogs: Mutex<HashMap<String, oc_ai::catalog::Catalog>>,
@@ -320,6 +322,7 @@ impl Plugins {
             copilot: crate::copilot::Copilot::new(bus.clone(), version),
             openai: Arc::new(crate::openai::OpenAi::new()),
             azure: Arc::default(),
+            browsers: crate::browser::Browsers::new(bus.clone(), version),
             catalogs: Mutex::new(HashMap::new()),
             bus,
             // `App.Info` of the server (`App.configured(options.app)`: the CLI names itself "cli").
@@ -747,6 +750,7 @@ impl Plugins {
             state.progress().send_replace((generation, done));
             generation
         };
+        let browser = self.browser_generation(&key);
         let host = self.host_or_create();
         let info = json!({
             "directory": key,
@@ -765,6 +769,11 @@ impl Plugins {
             state.result = Some(result);
             state.announced.is_none()
         };
+        // The registry restarts every plugin from the first one whose (id, revision) changed: the browser
+        // plugin's attachments end when it restarts or is disabled.
+        if browser.is_some() && browser != self.browser_generation(&key) {
+            self.browsers.restart(&key);
+        }
         // Every cached domain of this location may have changed.
         self.cache.lock().retain(|(k, _), _| *k != key);
         self.catalog_cache.lock().retain(|(k, _), _| *k != key);
@@ -806,8 +815,30 @@ impl Plugins {
         !operations(location).is_empty()
     }
 
+    /// The enabled plugins up to and including `opencode.browser`, as (id, revision) in boot order;
+    /// `None` when the browser plugin is disabled. Unchanged, the browser plugin keeps running across an
+    /// activation (`Plugin.activate`'s prefix diff).
+    fn browser_generation(&self, key: &str) -> Option<Vec<(String, String)>> {
+        let locations = self.locations.lock();
+        let entries: Vec<(String, String)> = match locations.get(key).and_then(|s| s.result.as_ref()) {
+            Some(result) => result
+                .resolution
+                .plugins
+                .iter()
+                .map(|p| match p {
+                    oc_plugin::supervisor::Entry::Internal(id) => (id.clone(), "internal".to_string()),
+                    oc_plugin::supervisor::Entry::Package(p) => (p.id.clone(), p.revision.clone()),
+                })
+                .collect(),
+            None => BUILTIN_PLUGINS.iter().map(|id| (id.to_string(), "internal".to_string())).collect(),
+        };
+        let index = entries.iter().position(|(id, _)| id == crate::browser::PLUGIN_ID)?;
+        Some(entries[..=index].to_vec())
+    }
+
     /// Closes a location's plugins (cleanup functions run) and forgets its state.
     pub async fn close(&self, key: &str) {
+        self.browsers.close_location(key);
         self.copilot.close(key);
         let state = self.locations.lock().remove(key);
         self.websearch_by_key.lock().remove(key);
@@ -1719,6 +1750,13 @@ impl Plugins {
                     let method = request.input.get("method").and_then(Value::as_str).unwrap_or_default();
                     let input = request.input.get("input").cloned().unwrap_or(Value::Null);
                     return Some(crate::goal::rpc(&self.db, method, &input).map_err(|(kind, message)| ApiError::named(kind, message)));
+                }
+                // The built-in browser plugin's RPC.
+                if id == crate::browser::RPC_ID && self.builtin_enabled(&key, crate::browser::PLUGIN_ID) {
+                    let method = request.input.get("method").and_then(Value::as_str).unwrap_or_default();
+                    let input = request.input.get("input").cloned().unwrap_or(Value::Null);
+                    let at = oc_schema::types::LocationRef { directory: key.clone(), workspace_id: request.location.workspace_id.clone() };
+                    return Some(self.browsers.call(&key, &at, method, input, None).await.map_err(|f| ApiError::named(f.kind, f.message)));
                 }
                 Some(Err(ApiError::named("rpc.unavailable", format!("RPC is unavailable: {id}"))))
             }

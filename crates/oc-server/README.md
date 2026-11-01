@@ -234,6 +234,10 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
     has no threshold — byte-for-byte what upstream's Node server sends;
   * `.map` files of a directory source are skipped.
 * Unknown routes and method mismatches → empty `404`.
+* **Payload validation** (`validate.rs`): request bodies are checked against the operation's schema in
+  `openapi.json` with Effect's `SchemaError` texts (first issue, union candidates by discriminator).
+  `validate::schema_issue(schema, value)` applies the same checker to any Effect JSON Schema document whose
+  definitions are under `$defs` (the backend uses it for the inputs of the built-in `experimental.browser` RPC).
 
 ## Not implemented / deviations
 

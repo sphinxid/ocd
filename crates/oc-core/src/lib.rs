@@ -5,6 +5,7 @@ pub mod aisdk;
 pub mod app;
 pub mod attachment;
 pub mod azure;
+pub mod browser;
 pub mod bus;
 pub mod codemode;
 pub mod compaction;

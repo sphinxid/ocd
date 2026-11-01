@@ -440,7 +440,7 @@ impl Engine {
             }
         }
         let registry = self.base_registry(&location, &mcp);
-        let registry = self.app.plugins.tools(&location.key, registry).await;
+        let registry = self.post_registry(&location.key, self.app.plugins.tools(&location.key, registry).await);
         let snapshot = registry.snapshot(&permissions);
         let skills = self.app.plugins.skills(&location, &self.app.global, &self.app.version).await;
         let mut sources = self.sources(&session, &location, &permissions, &skills)?;
@@ -452,6 +452,15 @@ impl Engine {
         // CodeMode catalog is the most shared source.
         sources.insert(0, crate::codemode::instruction_source(&snapshot));
         Ok(Selected { session, location, agents, agent, permissions, snapshot, sources: Arc::new(sources), skills, mcp })
+    }
+
+    /// The tools the `post` built-in plugins register after the configured plugins' transforms: the
+    /// browser plugin's `browser.*` tools.
+    pub fn post_registry(&self, key: &str, mut registry: Registry) -> Registry {
+        if self.app.plugins.builtin_enabled(key, crate::browser::PLUGIN_ID) {
+            crate::browser::tools::register(&mut registry, &self.app.plugins.browsers, key);
+        }
+        registry
     }
 
     /// The native tool registry of a location: built-ins plus its MCP tools.
@@ -1259,6 +1268,7 @@ impl crate::plugins::ToolSource for RunnerTools {
             let location = engine.location(&key).await.ok()?;
             let mcp = engine.mcp(&location).await;
             let registry = engine.app.plugins.tools(&key, engine.base_registry(&location, &mcp)).await;
+            let registry = engine.post_registry(&key, registry);
             Some(crate::plugins::tool_value(&registry))
         })
     }
