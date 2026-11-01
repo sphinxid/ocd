@@ -64,13 +64,13 @@ Linux x86_64, release builds of both, the same mock model and isolated folders:
 
 | Status | Areas |
 |---|---|
-| ✅ **Same as upstream** | Sessions and history, the agent loop, permissions, built-in tools, Code Mode, agents/commands/skills, config and policies, all chat providers and sign-in methods (API keys, OAuth, ChatGPT, GitHub Copilot, Azure, AWS and Google cloud credentials), MCP servers, server plugins and AI SDK packages, the editor integration (ACP), the full TUI and `ocd mini`, web UI, HTTP API (162 endpoints), `/goal`, background compaction, background service, git and worktrees, v1 history import |
+| ✅ **Same as upstream** | Sessions and history, the agent loop, permissions, built-in tools, Code Mode, agents/commands/skills, config and policies, all chat providers and sign-in methods (API keys, OAuth, ChatGPT, GitHub Copilot, Azure, AWS and Google cloud credentials), MCP servers, server plugins and AI SDK packages, the editor integration (ACP), the full TUI and `ocd mini`, web UI, HTTP API (162 endpoints), `/goal`, background compaction, background service, git and worktrees, Mercurial, the desktop browser attachment, `--wizard`, v1 history import |
 | 🟡 **Small differences** | Plugins run in a Bun helper that is downloaded on first use; a few error texts; code-block colours in `ocd mini` |
-| ⛔ **Not yet** | TUI plugins, image generation and other non-chat models, scheduled prompts, Mercurial, `--wizard`, a few other experimental features |
+| ⛔ **Not yet** | TUI plugins, image generation and other non-chat models, scheduled prompts, a few other experimental features |
 | ✨ **Different on purpose** | A working status line in the TUI, `ocd upgrade` from ocd's own releases, `ocd --version` shows ocd's own version |
 
-95 of 98 side-by-side scenarios produce identical output against opencode 2.2.2; the other three differ only by
-the renames, the test build's file name and an upstream timing race. Details: **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
+110 of 115 side-by-side scenarios produce identical output against opencode 2.2.2; the other five differ only by
+the renames, the test build's file name and timing races. Details: **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
 
 Only Linux x86_64 is tested day to day. The macOS, Windows and ARM64 builds are produced by CI but not tested.
 

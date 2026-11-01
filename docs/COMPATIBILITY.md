@@ -15,19 +15,21 @@ look like opencode, ocd reports version 2.2.2.
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 98 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 115 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
   - the CLI and plugins;
   - GitHub Copilot, the OpenAI WebSocket transport and the experimental todo list;
-  - the 2.2 changes: provider wire, `/goal`, background compaction and tools.
+  - the 2.2 changes: provider wire, `/goal`, background compaction and tools;
+  - Mercurial repositories and the desktop browser attachment.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 95 of the 98 scenarios are identical. The other three differ in ways that are expected or harmless:
+- **Result:** 110 of the 115 scenarios are identical. The other five differ in ways that are expected or harmless:
   - the intended renames;
   - the upstream test build's database file name;
-  - a timing race that also varies between two runs of upstream.
+  - timing races: two that also vary between runs of upstream, and the last burst of `run`'s output, which ocd
+    emulates with a short hold and occasionally misses on a busy machine.
 - **Per-crate tests:** each crate has its own test suite, many replaying recorded upstream data.
 
 ## Same as upstream
@@ -52,8 +54,10 @@ look like opencode, ocd reports version 2.2.2.
 | AI SDK provider packages | Such as `@ai-sdk/deepseek`, through the same Bun helper |
 | Clients and API | The full TUI. The web UI served by `ocd serve`, built from upstream's 2.2.2 app (88 of 88 compared requests were identical with the 2.0.26 app; the serving code is unchanged since). The HTTP API (162 endpoints, from upstream 2.2.2's OpenAPI document) and the event stream. The background service on port 49374 (28894 on Windows) |
 | Git | Status, diffs, branches, snapshots and worktrees |
+| Mercurial | Project identity, status, working and branch diffs, `vcs.init` for hg and branch watching. Like upstream, snapshots and worktrees are git-only. Needs `hg` on `PATH` |
+| Desktop browser attachment | The built-in `opencode.browser` plugin: the `experimental.browser` RPC (attach, state, commands and results, tunnels), its control events, the session permissions an attached desktop grants, the 45 `browser.*` Code Mode tools with file uploads and captures, and the 60 s request timeout. The `browser` skill is denied to every agent until a desktop attaches. The desktop's own proxy is part of the desktop app, not the server |
 | Editor integration (ACP) | `ocd acp`, including the file diffs on permission requests and completed edits |
-| CLI prompts | `ocd auth`, `ocd mcp auth` and `ocd session export` use the same prompts as upstream (pickers, search lists, forms), down to resizing and key handling |
+| CLI prompts | `ocd auth`, `ocd mcp auth` and `ocd session export` use the same prompts as upstream (pickers, search lists, forms), down to resizing and key handling. `--wizard` builds any command interactively with upstream's prompts, byte for byte |
 | Remote access | `ocd pair --remote` |
 | Experimental todo list | `experimental.todo`: the `todowrite` tool, the sidebar section and its transcript rendering |
 
@@ -81,9 +85,6 @@ look like opencode, ocd reports version 2.2.2.
 | Scheduled prompts | `/schedule` and `experimental.schedules`. The endpoints answer as when the feature is off |
 | Session media storage | `experimental.media_blob` writes and media URIs. ocd reads media blobs that upstream wrote |
 | Speech, video and transcription models | Upstream has these only as library code that nothing in the app calls |
-| Desktop browser attachment | The built-in `browser` skill is listed and denied to every agent like upstream, but the `experimental.browser` RPC and the `browser.*` Code Mode tools, which work only once the desktop app attaches, are not served |
-| Mercurial repositories | No version-control provider, so its endpoints answer empty |
-| `--wizard` mode | Prints an error |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 |
 | Other experimental features | `location_idle_timeout` and the new designs. Their config keys are accepted and do nothing |
 | Testing on macOS, Windows and Linux ARM | Release binaries are built for them, but only Linux x86_64 is tested |

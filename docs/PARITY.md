@@ -15,7 +15,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -88,7 +88,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (98)
+## Scenarios (115)
 
 | group | scenarios |
 |---|---|
@@ -107,8 +107,17 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | goal | `/goal`: the reviewer loop to "met", pause/resume/clear, no verdict, pausing by command and by interrupt, and the command/plugin inventory; command replies and errors, `opencode.goal` RPC replies, `rpc.opencode.goal.changed` sequences and the reviewer requests |
 | background | background compaction (`experimental.background_compaction`) on and off: the event sequence and the requests the provider receives |
 | tools22 | tool changes of 2.2: webfetch redirects (a chain, a denied target, a `file:` target), patch moves, a subagent asked to use a decision model, `$0` in commands |
+| hg | Mercurial repositories (needs `hg` on `PATH`, otherwise recorded as skipped; the helper fixes author, date and config so changeset and project IDs match): a clean repo with every vcs endpoint and mode, worktree list/create, every kind of change (modified, added, removed, missing, moved, untracked files and folders, binary and BOM files), named branches and `.hg/branch` changes, a repo with no commits, git and hg nested both ways, `vcs.init?provider=hg`, a session with a write tool |
+| browser | the desktop browser attachment against a stand-in desktop (`scripts/parity/browser.py`): attach, replace and detach with the control events and session permissions, the `browser.*` Code Mode tools and what the model receives, tool errors, a desktop leaving mid-request, the 60 s timeout, tunnels, the attachment ending with its session, its location or the plugin |
 
 ## Results
+
+**Run after Mercurial, `--wizard` and the browser attachment (debug build, 2026-11-01):** all 115 scenarios
+against the local v2.2.2 build, `hg` 7.2.4 on `PATH`: **110 of 115 identical**, including all 7 `hg` and 10
+`browser` scenarios. Left: `cli_help`, `cli_inventory` and `stop_retry_exhausted` as before, `loop_http_400` (the
+title rename vs failed step race, on both sides) and `cli_run_last_step`, where ocd's 150 ms hold for `run`'s last
+burst missed the final step header once in five reruns on a busy machine. The CLI timestamp mask no longer matches
+digits inside IDs (a message ID whose hex part was all digits was masked as a timestamp).
 
 **Final run against 2.2.2 (debug build, 2026-10-30):** all 98 scenarios against the local v2.2.2 build, both
 binaries through the isolation guard (which now also fences off the network), ocd pointed at an empty web UI
