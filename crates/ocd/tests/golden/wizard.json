@@ -1,0 +1,612 @@
+[
+ {
+  "name": "root-to-paths",
+  "args": [
+   "--wizard"
+  ],
+  "keys": [
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\r",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\r",
+   "y",
+   "\u001b[B",
+   "\r",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "run"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mupgrade\u001b[0m \u001b[90m- Upgrade ocd to the latest GitHub release, or to the given version\u001b[0m\n  uninstall \n  acp \n  api \n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96muninstall\u001b[0m \u001b[90m- Uninstall OpenCode, keeping session data, configuration, and state\u001b[0m\n  acp \n  api \n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n  uninstall \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96macp\u001b[0m \u001b[90m- Start an Agent Client Protocol server\u001b[0m\n  api \n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n  uninstall \n  acp \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mapi\u001b[0m \u001b[90m- Make a request to the running server\u001b[0m\n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n  uninstall \n  acp \n  api \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mdebug\u001b[0m \u001b[90m- Debugging and troubleshooting tools\u001b[0m\n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m…\u001b[0m  \u001b[37mdebug\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd debug\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96magents\u001b[0m \u001b[90m- List all agents\u001b[0m\n  config \n  heap-dump \n  paths \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  agents \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mconfig\u001b[0m \u001b[90m- List configuration sources\u001b[0m\n  heap-dump \n  paths \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  agents \n  config \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mheap-dump\u001b[0m \u001b[90m- Write a heap snapshot of the running server and print its path\u001b[0m\n  paths \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  agents \n  config \n  heap-dump \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mpaths\u001b[0m \u001b[90m- Show global paths (data, config, cache, state)\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m…\u001b[0m  \u001b[37mpaths\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd debug paths\u001b[0m\n\n\u001b[1m\u001b[96mPATHS\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mARGUMENTS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Name?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Name?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mName\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mdb\u001b[0m \n  home \n  data \n  config \n  cache \n  state \n  tmp \n  bin \n  log \n  repos \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mName\u001b[0m \u001b[90m›\u001b[0m \n  db \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mhome\u001b[0m \n  data \n  config \n  cache \n  state \n  tmp \n  bin \n  log \n  repos \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mName\u001b[0m \u001b[90m…\u001b[0m  \u001b[37mhome\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd debug paths home\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m \u001b[4m\u001b[37myes\u001b[0m \u001b[90m/\u001b[0m no\n\u001b[?25h\n"
+ },
+ {
+  "name": "stats-int",
+  "args": [
+   "stats",
+   "--wizard"
+  ],
+  "keys": [
+   "y",
+   "k",
+   "k",
+   "j",
+   "\r",
+   "n",
+   "n",
+   "y",
+   "\r",
+   "n",
+   "n",
+   "n",
+   "n",
+   "y",
+   "1",
+   "2",
+   "\r",
+   "n",
+   "\u001b[C",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "declined"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd stats\u001b[0m\n\n\u001b[1m\u001b[96mSTATS\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Days (--days)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Days (--days)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m2\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m…\u001b[0m 1\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Show a calendar year (--year)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Show a calendar year (--year)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Show lifetime statistics (--all)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Show lifetime statistics (--all)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Project (--project)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Project (--project)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mProject (--project)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mProject (--project)\u001b[0m \u001b[90m…\u001b[0m \n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Show model usage (--models)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Show model usage (--models)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Show tool reliability (--tools)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Show tool reliability (--tools)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Show cost and token details (--cost)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Show cost and token details (--cost)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Show every detailed section (--full)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Show every detailed section (--full)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Limit (--limit)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Limit (--limit)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mLimit (--limit)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mLimit (--limit)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mLimit (--limit)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m12\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mLimit (--limit)\u001b[0m \u001b[90m…\u001b[0m 12\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Output statistics as JSON (--json)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Output statistics as JSON (--json)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd stats --days 1 --project '' --limit 12\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[96mno\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[37mno\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "stats-invalid",
+  "args": [
+   "stats",
+   "--wizard"
+  ],
+  "keys": [
+   "y",
+   "a",
+   "\r",
+   "-",
+   "1",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "failed",
+   "error": "~effect/cli/CliError/InvalidValue: Invalid value for flag --days: \"-1\". Expected: Schema validation failed: Expected a value greater than or equal to 0"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd stats\u001b[0m\n\n\u001b[1m\u001b[96mSTATS\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Days (--days)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Days (--days)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m\u001b[0m\u0007\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[31m\u001b[0m\u001b[s\n\u001b[31m›\u001b[0m \u001b[3m\u001b[31mMust provide an integer value\u001b[0m\u001b[u\u001b[1B\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m-\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m-1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m…\u001b[0m -1\n\u001b[?25h"
+ },
+ {
+  "name": "cancel-text",
+  "args": [
+   "session",
+   "import",
+   "--wizard"
+  ],
+  "keys": [
+   "\r",
+   "\r",
+   "y",
+   "ab",
+   "\u001b[D",
+   "\u0003"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd session import\u001b[0m\n\n\u001b[1m\u001b[96mIMPORT\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Directory (--directory)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Directory (--directory)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd session import\u001b[0m\n\n\u001b[1m\u001b[96mIMPORT\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mARGUMENTS\u001b[0m\n\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m…\u001b[0m \n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd session import ''\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u0007\u0007\u0007\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u0007\u001b[?25h\n\u001b[31mWizard cancelled.\u001b[0m\n"
+ },
+ {
+  "name": "cancel-escape",
+  "args": [
+   "debug",
+   "--wizard"
+  ],
+  "keys": [
+   "\u001b"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd debug\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96magents\u001b[0m \u001b[90m- List all agents\u001b[0m\n  config \n  heap-dump \n  paths \u0007\u001b[?25h\n\u001b[31mWizard cancelled.\u001b[0m\n"
+ },
+ {
+  "name": "cancel-ctrl-d",
+  "args": [
+   "uninstall",
+   "--wizard"
+  ],
+  "keys": [
+   "\u0004"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd uninstall\u001b[0m\n\n\u001b[1m\u001b[96mUNINSTALL\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Dry run (--dry-run)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u0007\u001b[?25h\n\u001b[31mWizard cancelled.\u001b[0m\n"
+ },
+ {
+  "name": "text-editing",
+  "args": [
+   "session",
+   "import",
+   "--wizard"
+  ],
+  "keys": [
+   "y",
+   "he",
+   "llo",
+   "\u0001",
+   "x",
+   "\u0005",
+   "",
+   "\u001b[D",
+   "\u001b[D",
+   "\u001b[C",
+   "\u001b[H",
+   "\u001b[F",
+   "\t",
+   "\r",
+   "/tmp/x y.json",
+   "\r",
+   "\u001b[C",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "declined"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd session import\u001b[0m\n\n\u001b[1m\u001b[96mIMPORT\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Directory (--directory)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Directory (--directory)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mh\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhe\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhel\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhell\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhello\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhello\u001b[0m\u001b[5D\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhello\u001b[0m\u001b[5D\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhello\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhell\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhell\u001b[0m\u001b[1D\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhell\u001b[0m\u001b[2D\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhell\u001b[0m\u001b[1D\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhell\u001b[0m\u001b[5D\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhell\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mxhell\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m…\u001b[0m \u001b[37mxhell\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd session import --directory xhell\u001b[0m\n\n\u001b[1m\u001b[96mIMPORT\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mARGUMENTS\u001b[0m\n\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/t\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tm\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/x\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/x \u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/x y\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/x y.\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/x y.j\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/x y.js\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/x y.jso\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/x y.json\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m…\u001b[0m \u001b[37m/tmp/x y.json\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd session import --directory xhell '/tmp/x y.json'\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[96mno\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[37mno\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "api-count-and-key-value",
+  "args": [
+   "api",
+   "--wizard"
+  ],
+  "keys": [
+   "5",
+   "\r",
+   "",
+   "2",
+   "\r",
+   "list",
+   "\r",
+   "GET /x",
+   "\r",
+   "y",
+   "-x",
+   "\r",
+   "3",
+   "\r",
+   "\u0015",
+   "1",
+   "\r",
+   "a=b",
+   "\r",
+   "y",
+   "\r",
+   "bad",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "failed",
+   "error": "~effect/cli/CliError/InvalidValue: Invalid value for flag --param: \"3\". Expected: Invalid key=value format. Expected format: key=value, got: 3"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd api\u001b[0m\n\n\u001b[1m\u001b[96mAPI\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Request body (--data)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u0007\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Request body (--data)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[96m?\u001b[0m \u001b[1mHeader (--header) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m0\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m2\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mHeader (--header) count\u001b[0m \u001b[90m…\u001b[0m 2\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96ml\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mli\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mlis\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mlist\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m…\u001b[0m \u001b[37mlist\u001b[0m\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mG\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mGE\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mGET\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mGET \u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mGET /\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mGET /x\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m…\u001b[0m \u001b[37mGET /x\u001b[0m\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet OpenAPI path or query parameter (--param)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet OpenAPI path or query parameter (--param)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mOpenAPI path or query parameter (--param) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mOpenAPI path or query parameter (--param) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mOpenAPI path or query parameter (--param) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mOpenAPI path or query parameter (--param) count\u001b[0m \u001b[90m…\u001b[0m 1\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mOpenAPI path or query parameter (--param)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mOpenAPI path or query parameter (--param)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m3\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mOpenAPI path or query parameter (--param)\u001b[0m \u001b[90m…\u001b[0m \u001b[37m3\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "group-with-prefix",
+  "args": [
+   "--server",
+   "http://127.0.0.1:1",
+   "session",
+   "--wizard"
+  ],
+  "keys": [
+   "\r",
+   "y",
+   "9",
+   "\r",
+   "y",
+   "\u001b[B",
+   "\r",
+   "\u001b[C",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "declined"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd --server http://127.0.0.1:1 session\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mlist\u001b[0m \u001b[90m- List top-level sessions in the current project, newest first\u001b[0m\n  delete \n  export \n  import \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m…\u001b[0m  \u001b[37mlist\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd --server http://127.0.0.1:1 session list\u001b[0m\n\n\u001b[1m\u001b[96mLIST\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Max count (--max-count)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Max count (--max-count)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mMax count (--max-count)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mMax count (--max-count)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m9\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mMax count (--max-count)\u001b[0m \u001b[90m…\u001b[0m 9\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Output format (--format)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Output format (--format)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mOutput format (--format)\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mtable\u001b[0m \n  json \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mOutput format (--format)\u001b[0m \u001b[90m›\u001b[0m \n  table \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mjson\u001b[0m \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mOutput format (--format)\u001b[0m \u001b[90m…\u001b[0m  \u001b[37mjson\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd --server http://127.0.0.1:1 session list --max-count 9 --format json\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[96mno\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[37mno\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "no-color",
+  "args": [
+   "service",
+   "--wizard"
+  ],
+  "keys": [
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\r",
+   "n",
+   "\r",
+   "\u001b[C",
+   "\u001b[D",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": false,
+  "end": {
+   "kind": "run"
+  },
+  "expected": "ocd vVERSION · Command wizard\nocd command line interface\nBuild a command interactively. Press Ctrl+C to cancel.\n\nCurrent command\n  $ ocd service\n\n\u001b[?25l? Command › \n❯ start - Start the background server\n  restart \n  status \n  stop \n  get \n  set \n  unset \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l? Command › \n  start \n❯ restart - Restart the background server\n  status \n  stop \n  get \n  set \n  unset \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l? Command › \n  start \n  restart \n❯ status - Show background server status\n  stop \n  get \n  set \n  unset \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l? Command › \n  start \n  restart \n  status \n❯ stop - Stop the background server\n  get \n  set \n  unset \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l? Command › \n  start \n  restart \n  status \n  stop \n❯ get - Get service configuration\n  set \n  unset \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G✔ Command …  get\n\u001b[?25h\nCurrent command\n  $ ocd service get\n\nGET · ARGUMENTS\n\u001b[?25l? Set Key? › (y/N)\u001b[2K\u001b[G\u001b[2K\u001b[G✔ Set Key? … no\n\u001b[?25h\n\u001b[?25l? Set Name? › (y/N)\u001b[2K\u001b[G\u001b[2K\u001b[G✔ Set Name? … no\n\u001b[?25h\nCommand ready\n  $ ocd service get\n\n\u001b[?25l? Run this command? › yes / no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l? Run this command? › yes / no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l? Run this command? › yes / no\u001b[2K\u001b[G\u001b[2K\u001b[G✔ Run this command? … yes / no\n\u001b[?25h\n"
+ },
+ {
+  "name": "narrow-text",
+  "args": [
+   "run",
+   "--wizard"
+  ],
+  "keys": [
+   "y",
+   "a very long session title that wraps around",
+   "\r",
+   "",
+   "\r",
+   "\u0003"
+  ],
+  "columns": 30,
+  "colors": true,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd run\u001b[0m\n\n\u001b[1m\u001b[96mRUN\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Continue the last session (--continue)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Continue the last session (--continue)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mContinue the last session (--continue)\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(t/F)\u001b[0m\u0007\u0007\u0007\u0007\u0007\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mContinue the last session (--continue)\u001b[0m \u001b[90m…\u001b[0m true\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Session (--session)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Session (--session)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Fork (--fork)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u0007\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Fork (--fork)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Model (--model)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u0007\u001b[?25h\n\u001b[31mWizard cancelled.\u001b[0m\n"
+ },
+ {
+  "name": "narrow-select",
+  "args": [
+   "--wizard"
+  ],
+  "keys": [
+   "\u001b[A",
+   "\u001b[A",
+   "\r",
+   "\u001b"
+  ],
+  "columns": 30,
+  "colors": true,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mupgrade\u001b[0m \u001b[90m- Upgrade ocd to the latest GitHub release, or to the given version\u001b[0m\n  uninstall \n  acp \n  api \n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ plugin \n  models \n  stats \n  mini \n  run \n  session \n  service \n  reload \n  pair \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mserve\u001b[0m \u001b[90m- Start the v2 API and web server\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ plugin \n  models \n  stats \n  mini \n  run \n  session \n  service \n  reload \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mpair\u001b[0m \u001b[90m- Print one-time links to connect a browser or app\u001b[0m\n  serve \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m…\u001b[0m  \u001b[37mpair\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd pair\u001b[0m\n\n\u001b[1m\u001b[96mPAIR\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Url (--url)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u0007\u001b[?25h\n\u001b[31mWizard cancelled.\u001b[0m\n"
+ },
+ {
+  "name": "long-line",
+  "args": [
+   "run",
+   "--wizard"
+  ],
+  "keys": [
+   "n",
+   "n",
+   "n",
+   "n",
+   "n",
+   "n",
+   "2",
+   "\r",
+   "/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "\r",
+   "/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "\r",
+   "n",
+   "n",
+   "n",
+   "n",
+   "n",
+   "2",
+   "\r",
+   "it's",
+   "\r",
+   "",
+   "\r",
+   "\u001b[C",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "declined"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd run\u001b[0m\n\n\u001b[1m\u001b[96mRUN\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Continue the last session (--continue)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Continue the last session (--continue)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Session (--session)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Session (--session)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Fork (--fork)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Fork (--fork)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Model (--model)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Model (--model)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Agent to use (--agent)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Agent to use (--agent)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Output format (--format)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Output format (--format)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m0\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m2\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mFile to attach to the message (--file) count\u001b[0m \u001b[90m…\u001b[0m 2\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/t\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tm\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/a\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m…\u001b[0m \u001b[37m/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u001b[0m\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/t\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tm\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/b\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mFile to attach to the message (--file)\u001b[0m \u001b[90m…\u001b[0m \u001b[37m/tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Session title (--title)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Session title (--title)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Show thinking blocks (--thinking)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Show thinking blocks (--thinking)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Auto (--auto)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Auto (--auto)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Yolo (--yolo)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Yolo (--yolo)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Dangerously skip permissions (--dangerously-skip-permissions)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Dangerously skip permissions (--dangerously-skip-permissions)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd run --file /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \\\u001b[0m\n\u001b[35m    --file /tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\u001b[0m\n\n\u001b[1m\u001b[96mRUN\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mARGUMENTS\u001b[0m\n\u001b[96m?\u001b[0m \u001b[1mMessage count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m0\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mMessage count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m2\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mMessage count\u001b[0m \u001b[90m…\u001b[0m 2\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mMessage\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mMessage\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mi\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mMessage\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mit\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mMessage\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mit'\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mMessage\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mit's\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mMessage\u001b[0m \u001b[90m…\u001b[0m \u001b[37mit's\u001b[0m\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mMessage\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mMessage\u001b[0m \u001b[90m…\u001b[0m \n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd run --file /tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \\\u001b[0m\n\u001b[96m    --file /tmp/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 'it'\"'\"'s' ''\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[96mno\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[37mno\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "mcp-add",
+  "args": [
+   "mcp",
+   "add",
+   "--wizard"
+  ],
+  "keys": [
+   "y",
+   "https://x.test/mcp",
+   "\r",
+   "y",
+   "\r",
+   "Auth=1",
+   "\r",
+   "n",
+   "y",
+   "\r",
+   "srv",
+   "\r",
+   "0",
+   "\r",
+   "\u001b[C",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "declined"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd mcp add\u001b[0m\n\n\u001b[1m\u001b[96mADD\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet URL for a remote MCP server (--url)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet URL for a remote MCP server (--url)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mh\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mht\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhtt\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttp\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps:\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps:/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.t\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.te\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.tes\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.test\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.test/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.test/m\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.test/mc\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mhttps://x.test/mcp\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mURL for a remote MCP server (--url)\u001b[0m \u001b[90m…\u001b[0m \u001b[37mhttps://x.test/mcp\u001b[0m\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Header (--header)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Header (--header)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mHeader (--header) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mHeader (--header) count\u001b[0m \u001b[90m…\u001b[0m 1\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mA\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mAu\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mAut\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mAuth\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mAuth=\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mAuth=1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m…\u001b[0m \u001b[37mAuth=1\u001b[0m\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Env (--env)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Env (--env)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Global (--global)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Global (--global)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mGlobal (--global)\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(t/F)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mGlobal (--global)\u001b[0m \u001b[90m…\u001b[0m false\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd mcp add --url https://x.test/mcp --header Auth=1 --global false\u001b[0m\n\n\u001b[1m\u001b[96mADD\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mARGUMENTS\u001b[0m\n\u001b[96m?\u001b[0m \u001b[1mName\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mName\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96ms\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mName\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96msr\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mName\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96msrv\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mName\u001b[0m \u001b[90m…\u001b[0m \u001b[37msrv\u001b[0m\n\u001b[?25h\n\u001b[96m?\u001b[0m \u001b[1mCommand count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m0\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mCommand count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m0\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCommand count\u001b[0m \u001b[90m…\u001b[0m 0\n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd mcp add --url https://x.test/mcp --header Auth=1 --global false srv\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[96mno\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[37mno\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "boolean-values",
+  "args": [
+   "uninstall",
+   "--wizard"
+  ],
+  "keys": [
+   "y",
+   "t",
+   "y",
+   "\r",
+   "\u001b[C",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "declined"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd uninstall\u001b[0m\n\n\u001b[1m\u001b[96mUNINSTALL\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Dry run (--dry-run)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Dry run (--dry-run)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mDry run (--dry-run)\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(t/F)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mDry run (--dry-run)\u001b[0m \u001b[90m…\u001b[0m true\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Skip confirmation prompts (--force)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Skip confirmation prompts (--force)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSkip confirmation prompts (--force)\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(t/F)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSkip confirmation prompts (--force)\u001b[0m \u001b[90m…\u001b[0m false\n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd uninstall --dry-run true --force false\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[96mno\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[37mno\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "optional-boolean-and-negative-int",
+  "args": [
+   "mini",
+   "--wizard"
+  ],
+  "keys": [
+   "n",
+   "n",
+   "n",
+   "y",
+   "F",
+   "y",
+   "-",
+   "5",
+   "\r",
+   "n",
+   "n",
+   "n",
+   "y",
+   "x",
+   "\r",
+   "\u001b[C",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "declined"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd mini\u001b[0m\n\n\u001b[1m\u001b[96mMINI\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Continue the last session (--continue)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Continue the last session (--continue)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Session (--session)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Session (--session)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Fork the session when continuing (--fork)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Fork the session when continuing (--fork)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Replay (--replay)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Replay (--replay)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mReplay (--replay)\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(t/F)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mReplay (--replay)\u001b[0m \u001b[90m…\u001b[0m false\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Replay limit (--replay-limit)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Replay limit (--replay-limit)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mReplay limit (--replay-limit)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mReplay limit (--replay-limit)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m-\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mReplay limit (--replay-limit)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m-5\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mReplay limit (--replay-limit)\u001b[0m \u001b[90m…\u001b[0m -5\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Model (--model)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Model (--model)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Agent to use (--agent)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Agent to use (--agent)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Prompt to use (--prompt)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Prompt to use (--prompt)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Demo (--demo)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Demo (--demo)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mDemo (--demo)\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(t/F)\u001b[0m\u0007\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mDemo (--demo)\u001b[0m \u001b[90m…\u001b[0m false\n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd mini --replay false --replay-limit=-5 --demo false\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[96mno\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m yes \u001b[90m/\u001b[0m \u001b[4m\u001b[37mno\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "pair-url-invalid",
+  "args": [
+   "pair",
+   "--wizard"
+  ],
+  "keys": [
+   "y",
+   "ftp://x",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "failed",
+   "error": "~effect/cli/CliError/InvalidValue: Invalid value for flag --url: \"ftp://x\". Expected an HTTP(S) server URL without credentials, query parameters, or a fragment"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd pair\u001b[0m\n\n\u001b[1m\u001b[96mPAIR\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Url (--url)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Url (--url)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mf\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mft\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mftp\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mftp:\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mftp:/\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mftp://\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mftp://x\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mUrl (--url)\u001b[0m \u001b[90m…\u001b[0m \u001b[37mftp://x\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "key-value-invalid",
+  "args": [
+   "mcp",
+   "add",
+   "--wizard"
+  ],
+  "keys": [
+   "n",
+   "y",
+   "\r",
+   "nokey",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "failed",
+   "error": "~effect/cli/CliError/InvalidValue: Invalid value for flag --header: \"nokey\". Expected: Invalid key=value format. Expected format: key=value, got: nokey"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd mcp add\u001b[0m\n\n\u001b[1m\u001b[96mADD\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet URL for a remote MCP server (--url)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet URL for a remote MCP server (--url)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Header (--header)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Header (--header)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mHeader (--header) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mHeader (--header) count\u001b[0m \u001b[90m…\u001b[0m 1\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mn\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mno\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mnok\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mnoke\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96mnokey\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mHeader (--header)\u001b[0m \u001b[90m…\u001b[0m \u001b[37mnokey\u001b[0m\n\u001b[?25h"
+ },
+ {
+  "name": "non-empty-invalid",
+  "args": [
+   "serve",
+   "--wizard"
+  ],
+  "keys": [
+   "n",
+   "n",
+   "1",
+   "\r",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "failed",
+   "error": "~effect/cli/CliError/InvalidValue: Missing value for flag --cors. Expected: Schema validation failed: Expected a value with a length of at least 1"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd serve\u001b[0m\n\n\u001b[1m\u001b[96mSERVE\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Hostname (--hostname)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Hostname (--hostname)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Port (--port)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Port (--port)?\u001b[0m \u001b[90m…\u001b[0m no\n\u001b[?25h\n\u001b[96m?\u001b[0m \u001b[1mCors (--cors) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m0\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mCors (--cors) count\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m1\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCors (--cors) count\u001b[0m \u001b[90m…\u001b[0m 1\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mCors (--cors)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCors (--cors)\u001b[0m \u001b[90m…\u001b[0m \n\u001b[?25h"
+ },
+ {
+  "name": "keys-after-submit-dropped",
+  "args": [
+   "stats",
+   "--wizard"
+  ],
+  "keys": [
+   "y-1\r",
+   "\r",
+   "\u0003"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd stats\u001b[0m\n\n\u001b[1m\u001b[96mSTATS\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Days (--days)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Days (--days)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDays (--days)\u001b[0m \u001b[90m›\u001b[0m \u001b[31m\u001b[0m\u001b[s\n\u001b[31m›\u001b[0m \u001b[3m\u001b[31mMust provide an integer value\u001b[0m\u001b[u\u0007\u001b[?25h\n\u001b[31mWizard cancelled.\u001b[0m\n"
+ },
+ {
+  "name": "unicode-narrow",
+  "args": [
+   "session",
+   "import",
+   "--wizard"
+  ],
+  "keys": [
+   "y",
+   "日本語テキスト😀",
+   "\u001b[D",
+   "",
+   "\u001b[D",
+   "x",
+   "\r",
+   "\u0003"
+  ],
+  "columns": 20,
+  "colors": true,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd session import\u001b[0m\n\n\u001b[1m\u001b[96mIMPORT\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Directory (--directory)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Directory (--directory)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テ\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テキ\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テキス\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テキスト\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テキスト😀\u001b[0m\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テキスト😀\u001b[0m\u001b[1D\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テキスト�\u001b[0m\u001b[1D\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テキスト�\u001b[0m\u001b[2D\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m日本語テキスxト�\u001b[0m\u001b[2D\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mDirectory (--directory)\u001b[0m \u001b[90m…\u001b[0m \u001b[37m日本語テキスxト�\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd session import --directory '日本語テキスxト�'\u001b[0m\n\n\u001b[1m\u001b[96mIMPORT\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mARGUMENTS\u001b[0m\n\u001b[96m?\u001b[0m \u001b[1mFile\u001b[0m \u001b[90m›\u001b[0m \u0007\u001b[?25h\n\u001b[31mWizard cancelled.\u001b[0m\n"
+ },
+ {
+  "name": "run-session-list",
+  "args": [
+   "--wizard"
+  ],
+  "keys": [
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\u001b[B",
+   "\r",
+   "\r",
+   "y",
+   "5",
+   "\r",
+   "y",
+   "\u001b[B",
+   "\r",
+   "\r"
+  ],
+  "columns": 100,
+  "colors": true,
+  "end": {
+   "kind": "run"
+  },
+  "expected": "\u001b[1m\u001b[96mocd\u001b[0m \u001b[37mvVERSION\u001b[0m \u001b[1m\u001b[37m· Command wizard\u001b[0m\nocd command line interface\n\u001b[90mBuild a command interactively. Press Ctrl+C to cancel.\u001b[0m\n\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mupgrade\u001b[0m \u001b[90m- Upgrade ocd to the latest GitHub release, or to the given version\u001b[0m\n  uninstall \n  acp \n  api \n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96muninstall\u001b[0m \u001b[90m- Uninstall OpenCode, keeping session data, configuration, and state\u001b[0m\n  acp \n  api \n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n  uninstall \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96macp\u001b[0m \u001b[90m- Start an Agent Client Protocol server\u001b[0m\n  api \n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n  uninstall \n  acp \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mapi\u001b[0m \u001b[90m- Make a request to the running server\u001b[0m\n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n  uninstall \n  acp \n  api \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mdebug\u001b[0m \u001b[90m- Debugging and troubleshooting tools\u001b[0m\n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n  upgrade \n  uninstall \n  acp \n  api \n  debug \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mauth\u001b[0m \u001b[90m- manage integrations and credentials\u001b[0m\n  mcp \n  plugin \n  models \n↓ stats \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ uninstall \n  acp \n  api \n  debug \n  auth \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mmcp\u001b[0m \u001b[90m- Manage MCP (Model Context Protocol) servers\u001b[0m\n  plugin \n  models \n  stats \n↓ mini \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ acp \n  api \n  debug \n  auth \n  mcp \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mplugin\u001b[0m \u001b[90m- Manage plugins\u001b[0m\n  models \n  stats \n  mini \n↓ run \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ api \n  debug \n  auth \n  mcp \n  plugin \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mmodels\u001b[0m \u001b[90m- List all available models\u001b[0m\n  stats \n  mini \n  run \n↓ session \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ debug \n  auth \n  mcp \n  plugin \n  models \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mstats\u001b[0m \u001b[90m- Show shareable usage statistics\u001b[0m\n  mini \n  run \n  session \n↓ service \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ auth \n  mcp \n  plugin \n  models \n  stats \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mmini\u001b[0m \u001b[90m- Start the minimal interactive interface\u001b[0m\n  run \n  session \n  service \n↓ reload \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ mcp \n  plugin \n  models \n  stats \n  mini \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mrun\u001b[0m \u001b[90m- Run OpenCode with a message\u001b[0m\n  session \n  service \n  reload \n↓ pair \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n↑ plugin \n  models \n  stats \n  mini \n  run \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96msession\u001b[0m \u001b[90m- Manage sessions\u001b[0m\n  service \n  reload \n  pair \n  serve \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m…\u001b[0m  \u001b[37msession\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd session\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mlist\u001b[0m \u001b[90m- List top-level sessions in the current project, newest first\u001b[0m\n  delete \n  export \n  import \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mCommand\u001b[0m \u001b[90m…\u001b[0m  \u001b[37mlist\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[37mCurrent command\u001b[0m\n\u001b[35m  $ ocd session list\u001b[0m\n\n\u001b[1m\u001b[96mLIST\u001b[0m \u001b[90m·\u001b[0m \u001b[1m\u001b[37mFLAGS\u001b[0m\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Max count (--max-count)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Max count (--max-count)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[96m?\u001b[0m \u001b[1mMax count (--max-count)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[96m?\u001b[0m \u001b[1mMax count (--max-count)\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96m5\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mMax count (--max-count)\u001b[0m \u001b[90m…\u001b[0m 5\n\u001b[?25h\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mSet Output format (--format)?\u001b[0m \u001b[90m›\u001b[0m \u001b[90m(y/N)\u001b[0m\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mSet Output format (--format)?\u001b[0m \u001b[90m…\u001b[0m yes\n\u001b[?25h\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mOutput format (--format)\u001b[0m \u001b[90m›\u001b[0m \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mtable\u001b[0m \n  json \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mOutput format (--format)\u001b[0m \u001b[90m›\u001b[0m \n  table \n\u001b[96m❯\u001b[0m \u001b[4m\u001b[96mjson\u001b[0m \u001b[2K\u001b[1A\u001b[2K\u001b[1A\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mOutput format (--format)\u001b[0m \u001b[90m…\u001b[0m  \u001b[37mjson\u001b[0m\n\u001b[?25h\n\u001b[1m\u001b[32mCommand ready\u001b[0m\n\u001b[96m  $ ocd session list --max-count 5 --format json\u001b[0m\n\n\u001b[?25l\u001b[96m?\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m›\u001b[0m \u001b[4m\u001b[96myes\u001b[0m \u001b[90m/\u001b[0m no\u001b[2K\u001b[G\u001b[2K\u001b[G\u001b[32m✔\u001b[0m \u001b[1mRun this command?\u001b[0m \u001b[90m…\u001b[0m \u001b[4m\u001b[37myes\u001b[0m \u001b[90m/\u001b[0m no\n\u001b[?25h\n"
+ },
+ {
+  "name": "pipe-dropped-then-end",
+  "args": [
+   "stats",
+   "--wizard"
+  ],
+  "keys": [
+   "y-1\r"
+  ],
+  "columns": 0,
+  "colors": false,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "ocd vVERSION · Command wizard\nocd command line interface\nBuild a command interactively. Press Ctrl+C to cancel.\n\nCurrent command\n  $ ocd stats\n\nSTATS · FLAGS\n\u001b[?25l? Set Days (--days)? › (y/N)\u001b[2K\u001b[1G\u001b[2K\u001b[G✔ Set Days (--days)? … yes\n\u001b[?25h? Days (--days) › \u001b[?25h\nWizard cancelled.\n"
+ },
+ {
+  "name": "pipe-empty",
+  "args": [
+   "--wizard"
+  ],
+  "keys": [],
+  "columns": 0,
+  "colors": false,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "ocd vVERSION · Command wizard\nocd command line interface\nBuild a command interactively. Press Ctrl+C to cancel.\n\nCurrent command\n  $ ocd\n\n\u001b[?25l? Command › \n❯ upgrade - Upgrade ocd to the latest GitHub release, or to the given version\n  uninstall \n  acp \n  api \n  debug \n  auth \n  mcp \n  plugin \n  models \n↓ stats \u001b[?25h\nWizard cancelled.\n"
+ },
+ {
+  "name": "pipe-select-then-end",
+  "args": [
+   "debug",
+   "--wizard"
+  ],
+  "keys": [
+   "j\r"
+  ],
+  "columns": 0,
+  "colors": false,
+  "end": {
+   "kind": "cancelled"
+  },
+  "expected": "ocd vVERSION · Command wizard\nocd command line interface\nBuild a command interactively. Press Ctrl+C to cancel.\n\nCurrent command\n  $ ocd debug\n\n\u001b[?25l? Command › \n❯ agents - List all agents\n  config \n  heap-dump \n  paths \u001b[2K\u001b[1G\u001b[2K\u001b[G\u001b[?25l? Command › \n  agents \n❯ config - List configuration sources\n  heap-dump \n  paths \u001b[2K\u001b[1G\u001b[2K\u001b[G✔ Command …  config\n\u001b[?25h\nCommand ready\n  $ ocd debug config\n\n\u001b[?25l? Run this command? › yes / no\u001b[?25h\nWizard cancelled.\n"
+ }
+]

@@ -171,13 +171,13 @@ pub fn confirm(message: &str, initial: bool) -> Result<bool, Cancelled> {
 
 /// node's `setRawMode(true)` (libuv `UV_TTY_MODE_RAW`), restored on drop.
 #[cfg(unix)]
-struct RawMode {
+pub(crate) struct RawMode {
     orig: libc::termios,
 }
 
 #[cfg(unix)]
 impl RawMode {
-    fn enter() -> Option<RawMode> {
+    pub(crate) fn enter() -> Option<RawMode> {
         unsafe {
             let mut t: libc::termios = std::mem::zeroed();
             if libc::tcgetattr(0, &mut t) != 0 {
@@ -271,7 +271,7 @@ fn tty_rows(out: Out) -> Option<usize> {
 }
 
 /// Whether more input arrives within `ms` (readline's `escapeCodeTimeout` is 50 ms).
-fn input_within(ms: i32) -> bool {
+pub(crate) fn input_within(ms: i32) -> bool {
     #[cfg(unix)]
     unsafe {
         let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
@@ -285,7 +285,7 @@ fn input_within(ms: i32) -> bool {
 }
 
 /// Waits for input on stdin; false when a signal interrupted the wait.
-fn wait_input() -> bool {
+pub(crate) fn wait_input() -> bool {
     #[cfg(unix)]
     unsafe {
         let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };

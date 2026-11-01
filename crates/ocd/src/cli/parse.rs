@@ -728,7 +728,7 @@ fn pval(p: PVal) -> V {
     }
 }
 
-fn parse_flag(f: &FlagDef, values: &[String]) -> Result<V, CliError> {
+pub(crate) fn parse_flag(f: &FlagDef, values: &[String]) -> Result<V, CliError> {
     let one = |raw: &str| {
         parse_prim(f.prim, raw).map(pval).map_err(|expected| CliError::InvalidValue {
             option: f.name.into(),
@@ -762,11 +762,11 @@ fn parse_flag(f: &FlagDef, values: &[String]) -> Result<V, CliError> {
             Some(raw) => Ok(V::Some(Box::new(one(raw)?))),
             None => Ok(V::None),
         },
-        Arity::Many => Ok(V::List(values.iter().map(|r| one(r)).collect::<Result<Vec<_>, _>>()?)),
+        Arity::Many { .. } => Ok(V::List(values.iter().map(|r| one(r)).collect::<Result<Vec<_>, _>>()?)),
     }
 }
 
-fn parse_arg(a: &ArgDef, args: &mut Vec<String>) -> Result<V, CliError> {
+pub(crate) fn parse_arg(a: &ArgDef, args: &mut Vec<String>) -> Result<V, CliError> {
     let check = |raw: String| -> Result<V, CliError> {
         parse_prim(a.prim, &raw).map(pval).map_err(|expected| CliError::InvalidValue {
             option: a.name.into(),

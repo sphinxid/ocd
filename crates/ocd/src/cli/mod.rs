@@ -3,7 +3,9 @@
 
 pub mod help;
 pub mod parse;
+pub mod prompt;
 pub mod spec;
+pub mod wizard;
 
 use parse::{CliError, V};
 use spec::{Cmd, FlagDef};
@@ -15,7 +17,8 @@ pub enum Outcome {
     Help { path: Vec<String>, errors: Vec<CliError> },
     Version,
     Completions(&'static str),
-    Wizard,
+    /// `--wizard` from the command at `path` (run by [`run_wizard`]).
+    Wizard { path: Vec<String> },
     /// A failure outside the ShowHelp channel (`Cause.pretty` on stderr, exit 1).
     Fatal(String),
     Run(Invocation),
@@ -145,7 +148,7 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
         return Outcome::Version;
     }
     if present("wizard") {
-        return Outcome::Wizard;
+        return Outcome::Wizard { path };
     }
     if present("completions") {
         let def = globals.iter().find(|f| f.name == "completions").unwrap();
@@ -222,6 +225,30 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
     Outcome::Run(Invocation { path, name, input, log_level, print_logs, settings })
 }
 
+/// The `--wizard` action (`Command.runWith`): the wizard on the terminal, then the built command line
+/// resolved like a fresh `runWith(command, { renderErrors: false })`, whose help (a parse error or a group)
+/// is printed once before the caller emits it again with its errors. `Err(code)`: nothing to run.
+pub fn run_wizard(root: &Cmd, argv: &[String], path: &[String]) -> Result<Outcome, i32> {
+    let version = crate::BUILD.unwrap_or(oc_util::version::VERSION);
+    let mut term = prompt::TtyTerminal::new();
+    let end = wizard::run(root, argv, path, version, prompt::ansi::detect_colors(), &mut term);
+    term.release();
+    match end {
+        wizard::End::Run(args) => {
+            let outcome = resolve(root, &args);
+            if let Outcome::Help { path, .. } = &outcome {
+                crate::term::write_stdout(&format!("{}\n", help::render(root, path, &path_globals(root, path), colors())));
+            }
+            Ok(outcome)
+        }
+        wizard::End::Declined | wizard::End::Cancelled => Err(0),
+        wizard::End::Failed(e) => {
+            crate::term::write_stderr(&format!("{}\n", pretty_cli(&e)));
+            Err(1)
+        }
+    }
+}
+
 /// `Cause.pretty` first line for a CLI error that escaped the ShowHelp channel.
 fn pretty_cli(e: &CliError) -> String {
     format!("~effect/cli/CliError/{}: {}", e.tag(), e.message())
@@ -287,10 +314,8 @@ pub fn emit(root: &Cmd, outcome: &Outcome) -> i32 {
             print!("{script}");
             0
         }
-        Outcome::Wizard => {
-            eprintln!("Error: Wizard mode requires an interactive prompt and is not supported by this build");
-            1
-        }
+        // `main` runs the wizard (`run_wizard`) and emits what it resolves to.
+        Outcome::Wizard { .. } => 0,
         Outcome::Fatal(msg) => {
             eprintln!("{msg}");
             1

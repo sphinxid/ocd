@@ -62,6 +62,18 @@ fn main() {
 
     // Executables a Windows upgrade moved aside (no-op elsewhere).
     release::cleanup_old();
+    let outcome = match outcome {
+        Outcome::Wizard { path } => match cli::run_wizard(&root, &argv, &path) {
+            Ok(outcome) => {
+                if let Outcome::Run(inv) = &outcome {
+                    cli::set_settings(inv.settings.clone());
+                }
+                outcome
+            }
+            Err(code) => std::process::exit(code),
+        },
+        other => other,
+    };
     let inv = match outcome {
         Outcome::Run(inv) => inv,
         other => std::process::exit(cli::emit(&root, &other)),

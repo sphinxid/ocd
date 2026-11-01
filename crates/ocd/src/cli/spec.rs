@@ -30,8 +30,8 @@ pub enum Arity {
     /// Boolean with default false / string with default.
     Default(&'static str),
     Optional,
-    /// `Flag.atMost(n)` / `Flag.atLeast(0)`: every occurrence.
-    Many,
+    /// `Flag.atMost(n)` (`max`) / `Flag.atLeast(0)`: every occurrence.
+    Many { max: Option<usize> },
 }
 
 #[derive(Debug, Clone)]
@@ -281,7 +281,7 @@ pub fn root() -> Cmd {
                     ArgMode::Variadic { min: 1, max: Some(2) },
                 ),
                 string("data", "data").alias("d").desc("Request body").p(),
-                flag("header", "header", Prim::Str, Arity::Many).alias("H").desc("Request header in name:value form").p(),
+                flag("header", "header", Prim::Str, Arity::Many { max: Some(100) }).alias("H").desc("Request header in name:value form").p(),
                 flag("param", "param", Prim::KeyValue, Arity::Optional).desc("OpenAPI path or query parameter").p(),
             ],
         )
@@ -318,7 +318,7 @@ pub fn root() -> Cmd {
                         vec![
                             arg("target", "target", "Integration ID, name, or well-known provider URL", ArgMode::Optional),
                             string("method", "method").desc("Authentication method ID").p(),
-                            flag("answer", "answer", Prim::Str, Arity::Many)
+                            flag("answer", "answer", Prim::Str, Arity::Many { max: Some(100) })
                                 .desc("Provider form answer (key=value; repeat for multiple fields)")
                                 .p(),
                         ],
@@ -512,7 +512,7 @@ pub fn root() -> Cmd {
                         string("model", "model").alias("m").desc("Model to use in the format provider/model#variant").p(),
                         string("agent", "agent").desc("Agent to use").p(),
                         format(&["default", "json"], "default"),
-                        flag("file", "file", Prim::Str, Arity::Many).alias("f").desc("File to attach to the message").p(),
+                        flag("file", "file", Prim::Str, Arity::Many { max: Some(100) }).alias("f").desc("File to attach to the message").p(),
                         string("title", "title").desc("Session title").p(),
                         boolean("thinking", "thinking").desc("Show thinking blocks").p(),
                     ],
@@ -606,7 +606,7 @@ pub fn root() -> Cmd {
         cmd("serve", "Start the v2 API and web server", vec![
             string("hostname", "hostname").p(),
             flag("port", "port", Prim::Int(IntCheck::None), Arity::Optional).p(),
-            flag("cors", "cors", Prim::NonEmpty, Arity::Many)
+            flag("cors", "cors", Prim::NonEmpty, Arity::Many { max: None })
                 .desc("Additional allowed CORS origin (repeat for multiple origins)")
                 .p(),
             boolean("service", "service").p(),

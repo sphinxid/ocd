@@ -125,6 +125,58 @@ fn debug_paths_lists_global_paths_without_a_server() {
     assert_eq!(common::text(&out.stdout), format!("{}\n", data.join("opencode.db").display()));
 }
 
+/// `--wizard` with keys arriving in chunks on a piped stdin (each chunk one read, like keystrokes): no colors,
+/// no terminal width, then the built command runs.
+fn wizard(env: &common::Env, args: &[&str], chunks: &[&str]) -> std::process::Output {
+    use std::io::Write;
+    let mut child = env
+        .command(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for chunk in chunks {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        stdin.write_all(chunk.as_bytes()).unwrap();
+        stdin.flush().unwrap();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    drop(stdin);
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn wizard_builds_runs_cancels_and_validates() {
+    let env = common::Env::new();
+    let out = wizard(&env, &["debug", "paths", "--wizard"], &["y", "\x1b[B", "\r", "\r"]);
+    assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
+    let stdout = common::text(&out.stdout);
+    assert!(stdout.contains(" · Command wizard\nocd command line interface\nBuild a command interactively. Press Ctrl+C to cancel.\n\n"));
+    assert!(stdout.contains("Current command\n  $ ocd debug paths\n\nPATHS · ARGUMENTS\n\x1b[?25l? Set Name? › (y/N)\x1b[2K\x1b[1G"));
+    assert!(stdout.contains("✔ Name …  home\n\x1b[?25h\nCommand ready\n  $ ocd debug paths home\n\n"), "{stdout}");
+    assert!(stdout.ends_with(&format!("✔ Run this command? … yes / no\n\x1b[?25h\n{}\n", env.path("home").display())), "{stdout}");
+
+    // escape quits: exit 0
+    let out = wizard(&env, &["session", "--wizard"], &["\x1b"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(common::text(&out.stdout).ends_with("\x1b[?25h\nWizard cancelled.\n"));
+
+    // a value the flag's own parser rejects
+    let out = wizard(&env, &["stats", "--wizard"], &["y", "-1", "\r"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        common::text(&out.stderr),
+        "~effect/cli/CliError/InvalidValue: Invalid value for flag --days: \"-1\". Expected: Schema validation failed: Expected a value greater than or equal to 0\n"
+    );
+
+    // the end of input ends the wizard like a quit key
+    let out = wizard(&env, &["--wizard"], &[]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(common::text(&out.stdout).ends_with("↓ stats \x1b[?25h\nWizard cancelled.\n"));
+}
+
 #[test]
 fn version_and_parse_errors() {
     let env = common::Env::new();

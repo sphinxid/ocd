@@ -31,7 +31,9 @@ files, the HTTP API and `x-opencode-*` headers, Basic-auth username `opencode`, 
 | `cli/spec.rs` | `commands/commands.ts` | `CLI_NAME = "ocd"` and the command tree as data: every command, alias, flag, argument, default, hidden flag and verbatim description |
 | `cli/parse.rs` | `effect/cli` 4.0.6 `internal/lexer.ts`, `internal/parser.ts`, `Primitive.ts`, `CliError.ts` | Effect-compatible lexer (4.0.6: `--=x` is a value, `-abc=v` is `-a -b -c=v`), global-flag extraction, per-level scanning (subcommands, parent-flag errors, `--no-` negation, boolean literal consumption, `-abc` splitting, `--` operands), suggestions (Levenshtein ≤ 2), typed decoding (int/choice/key=value/non-empty/pair URL), exact error messages |
 | `cli/help.rs` | `CliOutput.ts`, `internal/help.ts` | help renderer (DESCRIPTION/USAGE/ARGUMENTS/FLAGS/GLOBAL FLAGS/SUBCOMMANDS, column rules; colors as `TerminalCapabilities.canColor`: never with `TERM=dumb` or a non-empty `NO_COLOR`, else when `FORCE_COLOR` is set to anything but `0`/`false` or stdout is a TTY), `ERROR`/`ERRORS` blocks (grouped by tag), `--version` |
-| `cli/mod.rs` | `Command.runWith` | control flow: the tree-wide global flags (built-ins, `--print-logs`, and every command's `withGlobalFlags` declarations), globals outside the active command's scope as `Unrecognized flag` errors, action flags (help > version > wizard > completions), parse errors → help + stderr + exit 1, settings (`--log-level`, `--print-logs`, and the `--standalone`/`--server` server settings read by `connection::resolve`) |
+| `cli/prompt.rs` | `effect/cli` 4.0.6 `Prompt.ts`, `internal/ansi.ts`; `@effect/platform-node-shared` 4.0.6 `NodeTerminal.ts` | effect's prompts as render/process/clear state machines run like `runLoop`: `Confirm`, `Toggle`, `Select` (10 per page, `↑`/`↓` paging marks), `String`/`Password`/`Hidden` (UTF-16 cursor, ctrl+a/e/u, home/end, tab for the default), `Int`/`Number` (JS `parseInt`/`parseFloat`, `k`/`j`/up/down steps, bounds messages), `Date` (mask parts, JS `Date` setter overflow); every key redraws the whole frame after erasing the previous one measured at the current width (no resize handler, like effect); the terminal reads keypresses like node's `readline` (50 ms escape timeout) in raw mode, a key queue per prompt (keys of the same read after a submission are dropped), escape/ctrl+c/ctrl+d and the end of input quit |
+| `cli/wizard.rs` | `effect/cli` 4.0.6 `internal/wizard.ts`, the wizard branch of `Command.runWith` | `--wizard` (below) |
+| `cli/mod.rs` | `Command.runWith` | control flow: the tree-wide global flags (built-ins, `--print-logs`, and every command's `withGlobalFlags` declarations), globals outside the active command's scope as `Unrecognized flag` errors, action flags (help > version > wizard > completions; `run_wizard` runs the wizard and resolves the line it builds), parse errors → help + stderr + exit 1, settings (`--log-level`, `--print-logs`, and the `--standalone`/`--server` server settings read by `connection::resolve`) |
 | `main.rs` | `src/index.ts` | SSH askpass mode, `Global.acquire`, logging (`role=cli`/`server`), `cli starting`, dispatch, `Error: <msg>` + exit 1 for handler failures |
 | `client.rs` | `client/src/promise/generated/client.ts` | HTTP client keyed by operationId (from `assets/openapi.json`): declared vs `UnexpectedStatus`/`Transport` errors, `appendQuery` encoding, SSE decoding of `/api/event` |
 | `service.rs` | `service-config.ts`, `client/src/effect/service.ts`, `service-probe.ts`, `service-contender.ts`, `pty-handoff.ts` | service config file (schema order, legacy repair/migration), probe, `discover`, `incumbent`, `ensure` (contender pool, 25 ms poll, 5→30 s spawn backoff, 120 s limit, 3× timeout recovery, version replacement), `stop`/terminate (SIGTERM, 5 s, SIGKILL), PTY handoff sidecar |
@@ -65,6 +67,10 @@ parse errors match the upstream 2.2.2 binary with `opencode` read as `ocd` (all 
   command lines. The binary prints the same with the internal `OPENCODE_CLI_PARSE_DUMP=1`.
 * `assets/completions/{bash,zsh,fish,powershell}` are the framework's generated scripts, embedded verbatim
   (`sh` prints bash, `pwsh` powershell).
+* `wizard.json`: 25 `--wizard` transcripts of the upstream 2.2.2 binary (raw terminal output on a pty, or with
+  piped stdin and stdout) for the key chunks they list, normalized (`opencode` read as `ocd`, version, ocd's
+  `upgrade` description); the command's own output after `Run this command?` and Bun's stack trace after an
+  error's first line are cut. `cli::wizard::tests::upstream_transcripts` replays them byte for byte.
 
 Observed oracle behaviours reproduced: a group without subcommand prints help and exits **0**
 (the spec says 1; Effect's `ShowHelp` without errors exits 0); `run ... -- x` passes `x`
@@ -89,7 +95,7 @@ twice (parsed operands + upstream's own `process.argv` re-read), exactly like up
 | update check | `release::run`/`check`/`apply` behind the TUI's `UpdaterHooks` (`commands/mod.rs` `updater_hooks`): every 10 minutes, the release lookup cached a day in `<cache>/ocd-update.json` (an hour after a failure); policy from `update`/`autoupdate` in the global config (default `notify`; `auto` installs without restarting the service), `OPENCODE_DISABLE_AUTOUPDATE`; local builds never check |
 | `uninstall` | native adaptation: method detection recognises `~/.opencode/bin/opencode` (curl, compared after resolving links), Homebrew cellars, WinGet's `Anomaly.OpenCode` package directory and an npm `package.json` owning the executable (probing the package manager named in its path first). Package-manager commands and the uninstall plan (services, cache, shell PATH lines, package) follow upstream |
 | `acp` | see below |
-| `--wizard` | not supported (prints an error, exit 1) |
+| `--wizard` | complete: effect's command wizard from the command the line names (`ocd session --wizard` starts at `session`; the line's other words, without `--wizard`, start the built command). The introduction (`ocd v<version> · Command wizard`, the root description, the Ctrl+C hint), `Current command` blocks, a `Command` select per level with subcommands, then the leaf's flags and arguments under `<NAME> · FLAGS` / `ARGUMENTS`: `Set <label>?` for optional ones, `<label> count` for repeated ones (`--header`, `--file`, `--cors`, key=value flags, variadic arguments), one prompt per value by type (true/false confirm, choice select, integer prompt, text), each value checked by the parameter's own parser (a failure prints `~effect/cli/CliError/InvalidValue: ...`, exit 1); flag values that start with `-` are inlined (`--name=-x`); `Command ready` with the shell-quoted line wrapped at 88 columns, `Run this command?` (yes runs it like a fresh command line: a parse error shows help, then help and errors again, as effect's nested `runWith`), `Wizard cancelled.` on escape/ctrl+c/ctrl+d or the end of input (exit 0). Colors follow the prompt theme, not help: on when stdout is a TTY and `NO_COLOR` is empty, whatever `FORCE_COLOR` and `TERM` say. Hidden flags are asked for too, like upstream |
 
 ## Web UI
 
@@ -186,6 +192,9 @@ following of child sessions after the root turn ends.
   helpers/tool rendering, stats rendering, auth form/integration resolution, plugin table, upgrade
   formatting, ACP catalog/config options/prompt conversion/fold/elicitation);
 * `tests/golden.rs`: help/version/completions/errors and decoded inputs vs. the Effect oracle;
+* `cli::prompt::tests` (each prompt's frames, keys and validation) and `cli::wizard::tests` (labels, command-line
+  quoting and wrapping, uncolored texts, parameter-parse failures, the built line, and the upstream
+  transcripts in `tests/golden/wizard.json`);
 * `tests/e2e.rs`: `debug paths`, version + parse errors, background service lifecycle with
   `debug config` and `models`, `models --standalone`, `run` (default and JSON) against a mock
   OpenAI-compatible SSE provider with a tool call and a non-retryable 400, outside and inside a git
