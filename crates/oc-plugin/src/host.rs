@@ -50,12 +50,13 @@ impl HostOptions {
 /// Notifications for the core (`PluginHost::subscribe`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum HostEvent {
-    /// Plugin transform registrations of these domains changed: rebuild them.
-    DomainsChanged { location: LocationRef, domains: Vec<String> },
+    /// Plugin transform registrations of these domains changed: rebuild them. `activation`: the change
+    /// belongs to a [`PluginHost::load`] (its caller notifies for the whole activation, like a `State.batch`).
+    DomainsChanged { location: LocationRef, domains: Vec<String>, activation: bool },
     HooksChanged { location: LocationRef },
     RpcChanged { location: LocationRef },
-    /// The plugin inventory changed (publish `plugin.updated`).
-    PluginsChanged { location: LocationRef },
+    /// The plugin inventory changed (publish `plugin.updated`). `activation` as for `DomainsChanged`.
+    PluginsChanged { location: LocationRef, activation: bool },
     /// A local plugin source file to watch; on change, call `load` again for its locations.
     Watch { file: PathBuf },
     /// The sidecar died; it will be restarted.
@@ -222,6 +223,8 @@ struct LocationState {
     rpc: Vec<String>,
     inventory: Vec<Value>,
     interest: usize,
+    /// `location.activate` requests in flight: the change notifications they send come before their response.
+    activating: usize,
 }
 
 struct Inner {
@@ -720,7 +723,12 @@ impl Inner {
                         "plugins": packages.iter().map(|p| json!({ "target": p.target, "revision": p.revision })).collect::<Vec<_>>(),
                         "failures": resolution.failures,
                     });
-                    match sidecar.request("location.activate", params).await {
+                    self.locations.lock().entry(key.clone()).or_default().activating += 1;
+                    let activated = sidecar.request("location.activate", params).await;
+                    if let Some(state) = self.locations.lock().get_mut(&key) {
+                        state.activating = state.activating.saturating_sub(1);
+                    }
+                    match activated {
                         Ok(value) => {
                             let activation: Activation = serde_json::from_value(value).unwrap_or_default();
                             inventory = activation.inventory.clone();
@@ -747,7 +755,7 @@ impl Inner {
             state.running = resolution.packages.clone();
             state.inventory = inventory.clone();
         }
-        self.emit(HostEvent::PluginsChanged { location: request.location.clone() });
+        self.emit(HostEvent::PluginsChanged { location: request.location.clone(), activation: true });
         LoadResult { resolution, packages: inventory }
     }
 
@@ -881,7 +889,7 @@ impl Incoming for Handler {
                     for domain in &domains {
                         *state.revisions.entry(domain.clone()).or_default() += 1;
                     }
-                    Some(HostEvent::DomainsChanged { location, domains })
+                    Some(HostEvent::DomainsChanged { location, domains, activation: state.activating > 0 })
                 }
                 "hooks.changed" => {
                     state.hooks = serde_json::from_value(params.get("hooks").cloned().unwrap_or_default()).unwrap_or_default();
@@ -893,7 +901,7 @@ impl Incoming for Handler {
                 }
                 "plugins.changed" => {
                     state.inventory = serde_json::from_value(params.get("inventory").cloned().unwrap_or_default()).unwrap_or_default();
-                    Some(HostEvent::PluginsChanged { location })
+                    Some(HostEvent::PluginsChanged { location, activation: state.activating > 0 })
                 }
                 "events.interest" => {
                     state.interest = params.get("count").and_then(Value::as_u64).unwrap_or(0) as usize;

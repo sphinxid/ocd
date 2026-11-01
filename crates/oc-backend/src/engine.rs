@@ -89,6 +89,7 @@ impl Engine {
             persistent_options: Mutex::new(None),
         });
         engine.install_projector();
+        engine.install_reloads();
         engine
     }
 
@@ -115,6 +116,7 @@ impl Engine {
             persistent_options: Mutex::new(None),
         });
         engine.install_projector();
+        engine.install_reloads();
         engine
     }
 

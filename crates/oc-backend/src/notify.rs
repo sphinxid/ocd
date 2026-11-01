@@ -68,6 +68,47 @@ impl Engine {
         Some(value.to_string())
     }
 
+    /// Core reloads a location's configuration and announces `config.updated`: the cached services are
+    /// dropped. With the session runner (which reloads configurations) they are rebuilt right away, so the
+    /// reload notifies like upstream's States reloading in place, and then the plugin activation the reload
+    /// requested starts (upstream's supervisor activates on `config.updated`, after those notifications).
+    pub(crate) fn install_reloads(self: &Arc<Self>) {
+        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+        let eager = self.runner.is_some();
+        if eager {
+            self.app.plugins.defer_reload_activations();
+        }
+        let mut rx = self.app.bus.subscribe();
+        let weak: Weak<Engine> = Arc::downgrade(self);
+        handle.spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(e) if e.kind == "config.updated" => {
+                        let Some(engine) = weak.upgrade() else { break };
+                        let Some(directory) = e.location.as_ref().map(|l| l.directory.clone()) else { continue };
+                        let loaded = engine.locations.config_updated(&directory);
+                        if !eager {
+                            continue;
+                        }
+                        tokio::spawn(async move {
+                            if loaded {
+                                let _ = engine.locations.get(&directory).await;
+                            }
+                            engine.app.plugins.release_reload(&directory);
+                            engine.app.plugins.release_reload(&oc_core::location::canonical_directory(&directory));
+                        });
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if weak.strong_count() == 0 {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     /// Lets the plugin layer and location rebuilds gate `*.updated` events on these projections.
     pub(crate) fn install_projector(self: &Arc<Self>) {
         let weak: Weak<Engine> = Arc::downgrade(self);

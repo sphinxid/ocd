@@ -81,14 +81,24 @@ pub async fn list(location: &Location, global: &oc_util::Global, version: &str) 
 
 /// The built-in skills (`opencode.skill`, a `pre` internal plugin).
 pub fn builtin(location: &Location, version: &str) -> Vec<Skill> {
-    let mut out: Vec<Skill> = Vec::new();
-    let plugins: Vec<String> = oc_config::fold::plugins(&location.entries)
+    builtin_with(version, &configured_plugins(location))
+}
+
+/// The configured plugin targets the report skill lists (`configuredPlugins`).
+pub fn configured_plugins(location: &Location) -> Vec<String> {
+    oc_config::fold::plugins(&location.entries)
         .iter()
         .map(|p| serde_json::to_value(p).ok().and_then(|v| v.as_str().map(str::to_string).or_else(|| v["package"].as_str().map(str::to_string))).unwrap_or_default())
-        .collect();
+        .collect()
+}
+
+/// The built-in skills with the report skill's diagnostics captured for `plugins`: upstream captures them when
+/// the `opencode.skill` plugin registers the skill (its activation), not on every read.
+pub fn builtin_with(version: &str, plugins: &[String]) -> Vec<Skill> {
+    let mut out: Vec<Skill> = Vec::new();
     for (id, name, description, path, content) in [
         ("opencode", "OpenCode", OPENCODE_DESCRIPTION, "/builtin/opencode.md", OPENCODE_CONTENT.to_string()),
-        ("report", "Report", REPORT_DESCRIPTION, "/builtin/report.md", report_content(version, oc_util::version::CHANNEL, &plugins)),
+        ("report", "Report", REPORT_DESCRIPTION, "/builtin/report.md", report_content(version, oc_util::version::CHANNEL, plugins)),
     ] {
         out.push(Skill { id: id.into(), name: name.into(), description: Some(description.into()), autoinvoke: None, path: PathBuf::from(path), content });
     }

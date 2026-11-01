@@ -332,7 +332,7 @@ impl Engine {
         next.fetch_instructions(previous.as_deref()).await;
         crate::reference::refresh(&self.app, crate::reference::list(&next, &self.app.global));
         self.locations.lock().insert(directory.to_string(), next.clone());
-        self.app.plugins.ensure(&next);
+        self.app.plugins.ensure_reload(&next);
         let key = next.directory.display().to_string();
         let mcp = self.mcps.lock().await.get(&key).cloned();
         if let Some(mcp) = mcp {

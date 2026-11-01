@@ -131,10 +131,10 @@ The protocol is newline-delimited JSON-RPC 2.0 (`src/protocol.rs`, `host/src/pee
 |---|---|---|
 | `api` (request) | `{location, plugin, method, input}` | `storage.*` → `PluginApi::storage_*` with namespaced keys; everything else → `PluginApi::call` |
 | `invoke` (request) | `{location, handle, args}` | `PluginApi::invoke` |
-| `domains.changed` | `{location, domains, active}` | bumps `domain_revision`, emits `HostEvent::DomainsChanged` |
+| `domains.changed` | `{location, domains, active}` | bumps `domain_revision`, emits `HostEvent::DomainsChanged` (`activation: true` while a `location.activate` is in flight: the caller of `load` notifies for the whole activation) |
 | `hooks.changed` | `{location, hooks: [{key, providerID?}]}` | mirror for `has_hook`, emits `HooksChanged` |
 | `rpc.changed` | `{location, ids}` | mirror for `rpc_ids`, emits `RpcChanged` |
-| `plugins.changed` | `{location, inventory}` | mirror for `packages`, emits `PluginsChanged` |
+| `plugins.changed` | `{location, inventory}` | mirror for `packages`, emits `PluginsChanged` (`activation` as for `DomainsChanged`; `load` itself emits one with `activation: true` when it returns) |
 | `events.interest` | `{location, count}` | `publish_event` is a no-op while every count is 0 |
 | `tool.progress` | `{location, id, metadata}` | the `progress` callback passed to `execute_tool` |
 | `watch` | `{file}` | emits `HostEvent::Watch` |
@@ -385,7 +385,8 @@ streaming `Response`); see docs/PARITY.md "Remaining".
    - Gate native internal plugins on `result.resolution.enabled_ids()`. This implements
      `-opencode.browser`, `-*`, and the guarded ids.
    - Build the `plugin.list` inventory with `result.inventory(builtin)`. Publish `plugin.updated`
-     on `HostEvent::PluginsChanged`.
+     on `HostEvent::PluginsChanged` outside activations, and after each `load` that changed it.
+   - Serialize a location's loads (upstream's supervisor activates one at a time).
 4. **Close locations.** When a location closes or is evicted, call `close_location`. At server
    exit, call `shutdown()`.
 5. **Hooks.** Call `trigger_hook` at every site in the hook table.

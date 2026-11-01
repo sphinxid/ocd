@@ -667,7 +667,7 @@ def browser_session_end(ctx):
 @scenario("browser", timeout=240)
 def browser_location_end(ctx):
     """an evicted location fails the pending attach with rpc.unavailable; a plugin reload before the browser plugin
-    ends a later attachment with `closed`."""
+    ends a later attachment with `closed`, and so does disabling the plugin in a second live change."""
     ctx.env_extra["OPENCODE_DISABLE_FILEWATCHER"] = "0"
     ctx.make_project()
     ctx.start()
@@ -685,6 +685,14 @@ def browser_location_end(ctx):
     d.stop()
     time.sleep(1.0)
     session_permissions(ctx, sid, "permissions.reloaded")
+    d = Desktop(ctx, sid, connection="conn-disabled").start()
+    ctx.rec("reattached.disabled", d.attached.is_set())
+    _configure(ctx, ["-opencode.goal", "-opencode.browser"], "disable")
+    ctx.rec("disabled.outcome", d.wait(20))
+    d.stop()
+    time.sleep(1.0)
+    session_permissions(ctx, sid, "permissions.disabled")
+    ctx.rec("state.disabled", d.call("state", d.attachment(state={"tabs": [], "focusedTabID": None})))
 
 
 def _configure(ctx, plugins, label):

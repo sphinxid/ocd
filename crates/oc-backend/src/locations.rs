@@ -94,34 +94,6 @@ impl Locations {
     pub fn new(app: Arc<App>, runner: Option<Arc<oc_core::runner::Engine>>) -> Self {
         let map: Arc<Mutex<IndexMap<String, Cell>>> = Arc::new(Mutex::new(IndexMap::new()));
         let reloading: Reloading = Arc::new(Mutex::new(HashMap::new()));
-        // Core reloads configuration and announces `config.updated` for a location: drop the cached
-        // services so agents and snapshots are rebuilt on next use.
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let mut rx = app.bus.subscribe();
-            let weak = Arc::downgrade(&map);
-            let reloading = reloading.clone();
-            handle.spawn(async move {
-                loop {
-                    match rx.recv().await {
-                        Ok(e) if e.kind == "config.updated" => {
-                            let Some(map) = weak.upgrade() else { break };
-                            if let Some(dir) = e.location.as_ref().map(|l| oc_core::location::canonical_directory(&l.directory)) {
-                                let previous = map.lock().shift_remove(&dir);
-                                if let Some(previous) = previous {
-                                    reloading.lock().insert(dir, previous.get().cloned());
-                                }
-                            }
-                        }
-                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            if weak.strong_count() == 0 {
-                                break;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-        }
         // Plugins changed a location's VCS providers: the Vcs State notify refreshes the info
         // (once the boot refresh ran).
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -162,6 +134,16 @@ impl Locations {
     /// Installs the domain projections the boot and reload notifications compare.
     pub fn set_projector(&self, projector: LocProjector) {
         *self.projector.lock() = Some(projector);
+    }
+
+    /// Core reloaded a location's configuration (`config.updated`): drop its cached services, keeping them as
+    /// the reload's baseline. Whether the location was loaded.
+    pub(crate) fn config_updated(&self, directory: &str) -> bool {
+        let dir = oc_core::location::canonical_directory(directory);
+        let previous = self.map.lock().shift_remove(&dir);
+        let Some(previous) = previous else { return false };
+        self.reloading.lock().insert(dir, previous.get().cloned());
+        true
     }
 
     /// The services of a loaded location, without building them.

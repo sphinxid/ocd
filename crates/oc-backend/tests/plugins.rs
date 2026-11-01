@@ -765,3 +765,70 @@ async fn vcs_and_worktree_transforms() {
     assert_eq!(err, oc_core::worktree::StrategyError::Other("force required by fake".into()));
     s.shutdown().await;
 }
+
+/// Successive live changes of `plugins` (empty → plugins → other plugins → built-in removals only → empty →
+/// plugins) each reactivate the location, and every list and RPC call keeps answering in between.
+#[tokio::test]
+async fn successive_live_plugin_changes() {
+    require_bun!();
+    if oc_config::discovery::filewatcher_disabled() {
+        eprintln!("skipping: file watching is disabled");
+        return;
+    }
+    let s = setup(json!([]), vec![]).await;
+    let path = s.h.cwd.join("opencode.json");
+    // Let the config watcher start.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let within = Duration::from_secs(10);
+    let answer = |what: String, res: Result<Res, tokio::time::error::Elapsed>| res.unwrap_or_else(|_| panic!("{what} did not answer"));
+    let (storage, promise) = (fixture("storage-events"), fixture("promise-plugin"));
+    let steps: Vec<(Value, &[&str], &[&str])> = vec![
+        (json!([storage]), &["fixture.storage", "opencode.goal"], &["fixture.promise"]),
+        (json!([storage, promise]), &["fixture.storage", "fixture.promise"], &[]),
+        (json!([promise, "-opencode.goal"]), &["fixture.promise"], &["fixture.storage", "opencode.goal"]),
+        (json!(["-opencode.goal"]), &[], &["fixture.storage", "fixture.promise", "opencode.goal"]),
+        (json!(["-opencode.goal", "-opencode.tool.read"]), &[], &["opencode.goal", "opencode.tool.read"]),
+        (json!([]), &["opencode.goal", "opencode.tool.read"], &["fixture.storage", "fixture.promise"]),
+        (json!([storage]), &["fixture.storage"], &["fixture.promise"]),
+        (json!([promise]), &["fixture.promise"], &["fixture.storage"]),
+    ];
+    for (step, (plugins, present, absent)) in steps.into_iter().enumerate() {
+        let mut config: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        config["plugins"] = plugins.clone();
+        let mut rx = s.h.app.bus.subscribe();
+        std::fs::write(&path, config.to_string()).unwrap();
+        let updated = tokio::time::timeout(Duration::from_secs(15), async {
+            while let Ok(e) = rx.recv().await {
+                if e.kind == "config.updated" {
+                    return;
+                }
+            }
+        })
+        .await;
+        assert!(updated.is_ok(), "step {step}: no config.updated for {plugins}");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            let list = answer(format!("step {step}: plugin.list"), tokio::time::timeout(within, s.h.get("/api/plugin")).await);
+            assert_eq!(list.status, 200, "step {step}");
+            let ids: Vec<String> = list.json()["data"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap().to_string()).collect();
+            if present.iter().all(|id| ids.iter().any(|i| i == id)) && absent.iter().all(|id| !ids.iter().any(|i| i == id)) {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "step {step}: plugins {plugins} not activated: {ids:?}");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let agents = answer(format!("step {step}: agent.list"), tokio::time::timeout(within, s.h.get("/api/agent")).await);
+        assert_eq!(agents.status, 200, "step {step}: {:?}", String::from_utf8_lossy(&agents.body));
+        let ping = s.h.post("/api/rpc/fixture.echo/ping", json!({ "input": { "text": "hey" } }));
+        let rpc = answer(format!("step {step}: rpc"), tokio::time::timeout(within, ping).await);
+        if present.contains(&"fixture.storage") {
+            assert_eq!(rpc.json(), json!({ "output": { "text": "pong: hey" } }), "step {step}");
+        } else {
+            assert_eq!(rpc.json()["type"], "rpc.unavailable", "step {step}: {}", rpc.json());
+        }
+        let commands = answer(format!("step {step}: command.list"), tokio::time::timeout(within, s.h.get("/api/command")).await);
+        let hello = commands.json()["data"].as_array().unwrap().iter().any(|c| c["name"] == "hello");
+        assert_eq!(hello, present.contains(&"fixture.promise"), "step {step}: {}", commands.json());
+    }
+    s.shutdown().await;
+}

@@ -150,6 +150,15 @@ pub fn builtin_info(id: &str) -> Value {
 /// domain's public projection changed since the last notification. Provider and model notify always.
 pub const GATED_DOMAINS: [&str; 7] = ["integration", "agent", "command", "skill", "websearch", "reference", "plugin"];
 
+/// The notifications of a plugin (re)activation after the first, in the order upstream's registry batch
+/// publishes them (recorded from the 2.2.2 binary; gated domains only when their projection changed), before
+/// `plugin.updated`.
+const ACTIVATION_NOTIFICATIONS: [&str; 8] = ["skill", "provider", "model", "websearch", "integration", "command", "agent", "reference"];
+
+/// How long a configuration reload's activation waits for the reload's notifications (a safety net for a lost
+/// `config.updated`).
+const RELEASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Computes a domain's public projection at a location (serialized JSON), for [`Plugins::domain_changed`].
 pub type Projector = Arc<dyn Fn(String, &'static str) -> BoxFuture<'static, Option<String>> + Send + Sync>;
 
@@ -225,14 +234,24 @@ fn hash_value(value: &Value) -> u64 {
 
 #[derive(Default)]
 struct LocState {
-    /// Last loaded location (watch → reload mapping, replays).
+    /// Latest location, the one `fingerprint` belongs to (watch → reload mapping, replays).
     location: Option<Arc<Location>>,
+    /// Operations of the latest requested configuration.
     fingerprint: Option<String>,
+    /// Operations the last activation handed to the host (`result` belongs to them).
+    loaded: Option<String>,
     /// Local plugin targets (directories) of the last load.
     locals: Vec<PathBuf>,
     result: Option<LoadResult>,
-    /// Activation generation requested/finished.
+    /// Activations requested/settled (counts; settled when equal).
     progress: Option<watch::Sender<(u64, u64)>>,
+    /// Serializes the location's activations, like the supervisor's single consumer.
+    gate: Arc<tokio::sync::Mutex<()>>,
+    /// Starts the activation a configuration reload requested, once the reload notified (see
+    /// [`Plugins::ensure_reload`]).
+    release: Option<tokio::sync::oneshot::Sender<()>>,
+    /// The configured plugins the report skill lists, captured when `opencode.skill` last (re)started.
+    report_plugins: Option<Vec<String>>,
     /// Inventory last announced with `plugin.updated` (`None` until the first activation settled).
     announced: Option<Vec<Value>>,
 }
@@ -240,6 +259,45 @@ struct LocState {
 impl LocState {
     fn progress(&mut self) -> &watch::Sender<(u64, u64)> {
         self.progress.get_or_insert_with(|| watch::channel((0, 0)).0)
+    }
+
+    /// Requests an activation: [`Plugins::await_activation`] waits until it settles. Returns the
+    /// location's progress channel and gate for [`Plugins::activate`].
+    fn request(&mut self) -> PendingActivation {
+        let progress = self.progress().clone();
+        progress.send_modify(|(requested, _)| *requested += 1);
+        PendingActivation { progress, gate: self.gate.clone(), settled: false }
+    }
+
+    /// Whether an activation is requested but not settled yet.
+    fn pending(&self) -> bool {
+        self.progress.as_ref().is_some_and(|p| {
+            let (requested, settled) = *p.borrow();
+            settled < requested
+        })
+    }
+}
+
+/// A requested activation of a location's plugins; settled once (at the latest when dropped, so an
+/// aborted activation cannot leave [`Plugins::await_activation`] waiting).
+struct PendingActivation {
+    progress: watch::Sender<(u64, u64)>,
+    gate: Arc<tokio::sync::Mutex<()>>,
+    settled: bool,
+}
+
+impl PendingActivation {
+    /// The activation is done (ran, skipped or superseded).
+    fn settle(&mut self) {
+        if !std::mem::replace(&mut self.settled, true) {
+            self.progress.send_modify(|(_, settled)| *settled += 1);
+        }
+    }
+}
+
+impl Drop for PendingActivation {
+    fn drop(&mut self) {
+        self.settle();
     }
 }
 
@@ -302,6 +360,10 @@ pub struct Plugins {
     projector: RwLock<Option<Projector>>,
     /// Each location's queue of notifications (see [`Plugins::notice`]).
     notices: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<Notice>>>,
+    /// Set by a server that announces configuration reloads itself: their activations wait for it.
+    defer_reloads: std::sync::atomic::AtomicBool,
+    /// Integrations each location's plugin transforms added in the last catalog build.
+    plugin_integrations: Mutex<HashMap<String, HashSet<String>>>,
     me: Weak<Plugins>,
 }
 
@@ -344,6 +406,8 @@ impl Plugins {
             published: Mutex::new(HashMap::new()),
             projector: RwLock::new(None),
             notices: Mutex::new(HashMap::new()),
+            defer_reloads: std::sync::atomic::AtomicBool::new(false),
+            plugin_integrations: Mutex::new(HashMap::new()),
             me: me.clone(),
         })
     }
@@ -418,6 +482,8 @@ impl Plugins {
                                     }
                                 }
                                 Notice::Inventory { at } => {
+                                    // Recorded, so a later configuration reload compares with what this announced.
+                                    me.domain_changed(&key, "plugin").await;
                                     me.bus.publish("plugin.updated", json!({}), at);
                                 }
                             }
@@ -525,14 +591,16 @@ impl Plugins {
     async fn host_event(&self, event: HostEvent) {
         match event {
             HostEvent::Watch { file } => self.watch_file(file),
-            HostEvent::PluginsChanged { location } => self.announce(&location.key()),
-            HostEvent::DomainsChanged { location, domains } => {
+            // An activation announces its own changes once it finished (`Plugins::activate`).
+            HostEvent::PluginsChanged { activation: true, .. } => {}
+            HostEvent::PluginsChanged { location, activation: false } => self.announce(&location.key()),
+            HostEvent::DomainsChanged { location, domains, activation } => {
                 let key = location.key();
                 let settled = self.locations.lock().get(&key).is_some_and(|s| s.announced.is_some());
                 for domain in domains {
                     self.cache.lock().remove(&(key.clone(), domain.clone()));
                     self.catalog_changed(&domain);
-                    if settled {
+                    if settled && !activation {
                         self.notify_domain(&key, &domain, Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None }));
                     }
                     if domain == "websearch" && settled {
@@ -696,47 +764,107 @@ impl Plugins {
     /// (`PluginSupervisor.activate`). Returns immediately; activation runs in the background and
     /// [`Plugins::await_activation`] waits for it.
     pub fn ensure(&self, location: &Arc<Location>) {
+        self.ensure_with(location, false);
+    }
+
+    /// [`Plugins::ensure`] for a configuration reload (`config.updated`). Upstream's supervisor activates on
+    /// that event (debounced), after the reloaded configuration notified: with a server that announces reloads
+    /// ([`Plugins::defer_reload_activations`]), the activation starts at [`Plugins::release_reload`].
+    pub fn ensure_reload(&self, location: &Arc<Location>) {
+        self.ensure_with(location, self.defer_reloads.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    /// Reload activations wait for [`Plugins::release_reload`] from now on.
+    pub fn defer_reload_activations(&self) {
+        self.defer_reloads.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The location's configuration reload notified: start the activation it requested.
+    pub fn release_reload(&self, key: &str) {
+        let release = self.locations.lock().get_mut(key).and_then(|s| s.release.take());
+        if let Some(release) = release {
+            let _ = release.send(());
+        }
+    }
+
+    fn ensure_with(&self, location: &Arc<Location>, defer: bool) {
         let ops = operations(location);
         let fingerprint = serde_json::to_string(&ops).unwrap_or_default();
-        {
+        let pending = {
             let mut locations = self.locations.lock();
             let state = locations.entry(location.key.clone()).or_default();
+            state.location = Some(location.clone());
             if state.fingerprint.as_deref() == Some(fingerprint.as_str()) {
-                state.location = Some(location.clone());
                 return;
             }
-            if ops.is_empty() && self.host.get().is_none_or(|h| h.packages(&LocationRef::new(location.key.clone())).is_empty()) && state.result.is_none() {
+            if ops.is_empty()
+                && self.host.get().is_none_or(|h| h.packages(&LocationRef::new(location.key.clone())).is_empty())
+                && state.result.is_none()
+                && !state.pending()
+            {
                 // Nothing configured and nothing running: built-ins only, no host needed.
                 state.fingerprint = Some(fingerprint);
-                state.location = Some(location.clone());
                 state.announced.get_or_insert_with(Vec::new);
+                state.report_plugins.get_or_insert_with(|| crate::skills::configured_plugins(location));
                 return;
             }
             // Claim this configuration now: a second `ensure` for the same location (the runner and
             // the backend each load locations) must not start another load before this one runs.
             state.fingerprint = Some(fingerprint);
-            let (requested, done) = *state.progress().borrow();
-            state.progress().send_replace((requested.max(done) + 1, done));
-        }
+            // Only a location whose plugins already activated waits for its reload's notifications.
+            let release = (defer && state.announced.is_some()).then(|| {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                state.release = Some(tx);
+                rx
+            });
+            (state.request(), release)
+        };
         let me = self.me();
         let location = location.clone();
         tokio::spawn(async move {
-            me.load(location, false).await;
+            let (pending, release) = pending;
+            if let Some(release) = release {
+                // A reload whose notifications never come (a lost `config.updated`) must not stall activation.
+                let _ = tokio::time::timeout(RELEASE_TIMEOUT, release).await;
+            }
+            me.activate(location, false, pending).await;
         });
     }
 
     /// Loads (or reloads) a location's plugins and waits for activation.
     pub async fn load(&self, location: Arc<Location>, force: bool) {
-        let ops = operations(&location);
-        let fingerprint = serde_json::to_string(&ops).unwrap_or_default();
+        let pending = self.locations.lock().entry(location.key.clone()).or_default().request();
+        self.activate(location, force, pending).await;
+    }
+
+    /// Runs a requested activation once the location's earlier ones finished. Without `force` it is skipped
+    /// when a later configuration superseded it (that one activates next: the supervisor activates the latest
+    /// operations) or when its configuration is the one already active. A forced one activates the latest
+    /// configuration.
+    async fn activate(&self, mut location: Arc<Location>, force: bool, mut pending: PendingActivation) {
+        let _turn = pending.gate.clone().lock_owned().await;
+        let mut ops = operations(&location);
+        let mut fingerprint = serde_json::to_string(&ops).unwrap_or_default();
         let key = location.key.clone();
-        let generation = {
+        {
             let mut locations = self.locations.lock();
-            let state = locations.entry(key.clone()).or_default();
-            if !force && state.fingerprint.as_deref() == Some(fingerprint.as_str()) && state.result.is_some() {
+            // A location closed since the request has nothing to activate.
+            let Some(state) = locations.get_mut(&key).filter(|s| s.progress.as_ref().is_some_and(|p| p.same_channel(&pending.progress)))
+            else {
+                return;
+            };
+            let superseded = state.fingerprint.as_deref() != Some(fingerprint.as_str());
+            let active = state.loaded.as_deref() == Some(fingerprint.as_str()) && state.result.is_some();
+            if !force && (superseded || active) {
                 return;
             }
-            state.fingerprint = Some(fingerprint);
+            if superseded && let Some(latest) = state.location.clone() {
+                location = latest;
+                ops = operations(&location);
+                fingerprint = serde_json::to_string(&ops).unwrap_or_default();
+            }
+            state.fingerprint = Some(fingerprint.clone());
+            state.loaded = Some(fingerprint);
             state.location = Some(location.clone());
             state.locals = ops
                 .iter()
@@ -745,12 +873,9 @@ impl Plugins {
                     _ => None,
                 })
                 .collect();
-            let (requested, done) = *state.progress().borrow();
-            let generation = requested.max(done + 1);
-            state.progress().send_replace((generation, done));
-            generation
-        };
+        }
         let browser = self.browser_generation(&key);
+        let before = self.generation(&key);
         let host = self.host_or_create();
         let info = json!({
             "directory": key,
@@ -765,12 +890,23 @@ impl Plugins {
             .await;
         let first = {
             let mut locations = self.locations.lock();
-            let state = locations.entry(key.clone()).or_default();
+            let Some(state) = locations.get_mut(&key).filter(|s| s.progress.as_ref().is_some_and(|p| p.same_channel(&pending.progress)))
+            else {
+                return;
+            };
             state.result = Some(result);
             state.announced.is_none()
         };
-        // The registry restarts every plugin from the first one whose (id, revision) changed: the browser
-        // plugin's attachments end when it restarts or is disabled.
+        // The registry restarts every plugin from the first one whose (id, revision) changed.
+        let after = self.generation(&key);
+        let restart = after.iter().zip(&before).position(|(a, b)| a != b).or((after.len() != before.len()).then(|| after.len().min(before.len())));
+        let restarted = |id: &str| restart.is_some_and(|r| after.iter().position(|(p, _)| p == id).is_some_and(|i| r <= i));
+        if (first || restarted("opencode.skill"))
+            && let Some(state) = self.locations.lock().get_mut(&key)
+        {
+            state.report_plugins = Some(crate::skills::configured_plugins(&location));
+        }
+        // The browser plugin's attachments end when it restarts or is disabled.
         if browser.is_some() && browser != self.browser_generation(&key) {
             self.browsers.restart(&key);
         }
@@ -779,16 +915,25 @@ impl Plugins {
         self.catalog_cache.lock().retain(|(k, _), _| *k != key);
         self.catalog_changed("*");
         let inventory = first.then(|| self.inventory(&key));
+        if let Some(inventory) = inventory
+            && let Some(state) = self.locations.lock().get_mut(&key)
         {
-            let mut locations = self.locations.lock();
-            let state = locations.entry(key.clone()).or_default();
-            if let Some(inventory) = inventory {
-                state.announced = Some(inventory);
-            }
-            let (requested, done) = *state.progress().borrow();
-            state.progress().send_replace((requested, done.max(generation)));
+            state.announced = Some(inventory);
         }
+        pending.settle();
         if !first {
+            // The restart runs inside one `State.batch`: the States it touched notify (the gated ones when their
+            // projection changed), then the inventory.
+            if restart.is_some() {
+                self.search_providers(&key).await;
+                let at = Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None });
+                for domain in ACTIVATION_NOTIFICATIONS {
+                    if matches!(domain, "provider" | "model") && !restarted("opencode.config.provider") {
+                        continue;
+                    }
+                    self.notify_domain(&key, domain, at.clone());
+                }
+            }
             self.announce(&key);
             self.rebuild(&location).await;
         }
@@ -802,7 +947,7 @@ impl Plugins {
             state.progress().subscribe()
         };
         let mut rx = rx;
-        let _ = rx.wait_for(|(requested, done)| done >= requested).await;
+        let _ = rx.wait_for(|(requested, settled)| settled >= requested).await;
     }
 
     /// Whether the location's first activation finished (plugins configured or not).
@@ -819,8 +964,15 @@ impl Plugins {
     /// `None` when the browser plugin is disabled. Unchanged, the browser plugin keeps running across an
     /// activation (`Plugin.activate`'s prefix diff).
     fn browser_generation(&self, key: &str) -> Option<Vec<(String, String)>> {
+        let entries = self.generation(key);
+        let index = entries.iter().position(|(id, _)| id == crate::browser::PLUGIN_ID)?;
+        Some(entries[..=index].to_vec())
+    }
+
+    /// The enabled plugins as (id, revision) in boot order.
+    fn generation(&self, key: &str) -> Vec<(String, String)> {
         let locations = self.locations.lock();
-        let entries: Vec<(String, String)> = match locations.get(key).and_then(|s| s.result.as_ref()) {
+        match locations.get(key).and_then(|s| s.result.as_ref()) {
             Some(result) => result
                 .resolution
                 .plugins
@@ -831,9 +983,7 @@ impl Plugins {
                 })
                 .collect(),
             None => BUILTIN_PLUGINS.iter().map(|id| (id.to_string(), "internal".to_string())).collect(),
-        };
-        let index = entries.iter().position(|(id, _)| id == crate::browser::PLUGIN_ID)?;
-        Some(entries[..=index].to_vec())
+        }
     }
 
     /// Closes a location's plugins (cleanup functions run) and forgets its state.
@@ -842,6 +992,7 @@ impl Plugins {
         self.copilot.close(key);
         let state = self.locations.lock().remove(key);
         self.websearch_by_key.lock().remove(key);
+        self.plugin_integrations.lock().remove(key);
         self.cache.lock().retain(|(k, _), _| k != key);
         self.catalog_cache.lock().retain(|(k, _), _| k != key);
         self.catalog_changed("*");
@@ -1113,7 +1264,8 @@ impl Plugins {
 
     /// Skills: built-ins (`opencode.skill`) → plugins → compatibility roots and configuration.
     pub async fn skills(&self, location: &Location, global: &oc_util::Global, version: &str) -> Vec<oc_config::sources::Skill> {
-        let mut builtin = crate::skills::builtin(location, version);
+        let captured = self.locations.lock().get(&location.key).and_then(|s| s.report_plugins.clone());
+        let mut builtin = crate::skills::builtin_with(version, &captured.unwrap_or_else(|| crate::skills::configured_plugins(location)));
         if !self.builtin_enabled(&location.key, "opencode.skill") {
             builtin.clear();
         }
@@ -1387,6 +1539,12 @@ impl Plugins {
     /// plugin `integration` transforms. Plugin OAuth methods authorize through their handles.
     /// The configured-provider registrations (`post`) follow in the caller.
     pub async fn integrations(&self, key: &str, integrations: &oc_ai::credentials::Integrations) {
+        // The registry outlives catalog builds, where upstream rebuilds the State from its transforms: the
+        // integrations plugins added last time go first, so a removed transform takes its additions with it.
+        let added = self.plugin_integrations.lock().remove(key).unwrap_or_default();
+        for id in &added {
+            integrations.remove(id);
+        }
         if !self.transforms(key, "integration") {
             return;
         }
@@ -1415,6 +1573,8 @@ impl Plugins {
         let out = self.transform(key, "integration", value).await;
         let items = out.get("integrations").and_then(Value::as_array).cloned().unwrap_or_default();
         let kept: HashSet<String> = items.iter().filter_map(|i| i.pointer("/ref/id").and_then(Value::as_str).map(String::from)).collect();
+        let new: HashSet<String> = kept.iter().filter(|id| !refs.iter().any(|r| r.id == **id)).cloned().collect();
+        self.plugin_integrations.lock().insert(key.to_string(), new);
         for r in &refs {
             if !kept.contains(&r.id) {
                 integrations.remove(&r.id);

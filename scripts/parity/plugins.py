@@ -1,6 +1,7 @@
 """Server plugins: the oc-plugin fixture plugins (crates/oc-plugin/tests/fixtures) configured as local plugins of
 the project. Upstream runs them in-process (Bun); the port runs them in its Bun sidecar (`OCD_BUN_PATH`)."""
 import glob
+import json
 import os
 import sqlite3
 import time
@@ -155,6 +156,49 @@ def plugin_rpc_storage(ctx):
     time.sleep(1.0)
     ctx.record_events()
     record_storage(ctx)
+
+
+@scenario("plugin", hold_for_title=0, timeout=300)
+def plugin_live_changes(ctx):
+    """successive live changes of `plugins` (one plugin → two → another → built-in removals only → none → one →
+    catalog transforms → a built-in removal): every reload reactivates the location, the lists and RPC keep
+    answering, and each reload notifies like upstream (configuration, then the activation's domains)."""
+    ctx.env_extra["OPENCODE_DISABLE_FILEWATCHER"] = "0"
+    boot(ctx, ["./plugins/promise-plugin"], ["promise-plugin", "storage-events", "effect-plugin", "catalog-plugin"])
+    ctx.create_session(title="Boot")
+    settle_lists(ctx)
+    record_lists(ctx)
+    time.sleep(1.5)
+    for step, plugins in enumerate([
+        ["./plugins/promise-plugin", "./plugins/storage-events"],
+        ["./plugins/effect-plugin"],
+        ["-opencode.goal"],
+        ["-opencode.goal", "-opencode.tool.read"],
+        [],
+        ["./plugins/storage-events", "-opencode.goal"],
+        ["./plugins/catalog-plugin", "./plugins/effect-plugin"],
+        ["-opencode.browser"],
+    ]):
+        label = f"change{step + 1}"
+        path = f"{ctx.project}/opencode.json"
+        with open(path) as f:
+            cfg = json.load(f)
+        cfg["plugins"] = plugins
+        mark = len(ctx.server.events)
+        with open(path, "w") as f:
+            f.write(json.dumps(cfg, indent=2))
+        ctx.rec(label + ".config", ctx.wait_for("config.updated", start=mark, timeout=15) is not None)
+        ctx.rec(label + ".plugin.updated", ctx.wait_for("plugin.updated", start=mark, timeout=20) is not None)
+        settle_lists(ctx)
+        d = f"directory={ctx.project}"
+        _, listed = ctx.call(label + ".plugin.list", "GET", f"/api/plugin?{d}", record=False)
+        rows = (listed or {}).get("data") if isinstance(listed, dict) else None
+        ctx.rec(label + ".plugin.ids", [p.get("id") for p in rows or []])
+        for name, path in (("command.list", "/api/command"), ("agent.list", "/api/agent"), ("skill.list", "/api/skill")):
+            ctx.call(f"{label}.{name}", "GET", f"{path}?{d}")
+        ctx.call(label + ".rpc", "POST", "/api/rpc/fixture.echo/ping", {"input": {"text": label}}, timeout=15)
+        time.sleep(1.0)
+    ctx.record_events(filt=lambda e: e.get("type", "").endswith(".updated") and not e["type"].startswith(("project.", "session.")))
 
 
 @scenario("plugin")

@@ -27,7 +27,7 @@ engine.environment(session_id)               // app.environments entry (PUT /api
 | module | contents |
 |---|---|
 | `engine` | `Engine` (app, optional runner, models, location cache, websearch, PTY ownership), session-scope helper (`SessionNotFoundError`/`LocationNotFoundError`), wake/is_active via `app.coordinator` |
-| `locations` | `LocationServiceMap`: per-directory `Loc { location, snapshots }` keyed by the canonical directory (`oc_core::location::canonical_directory`: normalized, no trailing separator, like `LocationServiceMap.canonical`), single-flight build, `Project.activate` (≤ 1/min, `project.updated`), plugin activation (`Plugins::ensure`; with configured plugins the nine boot `*.updated` notifications wait for it, then the plugin domains are rebuilt), `evict` (`location.shutdown`, plugin location closed), `reload` (503 `{service:"location"}`), `is_live` (loaded or building, for form polls), configuration reloads (rebuilt services announce provider/model twice and only changed gated domains) |
+| `locations` | `LocationServiceMap`: per-directory `Loc { location, snapshots }` keyed by the canonical directory (`oc_core::location::canonical_directory`: normalized, no trailing separator, like `LocationServiceMap.canonical`), single-flight build, `Project.activate` (≤ 1/min, `project.updated`), plugin activation (`Plugins::ensure`, one activation at a time per location, a superseded configuration skipped; with configured plugins the nine boot `*.updated` notifications wait for it, then the plugin domains are rebuilt), `evict` (`location.shutdown`, plugin location closed), `reload` (503 `{service:"location"}`), `is_live` (loaded or building, for form polls), configuration reloads (rebuilt services announce provider/model twice and only changed gated domains) |
 | `notify` | `State.changes` projections of the gated catalog domains (integration, agent, command, skill, websearch, reference, plugin) for boot baselines, configuration reloads and plugin domain changes |
 | `plugins` | `BackendApi`, the server's `oc_plugin::PluginApi`: plugin `ctx.*` API calls run through an in-process router (the same handlers, validation, errors and envelopes as HTTP; upstream `ClientApi` names mapped to operation ids, path/query/body split from the OpenAPI document, the plugin's location as `x-opencode-directory`, `session.create` defaulting `location`); `integration.connection.*` over oc-ai `Integrations`; host-service methods and storage via `oc_core::plugins::CoreApi`; `rs:command.<name>` handles run native commands. `install(engine, opts)` is called by `start`/`router` |
 | `sessions` | `session.*` handlers: create/remove (children, interrupt, `Bus.remove`)/update/fork (instruction state + entries)/prompt (attachments via `oc_core::attachment`, skills)/synthetic/compact (input id honoured)/interrupt (resume semantics)/inbox/move/messages/context/revert stage-clear-commit (oc-git `Snapshots`)/diff (`SessionDiff.turn`)/instruction entries/skill activation/commands (built-ins + config templates with `` !`cmd` ``) |
@@ -121,8 +121,13 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `mcp_<hash>` OAuth integrations (`oc_core::mcp::register_integrations`, upstream `mcp/index.ts`
   `register`); a `credential.switched` for one reconnects its server.
 * **config reload**: `experimental.config.update` reloads every loaded location through
-  `runner.reload_location`; `Locations` drops its cached services on `config.updated` and the rebuild
-  publishes `provider.updated`/`model.updated` (twice) plus the gated domains whose projection changed.
+  `runner.reload_location`; `Locations` drops its cached services on `config.updated` and, with the session
+  runner, rebuilds them right away (upstream reloads its States in place): the rebuild publishes
+  `provider.updated`/`model.updated` (twice) plus the gated domains whose projection changed. A reload that
+  changed the plugins then releases its activation (`Plugins::release_reload`), which notifies like
+  upstream's registry batch: `skill`, `provider`, `model`, `websearch`, `integration`, `command`, `agent`,
+  `reference` (gated ones only when changed; provider/model when the restart reached
+  `opencode.config.provider`), then `plugin.updated`.
 * **prompt attachments**: png/jpeg/gif/webp/bmp images are normalized with `oc_tools::image::normalize`
   under the location's `media.image` limits (`oc_config::fold::media_image`; HEIC/AVIF and other types go
   unchanged); data attachments keep the client's `source`; failures → 400 `{field:"files"}`.
@@ -138,7 +143,7 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `disabled`/`pending` `mcp.status.changed` precedes it, as upstream's MCP State notifies first.
 * **location shutdown**: `debug.location.evict`, `vcs.init` and `location.reload` evict through
   `runner.close_location` (pending permissions rejected, forms cancelled, MCP stopped, watcher
-  stopped) before publishing `location.shutdown`; `config.updated` only drops cached services.
+  stopped) before publishing `location.shutdown`; `config.updated` only replaces cached services.
 * **skills** come from `oc_core::skills::list` (built-ins, configured and remote sources,
   compatibility roots). `opencode.browser` adds the built-in `browser` skill after the plugins' skills and
   denies it, with the browser tools, to every agent (plugin-browser/src/skill.ts, connection.ts).
@@ -221,7 +226,8 @@ commands, agents and skills; a rejecting `tool.execute.before`; `permission.eval
 denying `.env` reads; `tool.execute.after`, `session.prompt`, `session.context` and
 `shell.create.before`; storage, `ctx.event.subscribe` and `rpc.call`; provider/model/integration/
 websearch transforms and a Code Mode plugin tool with hooks on the nested call; built-in plugin
-removal without starting Bun; local plugin hot reload. `tests/browser.rs` attaches a stand-in desktop
+removal without starting Bun; local plugin hot reload; successive live `plugins` changes (none → plugins →
+other plugins → built-in removals → none → plugins) with lists and RPC answering after each. `tests/browser.rs` attaches a stand-in desktop
 over the `experimental.browser` routes: the grant and removal of the session allows, replacement, detach and
 session deletion, the `browser.*` tools through Code Mode answered from the control events (outputs decoded
 with the operation schemas, captures saved, uploads sent as bytes, desktop failures, invalid results, unknown
