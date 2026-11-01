@@ -259,9 +259,11 @@ impl Host for ExecuteHost {
             let mut input = input.unwrap_or(Value::Null);
             let mut hooked = name.clone();
             hooks.before(&mut hooked, &mut input, &ctx).await.map_err(|e| ToolCallError::Failure(e.model_message()))?;
+            // The program sees the failure's own message (`Cause.prettyErrors`), not its unwrapped cause:
+            // a browser URL refusal reads "Invalid browser URL. ..." rather than "Unsupported browser URL".
             let executed = run_tool(tool.as_ref(), &name, input, ctx, hooks.as_ref())
                 .await
-                .map_err(|e| ToolCallError::Failure(e.model_message()))?;
+                .map_err(|e| ToolCallError::Failure(if e.message.is_empty() { e.model_message() } else { e.message }))?;
             let collected = output_files(&executed.content);
             if !collected.is_empty() {
                 files.lock().unwrap().push(Collected { index, files: collected });

@@ -105,7 +105,8 @@ Each method has a default that reports the capability as unavailable. The except
   2. Fails with `Tool is not available for this request: …` or
      `No tool named "…" is currently available. …` when appropriate.
   3. Input validation; errors use upstream's `Invalid arguments for tool …` format with
-     Effect issue texts.
+     Effect issue texts (Effect schemas count string lengths in UTF-16 units: `Expected a value with a
+     length of at most N`; raw JSON Schema inputs count code points).
   4. Execution races `ctx.cancel`.
   5. `after` hook, content normalization, then image normalization (`[N image(s) omitted: …]`).
 - `registry::execute_tool(tool, name, input, ctx, hooks)` is the same pipeline for one tool;

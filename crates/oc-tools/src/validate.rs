@@ -314,8 +314,10 @@ fn check_array(root: &Value, schema: &Map<String, Value>, items: &[Value], path:
 
 fn check_string(schema: &Map<String, Value>, text: &str, path: &mut [PathSegment], flavor: Flavor, issues: &mut Vec<Issue>) {
     let points = text.chars().count() as u64;
+    // Effect's `isMinLength`/`isMaxLength` count UTF-16 code units; JSON Schema counts code points.
+    let units = js::utf16_len(text) as u64;
     if let Some(min) = schema.get("minLength").and_then(Value::as_u64) {
-        let failed = if min == 1 { js::utf16_len(text) == 0 } else { points < min };
+        let failed = if min == 1 || flavor == Flavor::Effect { units < min } else { points < min };
         if failed {
             if min == 1 || flavor == Flavor::Effect {
                 issues.push(Issue::new(path.to_vec(), format!("Expected a value with a length of at least {min}")));
@@ -325,7 +327,11 @@ fn check_string(schema: &Map<String, Value>, text: &str, path: &mut [PathSegment
         }
     }
     if let Some(max) = schema.get("maxLength").and_then(Value::as_u64) {
-        if points > max {
+        if flavor == Flavor::Effect {
+            if units > max {
+                issues.push(Issue::new(path.to_vec(), format!("Expected a value with a length of at most {max}")));
+            }
+        } else if points > max {
             issues.push(Issue::new(path.to_vec(), format!("Expected a string with at most {max} code points")));
         }
     }
