@@ -2,8 +2,9 @@
 
 Git operations for the opencode Rust port. A port of upstream `packages/core/src/git.ts`,
 `snapshot.ts`, `repository.ts`, `repository-cache.ts`, `file-retention.ts`, the git strategy of
-`worktree.ts` (`worktree/{git,directory}.ts`, `util/slug.ts`), `vcs/patch.ts`, and the git VCS
-provider `plugin/vcs/git.ts` (with the provider-independent parts of `vcs.ts`).
+`worktree.ts` (`worktree/{git,directory}.ts`, `util/slug.ts`), `vcs/patch.ts`, the git VCS
+provider `plugin/vcs/git.ts` (with the provider-independent parts of `vcs.ts`), and the Mercurial
+VCS provider `plugin/vcs/hg.ts`, which runs `hg` from `PATH` with `HGPLAIN=1`.
 
 Every operation runs Git (`process::git_executable()`: `git`, except that on macOS the
 `/usr/bin/git` shim is swapped for the developer tools' own Git, and Windows uses the absolute
@@ -24,9 +25,10 @@ directory and environment as upstream. Store commands run as `git --git-dir <sto
 | `worktree` | `worktree/git.ts`, `worktree/directory.ts`, `util/slug.ts` | `GitWorktreeStrategy` (create/remove/list), `slug`, `default_directory`, `allocate_directory`, `canonical` |
 | `file_retention` | `file-retention.ts` | `cleanup(files, retention)` |
 | `vcs` | `plugin/vcs/git.ts`, `vcs.ts`, `schema/src/vcs.ts` | `GitVcs` adapter (info/base/branches/status/diff/init), `Info`, `Branch`, `Base`, `Mode`, `VcsFileStatus`, `DiffError`, `apply_total_patch_budget`, `locale_compare` |
-| `patch` | `vcs/patch.ts` | `empty_patch` (byte-identical to `diff@8.0.4`), `split_git_patch`, `chunks_by_file`, `count_patch`, limits |
+| `hg` | `plugin/vcs/hg.ts` | `HgVcs` adapter (info/branches/status/diff/init) |
+| `patch` | `vcs/patch.ts` | `empty_patch`, `add_patch`, `delete_patch` (byte-identical to `diff@8.0.4`), `split_git_patch`, `chunks_by_file`, `count_patch`, limits |
 | `paths` | Node `path` / `FSUtil` | `normalize`, `resolve`, `relative`, `contains`, `real_or_resolved` |
-| `process` | `AppProcess.run` | the `git` runner (stdin bytes, output cap with a truncation flag) |
+| `process` | `AppProcess.run` | the `git` runner and `run_program` for other tools (stdin bytes, output cap with a truncation flag) |
 
 ## `Git` (cheap `Clone`; clones share the in-process per-store locks and the fast-path cache)
 
@@ -128,6 +130,33 @@ Behavior that matches upstream:
 - `locale_compare` approximates ICU root collation: punctuation, then digits, then letters;
   case-insensitive first, with lowercase before uppercase.
 
+## `HgVcs` (the `opencode.vcs.hg` provider)
+
+```rust
+let vcs = HgVcs::new(location_directory, project_directory);
+HgVcs::init(&worktree).await                     // `hg init`; error "Mercurial initialization failed"
+vcs.info().await                                 // Info { provider: None, branch: { current: `hg branch`, default: "default" } }
+vcs.branches().await                             // always []
+vcs.status().await                               // Vec<VcsFileStatus>: the working diff with context 0, without patches
+vcs.diff(mode, &DiffOptions { context, base, .. }).await // `untracked` is ignored
+```
+
+oc-core registers it as the `hg` provider for Mercurial locations and for markerless ones (so
+`vcs.init?provider=hg` works); it has no `base`, so `vcs.base` answers `null`. Behavior that matches
+upstream:
+
+- Every command runs from the worktree root with `HGPLAIN=1`, scoped by the Location directory
+  relative to the worktree (or `.`). A failed or unstartable `hg` reads as empty output.
+- Rows come from `hg status -0 [--rev <rev>]`: `A`/`?` are added, `R`/`!` deleted, the rest
+  modified; sorted like `localeCompare`. Patches come from one `hg diff --git --unified <context>
+  [-r <rev>]` capped at 10 MB (a truncated last chunk is dropped). Files without a chunk get
+  synthesized patches: untracked (`?`) from the file read as UTF-8 (`add_patch`), missing (`!`)
+  from `hg cat -r <rev or .>` (`delete_patch`), else (and over 10 MB) `empty_patch`.
+- `working` diffs the working copy. `committed`, or any explicit `base` outside `working`, fails
+  with `DiffError("The Mercurial provider does not support committed reviews or explicit bases")`.
+  `branch` is empty on `default` (or with no branch); otherwise it diffs against
+  `ancestor(., default)` (empty when that has no changeset).
+
 ## Behavior kept from upstream
 
 - **Store creation**
@@ -193,8 +222,9 @@ Behavior that matches upstream:
 
 - The `worktree`/`project` DB tables, `worktree.updated` events, and the project
   `commands.start` hook (oc-core).
-- The `Vcs` service shell (provider registry, cached info, `vcs.branch.updated` events) and the
-  Mercurial provider (`plugin/vcs/hg.ts`), which belong to oc-core.
+- The `Vcs` service shell (provider registry, cached info, `vcs.branch.updated` events on `HEAD`
+  or `.hg/branch` changes), which belongs to oc-core and oc-backend. Mercurial project identity
+  (the cached `.hg/opencode` ID, else the first root changeset) is in oc-core's `project`.
 - `Project.resolve` ID derivation (oc-core). It caches discovery by `.git` path plus
   `git::fingerprint`, and runs Git through `process::git_executable()`.
 
@@ -207,5 +237,7 @@ Behavior that matches upstream:
 - `tests/git.rs`, ported from upstream `git.test.ts`
 - `tests/vcs.rs`, covering the git VCS provider: status, no-HEAD repos, working/branch/committed
   diffs, review base, branches, and scoping to a subdirectory
+- `tests/hg.rs`, ported from upstream `vcs-hg.test.ts` (plus init and subdirectory scoping); the
+  tests that need `hg` skip when it is not on `PATH`
 - `tests/services.rs`, covering the snapshot, worktree strategy and repository cache scenarios
   from upstream `snapshot.test.ts` and `repository-cache.test.ts`

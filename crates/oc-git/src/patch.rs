@@ -18,6 +18,48 @@ pub fn empty_patch(file: &str) -> String {
     format!("Index: {file}\n===================================================================\n--- {file}\t\n+++ {file}\t\n")
 }
 
+/// `addPatch`: `formatPatch(structuredPatch(file, file, "", content, "", "", { context: 0 }))`.
+pub fn add_patch(file: &str, content: &str) -> String {
+    one_sided(file, content, '+')
+}
+
+/// `deletePatch`: `formatPatch(structuredPatch(file, file, content, "", "", "", { context: 0 }))`.
+pub fn delete_patch(file: &str, content: &str) -> String {
+    one_sided(file, content, '-')
+}
+
+/// One side is empty, so jsdiff's line diff is a single added (or removed) change holding the
+/// whole text, and the patch is one hunk of it split by `splitLines` (`\n` only).
+fn one_sided(file: &str, content: &str, sign: char) -> String {
+    if content.is_empty() {
+        return empty_patch(file);
+    }
+    let mut lines: Vec<String> = content.split('\n').map(|line| format!("{line}\n")).collect();
+    if content.ends_with('\n') {
+        lines.pop();
+    } else if let Some(last) = lines.last_mut() {
+        last.pop();
+    }
+    let count = lines.len();
+    let mut out = empty_patch(file);
+    out.push_str(&if sign == '+' { format!("@@ -0,0 +1,{count} @@\n") } else { format!("@@ -1,{count} +0,0 @@\n") });
+    for line in lines {
+        match line.strip_suffix('\n') {
+            Some(stripped) => {
+                out.push(sign);
+                out.push_str(stripped);
+                out.push('\n');
+            }
+            None => {
+                out.push(sign);
+                out.push_str(&line);
+                out.push_str("\n\\ No newline at end of file\n");
+            }
+        }
+    }
+    out
+}
+
 /// Count changed lines in a unified diff, ignoring `+++`/`---` file headers.
 pub fn count_patch(patch: &str) -> (u64, u64) {
     let mut additions = 0;
@@ -171,6 +213,20 @@ mod tests {
         assert!(map.contains_key("q\"x"));
         let truncated = Patch { text: text.to_string(), truncated: true };
         assert_eq!(split_git_patch(&truncated).len(), 2);
+    }
+
+    // Outputs of diff@8.0.4 `addPatch`/`deletePatch` (vcs/patch.ts) under Bun.
+    #[test]
+    fn add_and_delete_patches_match_jsdiff() {
+        let head = "Index: f\n===================================================================\n--- f\t\n+++ f\t\n";
+        assert_eq!(add_patch("f", ""), empty_patch("f"));
+        assert_eq!(delete_patch("f", ""), empty_patch("f"));
+        assert_eq!(add_patch("f", "hello\nworld\n"), format!("{head}@@ -0,0 +1,2 @@\n+hello\n+world\n"));
+        assert_eq!(delete_patch("f", "bye\n"), format!("{head}@@ -1,1 +0,0 @@\n-bye\n"));
+        assert_eq!(add_patch("f", "a\nb"), format!("{head}@@ -0,0 +1,2 @@\n+a\n+b\n\\ No newline at end of file\n"));
+        assert_eq!(add_patch("f", "\n"), format!("{head}@@ -0,0 +1,1 @@\n+\n"));
+        assert_eq!(add_patch("f", "x\r\ny\rz\n\n"), format!("{head}@@ -0,0 +1,3 @@\n+x\r\n+y\rz\n+\n"));
+        assert_eq!(delete_patch("f", "only"), format!("{head}@@ -1,1 +0,0 @@\n-only\n\\ No newline at end of file\n"));
     }
 
     #[test]

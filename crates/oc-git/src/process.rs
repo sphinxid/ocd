@@ -191,7 +191,13 @@ async fn collect<R: AsyncReadExt + Unpin>(mut reader: R, max: Option<usize>) -> 
 
 /// Run `git <args>` in `cwd`, inheriting the process environment plus `options.env`.
 pub async fn run(cwd: &Path, args: &[String], options: RunOptions<'_>) -> std::io::Result<RunResult> {
-    let mut command = Command::new(git_executable());
+    run_program(git_executable(), cwd, args, options).await
+}
+
+/// Run `<program> <args>` in `cwd` (`AppProcess.run` with `extendEnv`), inheriting the process
+/// environment plus `options.env`. Only stdout is capped by `max_output_bytes`.
+pub async fn run_program(program: &str, cwd: &Path, args: &[String], options: RunOptions<'_>) -> std::io::Result<RunResult> {
+    let mut command = Command::new(program);
     command.args(args).current_dir(cwd).kill_on_drop(true);
     for (key, value) in &options.env {
         command.env(key, value);

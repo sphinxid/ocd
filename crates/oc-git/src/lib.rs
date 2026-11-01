@@ -5,6 +5,7 @@
 
 pub mod file_retention;
 pub mod git;
+pub mod hg;
 pub mod patch;
 pub mod paths;
 pub mod process;
@@ -21,5 +22,6 @@ pub use git::{
 pub use repository::{Reference, RepositoryError};
 pub use repository_cache::{CacheError, EnsureInput, EnsureResult, Kv, MemoryKv, Refresh, RepositoryCache, Status};
 pub use snapshot::{SnapshotError, SnapshotLocation, SnapshotOperation, Snapshots};
+pub use hg::HgVcs;
 pub use vcs::GitVcs;
 pub use worktree::{GitWorktreeStrategy, ListEntry, ListEntryType, WorktreeStrategyError};

@@ -1462,8 +1462,6 @@ impl Backend for Engine {
         match registry.get(&provider) {
             Some(p) if !p.has_init() => return Err(ApiError::vcs_init_not_supported(provider)),
             Some(p) => p.init(&oc_core::vcs::Scope::of(&loc.location)).await.map_err(|_| unavailable())?,
-            // TODO(core): the hg provider is not ported.
-            None if provider == "hg" => return Err(unavailable()),
             None => return Err(ApiError::invalid_request("Unknown VCS provider").with_field("provider")),
         }
         let resolved = oc_core::project::resolve_and_persist(&self.app.bus, &directory).await.map_err(defect)?;

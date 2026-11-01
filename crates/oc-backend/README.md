@@ -168,8 +168,10 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   vanishes is forgotten; disabled by `OPENCODE_FILEWATCHER_DISABLE` → 503 `{service: "filewatcher"}`;
   unwatch is always 204).
 * **command.list**, **skill.list**, **config.get**, **experimental.config.update** (`shell`).
-* **vcs** (git via `oc_git::GitVcs`): `vcs.init` (git; hg → 503), `vcs.get`, `vcs.base`,
-  `vcs.status`, `vcs.branch.list` (limit ≤ 100), `vcs.diff` (review budget, `?untracked=files|folders`).
+* **vcs** (git via `oc_git::GitVcs`, Mercurial via `oc_git::HgVcs`): `vcs.init` (`provider` git, the
+  default, or hg), `vcs.get`, `vcs.base`, `vcs.status`, `vcs.branch.list` (limit ≤ 100), `vcs.diff`
+  (review budget, `?untracked=files|folders`; Mercurial ignores it and refuses `committed` and explicit
+  bases with 503). The branch watcher follows git's `HEAD` or `.hg/branch` (`vcs_watch.rs`).
 
 ## Plugins
 
@@ -206,7 +208,8 @@ answers 404 `LocationNotFoundError` on its session-location routes);
 router over an in-memory database and a temp `Global` (sessions + cursor paging, prompt/inbox/
 messages/fork, attachments and skills, commands, permissions, filesystem, projects/config/
 credentials, instruction entries + session log, forms (incl. a waiting `ask`) and background, export/import, runner-less generate/MCP, PTY lifecycle + attach, shell commands + bus events, config update/reload eviction, wellknown add, prompt image normalization, stats, shells/websearch/references, git worktrees (+ refresh), persistent PTY without a daemon; `persistent_pty_real_daemon` is `#[ignore]` (needs `opencode-pty`), runner-less interrupt/wait/view/revert, move,
-git VCS, models/providers/integrations, event feed). `tests/plugins.rs` runs oc-plugin's fixture
+git VCS, Mercurial VCS (+ `.hg/branch` events and `vcs.init?provider=hg`; skipped without `hg` on
+`PATH`), models/providers/integrations, event feed). `tests/plugins.rs` runs oc-plugin's fixture
 plugins in the real Bun sidecar (bun from `OCD_BUN_PATH`/`OCD_TEST_BUN`, else the scratchpad bun;
 skipped without one) against the router with the session runner and a mock provider: a plugin tool
 offered to the model and executed with `tool.execute.before` rewriting its input; plugin

@@ -324,11 +324,14 @@ async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_s
     if let Some(runner) = &notify.runner {
         runner.mcp(&loc.location).await;
     }
+    // The VCS providers register in the same batch; the Vcs State notify refreshes the info and
+    // announces the branch when it changed from unknown (core/src/vcs.ts `refresh`). The State
+    // notifies where it was first changed: by the git plugin (after models, before agents), or in
+    // a Mercurial location, where the git plugin skips, by the hg plugin (after skills, before
+    // web search).
+    let vcs_slot = if loc.vcs() == Some("hg") { "websearch.updated" } else { "agent.updated" };
     for kind in BOOT_NOTIFICATIONS {
-        // The git VCS provider registers in the same batch; the Vcs State notify (after models,
-        // before agents) refreshes the info and announces the branch when it changed from unknown
-        // (core/src/vcs.ts `refresh`).
-        if kind == "agent.updated" {
+        if kind == vcs_slot {
             crate::vcs_watch::refresh(app, loc).await;
         }
         app.bus.publish(kind, json!({}), Some(at.clone()));

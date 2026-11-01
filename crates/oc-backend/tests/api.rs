@@ -538,6 +538,82 @@ async fn vcs_branch_follows_head() {
 }
 
 #[tokio::test]
+async fn vcs_on_mercurial_repository() {
+    if !hg_available() {
+        return;
+    }
+    let h = harness();
+    hg(&h.cwd, &["init"]);
+    std::fs::write(h.cwd.join("a.txt"), "one\n").unwrap();
+    std::fs::write(h.cwd.join("gone.txt"), "bye\n").unwrap();
+    hg(&h.cwd, &["commit", "-q", "-A", "-m", "init", "-u", "test"]);
+    std::fs::write(h.cwd.join("a.txt"), "two\n").unwrap();
+    std::fs::remove_file(h.cwd.join("gone.txt")).unwrap();
+    std::fs::write(h.cwd.join("new.txt"), "new\n").unwrap();
+    let r = h.get("/api/vcs").await;
+    assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));
+    assert_eq!(r.json()["data"], json!({"provider": "hg", "branch": {"current": "default", "default": "default"}}));
+    let r = h.get("/api/location").await;
+    let root = std::process::Command::new("hg").args(["log", "-r", "0", "-T", "{node}"]).current_dir(&h.cwd).output().unwrap();
+    assert_eq!(r.json()["project"]["id"], json!(String::from_utf8_lossy(&root.stdout)));
+    let r = h.get("/api/vcs/status").await;
+    assert_eq!(
+        r.json()["data"],
+        json!([
+            {"file": "a.txt", "additions": 1, "deletions": 1, "status": "modified"},
+            {"file": "gone.txt", "additions": 0, "deletions": 1, "status": "deleted"},
+            {"file": "new.txt", "additions": 1, "deletions": 0, "status": "added"},
+        ])
+    );
+    let r = h.get("/api/vcs/diff?mode=working&untracked=folders").await;
+    assert_eq!(r.status, 200);
+    let files: Vec<Value> = r.json()["data"].as_array().unwrap().iter().map(|d| d["file"].clone()).collect();
+    assert_eq!(files, [json!("a.txt"), json!("gone.txt"), json!("new.txt")]);
+    assert_eq!(h.get("/api/vcs/diff?mode=branch").await.json()["data"], json!([]));
+    let r = h.get("/api/vcs/diff?mode=committed").await;
+    assert_eq!(r.status, 503);
+    assert_eq!(r.json()["message"], "The Mercurial provider does not support committed reviews or explicit bases");
+    assert_eq!(h.get("/api/vcs/branch").await.json()["data"], json!([]));
+    let r = h.post("/api/vcs/init?provider=hg", json!({})).await;
+    assert_eq!(r.status, 409);
+}
+
+#[tokio::test]
+async fn vcs_branch_follows_mercurial_branch_file() {
+    if !hg_available() {
+        return;
+    }
+    let h = harness();
+    hg(&h.cwd, &["init"]);
+    std::fs::write(h.cwd.join("a.txt"), "one\n").unwrap();
+    hg(&h.cwd, &["commit", "-q", "-A", "-m", "init", "-u", "test"]);
+    let mut events = h.app.bus.subscribe();
+    assert_eq!(h.get("/api/vcs").await.json()["data"]["branch"]["current"], "default");
+    assert_eq!(next_event(&mut events, "vcs.branch.updated").await.data, json!({"branch": "default"}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    hg(&h.cwd, &["branch", "-q", "feature"]);
+    let changed = next_event(&mut events, "filesystem.changed").await;
+    let branch = std::fs::canonicalize(h.cwd.join(".hg")).unwrap().join("branch");
+    assert_eq!(changed.data["file"], json!(branch.display().to_string()));
+    assert_eq!(next_event(&mut events, "vcs.branch.updated").await.data, json!({"branch": "feature"}));
+    assert_eq!(h.get("/api/vcs").await.json()["data"]["branch"]["current"], "feature");
+}
+
+#[tokio::test]
+async fn vcs_init_mercurial_on_plain_directory() {
+    if !hg_available() {
+        return;
+    }
+    let h = harness();
+    let r = h.post("/api/vcs/init?provider=hg", json!({})).await;
+    assert_eq!(r.status, 204, "{:?}", String::from_utf8_lossy(&r.body));
+    assert!(h.cwd.join(".hg").is_dir());
+    let r = h.get("/api/vcs").await;
+    assert_eq!(r.json()["data"], json!({"provider": "hg", "branch": {"current": "default", "default": "default"}}));
+}
+
+#[tokio::test]
 async fn vcs_init_on_plain_directory() {
     if !git_available() {
         return;

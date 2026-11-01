@@ -1505,9 +1505,7 @@ impl Plugins {
     /// then plugin `vcs` transforms. `vcs` is the location's detected VCS type.
     pub async fn vcs(&self, key: &str, vcs: Option<&str>) -> crate::vcs::Registry {
         let mut native = crate::vcs::Registry::native(vcs);
-        if !self.builtin_enabled(key, "opencode.vcs.git") {
-            native.providers.clear();
-        }
+        native.providers.retain(|provider| self.builtin_enabled(key, &format!("opencode.vcs.{}", provider.id())));
         if !self.transforms(key, "vcs") {
             return native;
         }

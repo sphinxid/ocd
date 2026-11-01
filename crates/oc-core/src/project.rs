@@ -280,6 +280,102 @@ mod tests {
         assert_eq!(n("ssh://git@host:22/a/b/").as_deref(), Some("host/a/b"));
         assert_eq!(n("file:///tmp/x"), None);
     }
+
+    // Mercurial cases of `packages/core/test/project.test.ts`.
+    mod mercurial {
+        use super::super::{GLOBAL, resolve};
+        use std::path::{Path, PathBuf};
+        use std::process::Command;
+
+        fn run(program: &str, cwd: &Path, args: &[&str]) -> String {
+            let out = Command::new(program).args(args).current_dir(cwd).env("HGPLAIN", "1").output().unwrap();
+            assert!(out.status.success(), "{program} {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        }
+
+        fn git_repo(directory: &Path) {
+            std::fs::create_dir_all(directory).unwrap();
+            run("git", directory, &["init", "-q"]);
+            let identity = ["-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"];
+            run("git", directory, &[&identity[..], &["commit", "-q", "--allow-empty", "-m", "root"]].concat());
+        }
+
+        fn have_hg() -> bool {
+            let found = Command::new("hg").arg("--version").output().is_ok_and(|o| o.status.success());
+            if !found {
+                eprintln!("skipping: hg is not on PATH");
+            }
+            found
+        }
+
+        fn tmp() -> (tempfile::TempDir, PathBuf) {
+            let dir = tempfile::tempdir().unwrap();
+            let path = std::fs::canonicalize(dir.path()).unwrap();
+            (dir, path)
+        }
+
+        #[tokio::test]
+        async fn prefers_git_when_both_git_and_mercurial_metadata_exist() {
+            let (_dir, root) = tmp();
+            git_repo(&root);
+            std::fs::create_dir(root.join(".hg")).unwrap();
+            assert_eq!(resolve(&root).await.vcs.unwrap().kind(), "git");
+        }
+
+        #[tokio::test]
+        async fn prefers_the_nearest_mercurial_marker_over_an_outer_git_repository() {
+            let (_dir, root) = tmp();
+            git_repo(&root);
+            let nested = root.join("nested");
+            std::fs::create_dir_all(nested.join(".hg")).unwrap();
+            std::fs::create_dir(nested.join("app")).unwrap();
+            let result = resolve(&nested.join("app")).await;
+            assert_eq!(result.vcs.unwrap().kind(), "hg");
+            assert_eq!(result.directory, nested);
+            assert_eq!(result.canonical, nested);
+        }
+
+        #[tokio::test]
+        async fn prefers_the_nearest_git_marker_over_an_outer_mercurial_repository() {
+            let (_dir, root) = tmp();
+            std::fs::create_dir(root.join(".hg")).unwrap();
+            let nested = root.join("nested");
+            std::fs::create_dir_all(nested.join("app")).unwrap();
+            git_repo(&nested);
+            let result = resolve(&nested.join("app")).await;
+            assert_eq!(result.vcs.unwrap().kind(), "git");
+            assert_eq!(result.directory, nested);
+        }
+
+        #[tokio::test]
+        async fn returns_global_id_for_unreadable_mercurial_metadata() {
+            let (_dir, root) = tmp();
+            std::fs::create_dir(root.join(".hg")).unwrap();
+            let result = resolve(&root).await;
+            assert_eq!(result.vcs, Some(super::super::Vcs::Hg { store: root.join(".hg") }));
+            assert_eq!(result.id, GLOBAL);
+        }
+
+        #[tokio::test]
+        async fn identifies_by_the_cached_id_or_the_first_root_changeset() {
+            if !have_hg() {
+                return;
+            }
+            let (_dir, root) = tmp();
+            run("hg", &root, &["init"]);
+            assert_eq!(resolve(&root).await.id, GLOBAL);
+            std::fs::write(root.join("a.txt"), "a\n").unwrap();
+            run("hg", &root, &["commit", "-q", "-A", "-m", "root", "-u", "test"]);
+            let node = run("hg", &root, &["log", "-r", "0", "-T", "{node}"]);
+            std::fs::create_dir(root.join("sub")).unwrap();
+            let result = resolve(&root.join("sub")).await;
+            assert_eq!((result.id.as_str(), result.previous.as_deref()), (node.as_str(), None));
+            assert_eq!(result.directory, root);
+            std::fs::write(root.join(".hg/opencode"), " cached-id\n").unwrap();
+            let result = resolve(&root).await;
+            assert_eq!((result.id.as_str(), result.previous.as_deref()), ("cached-id", Some("cached-id")));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

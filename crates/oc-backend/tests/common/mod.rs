@@ -148,3 +148,19 @@ pub fn git(dir: &Path, args: &[&str]) {
         .unwrap();
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
 }
+
+/// Mercurial on `PATH`; tests that need it skip without it.
+#[allow(dead_code)]
+pub fn hg_available() -> bool {
+    let found = std::process::Command::new("hg").arg("--version").output().is_ok_and(|o| o.status.success());
+    if !found {
+        eprintln!("skipping: hg is not on PATH");
+    }
+    found
+}
+
+#[allow(dead_code)]
+pub fn hg(dir: &Path, args: &[&str]) {
+    let out = std::process::Command::new("hg").args(args).current_dir(dir).env("HGPLAIN", "1").output().unwrap();
+    assert!(out.status.success(), "hg {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}

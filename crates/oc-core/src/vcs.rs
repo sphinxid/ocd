@@ -1,5 +1,5 @@
-//! The VCS provider registry (`core/src/vcs.ts`): the built-in git provider
-//! (`core/src/plugin/vcs/git.ts`) and the providers plugins add through `vcs` transforms
+//! The VCS provider registry (`core/src/vcs.ts`): the built-in git and Mercurial providers
+//! (`core/src/plugin/vcs/{git,hg}.ts`) and the providers plugins add through `vcs` transforms
 //! ([`crate::plugins::Plugins::vcs`]).
 //!
 //! A location uses the provider its registry selects (`default.set`), else the one whose id is the
@@ -142,6 +142,58 @@ impl Provider for Git {
     }
 }
 
+/// The built-in Mercurial provider (`core/src/plugin/vcs/hg.ts`). It has no `base`, lists no
+/// branches and ignores the `untracked` option.
+pub struct Hg;
+
+impl Hg {
+    fn vcs(scope: &Scope) -> oc_git::HgVcs {
+        oc_git::HgVcs::new(&scope.directory, &scope.worktree)
+    }
+}
+
+#[async_trait]
+impl Provider for Hg {
+    fn id(&self) -> &str {
+        oc_git::HgVcs::ID
+    }
+    fn name(&self) -> &str {
+        oc_git::HgVcs::NAME
+    }
+    fn has_init(&self) -> bool {
+        true
+    }
+    fn has_base(&self) -> bool {
+        false
+    }
+    async fn init(&self, scope: &Scope) -> Result<(), String> {
+        oc_git::HgVcs::init(&scope.worktree).await.map_err(|e| e.message)
+    }
+    async fn info(&self, scope: &Scope) -> Result<Info, String> {
+        Ok(Self::vcs(scope).info().await)
+    }
+    async fn base(&self, _: &Scope) -> Result<Option<Base>, ProviderError> {
+        Ok(None)
+    }
+    async fn branches(&self, scope: &Scope, _: &BranchOptions) -> Result<Vec<String>, String> {
+        Ok(Self::vcs(scope).branches().await)
+    }
+    async fn status(&self, scope: &Scope) -> Result<Vec<VcsFileStatus>, String> {
+        Ok(Self::vcs(scope).status().await)
+    }
+    async fn diff(
+        &self,
+        scope: &Scope,
+        mode: Mode,
+        base: Option<&str>,
+        _: Option<UntrackedMode>,
+        context: u64,
+    ) -> Result<Vec<FileDiff>, ProviderError> {
+        let options = oc_git::vcs::DiffOptions { context: Some(context), base: base.map(str::to_string), untracked: None };
+        Self::vcs(scope).diff(mode, &options).await.map_err(ProviderError::Diff)
+    }
+}
+
 /// A location's providers and selection (`{providers: Map, selection?}`).
 #[derive(Clone, Default)]
 pub struct Registry {
@@ -150,12 +202,15 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// The built-ins (internal.ts `pre`): git unless the location is another VCS's repository.
-    /// (The hg provider is not ported.)
+    /// The built-ins in internal.ts `pre` order: git, then hg. Each skips a location that is
+    /// another VCS's repository; markerless locations get both so either can initialize one.
     pub fn native(vcs: Option<&str>) -> Registry {
         let mut providers: Vec<Arc<dyn Provider>> = Vec::new();
         if vcs.is_none_or(|v| v == "git") {
             providers.push(Arc::new(Git));
+        }
+        if vcs.is_none_or(|v| v == "hg") {
+            providers.push(Arc::new(Hg));
         }
         Registry { providers, selection: None }
     }
@@ -343,8 +398,11 @@ mod tests {
         assert!(registry.selected(Some("hg")).is_none());
         let picked = Registry { selection: Some("jj".into()), ..registry };
         assert_eq!(picked.selected(Some("git")).unwrap().id(), "jj");
-        assert_eq!(Registry::native(Some("hg")).providers.len(), 0);
-        assert_eq!(Registry::native(None).providers[0].id(), "git");
+        let ids = |r: Registry| r.providers.iter().map(|p| p.id().to_string()).collect::<Vec<_>>();
+        assert_eq!(ids(Registry::native(Some("hg"))), ["hg"]);
+        assert_eq!(ids(Registry::native(Some("git"))), ["git"]);
+        assert_eq!(ids(Registry::native(None)), ["git", "hg"]);
+        assert_eq!(Registry::native(Some("jj")).providers.len(), 0);
         let s = scope();
         assert_eq!(s.to_json(), json!({"directory": "/a/b", "worktree": "/a", "canonical": "/a"}));
         assert_eq!(Scope::from_json(&s.to_json()), Some(s.clone()));
