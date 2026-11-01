@@ -14,6 +14,7 @@ pub mod mime;
 mod mime_db;
 pub mod patch;
 pub mod registry;
+pub mod repair;
 pub mod ripgrep;
 pub mod shell;
 pub mod tool;

@@ -60,6 +60,22 @@ impl Tool for GlobTool {
         super::definition("glob", DESCRIPTION, include_str!("../../schemas/glob.json"))
     }
 
+    /// `path` is a `RelativePath` (a branded string with that identifier), so a non-string reads
+    /// `Expected RelativePath`.
+    fn validate(&self, input: &Value) -> Vec<crate::validate::Issue> {
+        let definition = self.definition(&DefinitionContext::default());
+        let path = [crate::validate::PathSegment::Key("path".into())];
+        crate::validate::validate(&definition.input_schema, input, crate::validate::Flavor::Effect)
+            .into_iter()
+            .map(|mut issue| {
+                if issue.path == path && issue.message == "Expected string" {
+                    issue.message = "Expected RelativePath".into();
+                }
+                issue
+            })
+            .collect()
+    }
+
     async fn execute(&self, input: Value, ctx: ToolContext) -> Result<ToolResult, ToolError> {
         let input: Input = decode(input)?;
         let leaf = format!("Unable to find files matching {}", input.pattern);
@@ -117,5 +133,16 @@ mod tests {
             to_model_content(&["/a".into(), "/b".into()], true),
             "/a\n/b\n\n(Results are truncated: showing first 2 results. Consider using a more specific path or pattern.)"
         );
+    }
+
+    #[test]
+    fn non_string_path_expects_relative_path() {
+        let tool = GlobTool::new(Arc::new(crate::ripgrep::Ripgrep::new(std::env::temp_dir(), reqwest::Client::new())));
+        let messages = |input: Value| tool.validate(&input).into_iter().map(|i| (i.path_text(), i.message)).collect::<Vec<_>>();
+        assert_eq!(
+            messages(json!({"pattern": "*", "path": null, "hidden": "x"})),
+            [("path".to_string(), "Expected RelativePath".to_string()), ("hidden".to_string(), "Expected boolean".to_string())]
+        );
+        assert_eq!(messages(json!({"pattern": 5, "path": "."})), [("pattern".to_string(), "Expected string".to_string())]);
     }
 }

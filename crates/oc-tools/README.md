@@ -111,6 +111,21 @@ Each method has a default that reports the capability as unavailable. The except
   5. `after` hook, content normalization, then image normalization (`[N image(s) omitted: …]`).
 - `registry::execute_tool(tool, name, input, ctx, hooks)` is the same pipeline for one tool;
   CodeMode uses it for nested calls.
+- `snapshot.repair_input(name, &mut input)` is the built-in `opencode.tool.input.repair` plugin
+  (`repair::repair_input`, `plugin/tool-input-repair.ts`). Core runs it first in its `before` hook, for
+  direct and nested CodeMode calls, unless the location removed the plugin. It looks the tool up among
+  all registered tools (`snapshot.registered`, permissions aside), skips `execute`, and repairs the input
+  against the registered input schema when that is a `type: "object"` schema:
+  - stringified objects and arrays are parsed;
+  - closed objects lose undeclared keys;
+  - optional plain-typed nulls and `{}` placeholders are dropped;
+  - numeric strings are converted with JS `Number()`, and `"true"`/`"false"` become booleans;
+  - single non-null union alternatives, tuples, typed dictionaries and local `$ref`s are followed;
+  - a scalar is wrapped into a one-item array when it fits the item type;
+  - nesting stops at depth 6.
+
+  Validation then runs on the repaired input, so the "Arguments provided" text of an
+  `Invalid arguments` error shows it. The stored tool input stays as the model sent it.
 - After execution, core applies `tool_output::truncate(result, max_lines, max_bytes, &global.data)`
   as upstream's step runner does. Core also runs `tool_output::spawn_cleanup(data)` and
   `ShellService::cleanup(data)` hourly.
@@ -123,6 +138,7 @@ Each method has a default that reports the capability as unavailable. The except
 | `tools::opencode` (6 tools + namespace + `SYSTEM_HINT`), `tools::mcp_resource`, `tools::mcp::McpTool` | `opencode.ts`, `mcp-resource.ts`, `tool/mcp.ts` |
 | `file_access`, `file_mutation`, `file_diff`, `jsdiff` (byte-exact jsdiff 8.0.4 port: `createTwoFilesPatch`, `structuredPatch`, `parsePatch`, `reversePatch`, `applyPatch`) | `file-access.ts`, `file-mutation.ts`, `file-diff.ts` |
 | `patch` (grammar, 4-pass seek), `validate` (Effect-compatible issues) | `util/src/patch.ts`, `tool/runtime.ts` |
+| `repair` (schema-driven input repair, JS `Number()`) | `plugin/tool-input-repair.ts` |
 | `ripgrep` (args, JSON parsing with lines cut at 2000 UTF-16 units like a UTF-8 round trip, binary locate/download of 15.1.0 into `<cache>/bin`, verified against the pinned per-platform SHA-256 before it is written) | `ripgrep.ts`, `ripgrep/binary.ts` |
 | `shell::{select, parse, scan, service, result}`: tree-sitter (legacy) and portable scanners | `shell/*.ts`, `shell.ts` |
 | `html` (htmlparser2 8.0.2 + `html-markdown.ts` transliteration) | `tool/html-markdown.ts`, `webfetch.ts` |

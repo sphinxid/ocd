@@ -283,3 +283,20 @@ def plugin_aisdk_hooks(ctx):
     ctx.call("messages", "GET", f"/api/session/{sid}/message")
     ctx.record_events()
     record_aisdk_requests(ctx)
+
+
+@scenario("plugin")
+def plugin_tool_repair(ctx):
+    """Plugin tools (direct and Code Mode) get repaired input, and a plugin's tool.execute.before hook sees it."""
+    code = "return await tools.nested_tally({ count: \"4\", flag: \"false\", extra: 1 })"
+    boot(ctx, ["./plugins/repair-plugin"], ["repair-plugin"], script=[
+        {"tools": [{"name": "tally", "id": "call_tally", "args": {"count": "2", "flag": "true", "extra": 1}}]},
+        {"tools": [{"name": "tally", "id": "call_bad", "args": {"count": "two", "extra": 1}}]},
+        {"tools": [{"name": "execute", "id": "call_code", "args": {"code": code}}]},
+        {"text": "Done."},
+    ])
+    sid = ctx.create_session()
+    ctx.prompt(sid, "tally")
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.record_events()
+    ctx.record_llm()

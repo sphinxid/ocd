@@ -1207,15 +1207,14 @@ impl ToolRunner for LocalTools {
         let data = self.engine.app.global.data.clone();
         let (max_lines, max_bytes) = (self.config.tool_output_max_lines.unwrap_or(2000), self.config.tool_output_max_bytes.unwrap_or(51200));
         let hooks: Arc<dyn oc_tools::registry::ExecuteHooks> = Arc::new(CoreHooks {
+            snapshot: self.snapshot.clone(),
+            repair: self.engine.app.plugins.builtin_enabled(&self.key, oc_tools::repair::PLUGIN_ID),
             plan: (self.agent == "plan").then(|| PlanHooks { dir: crate::agent::plan_dir(&self.engine.app.global.home).display().to_string() }),
             plugins: self.engine.app.plugins.clone(),
             key: self.key.clone(),
         });
         // `Snapshot.execute` (core/src/tool.ts): before hook, availability for this request, then the tool.
         let (mut name, mut input) = (call.name.clone(), call.input);
-        if let Some(tool) = self.snapshot.direct_tool(&name) {
-            input = tool.prepare_input(input);
-        }
         let execute_enabled = self.snapshot.execute_enabled;
         let result = match hooks.before(&mut name, &mut input, &ctx).await {
             Err(e) => Err(e),
@@ -1286,9 +1285,14 @@ impl step::Snapshotter for GitSnapshots {
     }
 }
 
-/// `tool.execute.before/after`: the native internal hooks (plan agent) in their upstream order,
-/// then the plugin callbacks.
+/// `tool.execute.before/after`: the native internal hooks in their upstream order (input repair and
+/// the tools' own rewrites before, the plan agent after), then the plugin callbacks.
 struct CoreHooks {
+    /// The request's tools: the repair schemas and the tool-owned `execute.before` rewrites
+    /// ([`oc_tools::Tool::prepare_input`], e.g. subagent's).
+    snapshot: Snapshot,
+    /// `opencode.tool.input.repair` (the first internal plugin) runs: the location did not remove it.
+    repair: bool,
     plan: Option<PlanHooks>,
     plugins: Arc<crate::plugins::Plugins>,
     key: String,
@@ -1297,6 +1301,12 @@ struct CoreHooks {
 #[async_trait]
 impl oc_tools::registry::ExecuteHooks for CoreHooks {
     async fn before(&self, tool: &mut String, input: &mut serde_json::Value, ctx: &ToolContext) -> Result<(), oc_tools::ToolError> {
+        if self.repair {
+            self.snapshot.repair_input(tool, input);
+        }
+        if let Some(found) = self.snapshot.direct_tool(tool) {
+            *input = found.prepare_input(std::mem::take(input));
+        }
         if !self.plugins.has_hook(&self.key, "tool.execute.before", None) {
             return Ok(());
         }

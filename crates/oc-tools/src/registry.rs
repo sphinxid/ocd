@@ -166,6 +166,7 @@ impl Registry {
             codemode,
             namespaces: self.namespaces.clone(),
             execute_enabled,
+            registered: self.tools.clone(),
         }
     }
 }
@@ -195,6 +196,8 @@ pub struct Snapshot {
     pub namespaces: Vec<Namespace>,
     /// `execute` is not wholly disabled (and there is a CodeMode tool to advertise).
     pub execute_enabled: bool,
+    /// Every registered tool, permissions aside (`Tool.list()`), in registration order.
+    pub registered: Vec<(String, Arc<dyn Tool>)>,
 }
 
 impl Snapshot {
@@ -242,6 +245,18 @@ impl Snapshot {
 
     pub fn codemode_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.codemode.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone())
+    }
+
+    /// The `opencode.tool.input.repair` hook (`plugin/tool-input-repair.ts`): `input` repaired
+    /// against the registered input schema of the tool named `name`. The outer CodeMode `execute`
+    /// tool is not registered, so its input (and an unknown tool's) is left alone.
+    pub fn repair_input(&self, name: &str, input: &mut Value) {
+        if name == "execute" {
+            return;
+        }
+        let Some((_, tool)) = self.registered.iter().find(|(n, _)| n == name) else { return };
+        let schema = tool.definition(&DefinitionContext::default()).input_schema;
+        *input = crate::repair::repair_input(input, &schema);
     }
 
     /// `Snapshot.execute` for a direct tool call. `advertised` = names that survived the

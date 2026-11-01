@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Minimal stdio MCP server (legacy 2025-11-25 handshake) for parity scenarios. Its tools/list mixes valid tools
-with malformed ones: opencode 2.2 drops the malformed tools and keeps the rest."""
+with malformed ones: opencode 2.2 drops the malformed tools and keeps the rest. With `--echo` it lists typed tools
+instead and answers every call with the arguments it received (as JSON text)."""
 import json
 import sys
 
@@ -11,6 +12,20 @@ TOOLS = [
      "annotations": {"readOnlyHint": "yes"}},
     {"name": "good_two", "description": "Another valid tool.", "inputSchema": {"type": "object"}},
 ]
+
+ECHO_TOOLS = [
+    {"name": "typed", "description": "Echo typed arguments (closed object).", "inputSchema": {
+        "type": "object",
+        "properties": {"count": {"type": "integer"}, "flag": {"type": "boolean"},
+                       "tags": {"type": "array", "items": {"type": "string"}},
+                       "size": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                       "nested": {"type": "object", "properties": {"n": {"type": "integer"}}, "additionalProperties": False}},
+        "required": ["count"], "additionalProperties": False}},
+    {"name": "open", "description": "Echo arguments (open object).", "inputSchema": {
+        "type": "object", "properties": {"count": {"type": "integer"}}}},
+]
+
+ECHO = "--echo" in sys.argv[1:]
 
 
 def send(message):
@@ -32,8 +47,9 @@ for line in sys.stdin:
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "fake", "version": "1.0.0"}}})
     elif method == "tools/list":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": TOOLS}})
+        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": ECHO_TOOLS if ECHO else TOOLS}})
     elif method == "tools/call":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": "ok"}]}})
+        text = "received " + json.dumps(msg.get("params", {}).get("arguments")) if ECHO else "ok"
+        send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": text}]}})
     else:
         send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "Method not found"}})
