@@ -15,7 +15,7 @@ look like opencode, ocd reports version 2.2.2.
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 115 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 121 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
@@ -25,11 +25,13 @@ look like opencode, ocd reports version 2.2.2.
   - Mercurial repositories and the desktop browser attachment.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 110 of the 115 scenarios are identical. The other five differ in ways that are expected or harmless:
+- **Result:** 118 of the 121 scenarios are identical. The other three differ in ways that are expected or harmless:
   - the intended renames;
   - the upstream test build's database file name;
-  - timing races: two that also vary between runs of upstream, and the last burst of `run`'s output, which ocd
-    emulates with a short hold and occasionally misses on a busy machine.
+  - a timing race that also varies between runs of upstream.
+
+  Two more scenarios are timing-sensitive and occasionally differ: the title rename racing a failed step (on both
+  sides), and the last burst of `run`'s output, which ocd emulates with a short hold that can miss on a busy machine.
 - **Per-crate tests:** each crate has its own test suite, many replaying recorded upstream data.
 
 ## Same as upstream
@@ -37,6 +39,7 @@ look like opencode, ocd reports version 2.2.2.
 | Area | Notes |
 |---|---|
 | Sessions and history | Create, fork, revert, export, import and search. The same database file and schema |
+| Tool input repair | Malformed tool inputs are repaired against the tool's schema before validation, as upstream's `opencode.tool.input.repair` does: numbers and booleans sent as strings, extra keys on closed schemas, stringified JSON, empty placeholders, single values for arrays. For built-in, Code Mode, MCP and plugin tools; `-opencode.tool.input.repair` turns it off |
 | Agent loop | Steps, tool calls, reasoning, retries, compaction (including background compaction, `experimental.background_compaction`), titles, background jobs and subagents |
 | `/goal` | The command and its controls, the reviewer loop, the `opencode.goal` RPC and its event, and the TUI's footer status and dialog |
 | Permissions and forms | Ask, once, always, and reject with feedback; the question tool |
@@ -50,7 +53,7 @@ look like opencode, ocd reports version 2.2.2.
 | OpenAI Responses over WebSocket | For OpenAI, Azure and xAI: one socket per session, incremental turns with `previous_response_id`, and the same fallback to HTTP. The same proxy variables as upstream (`WSS_PROXY`, `WS_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`) and `permessage-deflate` compression |
 | Cloud credentials | Bedrock uses the AWS SDK's full default chain: environment, profiles with role assumption, web identity, `credential_process`, SSO with token refresh, `aws login`, container and EC2 instance roles. Vertex uses Google's application default credentials, including workload identity federation (`external_account`) and service-account impersonation. Checked against upstream with stand-in AWS and Google endpoints |
 | MCP servers | stdio and HTTP transports, OAuth and elicitation. Remote servers are sign-in integrations, so `ocd mcp auth` and `/connect` can sign in to them |
-| Server plugins | Tools, hooks, transforms, storage, rpc and events, plus `ocd plugin add/check/update`. They run in a small Bun helper process |
+| Server plugins | Tools, hooks, transforms, storage, rpc and events, plus `ocd plugin add/check/update`. They run in a small Bun helper process. Changing `plugins` while the server runs reloads them live, any number of times, with upstream's notifications |
 | AI SDK provider packages | Such as `@ai-sdk/deepseek`, through the same Bun helper |
 | Clients and API | The full TUI. The web UI served by `ocd serve`, built from upstream's 2.2.2 app (88 of 88 compared requests were identical with the 2.0.26 app; the serving code is unchanged since). The HTTP API (162 endpoints, from upstream 2.2.2's OpenAPI document) and the event stream. The background service on port 49374 (28894 on Windows) |
 | Git | Status, diffs, branches, snapshots and worktrees |

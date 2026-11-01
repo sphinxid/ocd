@@ -88,7 +88,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (115)
+## Scenarios (121)
 
 | group | scenarios |
 |---|---|
@@ -111,6 +111,13 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | browser | the desktop browser attachment against a stand-in desktop (`scripts/parity/browser.py`): attach, replace and detach with the control events and session permissions, the `browser.*` Code Mode tools and what the model receives, tool errors, a desktop leaving mid-request, the 60 s timeout, tunnels, the attachment ending with its session, its location or the plugin |
 
 ## Results
+
+**Run after the tool input repair and the plugin reload fix (debug build, 2026-11-01):** all 121 scenarios
+against the local v2.2.2 build, `hg` 7.2.4 on `PATH`: **118 of 121 identical**. Left: `cli_help`, `cli_inventory` and
+`stop_retry_exhausted`. New: `tools22_repair_builtin`, `tools22_repair_disabled`, `tools22_repair_codemode_mcp`,
+`tools22_repair_direct_mcp`, `plugin_tool_repair` and `plugin_live_changes` (eight successive live `plugins`
+changes); `browser_location_end` again changes the config twice on one server. `loop_http_400` and
+`cli_run_last_step` were identical in this run; both stay timing-sensitive.
 
 **Run after Mercurial, `--wizard` and the browser attachment (debug build, 2026-11-01):** all 115 scenarios
 against the local v2.2.2 build, `hg` 7.2.4 on `PATH`: **110 of 115 identical**, including all 7 `hg` and 10

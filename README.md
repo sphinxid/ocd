@@ -69,8 +69,8 @@ Linux x86_64, release builds of both, the same mock model and isolated folders:
 | ⛔ **Not yet** | TUI plugins, image generation and other non-chat models, scheduled prompts, a few other experimental features |
 | ✨ **Different on purpose** | A working status line in the TUI, `ocd upgrade` from ocd's own releases, `ocd --version` shows ocd's own version |
 
-110 of 115 side-by-side scenarios produce identical output against opencode 2.2.2; the other five differ only by
-the renames, the test build's file name and timing races. Details: **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
+118 of 121 side-by-side scenarios produce identical output against opencode 2.2.2; the other three differ only by
+the renames, the test build's file name and an upstream timing race. Details: **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
 
 Only Linux x86_64 is tested day to day. The macOS, Windows and ARM64 builds are produced by CI but not tested.
 
