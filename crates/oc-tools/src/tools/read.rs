@@ -423,23 +423,82 @@ fn alternate_path(absolute: &Path) -> Option<PathBuf> {
     Some(dir.join(&matches[0]))
 }
 
-fn missing(input: &str, absolute: &Path) -> ToolError {
-    let base = util::basename(input).to_lowercase();
-    let input_dir = util::dirname_str(input);
-    let suggestions: Vec<String> = std::fs::read_dir(util::dirname(absolute))
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .filter(|entry| {
-                    let candidate = entry.to_lowercase();
-                    candidate.contains(&base) || base.contains(&candidate)
-                })
-                .map(|entry| util::join_str(&input_dir, &entry))
-                .take(3)
-                .collect()
+/// The environment's directory listing, classified like upstream's `listing`: `ENOENT`/`ENOTDIR` mean the folder
+/// is missing, anything else (a file, a permission error) is unknown.
+enum Listing {
+    Found(Vec<String>),
+    Missing,
+    Unknown,
+}
+
+fn listing(path: &Path) -> Listing {
+    let missing = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound || e.raw_os_error() == Some(20);
+    match std::fs::metadata(path) {
+        Err(e) if missing(&e) => return Listing::Missing,
+        Err(_) => return Listing::Unknown,
+        Ok(m) if !m.is_dir() => return Listing::Unknown,
+        Ok(_) => {}
+    }
+    match std::fs::read_dir(path) {
+        Ok(entries) => Listing::Found(entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()),
+        Err(e) if missing(&e) => Listing::Missing,
+        Err(_) => Listing::Unknown,
+    }
+}
+
+fn similar(names: &[String], name: &str) -> Vec<String> {
+    let base = name.to_lowercase();
+    names
+        .iter()
+        .filter(|entry| {
+            let candidate = entry.to_lowercase();
+            candidate.contains(&base) || base.contains(&candidate)
         })
-        .unwrap_or_default();
+        .take(3)
+        .cloned()
+        .collect()
+}
+
+/// A missing folder usually means a removed worktree, a moved directory, or a relative path resolved from the
+/// wrong place, so name the first missing folder and its nearest existing parent.
+fn missing_folder(input: &str, folder: &Path) -> ToolError {
+    let mut child = folder.to_path_buf();
+    let mut parent = util::dirname(folder);
+    while parent != child {
+        match listing(&parent) {
+            Listing::Unknown => break,
+            Listing::Found(names) => {
+                let child_name = child.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let suggestions: Vec<String> =
+                    similar(&names, &child_name).into_iter().map(|entry| parent.join(entry).to_string_lossy().into_owned()).collect();
+                let mut parts = vec![
+                    format!("File not found: {input}"),
+                    format!("The folder {} does not exist. The nearest folder that does is {}.", child.display(), parent.display()),
+                ];
+                if !suggestions.is_empty() {
+                    parts.push(format!("Did you mean one of these?\n{}", suggestions.join("\n")));
+                }
+                return ToolError::new(parts.join("\n\n"));
+            }
+            Listing::Missing => {
+                child = parent.clone();
+                parent = util::dirname(&parent);
+            }
+        }
+    }
+    ToolError::new(format!("File not found: {input}"))
+}
+
+fn missing(input: &str, absolute: &Path) -> ToolError {
+    let folder = util::dirname(absolute);
+    let suggestions: Vec<String> = match listing(&folder) {
+        Listing::Missing => return missing_folder(input, &folder),
+        Listing::Found(names) => {
+            let input_dir = util::dirname_str(input);
+            similar(&names, &util::basename(input)).into_iter().map(|entry| util::join_str(&input_dir, &entry)).collect()
+        }
+        Listing::Unknown => vec![],
+    };
     if suggestions.is_empty() {
         ToolError::new(format!("File not found: {input}"))
     } else {
@@ -658,6 +717,39 @@ mod tests {
         assert_eq!(err.message, "File not found: zzz");
         std::fs::write(dir.path().join("it’s.txt"), "x").unwrap();
         assert_eq!(alternate_path(&dir.path().join("it's.txt")).unwrap(), dir.path().join("it’s.txt"));
+    }
+
+    /// tool-read.test.ts "names the first missing folder and its nearest existing parent" (#60688).
+    #[test]
+    fn missing_folder_names_the_nearest_existing_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join("__missing_read_folder__-old")).unwrap();
+        std::fs::write(root.join("unrelated"), "").unwrap();
+        let requested = "__missing_read_folder__/src/file.ts";
+        let err = missing(requested, &root.join(requested));
+        assert_eq!(
+            err.message,
+            [
+                format!("File not found: {requested}"),
+                format!(
+                    "The folder {} does not exist. The nearest folder that does is {}.",
+                    root.join("__missing_read_folder__").display(),
+                    root.display()
+                ),
+                format!("Did you mean one of these?\n{}", root.join("__missing_read_folder__-old").display()),
+            ]
+            .join("\n\n")
+        );
+        // Without a similar entry the suggestion block is left out.
+        let err = missing("gone/file.ts", &root.join("gone/file.ts"));
+        assert_eq!(
+            err.message,
+            format!("File not found: gone/file.ts\n\nThe folder {} does not exist. The nearest folder that does is {}.", root.join("gone").display(), root.display())
+        );
+        // A parent that is a file cannot be listed, so the walk stops with the plain message.
+        let err = missing("unrelated/sub/file.ts", &root.join("unrelated/sub/file.ts"));
+        assert_eq!(err.message, "File not found: unrelated/sub/file.ts");
     }
 
     #[test]

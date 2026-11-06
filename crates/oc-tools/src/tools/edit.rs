@@ -283,6 +283,92 @@ struct Input {
     replace_all: Option<bool>,
 }
 
+const HINT_LINES: usize = 12;
+const HINT_LINE_LENGTH: usize = 200;
+
+/// `\s+` in a JavaScript regex.
+fn collapse_whitespace(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut space = false;
+    for c in value.chars() {
+        if js::is_space(c) {
+            if !space {
+                out.push(' ');
+            }
+            space = true;
+        } else {
+            out.push(c);
+            space = false;
+        }
+    }
+    out
+}
+
+/// `/[\p{L}\p{N}]/u`.
+fn distinct(value: &str) -> bool {
+    static LETTER_OR_NUMBER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"[\p{L}\p{N}]").unwrap());
+    LETTER_OR_NUMBER.is_match(value)
+}
+
+/// `missHint`: a short hint for an oldString miss, so the next attempt can succeed without rereading the file:
+/// newString is already there (often an edit that already applied), or the lines closest to oldString, numbered
+/// like Read output. Lines vote for where oldString starts when they match ignoring all whitespace; at least half
+/// must agree. Only the span from the first to the last line that matched is shown, so padding oldString cannot
+/// reveal the lines after it.
+fn miss_hint(source: &str, old_string: &str, new_string: &str) -> Option<String> {
+    let view = source.replace("\r\n", "\n");
+    let replacement = new_string.replace("\r\n", "\n");
+    if js::utf16_len(js::trim(&replacement)) >= 20 && normalize_unicode(&view).contains(&normalize_unicode(&replacement)) {
+        return Some("newString is already in the file, so this edit may already be applied.".into());
+    }
+    let key = |line: &str| js::trim(&collapse_whitespace(&normalize_unicode(line))).to_string();
+    let lines: Vec<&str> = view.split('\n').collect();
+    let search_text = old_string.replace("\r\n", "\n");
+    let search: Vec<&str> = search_text.split('\n').collect();
+    let mut positions: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
+    for (index, line) in lines.iter().enumerate() {
+        let value = key(line);
+        if !distinct(&value) {
+            continue;
+        }
+        positions.entry(value).or_default().push(index as i64);
+    }
+    // Insertion-ordered like a JS Map, so ties go to the first start that got a vote.
+    let mut votes: indexmap::IndexMap<i64, usize> = indexmap::IndexMap::new();
+    let mut wanted = 0;
+    for (offset, line) in search.iter().enumerate() {
+        let value = key(line);
+        if !distinct(&value) {
+            continue;
+        }
+        wanted += 1;
+        for index in positions.get(&value).into_iter().flatten() {
+            *votes.entry(index - offset as i64).or_insert(0) += 1;
+        }
+    }
+    let (start, count) = votes.iter().fold((0i64, 0usize), |best, (&start, &count)| if count > best.1 { (start, count) } else { best });
+    if count == 0 || count * 2 < wanted {
+        return None;
+    }
+    let matched: Vec<usize> = search
+        .iter()
+        .enumerate()
+        .filter_map(|(offset, line)| {
+            let value = key(line);
+            let index = start + offset as i64;
+            (!value.is_empty() && index >= 0 && (index as usize) < lines.len() && key(lines[index as usize]) == value).then_some(index as usize)
+        })
+        .collect();
+    let from = *matched.first()?;
+    let to = (matched.last()? + 1).min(from + HINT_LINES);
+    let mut out = vec!["The closest lines in the file:".to_string()];
+    for (index, line) in lines[from..to].iter().enumerate() {
+        let shown = if js::utf16_len(line) > HINT_LINE_LENGTH { format!("{}…", js::utf16_prefix(line, HINT_LINE_LENGTH)) } else { line.to_string() };
+        out.push(format!("{}: {shown}", from + index + 1));
+    }
+    Some(out.join("\n"))
+}
+
 pub struct EditTool {
     formatter: Arc<Formatter>,
 }
@@ -334,9 +420,13 @@ impl EditTool {
         .await
         .map_err(super::perm(leaf.clone()))?;
         if replacements == 0 {
+            // The hint shows file contents, so only when reading this file is already allowed.
+            let readable = ctx.host.permission_allows(ctx.permission("read", vec![target.resource.clone()], Some(vec!["*".into()]), None)).await;
+            let hint = if readable { miss_hint(source, &input.old_string, &input.new_string) } else { None };
             return Err(ToolError::new(format!(
-                "Could not find oldString in {}. It must match exactly, including whitespace and indentation.",
-                input.path
+                "Could not find oldString in {}. It must match exactly, including whitespace and indentation.{}",
+                input.path,
+                hint.map(|h| format!("\n\n{h}")).unwrap_or_default()
             )));
         }
         if replacements > 1 && !replace_all {
@@ -408,6 +498,35 @@ impl Tool for EditTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// tool-edit.test.ts "points a missed oldString at the closest lines, or at newString already applied" (#60689).
+    #[test]
+    fn miss_hint_cases() {
+        let file = "import { a } from './a'\n\nexport function run() {\n  const value = a()\n  return value + 1\n}\n";
+        assert_eq!(
+            miss_hint(file, "export function run() {\n\tconst value = a()\n\treturn value + 2\n}", "x").as_deref(),
+            Some("The closest lines in the file:\n3: export function run() {\n4:   const value = a()\n5:   return value + 1\n6: }")
+        );
+        assert_eq!(miss_hint(file, "  return value + 2", "  return value + 1"), None);
+        assert_eq!(
+            miss_hint(file, "const value = b()", "  const value = a()\n  return value + 1").as_deref(),
+            Some("newString is already in the file, so this edit may already be applied.")
+        );
+        assert_eq!(miss_hint(file, "nothing like it", "anything"), None);
+        assert_eq!(miss_hint(file, "import { a } from './a'\n\n\n\n\n\n", "x").as_deref(), Some("The closest lines in the file:\n1: import { a } from './a'"));
+        // CRLF files, typographic variants and long lines.
+        let crlf = format!("one line here\r\n{}\r\nthird “quoted” line\r\n", "x".repeat(250));
+        assert_eq!(
+            miss_hint(&crlf, "one line here\nZZZ\nthird \"quoted\" line", "y").as_deref(),
+            Some(format!("The closest lines in the file:\n1: one line here\n2: {}…\n3: third “quoted” line", "x".repeat(200)).as_str())
+        );
+        // At most twelve lines are shown.
+        let long: String = (1..=20).map(|n| format!("line {n}\n")).collect();
+        let search: Vec<String> = (1..=20).map(|n| format!("line {n}")).chain(["extra".into()]).collect();
+        let hint = miss_hint(&long, &search.join("\n"), "y").unwrap();
+        assert_eq!(hint.lines().count(), 13);
+        assert!(hint.ends_with("12: line 12"));
+    }
 
     fn run(source: &str, old: &str, new: &str, all: bool) -> (usize, String) {
         let matches = find_matches(source, old);

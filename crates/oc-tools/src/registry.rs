@@ -247,6 +247,17 @@ impl Snapshot {
         self.codemode.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone())
     }
 
+    /// Tool names models carry over from other harnesses (`plugin/tool-input-repair.ts` `aliases`), used only when
+    /// no registered tool has the called name: the registered tool the call runs as.
+    pub fn alias(&self, name: &str) -> Option<&'static str> {
+        const ALIASES: &[(&str, &str)] = &[("bash", "shell")];
+        if name == "execute" || self.registered.iter().any(|(n, _)| n == name) {
+            return None;
+        }
+        let (_, target) = ALIASES.iter().find(|(from, _)| *from == name)?;
+        self.registered.iter().any(|(n, _)| n == target).then_some(*target)
+    }
+
     /// The `opencode.tool.input.repair` hook (`plugin/tool-input-repair.ts`): `input` repaired
     /// against the registered input schema of the tool named `name`. The outer CodeMode `execute`
     /// tool is not registered, so its input (and an unknown tool's) is left alone.

@@ -247,6 +247,15 @@ impl Permissions {
         }
     }
 
+    /// `allows`: true only when the rules (and the `permission.evaluate` hook) already allow the
+    /// request; never asks the user.
+    pub async fn allows(&self, input: AssertInput) -> bool {
+        if *self.closed.lock() {
+            return false;
+        }
+        matches!(self.evaluate_hooked(&input).await, Some((Evaluated::Allow(_), _)))
+    }
+
     /// `ask`: returns the request id and effect without waiting.
     pub async fn ask(&self, input: AssertInput) -> (String, Effect) {
         let mut request = Self::request(&input);

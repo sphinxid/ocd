@@ -46,6 +46,20 @@ impl ToolHost for CoreHost {
         })
     }
 
+    async fn permission_allows(&self, r: PermissionRequest) -> bool {
+        let input = AssertInput {
+            id: None,
+            session_id: r.session_id,
+            action: r.action,
+            resources: r.resources,
+            save: r.save,
+            metadata: r.metadata,
+            source: Some(Source { kind: "tool".into(), message_id: r.source.message_id, id: r.source.call_id }),
+            agent: r.agent,
+        };
+        self.app.permissions.allows(input).await
+    }
+
     async fn ask_permission(&self, r: PermissionRequest) -> Result<(), PermissionError> {
         let input = AssertInput {
             id: None,

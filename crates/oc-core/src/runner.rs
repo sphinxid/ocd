@@ -1214,6 +1214,7 @@ impl ToolRunner for LocalTools {
             plan: (self.agent == "plan").then(|| PlanHooks { dir: crate::agent::plan_dir(&self.engine.app.global.home).display().to_string() }),
             plugins: self.engine.app.plugins.clone(),
             key: self.key.clone(),
+            aliased: Default::default(),
         });
         // `Snapshot.execute` (core/src/tool.ts): before hook, availability for this request, then the tool.
         let (mut name, mut input) = (call.name.clone(), call.input);
@@ -1298,12 +1299,17 @@ struct CoreHooks {
     plan: Option<PlanHooks>,
     plugins: Arc<crate::plugins::Plugins>,
     key: String,
+    /// Calls the repair plugin ran under an alias (`bash` -> `shell`): call id -> the name the model called.
+    aliased: parking_lot::Mutex<HashMap<String, String>>,
 }
 
 #[async_trait]
 impl oc_tools::registry::ExecuteHooks for CoreHooks {
     async fn before(&self, tool: &mut String, input: &mut serde_json::Value, ctx: &ToolContext) -> Result<(), oc_tools::ToolError> {
         if self.repair {
+            if let Some(target) = self.snapshot.alias(tool) {
+                self.aliased.lock().insert(ctx.call_id.clone(), std::mem::replace(tool, target.to_string()));
+            }
             self.snapshot.repair_input(tool, input);
         }
         if let Some(found) = self.snapshot.direct_tool(tool) {
@@ -1347,6 +1353,20 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
         result: &mut Result<oc_tools::ToolResult, oc_tools::ToolError>,
         ctx: &ToolContext,
     ) {
+        // The repair plugin is the first internal plugin: tell the model which tool an aliased call ran as.
+        let called = self.aliased.lock().remove(&ctx.call_id);
+        if let Some(called) = called {
+            let note = format!("There is no \"{called}\" tool, so this ran as \"{tool}\". Call \"{tool}\" directly.");
+            match result {
+                Ok(r) => {
+                    let mut content = oc_tools::registry::normalize_content(std::mem::take(&mut r.content), r.output.as_ref());
+                    content.push(oc_schema::ToolContent::Text { text: note });
+                    r.content = content;
+                }
+                Err(e) if e.kind == ToolErrorKind::Failure => e.message = format!("{}\n\n{note}", e.message),
+                Err(_) => {}
+            }
+        }
         if let Some(plan) = &self.plan {
             plan.after(tool, input, result, ctx).await;
         }

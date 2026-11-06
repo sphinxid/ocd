@@ -71,7 +71,8 @@ async fn repairs_tool_input_unless_removed() {
         std::env::set_var("OPENCODE_TEST_HOME", root.join("home"));
     }
 
-    // Each prompt runs: read with coercible strings and an extra key, read with an invalid path, then text.
+    // Each prompt runs: read with coercible strings and an extra key, read with an invalid path, a call to
+    // `bash` (run as `shell`, #60687), then text.
     let calls = Arc::new(AtomicUsize::new(0));
     let file = Arc::new(parking_lot::Mutex::new(String::new()));
     let (c2, f2) = (calls.clone(), file.clone());
@@ -79,13 +80,14 @@ async fn repairs_tool_input_unless_removed() {
         "/v1/chat/completions",
         post(move |body: axum::Json<Value>| {
             let is_title = body.0.to_string().contains("You name conversations");
-            let n = if is_title { usize::MAX } else { c2.fetch_add(1, Ordering::SeqCst) % 3 };
+            let n = if is_title { usize::MAX } else { c2.fetch_add(1, Ordering::SeqCst) % 4 };
             let file = f2.lock().clone();
             async move {
                 match n {
                     usize::MAX => text("Repair"),
                     0 => tool_call("call_ok", "read", &json!({"path": file, "offset": "2", "limit": "1", "extra": true}).to_string()),
                     1 => tool_call("call_bad", "read", &json!({"path": 5, "limit": "3", "bogus": 1}).to_string()),
+                    2 => tool_call("call_bash", "bash", &json!({"command": "echo aliased", "timeout": "5000"}).to_string()),
                     _ => text("Done."),
                 }
             }
@@ -144,7 +146,7 @@ async fn repairs_tool_input_unless_removed() {
 
     // Repaired: the read runs with offset 2 / limit 1, and the stored inputs stay as the model sent them.
     let (path, parts) = &results[0];
-    assert_eq!(parts.len(), 2, "{parts:#?}");
+    assert_eq!(parts.len(), 3, "{parts:#?}");
     assert_eq!(parts[0].0, json!({"path": path, "offset": "2", "limit": "1", "extra": true}));
     assert!(parts[0].1.contains("2: two") && !parts[0].1.contains("one"), "{}", parts[0].1);
     assert_eq!(parts[1].0, json!({"path": 5, "limit": "3", "bogus": 1}));
@@ -153,12 +155,20 @@ async fn repairs_tool_input_unless_removed() {
         "Invalid arguments for tool \"read\":\n- path: Expected string\n\nArguments provided:\n{\n  \"path\": 5,\n  \"limit\": 3\n}\n\nUpdate the arguments and call the tool again."
     );
 
+    // `bash` ran as `shell` with the repaired timeout, and the result says so.
+    assert_eq!(parts[2].0, json!({"command": "echo aliased", "timeout": "5000"}));
+    assert!(parts[2].1.contains("aliased"), "{}", parts[2].1);
+    let note = json!({"type": "text", "text": "There is no \"bash\" tool, so this ran as \"shell\". Call \"shell\" directly."});
+    assert!(parts[2].1.ends_with(&format!(",{note}]")), "{}", parts[2].1);
+
     // Removed: the same calls fail validation with the model's own arguments.
     let (path, parts) = &results[1];
-    assert_eq!(parts.len(), 2, "{parts:#?}");
+    assert_eq!(parts.len(), 3, "{parts:#?}");
     assert!(parts[0].1.starts_with("Invalid arguments for tool \"read\":\n- offset: Expected number\n- limit: Expected number\n"), "{}", parts[0].1);
     assert!(parts[0].1.contains(&format!("\"path\": \"{path}\",\n  \"offset\": \"2\",\n  \"limit\": \"1\",\n  \"extra\": true")), "{}", parts[0].1);
     assert!(parts[1].1.contains("\"bogus\": 1"), "{}", parts[1].1);
+    // Without the repair plugin there is no alias either.
+    assert_eq!(parts[2].1, "No tool named \"bash\" is currently available. Please use a tool from the available tool list.");
     std::fs::remove_dir_all(&root).ok();
 }
 

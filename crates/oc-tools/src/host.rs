@@ -314,6 +314,11 @@ pub trait ToolHost: Send + Sync {
         Ok(())
     }
 
+    /// `Permission.allows`: true only when the rules already allow the request; never asks.
+    async fn permission_allows(&self, _request: PermissionRequest) -> bool {
+        false
+    }
+
     async fn ask_form(&self, _request: FormRequest) -> Result<FormResponse, String> {
         Err(unsupported("forms"))
     }

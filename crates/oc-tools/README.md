@@ -62,7 +62,7 @@ Each method has a default that reports the capability as unavailable. The except
 
 | area | methods |
 |---|---|
-| permissions / forms | `ask_permission(PermissionRequest) -> Result<(), PermissionError>`, `check_permission(PermissionRequest)` (`assertNotDenied`: fails only on a deny, never asks; webfetch checks each redirect target with it), `ask_form(FormRequest) -> FormResponse` |
+| permissions / forms | `ask_permission(PermissionRequest) -> Result<(), PermissionError>`, `check_permission(PermissionRequest)` (`assertNotDenied`: fails only on a deny, never asks; webfetch checks each redirect target with it), `permission_allows(PermissionRequest) -> bool` (`allows`: true only when already allowed, never asks; `edit` shows its miss hint only then), `ask_form(FormRequest) -> FormResponse` |
 | read tool | `load_instructions(session, paths)`: nested AGENTS.md |
 | skills | `get_skill(id)`, `list_skills()` |
 | sessions | `session_get/create/switch_agent/switch_model/prompt/interrupt/rename/move/synthetic`, `session_environment` |
@@ -125,6 +125,10 @@ Each method has a default that reports the capability as unavailable. The except
 
   Validation then runs on the repaired input, so the "Arguments provided" text of an
   `Invalid arguments` error shows it. The stored tool input stays as the model sent it.
+- `snapshot.alias(name)` is the same plugin's alias table (`bash` -> `shell`), used only when no registered
+  tool has the called name. Core renames the call in its `before` hook and, in `after`, appends
+  `There is no "bash" tool, so this ran as "shell". Call "shell" directly.` to the failure message or as a
+  text part after the normalized content.
 - After execution, core applies `tool_output::truncate(result, max_lines, max_bytes, &global.data)`
   as upstream's step runner does. Core also runs `tool_output::spawn_cleanup(data)` and
   `ShellService::cleanup(data)` hourly.
