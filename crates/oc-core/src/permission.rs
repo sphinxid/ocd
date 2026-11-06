@@ -471,6 +471,23 @@ mod tests {
         assert!(perms.list().is_empty());
     }
 
+    // permission.test.ts "reports whether a request is already allowed without asking" (#60689)
+    #[tokio::test]
+    async fn reports_whether_a_request_is_already_allowed_without_asking() {
+        let ctx = Arc::new(Ctx::default());
+        let perms = Permissions::new(ctx.clone());
+        assert!(!perms.allows(input("per_a", "ses_1", "a.txt", false)).await);
+        assert!(perms.list().is_empty());
+        ctx.saved.lock().push(PermissionRule { action: "read".into(), resource: "*".into(), effect: Effect::Allow });
+        assert!(perms.allows(input("per_b", "ses_1", "a.txt", false)).await);
+        // The evaluate hook still decides: here it keeps asking for `veto.env`.
+        assert!(!perms.allows(input("per_c", "ses_1", "veto.env", false)).await);
+        assert!(!perms.allows(input("per_d", "ses_deny", "a.txt", false)).await);
+        assert!(!perms.allows(input("per_e", "ses_gone", "a.txt", false)).await);
+        perms.close();
+        assert!(!perms.allows(input("per_f", "ses_1", "a.txt", false)).await);
+    }
+
     #[tokio::test]
     async fn always_recheck_runs_the_evaluate_hook() {
         let ctx = Arc::new(Ctx::default());
