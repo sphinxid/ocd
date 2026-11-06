@@ -524,7 +524,7 @@ Normal-width tab, 2 rows:
   - Format: `"${project} ⎇ ${branch}"`.
   - The branch is shown only for worktrees not on the default branch (`src/context/session-tabs-model.ts:14-22`).
   - Colour: `tint(text.muted, bg, 0.35)`.
-- **Separators:** half-block `TabPulse` rows at `top=-1` (edge `"above"`, `▄`). The last tab also gets one at `top=2` (`▀`). Pulse width is `indicatorWidth = 10` (`:850`, `:975-1027`).
+- **Separators:** half-block `TabPulse` rows at `top=-1` (edge `"above"`, `▄`). The last tab also gets one at `top=2` (`▀`). Since 2.2.5 (#60338) every `TabPulse` (the two separators, the title row and the detail row) spans the full rail width (`TabPulse` defaults to `width "100%"`).
 - **Add slot** (`:1146-1237`):
   - Content: `+` (2 cols, `idleNumber` or `text.base`) followed by `"New session"` (muted, or `text.base`).
   - Indent: `paddingLeft 1`.

@@ -679,7 +679,9 @@ fn diff_body(ctx: &RCtx, patch: &str, path: &str) -> Vec<SLine> {
         split: ctx.split_view(),
         wrap: ctx.config.diffs_wrap() != "none",
     };
-    diff::render(&diff::parse(patch), ctx.width.saturating_sub(4).max(10), &o).into_iter().map(|l| l.prefixed(&[pad(1)])).collect()
+    // `<box paddingLeft={1} paddingRight={3}>` inside `BlockTool` (border 1 + paddingLeft 2): the diff gets
+    // `width - 7` cells; the padding cells show the block's own background (#60614 added the right one).
+    diff::render(&diff::parse(patch), ctx.width.saturating_sub(7).max(10), &o).into_iter().map(|l| l.prefixed(&[pad(1)])).collect()
 }
 
 /// Shell output collapsing (`collapse-tool-output.ts`).
@@ -1501,18 +1503,21 @@ fn render_message(ctx: &RCtx, id: &str, light: bool) -> Vec<SLine> {
             for l in wrap(&[s(m.text_str(), th.text.base)], w.saturating_sub(3).max(1), Wrap::Word) {
                 out.push(SLine::new(l).prefixed(&bar));
             }
-            let mut chips: Vec<Vec<Seg>> = Vec::new();
-            for sk in &skills {
-                chips.push(chip("skill", sk.name.as_deref().unwrap_or(&sk.id), ctx, light));
-            }
-            for f in &files {
-                let label = if f.mime.as_deref() == Some("application/x-directory") { "dir" } else { "file" };
-                let name = f.name.clone().or_else(|| f.source_uri()).unwrap_or_else(|| "attachment".into());
-                chips.push(chip(label, &name, ctx, light));
-            }
-            if !chips.is_empty() {
+            let skill_chips: Vec<Vec<Seg>> = skills.iter().map(|sk| chip("skill", sk.name.as_deref().unwrap_or(&sk.id), ctx, light)).collect();
+            let file_chips: Vec<Vec<Seg>> = files
+                .iter()
+                .map(|f| {
+                    let label = if f.mime.as_deref() == Some("application/x-directory") { "dir" } else { "file" };
+                    let name = f.name.clone().or_else(|| f.source_uri()).unwrap_or_else(|| "attachment".into());
+                    chip(label, &name, ctx, light)
+                })
+                .collect();
+            // Skills and files are two boxes, each `paddingTop 1`, `gap 1`, `flexWrap "wrap"`.
+            for chips in [skill_chips, file_chips] {
+                if chips.is_empty() {
+                    continue;
+                }
                 out.push(SLine::new(vec![bar[0].clone()]));
-                // flex-wrap chips with gap 1
                 let mut line: Vec<Seg> = Vec::new();
                 let mut used = 0;
                 let avail = w.saturating_sub(3);
@@ -2000,7 +2005,8 @@ pub fn render_row(ctx: &RCtx, row: &Row, light: bool) -> Vec<SLine> {
 pub fn revert_banner(ctx: &RCtx, count: usize, files: &[FileDiff]) -> Vec<SLine> {
     let th = ctx.t();
     let bg = th.background.raised.base.tui();
-    let bar = vec![Seg::new("┃", Style::default().fg(th.background.raised.base.tui()).bg(bg)), pad(2)];
+    // The border sits on the outer box, which has no background: the page shows behind the bar.
+    let bar = vec![Seg::new("┃", Style::default().fg(th.background.raised.base.tui()).bg(th.background.base.tui_or_reset())), pad(2)];
     let mut out = vec![SLine::new(vec![bar[0].clone()])];
     out.push(SLine::new(vec![s(format!("{count} message{} reverted", if count == 1 { "" } else { "s" }), th.text.muted)]).prefixed(&bar));
     if !files.is_empty() {

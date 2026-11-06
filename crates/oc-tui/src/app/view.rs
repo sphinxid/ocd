@@ -47,6 +47,7 @@ impl App {
         let buf = f.buffer_mut();
         fill(buf, area, t.background.base.tui_or_reset());
         let mut cursor: Option<(u16, u16)> = None;
+        self.acknowledge_view();
         let main = self.draw_tabs_frame(buf, area, &t);
         match self.route.clone() {
             Route::Home => self.draw_home(buf, main, &t, &mut cursor),
@@ -58,14 +59,32 @@ impl App {
         // The execute detail follows its live tool part; the usage dialogs follow the limits.
         self.refresh_execute_dialog();
         self.refresh_usage_dialog();
+        // The focused input's cursor (`cursorStyle` / `cursorColor`): the prompt by default.
+        let mut look = cursor.map(|_| (self.config.cursor_decscusr(), t.text.base));
+        if self.right_focus && self.terminal_visible().is_some() {
+            // The embedded terminal draws its own cursor.
+            look = None;
+        }
         if let Some(mut d) = self.dialogs.pop() {
             let kb = self.keybinds.clone();
             let (rect, hits, c) = dialog::render(buf, area, &mut d, &t, &kb);
+            let dt = t.dialog();
+            look = c.map(|_| {
+                let color = match &d.body {
+                    // `DialogPrompt`: `text.base`, or the disabled form-field background while busy.
+                    dialog::Body::Prompt(p) if p.busy.is_some() => dt.background.formfield.disabled,
+                    dialog::Body::Prompt(_) => dt.text.base,
+                    // `DialogSelect`'s search input and the integration form's typed answer.
+                    _ => dt.text.formfield.focused,
+                };
+                (self.config.cursor_decscusr(), color)
+            });
             self.dialogs.push(d);
             self.dialog_hits = hits;
             self.dialog_rect = Some(rect);
             cursor = c;
         }
+        self.cursor_look = look;
         self.draw_reconnecting(buf, area, &t);
         self.draw_migration(buf, area, &t);
         let spinner = self.spinner_frame();
@@ -563,7 +582,8 @@ impl App {
         let h = 10.min(count.max(1)).min((anchor.y as usize).max(1)) as u16;
         let rect = Rect::new(anchor.x, anchor.y.saturating_sub(h), anchor.width, h);
         let bg = t.background.raised.high.tui();
-        fill(buf, rect, bg);
+        // The scrollbox paints the background; the split border's cells keep what is underneath.
+        fill(buf, Rect::new(rect.x + 1, rect.y, rect.width.saturating_sub(2), rect.height), bg);
         let inner_w = anchor.width.saturating_sub(2) as usize;
         let mut lines: Vec<SLine> = Vec::new();
         if count == 0 {
@@ -597,13 +617,15 @@ impl App {
             let (fgc, bgc) = if selected { (t.text.action.primary.focused, Some(t.background.action.primary.focused)) } else { (t.text.base, None) };
             let label = item.label.clone();
             let lw = label.as_ref().map(|l| sw(l) + 2).unwrap_or(0);
-            let display = locale::truncate_middle_width(&item.display, inner_w.saturating_sub(4 + lw).max(1));
+            // `contentWidth`: the popup width - 4, less the label and its 2-cell spacer.
+            let display = locale::truncate_middle_width(&item.display, (anchor.width as usize).saturating_sub(4 + lw).max(1));
             let mut segs = vec![pad(1), s(display.clone(), fgc)];
             if let Some(d) = &item.description {
-                let room = inner_w.saturating_sub(2 + sw(&display) + lw + 2);
-                if room > 1 {
-                    segs.push(s(locale::truncate_width(&format!(" {}", locale::collapse_ws(d)), room), if selected { fgc } else { t.text.muted }));
-                }
+                // The description shrinks (`flexShrink 1`, `minWidth 0`, no wrap): it is clipped, without an ellipsis,
+                // to what the row (between its 1-cell paddings) leaves after the name, the spacer and the label.
+                let room = inner_w.saturating_sub(2 + sw(&display) + lw);
+                let desc = crate::ui::text::clip(&[s(format!(" {}", locale::collapse_ws(d)), if selected { fgc } else { t.text.muted })], room);
+                segs.extend(desc);
             }
             if let Some(l) = label {
                 let used: usize = segs.iter().map(|x| x.width()).sum();
@@ -617,8 +639,9 @@ impl App {
             lines.push(line);
         }
         for y in rect.y..rect.bottom() {
-            put(buf, rect.x, y, "┃", Style::default().fg(t.border.tui()).bg(bg), 1);
-            put(buf, rect.right().saturating_sub(1), y, "┃", Style::default().fg(t.border.tui()).bg(bg), 1);
+            let border = Style::default().fg(t.border.tui()).remove_modifier(ratatui::style::Modifier::all());
+            put(buf, rect.x, y, "┃", border, 1);
+            put(buf, rect.right().saturating_sub(1), y, "┃", border, 1);
         }
         draw_lines(buf, Rect::new(rect.x + 1, rect.y, rect.width.saturating_sub(2), rect.height), &lines, 0, "");
     }

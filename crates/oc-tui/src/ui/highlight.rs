@@ -80,6 +80,9 @@ fn find_syntax(lang: &str) -> Option<&'static SyntaxReference> {
         "clojure" => "clj",
         "elixir" | "fsharp" | "julia" | "swift" | "nix" | "vue" | "hcl" | "toml" | "vim" => return None,
         "none" | "" | "text" => return None,
+        // Upstream highlights PHP with `tree-sitter-php_only` (#60359): bare PHP, no `<?php` needed. Syntect's
+        // `PHP` syntax is the HTML-embedded one; `PHP Source` is the bare language.
+        "php" => return ss.find_syntax_by_name("PHP Source"),
         other => other,
     };
     ss.find_syntax_by_token(token).or_else(|| ss.find_syntax_by_extension(token))
@@ -436,5 +439,19 @@ mod tests {
         assert_eq!(s.style.fg, Some(t.syntax.string.tui()));
         assert_eq!(filetype(Some("src/a.tsx")), "typescript");
         assert_eq!(filetype(None), "none");
+    }
+
+    /// #60359: a PHP block without `<?php` is PHP, not HTML text.
+    #[test]
+    fn php_without_an_opening_tag_is_highlighted() {
+        let doc: serde_json::Value = serde_json::from_str(OPENCODE_V2).unwrap();
+        let t = resolve::resolve_document(&doc, Mode::Dark).unwrap();
+        let st = SyntaxStyle::from_theme(&t);
+        let lines = highlight("return \"hi\";", "php", &st);
+        let kw = lines[0].iter().find(|s| s.text.contains("return")).unwrap();
+        assert_eq!(kw.style.fg, Some(t.syntax.keyword.tui()));
+        let s = lines[0].iter().find(|s| s.text.contains("\"hi")).unwrap();
+        assert_eq!(s.style.fg, Some(t.syntax.string.tui()));
+        assert_eq!(filetype(Some("index.php")), "php");
     }
 }

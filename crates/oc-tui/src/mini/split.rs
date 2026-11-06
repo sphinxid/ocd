@@ -92,6 +92,9 @@ pub struct Transition {
     pub scroll_lines: u32,
 }
 
+/// What OpenTUI sends when the renderer stops: the default cursor color and style.
+pub const CURSOR_RESET: &str = "\x1b]12;default\x07\x1b]112\x07\x1b[0 q";
+
 /// Cursor request for the footer frame (the focused textarea's cursor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CursorReq {
@@ -121,6 +124,7 @@ pub struct Split {
     current: Option<(u32, Buffer)>,
     cursor_visible: bool,
     cursor_style: Option<u8>,
+    cursor_color: Option<(u8, u8, u8)>,
 }
 
 /// `moveToSplitOutputCursor`.
@@ -196,6 +200,7 @@ impl Split {
             current: None,
             cursor_visible: false,
             cursor_style: None,
+            cursor_color: None,
         };
         let seed = if cursor_row == 0 { 0 } else { cursor_row.max(1).min(height.max(1)) };
         s.reset_scrollback(seed);
@@ -385,7 +390,12 @@ impl Split {
     fn place_cursor(&mut self, out: &mut String, cursor: Option<CursorReq>) {
         match cursor {
             Some(c) if (c.y as u32) < self.split_height => {
-                if self.cursor_style != Some(c.style) {
+                // OpenTUI sends the cursor color (OSC 12) and its style (DECSCUSR) together when either changes.
+                if self.cursor_style != Some(c.style) || (c.color.is_some() && self.cursor_color != c.color) {
+                    if let Some((r, g, b)) = c.color {
+                        let _ = write!(out, "\x1b]12;#{r:02x}{g:02x}{b:02x}\x07");
+                        self.cursor_color = c.color;
+                    }
                     let _ = write!(out, "\x1b[{} q", c.style);
                     self.cursor_style = Some(c.style);
                 }
@@ -524,7 +534,7 @@ impl Split {
     /// cursor on the footer's top line.
     pub fn leave(&mut self) {
         let top = self.transition.map(|t| t.source_top_line).unwrap_or(self.render_offset + 1);
-        let s = format!("\x1b[?2026h\x1b[r\x1b[{top};1H\x1b[J\x1b[0 q\x1b[?25h\x1b[?2026l");
+        let s = format!("\x1b[?2026h\x1b[r\x1b[{top};1H\x1b[J\x1b[?25h{CURSOR_RESET}\x1b[?25h\x1b[?2026l");
         self.emit(&s);
     }
 

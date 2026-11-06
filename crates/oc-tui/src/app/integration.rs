@@ -37,17 +37,28 @@ fn arr(v: &Value, k: &str) -> Vec<Value> {
     v.get(k).and_then(|x| x.as_array()).cloned().unwrap_or_default()
 }
 
-/// `integrationOptions`: MCP integrations first, then the popular ones, then by name and ID.
+/// `integrationOptions`: the popular integrations first, then by name and ID.
 pub fn integration_options(list: &[Value]) -> Vec<Value> {
     let mut out = list.to_vec();
     out.sort_by(|a, b| {
-        is_mcp(b)
-            .cmp(&is_mcp(a))
-            .then(priority(s(a, "id")).cmp(&priority(s(b, "id"))))
+        priority(s(a, "id"))
+            .cmp(&priority(s(b, "id")))
             .then(locale::compare(s(a, "name"), s(b, "name")))
             .then(locale::compare(s(a, "id"), s(b, "id")))
     });
     out
+}
+
+/// The `DialogIntegration` list: the MCP dialog signs its servers in through `only` (`integrationID`);
+/// the connect menu leaves MCP integrations to it.
+pub fn listed_integrations(list: &[Value], only: Option<&str>) -> Vec<Value> {
+    integration_options(list)
+        .into_iter()
+        .filter(|i| match only {
+            None => !is_mcp(i),
+            Some(o) => s(i, "id") == o,
+        })
+        .collect()
 }
 
 /// `connectMethods`: every method but environment discovery, API keys last.
@@ -343,7 +354,7 @@ impl App {
     fn integration_auto_connect(&mut self) -> bool {
         let Some(token) = self.integration_top() else { return false };
         let Some(Live { ctx, step: Step::List { only, auto: true }, .. }) = self.integration.live.iter().find(|l| l.token == token).cloned() else { return false };
-        let list: Vec<Value> = integration_options(&self.integrations_at(&ctx.dir)).into_iter().filter(|i| only.as_deref().is_none_or(|o| s(i, "id") == o)).collect();
+        let list = listed_integrations(&self.integrations_at(&ctx.dir), only.as_deref());
         let Some(integration) = list.into_iter().next() else { return false };
         let methods = connect_methods(&integration);
         if !credential_connections(&integration).is_empty() {
@@ -358,16 +369,13 @@ impl App {
 
     fn integration_list_select(&self, ctx: &Ctx, only: Option<&str>) -> Select {
         let t = self.theme().dialog().clone();
-        let options: Vec<Opt> = integration_options(&self.integrations_at(&ctx.dir))
+        let options: Vec<Opt> = listed_integrations(&self.integrations_at(&ctx.dir), only)
             .into_iter()
-            .filter(|i| only.is_none_or(|o| s(i, "id") == o))
             .map(|i| {
                 let methods = connect_methods(&i);
                 let credentials = credential_connections(&i);
                 let id = s(&i, "id").to_string();
-                let category = if is_mcp(&i) {
-                    "MCP"
-                } else if PRIORITY.contains(&id.as_str()) {
+                let category = if PRIORITY.contains(&id.as_str()) {
                     "Popular"
                 } else {
                     "Services"
@@ -1149,7 +1157,7 @@ impl App {
                 loc.models = Some(m);
                 loc.providers = Some(p);
                 app.toast(Toast::new("success", format!("Connected {}", s(&integration, "name"))));
-                if ctx.then_models && !is_mcp(&integration) {
+                if ctx.then_models {
                     let provider = app.integration_provider(&ctx.dir, s(&integration, "id"));
                     app.open_model_dialog(provider);
                 } else {

@@ -21,6 +21,8 @@ pub mod sidebar_todo;
 pub mod panel;
 pub mod plugins;
 pub mod program_status;
+pub mod restore;
+pub mod tab_fx;
 pub mod selection;
 pub mod tabs;
 pub mod tcache;
@@ -179,7 +181,37 @@ pub struct AcItem {
     pub kind: String,
     pub directory: bool,
     pub data: Value,
+    /// A file option's path without its line range (`part.path`, what frecency records).
+    pub path: Option<String>,
     pub destructive: Option<String>,
+}
+
+/// What OpenTUI sends when the renderer stops: the terminal's default cursor color and style.
+pub const CURSOR_RESET: &str = "\x1b]12;default\x07\x1b]112\x07\x1b[0 q";
+
+/// The cursor color (OSC 12) and style (DECSCUSR) the terminal was last given. Like OpenTUI's renderer, each is
+/// sent only when it changes, while a text input shows the cursor; nothing is sent while none does.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CursorSent {
+    pub style: Option<u8>,
+    pub color: Option<crate::theme::Rgba>,
+}
+
+impl CursorSent {
+    /// The escape sequences that bring the terminal to `look`.
+    pub fn update(&mut self, look: Option<(u8, crate::theme::Rgba)>) -> String {
+        let Some((style, color)) = look else { return String::new() };
+        let mut out = String::new();
+        if self.color != Some(color) {
+            out.push_str(&format!("\x1b]12;#{:02x}{:02x}{:02x}\x07", color.r, color.g, color.b));
+            self.color = Some(color);
+        }
+        if self.style != Some(style) {
+            out.push_str(&format!("\x1b[{style} q"));
+            self.style = Some(style);
+        }
+        out
+    }
 }
 
 /// Permission prompt UI state.
@@ -252,6 +284,25 @@ pub struct App {
     pub closed_tabs: Vec<String>,
     pub shell_output: HashMap<String, String>,
     pub drafts: HashMap<String, crate::state::PromptInfo>,
+    /// The cursor the last frame showed: its DECSCUSR style and color (`None`: no text input owns it).
+    pub cursor_look: Option<(u8, crate::theme::Rgba)>,
+    /// Tab motion (`session-tabs.tsx`): per-tab pulses and tweens of the rail and the strip, and the last step.
+    pub rail_fx: HashMap<String, tab_fx::RailFx>,
+    pub strip_fx: HashMap<String, tab_fx::StripFx>,
+    pub rail_shimmer: HashMap<String, tab_fx::TitleShimmer>,
+    pub strip_shimmer: HashMap<String, tab_fx::TitleShimmer>,
+    pub fx_last: Option<Instant>,
+    /// `promptPulses`: prompts enqueued into a tabbed session that was not routed, per root session.
+    pub prompt_pulses: HashMap<String, u64>,
+    /// The session-tabs context's `focused` (focus events and any key) and the viewed-state acknowledgements
+    /// (`session.view`): the idle watermark acknowledged per root session, and the retry timer and attempt.
+    pub view_focus: Option<bool>,
+    pub view_acked: HashMap<String, i64>,
+    pub view_retry: (Option<Instant>, u32),
+    /// Sessions whose title is being generated (`data.session.title.pending`).
+    pub title_generating: std::collections::HashSet<String>,
+    /// `runPendingAction`: inbox items with an undo in flight.
+    pub pending_actions: std::collections::HashSet<String>,
     pub epilogue: Option<String>,
     pub default_model: Option<ModelRef>,
     pub prompt_sent: bool,
@@ -397,6 +448,18 @@ impl App {
             closed_tabs: Vec::new(),
             shell_output: HashMap::new(),
             drafts: HashMap::new(),
+            pending_actions: Default::default(),
+            cursor_look: None,
+            rail_fx: HashMap::new(),
+            strip_fx: HashMap::new(),
+            rail_shimmer: HashMap::new(),
+            strip_shimmer: HashMap::new(),
+            fx_last: None,
+            prompt_pulses: HashMap::new(),
+            view_focus: None,
+            title_generating: Default::default(),
+            view_acked: HashMap::new(),
+            view_retry: (None, 0),
             epilogue: None,
             default_model: None,
             prompt_sent: false,
@@ -796,6 +859,7 @@ impl App {
     pub fn close_tab(&mut self, id: &str) {
         let Some(pos) = self.tabs.iter().position(|t| t == id) else { return };
         let removed = self.tabs.remove(pos);
+        self.prompt_pulses.remove(&removed);
         self.closed_tabs.push(removed);
         self.save_tabs();
         let current_root = self.session_id().map(|s| self.store.root(s));
@@ -854,11 +918,28 @@ impl App {
         }
     }
 
+    /// `evictMissing`: a `SessionNotFound` answer marks the session deleted. `true` when it did.
+    fn evict_missing(&mut self, e: &anyhow::Error) -> bool {
+        let Some(id) = crate::api::session_not_found(e) else { return false };
+        self.store.mark_deleted(&id);
+        self.dirty = true;
+        true
+    }
+
     pub fn fetch_session(&mut self, id: &str) {
         let c = self.client.clone();
         let id = id.to_string();
-        self.spawn(async move { c.session_get(&id).await }, |app, r| {
-            if let Ok(info) = r {
+        let started = self.store.deletion_epoch;
+        self.spawn(async move { c.session_get(&id).await }, move |app, r| {
+            let info = match r {
+                Ok(info) => info,
+                Err(e) => {
+                    app.evict_missing(&e);
+                    return;
+                }
+            };
+            // A session deleted while this was in flight stays deleted.
+            if !app.store.deleted_since(&info.id, started) {
                 app.store.outbox.remove(&info.id);
                 app.store.remember(info);
                 if app.session_id().is_some() {
@@ -872,8 +953,14 @@ impl App {
     pub fn fetch_messages(&mut self, id: &str) {
         let c = self.client.clone();
         let sid = id.to_string();
-        self.spawn(async move { c.messages(&sid, 100, None).await.map(|p| (sid, p)) }, |app, r| {
-            if let Ok((sid, page)) = r {
+        let started = self.store.deletion_epoch;
+        self.spawn(async move { c.messages(&sid, 100, None).await.map(|p| (sid, p)) }, move |app, r| {
+            let r = r.inspect_err(|e| {
+                app.evict_missing(e);
+            });
+            if let Ok((sid, page)) = r
+                && !app.store.deleted_since(&sid, started)
+            {
                 let msgs: Vec<Message> = page.data.into_iter().filter_map(Message::from_value).collect();
                 app.store.apply_messages(&sid, msgs, page.cursor.next);
                 app.dirty = true;
@@ -898,8 +985,14 @@ impl App {
     pub fn fetch_pending(&mut self, id: &str) {
         let c = self.client.clone();
         let sid = id.to_string();
-        self.spawn(async move { c.inbox(&sid).await.map(|p| (sid, p)) }, |app, r| {
-            if let Ok((sid, items)) = r {
+        let started = self.store.deletion_epoch;
+        self.spawn(async move { c.inbox(&sid).await.map(|p| (sid, p)) }, move |app, r| {
+            let r = r.inspect_err(|e| {
+                app.evict_missing(e);
+            });
+            if let Ok((sid, items)) = r
+                && !app.store.deleted_since(&sid, started)
+            {
                 app.store.apply_pending(&sid, items);
                 app.dirty = true;
             }
@@ -924,6 +1017,7 @@ impl App {
         }
         // Children (family): every direct subagent, paged 200 at a time, so a root's family cost
         // counts all of them. Then permissions/forms.
+        let started = self.store.deletion_epoch;
         let c = self.client.clone();
         let sid = id.to_string();
         self.spawn(
@@ -941,10 +1035,12 @@ impl App {
                 }
                 Ok(all)
             },
-            |app, r| {
+            move |app, r| {
                 if let Ok(list) = r {
                     for s in list {
-                        app.store.remember(s);
+                        if !app.store.deleted_since(&s.id, started) {
+                            app.store.remember(s);
+                        }
                     }
                     app.dirty = true;
                 }
@@ -952,8 +1048,13 @@ impl App {
         );
         let c = self.client.clone();
         let sid = id.to_string();
-        self.spawn(async move { c.session_permissions(&sid).await.map(|p| (sid, p)) }, |app, r| {
-            if let Ok((sid, list)) = r {
+        self.spawn(async move { c.session_permissions(&sid).await.map(|p| (sid, p)) }, move |app, r| {
+            let r = r.inspect_err(|e| {
+                app.evict_missing(e);
+            });
+            if let Ok((sid, list)) = r
+                && !app.store.deleted_since(&sid, started)
+            {
                 let entry = app.store.permissions.entry(sid).or_default();
                 for p in list {
                     if !entry.iter().any(|x| x.id == p.id) {
@@ -965,8 +1066,13 @@ impl App {
         });
         let c = self.client.clone();
         let sid = id.to_string();
-        self.spawn(async move { c.session_forms(&sid).await.map(|p| (sid, p)) }, |app, r| {
-            if let Ok((sid, list)) = r {
+        self.spawn(async move { c.session_forms(&sid).await.map(|p| (sid, p)) }, move |app, r| {
+            let r = r.inspect_err(|e| {
+                app.evict_missing(e);
+            });
+            if let Ok((sid, list)) = r
+                && !app.store.deleted_since(&sid, started)
+            {
                 let entry = app.store.forms.entry(sid).or_default();
                 for f in list {
                     if !entry.iter().any(|(x, _)| x.id == f.id) {
@@ -1204,7 +1310,18 @@ impl App {
                     self.integration_catalog_changed(&dir);
                 }
             }
-            "persistent-pty.added" | "persistent-pty.removed" => {
+            // `promptPulses`: a prompt queued into a tabbed session in the background flashes its tab.
+            "session.inbox.enqueued" if self.config.tabs_enabled() && ev.data.pointer("/item/type").and_then(|t| t.as_str()) == Some("user") => {
+                if let Some(sid) = ev.session_id() {
+                    let root = self.store.root(sid);
+                    let current = self.session_id().map(|s| self.store.root(s));
+                    if current.as_deref() != Some(root.as_str()) && self.tabs.contains(&root) {
+                        *self.prompt_pulses.entry(root).or_default() += 1;
+                    }
+                }
+            }
+            // `persistent-pty.updated` (2.2.5): a rename from another client refreshes the terminal titles.
+            "persistent-pty.added" | "persistent-pty.removed" | "persistent-pty.updated" => {
                 if let Some(sid) = ev.session_id() {
                     let sid = sid.to_string();
                     if self.terminal_lists.contains_key(&sid) {
@@ -1379,6 +1496,8 @@ impl App {
             || self.store.active.values().any(|v| *v)
             || !self.busy.is_empty()
             || self.transcript_pending()
+            || self.tab_fx_animating()
+            || self.view_retry.0.is_some()
             || self.dialogs.last().is_some_and(|d| match &d.body {
                 crate::ui::dialog::Body::GoUpsell(g) => crate::ui::go_upsell::animating(g, ratatui::layout::Rect::new(0, 0, self.size.0, self.size.1)),
                 _ => false,
@@ -1419,5 +1538,7 @@ mod update_tests;
 mod fuzz_tests;
 #[cfg(test)]
 mod usage_tests;
+#[cfg(test)]
+mod catchup225_tests;
 #[cfg(test)]
 mod perf;

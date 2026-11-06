@@ -60,19 +60,6 @@ fn keeps_popular_integrations_first_and_sorts_the_rest_alphabetically() {
 }
 
 #[test]
-fn keeps_mcp_integrations_above_popular_integrations_without_relying_on_their_ids() {
-    let mcp = json!({ "metadata": { "source": "mcp" } });
-    let list = vec![
-        integration("openai", "OpenAI", json!({})),
-        integration("linear", "Linear", mcp.clone()),
-        integration("github", "GitHub", mcp),
-        integration("opencode", "OpenCode Zen", json!({})),
-        integration("opencode-go", "OpenCode Go", json!({})),
-    ];
-    assert_eq!(ids(&integration_options(&list)), ["github", "linear", "opencode", "opencode-go", "openai"]);
-}
-
-#[test]
 fn offers_key_and_oauth_methods_but_not_environment_discovery() {
     let i = integration(
         "example",
@@ -439,6 +426,37 @@ fn an_mcp_server_that_needs_a_sign_in_enters_its_integration() {
     // A server without an integration keeps the old behavior.
     a.dialogs.clear();
     assert!(!a.mcp_sign_in("local"));
+}
+
+// ---- dialog-integration.test.tsx (2.2.5) ------------------------------------------------------
+
+fn menu_catalog() -> Vec<Value> {
+    vec![
+        json!({ "id": "openai", "name": "OpenAI", "methods": [{ "type": "key", "label": "API key" }], "connections": [] }),
+        json!({ "id": "linear", "name": "Linear", "methods": [{ "type": "oauth", "id": "mcp", "label": "Sign in" }], "connections": [], "metadata": { "source": "mcp" } }),
+    ]
+}
+
+#[test]
+fn leaves_mcp_integrations_out_of_the_connect_menu() {
+    let mut a = app();
+    a.store.location_mut("/work/proj").integrations = Some(menu_catalog());
+    a.open_integrations(false, None, false);
+    let frame = render(&mut a, 100, 30).join("\n");
+    assert!(frame.contains("OpenAI"), "{frame}");
+    assert!(!frame.contains("Linear"), "{frame}");
+    assert!(!frame.contains("MCP"), "{frame}");
+    assert_eq!(ids(&listed_integrations(&menu_catalog(), None)), ["openai"]);
+}
+
+#[test]
+fn still_offers_an_mcp_integration_when_the_mcp_dialog_asks_for_it() {
+    let mut a = app();
+    a.store.location_mut("/work/proj").integrations = Some(menu_catalog());
+    a.open_integrations(false, Some("linear".into()), false);
+    let frame = render(&mut a, 100, 30).join("\n");
+    assert!(frame.contains("Linear"), "{frame}");
+    assert!(!frame.contains("OpenAI"), "{frame}");
 }
 
 // ---- flows against a mock server --------------------------------------------------------------

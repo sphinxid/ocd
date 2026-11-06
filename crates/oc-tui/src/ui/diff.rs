@@ -94,141 +94,10 @@ fn with_bg(segs: Vec<Seg>, bg: ratatui::style::Color) -> Vec<Seg> {
     segs.into_iter().map(|s| Seg::new(s.text, s.style.bg(bg))).collect()
 }
 
-/// Render hunks into lines of exactly `width` cells.
+/// Render hunks into lines of exactly `width` cells: `PatchDiff` as the transcript and the permission prompt
+/// show it (gutter `paddingLeft` 1, word wrap or none). The same OpenTUI diff gutter as [`render_viewer`].
 pub fn render(hunks: &[Hunk], width: usize, o: &DiffOpts) -> Vec<SLine> {
-    let t = o.theme;
-    let d = &t.diff;
-    let max_num = hunks.iter().flat_map(|h| h.lines.iter()).flat_map(|l| [l.old.unwrap_or(0), l.new.unwrap_or(0)]).max().unwrap_or(1);
-    let nw = digits(max_num).max(header_digits(hunks));
-    let mut out = Vec::new();
-    for (hi, h) in hunks.iter().enumerate() {
-        if hi > 0 {
-            let header = format!(" {}", h.header);
-            let mut segs = vec![Seg::new(header, Style::default().fg(d.text_hunk_header.tui()).bg(d.bg_context.tui()))];
-            segs = super::text::clip(&segs, width);
-            out.push(SLine::new(segs).with_bg(Some(d.bg_context.tui())));
-        }
-        if o.split {
-            out.extend(render_split(h, width, nw, o));
-        } else {
-            out.extend(render_unified(h, width, nw, o));
-        }
-    }
-    out
-}
-
-fn line_colors(kind: &Kind, o: &DiffOpts) -> (ratatui::style::Color, ratatui::style::Color, ratatui::style::Color, &'static str) {
-    let d = &o.theme.diff;
-    match kind {
-        Kind::Add => (d.bg_added.tui(), d.line_number_bg_added.tui(), d.highlight_added.tui(), "+"),
-        Kind::Remove => (d.bg_removed.tui(), d.line_number_bg_removed.tui(), d.highlight_removed.tui(), "-"),
-        Kind::Context => (d.bg_context.tui(), d.bg_context.tui(), d.line_number_text.tui(), " "),
-    }
-}
-
-fn render_unified(h: &Hunk, width: usize, nw: usize, o: &DiffOpts) -> Vec<SLine> {
-    let lines: Vec<&DLine> = h.lines.iter().collect();
-    let hl = highlight_lines(&lines, o);
-    let mut out = Vec::new();
-    let code_w = width.saturating_sub(nw + 3).max(1);
-    for (i, l) in lines.iter().enumerate() {
-        let (bg, nbg, sign_fg, sign) = line_colors(&l.kind, o);
-        let num = match l.kind {
-            Kind::Remove => l.old,
-            _ => l.new,
-        };
-        let code = with_bg(hl.get(i).cloned().unwrap_or_default(), bg);
-        let wrapped = wrap(&code, code_w, if o.wrap { Wrap::Word } else { Wrap::None });
-        for (wi, w) in wrapped.into_iter().enumerate() {
-            let n = if wi == 0 { num.map(|n| format!("{n:>nw$} ")).unwrap_or_else(|| " ".repeat(nw + 1)) } else { " ".repeat(nw + 1) };
-            let mut segs = vec![
-                Seg::new(n, Style::default().fg(o.theme.diff.line_number_text.tui()).bg(nbg)),
-                Seg::new(if wi == 0 { format!("{sign} ") } else { "  ".into() }, Style::default().fg(sign_fg).bg(bg)),
-            ];
-            segs.extend(w);
-            out.push(SLine::new(segs).with_bg(Some(bg)));
-        }
-    }
-    out
-}
-
-fn render_split(h: &Hunk, width: usize, nw: usize, o: &DiffOpts) -> Vec<SLine> {
-    // Pair removes with adds within each change run.
-    let mut rows: Vec<(Option<&DLine>, Option<&DLine>)> = Vec::new();
-    let mut i = 0;
-    let ls = &h.lines;
-    while i < ls.len() {
-        if ls[i].kind == Kind::Context {
-            rows.push((Some(&ls[i]), Some(&ls[i])));
-            i += 1;
-            continue;
-        }
-        let mut dels = Vec::new();
-        let mut adds = Vec::new();
-        while i < ls.len() && ls[i].kind == Kind::Remove {
-            dels.push(&ls[i]);
-            i += 1;
-        }
-        while i < ls.len() && ls[i].kind == Kind::Add {
-            adds.push(&ls[i]);
-            i += 1;
-        }
-        for k in 0..dels.len().max(adds.len()) {
-            rows.push((dels.get(k).copied(), adds.get(k).copied()));
-        }
-    }
-    let half = width / 2;
-    let right_w = width - half;
-    let left_lines: Vec<&DLine> = rows.iter().filter_map(|r| r.0).collect();
-    let right_lines: Vec<&DLine> = rows.iter().filter_map(|r| r.1).collect();
-    let lh = highlight_lines(&left_lines, o);
-    let rh = highlight_lines(&right_lines, o);
-    let (mut li, mut ri) = (0, 0);
-    let mut out = Vec::new();
-    let empty_bg = o.theme.diff.bg_context.tui();
-    for (l, r) in rows {
-        let side = |line: Option<&DLine>, hl: &[Vec<Seg>], idx: &mut usize, w: usize, old: bool| -> Vec<Vec<Seg>> {
-            let code_w = w.saturating_sub(nw + 3).max(1);
-            match line {
-                None => vec![vec![Seg::new(" ".repeat(w), Style::default().bg(empty_bg))]],
-                Some(l) => {
-                    let (bg, nbg, sign_fg, sign) = line_colors(&l.kind, o);
-                    let code = with_bg(hl.get(*idx).cloned().unwrap_or_default(), bg);
-                    *idx += 1;
-                    let num = if old { l.old } else { l.new };
-                    let wrapped = wrap(&code, code_w, if o.wrap { Wrap::Word } else { Wrap::None });
-                    wrapped
-                        .into_iter()
-                        .enumerate()
-                        .map(|(wi, wl)| {
-                            let n = if wi == 0 { num.map(|n| format!("{n:>nw$} ")).unwrap_or_else(|| " ".repeat(nw + 1)) } else { " ".repeat(nw + 1) };
-                            let mut segs = vec![
-                                Seg::new(n, Style::default().fg(o.theme.diff.line_number_text.tui()).bg(nbg)),
-                                Seg::new(if wi == 0 { format!("{sign} ") } else { "  ".into() }, Style::default().fg(sign_fg).bg(bg)),
-                            ];
-                            let used: usize = wl.iter().map(|s| s.width()).sum();
-                            segs.extend(wl);
-                            segs.push(Seg::new(" ".repeat(code_w.saturating_sub(used)), Style::default().bg(bg)));
-                            segs
-                        })
-                        .collect()
-                }
-            }
-        };
-        let left = side(l, &lh, &mut li, half, true);
-        let right = side(r, &rh, &mut ri, right_w, false);
-        for k in 0..left.len().max(right.len()) {
-            let mut segs = left.get(k).cloned().unwrap_or_else(|| vec![Seg::new(" ".repeat(half), Style::default().bg(empty_bg))]);
-            segs = super::text::clip(&segs, half);
-            let used: usize = segs.iter().map(|s| s.width()).sum();
-            if used < half {
-                segs.push(Seg::new(" ".repeat(half - used), Style::default().bg(empty_bg)));
-            }
-            segs.extend(right.get(k).cloned().unwrap_or_else(|| vec![Seg::new(" ".repeat(right_w), Style::default().bg(empty_bg))]));
-            out.push(SLine::new(super::text::clip(&segs, width)));
-        }
-    }
-    out
+    render_rows(hunks, width, o.split, 0, if o.wrap { Wrap::Word } else { Wrap::None }, o).0
 }
 
 /// Rows of a diff-viewer card (`PatchDiff` with `showLineNumbers`): every row is exactly `width`
@@ -238,6 +107,10 @@ fn render_split(h: &Hunk, width: usize, nw: usize, o: &DiffOpts) -> Vec<SLine> {
 /// rows give the left side the odd cell. Hunks after the first start with their `@@` header. Also
 /// returns the row of each hunk start.
 pub fn render_viewer(hunks: &[Hunk], width: usize, split: bool, gutter_pad: usize, o: &DiffOpts) -> (Vec<SLine>, Vec<usize>) {
+    render_rows(hunks, width, split, gutter_pad, Wrap::Char, o)
+}
+
+fn render_rows(hunks: &[Hunk], width: usize, split: bool, gutter_pad: usize, wrap_mode: Wrap, o: &DiffOpts) -> (Vec<SLine>, Vec<usize>) {
     let d = &o.theme.diff;
     let mut out: Vec<SLine> = Vec::new();
     let mut starts = Vec::new();
@@ -283,7 +156,7 @@ pub fn render_viewer(hunks: &[Hunk], width: usize, split: bool, gutter_pad: usiz
         let bg = code_bg(&l.kind);
         let code_w = w.saturating_sub(gutter_w(extra)).max(1);
         let code = with_bg(code, bg);
-        let rows = wrap(&code, code_w, Wrap::Char);
+        let rows = wrap(&code, code_w, wrap_mode);
         rows.into_iter()
             .enumerate()
             .map(|(i, r)| {
@@ -425,8 +298,10 @@ mod tests {
         let o = DiffOpts { theme: &t, syntax: &st, filetype: "typescript", split: false, wrap: true };
         let lines = render(&parse(PATCH), 40, &o);
         let texts: Vec<String> = lines.iter().map(|l| l.text()).collect();
-        assert_eq!(texts[1], " 2 - b");
-        assert_eq!(texts[2], " 2 + c");
+        // Gutter: `paddingLeft` 1, the number right-aligned to `minDigits` (2), ` -` / ` +`, a space.
+        assert_eq!(texts[1].trim_end(), "  2 - b");
+        assert_eq!(texts[2].trim_end(), "  2 + c");
+        assert!(lines.iter().all(|l| l.width() == 40));
         assert!(texts[4].starts_with(" @@ -10,2"));
         let o = DiffOpts { split: true, ..o };
         let lines = render(&parse(PATCH), 40, &o);

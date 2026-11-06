@@ -209,22 +209,33 @@ impl App {
     /// Draw tabs (strip or rail) and return the remaining content area.
     pub fn draw_tabs_frame(&mut self, buf: &mut Buffer, area: Rect, t: &Theme) -> Rect {
         self.tab_hits.clear();
+        let delta = self.fx_step();
         if !self.tabs_available() {
+            self.rail_fx.clear();
+            self.strip_fx.clear();
+            self.rail_shimmer.clear();
+            self.strip_shimmer.clear();
             return area;
         }
         if self.vertical_tabs() {
+            self.strip_fx.clear();
+            self.strip_shimmer.clear();
             let w = self.rail_width();
-            self.draw_rail(buf, Rect::new(area.x, area.y, w, area.height), t);
+            self.draw_rail(buf, Rect::new(area.x, area.y, w, area.height), t, delta);
             return Rect::new(area.x + w, area.y, area.width - w, area.height);
         }
+        self.rail_fx.clear();
+        self.rail_shimmer.clear();
         if area.height <= 4 {
+            self.strip_fx.clear();
+            self.strip_shimmer.clear();
             return area;
         }
-        self.draw_strip(buf, Rect::new(area.x, area.y, area.width, 1), t);
+        self.draw_strip(buf, Rect::new(area.x, area.y, area.width, 1), t, delta);
         Rect::new(area.x, area.y + 1, area.width, area.height - 1)
     }
 
-    fn draw_strip(&mut self, buf: &mut Buffer, area: Rect, t: &Theme) {
+    fn draw_strip(&mut self, buf: &mut Buffer, area: Rect, t: &Theme, delta: f64) {
         let current_root = self.session_id().map(|s| self.store.root(s));
         let mut items: Vec<(Option<String>, String)> = self.tabs.iter().map(|id| (Some(id.clone()), self.tab_title(id))).collect();
         let new_tab = current_root.is_none();
@@ -237,6 +248,10 @@ impl App {
         let avail = (area.width as usize).saturating_sub(if show_plus { 3 } else { 0 });
         let (start, widths) = tab_layout(n, active, avail);
         let num_w = 2.max(n.to_string().len());
+        // Only the visible tabs are mounted.
+        let shown: Vec<String> = items[start..start + widths.len()].iter().filter_map(|(id, _)| id.clone()).collect();
+        self.strip_fx.retain(|id, _| shown.contains(id));
+        self.strip_shimmer.retain(|id, _| shown.contains(id));
         let mut x = area.x;
         if start > 0 {
             let m = format!("‹{start} ");
@@ -251,16 +266,45 @@ impl App {
             let fgc = if selected { t.text.base } else { t.text.muted };
             let rect = Rect::new(x, area.y, *wdt as u16, 1);
             fill(buf, rect, bgc.tui());
-            let (label, num_c) = self.tab_indicator(t, id.as_deref(), i, bgc, selected);
+            let (label, mut num_c) = self.tab_indicator(t, id.as_deref(), i, bgc, selected);
+            let mut glow = None;
+            if let Some(id) = id.as_deref() {
+                // The pulse paints under the tab's text (`zIndex` 0); the number brightens with its sweep.
+                let look = self.strip_tab_fx(buf, t, x, area.y, *wdt as u16, id, selected, bgc, delta);
+                if !self.shows_unread_color(id, selected) {
+                    num_c = look.number;
+                }
+                glow = self.strip_glow_color(t, id, selected, bgc);
+            }
             let ind = format!("{label:>num_w$} ");
-            put(buf, x, area.y, &ind, fg(num_c).bg(bgc.tui()), *wdt);
+            put(buf, x, area.y, &ind, fg(num_c), *wdt);
             let tw = wdt.saturating_sub(1 + num_w);
-            let mut st = fg(fgc).bg(bgc.tui());
+            let mut st = fg(fgc);
             if selected {
                 st = st.add_modifier(Modifier::BOLD);
             }
+            // A title being generated is dimmed instead of shimmering when animations are off.
+            if id.as_deref().is_some_and(|i| self.title_generating.contains(i)) && !self.config.animations() {
+                st = fg(fgc).add_modifier(Modifier::DIM);
+            }
             let title = if id.is_none() { NEW_SESSION_TAB_TITLE.to_string() } else { title.clone() };
-            put(buf, x + (num_w + 1) as u16, area.y, &title_fade(&title, tw), st, tw);
+            let shown = title_fade(&title, tw);
+            match glow {
+                // Title characters over the glow tinge toward it (`glowTextColor`).
+                Some(g) => {
+                    let mut cx = x + (num_w + 1) as u16;
+                    for (k, gph) in locale::graphemes(&shown).into_iter().enumerate() {
+                        let c = super::tab_fx::glow_text_color(fgc, g, 1 + num_w + k, *wdt, 1.0);
+                        cx += put(buf, cx, area.y, gph, st.fg(c.tui()), (x + *wdt as u16).saturating_sub(cx) as usize) as u16;
+                    }
+                }
+                None => {
+                    put(buf, x + (num_w + 1) as u16, area.y, &shown, st, tw);
+                }
+            }
+            if let Some(id) = id.as_deref() {
+                self.tab_title_shimmer(buf, false, id, x + (num_w + 1) as u16, area.y, tw, bgc, delta);
+            }
             self.tab_hits.push((rect, id.clone()));
             x += *wdt as u16;
         }
@@ -276,7 +320,14 @@ impl App {
         }
     }
 
-    fn draw_rail(&mut self, buf: &mut Buffer, area: Rect, t: &Theme) {
+    /// `TabIndicator`'s color: an unread, idle tab that is not selected shows the unread color; otherwise the
+    /// number color (`props.color`).
+    fn shows_unread_color(&self, id: &str, selected: bool) -> bool {
+        let st = self.tab_status(id);
+        !selected && st.unread.is_some() && !st.busy && st.attention.is_none()
+    }
+
+    fn draw_rail(&mut self, buf: &mut Buffer, area: Rect, t: &Theme, delta: f64) {
         let bg = t.background.raised.base;
         fill(buf, area, bg.tui());
         let w = area.width;
@@ -307,6 +358,16 @@ impl App {
         }
         let scroll = self.rail_scroll;
         let tabs = self.tabs.clone();
+        // Every tab of the rail is mounted (the compact rail has no pulses).
+        if compact {
+            self.rail_fx.clear();
+            self.rail_shimmer.clear();
+        } else {
+            self.rail_fx.retain(|id, _| tabs.contains(id));
+            self.rail_shimmer.retain(|id, _| tabs.contains(id));
+        }
+        // Pulses stay inside the scrollbox (from the first tab row down).
+        let clip = (y, area.bottom());
         for (i, id) in tabs.iter().enumerate() {
             let ty = (i as u16 * stride).checked_sub(scroll).map(|o| y + o);
             let Some(ty) = ty else { continue };
@@ -336,18 +397,41 @@ impl App {
                     }
                 }
             } else {
-                let ind = format!(" {label:>num_w$} ");
-                put(buf, area.x, ty, &ind, fg(num_c).bg(effective_bg.tui()), ind.chars().count());
-                let tx = area.x + (num_w + 2) as u16;
-                let tw = (w as usize).saturating_sub(num_w + 2 + 1);
-                let mut st = fg(t.text.base).bg(effective_bg.tui());
+                // The pulses paint under the tab's text (`zIndex` 0), over its background.
+                let prev = i.checked_sub(1).map(|p| tabs[p].clone());
+                let look = self.rail_tab_fx(buf, t, area.x, ty, w, id, prev.as_deref(), i + 1 == n, selected, rowbg, delta, clip);
+                let num_c = if self.shows_unread_color(id, selected) { num_c } else { look.number };
+                // `TabIndicator` (`numberWidth + 1` wide: the label right-aligned before a 1-cell padding), then the title
+                // up to 1 cell before the edge; the detail row starts at the same column (`prefixWidth`).
+                let ind = format!("{label:>num_w$} ");
+                put(buf, area.x, ty, &ind, fg(num_c), ind.chars().count());
+                let tx = area.x + (num_w + 1) as u16;
+                let tw = (w as usize).saturating_sub(num_w + 1 + 1);
+                // `foreground()`: the selected tab's title in `text.base`, the others muted.
+                let title_fg = if selected { t.text.base } else { t.text.muted };
+                let mut st = fg(title_fg);
                 if selected {
                     st = st.add_modifier(Modifier::BOLD);
                 }
-                put(buf, tx, ty, &title_fade(&self.tab_title(id), tw), st, tw);
+                if self.title_generating.contains(id.as_str()) && !self.config.animations() {
+                    st = fg(title_fg).add_modifier(Modifier::DIM);
+                }
+                let shown = title_fade(&self.tab_title(id), tw);
+                let (level, glow) = look.title_glow;
+                if level > 0.0 {
+                    let mut cx = tx;
+                    for (k, gph) in locale::graphemes(&shown).into_iter().enumerate() {
+                        let c = super::tab_fx::glow_text_color(title_fg, glow, 1 + num_w + k, w as usize, level);
+                        cx += put(buf, cx, ty, gph, st.fg(c.tui()), (tx as usize + tw).saturating_sub(cx as usize)) as u16;
+                    }
+                } else {
+                    put(buf, tx, ty, &shown, st, tw);
+                }
+                let backdrop = tint(t.background.raised.base, rowbg, rowbg.a as f64 / 255.0);
+                self.tab_title_shimmer(buf, true, id, tx, ty, tw, backdrop, delta);
                 let detail = self.tab_detail(id);
-                let dw = (w as usize).saturating_sub(num_w + 2 + 2);
-                put(buf, tx, ty + 1, &locale::take_width(&detail, dw), fg(tint(t.text.muted, effective_bg, 0.35)).bg(effective_bg.tui()), dw);
+                let dw = (w as usize).saturating_sub(num_w + 1 + 2);
+                put(buf, tx, ty + 1, &locale::take_width(&detail, dw), fg(tint(t.text.muted, effective_bg, 0.35)), dw);
             }
             self.tab_hits.push((rect, Some(id.clone())));
         }

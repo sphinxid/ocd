@@ -78,6 +78,8 @@ pub trait Host {
     fn settings(&mut self);
     fn status(&mut self, text: String);
     fn queued_steer(&mut self, inbox_id: String);
+    /// Search files for a mention query; the result comes back for `query` (`set_files`), the search uses
+    /// `parseFileLineRange(query).base`.
     fn find_files(&mut self, query: String);
     fn paste_clipboard(&mut self);
 }
@@ -502,8 +504,8 @@ impl Composer {
         self.query = value;
         if self.mode == MenuMode::Mention && self.files_query.as_deref() != Some(self.query.as_str()) {
             self.files_query = Some(self.query.clone());
-            let (base, _) = parse_file_line_range(&self.query);
-            host.find_files(base);
+            // The results answer this query (`createResource(query, …)`); the search itself uses its base.
+            host.find_files(self.query.clone());
         }
     }
 

@@ -72,7 +72,18 @@ pub struct Store {
     pub generation: u64,
     /// Location catalogs that were loaded or are loading (`hasLocation`): events refetch only these.
     pub requested: HashSet<(String, Catalog)>,
+    /// `store.session.missing`: sessions the server reported deleted or not found.
+    pub missing: HashSet<String>,
+    /// `deletionEpoch`: bumped by every [`Store::mark_deleted`]; a sync remembers it when it starts.
+    pub deletion_epoch: u64,
+    /// `deletedAt`: the epoch each deleted session was marked at (at most [`DELETED_SESSION_LIMIT`]), and the
+    /// marks oldest first (an entry re-marked later is stale there).
+    deleted_at: HashMap<String, u64>,
+    deleted_order: std::collections::VecDeque<(String, u64)>,
 }
+
+/// `DELETED_SESSION_LIMIT`.
+pub const DELETED_SESSION_LIMIT: usize = 512;
 
 impl Store {
     pub fn new(directory: &str) -> Store {
@@ -182,8 +193,51 @@ impl Store {
         }
     }
 
+    /// `clearDeleted`.
+    pub fn clear_deleted(&mut self, id: &str) {
+        self.deleted_at.remove(id);
+        self.missing.remove(id);
+    }
+
+    /// `markDeleted`: a `session.deleted` event or a `SessionNotFound` answer. The session leaves the store, and a
+    /// sync that started before this drops its answer, so the session can't come back. A session still being
+    /// created here (outbox) is left alone.
+    pub fn mark_deleted(&mut self, id: &str) {
+        if self.outbox.contains(id) {
+            return;
+        }
+        self.deletion_epoch += 1;
+        let epoch = self.deletion_epoch;
+        self.deleted_at.insert(id.to_string(), epoch);
+        self.deleted_order.push_back((id.to_string(), epoch));
+        while self.deleted_at.len() > DELETED_SESSION_LIMIT {
+            let Some((oldest, at)) = self.deleted_order.pop_front() else { break };
+            if self.deleted_at.get(&oldest) == Some(&at) {
+                self.deleted_at.remove(&oldest);
+                self.missing.remove(&oldest);
+            }
+        }
+        if self.deleted_order.len() > DELETED_SESSION_LIMIT * 4 {
+            let live = &self.deleted_at;
+            self.deleted_order.retain(|(id, at)| live.get(id) == Some(at));
+        }
+        self.missing.insert(id.to_string());
+        self.remove_session(id);
+    }
+
+    /// The session was marked deleted after a sync that started at epoch `started` (`deletedAt > started`).
+    pub fn deleted_since(&self, id: &str, started: u64) -> bool {
+        self.deleted_at.get(id).copied().unwrap_or(0) > started
+    }
+
+    /// `session.missing`.
+    pub fn is_missing(&self, id: &str) -> bool {
+        self.missing.contains(id)
+    }
+
     pub fn remember(&mut self, info: SessionInfo) {
         let id = info.id.clone();
+        self.clear_deleted(&id);
         self.sessions.insert(id.clone(), info);
         self.loaded.insert(format!("session:{id}"));
         self.register(&id);
@@ -433,12 +487,13 @@ impl Store {
                 fx.push(Effect::Catalog(self.directory.clone(), Catalog::Vcs));
             }
             "session.created" => {
+                self.clear_deleted(&sid);
                 self.outbox.remove(&sid);
                 fx.push(Effect::SessionSync(sid.clone()));
                 self.loaded.insert(format!("session.pending:{sid}"));
                 self.loaded.insert(format!("session.message:{sid}"));
             }
-            "session.deleted" => self.remove_session(&sid),
+            "session.deleted" => self.mark_deleted(&sid),
             // Session archiving (2.1): only the archive time changes.
             "session.archived" => {
                 if let Some(info) = self.sessions.get_mut(&sid) {
@@ -1173,6 +1228,7 @@ impl Store {
 
     /// Optimistic session creation.
     pub fn admit_session(&mut self, id: &str, location: LocationRef, agent: Option<String>, model: Option<ModelRef>) {
+        self.clear_deleted(id);
         if self.sessions.contains_key(id) {
             return;
         }
@@ -1323,5 +1379,48 @@ mod tests {
         assert_eq!(fam, vec!["ses_c".to_string(), "ses_p".to_string()]);
         s.apply(&ev("session.deleted", json!({"sessionID":"ses_c"})));
         assert_eq!(s.family_of("ses_p"), vec!["ses_p".to_string()]);
+    }
+
+    /// #60459 (`data.ts` `markDeleted` / `clearDeleted`): deleted sessions are remembered, capped at 512.
+    #[test]
+    fn deleted_sessions_stay_evicted_until_created_again() {
+        let mut s = Store::new("/tmp");
+        s.remember(SessionInfo { id: "ses_a".into(), ..Default::default() });
+        s.messages.insert("ses_a".into(), vec![Message { id: "msg_1".into(), kind: "user".into(), ..Default::default() }]);
+        let started = s.deletion_epoch;
+        s.apply(&ev("session.deleted", json!({"sessionID":"ses_a"})));
+        assert!(s.sessions.get("ses_a").is_none() && s.messages("ses_a").is_empty());
+        assert!(s.is_missing("ses_a"));
+        // A sync that started before the deletion drops its answer; one that started after keeps it.
+        assert!(s.deleted_since("ses_a", started));
+        assert!(!s.deleted_since("ses_a", s.deletion_epoch));
+        // `session.created`, `remember` and a local create clear the mark.
+        s.apply(&ev("session.created", json!({"sessionID":"ses_a"})));
+        assert!(!s.is_missing("ses_a") && !s.deleted_since("ses_a", started));
+        s.mark_deleted("ses_a");
+        s.remember(SessionInfo { id: "ses_a".into(), ..Default::default() });
+        assert!(!s.is_missing("ses_a"));
+        s.mark_deleted("ses_a");
+        s.admit_session("ses_a", LocationRef { directory: "/tmp".into(), workspace_id: None }, None, None);
+        assert!(!s.is_missing("ses_a"));
+        // A session still being created here is left alone.
+        s.mark_deleted("ses_a");
+        assert!(s.sessions.contains_key("ses_a") && !s.is_missing("ses_a"));
+    }
+
+    #[test]
+    fn deleted_sessions_are_capped_oldest_first() {
+        let mut s = Store::new("/tmp");
+        for i in 0..DELETED_SESSION_LIMIT + 3 {
+            s.mark_deleted(&format!("ses_{i}"));
+        }
+        // Re-marking moves a session to the newest end.
+        s.mark_deleted("ses_3");
+        s.mark_deleted("ses_x");
+        assert_eq!(s.missing.len(), DELETED_SESSION_LIMIT);
+        for gone in ["ses_0", "ses_1", "ses_2", "ses_4"] {
+            assert!(!s.is_missing(gone), "{gone}");
+        }
+        assert!(s.is_missing("ses_3") && s.is_missing("ses_5") && s.is_missing("ses_x"));
     }
 }

@@ -1,6 +1,7 @@
 pub mod locale;
 pub mod jsonc_edit;
 pub mod paths;
+pub mod prompt_parse;
 pub mod system;
 pub mod todo;
 pub mod usage_limits;

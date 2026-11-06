@@ -75,6 +75,8 @@ where
 pub fn on_term(app: &mut App, ev: CEvent) {
     match ev {
         CEvent::Key(k) => {
+            // `useKeyboard(onFocus)`: any key means the terminal has focus.
+            app.view_focus = Some(true);
             if let Some(s) = keymap::stroke_from_event(&k) {
                 app.on_key(s);
             }
@@ -82,8 +84,14 @@ pub fn on_term(app: &mut App, ev: CEvent) {
         CEvent::Paste(text) => app.paste(&text),
         CEvent::Mouse(m) => app.on_mouse(m),
         CEvent::Resize(_, _) => app.dirty = true,
-        CEvent::FocusGained => app.focused = Some(true),
-        CEvent::FocusLost => app.focused = Some(false),
+        CEvent::FocusGained => {
+            app.focused = Some(true);
+            app.view_focus = Some(true);
+        }
+        CEvent::FocusLost => {
+            app.focused = Some(false);
+            app.view_focus = Some(false);
+        }
     }
 }
 

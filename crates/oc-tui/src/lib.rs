@@ -67,6 +67,8 @@ impl Screen {
             let _ = execute!(out, PopKeyboardEnhancementFlags);
         }
         let _ = execute!(out, DisableMouseCapture, DisableFocusChange, DisableBracketedPaste, LeaveAlternateScreen);
+        // OpenTUI gives the terminal its default cursor color and style back.
+        let _ = write!(out, "{}", app::CURSOR_RESET);
         let _ = write!(out, "\x1b]0;\x07");
         let _ = out.flush();
         let _ = disable_raw_mode();
@@ -193,11 +195,19 @@ struct TermHooks<'a> {
     screen: &'a Screen,
     term: &'a mut Term,
     title: String,
+    /// The cursor style and color last sent to the terminal.
+    cursor: app::CursorSent,
 }
 
 impl app::event_loop::Hooks for TermHooks<'_> {
     fn draw(&mut self, app: &mut App) -> anyhow::Result<()> {
         self.term.draw(|f| app.draw(f))?;
+        let seq = self.cursor.update(app.cursor_look);
+        if !seq.is_empty() {
+            let mut out = std::io::stdout();
+            let _ = out.write_all(seq.as_bytes());
+            let _ = out.flush();
+        }
         set_title(app, &mut self.title);
         // Pending session state for the terminal (OSC 7501), only what changed.
         let sessions = app.program_status_sessions();
@@ -211,10 +221,12 @@ impl app::event_loop::Hooks for TermHooks<'_> {
     }
     fn editor(&mut self, app: &mut App) -> anyhow::Result<()> {
         external_editor(app, self.screen, self.term);
+        self.cursor = Default::default();
         Ok(())
     }
     fn suspend(&mut self, app: &mut App) -> anyhow::Result<()> {
         suspend(app, self.screen, self.term);
+        self.cursor = Default::default();
         Ok(())
     }
 }
@@ -270,7 +282,7 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     app.start_update_watch();
 
     let mut events = app::escape::JoinEscapes::new(EventStream::new());
-    let mut hooks = TermHooks { screen: &screen, term: &mut term, title: String::new() };
+    let mut hooks = TermHooks { screen: &screen, term: &mut term, title: String::new(), cursor: Default::default() };
     let result = app::event_loop::run(&mut app, &mut events, &mut rx, &mut hooks).await;
     {
         // Terminals drop working and blocked records when the process exits; the root is cleared.

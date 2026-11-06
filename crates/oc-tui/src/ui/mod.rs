@@ -9,6 +9,7 @@ pub mod go_upsell;
 pub mod highlight;
 pub mod markdown;
 pub mod prompt;
+pub mod tab_pulse;
 pub mod text;
 pub mod transcript;
 pub mod view_helpers;

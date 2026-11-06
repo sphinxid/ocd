@@ -302,21 +302,8 @@ pub fn language_extension(ext: &str) -> Option<&'static str> {
     })
 }
 
-/// `parseFileLineRange`.
-pub fn parse_file_line_range(input: &str) -> (String, Option<(u64, Option<u64>)>) {
-    let Some(hash) = input.rfind('#') else { return (input.to_string(), None) };
-    let base = input[..hash].to_string();
-    let rest = &input[hash + 1..];
-    let re = regex::Regex::new(r"^(\d+)(?:-(\d*))?$").unwrap();
-    let Some(m) = re.captures(rest) else { return (base, None) };
-    let start: u64 = m[1].parse().unwrap_or(0);
-    let end = m.get(2).map(|e| e.as_str()).filter(|e| !e.is_empty()).and_then(|e| e.parse::<u64>().ok()).filter(|e| start < *e);
-    (base, Some((start, end)))
-}
-
-pub fn strip_file_line_range(input: &str) -> String {
-    parse_file_line_range(input).0
-}
+/// `parseFileLineRange` / `stripFileLineRange`, shared with the full TUI.
+pub use crate::util::prompt_parse::{parse_file_line_range, strip_file_line_range};
 
 /// `parseSlashHead(text)`: `{name, arguments, end}` with `end` a UTF-16 index.
 pub struct SlashHead {

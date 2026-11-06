@@ -313,19 +313,10 @@ fn resolve_theme(config: &crate::config::Config, directory: &str, colors: Option
     (theme, mode, name)
 }
 
+/// The prompt textarea's DECSCUSR style: the configured `cursor` (2.2.5 resolves a missing key to a blinking
+/// block, as the 2.2.5 binary sends `CSI 1 SP q`).
 fn cursor_style(config: &crate::config::Config) -> u8 {
-    let Some(c) = config.get("cursor") else { return 0 };
-    let style = c.get("style").and_then(|s| s.as_str()).unwrap_or("block");
-    let blinking = c.get("blinking").and_then(|b| b.as_bool()).unwrap_or(true);
-    match (style, blinking) {
-        ("default", _) => 0,
-        ("underline", true) => 3,
-        ("underline", false) => 4,
-        ("line", true) => 5,
-        ("line", false) => 6,
-        (_, true) => 1,
-        (_, false) => 2,
-    }
+    config.cursor_decscusr()
 }
 
 fn model_ref(m: &ModelSel, variant: Option<&str>) -> Value {
@@ -1056,7 +1047,8 @@ impl Runtime {
             FooterAction::FindFiles(query) => {
                 let (client, tx, dir) = (self.client.clone(), self.tx.clone(), self.location.clone());
                 tokio::spawn(async move {
-                    let files = client.file_find(&query, 50, Some(&dir)).await.map(|l| l.into_iter().map(|f| f.path).collect()).unwrap_or_default();
+                    let (base, _) = crate::util::prompt_parse::parse_file_line_range(&query);
+                    let files = client.file_find(&base, 50, Some(&dir)).await.map(|l| l.into_iter().map(|f| f.path).collect()).unwrap_or_default();
                     let _ = tx.send(Msg::Files { query, files });
                 });
             }

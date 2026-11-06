@@ -742,7 +742,8 @@ impl App {
                 ac.items = self.reference_items(query);
                 ac.loading = true;
                 let c = self.client.clone();
-                let base = query.split('#').next().unwrap_or("").to_string();
+                // `parseFileLineRange`: `#` stays part of the path unless it introduces a valid line range.
+                let (base, range) = crate::util::prompt_parse::parse_file_line_range(query);
                 let dir = self.location_dir();
                 let q = query.to_string();
                 self.spawn(async move { c.file_find(&base, 20, Some(&dir)).await }, move |app, r| {
@@ -754,18 +755,26 @@ impl App {
                     ac.loading = false;
                     match r {
                         Ok(entries) => {
-                            let range = q.split_once('#').map(|(_, r)| format!("#{r}")).unwrap_or_default();
+                            use crate::util::prompt_parse::{line_range_query, with_line_range};
                             for e in entries {
                                 if ac.items.len() >= 10 {
                                     break;
                                 }
                                 let directory = e.kind == "directory";
+                                // `createFilePart`: only files take the range, in the name and as `?start=&end=`.
+                                let range = range.filter(|_| !directory);
+                                let filename = range.map(|r| with_line_range(&e.path, r)).unwrap_or_else(|| e.path.clone());
+                                let mut uri = format!("file://{}/{}", dir.trim_end_matches('/'), e.path);
+                                if let Some(r) = range {
+                                    uri.push_str(&line_range_query(r));
+                                }
                                 ac.items.push(AcItem {
-                                    display: format!("{}{}", e.path, if directory { "/" } else { "" }),
-                                    value: format!("{}{range}", e.path),
+                                    display: if directory { format!("{}/", e.path) } else { filename.clone() },
+                                    value: filename.clone(),
                                     kind: "file".into(),
                                     directory,
-                                    data: json!({ "uri": format!("file://{}/{}", dir.trim_end_matches('/'), e.path), "name": e.path }),
+                                    data: json!({ "uri": uri, "name": filename }),
+                                    path: Some(e.path.clone()),
                                     ..Default::default()
                                 });
                             }
@@ -884,10 +893,11 @@ impl App {
         if query.is_empty() {
             return items;
         }
+        let stripped = crate::util::prompt_parse::strip_file_line_range(query);
         let mut scored: Vec<(f64, AcItem)> = items
             .into_iter()
             .filter_map(|i| {
-                let s = dialog::fuzzy(query, &i.value)?;
+                let s = dialog::fuzzy(&stripped, &crate::util::prompt_parse::strip_file_line_range(i.value.trim_end()))?;
                 if s < 0.5 {
                     return None;
                 }
@@ -1004,23 +1014,12 @@ impl App {
                     "agent" => (ChipKind::Agent, format!("@{}", item.value)),
                     _ => (ChipKind::File, format!("@{}", item.value)),
                 };
-                let mut data = item.data.clone();
-                if let Some((_, range)) = item.value.split_once('#') {
-                    let (start, end) = match range.split_once('-') {
-                        Some((a, b)) => (a.to_string(), Some(b.to_string())),
-                        None => (range.to_string(), None),
-                    };
-                    let uri = data.get("uri").and_then(|u| u.as_str()).unwrap_or("").to_string();
-                    let mut q = format!("{uri}?start={start}");
-                    if let Some(e) = end.filter(|e| e.parse::<i64>().unwrap_or(0) > start.parse::<i64>().unwrap_or(0)) {
-                        q.push_str(&format!("&end={e}"));
-                    }
-                    data["uri"] = json!(q);
+                if kind == ChipKind::File
+                    && let Some(path) = &item.path
+                {
+                    crate::state::frecency_touch(&crate::util::paths::state_dir().join("frecency.jsonl"), path);
                 }
-                if kind == ChipKind::File {
-                    crate::state::frecency_touch(&crate::util::paths::state_dir().join("frecency.jsonl"), &item.value);
-                }
-                self.editor.insert_chip(&text, kind, data, true);
+                self.editor.insert_chip(&text, kind, item.data.clone(), true);
             }
         }
         self.dirty = true;
@@ -1501,15 +1500,7 @@ impl App {
                         }
                     }
                     "fork" => self.open_fork(Some(mid)),
-                    "revert" => {
-                        let c = self.client.clone();
-                        let text = msg.map(|m| m.text_str().to_string()).unwrap_or_default();
-                        self.call(async move { c.revert_stage(&sid, &mid).await }, move |app, _| {
-                            let mut p = crate::state::PromptInfo::empty();
-                            p.text = text;
-                            app.editor.set(&p);
-                        });
-                    }
+                    "revert" => self.revert_message(&sid, &mid),
                     _ => {}
                 }
             }
@@ -1720,17 +1711,9 @@ impl App {
                 self.call(async move { c.inbox_cancel(&sid, &v).await }, |app, _| app.close_dialog());
             }
             ("queued", "queued_prompt.undo") => {
-                let (Some(sid), Some(v)) = (self.session_id().map(|s| s.to_string()), v) else { return };
-                let text = self.queued_prompts().into_iter().find(|i| i.id == v).and_then(|i| i.payload.get("text").and_then(|t| t.as_str()).map(|s| s.to_string()));
-                let c = self.client.clone();
-                self.call(async move { c.inbox_cancel(&sid, &v).await }, move |app, _| {
-                    app.close_dialog();
-                    if let Some(t) = text {
-                        let mut p = crate::state::PromptInfo::empty();
-                        p.text = t;
-                        app.editor.set(&p);
-                    }
-                });
+                if let Some(v) = v {
+                    self.undo_queued(&v);
+                }
             }
             ("mcp", "dialog.mcp.toggle") => {
                 let Some(name) = v else { return };

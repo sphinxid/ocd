@@ -109,7 +109,9 @@ Remaining differences from upstream:
 
 - Code blocks are highlighted with syntect scopes mapped to upstream's tree-sitter highlight
   groups (the workspace has no tree-sitter grammars for TypeScript and most other languages), so
-  some token colors and italics differ, e.g. in TypeScript. Text and layout are the same.
+  some token colors and italics differ, e.g. in TypeScript. Text and layout are the same. PHP uses syntect's
+  `PHP Source` (bare PHP, no `<?php` needed, as upstream's `tree-sitter-php_only` since 2.2.5); upstream downloads
+  that grammar and its query from GitHub on first use, so offline it shows PHP unhighlighted.
 - The command names say `ocd` (`ocd mini -s <id>`, `ocd mini requires ...`).
 - The ocd server runs parallel tool calls in a different order than upstream's, so scrollback
   order for parallel tools can differ; that is a server difference, not a mini one.
@@ -121,10 +123,57 @@ The modules below cover the main session and home screens and all dialogs. They 
 
 - **Session tab rail:** vertical rail plus horizontal strip, with drag-reorder, rail resize
   and the tab context menu.
+- **Tab activity pulse and title shimmer** (`component/tab-pulse.tsx`, `title-shimmer.tsx`, the motion of
+  `session-tabs.tsx`; `ui/tab_pulse.rs`, `app/tab_fx.rs`): a running tab is swept by a light band (two fronts per
+  2.8 s cycle, 450 ms attack, 500 ms fade), flashes when a run starts or stops or a prompt is queued into it in the
+  background, glows while unread or waiting for an answer (ignition, sustain, a diffusing release), and pulses once
+  when a run completes. The rail has four pulses per tab, all across the full rail width (#60338): the half-block
+  separators above each tab and below the last (the upper half belongs to the previous tab) and the title and
+  detail rows; the strip has one per tab. The tab number brightens under the sweep and after a run starts or stops
+  (0.85, fading over 0.7 s); unread and attention glows tint the title and number. The state machines and per-cell
+  color math are ported as is; like OpenTUI's solid renderer, a tab mounts idle and then takes its props, so a
+  running tab mounts with the start flash. The pulse advances by the time between frames (upstream ticks at 20 fps
+  by elapsed time), so both show the same state at the same moment. `/rename` without a title generates one
+  (`data.session.title.generate`): the tab title shimmers until the renamed session is synced, then the new title
+  wipes in over the old one; with animations off the title is dimmed instead. Not ported: the unread marker's fade
+  and the springs of the strip's selection and activity (ocd uses their resting values), and hover states.
+- **Cursor** (2.2.5 #60302, `config/index.tsx` `useCursorStyle`): the focused text input sets the terminal cursor's
+  style (DECSCUSR from `cursor.style`/`cursor.blinking`: block 1/2, underline 3/4, line 5/6, `default` 0; a missing
+  key is a blinking block, also after a live `cli.json` reload deletes it) and color (OSC 12: the prompt
+  `text.base`, a select dialog's search `text.formfield.focused`, a prompt dialog `text.base`), each sent only when
+  it changes; exiting sends `OSC 12 default`, `OSC 112` and `CSI 0 SP q`. Mini does the same (its prompt takes the
+  configured style; its panels and docks keep the blinking block). The permission reject and form text inputs do
+  not show a terminal cursor in ocd.
+- **Undo, revert and queued undo** (2.2.5, `prompt/restore.ts`, `draft-stash.ts` `appendToSessionPrompt`,
+  `app/restore.rs`): the whole prompt comes back (text, files, agents, skills), after whatever the composer already
+  holds and a blank line (mentions of the restored prompt shift by the width before them), in normal mode, into the
+  routed session's composer or else that session's draft. `/undo` takes the last user message with text before the
+  revert boundary: a prompt still pending delivery is cancelled, otherwise the session is interrupted (also when
+  idle), waited for and reverted; with nothing to undo it shows the error "Nothing to undo" (3 s). Revert stages
+  first and changes the composer only when that worked (errors toast for 5 s). A queued prompt's undo is refused
+  while a shell command is typed ("Leave shell mode before undoing a queued prompt") and reports "Failed to undo
+  pending prompt". Stored media references (`experimental.media_blob`) are not ported, so nothing is read back.
+- **Missing sessions** (2.2.5 #60459, `data.ts` `markDeleted`): a `SessionNotFound` answer to a session, message,
+  inbox, permission or form read, like `session.deleted`, removes the session from the store and remembers it
+  (the last 512); a read that started before the deletion drops its answer. `session.created`, a local create and a
+  successful read clear the mark.
+- **Viewed state:** while the terminal has focus (a focus event or any key), the routed session's root is reported
+  viewed up to its idle time once it is unread (`POST /api/session/:id/view`, retried after 250 ms doubling to 5 s),
+  which clears the tab's unread marker everywhere.
+- **Other 2.2.5 changes:** `/connect` no longer lists MCP integrations (the MCP dialog still signs its servers in
+  through its own integration, and connecting continues to the model list for every integration); edit and patch
+  diffs keep 3 cells of right padding (`width - 7`); file mentions keep `#` in paths unless it starts a valid
+  `#start[-end]` line range (`parseFileLineRange`, the last `#`), in the full TUI and in mini, and only files get the
+  range (`?start=&end=` on the URI). The diff gutter matches OpenTUI's (`paddingLeft` 1, the number, ` -`/` +`, a
+  space, all on the line-number background; the box's padding cell shows the block), a user message's skill and
+  file chips are two rows, and the autocomplete popup's border cells keep the background underneath and clip a long
+  description without an ellipsis.
 - **Full-screen views:** the diff viewer route (`diff.open`: tree, unified or split, base
   picker) and the stats route.
 - **Embedded terminal pane:** uses the server PTY WebSocket (input protocol 1) and renders
-  with `vt100`. Supports multiple terminals, focus switching and pane resize.
+  with `vt100`. Supports multiple terminals, focus switching and pane resize. The terminal list refreshes on
+  `persistent-pty.added`, `.removed` and (2.2.5) `.updated`, so a rename elsewhere shows at once; a socket message
+  that does not match its type's schema (`decodePersistentPtyMessage`) is ignored entirely.
 - **Session tools:** message next/previous/first/last navigation, the export options
   dialog, and the subagent/shell composer drawer.
 - **Open dialog** (`ctrl+o`): recent sessions and projects. `→` on a git project shows its

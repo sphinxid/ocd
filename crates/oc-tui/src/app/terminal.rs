@@ -500,16 +500,43 @@ impl App {
     }
 }
 
+/// `decodePersistentPtyMessage` (`@opencode/client/solid` `PersistentPtyMessage`, 2.2.5): a message that does not
+/// match its type's schema is ignored entirely. Only the fields clients read are declared; others pass.
+pub fn valid_message(v: &Value) -> bool {
+    let number = |k: &str| v.get(k).is_some_and(|x| x.is_number());
+    let string = |k: &str| v.get(k).is_some_and(|x| x.is_string());
+    // `Schema.optional(X)`: absent, or an X.
+    let optional = |k: &str, ok: &dyn Fn(&Value) -> bool| v.get(k).is_none_or(ok);
+    let positive_int = |x: Option<&Value>| x.and_then(|x| x.as_f64()).is_some_and(|f| f > 0.0 && f.fract() == 0.0);
+    match v.get("type").and_then(|t| t.as_str()) {
+        Some("attached") => {
+            optional("inputProtocol", &|x| x.is_number())
+                && positive_int(v.pointer("/info/size/cols"))
+                && positive_int(v.pointer("/info/size/rows"))
+                && optional("role", &|x| matches!(x.as_str(), Some("controller" | "observer")))
+        }
+        Some("replay_complete") => true,
+        Some("resized") => number("cols") && number("rows") && string("checkpoint"),
+        Some("controller_changed") => optional("attachmentID", &|x| x.is_null() || x.is_string()),
+        Some("exited") => optional("exitCode", &|x| x.is_null() || x.is_number()),
+        Some("title_changed") => string("title"),
+        Some("foreground_process_changed") => v.get("process").is_some_and(|x| x.is_null() || x.is_string()),
+        _ => false,
+    }
+}
+
 fn handle_message(st: &mut TermState, v: &Value, attachment: &str) {
+    if !valid_message(v) {
+        return;
+    }
+    let size = |x: Option<&Value>| x.and_then(|x| x.as_f64()).map(|f| f as u16).unwrap_or(0);
     match v.get("type").and_then(|t| t.as_str()) {
         Some("attached") => {
             if v.get("inputProtocol").and_then(|p| p.as_i64()) != Some(1) {
                 st.failure = Some("Persistent terminal server is out of date; restart OpenCode".into());
                 return;
             }
-            if let (Some(c), Some(r)) = (v.pointer("/info/size/cols").and_then(|x| x.as_u64()), v.pointer("/info/size/rows").and_then(|x| x.as_u64())) {
-                st.set_size(r as u16, c as u16);
-            }
+            st.set_size(size(v.pointer("/info/size/rows")), size(v.pointer("/info/size/cols")));
             st.controller = v.get("role").and_then(|r| r.as_str()) == Some("controller");
             st.attached = true;
         }
@@ -524,9 +551,7 @@ fn handle_message(st: &mut TermState, v: &Value, attachment: &str) {
             }
         }
         Some("resized") => {
-            if let (Some(c), Some(r)) = (v.get("cols").and_then(|x| x.as_u64()), v.get("rows").and_then(|x| x.as_u64())) {
-                st.set_size(r as u16, c as u16);
-            }
+            st.set_size(size(v.get("rows")), size(v.get("cols")));
             use base64::Engine;
             if let Some(cp) = v.get("checkpoint").and_then(|c| c.as_str()).and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok()) {
                 st.process(b"\x1bc");

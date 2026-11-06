@@ -82,7 +82,9 @@ impl App {
         if !self.free_limits_handled.insert(aid.clone()) {
             return;
         }
-        if !prompt_empty(&self.editor.info()) {
+        // 2.2.5: the prompt comes back (and the offer opens) only into an empty composer in normal mode; a shell
+        // command being typed keeps the composer as it is and skips the offer.
+        if !prompt_empty(&self.editor.info()) || self.editor.shell {
             return;
         }
         // Put the turn's prompt back: the last user message before the failed step, unless it is

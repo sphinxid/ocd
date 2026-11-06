@@ -148,3 +148,15 @@ fn compact_offer_on_short_terminals() {
     let y = lines.iter().position(|l| l.contains("don't show again")).unwrap();
     assert!(lines[y + 1].contains("dismiss") && lines[y + 2].contains("subscribe"), "{joined}");
 }
+
+/// 2.2.5: in shell mode the prompt does not come back and the offer does not open.
+#[test]
+fn shell_mode_keeps_the_composer_and_skips_the_offer() {
+    let mut a = app();
+    let sid = free_limit_session(&mut a);
+    a.editor.shell = true;
+    a.on_event(step_failed(&sid, "msg_2"));
+    assert_eq!(a.editor.text, "");
+    assert!(a.editor.shell);
+    assert!(a.dialogs.is_empty());
+}

@@ -705,6 +705,12 @@ pub fn urlencode(s: &str) -> String {
 }
 
 /// `errorMessage(err)`: the human message of an error.
+/// `isSessionNotFoundError`: the session ID of a `SessionNotFoundError` answer.
+pub fn session_not_found(e: &anyhow::Error) -> Option<String> {
+    let api = e.downcast_ref::<ApiError>()?;
+    (api.tag == "SessionNotFoundError").then(|| api.body.get("sessionID").and_then(|s| s.as_str()).unwrap_or("").to_string()).filter(|s| !s.is_empty())
+}
+
 pub fn error_message(e: &anyhow::Error) -> String {
     if let Some(api) = e.downcast_ref::<ApiError>() {
         return api.message.clone();

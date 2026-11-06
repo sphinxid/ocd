@@ -513,7 +513,7 @@ impl App {
                 let Some(s) = sid else { return false };
                 match args.as_deref().map(|a| a.trim()) {
                     Some(t) if !t.is_empty() => self.rename(&s, t),
-                    Some(_) => self.rename(&s, ""),
+                    Some(_) => self.generate_title(&s),
                     None => {
                         let title = self.session().map(|x| x.display_title()).unwrap_or_default();
                         let mut d = Dialog::new("rename", Body::Prompt(PromptDialog::new("Rename session", "Session title", &title)));
@@ -823,37 +823,30 @@ impl App {
         });
     }
 
-    fn undo(&mut self) {
-        let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
-        let boundary = self.session().and_then(|s| s.revert.as_ref().map(|r| r.message_id.clone()));
-        let target = self
-            .store
-            .messages(&sid)
-            .iter()
-            .rev()
-            .filter(|m| m.kind == "user")
-            .find(|m| boundary.as_ref().is_none_or(|b| m.id < *b))
-            .cloned();
-        let Some(target) = target else {
-            self.info("Nothing to undo");
+    /// `data.session.title.generate` (`context/data.tsx`): `/rename` without a title asks the server for a new one.
+    /// The session stays pending (its tab title shimmers) until the renamed session is synced here, since the
+    /// HTTP answer can beat the rename event.
+    pub fn generate_title(&mut self, sid: &str) {
+        if !self.title_generating.insert(sid.to_string()) {
             return;
-        };
+        }
         let c = self.client.clone();
-        let s2 = sid.clone();
-        let mid = target.id.clone();
-        let running = self.running();
-        self.call(
+        let s = sid.to_string();
+        self.spawn(
             async move {
-                if running {
-                    c.interrupt(&s2, false).await?;
-                    c.wait(&s2).await?;
-                }
-                c.revert_stage(&s2, &mid).await
+                c.session_update(&s, json!({ "title": "" })).await?;
+                c.session_get(&s).await
             },
-            move |app, _| {
-                let mut info = crate::state::PromptInfo::empty();
-                info.text = target.text.clone().unwrap_or_default();
-                app.editor.set(&info);
+            {
+                let sid = sid.to_string();
+                move |app, r| {
+                    app.title_generating.remove(&sid);
+                    match r {
+                        Ok(info) => app.store.remember(info),
+                        Err(e) => app.toast_error(&e),
+                    }
+                    app.dirty = true;
+                }
             },
         );
     }

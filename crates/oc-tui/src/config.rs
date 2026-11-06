@@ -185,6 +185,21 @@ impl Config {
     pub fn mouse(&self) -> bool {
         self.bool("mouse").unwrap_or(true)
     }
+    /// `Resolved.cursor` (2.2.5 #60302: always resolved, so a missing or deleted key means a blinking block) as
+    /// its DECSCUSR number: block 1/2, underline 3/4, line 5/6 (blinking/steady), `default` 0.
+    pub fn cursor_decscusr(&self) -> u8 {
+        let style = self.get("cursor").and_then(|c| c.get("style").and_then(|s| s.as_str()).map(|s| s.to_string()));
+        let blinking = self.get("cursor").and_then(|c| c.get("blinking").and_then(|b| b.as_bool())).unwrap_or(true);
+        match (style.as_deref().unwrap_or("block"), blinking) {
+            ("default", _) => 0,
+            ("underline", true) => 3,
+            ("underline", false) => 4,
+            ("line", true) => 5,
+            ("line", false) => 6,
+            (_, true) => 1,
+            (_, false) => 2,
+        }
+    }
     pub fn scroll_speed(&self) -> f64 {
         self.num("scroll.speed").filter(|v| *v >= 0.001).unwrap_or(3.0)
     }

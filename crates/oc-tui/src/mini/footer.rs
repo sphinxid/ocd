@@ -1686,7 +1686,14 @@ impl Footer {
                 }
             }
         }
-        let cursor = cursor.filter(|_| !self.is_closed()).map(|(x, y)| CursorReq { x: x as u16, y: y as u16, style: self.cursor_style, color: None });
+        // The prompt textarea takes the configured style and `theme.text`; the panel input and the permission and
+        // form textareas keep OpenTUI's default (blinking block) in the focused form-field text color.
+        let (style, color) = match self.view {
+            FooterView::Prompt if self.panel.is_none() && self.route == PromptRoute::Composer => (self.cursor_style, theme.text),
+            _ => (1, theme.formfield_focused_text),
+        };
+        let color = Some((color.r, color.g, color.b));
+        let cursor = cursor.filter(|_| !self.is_closed()).map(|(x, y)| CursorReq { x: x as u16, y: y as u16, style, color });
         (buf, cursor)
     }
 
