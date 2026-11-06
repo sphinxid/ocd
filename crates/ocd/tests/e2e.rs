@@ -257,24 +257,33 @@ fn run_streams_text_and_tools_from_a_mock_provider() {
     assert_eq!(common::text(&out.stderr), "");
 
     // JSON format with a tool call: the first step live (its tool ran and the next step's request went out
-    // before the session went idle), the last one projected.
+    // before the session went idle), the last one projected. Since 2.2.5 (#60475) the projection also reports the
+    // `step_start` and `step_finish` (with its usage) the live stream missed.
     let out = env.run(&["run", "--standalone", "--format", "json", "USE_TOOL", "now"]);
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
     let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     let types: Vec<&str> = lines.iter().map(|l| l["type"].as_str().unwrap()).collect();
-    assert_eq!(types, vec!["step_start", "tool_use", "step_finish", "text"]);
+    assert_eq!(types, vec!["step_start", "tool_use", "step_finish", "step_start", "text", "step_finish"]);
     let tool = &lines[1]["part"];
     assert_eq!(tool["tool"], "read");
     assert_eq!(tool["state"]["status"], "completed");
     assert!(tool["state"]["output"].as_str().unwrap().contains("hello from file"));
-    let text = &lines[3]["part"];
+    let text = &lines[4]["part"];
     assert_eq!(text["text"], "Hello from mock.");
     let message = text["messageID"].as_str().unwrap();
-    assert_eq!(text["id"], format!("prt_{}_text-0", message.strip_prefix("msg_").unwrap()));
-    let keys: Vec<&String> = lines[3].as_object().unwrap().keys().collect();
+    let body = message.strip_prefix("msg_").unwrap();
+    assert_eq!(text["id"], format!("prt_{body}_text-0"));
+    let keys: Vec<&String> = lines[4].as_object().unwrap().keys().collect();
     assert_eq!(keys, vec!["type", "timestamp", "sessionID", "part"]);
+    assert_eq!(lines[3]["part"], json!({"id": format!("prt_{body}_step-start"), "sessionID": lines[3]["sessionID"], "messageID": message, "type": "step-start"}));
+    let finish = &lines[5]["part"];
+    assert_eq!(finish["id"], format!("prt_{body}_step-finish"));
+    assert_eq!(finish["reason"], "stop");
+    assert_eq!(finish["cost"], 0);
+    assert!(finish["tokens"]["output"].is_number(), "{finish}");
 
-    // A non-retryable 400 at once: only the error, no step header (`step_start` in JSON), like upstream.
+    // A non-retryable 400 at once: only the error, no step header; JSON reports the live error, then the missed
+    // `step_start` from the projection (no `step_finish`: the failed step has no finish reason or usage).
     let out = env.run(&["run", "--standalone", "REFUSE", "now"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(common::text(&out.stdout), "");
@@ -282,10 +291,11 @@ fn run_streams_text_and_tools_from_a_mock_provider() {
     let out = env.run(&["run", "--standalone", "--format", "json", "REFUSE", "now"]);
     assert_eq!(out.status.code(), Some(1));
     let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-    assert_eq!(lines.len(), 1, "{}", common::text(&out.stdout));
+    assert_eq!(lines.len(), 2, "{}", common::text(&out.stdout));
     assert_eq!(lines[0]["type"], "error");
     assert_eq!(lines[0]["error"]["message"], "mock refuses");
     assert_eq!(lines[0]["error"]["status"], 400);
+    assert_eq!(lines[1]["type"], "step_start");
 
     // missing message
     let out = env.run(&["run", "--standalone"]);
@@ -324,8 +334,10 @@ fn run_in_a_git_repository_prints_the_last_step_live_up_to_its_end_snapshot() {
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
     let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     let types: Vec<&str> = lines.iter().map(|l| l["type"].as_str().unwrap()).collect();
-    assert_eq!(types, vec!["step_start", "text"]);
+    assert_eq!(types, vec!["step_start", "text", "step_finish"]);
     assert!(lines[0]["part"]["snapshot"].is_string());
+    // The skipped `step.ended` comes back from the projection, with the end snapshot.
+    assert_eq!(lines[2]["part"]["snapshot"], lines[0]["part"]["snapshot"]);
 
     let out = env.run(&["run", "--standalone", "REFUSE", "now"]);
     assert_eq!(out.status.code(), Some(1));

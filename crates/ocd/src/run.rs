@@ -745,6 +745,10 @@ struct State {
     rendered_text: HashMap<String, String>,
     rendered_reasoning: HashMap<String, String>,
     rendered_tools: std::collections::HashSet<String>,
+    /// Live step events stop being read once the session goes idle, and the last step usually ends after
+    /// that. `reconcile` uses this to emit only the `step_start`/`step_finish` lines the live stream missed
+    /// (`true` once the step ended).
+    steps: HashMap<String, bool>,
     owned: HashMap<String, bool>,
     submitted: bool,
     promoted: bool,
@@ -778,6 +782,17 @@ fn to_millis(v: Option<&Value>) -> i64 {
         Some(Value::Number(n)) => n.as_f64().map(|f| f as i64).unwrap_or(0),
         Some(Value::String(s)) => chrono::DateTime::parse_from_rfc3339(s).map(|d| d.timestamp_millis()).unwrap_or_else(|_| chrono::Utc::now().timestamp_millis()),
         _ => chrono::Utc::now().timestamp_millis(),
+    }
+}
+
+/// JavaScript truthiness of a JSON value.
+fn truthy(v: &Value) -> bool {
+    match v {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
     }
 }
 
@@ -930,8 +945,8 @@ impl Shared {
     /// answers to the requests it settled before that. So the `session.wait` answer released by the session
     /// going idle overtakes the events published since the runner's last I/O wait, and `run` handles those as
     /// finalizing: it skips them and prints their content from the projected messages (no `> agent · model`
-    /// header nor `step_start`/`step_finish` for a step that fails at once, or for the last step of a fast
-    /// provider). ocd delivers events at once, so the consumer holds each event of the session for `HOLD` and
+    /// header for a step that fails at once, or for the last step of a fast provider; since 2.2.5 the JSON
+    /// format reports the `step_start`/`step_finish` the live stream missed from the projection). ocd delivers events at once, so the consumer holds each event of the session for `HOLD` and
     /// handles the held ones as finalizing when the execution ends meanwhile. Where upstream's runner always
     /// waits for I/O, the held events are released at once and handled as upstream's stream delivers them
     /// before that wait, whether or not `session.wait` has answered here by then: before a new step (its
@@ -1085,6 +1100,7 @@ impl Shared {
                 part.insert("messageID".into(), json!(amid));
                 part.insert("type".into(), json!("step-start"));
                 put(&mut part, "snapshot", data.get("snapshot"));
+                self.state.lock().steps.insert(amid.clone(), false);
                 if !self.emit("step_start", time, vec![("part", Value::Object(part))]) && self.p.format != Format::Json {
                     ui::empty();
                     ui::println(&[&format!(
@@ -1249,6 +1265,7 @@ impl Shared {
                 }
             }
             "session.step.ended" => {
+                self.state.lock().steps.insert(amid.clone(), true);
                 let mut part = Map::new();
                 part.insert("id".into(), json!(part_id(&event_id)));
                 part.insert("sessionID".into(), json!(self.p.session_id));
@@ -1342,6 +1359,16 @@ impl Shared {
             let created = message.pointer("/time/created").cloned().unwrap_or(Value::Null);
             let timestamp = message.pointer("/time/completed").filter(|v| !v.is_null()).cloned().unwrap_or(created.clone());
             let ts = timestamp.as_i64().unwrap_or(0);
+            let step = self.state.lock().steps.get(&mid).copied();
+            if step.is_none() {
+                let mut part = Map::new();
+                part.insert("id".into(), json!(projected_part_id(&mid, "step-start")));
+                part.insert("sessionID".into(), json!(self.p.session_id));
+                part.insert("messageID".into(), json!(mid));
+                part.insert("type".into(), json!("step-start"));
+                put(&mut part, "snapshot", message.pointer("/snapshot/start").filter(|v| !v.is_null()));
+                self.emit("step_start", created.as_i64().unwrap_or(0), vec![("part", Value::Object(part))]);
+            }
             let (mut text_ordinal, mut reasoning_ordinal) = (0, 0);
             for item in message.get("content").and_then(Value::as_array).cloned().unwrap_or_default() {
                 let ty = item.get("type").and_then(Value::as_str).unwrap_or("");
@@ -1419,6 +1446,22 @@ impl Shared {
                 }
                 render_tool_error(&item, &self.p.directory);
                 ui::error(state.pointer("/error/message").and_then(Value::as_str).unwrap_or(""));
+            }
+            let finish = message.get("finish").filter(|f| truthy(f));
+            let tokens = message.get("tokens").filter(|t| !t.is_null());
+            if step != Some(true)
+                && let (Some(finish), Some(tokens)) = (finish, tokens)
+            {
+                let mut part = Map::new();
+                part.insert("id".into(), json!(projected_part_id(&mid, "step-finish")));
+                part.insert("sessionID".into(), json!(self.p.session_id));
+                part.insert("messageID".into(), json!(mid));
+                part.insert("type".into(), json!("step-finish"));
+                part.insert("reason".into(), finish.clone());
+                put(&mut part, "snapshot", message.pointer("/snapshot/end").filter(|v| !v.is_null()));
+                part.insert("cost".into(), message.get("cost").filter(|c| !c.is_null()).cloned().unwrap_or(json!(0)));
+                part.insert("tokens".into(), tokens.clone());
+                self.emit("step_finish", ts, vec![("part", Value::Object(part))]);
             }
             if let Some(err) = message.get("error").filter(|e| !e.is_null()) {
                 let emit = {

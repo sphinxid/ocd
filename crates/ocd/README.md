@@ -175,8 +175,10 @@ following of child sessions after the root turn ends.
 * `run` and the last events of a run: upstream's server writes events to the event stream only when its
   runner waits for I/O, after the HTTP answers settled before that, so `session.wait` answers before the
   events published since the runner's last I/O wait and `run` skips them as finalizing (no `> agent · model`
-  header / `step_start` for a step that fails at once, the last step's text from the projected message,
-  no last `step_finish`). ocd's server delivers events at once, so `run.rs` (`Shared::consume`) emulates
+  header for a step that fails at once, the last step's text from the projected message). Since 2.2.5
+  (#60475) `--format json` then reports the `step_start` (at the message's creation) and the `step_finish`
+  (reason, end snapshot, cost and usage, when the message has a finish and tokens) that the live stream missed,
+  from the projected messages. ocd's server delivers events at once, so `run.rs` (`Shared::consume`) emulates
   this: it holds each live event for 150 ms and handles the held ones as finalizing when the execution ends
   meanwhile, releasing them at once where upstream's runner always waits for I/O (a new step's provider
   request, the end snapshot of a step that started with one, permission and form requests). Upstream's own
