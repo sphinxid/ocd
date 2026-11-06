@@ -125,8 +125,7 @@ impl ShellTool {
         let target = file_access::resolve(ctx, &invocation.cwd, Some(Kind::Directory));
         invocation.cwd = target.absolute.to_string_lossy().into_owned();
         let timeout = invocation.timeout;
-        let portable = ctx.config.portable_shell_scanner.unwrap_or(ctx.config.channel == "local" || ctx.config.channel == "dev");
-        let parsed = parse::scan(&invocation.command, &invocation.shell, &invocation.cwd, &ctx.global.home, portable)
+        let parsed = parse::scan(&invocation.command, &invocation.shell, &invocation.cwd, &ctx.global.home)
             .map_err(|message| ToolError::with_cause(leaf, ErrorCause::Error(message)))?;
         let directories: Vec<_> = parsed
             .directories

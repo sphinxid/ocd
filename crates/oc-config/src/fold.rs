@@ -119,10 +119,6 @@ pub fn subagent_depth(entries: &[Entry]) -> u64 {
     experimental(entries).and_then(|e| e.subagent_depth).unwrap_or(1)
 }
 
-/// `experimental.portable_shell_scanner ?? false`.
-pub fn portable_shell_scanner(entries: &[Entry]) -> bool {
-    experimental(entries).and_then(|e| e.portable_shell_scanner).unwrap_or(false)
-}
 
 /// Compaction settings overlaid field-wise (defaults: auto true, keep 15000, buffer unset).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

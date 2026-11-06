@@ -52,8 +52,7 @@ pub trait Tool: Send + Sync {
   - `global: Arc<oc_util::Global>` and `cancel: CancellationToken`
   - `progress` callback: publishes `session.tool.progress`
   - `config: Arc<ToolConfig>`: `tool_output.max_*`, resolved `formatter` config,
-    `experimental.portable_shell_scanner`, `experimental.subagent_depth`, `shell`, app `channel`
-    and `media.image` limits
+    `experimental.subagent_depth`, `shell` and `media.image` limits
   - `host: Arc<dyn ToolHost>`
 
 ## ToolHost (`src/host.rs`)
@@ -140,7 +139,7 @@ Each method has a default that reports the capability as unavailable. The except
 | `patch` (grammar, 4-pass seek), `validate` (Effect-compatible issues) | `util/src/patch.ts`, `tool/runtime.ts` |
 | `repair` (schema-driven input repair, JS `Number()`) | `plugin/tool-input-repair.ts` |
 | `ripgrep` (args, JSON parsing with lines cut at 2000 UTF-16 units like a UTF-8 round trip, binary locate/download of 15.1.0 into `<cache>/bin`, verified against the pinned per-platform SHA-256 before it is written) | `ripgrep.ts`, `ripgrep/binary.ts` |
-| `shell::{select, parse, scan, service, result}`: tree-sitter (legacy) and portable scanners | `shell/*.ts`, `shell.ts` |
+| `shell::{select, parse, scan, service, result}`: the portable permission scanner, always on since 2.2.5 (`experimental.portable_shell_scanner` is accepted and ignored). `scan` covers redirects (commandless and redirected commands are resources saved as `{prefix} *`), Zsh `&!`/`&\|` and glob qualifiers, eval sinks, and PowerShell member and method calls (`$x.Kill()` saves `$x.Kill(*`); `parse` keeps dynamic or incomplete `cd`/`Set-Location` (`cd $X`, `cd -`, `popd`, `-StackName`, dot-wildcards) as resources and resolves `~+`/`~user`. Tests replay a stratified sample of upstream's recorded calls (`scan/golden.rs`); `OCD_SHELL_ORACLE=<jsonl>` replays a full recording | `shell/*.ts`, `shell.ts` |
 | `html` (htmlparser2 8.0.2 + `html-markdown.ts` transliteration) | `tool/html-markdown.ts`, `webfetch.ts` |
 | `websearch` (service, 5 providers, Console provider) | `websearch.ts`, `plugin/websearch/*` |
 | `formatter` (26 built-ins, overrides), `image` (`photon-normalize.ts` rules: fitting PNGs over 384 KiB and 256×256 px that are opaque become JPEG q80 when smaller; the resize ladder tries PNG first only for transparent or small sizes, then JPEG 80/70/55/40), `mime`, `tool_output` | `formatter*.ts`, `image*.ts`, `mime.ts`, `tool-output.ts` |

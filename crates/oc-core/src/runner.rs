@@ -701,10 +701,8 @@ impl Engine {
         let config = ToolConfig {
             tool_output_max_lines: oc_config::fold::tool_output(entries).and_then(|t| t.max_lines).map(|v| v as usize),
             tool_output_max_bytes: oc_config::fold::tool_output(entries).and_then(|t| t.max_bytes).map(|v| v as usize),
-            portable_shell_scanner: Some(oc_config::fold::portable_shell_scanner(entries)),
             subagent_depth: Some(oc_config::fold::subagent_depth(entries)),
             shell: oc_config::fold::shell(entries).map(str::to_string),
-            channel: oc_util::version::CHANNEL.into(),
             ..Default::default()
         };
         // The tools advertised in this request: a call to a known tool that was not offered (e.g. `patch`

@@ -614,25 +614,23 @@ output+notice joined `\n\n` (completed), `info.error ?? "Command failed"` (error
 `{source:"shell", shellID, jobID, state, truncated, exit?, signal?, timeout?}`.
 
 ### 7.4 Command scanning for permissions (`core/src/shell/parse.ts`)
-Two implementations that are tested for parity:
-- **Legacy (default in release builds)**: tree-sitter (web-tree-sitter 0.25.10, tree-sitter-bash 0.25.0,
-  tree-sitter-powershell 0.25.10). Parse with the PowerShell grammar if shell name is `powershell`/`pwsh`, else bash.
-  For every descendant node of type `command`: parts = children of type `command_name`, `command_name_expr`, `word`,
-  `string`, `raw_string`, `concatenation`, plus items of `command_elements` (excluding `command_argument_sep`,
-  `redirection`). Name = first token (lowercased for PowerShell). If name ∈ {`cd`,`chdir`,`popd`,`pushd`,
-  `push-location`,`set-location`} → directory args (bash: non-`-` args, quotes stripped, skip anything containing
-  `$`, `` ` `` or starting `(`, expand `~`/`~/`; PowerShell: `-Path`/`-LiteralPath`-style flag values or positional
-  args, expanding `$env:X`, `${env:X}`, `$HOME`, `$PWD` (=cwd), `$PSHOME` (=dirname(shell))). Otherwise push
-  `{resource: (parent is redirected_statement ? parent.text : node.text).trim(), save: prefix(tokens).join(" ") + " *"}`.
-  Declarations (`export`, `declare`, …) are `declaration_command` nodes in tree-sitter-bash and so produce **no**
-  command, but commands nested in their substitutions do. Commands inside `$(...)` are separate commands.
-- **Portable** (`core/src/shell/scan.ts`, 2409 lines, hand-written bash/zsh/posix + PowerShell scanner): used when
-  config `experimental.portable_shell_scanner` is true, or (unset and) wasm assets are absent or app channel is
-  `local`/`dev`. Returns `opaque` (→ error ``Portable shell scanner cannot analyze command: ${reason}``, reasons:
-  `command-substitution`, `compound-command`, `dynamic-command-name`, `dynamic-execution`, `heredoc`,
-  `invalid-redirect`, `invalid-structure`, `unterminated-escape`, `unterminated-quote`) or commands with
-  raw/cooked words; input >64 KiB → opaque `invalid-structure`. Designed to equal the legacy output; the Rust port
-  should implement the legacy tree-sitter semantics (tree-sitter crates exist) and treat portable as optional.
+Since 2.2.5 (#60332, #60376) only the portable scanner exists (tree-sitter was removed);
+`experimental.portable_shell_scanner` is still accepted but deprecated and ignored.
+- **Scanner** (`core/src/shell/scan.ts`, ~2590 lines, hand-written bash/zsh/posix + PowerShell): dialect from the
+  shell name (`bash`, `zsh`, else posix; `powershell`/`pwsh` → PowerShell). Returns `opaque` (→ error
+  ``Portable shell scanner cannot analyze command: ${reason}``, reasons: `command-substitution`, `compound-command`,
+  `dynamic-command-name`, `dynamic-execution`, `heredoc`, `invalid-redirect`, `invalid-structure`,
+  `unterminated-escape`, `unterminated-quote`) or commands with raw/cooked words; input >64 KiB → opaque
+  `invalid-structure`. Zsh adds the `&!`/`&|` list operators, glob qualifiers without code (`*(.)`, `*(om[1,3])`)
+  and `${(P)name}`; `eval`, `PS4`, and `declare`/`typeset`/`local` with an expanded operand are eval sinks.
+- **Result building** (`parse.ts`): declarations are skipped (their substitutions remain). Commandless or group
+  redirects (`>> ~/.zshrc`, `{ …; } > f`) become a resource saved as `{redirect prefix} *`. PowerShell member method
+  calls (`$proc.Kill()`, `[IO.File]::Delete(…)`) are nested resources saved as `{head}(*`; an expression with a file
+  redirect (`"x" >> f`) is a resource. Directory commands (`cd`, `chdir`, `pushd`, `popd`, `push-location`,
+  `set-location`, also behind `builtin`/`command`) add their static directories (`~`, `~/x`, unquoted `~+`, `~user`
+  via the user database; `-LiteralPath`/`-Path` values; `$HOME`/`$PWD`/`$PSHOME`/`$env:X` in PowerShell) and stay a
+  permission resource unless every operand resolved (`cd $X`, `cd -`, `popd`, `-StackName`, dot-leading wildcards,
+  brace lists keep it).
 - `prefix(tokens)`: longest leading token sequence (up to 3) present in `ARITY` → first `arity` tokens; else first token.
   ARITY table verbatim at `parse.ts:23-161` (e.g. `git:2`, `git config:3`, `npm run:3`, `docker compose:3`, `cat:1`, `aws:3`).
   Examples (tests `core/test/shell-parse.test.ts`): `git status && npm run test -- --watch` →
@@ -1032,8 +1030,7 @@ No Code Mode tools are currently available. Later Code Mode catalog updates may 
 4. **UTF-16 vs UTF-8 lengths** — line clamping (2000), grep text truncation (2000), ToolOutput content slicing and
    CodeMode description truncation use JS string lengths (UTF-16 code units). Must emulate.
 5. **Ripgrep result order** is nondeterministic (parallel walker, no `--sort`); replicate as-is or add `--sort path`?
-6. **Shell scanner**: confirm which scanner a Rust build should use (legacy tree-sitter grammar versions bash 0.25.0 /
-   powershell 0.25.10) and whether to port `scan.ts` (2409 lines) at all.
+6. **Shell scanner**: resolved; `scan.ts` is ported line by line (upstream dropped tree-sitter in 2.2.5).
 7. **jsdiff output** — `createTwoFilesPatch`/`diffLines` (jsdiff 8.0.4) hunk construction (context 4 lines) must be
    byte-identical for permission previews and `files` metadata; `similar` crate output differs.
 8. **CodeMode interpreter** (`packages/codemode`, ~10.8k lines incl. stdlib) needs its own spec; it defines the JS

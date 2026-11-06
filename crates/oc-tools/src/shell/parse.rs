@@ -1,7 +1,5 @@
-//! Shell command scanning for permissions (`core/src/shell/parse.ts`).
-//!
-//! The legacy scanner walks a tree-sitter parse (tree-sitter-bash 0.25.0, tree-sitter-powershell 0.25.10, the
-//! grammar versions upstream ships as wasm). The portable scanner (`super::scan`) is a hand-written equivalent.
+//! Shell command scanning for permissions (`core/src/shell/parse.ts`): turns the portable scanner's
+//! (`super::scan`) commands into permission resources, saved prefixes and directory changes.
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -31,6 +29,11 @@ static POWERSHELL_PATH_FLAG_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^-(?:p(?:ath|at|a)?|lp|l(?:i(?:t(?:e(?:r(?:a(?:l(?:p(?:a(?:t(?:h)?)?)?)?)?)?)?)?)?)?|psp(?:a(?:t(?:h)?)?)?):?$")
         .unwrap()
 });
+static POWERSHELL_LITERAL_FLAG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^-(?:lp|l(?:i(?:t(?:e(?:r(?:a(?:l(?:p(?:a(?:t(?:h)?)?)?)?)?)?)?)?)?)?|psp(?:a(?:t(?:h)?)?)?):?$").unwrap()
+});
+static POWERSHELL_STACK_FLAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^-(?:stack(?:name|nam|na|n)?|st):?$").unwrap());
 
 const ARITY: &[(&str, usize)] = &[
     ("cat", 1),
@@ -220,135 +223,10 @@ fn windows_path(p: &str) -> String {
     out
 }
 
-/// Mirrors `ShellParse.scan`. `shell` = full shell path; `home` = `os.homedir()`.
+/// Mirrors `ShellParse.scan`: the portable scanner's commands, with permission resources, saved prefixes and the
+/// directories that directory commands change to. `shell` = full shell path; `home` = `os.homedir()`.
 /// `Err` is the model-visible message.
-pub fn scan(command: &str, shell: &str, cwd: &str, home: &Path, portable: bool) -> Result<ScanResult, String> {
-    if portable {
-        return scan_portable(command, shell, cwd, home);
-    }
-    scan_legacy(command, shell, cwd, home)
-}
-
-#[derive(Clone)]
-struct Part {
-    kind: String,
-    text: String,
-}
-
-fn scan_legacy(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<ScanResult, String> {
-    let powershell = is_powershell(shell);
-    let mut parser = tree_sitter::Parser::new();
-    let language: tree_sitter::Language = if powershell {
-        tree_sitter_powershell::LANGUAGE.into()
-    } else {
-        tree_sitter_bash::LANGUAGE.into()
-    };
-    parser.set_language(&language).map_err(|_| "Failed to parse shell command".to_string())?;
-    let tree = parser.parse(command, None).ok_or_else(|| "Failed to parse shell command".to_string())?;
-    let source = command.as_bytes();
-    let mut result = ScanResult::default();
-    for node in descendants_of_type(tree.root_node(), "command") {
-        let command_parts = parts(node, source);
-        let tokens: Vec<String> = command_parts.iter().map(|part| part.text.clone()).collect();
-        if tokens.is_empty() {
-            continue;
-        }
-        let name = if powershell { tokens[0].to_lowercase() } else { tokens[0].clone() };
-        if CWD.contains(&name.as_str()) {
-            result.directories.extend(directory_args(&command_parts, powershell, cwd, shell, home));
-            continue;
-        }
-        let target = match node.parent() {
-            Some(parent) if parent.kind() == "redirected_statement" => parent,
-            _ => node,
-        };
-        result.commands.push(ScanCommand {
-            resource: scan::js_trim(node_text(target, source)).to_string(),
-            save: format!("{} *", prefix(&tokens).join(" ")),
-        });
-    }
-    Ok(result)
-}
-
-fn node_text<'a>(node: tree_sitter::Node, source: &'a [u8]) -> &'a str {
-    node.utf8_text(source).unwrap_or("")
-}
-
-/// `Node.descendantsOfType` (web-tree-sitter): a preorder cursor walk from the node itself, skipping subtrees
-/// that end at or before the zero start point.
-fn descendants_of_type<'t>(root: tree_sitter::Node<'t>, kind: &str) -> Vec<tree_sitter::Node<'t>> {
-    let mut result = vec![];
-    let mut cursor = root.walk();
-    let mut visited_children = false;
-    let zero = tree_sitter::Point { row: 0, column: 0 };
-    loop {
-        let node = cursor.node();
-        if !visited_children {
-            if node.end_position() <= zero {
-                if cursor.goto_next_sibling() {
-                    visited_children = false;
-                } else {
-                    if !cursor.goto_parent() {
-                        break;
-                    }
-                    visited_children = true;
-                }
-                continue;
-            }
-            if node.kind() == kind {
-                result.push(node);
-            }
-            if cursor.goto_first_child() || cursor.goto_next_sibling() {
-                visited_children = false;
-            } else {
-                if !cursor.goto_parent() {
-                    break;
-                }
-                visited_children = true;
-            }
-        } else if cursor.goto_next_sibling() {
-            visited_children = false;
-        } else if !cursor.goto_parent() {
-            break;
-        }
-    }
-    result
-}
-
-fn parts(node: tree_sitter::Node, source: &[u8]) -> Vec<Part> {
-    let mut result = vec![];
-    for index in 0..node.child_count() {
-        let Some(child) = node.child(index) else {
-            continue;
-        };
-        if child.kind() == "command_elements" {
-            for item_index in 0..child.child_count() {
-                let Some(item) = child.child(item_index) else {
-                    continue;
-                };
-                if item.kind() == "command_argument_sep" || item.kind() == "redirection" {
-                    continue;
-                }
-                result.push(Part { kind: item.kind().to_string(), text: node_text(item, source).to_string() });
-            }
-            continue;
-        }
-        if !["command_name", "command_name_expr", "word", "string", "raw_string", "concatenation"]
-            .contains(&child.kind())
-        {
-            continue;
-        }
-        result.push(Part { kind: child.kind().to_string(), text: node_text(child, source).to_string() });
-    }
-    result
-}
-
-static RE_POWERSHELL_PARAMETER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-[A-Za-z_?][A-Za-z0-9_?-]*(?::|$)").unwrap());
-static RE_QUOTE_OR_BACKTICK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"['"`]"#).unwrap());
-static RE_BASH_DYNAMIC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[$`~\\]").unwrap());
-static RE_QUOTES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"['"]"#).unwrap());
-
-fn scan_portable(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<ScanResult, String> {
+pub fn scan(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<ScanResult, String> {
     let powershell = is_powershell(shell);
     let name = shell_name(shell);
     let outcome = if powershell {
@@ -370,15 +248,22 @@ fn scan_portable(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<S
 
     let mut output = ScanResult::default();
     for item in commands {
-        // The legacy command walk skips declarations, not the substitutions within them.
+        // Declarations are skipped as standalone permission resources, while nested substitutions remain.
         if item.declaration {
+            continue;
+        }
+        if let Some(prefix_end) = item.redirect_prefix_end {
+            let head: String = item.resource.chars().take(prefix_end).collect();
+            let separator =
+                item.resource.chars().nth(prefix_end).filter(|next| matches!(next, '\t' | '\n')).unwrap_or(' ');
+            output.commands.push(ScanCommand { save: format!("{head}{separator}*"), resource: item.resource });
             continue;
         }
         let words: Vec<String> = match item.redirect_word_count {
             None => item.raw_words.clone(),
             Some(count) => item.raw_words.iter().take(count).cloned().collect(),
         };
-        // The shipped PowerShell grammar treats bare statement-head foreach blocks as control flow.
+        // Bare statement-head foreach blocks act as PowerShell control flow rather than cmdlet invocations.
         if powershell
             && item.statement_head
             && words.first().is_some_and(|w| is_foreach_head(w))
@@ -387,52 +272,16 @@ fn scan_portable(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<S
         {
             continue;
         }
-        let first = words.first().map(|w| if powershell { w.to_lowercase() } else { w.clone() });
-        if first.as_deref().is_some_and(|name| CWD.contains(&name)) {
-            let parts: Vec<Part> = if powershell {
-                words
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(index, raw)| {
-                        let text = if !raw.contains("`$") && RE_QUOTE_OR_BACKTICK.is_match(raw) {
-                            item.words.get(index).cloned().unwrap_or_else(|| raw.clone())
-                        } else {
-                            raw.replace("`$", "\0")
-                        };
-                        if !RE_POWERSHELL_PARAMETER.is_match(raw) {
-                            return vec![Part { kind: "word".into(), text }];
-                        }
-                        match text.find(':') {
-                            Some(colon) if colon + 1 < text.len() => vec![
-                                Part { kind: "command_parameter".into(), text: text[..colon].to_string() },
-                                Part { kind: "word".into(), text: text[colon + 1..].to_string() },
-                            ],
-                            Some(colon) => {
-                                vec![Part { kind: "command_parameter".into(), text: text[..colon].to_string() }]
-                            }
-                            None => vec![Part { kind: "command_parameter".into(), text }],
-                        }
-                    })
-                    .collect()
-            } else {
-                item.raw_words
-                    .iter()
-                    .enumerate()
-                    .map(|(index, text)| Part {
-                        kind: "word".into(),
-                        // Only literal quoting resolves to a static directory.
-                        text: if text.starts_with("$'")
-                            || (!RE_BASH_DYNAMIC.is_match(text) && RE_QUOTES.is_match(text))
-                        {
-                            item.words.get(index).cloned().unwrap_or_default()
-                        } else {
-                            text.clone()
-                        },
-                    })
-                    .collect()
-            };
-            output.directories.extend(directory_args(&parts, powershell, cwd, shell, home));
-            continue;
+        let parts = if powershell { powershell_parts(&words, &item.words) } else { bash_parts(&item) };
+        let unwrapped = unwrap_directory_command(if powershell { &words } else { &item.raw_words }, powershell);
+        if let Some(offset) = unwrapped {
+            let command = &parts[offset.min(parts.len())..];
+            let (directories, complete) = directory_args(command, powershell, cwd, shell, home);
+            output.directories.extend(directories);
+            // Wrapped directory commands (`builtin cd`, `command cd`) stay permission resources.
+            if offset == 0 && complete {
+                continue;
+            }
         }
         let head: Vec<String> = words.iter().take(PREFIX_LENGTH).cloned().collect();
         let selected = prefix(&head);
@@ -446,23 +295,30 @@ fn scan_portable(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<S
         let save = match end {
             Some(end) if powershell && !wildcard_match(&item.resource, &conventional) => {
                 let resource = &item.resource;
-                let boundary = item
-                    .word_ends
-                    .as_ref()
-                    .and_then(|ends| {
-                        ends.iter().copied().find(|&value| {
-                            value >= end
-                                && (value >= resource.len()
-                                    || resource.get(value..).and_then(|rest| rest.chars().next()).is_some_and(scan::js_space))
+                if resource.get(end..).and_then(|rest| rest.chars().next()) == Some('(') {
+                    format!("{}(*", &resource[..end])
+                } else {
+                    let boundary = item
+                        .word_ends
+                        .as_ref()
+                        .and_then(|ends| {
+                            ends.iter().copied().find(|&value| {
+                                value >= end
+                                    && (value >= resource.len()
+                                        || resource
+                                            .get(value..)
+                                            .and_then(|rest| rest.chars().next())
+                                            .is_some_and(scan::js_space))
+                            })
                         })
-                    })
-                    .unwrap_or(end)
-                    .min(resource.len());
-                static SEPARATOR: LazyLock<Regex> =
-                    LazyLock::new(|| Regex::new(&format!("^[{JS_SPACE}]+(?:`(?:\\r\\n|\\r|\\n)[{JS_SPACE}]*)?")).unwrap());
-                let rest = resource.get(boundary..).unwrap_or("");
-                let separator = SEPARATOR.find(rest).map(|m| m.as_str()).unwrap_or(" ");
-                format!("{}{}*", resource.get(..boundary).unwrap_or(resource), separator)
+                        .unwrap_or(end)
+                        .min(resource.len());
+                    static SEPARATOR: LazyLock<Regex> =
+                        LazyLock::new(|| Regex::new(&format!("^[{JS_SPACE}]+(?:`(?:\\r\\n|\\r|\\n)[{JS_SPACE}]*)?")).unwrap());
+                    let rest = resource.get(boundary..).unwrap_or("");
+                    let separator = SEPARATOR.find(rest).map(|m| m.as_str()).unwrap_or(" ");
+                    format!("{}{}*", resource.get(..boundary).unwrap_or(resource), separator)
+                }
             }
             _ => conventional,
         };
@@ -471,9 +327,344 @@ fn scan_portable(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<S
     Ok(output)
 }
 
+/// A command word as the directory analysis sees it: `command_parameter` for PowerShell `-Name` tokens, else `word`.
+#[derive(Clone)]
+struct Part {
+    parameter: bool,
+    text: String,
+    raw: String,
+    unquoted_tilde: bool,
+}
+
+static RE_POWERSHELL_PARAMETER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^-[A-Za-z_?][A-Za-z0-9_?-]*(?::|$)").unwrap());
+static RE_QUOTE_OR_BACKTICK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"['"`]"#).unwrap());
+
+/// `String.prototype.slice(0, end)` where `end` may be `-1` (`indexOf` miss): drops the last UTF-16 unit.
+fn js_slice_to(text: &str, end: Option<usize>) -> String {
+    match end {
+        Some(end) => text[..end].to_string(),
+        None => {
+            let mut chars = text.chars();
+            chars.next_back();
+            chars.as_str().to_string()
+        }
+    }
+}
+
+fn powershell_parts(words: &[String], cooked: &[String]) -> Vec<Part> {
+    let mut parts = vec![];
+    for (index, raw) in words.iter().enumerate() {
+        let text = if !raw.contains("`$") && RE_QUOTE_OR_BACKTICK.is_match(raw) {
+            cooked.get(index).cloned().unwrap_or_else(|| raw.clone())
+        } else {
+            raw.replace("`$", "\0")
+        };
+        let part = |parameter: bool, text: String, raw: String| Part { parameter, text, raw, unquoted_tilde: false };
+        if !RE_POWERSHELL_PARAMETER.is_match(raw) {
+            parts.push(part(false, text, raw.clone()));
+            continue;
+        }
+        match text.find(':') {
+            Some(colon) => {
+                let raw_colon = raw.find(':');
+                if colon + 1 < text.len() {
+                    parts.push(part(true, text[..colon].to_string(), js_slice_to(raw, raw_colon)));
+                    let raw_value = match raw_colon {
+                        Some(raw_colon) => raw[raw_colon + 1..].to_string(),
+                        None => raw.clone(),
+                    };
+                    parts.push(part(false, text[colon + 1..].to_string(), raw_value));
+                } else {
+                    parts.push(part(true, text[..colon].to_string(), raw.clone()));
+                }
+            }
+            None => parts.push(part(true, text, raw.clone())),
+        }
+    }
+    parts
+}
+
+fn bash_parts(item: &scan::Command) -> Vec<Part> {
+    item.raw_words
+        .iter()
+        .enumerate()
+        .map(|(index, raw)| {
+            let word = item.words.get(index).unwrap_or(raw);
+            Part {
+                parameter: false,
+                text: if is_static_bash_word(raw) { word.replace('$', "\0") } else { "$".to_string() },
+                raw: raw.clone(),
+                unquoted_tilde: raw.starts_with('~'),
+            }
+        })
+        .collect()
+}
+
 fn is_foreach_head(word: &str) -> bool {
     let lower = word.to_lowercase();
     lower == "foreach" || lower.starts_with("foreach-")
+}
+
+/// The offset of the directory command within `raw_words`: 0 for `cd …`, past `builtin`/`command` wrappers
+/// (and their options) for Bash. `command -v cd` only looks the command up.
+fn unwrap_directory_command(raw_words: &[String], powershell: bool) -> Option<usize> {
+    let head = raw_words.first().map(|w| if powershell { w.to_lowercase() } else { w.clone() });
+    if CWD.contains(&head.as_deref().unwrap_or("")) {
+        return Some(0);
+    }
+    if powershell {
+        return None;
+    }
+    static LOOKUP_FLAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-[p]*[vV]").unwrap());
+    let mut index = 0;
+    while let Some(wrapper @ ("builtin" | "command")) = raw_words.get(index).map(String::as_str) {
+        index += 1;
+        while let Some(flag) = raw_words.get(index).filter(|w| w.starts_with('-')) {
+            index += 1;
+            if flag == "--" {
+                break;
+            }
+            if wrapper == "command" && LOOKUP_FLAG.is_match(flag) {
+                return None;
+            }
+        }
+    }
+    (index > 0 && CWD.contains(&raw_words.get(index).map(String::as_str).unwrap_or(""))).then_some(index)
+}
+
+/// Whether a Bash word expands to exactly its cooked text: no expansions, brace lists or ranges, and no globs
+/// in a dot-leading path segment (`.?`, `.[.]` can match `..`).
+fn is_static_bash_word(raw: &str) -> bool {
+    #[derive(PartialEq)]
+    enum Quote {
+        Single,
+        Double,
+        Ansi,
+    }
+    struct Track {
+        segment_started: bool,
+        segment_leading_dot: bool,
+        segment_glob: bool,
+        has_ansi_escape: bool,
+        has_unquoted_glob: bool,
+    }
+    impl Track {
+        fn record(&mut self, c: char, unquoted_glob: bool) -> bool {
+            if unquoted_glob {
+                self.has_unquoted_glob = true;
+            }
+            if self.has_ansi_escape && self.has_unquoted_glob {
+                return false;
+            }
+            if c == '/' {
+                self.segment_started = false;
+                self.segment_leading_dot = false;
+                self.segment_glob = false;
+                return true;
+            }
+            if !self.segment_started {
+                self.segment_started = true;
+                self.segment_leading_dot = c == '.';
+            }
+            if unquoted_glob {
+                self.segment_glob = true;
+            }
+            !(self.segment_leading_dot && self.segment_glob)
+        }
+    }
+    let dynamic_next = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || "_@*#?$!({[-".contains(c));
+    let chars: Vec<char> = raw.chars().collect();
+    let mut quote: Option<Quote> = None;
+    let mut track = Track {
+        segment_started: false,
+        segment_leading_dot: false,
+        segment_glob: false,
+        has_ansi_escape: false,
+        has_unquoted_glob: false,
+    };
+    let mut braces: Vec<bool> = vec![];
+    let mut index = 0;
+    while index < chars.len() {
+        let c = chars[index];
+        let next = chars.get(index + 1).copied();
+        let continuation = next == Some('\\') && chars.get(index + 2) == Some(&'\n');
+        match quote {
+            Some(Quote::Single) => {
+                if c == '\'' {
+                    quote = None;
+                } else if !track.record(c, false) {
+                    return false;
+                }
+            }
+            Some(Quote::Ansi) => {
+                if c == '\\' {
+                    track.has_ansi_escape = true;
+                    if track.has_unquoted_glob {
+                        return false;
+                    }
+                    index += 1;
+                } else if c == '\'' {
+                    quote = None;
+                } else if !track.record(c, false) {
+                    return false;
+                }
+            }
+            Some(Quote::Double) => {
+                if c == '\\' && next.is_some_and(|n| "$`\"\\\n".contains(n)) {
+                    index += 1;
+                    if next != Some('\n') && !track.record(next.unwrap(), false) {
+                        return false;
+                    }
+                } else if c == '"' {
+                    quote = None;
+                } else if c == '`' || (c == '$' && (dynamic_next(next) || continuation)) || !track.record(c, false) {
+                    return false;
+                }
+            }
+            None => {
+                if c == '\\' {
+                    index += 1;
+                    // A trailing backslash records nothing (`raw[index + 1] ?? ""`).
+                    if let Some(next) = next
+                        && next != '\n'
+                        && !track.record(next, false)
+                    {
+                        return false;
+                    }
+                } else if c == '\'' {
+                    quote = Some(Quote::Single);
+                } else if c == '"' {
+                    quote = Some(Quote::Double);
+                } else if c == '$' && next == Some('\'') {
+                    quote = Some(Quote::Ansi);
+                    index += 1;
+                } else if c == '$' && next == Some('"') {
+                    quote = Some(Quote::Double);
+                    index += 1;
+                } else if c == '`'
+                    || ((c == '<' || c == '>' || c == '=') && next == Some('('))
+                    || (c == '$' && (dynamic_next(next) || continuation))
+                {
+                    return false;
+                } else if c == '{' {
+                    braces.push(false);
+                    if !track.record(c, false) {
+                        return false;
+                    }
+                } else {
+                    if !braces.is_empty() && (c == ',' || (c == '.' && next == Some('.'))) {
+                        *braces.last_mut().unwrap() = true;
+                    }
+                    if c == '}' && !braces.is_empty() {
+                        if braces.pop() == Some(true) || !track.record(c, false) {
+                            return false;
+                        }
+                    } else if !track.record(c, c == '*' || c == '?' || c == '[') {
+                        return false;
+                    }
+                }
+            }
+        }
+        index += 1;
+    }
+    quote.is_none()
+}
+
+/// Whether a PowerShell path has a wildcard in a dot-leading segment, which can match `..`.
+fn has_powershell_dot_wildcard(raw: &str) -> bool {
+    struct Track {
+        segment_started: bool,
+        segment_leading_dot: bool,
+        segment_glob: bool,
+        has_quote_escape: bool,
+        has_unquoted_glob: bool,
+    }
+    impl Track {
+        fn record(&mut self, c: Option<char>, unquoted_glob: bool) -> bool {
+            if unquoted_glob {
+                self.has_unquoted_glob = true;
+            }
+            if self.has_quote_escape && self.has_unquoted_glob {
+                return true;
+            }
+            if c == Some('/') || c == Some('\\') {
+                self.segment_started = false;
+                self.segment_leading_dot = false;
+                self.segment_glob = false;
+                return false;
+            }
+            if !self.segment_started {
+                self.segment_started = true;
+                self.segment_leading_dot = c == Some('.');
+            }
+            if unquoted_glob {
+                self.segment_glob = true;
+            }
+            self.segment_leading_dot && self.segment_glob
+        }
+    }
+    let chars: Vec<char> = raw.chars().collect();
+    let mut quote: Option<char> = None;
+    let mut track = Track {
+        segment_started: false,
+        segment_leading_dot: false,
+        segment_glob: false,
+        has_quote_escape: false,
+        has_unquoted_glob: false,
+    };
+    let mut index = 0;
+    while index < chars.len() {
+        let c = chars[index];
+        let next = chars.get(index + 1).copied();
+        match quote {
+            Some('\'') => {
+                if c == '\'' && next == Some('\'') {
+                    index += 1;
+                    if track.record(Some('\''), false) {
+                        return true;
+                    }
+                } else if c == '\'' {
+                    quote = None;
+                } else if track.record(Some(c), false) {
+                    return true;
+                }
+            }
+            Some(_) => {
+                if c == '`' {
+                    track.has_quote_escape = true;
+                    if track.has_unquoted_glob {
+                        return true;
+                    }
+                    index += 1;
+                } else if c == '"' && next == Some('"') {
+                    index += 1;
+                    if track.record(Some('"'), false) {
+                        return true;
+                    }
+                } else if c == '"' {
+                    quote = None;
+                } else if track.record(Some(c), false) {
+                    return true;
+                }
+            }
+            None => {
+                if c == '`' {
+                    index += 1;
+                    // `raw[index + 1] ?? ""` records an empty segment start after a trailing backtick.
+                    if track.record(next, false) {
+                        return true;
+                    }
+                } else if c == '\'' || c == '"' {
+                    quote = Some(c);
+                } else if track.record(Some(c), c == '*' || c == '?' || c == '[') {
+                    return true;
+                }
+            }
+        }
+        index += 1;
+    }
+    false
 }
 
 /// `Wildcard.match` (`core/src/util/wildcard.ts`).
@@ -498,63 +689,119 @@ fn wildcard_match(input: &str, pattern: &str) -> bool {
     Regex::new(&format!("{flags}^{escaped}$")).is_ok_and(|re| re.is_match(&normalized))
 }
 
-fn directory_args(command: &[Part], powershell: bool, cwd: &str, shell: &str, home: &Path) -> Vec<String> {
+/// The directories a directory command changes to, and whether they are all it can change to (a dynamic or
+/// unresolvable operand, `cd -`, `popd`, or a missing operand leaves the command as a permission resource).
+fn directory_args(command: &[Part], powershell: bool, cwd: &str, shell: &str, home: &Path) -> (Vec<String>, bool) {
+    let head = command.first().map(|part| part.text.to_lowercase()).unwrap_or_default();
+    if head == "popd" || head == "pop-location" {
+        return (vec![], false);
+    }
+
     if !powershell {
-        return command
+        let mut end_of_options = false;
+        let operands: Vec<&Part> = command
             .iter()
             .skip(1)
-            .filter(|part| !part.text.starts_with('-'))
-            .filter_map(|part| directory_argument(&part.text, powershell, cwd, shell, home))
+            .filter(|part| {
+                if end_of_options {
+                    return true;
+                }
+                if part.text == "--" {
+                    end_of_options = true;
+                    return false;
+                }
+                part.text == "-" || !part.text.starts_with('-')
+            })
             .collect();
+        if operands.is_empty() {
+            return (vec![], false);
+        }
+        let directories: Vec<String> = operands
+            .iter()
+            .filter(|part| part.text != "-")
+            .filter_map(|part| directory_argument(&part.text, false, cwd, shell, home, part.unquoted_tilde))
+            .collect();
+        let complete = directories.len() == operands.len();
+        return (directories, complete);
     }
+
     let mut directories = vec![];
-    let mut path = false;
+    let mut path_flag = false;
+    let mut literal_flag = false;
     let mut end_of_parameters = false;
+    let mut saw_operand = false;
+    let mut complete = true;
     for part in command.iter().skip(1) {
         if !end_of_parameters && part.text == "--" {
             end_of_parameters = true;
             continue;
         }
-        if path {
-            if let Some(value) = directory_argument(&part.text, powershell, cwd, shell, home) {
-                directories.push(value);
+        if path_flag {
+            saw_operand = true;
+            let value = if !literal_flag
+                && (has_powershell_dot_wildcard(&part.raw) || part.text == "-" || part.text == "+")
+            {
+                None
+            } else {
+                directory_argument(&part.text, true, cwd, shell, home, false)
+            };
+            match value {
+                Some(value) => directories.push(value),
+                None => complete = false,
             }
-            path = false;
+            path_flag = false;
+            literal_flag = false;
             continue;
         }
-        if !end_of_parameters && part.kind == "command_parameter" {
-            path = POWERSHELL_PATH_FLAG_RE.is_match(&part.text);
+        if !end_of_parameters && part.parameter {
+            if POWERSHELL_STACK_FLAG_RE.is_match(&part.text) {
+                return (directories, false);
+            }
+            path_flag = POWERSHELL_PATH_FLAG_RE.is_match(&part.text);
+            literal_flag = POWERSHELL_LITERAL_FLAG_RE.is_match(&part.text);
             continue;
         }
-        if let Some(value) = directory_argument(&part.text, powershell, cwd, shell, home) {
-            directories.push(value);
+        saw_operand = true;
+        let stack_shortcut = !end_of_parameters && (part.raw == "-" || part.raw == "+");
+        let value = if has_powershell_dot_wildcard(&part.raw) || stack_shortcut {
+            None
+        } else {
+            directory_argument(&part.text, true, cwd, shell, home, false)
+        };
+        match value {
+            Some(value) => directories.push(value),
+            None => complete = false,
         }
     }
-    directories
+    (directories, saw_operand && complete)
 }
 
-fn directory_argument(value: &str, powershell: bool, cwd: &str, shell: &str, home: &Path) -> Option<String> {
-    let mut chars = value.chars();
-    let quote = chars.next();
-    let last = value.chars().last();
+fn directory_argument(
+    value: &str,
+    powershell: bool,
+    cwd: &str,
+    shell: &str,
+    home: &Path,
+    unquoted_tilde: bool,
+) -> Option<String> {
+    if !powershell {
+        return expand_known_directory(value, false, cwd, home, unquoted_tilde);
+    }
+    let quote = value.chars().next();
     let text = match quote {
-        Some(q @ ('"' | '\'')) if last == Some(q) => {
+        Some(q @ ('"' | '\'')) if value.ends_with(q) => {
             // `value.slice(1, -1)`; a lone quote character yields "".
             let inner: Vec<char> = value.chars().collect();
             if inner.len() >= 2 { inner[1..inner.len() - 1].iter().collect() } else { String::new() }
         }
         _ => value.to_string(),
     };
-    if !powershell {
-        return expand_known_directory(&text, home);
-    }
     // PowerShell exposes environment variables through $env:NAME and provides these
     // automatic directory variables. Expand only values we can determine without executing code.
     static BRACED_ENV: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\$\{env:([^}]+)\}").unwrap());
     static ENV: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\$env:([A-Za-z_][A-Za-z0-9_]*)").unwrap());
-    static AUTOMATIC: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)\$(?:\{(HOME|PWD|PSHOME)\}|(HOME|PWD|PSHOME))").unwrap()
-    });
+    static AUTOMATIC: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?i)\$(?:\{(HOME|PWD|PSHOME)\}|(HOME|PWD|PSHOME))").unwrap());
     let text = BRACED_ENV.replace_all(&text, |c: &regex::Captures| environment(&c[1]).unwrap_or_default());
     let text = ENV.replace_all(&text, |c: &regex::Captures| environment(&c[1]).unwrap_or_default());
     // `(?=$|[\\/])` after the bare form is checked by hand (the regex crate has no lookahead).
@@ -578,7 +825,7 @@ fn directory_argument(value: &str, powershell: bool, cwd: &str, shell: &str, hom
         last_end = whole.end();
     }
     expanded.push_str(&text[last_end..]);
-    expand_known_directory(&expanded, home)
+    expand_known_directory(&expanded, true, cwd, home, false)
 }
 
 fn dirname(path: &str) -> String {
@@ -589,25 +836,110 @@ fn dirname(path: &str) -> String {
     }
 }
 
-fn expand_known_directory(value: &str, home: &Path) -> Option<String> {
+fn expand_known_directory(
+    value: &str,
+    powershell: bool,
+    cwd: &str,
+    home: &Path,
+    unquoted_tilde: bool,
+) -> Option<String> {
     // Unknown shell expressions cannot be resolved safely during permission analysis.
-    if value.contains('$') || value.contains('`') || value.starts_with('(') {
+    if value.contains('$') || value.contains('`') || (powershell && value.starts_with('(')) {
         return None;
     }
     let resolved = value.replace('\0', "$");
+    let home_text = home.to_string_lossy();
     if resolved == "~" {
-        return Some(home.to_string_lossy().into_owned());
+        return Some(home_text.into_owned());
     }
     if resolved.starts_with("~/") || (cfg!(windows) && resolved.starts_with("~\\")) {
-        return Some(join(home, &resolved[2..]));
+        return Some(join(&home_text, &resolved[2..]));
+    }
+    if unquoted_tilde && !cfg!(windows) {
+        if resolved == "~+" {
+            return Some(cwd.to_string());
+        }
+        if let Some(rest) = resolved.strip_prefix("~+/") {
+            return Some(join(cwd, rest));
+        }
+        // `~-`, `~+N`, `~-N` and `~N` name directory-stack entries.
+        static STACK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^~(?:[-+][0-9]*|[0-9]+)").unwrap());
+        static USER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^~([A-Za-z_][A-Za-z0-9._-]*)").unwrap());
+        let bounded = |end: usize| resolved[end..].is_empty() || resolved[end..].starts_with('/');
+        if STACK.find(&resolved).is_some_and(|m| bounded(m.end())) {
+            return None;
+        }
+        if let Some(user) = USER.captures(&resolved).and_then(|c| c.get(1)).filter(|m| bounded(m.end())) {
+            let user_home = resolve_user_home(user.as_str(), &home_text)?;
+            return Some(join(&user_home, &resolved[user.end()..]));
+        }
     }
     Some(resolved)
 }
 
-/// `path.join(home, rest)`: joins and normalizes `.`/`..` segments and duplicate separators.
-fn join(home: &Path, rest: &str) -> String {
-    let joined = format!("{}/{}", home.to_string_lossy(), rest);
-    normalize(&joined)
+/// `/etc/passwd` login names to home directories (later lines win, like `new Map(entries)`).
+fn passwd_homes() -> &'static std::collections::HashMap<String, String> {
+    static HOMES: std::sync::OnceLock<std::collections::HashMap<String, String>> = std::sync::OnceLock::new();
+    HOMES.get_or_init(|| {
+        let content = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+        content
+            .split('\n')
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split(':').collect();
+                let name = fields.first().copied().unwrap_or("");
+                let home = fields.get(5).copied().unwrap_or("");
+                (!name.is_empty() && !home.is_empty()).then(|| (name.to_string(), home.to_string()))
+            })
+            .collect()
+    })
+}
+
+/// `os.userInfo()` under Bun: the effective user's login name, with `os.homedir()` as the home.
+fn current_username() -> Option<String> {
+    #[cfg(unix)]
+    {
+        let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+        let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
+        let mut found: *mut libc::passwd = std::ptr::null_mut();
+        // SAFETY: getpwuid_r writes into `entry` and `buffer`, which outlive the call and the reads below.
+        let status =
+            unsafe { libc::getpwuid_r(libc::geteuid(), &mut entry, buffer.as_mut_ptr(), buffer.len(), &mut found) };
+        if status != 0 || found.is_null() || entry.pw_name.is_null() {
+            return None;
+        }
+        // SAFETY: pw_name points into `buffer` as a NUL-terminated string.
+        let name = unsafe { std::ffi::CStr::from_ptr(entry.pw_name) };
+        Some(name.to_string_lossy().into_owned())
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+fn resolve_user_home(user: &str, home: &str) -> Option<String> {
+    if !home.is_empty() && current_username().as_deref() == Some(user) {
+        return Some(home.to_string());
+    }
+    if let Some(home) = passwd_homes().get(user) {
+        return Some(home.clone());
+    }
+    if cfg!(target_os = "macos") {
+        let candidate = format!("/Users/{user}");
+        if Path::new(&candidate).is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// `path.join(base, rest)`: joins and normalizes `.`/`..` segments and duplicate separators.
+fn join(base: &str, rest: &str) -> String {
+    if rest.is_empty() {
+        return normalize(base);
+    }
+    normalize(&format!("{base}/{rest}"))
 }
 
 fn normalize(path: &str) -> String {
@@ -652,101 +984,168 @@ mod tests {
     use super::*;
     use serde_json::{Value, json};
 
-    fn run(command: &str, shell: &str, portable: bool) -> Result<ScanResult, String> {
-        scan(command, shell, "/workspace", Path::new("/home/user"), portable)
+    fn run(command: &str, shell: &str) -> Result<ScanResult, String> {
+        scan(command, shell, "/workspace", Path::new("/home/user"))
     }
 
     fn cmd(resource: &str, save: &str) -> ScanCommand {
         ScanCommand { resource: resource.into(), save: save.into() }
     }
 
+    fn to_json(result: Result<ScanResult, String>) -> Value {
+        match result {
+            Ok(result) => json!({
+                "commands": result.commands.iter().map(|c| json!({"resource": c.resource, "save": c.save})).collect::<Vec<_>>(),
+                "directories": result.directories,
+            }),
+            Err(error) => json!({"error": error}),
+        }
+    }
+
+    /// None for other functions' cases, else whether the port reproduces the recorded result.
+    fn check_parse_case(line: &str) -> Option<bool> {
+        let case: Value = serde_json::from_str(line).unwrap();
+        if case["fn"] != "parse" {
+            return None;
+        }
+        let result = scan(
+            case["command"].as_str().unwrap(),
+            case["shell"].as_str().unwrap(),
+            case["cwd"].as_str().unwrap(),
+            Path::new(case["home"].as_str().unwrap_or("/home/user")),
+        );
+        let expected = match case.get("error") {
+            Some(error) => json!({"error": error}),
+            None => case["result"].clone(),
+        };
+        let got = to_json(result);
+        if got != expected && std::env::var("OCD_SHELL_ORACLE_VERBOSE").is_ok() {
+            eprintln!("GOT {got}
+FOR {line}");
+        }
+        Some(got == expected)
+    }
+
     #[test]
     fn golden_upstream_cases() {
         let mut checked = 0;
         for line in super::super::scan::golden::CASES.lines() {
-            let case: Value = serde_json::from_str(line).unwrap();
-            if case["fn"] != "parse" {
-                continue;
+            if let Some(matched) = check_parse_case(line) {
+                assert!(matched, "case {line}");
+                checked += 1;
             }
-            let result = scan(
-                case["command"].as_str().unwrap(),
-                case["shell"].as_str().unwrap(),
-                case["cwd"].as_str().unwrap(),
-                Path::new("/home/user"),
-                case["portable"].as_bool().unwrap(),
-            );
-            let got = match result {
-                Ok(result) => json!({
-                    "commands": result.commands.iter().map(|c| json!({"resource": c.resource, "save": c.save})).collect::<Vec<_>>(),
-                    "directories": result.directories,
-                }),
-                Err(error) => json!({"error": error}),
-            };
-            let expected = match case.get("error") {
-                Some(error) => json!({"error": error}),
-                None => case["result"].clone(),
-            };
-            assert_eq!(got, expected, "case {line}");
-            checked += 1;
         }
-        assert!(checked > 300);
+        assert!(checked > 300, "{checked}");
+    }
+
+    /// Every `ShellParse.scan` call recorded from upstream's test suites (`OCD_SHELL_ORACLE` names the JSON lines
+    /// file; see `scan::golden`). Cases that read `/etc/passwd` must be recorded on this machine; PowerShell
+    /// `$env:` cases read the recording process's environment and are skipped.
+    #[test]
+    fn full_upstream_oracle() {
+        let Ok(path) = std::env::var("OCD_SHELL_ORACLE") else {
+            return;
+        };
+        let content = std::fs::read_to_string(path).unwrap();
+        let environment = Regex::new(r"(?i)\$\{?env:").unwrap();
+        let results: Vec<(&str, bool)> = content
+            .lines()
+            .filter(|line| !environment.is_match(line))
+            .filter_map(|line| check_parse_case(line).map(|matched| (line, matched)))
+            .collect();
+        let failed: Vec<&str> = results.iter().filter(|(_, matched)| !matched).map(|(line, _)| *line).collect();
+        eprintln!("parse oracle cases: {} checked, {} differ", results.len(), failed.len());
+        for line in failed.iter().take(20) {
+            eprintln!("DIFF {line}");
+        }
+        assert!(failed.is_empty());
     }
 
     #[test]
     fn lists_and_arity_prefixes() {
-        for portable in [false, true] {
-            assert_eq!(
-                run("git status && npm run test -- --watch", "bash", portable).unwrap(),
-                ScanResult {
-                    commands: vec![cmd("git status", "git status *"), cmd("npm run test -- --watch", "npm run test *")],
-                    directories: vec![],
-                }
-            );
-        }
+        assert_eq!(run("git status && npm run test -- --watch", "bash").unwrap(), ScanResult {
+            commands: vec![cmd("git status", "git status *"), cmd("npm run test -- --watch", "npm run test *")],
+            directories: vec![],
+        });
     }
 
     #[test]
     fn directories_are_separated_from_commands() {
-        for portable in [false, true] {
-            assert_eq!(
-                run("cd 'src dir' && git status", "bash", portable).unwrap(),
-                ScanResult { commands: vec![cmd("git status", "git status *")], directories: vec!["src dir".into()] }
-            );
-            assert_eq!(run("cd ~/x", "/bin/bash", portable).unwrap().directories, ["/home/user/x"]);
-            assert!(run("cd $HOME", "bash", portable).unwrap().directories.is_empty());
-        }
+        assert_eq!(run("cd 'src dir' && git status", "bash").unwrap(), ScanResult {
+            commands: vec![cmd("git status", "git status *")],
+            directories: vec!["src dir".into()],
+        });
+        assert_eq!(run("cd ~/x", "/bin/bash").unwrap().directories, ["/home/user/x"]);
+        assert_eq!(run("cd ~/", "/bin/bash").unwrap().directories, ["/home/user"]);
+        // A dynamic `cd` keeps the command as a permission resource.
+        let dynamic = run("cd $HOME", "bash").unwrap();
+        assert!(dynamic.directories.is_empty());
+        assert_eq!(dynamic.commands, vec![cmd("cd $HOME", "cd *")]);
+    }
+
+    #[test]
+    fn wrapped_and_tilde_directories() {
+        let wrapped = run("command cd /outside; builtin cd /elsewhere; command -v cd", "bash").unwrap();
+        assert_eq!(wrapped.directories, ["/outside", "/elsewhere"]);
+        assert_eq!(wrapped.commands, vec![
+            cmd("command cd /outside", "command *"),
+            cmd("builtin cd /elsewhere", "builtin *"),
+            cmd("command -v cd", "command *"),
+        ]);
+        let tilde = run("cd ~+/../outside && cd ~- && cd ~+1 && cd ~0 && cd ~__opencode_nonexistent_user__", "/bin/bash")
+            .unwrap();
+        assert_eq!(tilde.directories, ["/outside"]);
+        assert_eq!(tilde.commands.len(), 4);
+        let globs = run("cd {..,x} && cd .[.] && cd .? && cd $'\\x2e'[.] && cd '.[.]'", "/bin/bash").unwrap();
+        assert_eq!(globs.directories, [".[.]"]);
+        assert_eq!(globs.commands.len(), 4);
     }
 
     #[test]
     fn heredoc_resource_is_the_whole_text() {
         let command = "cat <<'EOF'\nstatic body\nEOF";
-        assert_eq!(run(command, "bash", false).unwrap().commands, vec![cmd(command, "cat *")]);
+        assert_eq!(run(command, "bash").unwrap().commands, vec![cmd(command, "cat *")]);
     }
 
     #[test]
-    fn legacy_declarations_produce_only_nested_commands() {
-        assert_eq!(run("export A=$(git rev-parse HEAD)", "bash", false).unwrap().commands, vec![cmd(
+    fn declarations_produce_only_nested_commands() {
+        assert_eq!(run("export A=$(git rev-parse HEAD)", "bash").unwrap().commands, vec![cmd(
             "git rev-parse HEAD",
             "git rev-parse *"
         )]);
     }
 
     #[test]
-    fn portable_opaque_is_an_error() {
+    fn redirects_and_method_calls_are_resources() {
+        assert_eq!(run(">> ~/.zshrc <<< 'x'; export -p > ~/.bashrc", "/bin/zsh").unwrap().commands, vec![
+            cmd(">> ~/.zshrc <<< 'x'", ">> *"),
+            cmd("export -p > ~/.bashrc", "export *"),
+        ]);
         assert_eq!(
-            run("cat <<EOF\nbody", "bash", true).unwrap_err(),
-            "Portable shell scanner cannot analyze command: heredoc"
+            run("[IO.File]::Delete(\"C:\\victim\"); $proc.Kill(); \"x\" >> ~/.bashrc", "pwsh").unwrap().commands,
+            vec![
+                cmd("[IO.File]::Delete(\"C:\\victim\")", "[IO.File]::Delete(*"),
+                cmd("$proc.Kill()", "$proc.Kill(*"),
+                cmd("\"x\" >> ~/.bashrc", "\"x\" *"),
+            ]
         );
     }
 
     #[test]
+    fn opaque_is_an_error() {
+        assert_eq!(run("cat <<EOF\nbody", "bash").unwrap_err(), "Portable shell scanner cannot analyze command: heredoc");
+    }
+
+    #[test]
     fn powershell_directories_and_case() {
-        // Upstream parity: the legacy grammar splits `$HOME/src` into separate elements.
-        for (portable, directory) in [(false, "/home/user"), (true, "/home/user/src")] {
-            let result = run("Set-Location -Path $HOME/src; Get-ChildItem", "pwsh", portable).unwrap();
-            assert_eq!(result.directories, [directory]);
-            assert_eq!(result.commands, vec![cmd("Get-ChildItem", "Get-ChildItem *")]);
-        }
+        let result = run("Set-Location -Path $HOME/src; Get-ChildItem", "pwsh").unwrap();
+        assert_eq!(result.directories, ["/home/user/src"]);
+        assert_eq!(result.commands, vec![cmd("Get-ChildItem", "Get-ChildItem *")]);
+        let literal = run("Set-Location -LiteralPath '..\\outside'; Get-ChildItem", "pwsh").unwrap();
+        assert_eq!(literal.directories, ["..\\outside"]);
+        let stack = run("Push-Location -StackName s /outside", "pwsh").unwrap();
+        assert!(stack.directories.is_empty());
+        assert_eq!(stack.commands, vec![cmd("Push-Location -StackName s /outside", "Push-Location *")]);
     }
 
     #[test]

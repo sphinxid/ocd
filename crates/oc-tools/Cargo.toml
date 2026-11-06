@@ -33,9 +33,6 @@ chrono.workspace = true
 bytes.workspace = true
 unicode-normalization = "0.1"
 libc = "0.2"
-tree-sitter = "0.25"
-tree-sitter-bash = "=0.25.0"
-tree-sitter-powershell = "=0.25.10"
 fancy-regex = "0.14"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 

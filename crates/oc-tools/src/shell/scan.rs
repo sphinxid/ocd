@@ -52,8 +52,10 @@ pub struct Command {
     pub word_ends: Option<Vec<usize>>,
     pub statement_head: bool,
     pub declaration: bool,
-    /// Words after a trailing redirect are destinations in the legacy command span.
+    /// Words before the first redirect when redirects appear between arguments.
     pub redirect_word_count: Option<usize>,
+    /// Exclusive prefix end (in chars) relative to `resource` for commandless or group redirects.
+    pub redirect_prefix_end: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -254,7 +256,9 @@ fn utf16_len(s: &str) -> usize {
 
 const BASH_REDIRECTS: &[&str] = &["&>>", "&>", "<<<", "<<-", "<<", "<>", "<&", ">&", ">|", ">>", ">", "<"];
 const BASH_LIST_OPERATORS: &[&str] = &["&&", "||", "|&"];
+const ZSH_LIST_OPERATORS: &[&str] = &["&&", "||", "|&", "&!", "&|"];
 const BASH_CASE_OPERATORS: &[&str] = &[";;&", ";;", ";&", ";|", "&&", "||", "|&"];
+const ZSH_CASE_OPERATORS: &[&str] = &[";;&", ";;", ";&", ";|", "&&", "||", "|&", "&!", "&|"];
 const BASH_BINDING_BUILTINS: &[&str] = &[
     "declare", "typeset", "local", "export", "readonly", "private", "unset", "read", "getln", "vared", "getopts",
     "mapfile", "readarray", "compgen", "zparseopts", "zregexparse", "zformat", "zstyle", "zstat", "stat",
@@ -305,9 +309,15 @@ regex!(
 regex!(NOFORK_OPEN_RE, sticky r"\$\{(?:\\\n)*(?:[ \t\n]|\|)");
 regex!(
     ZSH_SAFE_FLAGS_RE,
-    sticky r"\$\{\((?:[@AaBbCcDEfFikLMmNnOopqStUuVvWwXZz0-]|q[-+]?|[js]([^({\[<\\])(?:(?!\1)[^)])*\1)*\)"
+    sticky r"\$\{\((?:[@AaBbCcDEfFikLMmNnOopPqStUuVvWwXZz0-]|q[-+]?|[js]([^({\[<\\])(?:(?!\1)[^)])*\1)*\)"
 );
+regex!(ZSH_QUOTED_FLAG_ARG_RE, r"[js]([^({\[<\\])(?:(?!\1)[^)])*\1");
 regex!(ZSH_GLOB_MODIFIER_RE, sticky r"(?:[\^=~#+]|\\\n)*~");
+// Trailing Zsh glob qualifiers without code execution (e, +cmd), delimiters (f, u, g, P), modifiers (:), or math expressions.
+regex!(
+    ZSH_GLOB_QUALIFIER_RE,
+    sticky r"\((?:[/F.@=*rwxAIERWsStUG^MTNDn-]|[oO][nLlamcdN]|[amc][Mwhmsd]?[-+]?\d+|L[kKmMpPgGtT]?[-+]?\d+|[lY][-+]?\d+|\[[-+]?\d+(?:,[-+]?\d+)?\]|,)+\)(?=(?:\\\n)*(?:[ \t\n;&|<>)]|$))"
+);
 regex!(ZSH_SUBSCRIPT_RE, sticky r"\$(?:[\^=+~#]|\\\n)*(?:[A-Za-z_](?:[A-Za-z0-9_]|\\\n)*|[@*#?$!0-9-])(?:\\\n)*\[");
 regex!(LINE_CONTINUATION_RE, sticky r"(?:\\\n)*");
 regex!(PARAMETER_PREFIX_RE, sticky r"(?:\\\n)*(?:\([^)]*\))?(?:[!#^=+~]|\\\n)*");
@@ -352,7 +362,10 @@ struct BashContext {
     dialect: Dialect,
     bound_dollar: bool,
     bound_open: bool,
+    bound_bracket: bool,
+    sink_bracket: bool,
     variable_sink: bool,
+    eval_sink: bool,
 }
 
 #[derive(Clone)]
@@ -362,6 +375,7 @@ struct BashHeredoc {
     quoted: bool,
     tabs: bool,
     binding: Option<bool>,
+    owned: bool,
     command: Option<CmdRef>,
     start: Option<usize>,
     end: usize,
@@ -433,17 +447,18 @@ struct BashState<'o> {
     word_start: usize,
     word_end: usize,
     command_start: Option<usize>,
-    command_end: usize,
-    resource_end: Option<usize>,
     redirect_word_count: Option<usize>,
+    redirect_prefix_end: Option<usize>,
     ampersand_redirect_words: Option<usize>,
     command_word_index: isize,
     assignment_word: bool,
     assignment_head_unsafe: bool,
     invalid: Option<OpaqueReason>,
     redirect_target: bool,
+    dup_redirect: bool,
     here_string: bool,
     has_redirect: bool,
+    has_file_redirect: bool,
     compound_end: bool,
     dangling: bool,
     outer: Option<&'o mut BashText>,
@@ -476,11 +491,19 @@ pub fn scan(input: &str, dialect: Dialect) -> ScanOutcome {
         dialect,
         bound_dollar: false,
         bound_open: false,
+        bound_bracket: false,
+        sink_bracket: false,
         variable_sink: false,
+        eval_sink: false,
     };
     match scan_bash(&input, 0, 0, &mut context, None, None, None) {
         Err(reason) => ScanOutcome::Opaque(reason),
-        Ok(_) if context.bound_dollar && context.bound_open && context.variable_sink => {
+        Ok(_)
+            if context.bound_dollar
+                && context.bound_open
+                && (context.eval_sink
+                    || ((context.bound_bracket || context.sink_bracket) && context.variable_sink)) =>
+        {
             ScanOutcome::Opaque(O::DynamicExecution)
         }
         Ok((commands, _)) => ScanOutcome::Scanned(unwrap_commands(commands)),
@@ -512,7 +535,7 @@ fn pending(state: &BashState) -> bool {
 /// Ends the current list; false when an operator still awaits its command.
 fn end_bash_list(input: &Input, state: &mut BashState, ctx: &mut BashContext) -> bool {
     if pending(state) {
-        finish_bash_command(input, state, ctx, false);
+        finish_bash_command(input, state, ctx, false, true);
     }
     !state.dangling
 }
@@ -535,7 +558,7 @@ fn finish_bash_word(input: &Input, state: &mut BashState, ctx: &mut BashContext)
         return;
     }
     if state.text.word.contains("PS4") {
-        ctx.variable_sink = true;
+        ctx.eval_sink = true;
     }
     let evaluation = bash_word_evaluation(state, ctx);
     if ctx.dialect != Dialect::Bash
@@ -548,6 +571,12 @@ fn finish_bash_word(input: &Input, state: &mut BashState, ctx: &mut BashContext)
     if let Some(evaluation) = evaluation {
         if bash_evaluates_expansion(&state.text, evaluation, ctx) {
             state.set_invalid(O::DynamicExecution);
+        }
+    }
+    if state.text.word != state.text.literal && state.command_word_index >= 0 {
+        let builtin = state.word_at(bash_builtin_index(state, ctx));
+        if matches!(builtin, Some("declare" | "typeset" | "local")) {
+            ctx.eval_sink = true;
         }
     }
     if let Some(outer) = state.outer.as_deref_mut() {
@@ -569,9 +598,18 @@ fn finish_bash_word(input: &Input, state: &mut BashState, ctx: &mut BashContext)
         state.words.push(word);
         // Unquoted trailing continuations are ignored syntax, not part of the raw token.
         state.raw_words.push(input.slice(state.word_start, state.word_end).to_string());
-        state.command_end = state.word_end;
+    }
+    if redirect_target {
+        static DUP_TARGET: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:\d+-?|-)$"));
+        if !state.dup_redirect || !test(&DUP_TARGET, input.slice(state.word_start, state.word_end)) {
+            state.has_file_redirect = true;
+        }
+        if state.redirect_prefix_end.is_none() {
+            state.redirect_prefix_end = Some(state.word_end);
+        }
     }
     state.redirect_target = false;
+    state.dup_redirect = false;
     state.here_string = false;
     state.text.word.clear();
     state.text.literal.clear();
@@ -677,7 +715,7 @@ fn bash_builtin_index(state: &BashState, ctx: &BashContext) -> isize {
     name
 }
 
-fn finish_bash_command(input: &Input, state: &mut BashState, ctx: &mut BashContext, boundary: bool) {
+fn finish_bash_command(input: &Input, state: &mut BashState, ctx: &mut BashContext, boundary: bool, newline: bool) {
     finish_bash_word(input, state, ctx);
     if state.redirect_target {
         state.set_invalid(O::InvalidRedirect);
@@ -694,10 +732,10 @@ fn finish_bash_command(input: &Input, state: &mut BashState, ctx: &mut BashConte
     if name >= 0 && !in_header {
         let n = name as usize;
         let start = state.command_start.unwrap_or(0);
-        let end = state.resource_end.unwrap_or(state.word_end);
-        let resource = input.slice(start, end).trim_matches([' ', '\t', '\n']).to_string();
+        let resource = input.slice(start, state.word_end).trim_matches([' ', '\t', '\n']).to_string();
         let first_raw = state.raw_words.first().map(String::as_str).unwrap_or("");
-        let declaration = n == 0 && has(BASH_DECLARATIONS, first_raw) && resource.starts_with(first_raw);
+        let declaration =
+            n == 0 && !state.has_redirect && has(BASH_DECLARATIONS, first_raw) && resource.starts_with(first_raw);
         let redirect_word_count = match state.redirect_word_count {
             Some(count) if count < state.words.len() => Some(count.saturating_sub(n)),
             _ => None,
@@ -710,6 +748,7 @@ fn finish_bash_command(input: &Input, state: &mut BashState, ctx: &mut BashConte
             statement_head: false,
             declaration,
             redirect_word_count,
+            redirect_prefix_end: None,
         }));
         state.commands.push(command.clone());
         let builtin = bash_builtin_index(state, ctx);
@@ -721,7 +760,7 @@ fn finish_bash_command(input: &Input, state: &mut BashState, ctx: &mut BashConte
         };
         let builtin_name_str = builtin_name.as_deref();
         if builtin_name_str == Some("eval") {
-            ctx.variable_sink = true;
+            ctx.eval_sink = true;
         }
         if builtin_name_str == Some("set") && builtin_args.iter().any(|w| test(&RE_SET_K, w) || w == "keyword") {
             state.set_invalid(O::DynamicExecution);
@@ -760,15 +799,38 @@ fn finish_bash_command(input: &Input, state: &mut BashState, ctx: &mut BashConte
                 }
             }
         }
-        if state.resource_end.is_none() {
-            for heredoc in state.heredocs.borrow_mut().iter_mut() {
-                if heredoc.command.is_some() {
-                    continue;
+        own_heredocs(state, &command, newline);
+    } else if name < 0
+        && !in_header
+        && state.command_start.is_some()
+        && (state.has_file_redirect || (state.has_redirect && !state.compound_end))
+    {
+        let command_start = state.command_start.unwrap();
+        let raw_span = input.slice(command_start, state.word_end);
+        let leading = raw_span.len() - raw_span.trim_start_matches([' ', '\t', '\n']).len();
+        let resource = raw_span[leading..].trim_end_matches([' ', '\t', '\n']).to_string();
+        if !resource.is_empty() {
+            let length = resource.chars().count();
+            let prefix_end = match state.redirect_prefix_end {
+                Some(end) => {
+                    (end as isize - command_start as isize - leading as isize).min(length as isize).max(1) as usize
                 }
-                heredoc.command = Some(command.clone());
-                heredoc.start = state.command_start;
-            }
+                None => length,
+            };
+            let prefix_token: String = resource.chars().take(prefix_end).collect();
+            let command = Rc::new(RefCell::new(Command {
+                resource,
+                words: vec![prefix_token.clone()],
+                raw_words: vec![prefix_token],
+                redirect_prefix_end: Some(prefix_end),
+                ..Default::default()
+            }));
+            state.commands.push(command.clone());
+            own_heredocs(state, &command, newline);
         }
+    }
+    for heredoc in state.heredocs.borrow_mut().iter_mut() {
+        heredoc.owned = true;
     }
     if boundary && state.words.is_empty() && !state.has_redirect && !state.compound_end && !in_header {
         state.set_invalid(O::InvalidStructure);
@@ -785,12 +847,28 @@ fn finish_bash_command(input: &Input, state: &mut BashState, ctx: &mut BashConte
     state.raw_words.clear();
     state.command_word_index = -1;
     state.command_start = None;
+    state.dup_redirect = false;
     state.has_redirect = false;
-    state.resource_end = None;
+    state.has_file_redirect = false;
     state.redirect_word_count = None;
+    state.redirect_prefix_end = None;
     state.ampersand_redirect_words = None;
     state.compound_end = false;
     state.dangling = false;
+}
+
+/// Attaches the heredocs no earlier command owns to `command` when a newline ends it.
+fn own_heredocs(state: &BashState, command: &CmdRef, newline: bool) {
+    for heredoc in state.heredocs.borrow_mut().iter_mut() {
+        if heredoc.owned {
+            continue;
+        }
+        heredoc.owned = true;
+        if newline {
+            heredoc.command = Some(command.clone());
+            heredoc.start = state.command_start;
+        }
+    }
 }
 
 fn new_state<'o>(start: usize, heredocs: Option<Heredocs>, outer: Option<&'o mut BashText>) -> BashState<'o> {
@@ -806,17 +884,18 @@ fn new_state<'o>(start: usize, heredocs: Option<Heredocs>, outer: Option<&'o mut
         word_start: start,
         word_end: start,
         command_start: None,
-        command_end: start,
-        resource_end: None,
         redirect_word_count: None,
+        redirect_prefix_end: None,
         ampersand_redirect_words: None,
         command_word_index: -1,
         assignment_word: false,
         assignment_head_unsafe: false,
         invalid: None,
         redirect_target: false,
+        dup_redirect: false,
         here_string: false,
         has_redirect: false,
+        has_file_redirect: false,
         compound_end: false,
         dangling: false,
         outer,
@@ -990,6 +1069,15 @@ fn scan_bash(
             }
             return close_bash_list(input, state, ctx, i);
         }
+        if c == '(' && ctx.dialect == Dialect::Zsh && state.word_started && !in_case_pattern {
+            if let Some(length) = input.sticky(&ZSH_GLOB_QUALIFIER_RE, i) {
+                let end = i + length - 1;
+                bash_append(&mut state.text, input.slice(i, end + 1));
+                index = end as isize;
+                state.word_end = end + 1;
+                continue;
+            }
+        }
         if c == '(' {
             return Err(if state.word_started { O::DynamicExecution } else { O::CompoundCommand });
         }
@@ -1045,10 +1133,6 @@ fn scan_bash_operator_or_separator(
         }
         let fd_prefix = state.word_started && !state.assignment_head_unsafe && test(&RE_FD_PREFIX, &state.text.word);
         if fd_prefix {
-            // A continuation separates the legacy number token from the redirect descriptor.
-            if state.word_end < index {
-                state.command_end = state.word_end;
-            }
             state.text.word.clear();
             state.text.literal.clear();
             state.text.output.clear();
@@ -1060,24 +1144,32 @@ fn scan_bash_operator_or_separator(
         if redirect.starts_with('&') && ctx.dialect == Dialect::Posix && state.ampersand_redirect_words.is_none() {
             state.ampersand_redirect_words = Some(state.words.len());
         }
-        // Trailing redirects wrap a whole list/pipeline in the legacy grammar, not its last command.
         if state.redirect_word_count.is_none() && state.command_word_index >= 0 {
             state.redirect_word_count = Some(state.words.len());
-            if state.dangling {
-                state.resource_end = Some(state.command_end);
-            }
         }
+        // `" \t\n".includes(input[i] ?? "")`: the end of the input counts too.
+        let after = input.at(index + redirect.len());
         if redirect == "<<" || redirect == "<<-" {
             let Some(delimiter) = bash_heredoc_delimiter(input, index + redirect.len(), redirect == "<<-") else {
                 return Err(O::InvalidRedirect);
             };
             let end = delimiter.end;
+            state.has_file_redirect = true;
+            if state.redirect_prefix_end.is_none() {
+                state.redirect_prefix_end =
+                    Some(if after.is_none_or(|c| c == ' ' || c == '\t') { index + redirect.len() } else { end + 1 });
+            }
             state.heredocs.borrow_mut().push(delimiter);
             state.word_end = end + 1;
             state.redirect_target = false;
+            state.dup_redirect = false;
             return Ok(end as isize);
         }
+        if after.is_none_or(|c| " \t\n".contains(c)) && state.redirect_prefix_end.is_none() {
+            state.redirect_prefix_end = Some(index + redirect.len());
+        }
         state.redirect_target = true;
+        state.dup_redirect = redirect == "<&" || redirect == ">&";
         state.here_string = redirect == "<<<";
         return Ok((index + redirect.len()) as isize - 1);
     }
@@ -1087,7 +1179,13 @@ fn scan_bash_operator_or_separator(
     }
     let structure = state.structure_ref().map(|s| (s.kind, s.phase, s.saw_in));
     let case_body = matches!(structure, Some((Kind::Case, Phase::Body, _)));
-    let operator = bash_operator(input, index, if case_body { BASH_CASE_OPERATORS } else { BASH_LIST_OPERATORS })?;
+    let operators = match (ctx.dialect == Dialect::Zsh, case_body) {
+        (true, true) => ZSH_CASE_OPERATORS,
+        (true, false) => ZSH_LIST_OPERATORS,
+        (false, true) => BASH_CASE_OPERATORS,
+        (false, false) => BASH_LIST_OPERATORS,
+    };
+    let operator = bash_operator(input, index, operators)?;
     let separator: String = operator.map(str::to_string).unwrap_or_else(|| c.to_string());
     if case_body && separator.starts_with(';') && separator.len() > 1 {
         if !end_bash_list(input, state, ctx) {
@@ -1119,11 +1217,15 @@ fn scan_bash_operator_or_separator(
     if separator == "\n" && !pending(state) {
         return read_bash_heredocs(input, state, index, depth, ctx);
     }
-    finish_bash_command(input, state, ctx, true);
+    if separator == ";" && ctx.dialect == Dialect::Zsh && !pending(state) && !state.dangling {
+        return Ok(index as isize);
+    }
+    finish_bash_command(input, state, ctx, true, separator == "\n");
     if let Some((Kind::For, Phase::Header, _)) = structure {
         state.structure().unwrap().phase = Phase::Do;
     }
-    state.dangling = separator != "&" && separator != ";" && separator != "\n";
+    state.dangling =
+        !(separator == ";" || separator == "\n" || (separator.starts_with('&') && separator != "&&"));
     // Reprocess the newline to read pending heredoc bodies.
     if separator == "\n" && !state.heredocs.borrow().is_empty() {
         return Ok(index as isize - 1);
@@ -1205,7 +1307,7 @@ fn scan_bash_command_start(
             if state.words.is_empty() {
                 return Err(O::CompoundCommand);
             }
-            finish_bash_command(input, state, ctx, false);
+            finish_bash_command(input, state, ctx, false, false);
             let s = state.structure().unwrap();
             s.phase = Phase::Body;
             s.count = 0;
@@ -1219,7 +1321,7 @@ fn scan_bash_command_start(
             if bash_crosses_heredoc(state, input, index, end) {
                 return Err(O::Heredoc);
             }
-            finish_bash_command(input, state, ctx, false);
+            finish_bash_command(input, state, ctx, false, false);
             // Zsh permits a sublist or brace group directly after the value list, without do/done.
             let s = state.structure().unwrap();
             s.phase = Phase::Do;
@@ -1342,7 +1444,7 @@ fn scan_bash_keyword(
             if state.words.len() != 1 || state.has_redirect {
                 return Err(O::CompoundCommand);
             }
-            finish_bash_command(input, state, ctx, false);
+            finish_bash_command(input, state, ctx, false, false);
             let s = state.structure().unwrap();
             s.phase = Phase::Pattern;
             s.pattern_started = false;
@@ -1368,7 +1470,7 @@ fn scan_bash_keyword(
     // POSIX `for name do` omits the in list.
     if let Some((Kind::For, Phase::Header, false, ..)) = snap {
         if state.words.len() == 1 && !state.has_redirect && token == Some("do") {
-            finish_bash_command(input, state, ctx, false);
+            finish_bash_command(input, state, ctx, false, false);
             state.structure().unwrap().phase = Phase::Do;
         }
     }
@@ -1580,6 +1682,7 @@ fn scan_bash_unit(
             let mut subscript = BashText::default();
             let span = if mode == Mode::Quoted { &SPAN_QUOTED_SUBSCRIPT } else { &SPAN_SUBSCRIPT };
             let end = scan_bash_span(input, bracket, depth, ctx, commands, span, false, Some(&mut subscript))?;
+            ctx.sink_bracket = true;
             if bash_evaluates_expansion(&subscript, Evaluation::Arithmetic, ctx) {
                 return Err(O::DynamicExecution);
             }
@@ -1615,7 +1718,7 @@ fn scan_bash_unit(
         return Ok(Some(index + 1));
     }
     if mode == Mode::Word && opener == Some("$'") {
-        let Some((value, quote_end)) = bash_ansi_quote(input, index + 1) else {
+        let Some((value, quote_end)) = bash_ansi_quote(input, index + 1, true) else {
             return Err(O::UnterminatedQuote);
         };
         let first_quote = input.index_of_char('\'', index + 2).map_or(-1, |v| v as isize);
@@ -1635,7 +1738,7 @@ fn scan_bash_unit(
         return Ok(Some(quote_end));
     }
     if mode == Mode::Arithmetic && opener == Some("$'") {
-        let quote = bash_ansi_quote(input, index + 1);
+        let quote = bash_ansi_quote(input, index + 1, true);
         let first = input.index_of_char('\'', index + 2);
         match quote {
             Some((value, end)) if Some(end) == first && !test(&RE_ARITH_QUOTE_REJECT, &value) => {
@@ -1720,15 +1823,23 @@ fn zsh_evaluates(input: &Input, index: usize) -> bool {
 fn bash_evaluates_expansion(text: &BashText, evaluation: Evaluation, ctx: &mut BashContext) -> bool {
     let combined = format!("{} {}", text.literal, text.output);
     let has_expansion = test(&BASH_EXPANSION_RE, &combined);
-    let has_escape = test(&BASH_ESCAPE_RE, &text.literal);
+    // Escapes reach the value through $'...' or a substitution's printf, echo -e, or tr.
+    let has_escape = test(&BASH_ESCAPE_RE, &combined);
     if has_expansion || has_escape || text.literal.contains(['$', '`']) {
         ctx.bound_dollar = true;
     }
     if has_expansion || has_escape || test(&RE_OPEN_CHARS, &text.literal) {
         ctx.bound_open = true;
     }
+    // A substitution's output can hold `[` that the script never spells (printf '\x5b', tr, base64 -d).
+    if has_expansion || has_escape || !js_trim(&text.output).is_empty() || combined.contains('[') {
+        ctx.bound_bracket = true;
+    }
     if evaluation == Evaluation::Deferred {
         return false;
+    }
+    if text.word.contains('[') || combined.contains('[') {
+        ctx.sink_bracket = true;
     }
     let sink = if evaluation == Evaluation::Arithmetic {
         test(&RE_ARITH_SINK, &text.word)
@@ -1755,6 +1866,7 @@ fn scan_bash_subscript(
 ) -> R<usize> {
     let mut text = BashText::default();
     let end = scan_bash_span(input, start, depth, ctx, commands, span, false, Some(&mut text))?;
+    ctx.sink_bracket = true;
     if bash_evaluates_expansion(&text, Evaluation::Arithmetic, ctx) {
         return Err(O::DynamicExecution);
     }
@@ -1894,8 +2006,15 @@ fn scan_bash_dollar_or_backtick(
         // Literal text in parameter words reaches the enclosing word's value.
         let mut parameter = BashText::default();
         let end = scan_bash_parameter(input, start + 2, depth + 1, ctx, commands, quoted, &mut parameter);
-        // ${!name} evaluates the subscript in its name.
-        if test(&RE_BANG_PARAM, input.slice_from(start + 2)) {
+        // ${!name} and Zsh ${(P)name} evaluate the subscript in the referenced name.
+        let indirect = test(&RE_BANG_PARAM, input.slice_from(start + 2))
+            || (ctx.dialect != Dialect::Bash
+                && input.is(start + 2, '(')
+                && input.sticky(&ZSH_SAFE_FLAGS_RE, start).is_some_and(|n| {
+                    let flags = input.slice(start + 3, start + n - 1);
+                    ZSH_QUOTED_FLAG_ARG_RE.replace_all(flags, "").contains('P')
+                }));
+        if indirect {
             ctx.variable_sink = true;
             if bash_evaluates_expansion(&parameter, Evaluation::Binding, ctx) {
                 return Err(O::DynamicExecution);
@@ -2014,7 +2133,7 @@ fn scan_bash_parameter(
         return Err(O::DynamicExecution);
     }
     if name == "PS4" {
-        ctx.variable_sink = true;
+        ctx.eval_sink = true;
     }
     let mut evaluation: Option<Evaluation> = None;
     let mut word_offset = 0;
@@ -2066,7 +2185,7 @@ fn scan_bash_parameter(
             return Err(O::DynamicExecution);
         }
         if quoted && c == '\'' && input.ati(i as isize - 1) == Some('$') {
-            let Some((value, _)) = bash_ansi_quote(input, i) else {
+            let Some((value, _)) = bash_ansi_quote(input, i, true) else {
                 return Err(O::UnterminatedQuote);
             };
             text.literal.push_str(&value);
@@ -2268,6 +2387,16 @@ fn scan_bash_array_or_pattern(
             word_started = false;
             continue;
         }
+        if mode == ListMode::Array && word_started && c == '(' && ctx.dialect == Dialect::Zsh {
+            if let Some(length) = input.sticky(&ZSH_GLOB_QUALIFIER_RE, i) {
+                let end = i + length - 1;
+                if let Some(text) = text.as_mut() {
+                    text.literal.push_str(input.slice(i, end + 1));
+                }
+                index = end as isize;
+                continue;
+            }
+        }
         // Array elements are globbed, where a parenthesized group can be a Zsh glob qualifier.
         if c == '\n' || c == ';' || c == '&' || (mode == ListMode::Array && (c == '|' || c == '(')) {
             return Err(O::CommandSubstitution);
@@ -2312,7 +2441,7 @@ fn ansi_escape(c: char) -> Option<char> {
     })
 }
 
-fn bash_ansi_quote(input: &Input, start: usize) -> Option<(String, usize)> {
+fn bash_ansi_quote(input: &Input, start: usize, allow_unicode: bool) -> Option<(String, usize)> {
     let mut value = String::new();
     let mut index = start + 1;
     while index < input.len() {
@@ -2335,6 +2464,10 @@ fn bash_ansi_quote(input: &Input, start: usize) -> Option<(String, usize)> {
         let octal = ('0'..='7').contains(&escaped);
         let digits: String = if escaped == 'x' {
             input.slice(index + 1, index + 3).chars().take_while(char::is_ascii_hexdigit).collect()
+        } else if allow_unicode && escaped == 'u' {
+            input.slice(index + 1, index + 5).chars().take_while(char::is_ascii_hexdigit).collect()
+        } else if allow_unicode && escaped == 'U' {
+            input.slice(index + 1, index + 9).chars().take_while(char::is_ascii_hexdigit).collect()
         } else if octal {
             input.slice(index, index + 3).chars().take_while(|c| ('0'..='7').contains(c)).collect()
         } else {
@@ -2344,7 +2477,7 @@ fn bash_ansi_quote(input: &Input, start: usize) -> Option<(String, usize)> {
             return None;
         }
         let point = u32::from_str_radix(&digits, if octal { 8 } else { 16 }).ok()?;
-        if point == 0 {
+        if point == 0 || point > 0x10ffff || (0xd800..=0xdfff).contains(&point) {
             return None;
         }
         value.push(char::from_u32(point)?);
@@ -2367,6 +2500,7 @@ fn bash_heredoc_delimiter(input: &Input, start: usize, tabs: bool) -> Option<Bas
         quoted,
         tabs,
         binding: None,
+        owned: false,
         command: None,
         start: None,
         end,
@@ -2389,7 +2523,7 @@ fn bash_heredoc_delimiter(input: &Input, start: usize, tabs: bool) -> Option<Bas
         }
         // Dash retains $ in $'...' heredoc delimiters while Bash and Zsh strip $.
         if quote.is_none() && input.starts_with("$'", index) {
-            let (value, literal_end) = bash_ansi_quote(input, index + 1)?;
+            let (value, literal_end) = bash_ansi_quote(input, index + 1, false)?;
             if Some(literal_end) != input.index_of_char('\'', index + 2) {
                 return None;
             }
@@ -2646,6 +2780,9 @@ struct Ps<'a> {
     clause: Option<Clause>,
     after: Option<After>,
     indexable: Indexable,
+    member_chain_start: Option<usize>,
+    has_member_access: bool,
+    has_file_redirect: bool,
     stop_parsing: bool,
     command_end: usize,
     statement_head: bool,
@@ -2656,6 +2793,17 @@ struct Ps<'a> {
 }
 
 impl Ps<'_> {
+    fn reset_member(&mut self) {
+        self.indexable = Indexable::No;
+        self.member_chain_start = None;
+        self.has_member_access = false;
+    }
+
+    /// Whether the previous token ends in a member operator (`.` or `:`) after a member access.
+    fn dynamic_member(&self) -> bool {
+        self.indexable == Indexable::Member && ends_dot_colon(&self.previous())
+    }
+
     fn finish_word(&mut self, end: usize) {
         if !self.started {
             return;
@@ -2674,7 +2822,7 @@ impl Ps<'_> {
             self.stop_parsing = true;
         }
         if !self.redirect_target {
-            if self.words.is_empty() && !self.invocation && !self.expression {
+            if self.words.is_empty() && !self.invocation {
                 self.segment = self.word_start;
             }
             self.words.push(std::mem::take(&mut self.word));
@@ -2690,7 +2838,7 @@ impl Ps<'_> {
 
     fn finish_command(&mut self, end: usize, required: bool) {
         self.finish_word(end);
-        if !self.words.is_empty() && !self.expression && self.clause.is_none() {
+        if !self.words.is_empty() && ((!self.expression && self.clause.is_none()) || self.has_file_redirect) {
             let input = self.input;
             let resource = js_trim_end(input.slice(self.segment, self.command_end)).to_string();
             let base = input.byte[self.segment.min(input.len())];
@@ -2700,9 +2848,8 @@ impl Ps<'_> {
                 words: self.words.clone(),
                 raw_words: self.raw_words.clone(),
                 word_ends: Some(word_ends),
-                statement_head: self.statement_head && !self.invocation,
-                declaration: false,
-                redirect_word_count: None,
+                statement_head: self.statement_head && !self.invocation && !self.expression && self.clause.is_none(),
+                ..Default::default()
             });
         } else if (!self.expression && self.clause.is_none() && self.invocation)
             || (required && self.words.is_empty() && self.nested_commands.is_empty())
@@ -2719,11 +2866,12 @@ impl Ps<'_> {
         self.raw_words.clear();
         self.word_ends.clear();
         self.redirect_target = false;
+        self.has_file_redirect = false;
         self.invocation = false;
         self.expression = self.initial_expression;
         self.clause = self.initial_clause;
         self.after = None;
-        self.indexable = Indexable::No;
+        self.reset_member();
         self.stop_parsing = false;
     }
 
@@ -2763,6 +2911,9 @@ fn scan_powershell_list(
         clause: initial_clause,
         after: None,
         indexable: Indexable::No,
+        member_chain_start: None,
+        has_member_access: false,
+        has_file_redirect: false,
         stop_parsing: false,
         command_end: start,
         statement_head: true,
@@ -2860,11 +3011,15 @@ fn scan_powershell_list(
                 s.expression = true;
             }
             quote = Some(c);
-            standalone = at_boundary
-                || (s.expression && !s.redirect_target)
-                || (s.indexable == Indexable::Member && ends_dot_colon(&s.word));
-            if !standalone {
-                s.indexable = Indexable::No;
+            let dynamic_member = s.dynamic_member();
+            standalone = at_boundary || (s.expression && !s.redirect_target) || dynamic_member;
+            if dynamic_member {
+                s.has_member_access = true;
+            } else if standalone {
+                s.member_chain_start = Some(i);
+                s.has_member_access = false;
+            } else {
+                s.reset_member();
             }
             s.started = true;
             continue;
@@ -2879,7 +3034,9 @@ fn scan_powershell_list(
             } else if !at_boundary || !raw_space {
                 // At a token boundary escaped whitespace is trivia, not a new argument.
                 s.started = true;
-                s.indexable = Indexable::No;
+                if !(s.indexable == Indexable::Member && value.chars().any(|c| char_test(&RE_PS_MEMBER_CHAR, c))) {
+                    s.reset_member();
+                }
                 s.word.push_str(&value);
             }
             index = end as isize;
@@ -2907,7 +3064,7 @@ fn scan_powershell_list(
                 return Err(O::InvalidStructure);
             };
             if !member_operator {
-                s.indexable = Indexable::No;
+                s.reset_member();
             }
             index = end as isize + 1;
             continue;
@@ -2961,7 +3118,10 @@ fn scan_powershell_list(
                     return Err(O::InvalidRedirect);
                 }
                 s.redirect_target = !redirect.contains('&');
-                s.indexable = Indexable::No;
+                if s.redirect_target {
+                    s.has_file_redirect = true;
+                }
+                s.reset_member();
                 index += redirect.len() as isize - 1;
                 s.command_end = index as usize + 1;
                 continue;
@@ -3033,7 +3193,8 @@ fn scan_powershell_list(
             s.raw_words.clear();
             s.word_ends.clear();
             s.expression = false;
-            s.indexable = Indexable::No;
+            s.has_file_redirect = false;
+            s.reset_member();
             if !assign || c != '=' {
                 index += 1;
             }
@@ -3056,6 +3217,8 @@ fn scan_powershell_list(
             s.started = true;
             index = end as isize;
             s.finish_word(end + 1);
+            s.member_chain_start = Some(s.word_start);
+            s.has_member_access = false;
             s.indexable = Indexable::Closed;
             continue;
         }
@@ -3066,11 +3229,16 @@ fn scan_powershell_list(
             if !s.started && s.words.is_empty() && !s.invocation && hash != Hash::Switch {
                 s.expression = true;
             }
-            s.indexable = if at_boundary || (s.indexable == Indexable::Member && ends_dot_colon(&s.word)) {
-                Indexable::Closed
+            if s.dynamic_member() {
+                s.indexable = Indexable::Closed;
+                s.has_member_access = true;
+            } else if at_boundary {
+                s.member_chain_start = Some(i);
+                s.has_member_access = false;
+                s.indexable = Indexable::Closed;
             } else {
-                Indexable::No
-            };
+                s.reset_member();
+            }
             s.word.push_str(input.slice(i, end + 1));
             s.started = true;
             index = end as isize;
@@ -3099,7 +3267,15 @@ fn scan_powershell_list(
             None
         };
         if let Some(opener) = opener {
+            let token_index = i;
             let open_char = input.chars[opener];
+            let dynamic_member_opener = s.dynamic_member();
+            let prior_indexable = s.indexable != Indexable::No;
+            let is_method_call = c == '('
+                && opener == token_index
+                && s.member_chain_start.is_some()
+                && ((s.indexable == Indexable::Member && s.started && !ends_dot_colon(&s.word))
+                    || (s.indexable == Indexable::Closed && !s.started && s.has_member_access));
             let standalone_block = at_boundary || in_expression || c == '(' || open_char == '{';
             let block_close = match open_char {
                 '(' => ')',
@@ -3134,14 +3310,36 @@ fn scan_powershell_list(
             s.started = true;
             s.word.push_str(input.slice(i, end + 1));
             index = end as isize;
-            if open_char == '[' {
+            if let Some(chain_start) = s.member_chain_start.filter(|_| is_method_call) {
+                s.finish_word(end + 1);
+                let call_resource = input.slice(chain_start, end + 1).to_string();
+                let head = input.slice(chain_start, opener).to_string();
+                let args = input.slice(opener, end + 1).to_string();
+                let word_ends = vec![head.len(), call_resource.len()];
+                s.nested_commands.push(Command {
+                    resource: call_resource,
+                    words: vec![head.clone(), args.clone()],
+                    raw_words: vec![head, args],
+                    word_ends: Some(word_ends),
+                    ..Default::default()
+                });
                 s.indexable = Indexable::Closed;
+                s.has_member_access = false;
+            } else if open_char == '[' {
+                s.indexable = Indexable::Closed;
+                if !prior_indexable {
+                    s.member_chain_start = Some(token_index);
+                }
                 if !input.is(end + 1, '[') {
                     s.finish_word(end + 1);
                 }
             } else if standalone_block {
                 s.finish_word(end + 1);
                 s.indexable = Indexable::Closed;
+                if !dynamic_member_opener {
+                    s.member_chain_start = Some(token_index);
+                }
+                s.has_member_access = dynamic_member_opener;
             }
             if (s.clause == Some(Clause::Paren) && c == '(')
                 || (s.clause.is_some() && s.clause != Some(Clause::Paren) && c == '{')
@@ -3178,8 +3376,11 @@ fn scan_powershell_list(
             continue;
         }
         if js_space(c) && c != '\n' && c != '\r' {
+            let member_operator = s.dynamic_member();
             s.finish_word(i);
-            s.indexable = Indexable::No;
+            if !member_operator {
+                s.reset_member();
+            }
             continue;
         }
         let separator: Option<&str> = if c == '\r' && next == Some('\n') {
@@ -3209,13 +3410,13 @@ fn scan_powershell_list(
                     s.finish_word(i);
                     index += separator.len() as isize - 1;
                     if !member_operator {
-                        s.indexable = Indexable::No;
+                        s.reset_member();
                     }
                     continue;
                 }
                 if !s.started && s.words.is_empty() && !s.invocation {
                     index += separator.len() as isize - 1;
-                    s.indexable = Indexable::No;
+                    s.reset_member();
                     continue;
                 }
             }
@@ -3237,16 +3438,27 @@ fn scan_powershell_list(
         let next_space = next.is_some_and(js_space);
         let after_next = input.at(i + 2);
         let after_next_space = after_next.is_some_and(js_space);
-        if (at_boundary || (s.indexable == Indexable::Member && ends_dot_colon(&s.word))) && c == '$' {
-            s.indexable = if input.sticky(&POWERSHELL_INDEXABLE_VAR_RE, i + 1).is_some() {
-                Indexable::Variable
+        let prev_member = s.dynamic_member();
+        if (at_boundary || prev_member) && c == '$' {
+            if input.sticky(&POWERSHELL_INDEXABLE_VAR_RE, i + 1).is_some() {
+                if prev_member {
+                    s.has_member_access = true;
+                } else {
+                    s.member_chain_start = Some(i);
+                    s.has_member_access = false;
+                }
+                s.indexable = Indexable::Variable;
             } else {
-                Indexable::No
-            };
+                s.reset_member();
+            }
         } else if s.indexable == Indexable::Closed {
-            s.indexable = if (c == '.' && next != Some('.') && !next_space)
-                || (!s.started && c == ':' && next == Some(':') && !after_next_space)
-                || (!s.started && c == '?' && next == Some('.') && after_next != Some('.') && !after_next_space)
+            s.indexable = if (c == '.' && next != Some('.') && (!next_space || in_expression))
+                || (!s.started && c == ':' && next == Some(':'))
+                || (!s.started
+                    && c == '?'
+                    && next == Some('.')
+                    && after_next != Some('.')
+                    && (!after_next_space || in_expression))
             {
                 Indexable::Member
             } else if !s.started && c == '?' && next == Some('[') {
@@ -3254,9 +3466,14 @@ fn scan_powershell_list(
             } else {
                 Indexable::No
             };
+            if s.indexable == Indexable::Member {
+                s.has_member_access = true;
+            } else if s.indexable == Indexable::No {
+                s.reset_member();
+            }
         } else if s.indexable == Indexable::Variable {
-            s.indexable = if (c == '.' && next != Some('.') && !next_space)
-                || (c == ':' && next == Some(':') && !after_next_space)
+            s.indexable = if (c == '.' && next != Some('.') && (!next_space || in_expression))
+                || (c == ':' && next == Some(':'))
             {
                 Indexable::Member
             } else if (c == '.' && next == Some('.')) || !char_test(&RE_PS_VARIABLE_CHAR, c) {
@@ -3264,10 +3481,15 @@ fn scan_powershell_list(
             } else {
                 Indexable::Variable
             };
+            if s.indexable == Indexable::Member {
+                s.has_member_access = true;
+            } else if s.indexable == Indexable::No {
+                s.reset_member();
+            }
         } else if s.indexable == Indexable::Member {
             s.indexable = if c == '.' && next == Some('.') {
                 Indexable::No
-            } else if (c == '.' && !next_space)
+            } else if (c == '.' && (!next_space || in_expression))
                 || (c == ':' && (next == Some(':') || input.ati(i as isize - 1) == Some(':')))
                 || (c == '?' && next == Some('.') && after_next != Some('.'))
                 || char_test(&RE_PS_MEMBER_CHAR, c)
@@ -3276,6 +3498,9 @@ fn scan_powershell_list(
             } else {
                 Indexable::No
             };
+            if s.indexable == Indexable::No {
+                s.reset_member();
+            }
         }
         s.after = None;
         s.started = true;
@@ -3556,6 +3781,9 @@ mod tests {
                         if let Some(count) = c.redirect_word_count {
                             m.insert("redirectWordCount".into(), count.into());
                         }
+                        if let Some(end) = c.redirect_prefix_end {
+                            m.insert("redirectPrefixEnd".into(), end.into());
+                        }
                         Value::Object(m)
                     })
                     .collect();
@@ -3572,6 +3800,10 @@ mod tests {
                     for end in ends.iter_mut() {
                         *end = utf16_to_byte(&resource, end.as_u64().unwrap() as usize).into();
                     }
+                }
+                if let Some(end) = command.get_mut("redirectPrefixEnd") {
+                    let bytes = utf16_to_byte(&resource, end.as_u64().unwrap() as usize);
+                    *end = resource[..bytes.min(resource.len())].chars().count().into();
                 }
             }
         }
@@ -3592,27 +3824,52 @@ mod tests {
         }
     }
 
+    /// None for other functions' cases, else whether the port reproduces the recorded result.
+    fn check_case(line: &str) -> Option<bool> {
+        let case: Value = serde_json::from_str(line).unwrap();
+        let got = match case["fn"].as_str().unwrap() {
+            "scan" => {
+                let dialect = match case["dialect"].as_str().unwrap() {
+                    "bash" => Dialect::Bash,
+                    "zsh" => Dialect::Zsh,
+                    _ => Dialect::Posix,
+                };
+                scan(case["input"].as_str().unwrap(), dialect)
+            }
+            "ps" => scan_powershell(case["input"].as_str().unwrap()),
+            _ => return None,
+        };
+        Some(to_json(&got) == expected(case["result"].clone()))
+    }
+
     #[test]
     fn golden_upstream_cases() {
         let mut checked = 0;
         for line in golden::CASES.lines() {
-            let case: Value = serde_json::from_str(line).unwrap();
-            let got = match case["fn"].as_str().unwrap() {
-                "scan" => {
-                    let dialect = match case["dialect"].as_str().unwrap() {
-                        "bash" => Dialect::Bash,
-                        "zsh" => Dialect::Zsh,
-                        _ => Dialect::Posix,
-                    };
-                    scan(case["input"].as_str().unwrap(), dialect)
-                }
-                "ps" => scan_powershell(case["input"].as_str().unwrap()),
-                _ => continue,
-            };
-            assert_eq!(to_json(&got), expected(case["result"].clone()), "case {line}");
-            checked += 1;
+            if let Some(matched) = check_case(line) {
+                assert!(matched, "case {line}");
+                checked += 1;
+            }
         }
-        assert!(checked > 400);
+        assert!(checked > 400, "{checked}");
+    }
+
+    /// Every `ShellScan.scan`/`scanPowerShell` call recorded from upstream's test suites (`OCD_SHELL_ORACLE` names
+    /// the JSON lines file; see `golden`).
+    #[test]
+    fn full_upstream_oracle() {
+        let Ok(path) = std::env::var("OCD_SHELL_ORACLE") else {
+            return;
+        };
+        let content = std::fs::read_to_string(path).unwrap();
+        let results: Vec<(&str, bool)> =
+            content.lines().filter_map(|line| check_case(line).map(|matched| (line, matched))).collect();
+        let failed: Vec<&str> = results.iter().filter(|(_, matched)| !matched).map(|(line, _)| *line).collect();
+        eprintln!("scan oracle cases: {} checked, {} differ", results.len(), failed.len());
+        for line in failed.iter().take(20) {
+            eprintln!("DIFF {line}");
+        }
+        assert!(failed.is_empty());
     }
 
     #[test]

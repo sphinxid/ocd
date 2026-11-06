@@ -110,14 +110,10 @@ pub struct ToolConfig {
     pub tool_output_max_bytes: Option<usize>,
     /// `formatter` config (`None`/`false` → formatting off).
     pub formatter: crate::formatter::FormatterConfig,
-    /// `experimental.portable_shell_scanner`.
-    pub portable_shell_scanner: Option<bool>,
     /// `experimental.subagent_depth`.
     pub subagent_depth: Option<u64>,
     /// `shell` config.
     pub shell: Option<String>,
-    /// App channel (`local`/`dev` select the portable shell scanner by default).
-    pub channel: String,
     /// `media.image.*`.
     pub image: ImageLimits,
 }
@@ -128,10 +124,8 @@ impl Default for ToolConfig {
             tool_output_max_lines: None,
             tool_output_max_bytes: None,
             formatter: crate::formatter::FormatterConfig::Disabled,
-            portable_shell_scanner: None,
             subagent_depth: None,
             shell: None,
-            channel: "prod".into(),
             image: ImageLimits::default(),
         }
     }

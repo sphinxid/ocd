@@ -96,7 +96,7 @@ agent/provider registries. It uses the functions below to do that work.
     (defaults `TOOL_OUTPUT_MAX_*`);
   - `websearch`;
   - `warming` (defaults, the validity check and the verbatim warning);
-  - `experimental`, `subagent_depth` and `portable_shell_scanner`.
+  - `experimental` and `subagent_depth` (`portable_shell_scanner` is accepted but nothing reads it).
 - Field-wise or accumulated values:
   - `compaction` and `media_image` (overlays);
   - `worktree_directory`;
