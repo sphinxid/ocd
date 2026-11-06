@@ -48,6 +48,9 @@ pub struct Info {
     pub exit_code: Option<u64>,
     #[serde(rename = "sessionID")]
     pub session_id: String,
+    /// Always present; null when the user has not renamed the terminal.
+    #[serde(rename = "userTitle", default)]
+    pub user_title: Option<String>,
     #[serde(rename = "foregroundProcess")]
     pub foreground_process: Option<String>,
     pub size: Size,
@@ -72,6 +75,7 @@ impl Info {
             pid: value.pid.unwrap_or(0),
             exit_code,
             session_id: value.group_id.clone(),
+            user_title: value.user_title.clone(),
             foreground_process: value.foreground_process.clone(),
             size: Size { cols: value.cols, rows: value.rows },
             output: Output { head: value.output_head, tail: value.output_tail },
@@ -174,23 +178,29 @@ pub struct UpdateInput {
 pub enum BusEvent {
     Added { session_id: String, terminal: Info },
     Removed { session_id: String, pty_id: String },
+    /// A terminal was renamed (`persistent-pty.updated`).
+    Updated { session_id: String, terminal: Info },
 }
 
 impl BusEvent {
     pub const ADDED: &'static str = "persistent-pty.added";
     pub const REMOVED: &'static str = "persistent-pty.removed";
+    pub const UPDATED: &'static str = "persistent-pty.updated";
 
     pub fn event_type(&self) -> &'static str {
         match self {
             BusEvent::Added { .. } => Self::ADDED,
             BusEvent::Removed { .. } => Self::REMOVED,
+            BusEvent::Updated { .. } => Self::UPDATED,
         }
     }
 
     /// Event payload: `{sessionID, terminal}` / `{sessionID, ptyID}`.
     pub fn properties(&self) -> Value {
         match self {
-            BusEvent::Added { session_id, terminal } => json!({ "sessionID": session_id, "terminal": terminal }),
+            BusEvent::Added { session_id, terminal } | BusEvent::Updated { session_id, terminal } => {
+                json!({ "sessionID": session_id, "terminal": terminal })
+            }
             BusEvent::Removed { session_id, pty_id } => json!({ "sessionID": session_id, "ptyID": pty_id }),
         }
     }
@@ -205,6 +215,7 @@ mod tests {
             id: 7,
             pid: None,
             title: "Terminal".into(),
+            user_title: None,
             foreground_process: Some("vim".into()),
             group_id: "ses_abc".into(),
             command: vec!["/bin/zsh".into(), "-i".into()],
@@ -222,7 +233,7 @@ mod tests {
         let info = Info::from_wire(&wire(Lifecycle::Exited { exit_code: Some(2) }));
         assert_eq!(
             serde_json::to_string(&info).unwrap(),
-            r#"{"id":"pty_persistent_7","title":"Terminal","command":"/bin/zsh","args":["-i"],"cwd":"/home","status":"exited","pid":0,"exitCode":2,"sessionID":"ses_abc","foregroundProcess":"vim","size":{"cols":80,"rows":24},"output":{"head":1,"tail":9}}"#
+            r#"{"id":"pty_persistent_7","title":"Terminal","command":"/bin/zsh","args":["-i"],"cwd":"/home","status":"exited","pid":0,"exitCode":2,"sessionID":"ses_abc","userTitle":null,"foregroundProcess":"vim","size":{"cols":80,"rows":24},"output":{"head":1,"tail":9}}"#
         );
         let running = Info::from_wire(&wire(Lifecycle::Running));
         let text = serde_json::to_string(&running).unwrap();
@@ -233,6 +244,10 @@ mod tests {
         empty.command.clear();
         assert_eq!(Info::from_wire(&empty).command, "");
         assert_eq!(serde_json::from_str::<Info>(&text).unwrap(), running);
+        // 0.4.0 daemons report the user title.
+        let mut renamed = wire(Lifecycle::Running);
+        renamed.user_title = Some("Build".into());
+        assert!(serde_json::to_string(&Info::from_wire(&renamed)).unwrap().contains(r#""sessionID":"ses_abc","userTitle":"Build","foregroundProcess""#));
     }
 
     #[test]

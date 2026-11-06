@@ -449,6 +449,12 @@ impl DaemonTransport {
         }
     }
 
+    /// `supports(feature)`: whether the reachable daemon (never started for this) lists `feature`.
+    pub async fn supports(&self, feature: &str) -> Result<bool, DaemonError> {
+        let current = self.connect(false).await?;
+        Ok(current.features.is_some_and(|features| features.iter().any(|f| f == feature)))
+    }
+
     /// `requestIfRunning(value)`: `Ok(None)` when no daemon is reachable.
     pub async fn request_if_running(&self, value: Value) -> Result<Option<WireResponse>, DaemonError> {
         match self.request(value, false).await {
@@ -606,10 +612,11 @@ pub(crate) async fn discover_in(directory: &Path) -> Result<Registration, Daemon
     }
     let response = one_shot(&decoded, json!({ "op": "ping" })).await?;
     match response {
-        WireResponse::Pong { instance_id, pid, protocol }
+        WireResponse::Pong { instance_id, pid, protocol, features }
             if instance_id == decoded.instance_id && pid == decoded.pid && protocol == crate::frame::PROTOCOL_VERSION =>
         {
-            Ok(decoded)
+            // Daemons older than the features list omit it; trust the live daemon's answer over the file.
+            Ok(Registration { features: Some(features.unwrap_or_default()), ..decoded })
         }
         _ => Err(DaemonError::new(ErrorKind::Protocol, "opencode-pty registration mismatch")),
     }

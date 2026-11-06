@@ -23,6 +23,10 @@ struct Fake {
     auth_failures: AtomicUsize,
     requests: Mutex<Vec<Value>>,
     owner_close: Notify,
+    /// `features` the daemon reports in its pong (`None`: a pre-0.4.0 daemon that omits the field).
+    features: Mutex<Option<Vec<String>>>,
+    /// User titles set by `rename`.
+    titles: Mutex<std::collections::HashMap<u64, Value>>,
 }
 
 const PID: u64 = 4242;
@@ -87,7 +91,16 @@ async fn handle(mut stream: UnixStream, fake: Arc<Fake>, directory: PathBuf, soc
     match op.as_str() {
         "ping" => {
             let pid = fake.pong_pid.lock().unwrap_or(PID);
-            send(&mut stream, json!({"type": "pong", "instance_id": "inst-1", "pid": pid, "protocol": 7})).await;
+            let mut pong = json!({"type": "pong", "instance_id": "inst-1", "pid": pid, "protocol": 7});
+            if let Some(features) = fake.features.lock().clone() {
+                pong["features"] = json!(features);
+            }
+            send(&mut stream, pong).await;
+        }
+        "rename" => {
+            let id = request["id"].as_u64().unwrap();
+            fake.titles.lock().insert(id, request["title"].clone());
+            send(&mut stream, json!({"type": "ok"})).await;
         }
         "own" => {
             send(&mut stream, json!({"type": "owned"})).await;
@@ -106,7 +119,17 @@ async fn handle(mut stream: UnixStream, fake: Arc<Fake>, directory: PathBuf, soc
                 }
             }
         }
-        "list" => send(&mut stream, json!({"type": "terminals", "terminals": [terminal(1, "ses_a"), terminal(2, "ses_b")]})).await,
+        "list" => {
+            let titled = |id: u64, group: &str| {
+                let mut t = terminal(id, group);
+                if let Some(title) = fake.titles.lock().get(&id) {
+                    t["user_title"] = title.clone();
+                }
+                t
+            };
+            let terminals = json!([titled(1, "ses_a"), titled(2, "ses_b"), titled(3, "ses_a")]);
+            send(&mut stream, json!({"type": "terminals", "terminals": terminals})).await
+        }
         "subscribe" => {
             let attached = json!({
                 "type": "attached", "terminal": terminal(1, "ses_a"), "role": request["role"], "generation": 1,
@@ -189,7 +212,7 @@ async fn owns_lists_attaches_and_hands_off() {
     let pty = service(&root, "d").await;
 
     let all = pty.list(None).await.unwrap();
-    assert_eq!(all.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), vec!["pty_persistent_1", "pty_persistent_2"]);
+    assert_eq!(all.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), vec!["pty_persistent_1", "pty_persistent_2", "pty_persistent_3"]);
     assert_eq!(pty.list(Some("ses_b")).await.unwrap().len(), 1);
     assert!(pty.daemon().is_owner());
     {
@@ -252,7 +275,7 @@ async fn owns_lists_attaches_and_hands_off() {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     assert!(!pty.daemon().is_owner());
-    assert_eq!(pty.list(None).await.unwrap().len(), 2);
+    assert_eq!(pty.list(None).await.unwrap().len(), 3);
     assert!(pty.daemon().is_owner());
     let owns = fake.requests.lock().iter().filter(|r| r["op"] == "own").count();
     assert_eq!(owns, 2);
@@ -266,10 +289,10 @@ async fn authentication_failure_rediscovers_once() {
     *fake.protocol.lock() = 7;
     start_fake(root.join("d"), fake.clone()).await;
     let pty = service(&root, "d").await;
-    assert_eq!(pty.list(None).await.unwrap().len(), 2);
+    assert_eq!(pty.list(None).await.unwrap().len(), 3);
     // Next list: auth fails once (token rotated on disk), retried with the new registration.
     fake.auth_failures.store(1, Ordering::SeqCst);
-    assert_eq!(pty.list(None).await.unwrap().len(), 2);
+    assert_eq!(pty.list(None).await.unwrap().len(), 3);
     // Two consecutive failures surface the error.
     fake.auth_failures.store(2, Ordering::SeqCst);
     assert_eq!(pty.list(None).await.unwrap_err().to_string(), "authentication failed");
@@ -299,4 +322,65 @@ async fn expired_or_mismatched_handoff_is_discarded() {
     assert_ne!(pty.daemon().id(), "old");
     // The mismatched daemon was asked to shut down.
     assert!(fake.requests.lock().contains(&json!({"op": "shutdown"})));
+}
+
+/// persistent-pty-daemon.test.ts (#60329): renaming needs a daemon that lists the `rename` feature; it sends
+/// `{op:"rename", id, title}`, returns the terminal with its `userTitle` and publishes `persistent-pty.updated`.
+#[tokio::test]
+async fn rename_needs_the_feature_and_publishes_updated() {
+    let root = temp_root();
+    let fake = Arc::new(Fake::default());
+    *fake.token.lock() = "tok".into();
+    *fake.protocol.lock() = 7;
+    start_fake(root.join("old"), fake.clone()).await;
+    let pty = service(&root, "old").await;
+    // A 0.3.3 daemon omits `features`: nothing is sent, so it never drops the connection.
+    assert_eq!(pty.rename("pty_persistent_1", Some("Build")).await.unwrap_err(), oc_persistent_pty::Error::Unsupported { feature: "rename".into() });
+    assert!(!fake.requests.lock().iter().any(|r| r["op"] == "rename"));
+    assert_eq!(pty.get("pty_persistent_1").await.unwrap().user_title, None);
+    // A missing terminal is reported before the feature check.
+    assert_eq!(pty.rename("pty_persistent_9", None).await.unwrap_err(), oc_persistent_pty::Error::NotFound("pty_persistent_9".into()));
+
+    let fake = Arc::new(Fake::default());
+    *fake.token.lock() = "tok".into();
+    *fake.protocol.lock() = 7;
+    *fake.features.lock() = Some(vec!["rename".into()]);
+    start_fake(root.join("new"), fake.clone()).await;
+    let pty = service(&root, "new").await;
+    let mut events = pty.subscribe_events();
+    let renamed = pty.rename("pty_persistent_1", Some("Build")).await.unwrap();
+    assert_eq!(renamed.user_title.as_deref(), Some("Build"));
+    assert!(fake.requests.lock().contains(&json!({"op": "rename", "id": 1, "title": "Build"})));
+    let event = events.recv().await.unwrap();
+    assert_eq!(event.event_type(), "persistent-pty.updated");
+    assert_eq!(event.properties()["sessionID"], "ses_a");
+    assert_eq!(event.properties()["terminal"]["userTitle"], "Build");
+    let cleared = pty.rename("pty_persistent_1", None).await.unwrap();
+    assert_eq!(cleared.user_title, None);
+    assert!(fake.requests.lock().contains(&json!({"op": "rename", "id": 1, "title": null})));
+    assert_eq!(serde_json::to_value(&cleared).unwrap()["userTitle"], Value::Null);
+}
+
+/// persistent-pty-session.test.ts (#60322): deleting a session removes its terminals, publishing
+/// `persistent-pty.removed` for each, and leaves other sessions' terminals alone.
+#[tokio::test]
+async fn remove_session_terminates_the_sessions_terminals() {
+    let root = temp_root();
+    let fake = Arc::new(Fake::default());
+    *fake.token.lock() = "tok".into();
+    *fake.protocol.lock() = 7;
+    start_fake(root.join("d"), fake.clone()).await;
+    let pty = service(&root, "d").await;
+    let mut events = pty.subscribe_events();
+    pty.remove_session("ses_a").await;
+    let terminated: Vec<Value> = fake.requests.lock().iter().filter(|r| r["op"] == "terminate").cloned().collect();
+    assert_eq!(terminated, vec![json!({"op": "terminate", "id": 1}), json!({"op": "terminate", "id": 3})]);
+    for id in ["pty_persistent_1", "pty_persistent_3"] {
+        let event = events.recv().await.unwrap();
+        assert_eq!(event.event_type(), "persistent-pty.removed");
+        assert_eq!(event.properties(), json!({"sessionID": "ses_a", "ptyID": id}));
+    }
+    // Without a running daemon there is nothing to remove, and nothing fails.
+    let absent = service(&root, "absent").await;
+    absent.remove_session("ses_a").await;
 }

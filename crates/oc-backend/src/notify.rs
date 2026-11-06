@@ -110,6 +110,27 @@ impl Engine {
     }
 
     /// Lets the plugin layer and location rebuilds gate `*.updated` events on these projections.
+    /// `PersistentPty` subscribes to `session.deleted` and removes the session's terminals (#60322). Events are
+    /// handled one at a time, and failures are logged per event so one never ends the subscription.
+    pub(crate) fn install_pty_cleanup(self: &Arc<Self>) {
+        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+        let mut rx = self.app.bus.subscribe();
+        let weak: Weak<Engine> = Arc::downgrade(self);
+        handle.spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(e) if e.kind == "session.deleted" => {
+                        let Some(engine) = weak.upgrade() else { break };
+                        let Some(session) = e.data.get("sessionID").and_then(|v| v.as_str()) else { continue };
+                        engine.persistent().await.remove_session(session).await;
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     pub(crate) fn install_projector(self: &Arc<Self>) {
         let weak: Weak<Engine> = Arc::downgrade(self);
         let for_locations = weak.clone();

@@ -294,6 +294,11 @@ impl ApiError {
         tagged(404, "PtyNotFoundError", json!({ "ptyID": id, "message": format!("PTY session not found: {id}") }))
     }
 
+    /// `501 PtyFeatureUnsupportedError` — the running terminal service lacks `feature`.
+    pub fn pty_feature_unsupported(feature: impl Into<String>, message: impl Into<String>) -> Self {
+        tagged(501, "PtyFeatureUnsupportedError", json!({ "feature": feature.into(), "message": message.into() }))
+    }
+
     /// `404 ShellNotFoundError` — `Shell command not found: <id>`.
     pub fn shell_not_found(id: impl Into<String>) -> Self {
         let id = id.into();

@@ -90,6 +90,7 @@ impl Engine {
         });
         engine.install_projector();
         engine.install_reloads();
+        engine.install_pty_cleanup();
         engine
     }
 
@@ -117,6 +118,7 @@ impl Engine {
         });
         engine.install_projector();
         engine.install_reloads();
+        engine.install_pty_cleanup();
         engine
     }
 

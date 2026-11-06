@@ -264,3 +264,34 @@ unsafe extern "C" {
     #[link_name = "kill"]
     fn libc_kill(pid: i32, signal: i32) -> i32;
 }
+
+/// Renaming against the real daemon: a 0.4.0 daemon reports the `rename` feature and keeps the user title; an
+/// older one (`OPENCODE_PTY_EXPECT_RENAME=0`, e.g. 0.3.3) is refused before anything is sent.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn real_daemon_rename_and_remove_session() {
+    let root = std::env::temp_dir().join(format!("ocpty-{}", &uuid::Uuid::new_v4().to_string()[..8]));
+    std::fs::create_dir_all(&root).unwrap();
+    let exe = binary(&root).await;
+    let pty = PersistentPty::new(&global(&root), Options { binary: Some(fixed(exe)), ..Default::default() }).await;
+    let input = CreateInput { command: Some("/bin/sh".into()), cwd: Some("/tmp".into()), title: "Terminal".into(), ..Default::default() };
+    let info = pty.create("ses_rename", input).await.expect("create");
+    assert_eq!(info.user_title, None);
+    let expect_rename = std::env::var("OPENCODE_PTY_EXPECT_RENAME").map(|v| v != "0").unwrap_or(true);
+    assert_eq!(pty.daemon().supports("rename").await.unwrap(), expect_rename);
+    if expect_rename {
+        let renamed = pty.rename(&info.id, Some("Build")).await.expect("rename");
+        assert_eq!(renamed.user_title.as_deref(), Some("Build"));
+        assert_eq!(pty.get(&info.id).await.unwrap().user_title.as_deref(), Some("Build"));
+        assert_eq!(pty.rename(&info.id, None).await.unwrap().user_title, None);
+    } else {
+        let error = pty.rename(&info.id, Some("Build")).await.unwrap_err();
+        assert_eq!(error, oc_persistent_pty::Error::Unsupported { feature: "rename".into() });
+        // The daemon is still reachable: the request was never sent.
+        assert_eq!(pty.list(Some("ses_rename")).await.unwrap().len(), 1);
+    }
+    pty.remove_session("ses_rename").await;
+    assert!(pty.list(Some("ses_rename")).await.unwrap().is_empty());
+    pty.shutdown().await.unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+}

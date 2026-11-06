@@ -17,6 +17,9 @@ pub struct WireTerminal {
     pub id: u64,
     pub pid: Option<u64>,
     pub title: String,
+    /// The title a user gave the terminal (`@opencode/pty` 0.4.0); absent from older daemons.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_title: Option<String>,
     pub foreground_process: Option<String>,
     pub group_id: String,
     pub command: Vec<String>,
@@ -36,6 +39,9 @@ pub struct Registration {
     pub protocol: u64,
     pub socket: String,
     pub token: String,
+    /// Optional daemon features such as `rename` (0.4.0); a live `pong` overrides the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<Vec<String>>,
 }
 
 /// Attachment role.
@@ -59,7 +65,13 @@ impl Role {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WireResponse {
-    Pong { instance_id: String, pid: u64, protocol: u64 },
+    Pong {
+        instance_id: String,
+        pid: u64,
+        protocol: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        features: Option<Vec<String>>,
+    },
     Created { terminal: WireTerminal },
     Terminals { terminals: Vec<WireTerminal> },
     Ok,
@@ -258,7 +270,7 @@ mod tests {
     #[test]
     fn decodes_responses() {
         let pong = WireResponse::decode(br#"{"type":"pong","instance_id":"i","pid":7,"protocol":7}"#).unwrap();
-        assert_eq!(pong, WireResponse::Pong { instance_id: "i".into(), pid: 7, protocol: 7 });
+        assert_eq!(pong, WireResponse::Pong { instance_id: "i".into(), pid: 7, protocol: 7, features: None });
         assert_eq!(WireResponse::decode(br#"{"type":"ok"}"#).unwrap(), WireResponse::Ok);
         assert_eq!(WireResponse::decode(br#"{"type":"owned"}"#).unwrap(), WireResponse::Owned);
         let handoff = WireResponse::decode(br#"{"type":"handoff","ticket":"t","expires_at":1700000000000}"#).unwrap();

@@ -1,6 +1,6 @@
 //! Client for opencode's persistent terminals (`packages/core/src/persistent-pty/**`).
 //!
-//! Terminals live in the external `opencode-pty` daemon (npm `@opencode/pty@0.3.3`,
+//! Terminals live in the external `opencode-pty` daemon (npm `@opencode/pty@0.4.0`,
 //! protocol 7) so they survive server restarts. [`PersistentPty`] is the service the HTTP
 //! `persistentPty.*` endpoints and the TUI terminal pane use; see `README.md`.
 
@@ -42,6 +42,10 @@ pub enum Error {
     /// `PersistentPty.InvalidCwdError`: maps to HTTP 400 `InvalidRequestError` (`kind: "invalid_cwd"`).
     #[error("{message}")]
     InvalidCwd { cwd: String, message: String },
+    /// `PersistentPty.UnsupportedError`: the running daemon lacks `feature` (HTTP 501
+    /// `PtyFeatureUnsupportedError`).
+    #[error("{feature} is not supported by the running terminal service")]
+    Unsupported { feature: String },
 }
 
 /// Node `path.resolve(input)`: joined onto the process cwd when relative, then normalized
@@ -431,6 +435,42 @@ impl PersistentPty {
         Ok(())
     }
 
+    /// `rename(id, title)`: sets (or with `None` clears) the user title; publishes `persistent-pty.updated`.
+    /// Daemons without the feature drop the connection on unknown requests, so it is checked first.
+    pub async fn rename(&self, id: &str, title: Option<&str>) -> Result<Info> {
+        let terminal = self.get(id).await?;
+        if !self.inner.daemon.supports("rename").await? {
+            return Err(Error::Unsupported { feature: "rename".into() });
+        }
+        let response = self.request(json!({ "op": "rename", "id": Self::wire_id(id)?, "title": title }), false).await?;
+        Self::expect_ok(response)?;
+        let renamed = self.get(id).await?;
+        self.publish(BusEvent::Updated { session_id: terminal.session_id, terminal: renamed.clone() });
+        Ok(renamed)
+    }
+
+    /// `removeSession(sessionID)` (run on each `session.deleted`): removes the session's terminals. A terminal
+    /// already gone is skipped and an unavailable daemon is only logged, so one failure never ends the cleanup.
+    pub async fn remove_session(&self, session_id: &str) {
+        match self.list(Some(session_id)).await {
+            Ok(terminals) => {
+                for terminal in terminals {
+                    match self.remove(&terminal.id).await {
+                        Ok(()) | Err(Error::NotFound(_)) => {}
+                        Err(error) => tracing::warn!(
+                            sessionID = %session_id,
+                            id = %terminal.id,
+                            error = %error,
+                            "failed to remove deleted session's terminal"
+                        ),
+                    }
+                }
+            }
+            Err(error) => tracing::warn!(sessionID = %session_id, error = %error, "failed to list deleted session's terminals"),
+        }
+        self.inner.current.lock().remove(session_id);
+    }
+
     /// `shutdown()`: stop the daemon and all terminals (explicit restart/stop/uninstall).
     pub async fn shutdown(&self) -> Result<()> {
         let response = self.inner.daemon.shutdown().await?;
@@ -496,8 +536,8 @@ fn remove_visible_exit(weak: &Weak<Inner>, id: &str) {
         let service = PersistentPty { inner };
         match service.remove(&id).await {
             Ok(()) | Err(Error::NotFound(_)) => {}
-            Err(Error::Unavailable(message) | Error::InvalidCwd { message, .. }) => {
-                tracing::warn!(id = %id, error = %message, "failed to remove visible exited terminal");
+            Err(error) => {
+                tracing::warn!(id = %id, error = %error, "failed to remove visible exited terminal");
             }
         }
         service.inner.removing.lock().remove(&id);

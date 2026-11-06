@@ -2,8 +2,9 @@
 
 Client side of opencode's persistent terminals, a port of `packages/core/src/persistent-pty/**`
 (plus the handoff sidecar from `packages/client/src/pty-handoff.ts`). The terminals live in the
-external MIT Rust daemon `opencode-pty` (npm `@opencode/pty@0.3.3`, protocol 7; renamed from
-`@opencode-ai/pty` with 0.3.3, whose sources upstream now vendors as `packages/process-daemon`), so they
+external MIT Rust daemon `opencode-pty` (npm `@opencode/pty@0.4.0`, protocol 7; renamed from
+`@opencode-ai/pty` with 0.3.3, whose sources upstream now vendors as `packages/process-daemon`; 0.4.0 adds
+terminal renaming and the `features` list), so they
 survive server restarts. Spec: `docs/spec/08-mcp-pty-plugins-misc.md` §2.5–§2.9.
 
 ## Modules
@@ -43,7 +44,9 @@ All methods are `async` and return `Result<_, Error>`. `Error::Unavailable(messa
 | `get(id)` → `Info` | `GET /api/experimental/persistent-pty/:ptyID` |
 | `resize(id, cols, rows, attachment_id)` then `get(id)` | `PUT /api/experimental/persistent-pty/:ptyID` (`UpdateInput`) |
 | `snapshot(id)` → `Snapshot` (serializes `checkpoint` as base64) | `GET …/:ptyID/snapshot` |
+| `rename(id, title)` (`None` clears; publishes `persistent-pty.updated`; `Error::Unsupported{feature:"rename"}` when the running daemon does not list the feature, checked before sending) | `PATCH …/:ptyID` with `title` (501 `PtyFeatureUnsupportedError`) |
 | `remove(id)` (publishes `persistent-pty.removed`) | `DELETE …/:ptyID` (204) |
+| `remove_session(sessionID)` (every `session.deleted`; NotFound skipped, other failures logged) | — |
 | `get(id)` before issuing a ticket | `POST …/:ptyID/connect-token` |
 | `attach(id, AttachInput)` + `control` / `input` | `GET …/:ptyID/connect` (WebSocket) |
 | `write(id, bytes, attachment_id)` | (plugin/internal) |
@@ -51,7 +54,7 @@ All methods are `async` and return `Result<_, Error>`. `Error::Unavailable(messa
 Other methods:
 
 - `subscribe_events()` returns a `broadcast::Receiver<BusEvent>`. Use `BusEvent::event_type()`
-  (`persistent-pty.added` or `persistent-pty.removed`) and `properties()` (`{sessionID, terminal}` or
+  (`persistent-pty.added`, `persistent-pty.removed` or `persistent-pty.updated`) and `properties()` (`{sessionID, terminal}` or
   `{sessionID, ptyID}`) to forward to the bus or SSE.
 - `available()` returns `true` on every platform (since 2.1; `false` on Windows before), which is the value of
   `GET /api/info` → `capabilities.persistentPty`.
@@ -95,14 +98,14 @@ An `exited` event seen by any attachment removes the terminal in the background
 
 1. A non-empty `OPENCODE_PTY_BIN` wins.
 2. Unsupported targets fall back to `opencode-pty` on `PATH`.
-3. Otherwise the crate installs into `<global.bin>/opencode-pty/0.3.3-<sha256[0..16]>/opencode-pty` (`opencode-pty.exe`
+3. Otherwise the crate installs into `<global.bin>/opencode-pty/0.4.0-<sha256[0..16]>/opencode-pty` (`opencode-pty.exe`
    on Windows). This is
    the same layout and validation as upstream's embedded asset: 0700 private dirs, no symlinks, owned by
    the current uid, sha256-verified, chmod 755, atomic `opencode-pty.<pid>.<uuid>.tmp` + rename, and the
    same error strings.
 
 When the binary isn't cached, the crate downloads
-`<registry>/@opencode/pty-<os>-<arch>[-gnu|-musl]/-/pty-…-0.3.3.tgz` (`<os>` is `darwin`, `linux` or `win32`). The
+`<registry>/@opencode/pty-<os>-<arch>[-gnu|-musl]/-/pty-…-0.4.0.tgz` (`<os>` is `darwin`, `linux` or `win32`). The
 registry is `$npm_config_registry` or the public registry. The download is checked against the pinned npm `integrity`
 (sha512), `package/bin/opencode-pty` (`opencode-pty.exe` on Windows) is extracted in memory, and its pinned sha256 is checked before install. The platform is chosen from the
 build target, the same as upstream (musl targets use `-musl`).
