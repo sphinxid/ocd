@@ -174,7 +174,7 @@ impl Engine {
         }
         // The OpenCode Console plugin loads the workspace config before the location's config is first read.
         self.console_refresh(directory).await;
-        let loc = Arc::new(Location::load(&self.app.global, &self.app.bus, std::path::Path::new(directory)).await?);
+        let loc = Arc::new(Location::load_with(&self.app.global, &self.app.bus, std::path::Path::new(directory), self.app.wellknown.get().cloned()).await?);
         loc.fetch_instructions(None).await;
         crate::reference::refresh(&self.app, crate::reference::list(&loc, &self.app.global));
         let (loc, inserted) = {
@@ -320,9 +320,14 @@ impl Engine {
 
     /// `Config.reload()`: re-run discovery and load; when the entries or compatibility roots changed, replace the
     /// cached location, reconfigure its MCP servers and publish `config.updated`.
+    /// Keys of the loaded locations.
+    pub fn loaded_locations(&self) -> Vec<String> {
+        self.locations.lock().keys().cloned().collect()
+    }
+
     pub async fn reload_location(&self, directory: &str) -> anyhow::Result<Arc<Location>> {
         let previous = self.locations.lock().get(directory).cloned();
-        let next = Location::load(&self.app.global, &self.app.bus, std::path::Path::new(directory)).await?;
+        let next = Location::load_with(&self.app.global, &self.app.bus, std::path::Path::new(directory), self.app.wellknown.get().cloned()).await?;
         if let Some(previous) = &previous
             && previous.entries == next.entries
             && previous.sources.compatibility() == next.sources.compatibility()

@@ -62,12 +62,25 @@ fn to_state(a: &Agent) -> AgentState {
 
 impl Location {
     pub async fn load(global: &oc_util::Global, bus: &crate::bus::Bus, directory: &Path) -> anyhow::Result<Location> {
+        Self::load_with(global, bus, directory, None).await
+    }
+
+    /// [`Location::load`] with the well-known organization sources (`App::wellknown`).
+    pub async fn load_with(
+        global: &oc_util::Global,
+        bus: &crate::bus::Bus,
+        directory: &Path,
+        wellknown: Option<std::sync::Arc<dyn oc_config::load::WellKnown>>,
+    ) -> anyhow::Result<Location> {
         let key = directory.display().to_string();
         let directory = std::fs::canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
         let project = project::resolve_and_persist(bus, &directory).await?;
         // The OpenCode Console's workspace config, when the location is signed in (`Config.integration`).
-        let loader = oc_config::load::Loader::new(global, directory.clone(), oc_config::discovery::Options::from_env())
+        let mut loader = oc_config::load::Loader::new(global, directory.clone(), oc_config::discovery::Options::from_env())
             .with_integrations(crate::console_config::documents(&key));
+        if let Some(wellknown) = wellknown {
+            loader = loader.with_wellknown(wellknown);
+        }
         let (sources, entries) = loader.entries().await.map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(Location { key, directory, project, entries, sources, remote_instructions: Default::default(), closed: Default::default() })
     }

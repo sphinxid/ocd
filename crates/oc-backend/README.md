@@ -111,13 +111,17 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
 * **session.environment** stores into core's `app.environments` (shared with the shell tool).
 * **persistent PTY** (`persistent` module over `oc-persistent-pty`): one global `PersistentPty`
   built on first use (at boot via `start`/`run_server`, adopting `OPENCODE_PTY_HANDOFF` or
-  `Engine::set_persistent_pty_options`), `persistent-pty.added/removed` forwarded to the bus;
+  `Engine::set_persistent_pty_options`), `persistent-pty.added/removed/updated` forwarded to the bus;
+  every `session.deleted` removes that session's terminals (`PersistentPty::remove_session`);
   `server.info` reports `capabilities.persistentPty`; terminal list/create/read, persistent-pty
-  shutdown/handoff/get/update (resize then get)/remove/snapshot, connect-token (server-owned, uses
+  shutdown/handoff/get/update (resize when `size` is given, then `get`, or `rename` when `title` is a string or
+  null)/remove/snapshot, connect-token (server-owned, uses
   `get`) and connect (attachments mapped to oc-server's `PersistentPtyAttachment`: output → binary,
   resized → JSON + base64 checkpoint, other events → `to_ws_json`; framed/legacy input → `input` /
   `control`). `Unavailable` → 503 `{service:"opencode-pty"}`, `NotFound` → 404 `PtyNotFoundError`,
-  `InvalidCwd` → 400 `InvalidRequestError{message: "cwd is not a directory: <cwd>", kind: "invalid_cwd", field: "cwd"}`.
+  `InvalidCwd` → 400 `InvalidRequestError{message: "cwd is not a directory: <cwd>", kind: "invalid_cwd", field: "cwd"}`,
+  `Unsupported` (a rename on a daemon without the feature) → 501 `PtyFeatureUnsupportedError{feature, message:
+  "Terminal renaming will be available after OpenCode's terminal service restarts"}`.
   `Engine::prepare_pty_handoff()` is the hook for the CLI's service stop/restart (spec 01 §7.5).
 * **shell** (`ShellService`: the runner's, else `oc_core::services::default_services` whose sink
   publishes `shell.created/exited/deleted` to the bus): `shell.list` (running only), `shell.create`
@@ -127,7 +131,9 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   (missing → 204). Commands belong to the location that created them.
 * **wellknown**: `experimental.integration.wellknown.add` (`oc_ai` `WellKnown` over the `kv` table;
   failure → 400 `well_known_discovery`); persisted sources register their `login` command method
-  whenever integrations are loaded.
+  whenever integrations are loaded. The engine gives config loading the sources (`App::wellknown`,
+  `oc_core::wellknown_config`), so their configs load as well-known documents, and the runner reloads loaded
+  locations on source changes, credential switches and a 10-minute manifest refresh.
 * **MCP integrations**: loading integrations also registers the location's remote MCP servers as
   `mcp_<hash>` OAuth integrations (`oc_core::mcp::register_integrations`, upstream `mcp/index.ts`
   `register`); a `credential.switched` for one reconnects its server.
@@ -158,7 +164,8 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
 * **skills** come from `oc_core::skills::list` (built-ins, configured and remote sources,
   compatibility roots). `opencode.browser` adds the built-in `browser` skill after the plugins' skills and
   denies it, with the browser tools, to every agent (plugin-browser/src/skill.ts, connection.ts).
-* **restart recovery**: `run_server` calls `runner.resume_suspended()` after the server is ready.
+* **restart recovery**: `resume_suspended(&engine)` resumes sessions whose execution claim survived the last
+  process. Only the managed service (`serve --service`) calls it, like upstream's `installRestartContinuity`.
 * **forms** (`app.forms`): `session.form.list/create/get/cancel/reply` (ownership check,
   `global` sentinel, upstream tags: Conflict / InvalidRequest{field:"fields"} /
   FormNotFound / FormAlreadySettled / FormInvalidAnswer), `form.list` (forms of sessions at the

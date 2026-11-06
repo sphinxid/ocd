@@ -34,6 +34,8 @@ pub struct App {
     /// `SessionModelTransport`: per-session Responses WebSockets.
     pub model_transport: Arc<crate::model_transport::SessionModelTransport>,
     pub version: String,
+    /// Well-known organization sources for config loading (set by the server, which owns the service).
+    pub wellknown: OnceLock<Arc<dyn oc_config::load::WellKnown>>,
 }
 
 struct PermCtx {
@@ -151,6 +153,7 @@ impl App {
             coordinator: OnceLock::new(),
             model_transport: Arc::default(),
             version,
+            wellknown: OnceLock::new(),
         })
     }
 

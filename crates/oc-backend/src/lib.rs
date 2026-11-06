@@ -62,17 +62,21 @@ pub async fn start(
     start_v1_import(&engine);
     start_models_refresh(&engine);
     start_project_sweep(&engine);
-    // Restart recovery: resume sessions whose execution claim survived the last process.
-    if let Some(r) = engine.runner.clone() {
-        tokio::spawn(async move {
-            match r.resume_suspended().await {
-                Ok(n) if n > 0 => tracing::info!(count = n, "resumed suspended sessions"),
-                Ok(_) => {}
-                Err(e) => tracing::warn!(error = %e, "failed to resume suspended sessions"),
-            }
-        });
-    }
     Ok((server, engine))
+}
+
+/// Restart continuity (`installRestartContinuity`): resume sessions whose execution claim survived the last
+/// process. Only the managed service (`serve --service`) owns it; `--standalone`, `--stdio` and plain
+/// `serve` never resume.
+pub fn resume_suspended(engine: &Arc<Engine>) {
+    let Some(r) = engine.runner.clone() else { return };
+    tokio::spawn(async move {
+        match r.resume_suspended().await {
+            Ok(n) if n > 0 => tracing::info!(count = n, "resumed suspended sessions"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "failed to resume suspended sessions"),
+        }
+    });
 }
 
 /// Start the models.dev background refresh (`ModelsDev.layer`: when the catalog is first needed, then every

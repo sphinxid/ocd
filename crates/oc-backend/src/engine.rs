@@ -27,7 +27,7 @@ pub struct Engine {
     persistent: tokio::sync::OnceCell<oc_persistent_pty::PersistentPty>,
     persistent_options: Mutex<Option<oc_persistent_pty::Options>>,
     /// Well-known integration sources (`WellKnown.Service`) over the `kv` table.
-    pub wellknown: oc_ai::credentials::wellknown::WellKnown,
+    pub wellknown: Arc<oc_ai::credentials::wellknown::WellKnown>,
     /// Shell command service (the runner's, else one wired to the bus by `default_services`).
     own_shell: Option<Arc<oc_tools::shell::service::ShellService>>,
     /// Shell id → owning location key.
@@ -78,11 +78,11 @@ impl Engine {
             own_shell: Some(oc_core::services::default_services(&app_ref).shell),
             shell_owner: Mutex::new(HashMap::new()),
             websearch: websearch(&app_ref),
-            wellknown: oc_ai::credentials::wellknown::WellKnown::new(
+            wellknown: Arc::new(oc_ai::credentials::wellknown::WellKnown::new(
                 oc_util::http::client(),
                 Arc::new(DbKv(app_ref.db.clone())),
                 oc_ai::credentials::process_env(),
-            ),
+            )),
             pty_owner: Mutex::new(HashMap::new()),
             file_watch: Arc::new(crate::file_watch::FileWatch::new(app_ref.bus.clone())),
             persistent: tokio::sync::OnceCell::new(),
@@ -91,6 +91,7 @@ impl Engine {
         engine.install_projector();
         engine.install_reloads();
         engine.install_pty_cleanup();
+        engine.install_wellknown();
         engine
     }
 
@@ -106,11 +107,11 @@ impl Engine {
             own_shell: None,
             shell_owner: Mutex::new(HashMap::new()),
             websearch: websearch(&app_ref),
-            wellknown: oc_ai::credentials::wellknown::WellKnown::new(
+            wellknown: Arc::new(oc_ai::credentials::wellknown::WellKnown::new(
                 oc_util::http::client(),
                 Arc::new(DbKv(app_ref.db.clone())),
                 oc_ai::credentials::process_env(),
-            ),
+            )),
             pty_owner: Mutex::new(HashMap::new()),
             file_watch: Arc::new(crate::file_watch::FileWatch::new(app_ref.bus.clone())),
             persistent: tokio::sync::OnceCell::new(),
@@ -119,7 +120,23 @@ impl Engine {
         engine.install_projector();
         engine.install_reloads();
         engine.install_pty_cleanup();
+        engine.install_wellknown();
         engine
+    }
+
+    /// Config loading reads the well-known organization sources (`Config` depends on `WellKnown`), and the
+    /// runner reloads loaded locations when they change.
+    fn install_wellknown(self: &Arc<Self>) {
+        let config = oc_core::wellknown_config::ConfigWellKnown {
+            service: self.wellknown.clone(),
+            store: self.models().integrations.store().clone(),
+        };
+        if self.app.wellknown.set(Arc::new(config)).is_err() {
+            return;
+        }
+        if let Some(runner) = &self.runner {
+            runner.watch_wellknown(self.wellknown.clone());
+        }
     }
 
     /// Options for the persistent PTY service (e.g. a restart handoff taken by the CLI at startup).

@@ -217,7 +217,11 @@ async fn run_service(
     let rt = crate::runtime::build(global)?;
     let server = loop {
         match crate::runtime::serve(&rt, server_options(&hostname, Some(port), cors.clone(), &password, global, &web_ui)).await {
-            Ok((s, _engine)) => break s,
+            Ok((s, engine)) => {
+                // The managed service owns restart continuity.
+                oc_backend::resume_suspended(&engine);
+                break s;
+            }
             Err(e) if addr_in_use(&e) => {
                 if Instant::now() >= deadline {
                     anyhow::bail!(crate::port_owner::in_use_message(port, &hostname));

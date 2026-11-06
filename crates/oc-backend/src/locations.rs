@@ -190,7 +190,7 @@ impl Locations {
         }
         let loaded = match &self.runner {
             Some(r) => r.location(directory).await,
-            None => Location::load(&self.app.global, &self.app.bus, Path::new(directory)).await.map(Arc::new),
+            None => Location::load_with(&self.app.global, &self.app.bus, Path::new(directory), self.app.wellknown.get().cloned()).await.map(Arc::new),
         };
         let location = loaded.map_err(|e| {
             if is_dir(directory) { ApiError::defect(format!("location load failed: {e:#}")) } else { ApiError::location_not_found(directory) }
