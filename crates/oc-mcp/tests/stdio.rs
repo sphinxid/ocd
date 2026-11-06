@@ -1,6 +1,6 @@
 //! End-to-end tests against a fake stdio MCP server. The server is this test binary re-executed
 //! with `OC_MCP_FAKE_STDIO=1` (see `fake_stdio_server_entry`); libtest's own non-JSON output
-//! lines are skipped by the client's framing.
+//! lines are reported as invalid stdio messages and otherwise ignored.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -465,9 +465,118 @@ async fn slow_servers_stop_in_parallel() {
     for name in ["slow1", "slow2", "slow3"] {
         connected(&manager, name).await;
     }
+    let mut events = manager.subscribe();
     let started = std::time::Instant::now();
     manager.shutdown().await;
     let elapsed = started.elapsed();
+    // mcp.test.ts (#60668): connections closing with the Location publish nothing.
+    let quiet = tokio::time::timeout(Duration::from_millis(300), events.recv()).await;
+    assert!(quiet.is_err(), "{quiet:?}");
     // Each server waits out the close grace; one after another would take three of them.
     assert!(elapsed < oc_mcp::transport::stdio::CLOSE_GRACE * 2, "{elapsed:?}");
+}
+
+/// The fake framing server: writes the output `OC_MCP_FAKE_FRAMING` names to stdout, then exits or, with
+/// `-open`, keeps stdout open until it is killed.
+#[test]
+fn fake_framing_server_entry() {
+    let Ok(mode) = std::env::var("OC_MCP_FAKE_FRAMING") else { return };
+    let mut stdout = std::io::stdout();
+    // libtest printed "test <name> ... " without a newline; terminate that line.
+    stdout.write_all(b"\n").unwrap();
+    const MIB: usize = 1024 * 1024;
+    let frame = |size: usize| {
+        let prefix = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"text\":\"";
+        let suffix = "\"}}\n";
+        format!("{prefix}{}{suffix}", "x".repeat(size - prefix.len() - suffix.len()))
+    };
+    let output = match mode.trim_end_matches("-open") {
+        "12mib" => frame(12 * MIB),
+        // Frame sizes include the newline.
+        "16mib" => frame(16 * MIB + 1),
+        "over" => frame(16 * MIB + 2) + "{\"jsonrpc\":\"2.0\",\"method\":\"after\"}\n",
+        _ => [
+            "{\"jsonrpc\":\"2.0\",\"method\":\"first\",\"params\":{\"text\":\"héllo 🙂\"}}\r\n",
+            "\n",
+            "  \r\n",
+            "not json\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"second\"}\n{\"jsonrpc\":\"2.0\",\"method\":\"third\"}\r\n",
+        ]
+        .concat(),
+    };
+    for piece in output.as_bytes().chunks(64 * 1024) {
+        let _ = stdout.write_all(piece);
+    }
+    let _ = stdout.flush();
+    if mode.ends_with("-open") {
+        std::thread::sleep(Duration::from_secs(60));
+    }
+    std::process::exit(0);
+}
+
+/// Runs the stdio transport against the fake framing server until it closes: (messages, framing errors other
+/// than the ones libtest's own output lines cause).
+async fn framing(mode: &str) -> (Vec<Value>, Vec<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut env = IndexMap::new();
+    env.insert("OC_MCP_FAKE_FRAMING".to_string(), mode.to_string());
+    let transport = oc_mcp::transport::stdio::StdioTransport::new(
+        oc_mcp::transport::stdio::StdioOptions {
+            server: "framing".into(),
+            command: std::env::current_exe().unwrap().display().to_string(),
+            args: vec!["fake_framing_server_entry".into(), "--exact".into(), "--nocapture".into()],
+            cwd: dir.path().to_path_buf(),
+            environment: env,
+        },
+        tx,
+    );
+    oc_mcp::transport::Transport::start(transport.as_ref()).await.unwrap();
+    let (mut messages, mut errors) = (vec![], vec![]);
+    let collect = async {
+        while let Some(event) = rx.recv().await {
+            match event {
+                oc_mcp::transport::TransportEvent::Message(m) => messages.push(m),
+                oc_mcp::transport::TransportEvent::Error(e) => errors.push(e.to_string()),
+                oc_mcp::transport::TransportEvent::Closed => break,
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(30), collect).await.expect("transport closed");
+    let libtest = |e: &String| {
+        e.starts_with("MCP server process exited")
+            || ["running", "test"].iter().any(|w| e.ends_with(&format!("SyntaxError: JSON Parse error: Unexpected identifier \"{w}\"")))
+    };
+    errors.retain(|e| !libtest(e));
+    (messages, errors)
+}
+
+/// mcp-stdio.test.ts (#60694): frames above the SDK's old 10 MiB read buffer arrive, CRLF and blank lines are
+/// handled, invalid lines are reported, and a line over 16 MiB closes the transport.
+#[tokio::test]
+async fn stdio_framing_without_the_read_buffer() {
+    let (messages, errors) = framing("12mib").await;
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], 1);
+
+    let (messages, errors) = framing("16mib").await;
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(messages.len(), 1);
+
+    let (messages, errors) = framing("lines").await;
+    assert_eq!(
+        messages,
+        vec![
+            json!({"jsonrpc": "2.0", "method": "first", "params": {"text": "héllo 🙂"}}),
+            json!({"jsonrpc": "2.0", "method": "second"}),
+            json!({"jsonrpc": "2.0", "method": "third"}),
+        ]
+    );
+    assert_eq!(errors, vec!["Invalid MCP stdio message from framing: SyntaxError: JSON Parse error: Unexpected identifier \"not\"".to_string()]);
+
+    // stdout stays open until the process is killed, so finishing at all means the transport closed itself.
+    let (messages, errors) = framing("over-open").await;
+    assert!(messages.is_empty(), "{messages:?}");
+    assert_eq!(errors, vec!["MCP server framing wrote more than 16 MiB to stdout without a message boundary".to_string()]);
 }

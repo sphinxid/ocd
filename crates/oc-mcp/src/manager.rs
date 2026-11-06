@@ -151,6 +151,10 @@ struct Inner {
     applied: Mutex<Option<IndexMap<String, ServerConfig>>>,
     reconcile_lock: tokio::sync::Mutex<()>,
     sink: Mutex<Option<EventSink>>,
+    /// Set first by [`McpManager::shutdown`]: connections closing with the Location publish nothing and
+    /// their callbacks never run, because clients re-fetch on MCP events, which would boot the Location
+    /// straight back up (`mcp/index.ts` `callbacks`).
+    closing: std::sync::atomic::AtomicBool,
 }
 
 /// Receives every `mcp.*.changed` event synchronously, in publication order (see [`McpManager::on_event`]).
@@ -176,6 +180,7 @@ impl McpManager {
                 applied: Mutex::new(None),
                 reconcile_lock: tokio::sync::Mutex::new(()),
                 sink: Mutex::new(None),
+                closing: Default::default(),
             }),
         }
     }
@@ -192,7 +197,14 @@ impl McpManager {
         *self.inner.sink.lock() = Some(sink);
     }
 
+    fn closing(&self) -> bool {
+        self.inner.closing.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     fn publish(&self, event: McpEvent) {
+        if self.closing() {
+            return;
+        }
         let sink = self.inner.sink.lock().clone();
         if let Some(sink) = sink {
             sink(&event);
@@ -452,9 +464,12 @@ impl McpManager {
         let name = name.to_string();
         let entry = entry.clone();
         let connection = connection.clone();
+        if this.closing() {
+            return;
+        }
         tokio::spawn(async move {
             let _guard = this.inner.locks.lock(&name).await;
-            if entry.is_live(&connection) {
+            if !this.closing() && entry.is_live(&connection) {
                 f(this.clone(), name, entry, connection).await;
             }
         });
@@ -862,10 +877,10 @@ impl McpManager {
         self.start_server(&name, &entry).await;
     }
 
-    /// Stops every server (Location disposal).
-    /// Stops every server. Servers stop in parallel, so one slow server's stop grace does not delay
+    /// Stops every server (Location disposal), publishing nothing. Servers stop in parallel, so one slow server's stop grace does not delay
     /// the rest past a service restart's kill deadline and leave them orphaned.
     pub async fn shutdown(&self) {
+        self.inner.closing.store(true, std::sync::atomic::Ordering::SeqCst);
         let entries: Vec<(String, Arc<Entry>)> =
             self.inner.entries.lock().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         futures::future::join_all(entries.into_iter().map(|(name, entry)| async move {

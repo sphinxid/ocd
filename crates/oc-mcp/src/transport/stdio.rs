@@ -1,6 +1,7 @@
 //! stdio transport (`packages/core/src/mcp/stdio.ts`): spawns the server in its own process
-//! group, frames newline-delimited JSON on stdin/stdout, drains stderr into a 1000-char tail and
-//! the debug log, and reports unexpected exits with the exit code and stderr tail.
+//! group, frames newline-delimited JSON on stdin/stdout (no overall buffer cap; a line over 16 MiB
+//! closes the transport, an invalid line is reported), drains stderr into a 1000-char tail and the
+//! debug log, and reports unexpected exits with the exit code and stderr tail.
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -17,7 +18,7 @@ use tokio::sync::{OnceCell, mpsc, watch};
 
 use super::{EventSink, SendOptions, Transport, TransportEvent, TransportKind};
 use crate::error::McpError;
-use crate::jsonrpc::{Frame, LineBuffer, serialize_line};
+use crate::jsonrpc::{LineBuffer, Oversized, receive_line, serialize_line};
 
 /// Wait this long for a graceful exit after stdin closes.
 pub const CLOSE_GRACE: Duration = Duration::from_secs(2);
@@ -94,6 +95,18 @@ impl StdioTransport {
 
     fn emit(&self, event: TransportEvent) {
         let _ = self.events.send(event);
+    }
+
+    fn is_closed(&self) -> bool {
+        self.state.lock().phase == Phase::Closed
+    }
+
+    /// The synchronous start of `close`: no more frames go out or are delivered.
+    fn begin_close(&self) {
+        let mut state = self.state.lock();
+        state.phase = Phase::Closed;
+        // Ending the queue closes stdin.
+        state.outgoing = None;
     }
 
     async fn spawn(&self) -> Result<(), McpError> {
@@ -206,7 +219,7 @@ impl StdioTransport {
             if let Some(mut stdout) = stdout {
                 let mut buffer = LineBuffer::new();
                 let mut chunk = vec![0u8; 64 * 1024];
-                'read: loop {
+                loop {
                     match stdout.read(&mut chunk).await {
                         Ok(0) => break,
                         Err(error) => {
@@ -214,15 +227,34 @@ impl StdioTransport {
                             break;
                         }
                         Ok(n) => {
-                            if let Err(error) = buffer.append(&chunk[..n]) {
-                                this.emit(TransportEvent::Error(error));
-                                break 'read;
+                            // Once closed, nothing more is delivered; reading goes on until stdout ends.
+                            if this.is_closed() {
+                                continue;
                             }
-                            while let Some(frame) = buffer.next_frame() {
-                                match frame {
-                                    Frame::Message(message) => this.emit(TransportEvent::Message(message)),
-                                    Frame::Invalid(error) => this.emit(TransportEvent::Error(error)),
+                            let delivered = buffer.push(&chunk[..n], |line| {
+                                if this.is_closed() {
+                                    return false;
                                 }
+                                match receive_line(line) {
+                                    None => {}
+                                    Some(Ok(message)) => this.emit(TransportEvent::Message(message)),
+                                    Some(Err(cause)) => this.emit(TransportEvent::Error(McpError::other(format!(
+                                        "Invalid MCP stdio message from {}: {cause}",
+                                        this.options.server
+                                    )))),
+                                }
+                                true
+                            });
+                            if delivered == Err(Oversized) {
+                                // Closing fails every pending request at once rather than leaving the one this
+                                // line answered waiting.
+                                this.emit(TransportEvent::Error(McpError::other(format!(
+                                    "MCP server {} wrote more than 16 MiB to stdout without a message boundary",
+                                    this.options.server
+                                ))));
+                                this.begin_close();
+                                let closing = this.clone();
+                                tokio::spawn(async move { closing.close().await });
                             }
                         }
                     }
@@ -335,12 +367,7 @@ impl Transport for StdioTransport {
     async fn close(&self) {
         self.closing
             .get_or_init(|| async {
-                {
-                    let mut state = self.state.lock();
-                    state.phase = Phase::Closed;
-                    // Ending the queue closes stdin.
-                    state.outgoing = None;
-                }
+                self.begin_close();
                 // A spawn still in flight observes `Closed` and stops the process itself.
                 let handle = self.state.lock().handle.take();
                 if let Some(handle) = handle {

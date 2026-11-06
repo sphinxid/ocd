@@ -18,7 +18,7 @@ behaviour match the TS SDK exactly.
 | `connection` | `mcp/client.ts` | one connection: transport choice, `?codemode=false`, transient retry, session expiry, teardown |
 | `protocol` | SDK `Protocol`/`Client` | request correlation, timeouts, cancellation, legacy handshake, `2026-07-28` negotiation, server requests, pagination, output-schema validation |
 | `tool_check` | `mcp/client.ts` `ToolCheckingClient`, SDK 2.3.1 era codecs | per-tool `tools/list` validation: tools the negotiated era's `ToolSchema` rejects are dropped with the warning "skipping invalid MCP tool", the rest stay (only when the page without its tools is valid) |
-| `transport::stdio` | `mcp/stdio.ts` | process-group spawn, newline framing (16 MiB frame cap), stderr tail, kill sequence |
+| `transport::stdio` | `mcp/stdio.ts` | process-group spawn, newline framing (no overall buffer cap; a line over 16 MiB reports `MCP server {server} wrote more than 16 MiB to stdout without a message boundary` and closes the transport; blank lines are skipped and invalid ones reported as `Invalid MCP stdio message from {server}: {cause}`), stderr tail, kill sequence |
 | `transport::http` | SDK `StreamableHTTPClientTransport` | POST JSON/SSE, `Mcp-Session-Id`, GET stream, SSE resumption/reconnect, 401/403 OAuth, DELETE |
 | `oauth` | `mcp/oauth.ts`, SDK `auth.ts` | provider, discovery (RFC 9728/8414/OIDC), DCR, CIMD, PKCE, refresh (de-duplicated), credential mapping, `McpCredentialStore` |
 | `oauth::callback`, `oauth::page` | `mcp/oauth.ts` `authorize`, `oauth/page.ts` | loopback callback server and HTML pages |
@@ -65,7 +65,7 @@ notification returns; core publishes them on the bus through the sink.
 | `auth_finish(server, credential) -> credential id` | stores the credential (keeps previous label, removes old rows), reconnects |
 | `logout(server) -> usize` | removes all stored credentials of the integration, reconnects |
 | `credential_switched(integration_id)` | call when core's credential store switches a credential (`Credential.Event.Switched`) |
-| `shutdown()` | stops every server (kills stdio processes, DELETEs HTTP sessions) |
+| `shutdown()` | stops every server (kills stdio processes, DELETEs HTTP sessions); from its start nothing is published and connection callbacks no longer run (#60668) |
 
 Events (`McpEvent::event_type()`, payload `{server}`): `mcp.tools.changed`,
 `mcp.resources.changed`, `mcp.status.changed`, `mcp.prompts.changed`.

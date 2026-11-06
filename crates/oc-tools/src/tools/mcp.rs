@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use oc_schema::ToolContent;
 use serde_json::{Value, json};
 
-use crate::host::{McpCallError, McpContent};
+use crate::host::{McpCallError, McpContent, PermissionError};
 use crate::tools::read::MEDIA_MIMES;
-use crate::tool::{DefinitionContext, Tool, ToolContext, ToolDefinition, ToolError, ToolOptions, ToolResult, meta, normalized_name};
+use crate::tool::{DefinitionContext, ErrorCause, Tool, ToolContext, ToolDefinition, ToolError, ToolOptions, ToolResult, meta, normalized_name};
 use crate::validate::{Flavor, Issue};
 
 /// Registry namespace for a server.
@@ -85,18 +85,24 @@ impl Tool for McpTool {
 
     async fn execute(&self, input: Value, ctx: ToolContext) -> Result<ToolResult, ToolError> {
         let full = name(&self.info.server, &self.info.name);
-        let generic = || ToolError::new(format!("Unable to execute {full}"));
+        // Every other failure keeps its cause, so the model sees the underlying message (#60102).
+        let generic = |cause: String| ToolError::with_cause(format!("Unable to execute {full}"), ErrorCause::Error(cause));
         let args = if input.is_null() { json!({}) } else { input };
         let metadata = meta(vec![("input", args.clone())]);
         if let Err(error) = ctx.host.ask_permission(ctx.permission(&full, vec!["*".into()], Some(vec!["*".into()]), Some(metadata))).await {
-            let mapped = error.into_tool_error("");
-            return Err(if mapped.is_defect() { mapped } else { generic() });
+            // A block keeps its reason and a correction its feedback, both as permission rejections.
+            return Err(match error {
+                PermissionError::Blocked { message } => ToolError::with_cause(message.clone(), ErrorCause::PermissionRejected(message)),
+                PermissionError::Corrected { feedback } => ToolError::with_cause(feedback.clone(), ErrorCause::PermissionRejected(feedback)),
+                PermissionError::Other { message } => generic(message),
+                defect => defect.into_tool_error(""),
+            });
         }
         let result = match ctx.host.mcp_call_tool(&self.info.server, &self.info.name, args, &ctx.session_id).await {
             Ok(result) => result,
             Err(McpCallError::NotFound { server }) => return Err(ToolError::new(format!("MCP server \"{server}\" is not available"))),
             Err(McpCallError::ToolCall { message }) => return Err(ToolError::new(message)),
-            Err(McpCallError::Other(_)) => return Err(generic()),
+            Err(McpCallError::Other(message)) => return Err(generic(message)),
         };
         let texts: Vec<&str> = result
             .content
@@ -309,6 +315,40 @@ mod tests {
             to_content(&part("image/svg+xml", "PHN2Zy8+"), dir.path()).unwrap(),
             ToolContent::Text { text: "[Resource content (image/svg+xml)]\n<svg/>".into() }
         );
+    }
+
+    /// Answers every permission ask with `decision`; calling MCP fails the test.
+    struct Deciding(PermissionError);
+
+    #[async_trait]
+    impl ToolHost for Deciding {
+        async fn ask_permission(&self, _request: PermissionRequest) -> Result<(), PermissionError> {
+            Err(self.0.clone())
+        }
+
+        async fn mcp_call_tool(&self, _: &str, _: &str, _: Value, _: &str) -> Result<McpCallResult, McpCallError> {
+            panic!("MCP must not be called")
+        }
+    }
+
+    // mcp.test.ts "does not call MCP when permission is blocked" / "returns permission feedback instead of
+    // calling MCP" (#60102): the reason or feedback is the failure, as a permission rejection.
+    #[tokio::test]
+    async fn permission_failures_keep_their_reason_and_feedback() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = context(dir.path(), Arc::new(Host::default()));
+        for (decision, message) in [
+            (PermissionError::Blocked { message: "Search is disabled in this workspace".into() }, "Search is disabled in this workspace"),
+            (PermissionError::Corrected { feedback: "Search the docs folder instead".into() }, "Search the docs folder instead"),
+        ] {
+            ctx.host = Arc::new(Deciding(decision));
+            let error = tool("lookup").execute(json!({}), ctx.clone()).await.unwrap_err();
+            let session = error.to_session_error();
+            assert_eq!((session.kind.as_str(), session.message.as_str()), ("permission.rejected", message));
+            assert_eq!(error.message, message);
+        }
+        ctx.host = Arc::new(Deciding(PermissionError::Declined));
+        assert!(tool("lookup").execute(json!({}), ctx).await.unwrap_err().is_defect());
     }
 
     // mcp.test.ts "waits for permission before calling an MCP tool": the ask carries the input.
