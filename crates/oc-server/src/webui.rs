@@ -268,7 +268,7 @@ fn accepts_brotli(headers: &HeaderMap) -> bool {
 fn csp(hash: &str) -> String {
     let script = if hash.is_empty() { String::new() } else { format!(" 'sha256-{hash}'") };
     format!(
-        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'{script}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; media-src 'self' data:; connect-src * data: blob:; worker-src 'self' blob:"
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'{script}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; media-src 'self' data:; connect-src * data: blob:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:"
     )
 }
 

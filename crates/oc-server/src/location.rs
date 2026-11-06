@@ -7,6 +7,12 @@ use crate::context::LocationRef;
 /// Header carrying the location directory (URI-encoded).
 pub const DIRECTORY_HEADER: &str = "x-opencode-directory";
 
+/// Whether the request names a location (a non-empty `?location[directory]` or `x-opencode-directory`).
+pub fn explicit(query: &[(String, String)], headers: &HeaderMap) -> bool {
+    query.iter().any(|(k, v)| k == "location[directory]" && !v.is_empty())
+        || headers.get(DIRECTORY_HEADER).is_some_and(|h| !h.as_bytes().is_empty())
+}
+
 /// `?location[directory]` (if non-empty) → `x-opencode-directory` (decodeURIComponent, raw on
 /// failure) → server cwd. The string is used verbatim (no normalisation).
 pub fn request_ref(query: &[(String, String)], headers: &HeaderMap, cwd: &str) -> LocationRef {

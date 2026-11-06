@@ -30,6 +30,10 @@ pub const BUILD: Option<&str> = match option_env!("OCD_BUILD_VERSION") {
 };
 
 fn main() {
+    // Keep requests to the local service off any proxy (`index.ts`): both spellings get the merged list, which every
+    // child process inherits.
+    // SAFETY: nothing else runs yet; this is the first thing the process does.
+    unsafe { oc_util::proxy::merge_process_no_proxy() };
     // SSH askpass helper mode never parses CLI args (`index.ts:23-26`).
     if std::env::var_os("OPENCODE_SSH_ASKPASS_PORT").is_some_and(|v| !v.is_empty()) {
         std::process::exit(askpass::run());

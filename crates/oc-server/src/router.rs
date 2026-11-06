@@ -384,9 +384,11 @@ async fn handle_op(app: Arc<App>, meta: &'static OpMeta, req: Request) -> Respon
     };
     let query = parse_query(parts.uri.query());
     let location: LocationRef = request_ref(&query, &parts.headers, &app.meta.cwd);
+    let explicit_location = crate::location::explicit(&query, &parts.headers);
     let call = Call {
         ctx: RequestContext {
             location,
+            explicit_location,
             scope: meta.scope,
             operation: meta.id,
             headers: parts.headers.clone(),

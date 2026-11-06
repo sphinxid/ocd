@@ -32,6 +32,37 @@ pub fn no_proxy_list(env: Env<'_>) -> String {
     read("no_proxy").or_else(|| read("NO_PROXY")).unwrap_or_default()
 }
 
+/// The local entries the CLI adds to `NO_PROXY` at startup.
+pub const LOCAL_NO_PROXY: &str = "127.0.0.1,localhost,::1";
+
+/// The CLI's startup merge (`cli/src/index.ts`, #60441): `NO_PROXY`, `no_proxy` and [`LOCAL_NO_PROXY`] split on
+/// `,`, trimmed, empty entries dropped and duplicates removed keeping the first, joined with `,`.
+pub fn merged_no_proxy(upper: Option<&str>, lower: Option<&str>) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for value in [upper.unwrap_or(""), lower.unwrap_or(""), LOCAL_NO_PROXY] {
+        for entry in value.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+            if !out.contains(&entry) {
+                out.push(entry);
+            }
+        }
+    }
+    out.join(",")
+}
+
+/// Keep requests to the local service off any proxy: set `NO_PROXY` and `no_proxy` to [`merged_no_proxy`] of the
+/// process environment, so this process and every child (shells, MCP servers, the plugin sidecar) inherit it.
+///
+/// # Safety
+/// Mutates the process environment: call it before any other thread starts.
+pub unsafe fn merge_process_no_proxy() {
+    let merged = merged_no_proxy(process_env("NO_PROXY").as_deref(), process_env("no_proxy").as_deref());
+    // SAFETY: the caller guarantees no other thread reads or writes the environment concurrently.
+    unsafe {
+        std::env::set_var("NO_PROXY", &merged);
+        std::env::set_var("no_proxy", &merged);
+    }
+}
+
 /// `is_no_proxy(host, port)` (`Bun__isNoProxy`).
 pub fn is_no_proxy(env: Env<'_>, hostname: &str, port: u16) -> bool {
     no_proxy_matches(&no_proxy_list(env), hostname, port)
@@ -187,6 +218,18 @@ pub fn fetch_proxy(env: Env<'_>, url: &reqwest::Url) -> Option<reqwest::Url> {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn startup_merges_both_spellings_with_the_local_hosts() {
+        assert_eq!(merged_no_proxy(None, None), "127.0.0.1,localhost,::1");
+        assert_eq!(merged_no_proxy(Some("example.com"), None), "example.com,127.0.0.1,localhost,::1");
+        assert_eq!(
+            merged_no_proxy(Some(" a.dev , ,localhost"), Some("b.dev,a.dev")),
+            "a.dev,localhost,b.dev,127.0.0.1,::1"
+        );
+        assert_eq!(merged_no_proxy(Some(""), Some("::1")), "::1,127.0.0.1,localhost");
+        assert_eq!(merged_no_proxy(Some("*"), None), "*,127.0.0.1,localhost,::1");
+    }
 
     fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + Sync + use<> {
         let map: HashMap<String, String> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();

@@ -536,6 +536,60 @@ impl Backend for Engine {
         }
     }
 
+    // ---- artifacts (experimental.artifacts is not ported: every location answers as if it were off) ----
+
+    async fn experimental_artifacts_providers(
+        &self,
+        ctx: &RequestContext,
+        _req: ExperimentalArtifactsProvidersRequest,
+    ) -> Result<Vec<ArtifactProvider>, ApiError> {
+        Err(self.artifacts_disabled(ctx, None, None).await)
+    }
+
+    async fn experimental_artifacts_list(
+        &self,
+        ctx: &RequestContext,
+        req: ExperimentalArtifactsListRequest,
+    ) -> Result<Vec<ArtifactInfo>, ApiError> {
+        Err(self.artifacts_disabled(ctx, req.session_id.as_deref(), None).await)
+    }
+
+    async fn experimental_artifacts_create(
+        &self,
+        ctx: &RequestContext,
+        req: ExperimentalArtifactsCreateRequest,
+    ) -> Result<ArtifactInfo, ApiError> {
+        Err(self.artifacts_disabled(ctx, req.body.session_id.as_deref(), None).await)
+    }
+
+    async fn experimental_artifacts_get(
+        &self,
+        ctx: &RequestContext,
+        req: ExperimentalArtifactsGetRequest,
+    ) -> Result<ArtifactContent, ApiError> {
+        Err(self.artifacts_disabled(ctx, None, Some(&req.artifact_id)).await)
+    }
+
+    async fn experimental_artifacts_update(
+        &self,
+        ctx: &RequestContext,
+        req: ExperimentalArtifactsUpdateRequest,
+    ) -> Result<ArtifactInfo, ApiError> {
+        Err(self.artifacts_disabled(ctx, req.body.session_id.as_deref(), Some(&req.artifact_id)).await)
+    }
+
+    async fn experimental_artifacts_delete(&self, ctx: &RequestContext, req: ExperimentalArtifactsDeleteRequest) -> Result<(), ApiError> {
+        Err(self.artifacts_disabled(ctx, None, Some(&req.artifact_id)).await)
+    }
+
+    async fn experimental_artifacts_view(
+        &self,
+        ctx: &RequestContext,
+        req: oc_server::backend::ArtifactViewRequest,
+    ) -> Result<oc_server::backend::ArtifactView, ApiError> {
+        Err(self.artifacts_disabled(ctx, None, Some(&req.artifact_id)).await)
+    }
+
     // ---- schedules (experimental.schedules is not ported: every location answers as if it were off) ----
 
     async fn experimental_schedule_create(
@@ -1950,6 +2004,37 @@ fn generate_error(error: oc_core::generate::GenerateError) -> ApiError {
         }
         G::Unavailable { message, service } => ApiError::service_unavailable(message, service),
     }
+}
+
+impl Engine {
+    /// The artifact routes after validation (`server/src/handlers/artifact.ts`): resolve the location (an explicit
+    /// directory, else the session's, else the stored artifact's, else the request's), load it, then fail with
+    /// `Artifact.DisabledError` as a 403.
+    async fn artifacts_disabled(&self, ctx: &RequestContext, session_id: Option<&str>, artifact_id: Option<&str>) -> ApiError {
+        let directory = if ctx.explicit_location {
+            ctx.location.directory.clone()
+        } else if let Some(session_id) = session_id {
+            match self.session(session_id) {
+                Ok(session) => session.location.directory,
+                Err(e) => return e,
+            }
+        } else {
+            // `Artifact.locate`: the directory of the stored `artifact:item:<id>` record.
+            artifact_id
+                .and_then(|id| self.app.db.kv_get(&format!("artifact:item:{id}")).ok().flatten())
+                .and_then(|record| record.get("directory").and_then(Value::as_str).map(String::from))
+                .unwrap_or_else(|| ctx.location.directory.clone())
+        };
+        match self.locations.get(&directory).await {
+            Err(e) => e,
+            Ok(_) => artifacts_disabled(),
+        }
+    }
+}
+
+/// `Artifact.DisabledError` as the server reports it.
+fn artifacts_disabled() -> ApiError {
+    ApiError::forbidden("Artifacts are disabled; set experimental.artifacts in config")
 }
 
 /// `Schedule.DisabledError` as the server reports it.

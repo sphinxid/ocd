@@ -32,6 +32,9 @@ pub struct RequestContext {
     ///   session's own location (and answer `SessionNotFoundError`/`LocationNotFoundError`).
     /// * Scope `G`: informational (e.g. `debug.location.evict` evicts exactly this).
     pub location: LocationRef,
+    /// The request named its location (`?location[directory]` or `x-opencode-directory`) rather than falling back
+    /// to the server cwd.
+    pub explicit_location: bool,
     /// The operation's scope.
     pub scope: Scope,
     /// The OpenAPI operationId being served.
@@ -57,6 +60,7 @@ impl RequestContext {
     pub fn for_test(directory: &str) -> Self {
         Self {
             location: LocationRef::new(directory),
+            explicit_location: false,
             scope: Scope::G,
             operation: "test",
             headers: HeaderMap::new(),

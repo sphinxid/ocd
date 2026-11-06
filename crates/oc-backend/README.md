@@ -73,7 +73,18 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   the ref like upstream, but image and decision models are not ported, so they end in 404/422.
 * **disabled features**: the schedule routes answer as with `experimental.schedules` off (404
   `SessionNotFoundError` / `ScheduleNotFoundError`, else 403 `ForbiddenError`; 400 `{kind:"schedule"}` when
-  the session's directory is gone), `plugin.gui` is always 404 `PluginNotFoundError`.
+  the session's directory is gone; Code Mode `code` checks pass validation), the seven `experimental.artifacts.*`
+  routes answer as with `experimental.artifacts` off (after param/body validation, the location resolves from an
+  explicit directory, else the session (404), else the stored `artifact:item:<id>` record, else the request
+  (404 `LocationNotFoundError`), then 403 `Artifacts are disabled; set experimental.artifacts in config`, even when
+  a location sets it: artifacts are not ported), `plugin.gui` is always 404 `PluginNotFoundError`.
+* **integration policy** (2.2.5): `integration.list` drops non-MCP integrations `integration.connect` denies; the
+  four connect routes and `experimental.integration.wellknown.add` (the URL without trailing `/`) answer 400
+  `{kind:"integration_policy", message:"<statement message>: connecting <id> is not allowed"}` before any 404;
+  `credential.create` checks it against the global config directory's location. Statements are every config
+  statement of the location, whether or not `opencode.config.policy` runs.
+* **session delete** cancels the session's running jobs (`Jobs::cancel_session`) and deletes their `job` rows after
+  the session goes idle, before its transport closes and its children are removed.
 * **media**: `experimental.media.get` serves `blob` rows some message still references
   (`oc_storage::stored::read_blob`); `media:` prompt attachments re-admit stored bytes.
 * **transfer**: `experimental.session.export` (`oc_core::transfer::export`, `sanitize`),

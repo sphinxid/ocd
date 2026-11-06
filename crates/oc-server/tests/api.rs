@@ -621,7 +621,7 @@ async fn web_ui_archive_serving() {
         let theme = base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(b"theme()"));
         assert_eq!(
             r.header("content-security-policy"),
-            Some(format!("default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-{theme}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; media-src 'self' data:; connect-src * data: blob:; worker-src 'self' blob:").as_str())
+            Some(format!("default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-{theme}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; media-src 'self' data:; connect-src * data: blob:; worker-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:").as_str())
         );
         assert_eq!(r.header("x-content-type-options"), Some("nosniff"));
         // Node's compression appends Accept-Encoding after CORS's Origin
