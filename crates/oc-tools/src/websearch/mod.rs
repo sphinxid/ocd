@@ -249,15 +249,24 @@ struct Cooldown {
     error: WebSearchError,
 }
 
+/// Decides whether a provider id is withheld (the policy plugin's `websearch.transform`, which runs last).
+pub type DenyFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
 struct Data {
     /// Insertion-ordered (JS `Map` semantics: re-adding keeps the original position).
     providers: Vec<Arc<dyn SearchProvider>>,
     selection: Option<Selection>,
+    /// Providers this denies are left out of every read, as if removed by the last transform.
+    deny: Option<DenyFn>,
 }
 
 impl Data {
+    fn visible(&self) -> impl Iterator<Item = &Arc<dyn SearchProvider>> {
+        self.providers.iter().filter(|p| self.deny.as_ref().is_none_or(|deny| !deny(&p.info().id)))
+    }
+
     fn get(&self, id: &str) -> Option<Arc<dyn SearchProvider>> {
-        self.providers.iter().find(|p| p.info().id == id).cloned()
+        self.visible().find(|p| p.info().id == id).cloned()
     }
 }
 
@@ -295,7 +304,7 @@ impl WebSearch {
     pub fn empty(store: Arc<dyn WebSearchStore>) -> Self {
         WebSearch {
             store,
-            data: RwLock::new(Data { providers: Vec::new(), selection: None }),
+            data: RwLock::new(Data { providers: Vec::new(), selection: None, deny: None }),
             cooldowns: Mutex::new(HashMap::new()),
             preferred: Mutex::new(HashMap::new()),
             user_agent: Arc::new(RwLock::new(DEFAULT_USER_AGENT.to_string())),
@@ -333,9 +342,15 @@ impl WebSearch {
         }
     }
 
-    /// The registered providers in registration order.
+    /// The registered providers in registration order (without the ones [`WebSearch::set_deny`] withholds).
     pub fn provider_list(&self) -> Vec<Arc<dyn SearchProvider>> {
-        self.data.read().providers.clone()
+        self.data.read().visible().cloned().collect()
+    }
+
+    /// Withhold the providers `deny` returns true for from every read (`None` withholds nothing). The decision is
+    /// made at each read, so a changed policy or account applies without rebuilding the registry.
+    pub fn set_deny(&self, deny: Option<DenyFn>) {
+        self.data.write().deny = deny;
     }
 
     /// Replace every provider (a rebuilt registry: built-ins → plugin transforms).
@@ -349,7 +364,7 @@ impl WebSearch {
     pub fn fork(&self) -> WebSearch {
         WebSearch {
             store: self.store.clone(),
-            data: RwLock::new(Data { providers: self.provider_list(), selection: None }),
+            data: RwLock::new(Data { providers: self.data.read().providers.clone(), selection: None, deny: None }),
             cooldowns: Mutex::new(HashMap::new()),
             preferred: Mutex::new(HashMap::new()),
             user_agent: self.user_agent.clone(),
@@ -368,7 +383,7 @@ impl WebSearch {
 
     /// Providers sorted by display name (`localeCompare`).
     pub async fn providers(&self) -> Vec<ProviderInfo> {
-        let mut list: Vec<ProviderInfo> = self.data.read().providers.iter().map(|p| p.info()).collect();
+        let mut list: Vec<ProviderInfo> = self.data.read().visible().map(|p| p.info()).collect();
         list.sort_by(|a, b| locale_compare(&a.name, &b.name));
         list
     }
@@ -400,7 +415,7 @@ impl WebSearch {
                 // Inspection must not select a provider or reopen consent when every provider is cooling down.
                 let active = self.preferred.lock().get(&None).and_then(|a| a.lock().clone());
                 let data = self.data.read();
-                Ok(active.and_then(|id| data.get(&id)).or_else(|| data.providers.first().cloned()))
+                Ok(active.and_then(|id| data.get(&id)).or_else(|| data.visible().next().cloned()))
             }
             Some(Selection::Provider(id)) => Ok(self.data.read().get(id)),
             None => Ok(None),
@@ -436,8 +451,7 @@ impl WebSearch {
             }
         }
         let available: Vec<_> = data
-            .providers
-            .iter()
+            .visible()
             .filter(|p| {
                 let id = p.info().id;
                 !cooldowns.contains_key(&id) && !tried(&id)

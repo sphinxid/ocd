@@ -403,6 +403,66 @@ fn compaction_leaves() {
     );
 }
 
+// 2.2.5: a buffer is also a share of the window, from "1%" up to (not including) "100%".
+#[test]
+fn compaction_buffer_percentages() {
+    assert_eq!(normalized(json!({ "compaction": { "buffer": "12.5%" } })).0["compaction"], json!({ "buffer": "12.5%" }));
+    assert_eq!(normalized(json!({ "compaction": { "buffer": "20%" } })).0["compaction"], json!({ "buffer": "20%" }));
+    for buffer in ["0%", "100%", "150%", "5", "05%", "1.%", "-1"] {
+        let (encoded, d) = normalized(json!({ "compaction": { "buffer": buffer } }));
+        assert!(encoded.get("compaction").is_none(), "{buffer}");
+        assert_eq!(
+            d.iter().map(|x| (x.kind, x.path.clone())).collect::<Vec<_>>(),
+            vec![(DiagnosticKind::Invalid, pv(&[&["compaction", "buffer"]])[0].clone())],
+            "{buffer}"
+        );
+    }
+    // The legacy `reserved` stays a token count.
+    let (encoded, d) = normalized(json!({ "compaction": { "reserved": "20%" } }));
+    assert!(encoded.get("compaction").is_none());
+    assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["compaction", "reserved"]]));
+}
+
+#[test]
+fn converts_legacy_prefixed_integration_use_statements() {
+    let encoded = normalized(json!({ "policies": [
+        { "action": "integration.use", "resource": "mcp:github", "effect": "deny" },
+        { "action": "integration.use", "resource": "*", "effect": "deny" },
+    ]}))
+    .0;
+    assert_eq!(
+        encoded,
+        json!({ "policies": [
+            { "action": "mcp.use", "resource": "github", "effect": "deny" },
+            { "action": "integration.use", "resource": "*", "effect": "deny" },
+        ]})
+    );
+    let encoded = normalized(json!({ "experimental": { "policies": [
+        { "action": "integration.use", "resource": "skill:review", "effect": "deny" },
+        { "action": "integration.use", "resource": "plugin:opencode-x", "effect": "allow" },
+        { "action": "integration.connect", "resource": "github-copilot", "effect": "deny" },
+    ]}}))
+    .0;
+    assert_eq!(
+        encoded["policies"],
+        json!([
+            { "action": "skill.use", "resource": "review", "effect": "deny" },
+            { "action": "plugin.use", "resource": "opencode-x", "effect": "allow" },
+            { "action": "integration.connect", "resource": "github-copilot", "effect": "deny" },
+        ])
+    );
+}
+
+#[test]
+fn accepts_experimental_artifacts() {
+    let (encoded, d) = normalized(json!({ "experimental": { "schedules": true, "artifacts": true, "subagent_depth": 2 } }));
+    assert_eq!(encoded["experimental"], json!({ "schedules": true, "artifacts": true, "subagent_depth": 2 }));
+    assert!(d.is_empty());
+    let (encoded, d) = normalized(json!({ "experimental": { "artifacts": "yes" } }));
+    assert!(encoded.get("experimental").is_none());
+    assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["experimental", "artifacts"]]));
+}
+
 #[test]
 fn enabled_provider_lists() {
     assert_eq!(

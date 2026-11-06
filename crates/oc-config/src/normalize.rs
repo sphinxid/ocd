@@ -620,8 +620,9 @@ fn normalize_compaction(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
     }
     let legacy_buffer =
         c.get("reserved").and_then(|v| decode_encoded_with(non_negative_int, v, p(&["compaction", "reserved"]), d));
-    let native_buffer =
-        c.get("buffer").and_then(|v| decode_encoded_with(non_negative_int, v, p(&["compaction", "buffer"]), d));
+    let native_buffer = c
+        .get("buffer")
+        .and_then(|v| decode_encoded_with(crate::schema::CompactionBuffer::decode, v, p(&["compaction", "buffer"]), d));
     if let Some(buffer) = prefer(legacy_buffer, native_buffer, p(&["compaction", "buffer"]), d) {
         result.insert("buffer".into(), buffer);
     }
@@ -716,6 +717,11 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                     && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", "schedules"]), d)
                 {
                     result.insert("schedules".into(), value);
+                }
+                if let Some(v) = e.get("artifacts")
+                    && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", "artifacts"]), d)
+                {
+                    result.insert("artifacts".into(), value);
                 }
                 if let Some(v) = e.get("subagent_depth")
                     && let Some(value) =

@@ -381,7 +381,8 @@ streaming `Response`); see docs/PARITY.md "Remaining".
    - `operations` comes from `oc_config::sources::plugin_operations`; its JSON matches `Operation`.
    - `internal` is the ocd-native internal plugin ids in upstream order
      (`core/src/plugin/internal.ts:216-270`).
-   - `blocked` is the managed-policy check `integration.use` on `plugin:<target>`.
+   - `blocked` is the managed-policy check `plugin.use` on the target without its `@version` (kept whole
+     when absolute); oc-core passes every config statement of the location.
    - Gate native internal plugins on `result.resolution.enabled_ids()`. This implements
      `-opencode.browser`, `-*`, and the guarded ids.
    - Build the `plugin.list` inventory with `result.inventory(builtin)`. Publish `plugin.updated`

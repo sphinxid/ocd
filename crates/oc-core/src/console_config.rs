@@ -35,6 +35,8 @@ pub struct Snapshot {
     pub connection: Option<ConnectionInfo>,
     /// The organization behind the connection (`metadata.orgName`).
     pub organization: Option<String>,
+    /// The account `integration.use` names (`ManagedPolicy.account` of the stored credential).
+    pub account: Option<String>,
 }
 
 impl Snapshot {
@@ -50,7 +52,12 @@ impl Snapshot {
     /// The integration document the snapshot contributes to config.
     pub fn document(&self) -> Option<Entry> {
         let (remote, connection) = (self.remote.clone()?, self.connection.as_ref()?);
-        Some(oc_config::integration::make(INTEGRATION_ID, connection_json(connection), self.organization.clone(), remote))
+        let mut document =
+            oc_config::integration::make(INTEGRATION_ID, connection_json(connection), self.organization.clone(), remote);
+        if let Entry::Document { integration: Some(source), .. } = &mut document {
+            source.account = self.account.clone();
+        }
+        Some(document)
     }
 }
 
@@ -222,11 +229,16 @@ pub async fn load(
         })?;
         match credential {
             None | Some(CredentialValue::External { .. }) => {
-                Ok(Snapshot { remote: None, connection: Some(connection.clone()), organization: None })
+                Ok(Snapshot { remote: None, connection: Some(connection.clone()), organization: None, account: None })
             }
             Some(credential) => {
                 let remote = fetch_config(http, user_agent, &credential).await?;
-                Ok(Snapshot { remote, connection: Some(connection.clone()), organization: organization_name(&credential) })
+                Ok(Snapshot {
+                    remote,
+                    connection: Some(connection.clone()),
+                    organization: organization_name(&credential),
+                    account: oc_config::policy::account(credential.metadata()),
+                })
             }
         }
     }
@@ -243,9 +255,14 @@ pub async fn load(
             tracing::warn!(cause = %cause, "failed to load OpenCode provider config");
             let same = previous.connection.as_ref().map(ConnectionInfo::key) == Some(connection.key());
             if same {
-                Snapshot { remote: previous.remote.clone(), connection: Some(connection), organization: previous.organization.clone() }
+                Snapshot {
+                    remote: previous.remote.clone(),
+                    connection: Some(connection),
+                    organization: previous.organization.clone(),
+                    account: previous.account.clone(),
+                }
             } else {
-                Snapshot { remote: None, connection: Some(connection), organization: None }
+                Snapshot { remote: None, connection: Some(connection), organization: None, account: None }
             }
         }
     }

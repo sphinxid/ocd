@@ -364,6 +364,8 @@ pub struct Plugins {
     defer_reloads: std::sync::atomic::AtomicBool,
     /// Integrations each location's plugin transforms added in the last catalog build.
     plugin_integrations: Mutex<HashMap<String, HashSet<String>>>,
+    /// The policy plugin's watch of the account behind each integration (started with the first location).
+    accounts_watch: std::sync::Once,
     me: Weak<Plugins>,
 }
 
@@ -408,6 +410,7 @@ impl Plugins {
             notices: Mutex::new(HashMap::new()),
             defer_reloads: std::sync::atomic::AtomicBool::new(false),
             plugin_integrations: Mutex::new(HashMap::new()),
+            accounts_watch: std::sync::Once::new(),
             me: me.clone(),
         })
     }
@@ -520,7 +523,33 @@ impl Plugins {
     /// base service was installed.
     pub fn websearch_for(&self, key: &str) -> Option<Arc<oc_tools::websearch::WebSearch>> {
         let base = self.websearch.read().clone()?;
-        Some(self.websearch_by_key.lock().entry(key.to_string()).or_insert_with(|| Arc::new(base.fork())).clone())
+        Some(
+            self.websearch_by_key
+                .lock()
+                .entry(key.to_string())
+                .or_insert_with(|| {
+                    let websearch = base.fork();
+                    websearch.set_deny(Some(self.websearch_policy(key)));
+                    Arc::new(websearch)
+                })
+                .clone(),
+        )
+    }
+
+    /// The policy plugin's `websearch.transform` (a `post` plugin, so it applies after every other one): a web
+    /// search provider shares its integration's id, and is withheld when `integration.use` denies that integration
+    /// with its active account.
+    fn websearch_policy(&self, key: &str) -> oc_tools::websearch::DenyFn {
+        let (me, key, db) = (self.me.clone(), key.to_string(), self.db.clone());
+        Arc::new(move |id: &str| {
+            let Some(plugins) = me.upgrade() else { return false };
+            let statements = plugins.policies_at(&key);
+            if statements.is_empty() {
+                return false;
+            }
+            let accounts = crate::policy::accounts(&crate::models::DbCredentials::all_of(&db).unwrap_or_default());
+            crate::policy::integration_denied(&statements, &accounts, id)
+        })
     }
 
     pub fn subscribe_changes(&self) -> broadcast::Receiver<DomainChange> {
@@ -787,7 +816,52 @@ impl Plugins {
         }
     }
 
+    /// `opencode.config.policy`: `integration.use` names the account behind each integration's active connection, so
+    /// on `credential.updated`/`credential.switched` a changed account map reloads providers and web search (the
+    /// catalog fingerprint includes the accounts) in every location running the plugin: `provider.updated`,
+    /// `model.updated`, and `websearch.updated` when its list changed.
+    fn watch_accounts(&self) {
+        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+        self.accounts_watch.call_once(|| {
+            let (me, db) = (self.me.clone(), self.db.clone());
+            let mut events = self.bus.subscribe();
+            let accounts_of = move |db: &oc_storage::Database| {
+                crate::policy::accounts(&crate::models::DbCredentials::all_of(db).unwrap_or_default())
+            };
+            let mut current = accounts_of(&db);
+            handle.spawn(async move {
+                loop {
+                    let event = match events.recv().await {
+                        Ok(event) => event,
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => return,
+                    };
+                    if event.kind != "credential.updated" && event.kind != "credential.switched" {
+                        continue;
+                    }
+                    let next = accounts_of(&db);
+                    if next == current {
+                        continue;
+                    }
+                    current = next;
+                    let Some(plugins) = me.upgrade() else { return };
+                    let keys: Vec<String> = plugins.locations.lock().keys().cloned().collect();
+                    for key in keys {
+                        if !plugins.builtin_enabled(&key, crate::policy::PLUGIN_ID) {
+                            continue;
+                        }
+                        let at = Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None });
+                        for domain in ["provider", "model", "websearch"] {
+                            plugins.notify_domain(&key, domain, at.clone());
+                        }
+                    }
+                }
+            });
+        });
+    }
+
     fn ensure_with(&self, location: &Arc<Location>, defer: bool) {
+        self.watch_accounts();
         let ops = operations(location);
         let fingerprint = serde_json::to_string(&ops).unwrap_or_default();
         let pending = {
@@ -885,8 +959,17 @@ impl Plugins {
                 "canonical": location.project.canonical.display().to_string(),
             },
         });
+        // `PluginModule.load`: managed policy (`plugin.use` on the target without its version) blocks a plugin
+        // before it loads. Every config statement counts, even with `opencode.config.policy` disabled.
+        let statements = crate::policy::statements(&location.entries);
+        let blocked: Option<oc_plugin::host::BlockedFn> = (!statements.is_empty()).then(|| {
+            Arc::new(move |target: &str| {
+                oc_config::policy::decision(&statements, oc_config::schema::PolicyAction::PluginUse, target)
+                    == oc_config::schema::PolicyEffect::Deny
+            }) as oc_plugin::host::BlockedFn
+        });
         let result = host
-            .load(LoadRequest { location: LocationRef::new(key.clone()), info, operations: ops, internal: internal_plugins(), blocked: None })
+            .load(LoadRequest { location: LocationRef::new(key.clone()), info, operations: ops, internal: internal_plugins(), blocked })
             .await;
         let first = {
             let mut locations = self.locations.lock();

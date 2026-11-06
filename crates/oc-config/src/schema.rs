@@ -85,7 +85,21 @@ literal_enum!(
     /// `Model.CacheFormat`: prompt-cache marker syntax the endpoint accepts.
     CacheFormat { Anthropic = "anthropic", Alibaba = "alibaba" }
 );
-literal_enum!(PolicyAction { ProviderUse = "provider.use", ToolUse = "tool.use", IntegrationUse = "integration.use" });
+literal_enum!(
+    /// `ConfigPolicy.Action`: `provider.use` (a provider ID), `tool.use` (`<tool>:<input>`), `integration.connect`
+    /// (an integration ID: which integrations are listed and connectable), `integration.use`
+    /// (`<integration>#<account>`, or the bare integration ID for connectionless use), and `mcp.use`, `skill.use`,
+    /// `plugin.use` (an MCP server name, skill ID or plugin target).
+    PolicyAction {
+        ProviderUse = "provider.use",
+        ToolUse = "tool.use",
+        IntegrationConnect = "integration.connect",
+        IntegrationUse = "integration.use",
+        McpUse = "mcp.use",
+        SkillUse = "skill.use",
+        PluginUse = "plugin.use",
+    }
+);
 literal_enum!(PolicyEffect { Allow = "allow", Deny = "deny" });
 
 // ---------------------------------------------------------------------------------------------
@@ -862,6 +876,39 @@ impl Decode for CompactionKeep {
     }
 }
 
+/// `compaction.buffer`: "Room kept free below the model's context window before automatic compaction, as a share of
+/// the window from "1%" to "99%", such as "20%" to compact at 80% full. A token count is also accepted."
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(untagged)]
+pub enum CompactionBuffer {
+    /// `Config.Compaction.Percent`: `^([1-9]\d?(\.\d+)?)%$`, kept as written.
+    Percent(String),
+    Tokens(u64),
+}
+
+impl CompactionBuffer {
+    /// `Schema.Union([Percent, NonNegativeInt])`.
+    pub fn decode(value: &Value) -> Option<Self> {
+        static PERCENT: std::sync::LazyLock<regex::Regex> =
+            std::sync::LazyLock::new(|| regex::Regex::new(r"^([1-9][0-9]?(\.[0-9]+)?)%$").expect("valid pattern"));
+        match value {
+            Value::String(s) if PERCENT.is_match(s) => Some(CompactionBuffer::Percent(s.clone())),
+            _ => non_negative_int(value).map(CompactionBuffer::Tokens),
+        }
+    }
+
+    /// The tokens kept free in a window of `window` tokens: a percentage is `Math.round(window * pct / 100)`.
+    pub fn tokens(&self, window: i64) -> i64 {
+        match self {
+            CompactionBuffer::Tokens(t) => *t as i64,
+            CompactionBuffer::Percent(p) => {
+                let pct: f64 = p.trim_end_matches('%').parse().unwrap_or(0.0);
+                (window as f64 * pct / 100.0 + 0.5).floor() as i64
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct Compaction {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -869,7 +916,7 @@ pub struct Compaction {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep: Option<CompactionKeep>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub buffer: Option<u64>,
+    pub buffer: Option<CompactionBuffer>,
 }
 
 impl Decode for Compaction {
@@ -878,7 +925,7 @@ impl Decode for Compaction {
         Some(Compaction {
             auto: opt(o, "auto")?,
             keep: opt(o, "keep")?,
-            buffer: opt_with(o, "buffer", non_negative_int)?,
+            buffer: opt_with(o, "buffer", CompactionBuffer::decode)?,
         })
     }
 }
@@ -1559,15 +1606,33 @@ pub struct Policy {
 }
 
 impl Decode for Policy {
+    /// `ConfigPolicy.Info`. Before `mcp.use`, `skill.use` and `plugin.use` existed, `integration.use` covered them
+    /// with a resource prefix: every policy source decodes through here, so an `integration.use` statement whose
+    /// resource is `mcp:…`, `skill:…` or `plugin:…` becomes the new action with the prefix stripped. A bare
+    /// `integration.use` keeps its action.
     fn decode(value: &Value) -> Option<Self> {
         let o = record(value)?;
-        Some(Policy { action: req(o, "action")?, resource: req(o, "resource")?, effect: req(o, "effect")? })
+        let mut policy = Policy { action: req(o, "action")?, resource: req(o, "resource")?, effect: req(o, "effect")? };
+        if policy.action == PolicyAction::IntegrationUse
+            && let Some((prefix, rest)) = policy.resource.split_once(':')
+        {
+            let action = match prefix {
+                "mcp" => Some(PolicyAction::McpUse),
+                "skill" => Some(PolicyAction::SkillUse),
+                "plugin" => Some(PolicyAction::PluginUse),
+                _ => None,
+            };
+            if let Some(action) = action {
+                policy = Policy { action, resource: rest.to_string(), effect: policy.effect };
+            }
+        }
+        Some(policy)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct Experimental {
-    /// Enable the experimental portable shell permission scanner. Defaults to false.
+    /// Deprecated: the built-in shell permission scanner is now always enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portable_shell_scanner: Option<bool>,
     /// Enable the experimental todowrite tool. Defaults to false.
@@ -1586,6 +1651,10 @@ pub struct Experimental {
     /// Enable experimental scheduled tasks (accepted; schedules are not ported, so their routes answer as if off).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedules: Option<bool>,
+    /// Enable experimental artifacts backed by pluggable providers. Defaults to false. (Accepted; artifacts are not
+    /// ported, so their routes answer as if off.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<bool>,
     /// Maximum subagent nesting depth. Defaults to 1.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_depth: Option<u64>,
@@ -1608,6 +1677,7 @@ impl Decode for Experimental {
             media_blob: opt(o, "media_blob")?,
             image_generate: opt(o, "image_generate")?,
             schedules: opt(o, "schedules")?,
+            artifacts: opt(o, "artifacts")?,
             subagent_depth: opt_with(o, "subagent_depth", non_negative_int)?,
             location_idle_timeout: opt(o, "location_idle_timeout")?,
             policies: opt(o, "policies")?,
@@ -1826,6 +1896,10 @@ pub struct IntegrationSource {
     /// Organization behind the connection, named in denials by the document's policies.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub organization: Option<String>,
+    /// The account of the connection's stored credential (`ManagedPolicy.account`: `metadata.orgID`, else
+    /// `metadata.accountID`), which `integration.use` names as `<integration>#<account>`. Not serialized.
+    #[serde(skip)]
+    pub account: Option<String>,
 }
 
 impl IntegrationSource {
@@ -1852,6 +1926,10 @@ pub enum Entry {
         /// Set on a document an integration connection contributes (`ConfigIntegration.Document`).
         #[serde(flatten)]
         integration: Option<IntegrationSource>,
+        /// The well-known origin that delivered the document (`ConfigIntegration.WellKnownDocument`): its
+        /// `integrationID`, which `integration.use` decides the providers it defines by.
+        #[serde(rename = "integrationID", skip_serializing_if = "Option::is_none")]
+        wellknown: Option<String>,
     },
     /// A config root directory scanned for Markdown agents/commands, plugins and skills.
     Directory { path: PathBuf },
@@ -1859,7 +1937,14 @@ pub enum Entry {
 
 impl Entry {
     pub fn document(path: Option<PathBuf>, info: Info) -> Entry {
-        Entry::Document { path, info, integration: None }
+        Entry::Document { path, info, integration: None, wellknown: None }
+    }
+    /// The origin of a well-known document.
+    pub fn wellknown(&self) -> Option<&str> {
+        match self {
+            Entry::Document { wellknown, .. } => wellknown.as_deref(),
+            Entry::Directory { .. } => None,
+        }
     }
     /// The integration connection behind an integration document.
     pub fn integration(&self) -> Option<&IntegrationSource> {
@@ -1908,10 +1993,15 @@ impl<'de> Deserialize<'de> for Entry {
                         integration_id: id.to_string(),
                         connection: connection.clone(),
                         organization: o.get("organization").and_then(Value::as_str).map(String::from),
+                        account: None,
                     }),
                     _ => None,
                 };
-                Ok(Entry::Document { path, info, integration })
+                let wellknown = match (o.get("integrationID").and_then(Value::as_str), o.get("connection")) {
+                    (Some(id), None) => Some(id.to_string()),
+                    _ => None,
+                };
+                Ok(Entry::Document { path, info, integration, wellknown })
             }
             Some("directory") => {
                 let path = o

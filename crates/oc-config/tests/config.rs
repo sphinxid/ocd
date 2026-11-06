@@ -327,6 +327,55 @@ unsafe extern "C" {
     fn libc_geteuid() -> u32;
 }
 
+/// `config.test.ts` (2.2.5): only managed policy can withhold what an integration document supplies, by
+/// `integration.use` on `<integration>#<account>`; a withheld document keeps its policies.
+#[test]
+fn managed_integration_use_withholds_integration_documents_but_keeps_their_policies() {
+    use oc_config::discovery::System;
+    use oc_config::schema::IntegrationSource;
+    let tmp = Tmp::new();
+    let system = tmp.mkdir("system");
+    let global = tmp.mkdir("global");
+    let project = tmp.mkdir("project");
+    let console = |account: Option<&str>| Entry::Document {
+        path: None,
+        info: Info::from_value(&json!({
+            "providers": { "acme": { "name": "Acme" } },
+            "policies": [{ "action": "tool.use", "resource": "shell:*", "effect": "deny" }],
+        }))
+        .unwrap(),
+        integration: Some(IntegrationSource {
+            integration_id: "opencode".into(),
+            connection: json!({"type": "credential", "id": "crd_1", "label": "Acme", "method": "oauth"}),
+            organization: Some("Acme".into()),
+            account: account.map(String::from),
+        }),
+        wellknown: None,
+    };
+    let policy = |resource: &str| json!({ "policies": [{ "action": "integration.use", "resource": resource, "effect": "deny" }] });
+    let load = |account: Option<&str>| {
+        let mut l = loader(&tmp, &project, &global, Options { system: System::Path(system.clone()), ..Default::default() });
+        l.integrations = vec![console(account)];
+        let (_, entries) = block_on(l.entries()).unwrap();
+        entries.into_iter().find(|e| e.integration().is_some()).unwrap()
+    };
+    // A deny on the organization's account withholds everything but the policies.
+    tmp.write("system/opencode.json", &policy("opencode#org_1").to_string());
+    let withheld = load(Some("org_1"));
+    let info = withheld.info().unwrap();
+    assert!(info.providers.is_none());
+    assert_eq!(info.policies.as_ref().map(Vec::len), Some(1));
+    assert!(load(Some("org_2")).info().unwrap().providers.is_some());
+    // A bare id matches only connectionless use.
+    tmp.write("system/opencode.json", &policy("opencode").to_string());
+    assert!(load(Some("org_1")).info().unwrap().providers.is_some());
+    assert!(load(None).info().unwrap().providers.is_none());
+    // A project file cannot withhold it.
+    tmp.write("system/opencode.json", "{}");
+    tmp.write("project/opencode.json", &policy("*").to_string());
+    assert!(load(Some("org_1")).info().unwrap().providers.is_some());
+}
+
 #[test]
 fn loads_system_configuration_at_highest_priority() {
     use oc_config::discovery::System;
@@ -504,6 +553,7 @@ fn loads_legacy_and_native_file_based_agents() {
         integration: None,
         path: None,
         info: Info::from_value(&json!({ "agents": { "reviewer": { "description": "JSON description" } } })).unwrap(),
+        wellknown: None,
     };
     let entries = vec![json_doc, Entry::Directory { path: tmp.path().to_path_buf() }];
     let docs = sources::agent_documents(&entries);
@@ -584,6 +634,7 @@ fn agent_permissions_expand_home_for_path_actions() {
             "agents": { "custom": { "permissions": [{ "action": "edit", "resource": "~", "effect": "ask" }] }, "gone": { "disabled": true } },
         }))
         .unwrap(),
+        wellknown: None,
     }];
     let mut existing = IndexMap::new();
     existing.insert("gone".to_string(), fold::AgentState::default());
@@ -636,9 +687,9 @@ fn commands_fold_with_markdown_directory_slot() {
     tmp.write("command/nested/deploy.md", "Deploy $1");
     tmp.write("commands/bad.md", "---\ntemplate: x\nagent: 1\n---\nBad");
     let entries = vec![
-        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "commands": { "review": { "template": "old" }, "keep": { "template": "k" } } })).unwrap() },
+        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "commands": { "review": { "template": "old" }, "keep": { "template": "k" } } })).unwrap(), wellknown: None },
         Entry::Directory { path: tmp.path().to_path_buf() },
-        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "commands": { "keep": { "template": "new" } } })).unwrap() },
+        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "commands": { "keep": { "template": "new" } } })).unwrap(), wellknown: None },
     ];
     let commands = sources::commands(&entries);
     assert_eq!(commands.keys().cloned().collect::<Vec<_>>(), vec!["review", "keep", "nested/deploy"]);
@@ -691,7 +742,7 @@ fn skill_sources_and_scanning() {
     tmp.write("opencode/skills/deep/nested/notes.md", "ignored");
     let entries = vec![
         Entry::Directory { path: opencode.clone() },
-        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "skills": ["~/shared", "./relative", "https://example.com/skills", "./relative"] })).unwrap() },
+        Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "skills": ["~/shared", "./relative", "https://example.com/skills", "./relative"] })).unwrap(), wellknown: None },
     ];
     let home = tmp.path().join("home");
     let project = tmp.path().join("project");
@@ -755,6 +806,7 @@ fn plugin_directory_discovery_and_operations() {
             integration: None,
             path: Some(doc_path),
             info: Info::from_value(&json!({ "plugins": ["pkg", "-other", "./local", { "package": "x", "options": { "a": 1 } }, file_plugin.to_string_lossy()] })).unwrap(),
+            wellknown: None,
         },
     ];
     let ops = sources::plugin_operations(&entries, tmp.path()).unwrap();
@@ -767,14 +819,14 @@ fn plugin_directory_discovery_and_operations() {
         { "type": "add", "target": tmp.path().join("project/local"), "options": {} },
         { "type": "add", "target": "x", "options": { "a": 1 } },
     ]));
-    let bad = vec![Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "plugins": ["-"] })).unwrap() }];
+    let bad = vec![Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "plugins": ["-"] })).unwrap(), wellknown: None }];
     assert_eq!(sources::plugin_operations(&bad, tmp.path()).unwrap_err(), "Plugin remove operation requires a target");
 }
 
 // --- Folds ------------------------------------------------------------------------------------------
 
 fn doc(value: serde_json::Value) -> Entry {
-    Entry::Document { integration: None, path: None, info: Info::from_value(&value).unwrap() }
+    Entry::Document { integration: None, path: None, info: Info::from_value(&value).unwrap(), wellknown: None }
 }
 
 #[test]
@@ -813,7 +865,7 @@ fn per_key_folds() {
 
     let servers = fold::mcp_servers(&entries);
     assert_eq!(serde_json::to_value(&servers).unwrap(), json!({ "s": { "type": "remote", "url": "https://x", "timeout": { "startup": 2, "catalog": 1 } } }));
-    assert_eq!(fold::compaction(&entries), fold::CompactionSettings { auto: Some(false), buffer: Some(3), keep: Some(10) });
+    assert_eq!(fold::compaction(&entries), fold::CompactionSettings { auto: Some(false), buffer: Some(oc_config::schema::CompactionBuffer::Tokens(3)), keep: Some(10) });
     let image = fold::media_image(&entries);
     assert_eq!((image.auto_resize, image.max_width, image.max_height), (false, 100, 2000));
     assert_eq!(fold::watcher_ignore(&entries), vec!["a", "b"]);
@@ -881,7 +933,7 @@ fn update_shell_preserves_comments() {
 #[test]
 fn entries_serialize_like_the_http_api() {
     let entries = vec![
-        Entry::Document { integration: None, path: Some("/a/opencode.json".into()), info: Info::from_value(&json!({ "model": "a/b#c", "shell": "x" })).unwrap() },
+        Entry::Document { integration: None, path: Some("/a/opencode.json".into()), info: Info::from_value(&json!({ "model": "a/b#c", "shell": "x" })).unwrap(), wellknown: None },
         Entry::Directory { path: "/a/.opencode".into() },
     ];
     assert_eq!(

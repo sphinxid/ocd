@@ -50,6 +50,11 @@ impl DbCredentials {
         })
     }
 
+    /// Every stored credential in list order (`Credential.all`), read synchronously.
+    pub fn all_of(db: &Database) -> anyhow::Result<Vec<Credential>> {
+        Ok(Self::sorted(Self::rows_of(db)?))
+    }
+
     fn sorted(mut rows: Vec<Row>) -> Vec<Credential> {
         rows.sort_by(oc_ai::credentials::store::list_order);
         rows.iter().filter_map(Row::credential).collect()
@@ -611,6 +616,14 @@ impl Models {
         };
         // opencode.config.policy (a `post` plugin): denied providers are removed after every other transform.
         let policies = if builtin(crate::policy::PLUGIN_ID) { crate::policy::statements(entries) } else { vec![] };
+        // `integration.use` names the account behind each integration's active stored credential; a change of
+        // account rebuilds the catalog. Reading stored metadata never refreshes a credential.
+        let accounts = if policies.is_empty() {
+            crate::policy::Accounts::new()
+        } else {
+            crate::policy::accounts(&integrations.store().all().await.unwrap_or_default())
+        };
+        let suppliers = oc_config::integration::suppliers(entries);
         let (chatgpt_on, openai_on, caps_on) = (
             builtin(catalog::openai::CHATGPT_PLUGIN_ID),
             builtin(catalog::openai::OPENAI_PLUGIN_ID),
@@ -641,6 +654,10 @@ impl Models {
             plugin_state.hash(&mut fingerprint);
             (&sign_in, chatgpt_on, openai_on, caps_on).hash(&mut fingerprint);
             serde_json::to_string(&policies).unwrap_or_default().hash(&mut fingerprint);
+            accounts.hash(&mut fingerprint);
+            let mut supplied: Vec<(&String, &String)> = suppliers.iter().collect();
+            supplied.sort();
+            supplied.hash(&mut fingerprint);
         }
         // The Copilot plugin's loaded state is an input too: its revision when the cached catalog
         // was built (the initial `/models` load and every reload after a credential switch change it).
@@ -701,7 +718,11 @@ impl Models {
                 plugins.push(Box::new(catalog::openai::OpenAiContextCaps { sign_in: sign_in.clone() }));
             }
             plugins.push(Box::new(config.clone()));
-            plugins.push(Box::new(crate::policy::Providers(policies.clone())));
+            plugins.push(Box::new(crate::policy::Providers {
+                statements: policies.clone(),
+                accounts: accounts.clone(),
+                suppliers: suppliers.clone(),
+            }));
             plugins
         };
         let (Some(plugins_host), Some(key)) = (host, key) else {

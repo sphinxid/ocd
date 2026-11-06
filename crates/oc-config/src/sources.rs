@@ -138,7 +138,7 @@ pub fn decode_agent_file(directory: &Path, file: &Path, primary: bool, content: 
         a.insert("mode".into(), Value::String("primary".into()));
     }
     let info = Info::decode(&serde_json::json!({ "agents": { name: agent } }))?;
-    Some(Entry::Document { path: Some(file.to_path_buf()), info, integration: None })
+    Some(Entry::Document { path: Some(file.to_path_buf()), info, integration: None, wellknown: None })
 }
 
 /// Markdown agent documents for one config root (`{agent,agents}/**/*.md`, then `{mode,modes}/*.md`).

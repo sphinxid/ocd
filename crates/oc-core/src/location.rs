@@ -264,7 +264,7 @@ mod tests {
             key: "/p".into(),
             directory: "/p".into(),
             project: Resolved { id: "global".into(), previous: None, directory: "/p".into(), canonical: "/p".into(), vcs: None },
-            entries: vec![Entry::Document { integration: None, path: None, info }],
+            entries: vec![Entry::Document { integration: None, path: None, info, wellknown: None }],
             sources: Default::default(),
             remote_instructions: Default::default(),
             closed: Default::default(),

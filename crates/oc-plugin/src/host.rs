@@ -79,7 +79,7 @@ pub struct LoadRequest {
     /// Configured operations in order (discovered directory plugins first).
     pub operations: Vec<Operation>,
     pub internal: InternalPlugins,
-    /// Managed policy: returns true when `plugin:<target>` is denied (`integration.use`).
+    /// Managed policy: returns true when the unversioned target is denied (`plugin.use`).
     pub blocked: Option<BlockedFn>,
 }
 
@@ -764,7 +764,7 @@ impl Inner {
         let absolute = Path::new(target).is_absolute();
         let version = target.rfind('@');
         let unversioned = if absolute || version.is_none_or(|v| v == 0) { target.as_str() } else { &target[..version.unwrap_or(0)] };
-        if blocked.is_some_and(|blocked| blocked(&format!("plugin:{unversioned}"))) {
+        if blocked.is_some_and(|blocked| blocked(unversioned)) {
             return LoadOutcome::Blocked;
         }
         let failed = |message: &str, cause: String| {

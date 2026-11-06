@@ -18,9 +18,17 @@ agent/provider registries. It uses the functions below to do that work.
   `Reference`, `Plugin`, `Worktree`, `Warming`/`WarmingInfo`/`Duration`, `WebSearch`,
   `Provider`/`ProviderModel` (with `type`)/`Settings`/`ModelSettings`/`VariantSettings` (no `cache`)/`Cache`/`Compatibility`/`Capabilities`/`Variant`/
   `Cost`/`CostSetting`/`Limit`, `Experimental` (incl. 2.2.2's `media_blob`, `image_generate`/`ImageGenerate`,
-  `schedules`, accepted and normalized; ocd does not act on them)/`Policy`, `UpdatePolicy`, `Share`, `Patch`; `Info.timezone`.
-- `Entry::{Document { path?, info }, Directory { path }}`. Serialization matches the HTTP API
-  (`{"type":"document",...}`).
+  `schedules` and 2.2.5's `artifacts`, accepted and normalized; ocd does not act on them)/`Policy`, `UpdatePolicy`,
+  `Share`, `Patch`; `Info.timezone`.
+- `Compaction.buffer` is a `CompactionBuffer`: `Tokens(u64)` or `Percent(String)` (`Config.Compaction.Percent`,
+  `^([1-9]\d?(\.\d+)?)%$`, kept as written); `tokens(window)` is `Math.round(window * pct / 100)`. The legacy
+  `reserved` key stays a token count.
+- `PolicyAction` (2.2.5): `provider.use`, `tool.use`, `integration.connect`, `integration.use`, `mcp.use`,
+  `skill.use`, `plugin.use`. `Policy::decode` rewrites a legacy `integration.use` statement on `mcp:`, `skill:` or
+  `plugin:` resources to the new action without the prefix, so every source (files, `experimental.policies`,
+  integration and well-known documents) and `GET /api/config` show the new form.
+- `Entry::{Document { path?, info, integration?, wellknown? }, Directory { path }}`. Serialization matches the HTTP
+  API (`{"type":"document",...}`); a well-known document carries its origin as `integrationID`.
 - Decoding goes through `decode::Decode`, which reproduces Effect Schema:
   - excess keys are ignored;
   - optional keys may be absent but may not be `null`;
@@ -148,13 +156,20 @@ agent/provider registries. It uses the functions below to do that work.
 ### `policy`: managed policy and update policy
 - `wildcard_match`, `statements(entries)` (documents reversed so the earliest-loaded wins: managed policy, then
   an integration document, then user and project files; an integration document's statements read
-  `Blocked by <organization>'s policy`), `decision`, `find`, `provider_allowed`, `mcp_allowed`, `skill_allowed`
-  and `tool_denial`.
+  `Blocked by <organization>'s policy`), `decision`, `find`, `provider_allowed`, `mcp_allowed` (`mcp.use`),
+  `skill_allowed` (`skill.use`), `plugin_allowed`/`plugin_policy_target` (`plugin.use` on the target without its
+  `@version` unless absolute), `connect_denial` (`integration.connect`), `integration_resource`
+  (`<integration>#<account>` or the bare id), `account` (credential `metadata.orgID`, else `accountID`),
+  `integration_denied` and `tool_denial`.
+- `Loader::load` withholds what a denied integration supplies: only managed policies decide (`integration.use` on the
+  integration document's connection account, or a well-known document's origin), and a withheld document keeps only
+  its `policies`.
 
 ### `integration`: integration config documents (`config/integration.ts`)
-- `Entry::Document` carries an optional `IntegrationSource` (`integrationID`, `connection`, `organization`) for
-  a document an integration connection contributes, such as the OpenCode Console's workspace config.
-  `Loader::with_integrations` loads them right after managed policies.
+- `Entry::Document` carries an optional `IntegrationSource` (`integrationID`, `connection`, `organization`, and the
+  unserialized `account` of its stored credential) for a document an integration connection contributes, such as the
+  OpenCode Console's workspace config. `Loader::with_integrations` loads them right after managed policies.
+- `suppliers(entries)`: the well-known origin whose document last defines each provider.
 - `decode_remote(body)` reads only `providers`, `mcp`, `policies` (statements with an unknown action or effect
   dropped) and `websearch`; `make(...)` strips provider `env`, every `apiKey`/`authToken`/`accessToken` setting and
   local MCP servers.

@@ -124,7 +124,7 @@ pub fn subagent_depth(entries: &[Entry]) -> u64 {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CompactionSettings {
     pub auto: Option<bool>,
-    pub buffer: Option<u64>,
+    pub buffer: Option<crate::schema::CompactionBuffer>,
     pub keep: Option<u64>,
 }
 
@@ -136,7 +136,7 @@ pub fn compaction(entries: &[Entry]) -> CompactionSettings {
             out.auto = c.auto;
         }
         if c.buffer.is_some() {
-            out.buffer = c.buffer;
+            out.buffer = c.buffer.clone();
         }
         if let Some(t) = c.keep.as_ref().and_then(|k| k.tokens) {
             out.keep = Some(t);

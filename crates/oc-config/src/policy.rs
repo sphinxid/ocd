@@ -94,14 +94,58 @@ pub fn provider_allowed(policies: &[Statement], provider_id: &str) -> bool {
     find(policies, PolicyAction::ProviderUse, provider_id).map(|p| p.effect) != Some(PolicyEffect::Deny)
 }
 
-/// `integration.use` against `mcp:<name>`.
+/// `mcp.use` against the server name.
 pub fn mcp_allowed(policies: &[Statement], name: &str) -> bool {
-    decision(policies, PolicyAction::IntegrationUse, &format!("mcp:{name}")) != PolicyEffect::Deny
+    decision(policies, PolicyAction::McpUse, name) != PolicyEffect::Deny
 }
 
-/// `integration.use` against `skill:<id>`.
+/// `skill.use` against the skill id.
 pub fn skill_allowed(policies: &[Statement], id: &str) -> bool {
-    decision(policies, PolicyAction::IntegrationUse, &format!("skill:{id}")) != PolicyEffect::Deny
+    decision(policies, PolicyAction::SkillUse, id) != PolicyEffect::Deny
+}
+
+/// `plugin.use` against a plugin operation target (`PluginModule.make`): the target without its `@version`, unless
+/// it is an absolute path.
+pub fn plugin_allowed(policies: &[Statement], target: &str) -> bool {
+    decision(policies, PolicyAction::PluginUse, &plugin_policy_target(target)) != PolicyEffect::Deny
+}
+
+/// The resource `plugin.use` matches: `target` with a trailing `@version` removed (`lastIndexOf("@") > 0`), kept
+/// whole when it is an absolute path.
+pub fn plugin_policy_target(target: &str) -> String {
+    let version = target.rfind('@').filter(|&i| i > 0);
+    match version {
+        Some(i) if !Path::new(target).is_absolute() => target[..i].to_string(),
+        _ => target.to_string(),
+    }
+}
+
+/// `ManagedPolicy.integrationResource`: `<integration>#<account>` when a connection with a known account backs what
+/// the integration supplies, otherwise the bare integration id (env keys, local config, the signed-out free tier).
+pub fn integration_resource(integration_id: &str, account: Option<&str>) -> String {
+    match account {
+        Some(account) if !account.is_empty() => format!("{integration_id}#{account}"),
+        _ => integration_id.to_string(),
+    }
+}
+
+/// `ManagedPolicy.account`: the organization, or failing that the account, a stored credential's metadata names.
+pub fn account(metadata: Option<&serde_json::Map<String, serde_json::Value>>) -> Option<String> {
+    let metadata = metadata?;
+    ["orgID", "accountID"]
+        .iter()
+        .find_map(|k| metadata.get(*k).and_then(serde_json::Value::as_str).filter(|v| !v.is_empty()))
+        .map(String::from)
+}
+
+/// `integration.use` denies what integration `integration_id` supplies through `account`.
+pub fn integration_denied(policies: &[Statement], integration_id: &str, account: Option<&str>) -> bool {
+    decision(policies, PolicyAction::IntegrationUse, &integration_resource(integration_id, account)) == PolicyEffect::Deny
+}
+
+/// `integration.connect`: the statement denying that integration `id` is listed or connected, if any.
+pub fn connect_denial<'a>(policies: &'a [Statement], id: &str) -> Option<&'a Statement> {
+    find(policies, PolicyAction::IntegrationConnect, id).filter(|p| p.effect == PolicyEffect::Deny)
 }
 
 /// Permission evaluate hook: the first resource whose last matching `tool.use` statement denies
@@ -144,6 +188,7 @@ pub fn read_update_policy(global_config: &Path) -> UpdatePolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::decode::Decode;
     use crate::schema::{Info, Policy};
 
     #[test]
@@ -172,7 +217,9 @@ mod tests {
                 integration_id: "opencode".into(),
                 connection: serde_json::json!({"type": "credential", "id": "crd_1", "label": "Acme", "method": "oauth"}),
                 organization: organization.map(String::from),
+                account: None,
             }),
+            wellknown: None,
         }
     }
 
@@ -194,13 +241,13 @@ mod tests {
         assert!(!provider_allowed(&s, "openai"));
 
         // A Console document loads right after managed policies, so its policies outrank user and project ones.
-        let org = console(vec![pol(PolicyAction::IntegrationUse, "mcp:*", PolicyEffect::Deny)], Some("Acme"));
-        let user = doc(vec![pol(PolicyAction::IntegrationUse, "mcp:github", PolicyEffect::Allow)]);
+        let org = console(vec![pol(PolicyAction::McpUse, "*", PolicyEffect::Deny)], Some("Acme"));
+        let user = doc(vec![pol(PolicyAction::McpUse, "github", PolicyEffect::Allow)]);
         let s = statements(&[org.clone(), user]);
         assert_eq!(s[1].message, "Blocked by Acme's policy");
         assert!(!mcp_allowed(&s, "github"));
         assert!(skill_allowed(&s, "x"));
-        let s = statements(&[console(vec![pol(PolicyAction::IntegrationUse, "mcp:*", PolicyEffect::Deny)], None)]);
+        let s = statements(&[console(vec![pol(PolicyAction::McpUse, "*", PolicyEffect::Deny)], None)]);
         assert_eq!(s[0].message, "Blocked by your organization's policy");
     }
 
@@ -216,6 +263,55 @@ mod tests {
         assert!(tool_denial(&s, "shell", &["git push origin".into()]).is_some());
         assert!(tool_denial(&s, "shell", &["ls".into()]).is_some());
         assert_eq!(decision(&s, PolicyAction::ToolUse, "read:x"), PolicyEffect::Allow);
+    }
+
+    #[test]
+    fn plugin_targets_drop_their_version_unless_absolute() {
+        assert_eq!(plugin_policy_target("opencode-foo@1.2.3"), "opencode-foo");
+        assert_eq!(plugin_policy_target("@scope/pkg@2"), "@scope/pkg");
+        assert_eq!(plugin_policy_target("@scope/pkg"), "@scope/pkg");
+        assert_eq!(plugin_policy_target("plain"), "plain");
+        assert_eq!(plugin_policy_target("/abs/dir@v2/plugin.ts"), "/abs/dir@v2/plugin.ts");
+        assert_eq!(plugin_policy_target("file:///x/p@1"), "file:///x/p");
+        let s = statements(&[doc(vec![pol(PolicyAction::PluginUse, "opencode-*", PolicyEffect::Deny)])]);
+        assert!(!plugin_allowed(&s, "opencode-foo@1.2.3"));
+        assert!(plugin_allowed(&s, "other@1"));
+    }
+
+    #[test]
+    fn integration_resources_name_the_account() {
+        assert_eq!(integration_resource("opencode", Some("org_1")), "opencode#org_1");
+        assert_eq!(integration_resource("opencode", None), "opencode");
+        assert_eq!(integration_resource("opencode", Some("")), "opencode");
+        let meta = |v: serde_json::Value| v.as_object().cloned();
+        assert_eq!(account(meta(serde_json::json!({"orgID": "o", "accountID": "a"})).as_ref()), Some("o".into()));
+        assert_eq!(account(meta(serde_json::json!({"orgID": "", "accountID": "a"})).as_ref()), Some("a".into()));
+        assert_eq!(account(meta(serde_json::json!({"orgID": 5})).as_ref()), None);
+        assert_eq!(account(None), None);
+        // A bare pattern only matches connectionless use; `opencode#*` every account.
+        let s = statements(&[doc(vec![pol(PolicyAction::IntegrationUse, "opencode", PolicyEffect::Deny)])]);
+        assert!(integration_denied(&s, "opencode", None));
+        assert!(!integration_denied(&s, "opencode", Some("org_1")));
+        let s = statements(&[doc(vec![pol(PolicyAction::IntegrationUse, "opencode#*", PolicyEffect::Deny)])]);
+        assert!(integration_denied(&s, "opencode", Some("org_1")));
+        assert!(!integration_denied(&s, "opencode", None));
+    }
+
+    #[test]
+    fn legacy_integration_use_resources_convert() {
+        let decode = |v: serde_json::Value| Policy::decode(&v).unwrap();
+        let p = decode(serde_json::json!({"action": "integration.use", "resource": "mcp:github", "effect": "deny"}));
+        assert_eq!((p.action, p.resource.as_str()), (PolicyAction::McpUse, "github"));
+        let p = decode(serde_json::json!({"action": "integration.use", "resource": "skill:a:b", "effect": "deny"}));
+        assert_eq!((p.action, p.resource.as_str()), (PolicyAction::SkillUse, "a:b"));
+        let p = decode(serde_json::json!({"action": "integration.use", "resource": "plugin:*", "effect": "allow"}));
+        assert_eq!((p.action, p.resource.as_str()), (PolicyAction::PluginUse, "*"));
+        let p = decode(serde_json::json!({"action": "integration.use", "resource": "*", "effect": "deny"}));
+        assert_eq!((p.action, p.resource.as_str()), (PolicyAction::IntegrationUse, "*"));
+        let p = decode(serde_json::json!({"action": "integration.use", "resource": "https://x.dev:8080", "effect": "deny"}));
+        assert_eq!((p.action, p.resource.as_str()), (PolicyAction::IntegrationUse, "https://x.dev:8080"));
+        let p = decode(serde_json::json!({"action": "tool.use", "resource": "mcp:x", "effect": "deny"}));
+        assert_eq!((p.action, p.resource.as_str()), (PolicyAction::ToolUse, "mcp:x"));
     }
 
     #[test]

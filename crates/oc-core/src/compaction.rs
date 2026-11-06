@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use oc_ai::catalog::ResolvedModel;
+use oc_config::schema::CompactionBuffer;
 use oc_ai::error::FailureClassification;
 use oc_ai::types::{
     ContentPart, GenerationOptions, Message as LlmMessage, Role, SystemPart, ToolContent as LlmToolContent, ToolEntry,
@@ -210,8 +211,9 @@ pub struct Interrupted;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
     pub auto: bool,
-    /// Tokens kept free below the model's limits before compacting. Unset keeps 15%, and at least 16k, free.
-    pub buffer: Option<u64>,
+    /// Room kept free below the model's window before compacting: tokens, or a share such as `"20%"`. Unset keeps
+    /// 15%, and at least 16k, free.
+    pub buffer: Option<CompactionBuffer>,
     /// Tokens of recent conversation kept verbatim beside the summary.
     pub keep: u64,
     /// Background summaries (`experimental.background_compaction`).
@@ -322,9 +324,12 @@ fn estimate_llm_request(r: &LLMRequest) -> u64 {
     estimate_request(&r.system, &r.tools, &r.messages)
 }
 
+/// `inputWindow`: the largest prompt the model takes, or 0 when unknown. Unknown limits are reported as 0, and an
+/// unknown input limit falls back to the context window. The context window also holds the reply, so an input limit
+/// above it, as some catalogs and config overrides report, cannot be used in full.
 fn window(context: i64, input: Option<i64>) -> i64 {
-    // Unknown limits are reported as 0. An unknown input limit falls back to the context window.
     match input {
+        Some(i) if i != 0 && context != 0 => i.min(context),
         Some(i) if i != 0 => i,
         _ => context,
     }
@@ -333,16 +338,16 @@ fn window(context: i64, input: Option<i64>) -> i64 {
 /// `calculateCeiling(limit, buffer)`: the largest request the model takes while leaving room for its reply:
 /// `RESERVE_SHARE` of the window, or `RESERVE_MIN` when that is more. A window too small to give up
 /// `RESERVE_MIN` keeps `RESERVE_SHARE`. `None` is +∞ (unknown window: auto compaction never triggers).
-pub fn calculate_ceiling(context: i64, input: Option<i64>, buffer: Option<u64>) -> Option<i64> {
+pub fn calculate_ceiling(context: i64, input: Option<i64>, buffer: Option<&CompactionBuffer>) -> Option<i64> {
     let window = window(context, input);
     if window <= 0 {
         return None;
     }
     // A buffer that leaves no room, such as one set for a larger model, is ignored.
-    if let Some(b) = buffer
-        && (b as i64) < window
+    if let Some(tokens) = buffer.map(|b| b.tokens(window))
+        && tokens < window
     {
-        return Some(window - b as i64);
+        return Some(window - tokens);
     }
     let share = (window as f64 * RESERVE_SHARE).floor() as i64;
     Some(window - share.max(if window >= 2 * RESERVE_MIN { RESERVE_MIN } else { 0 }))
@@ -1300,7 +1305,7 @@ impl Engine {
         }
         if trigger == Trigger::Auto {
             let limit = session_model.limit();
-            if !self.compaction_due(loaded, calculate_ceiling(limit.context, limit.input, settings.buffer)) {
+            if !self.compaction_due(loaded, calculate_ceiling(limit.context, limit.input, settings.buffer.as_ref())) {
                 return Ok(CompactOutcome::Skipped);
             }
         }
@@ -1310,8 +1315,8 @@ impl Engine {
         let model = agent_model.as_ref().unwrap_or(session_model);
         let limit = model.limit();
         // An unknown window never triggers auto compaction, but the compaction request still needs a size to aim for.
-        let cap = calculate_ceiling(limit.context, limit.input, settings.buffer)
-            .or_else(|| calculate_ceiling(UNKNOWN_WINDOW, limit.input, settings.buffer))
+        let cap = calculate_ceiling(limit.context, limit.input, settings.buffer.as_ref())
+            .or_else(|| calculate_ceiling(UNKNOWN_WINDOW, limit.input, settings.buffer.as_ref()))
             .unwrap_or(i64::MAX);
         // The provider just rejected this context, so the estimate ran low; the first attempt already aims below it.
         let budget = if trigger == Trigger::Overflow {
@@ -1423,7 +1428,7 @@ impl Engine {
             return Ok(());
         }
         let limit = loaded.resolved.limit();
-        let Some(ceiling) = calculate_ceiling(limit.context, limit.input, settings.buffer) else { return Ok(()) };
+        let Some(ceiling) = calculate_ceiling(limit.context, limit.input, settings.buffer.as_ref()) else { return Ok(()) };
         let estimate = self.estimate_prompt(loaded);
         if self.compaction_due_with(loaded, Some(ceiling), Some(estimate)) {
             return Ok(());
@@ -1465,8 +1470,8 @@ impl Engine {
         }
         let model = self.compaction_model(loaded).await.unwrap_or_else(|| loaded.resolved.clone());
         let model_limit = model.limit();
-        let cap = calculate_ceiling(model_limit.context, model_limit.input, settings.buffer)
-            .or_else(|| calculate_ceiling(UNKNOWN_WINDOW, model_limit.input, settings.buffer))
+        let cap = calculate_ceiling(model_limit.context, model_limit.input, settings.buffer.as_ref())
+            .or_else(|| calculate_ceiling(UNKNOWN_WINDOW, model_limit.input, settings.buffer.as_ref()))
             .unwrap_or(i64::MAX);
         let usage = Arc::new(Mutex::new(Vec::new()));
         let state = Arc::new(AtomicU8::new(0));

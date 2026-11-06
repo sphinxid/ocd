@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use axum::{body::Body, response::Response, routing::post, Router};
 use oc_ai::types::{ContentPart, Message as LlmMessage, ToolDefinition, ToolEntry, ToolNamespace};
+use oc_config::schema::CompactionBuffer;
 use oc_core::compaction::*;
 use oc_core::recent_text::*;
 use oc_core::{app::App, inbox::Scope, runner::Engine, session::{CreateInput, PromptInput}};
@@ -68,8 +69,9 @@ fn token_estimate_rounds_like_js() {
 
 #[test]
 fn ceiling() {
+    let tokens = CompactionBuffer::Tokens;
     assert_eq!(calculate_ceiling(0, None, None), None);
-    assert_eq!(calculate_ceiling(0, Some(0), Some(10)), None);
+    assert_eq!(calculate_ceiling(0, Some(0), Some(&tokens(10))), None);
     // 15% beats the 16k reserve
     assert_eq!(calculate_ceiling(200_000, None, None), Some(170_000));
     // 16k reserve beats 15%
@@ -82,11 +84,25 @@ fn ceiling() {
     assert_eq!(calculate_ceiling(400_000, Some(272_000), None), Some(231_200));
     assert_eq!(calculate_ceiling(100_000, Some(0), None), Some(84_000));
     // explicit buffer
-    assert_eq!(calculate_ceiling(100_000, None, Some(5_000)), Some(95_000));
+    assert_eq!(calculate_ceiling(100_000, None, Some(&tokens(5_000))), Some(95_000));
     // A buffer that leaves the model no room, such as one set for a larger model, falls back to the default reserve.
-    assert_eq!(calculate_ceiling(100_000, None, Some(150_000)), Some(84_000));
-    assert_eq!(calculate_ceiling(100_000, None, Some(100_000)), Some(84_000));
-    assert_eq!(calculate_ceiling(100_000, None, Some(99_999)), Some(1));
+    assert_eq!(calculate_ceiling(100_000, None, Some(&tokens(150_000))), Some(84_000));
+    assert_eq!(calculate_ceiling(100_000, None, Some(&tokens(100_000))), Some(84_000));
+    assert_eq!(calculate_ceiling(100_000, None, Some(&tokens(99_999))), Some(1));
+    // An input limit above the context window, as some catalogs and config overrides report, cannot be used in
+    // full (2.2.5: 108,799 is not due, 108,800 is); with no context window the input limit is the window.
+    assert_eq!(calculate_ceiling(128_000, Some(272_000), None), Some(108_800));
+    assert_eq!(calculate_ceiling(0, Some(272_000), None), Some(231_200));
+    assert_eq!(summary_room(128_000, Some(272_000), None), 112_000);
+    // A percentage buffer is a share of the model's window: 25% of 100k is due at 75,000, not at 74,999.
+    let percent = |p: &str| CompactionBuffer::Percent(p.into());
+    assert_eq!(calculate_ceiling(100_000, None, Some(&percent("25%"))), Some(75_000));
+    assert_eq!(calculate_ceiling(128_000, Some(272_000), Some(&percent("20%"))), Some(102_400));
+    // Math.round: 12.5% of 99,999 is 12,499.875 → 12,500; 0.5 rounds up.
+    assert_eq!(calculate_ceiling(99_999, None, Some(&percent("12.5%"))), Some(87_499));
+    assert_eq!(calculate_ceiling(10, None, Some(&percent("5%"))), Some(9));
+    assert_eq!(calculate_ceiling(30, None, Some(&percent("5%"))), Some(28));
+    assert_eq!(calculate_ceiling(100_000, None, Some(&percent("99%"))), Some(1_000));
 }
 
 #[test]

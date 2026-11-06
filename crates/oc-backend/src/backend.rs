@@ -648,8 +648,13 @@ impl Backend for Engine {
 
     async fn integration_list(&self, ctx: &RequestContext, _req: IntegrationListRequest) -> Result<Vec<IntegrationInfo>, ApiError> {
         let integrations = self.integrations_ready(ctx).await?;
+        // `integration.connect` decides which integrations are listed; MCP logins are never filtered.
+        let statements = self.statements(&ctx.location.directory).await?;
         let list = integrations.list().await.map_err(integration_error)?;
-        list.iter().map(conv).collect()
+        list.iter()
+            .filter(|i| is_mcp_integration(i) || oc_config::policy::connect_denial(&statements, &i.id).is_none())
+            .map(conv)
+            .collect()
     }
 
     async fn integration_get(&self, ctx: &RequestContext, req: IntegrationGetRequest) -> Result<IntegrationInfo, ApiError> {
@@ -663,6 +668,9 @@ impl Backend for Engine {
         req: ExperimentalIntegrationWellknownAddRequest,
     ) -> Result<(), ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
+        // Well-known sources are integrations keyed by their origin as entered.
+        let id = req.body.url.trim_end_matches('/');
+        self.require_connectable(&loc.key, &self.models().integrations_for(Some(&loc.key)), id).await?;
         let entry = self
             .wellknown
             .add(&req.body.url)
@@ -675,6 +683,7 @@ impl Backend for Engine {
 
     async fn integration_connect_key(&self, ctx: &RequestContext, req: IntegrationConnectKeyRequest) -> Result<(), ApiError> {
         let integrations = self.integrations_ready(ctx).await?;
+        self.require_connectable(&ctx.location.directory, &integrations, &req.integration_id).await?;
         self.integration(&integrations, &req.integration_id).await?;
         let answer = req.body.answer.map(conv).transpose()?;
         integrations
@@ -685,6 +694,7 @@ impl Backend for Engine {
 
     async fn integration_connect_external(&self, ctx: &RequestContext, req: IntegrationConnectExternalRequest) -> Result<(), ApiError> {
         let integrations = self.integrations_ready(ctx).await?;
+        self.require_connectable(&ctx.location.directory, &integrations, &req.integration_id).await?;
         self.integration(&integrations, &req.integration_id).await?;
         let answer = req.body.answer.map(conv).transpose()?;
         integrations
@@ -695,6 +705,7 @@ impl Backend for Engine {
 
     async fn integration_oauth_connect(&self, ctx: &RequestContext, req: IntegrationOauthConnectRequest) -> Result<IntegrationAttemptEncoded, ApiError> {
         let integrations = self.integrations_ready(ctx).await?;
+        self.require_connectable(&ctx.location.directory, &integrations, &req.integration_id).await?;
         let input = oc_ai::credentials::integration::OAuthConnect {
             integration_id: req.integration_id,
             method_id: req.body.method_id,
@@ -739,6 +750,7 @@ impl Backend for Engine {
 
     async fn integration_command_connect(&self, ctx: &RequestContext, req: IntegrationCommandConnectRequest) -> Result<IntegrationCommandAttempt, ApiError> {
         let integrations = self.integrations_ready(ctx).await?;
+        self.require_connectable(&ctx.location.directory, &integrations, &req.integration_id).await?;
         let info = self.integration(&integrations, &req.integration_id).await?;
         let has = info.methods.iter().any(|m| m.kind() == "command" && m.id() == Some(req.body.method_id.as_str()));
         if !has {
@@ -809,6 +821,12 @@ impl Backend for Engine {
     }
 
     async fn credential_create(&self, _ctx: &RequestContext, req: CredentialCreateRequest) -> Result<CredentialEntry, ApiError> {
+        // Credentials are global, so `integration.connect` is read from the global config location, which carries
+        // managed policy, the Console document and user config.
+        let global = self.app.global.config.display().to_string();
+        let loc = self.locations.get(&global).await?;
+        let integrations = self.models().integrations_for(Some(&loc.key));
+        self.require_connectable(&loc.key, &integrations, &req.body.integration_id).await?;
         let b = req.body;
         let store = self.credentials();
         if let Some(id) = &b.id
@@ -1619,6 +1637,11 @@ impl Backend for Engine {
     }
 }
 
+/// An MCP server's OAuth login (`metadata.source == "mcp"`).
+fn is_mcp_integration(info: &oc_ai::credentials::integration::IntegrationInfo) -> bool {
+    info.metadata.as_ref().and_then(|m| m.get("source")).and_then(Value::as_str) == Some("mcp")
+}
+
 /// Credential listings mark each integration's last credential (in list order) active.
 fn credential_entries(items: &[oc_ai::credentials::Credential]) -> Vec<Value> {
     let mut selected = std::collections::HashMap::new();
@@ -1823,6 +1846,31 @@ impl Engine {
             return Err(ApiError::form_not_found(form_id));
         }
         Ok(form)
+    }
+
+    /// `ManagedPolicy.statements(config.entries())` of a location: every config statement, whether or not the
+    /// `opencode.config.policy` plugin runs.
+    async fn statements(&self, directory: &str) -> Result<Vec<oc_config::policy::Statement>, ApiError> {
+        let loc = self.locations.get(directory).await?;
+        Ok(oc_config::policy::statements(&loc.location.entries))
+    }
+
+    /// `requireConnectable`: `integration.connect` decides which integrations can be connected (MCP logins skip it).
+    async fn require_connectable(
+        &self,
+        directory: &str,
+        integrations: &oc_ai::credentials::Integrations,
+        id: &str,
+    ) -> Result<(), ApiError> {
+        if integrations.get(id).await.ok().flatten().is_some_and(|i| is_mcp_integration(&i)) {
+            return Ok(());
+        }
+        let statements = self.statements(directory).await?;
+        match oc_config::policy::connect_denial(&statements, id) {
+            Some(denied) => Err(ApiError::invalid_request(format!("{}: connecting {id} is not allowed", denied.message))
+                .with_kind("integration_policy")),
+            None => Ok(()),
+        }
     }
 
     fn credentials(&self) -> &Arc<dyn oc_ai::credentials::CredentialStore> {

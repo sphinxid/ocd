@@ -4,10 +4,10 @@
 //! that connection.
 
 use crate::decode::Decode;
-use crate::schema::{Entry, Info, IntegrationSource, Mcp, McpServer};
+use crate::schema::{Entry, Info, IntegrationSource, Mcp, McpServer, PolicyAction};
 use serde_json::{Map, Value};
 
-const POLICY_ACTIONS: &[&str] = &["provider.use", "tool.use", "integration.use"];
+const POLICY_ACTIONS: &[&str] = PolicyAction::ALL;
 const POLICY_EFFECTS: &[&str] = &["allow", "deny"];
 
 /// `ConfigIntegration.Policies`: statements whose action or effect is a value this version does not know are
@@ -85,8 +85,21 @@ pub fn make(integration_id: &str, connection: Value, organization: Option<String
     Entry::Document {
         path: None,
         info: Info { providers, mcp, policies: remote.policies, websearch: remote.websearch, ..Default::default() },
-        integration: Some(IntegrationSource { integration_id: integration_id.into(), connection, organization }),
+        integration: Some(IntegrationSource { integration_id: integration_id.into(), connection, organization, account: None }),
+        wellknown: None,
     }
+}
+
+/// `ConfigIntegration.suppliers`: the well-known origin whose delivered document last defines each provider.
+pub fn suppliers(entries: &[Entry]) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    for entry in entries {
+        let (Some(origin), Some(info)) = (entry.wellknown(), entry.info()) else { continue };
+        for id in info.providers.iter().flat_map(|p| p.keys()) {
+            out.insert(id.clone(), origin.to_string());
+        }
+    }
+    out
 }
 
 #[cfg(test)]
