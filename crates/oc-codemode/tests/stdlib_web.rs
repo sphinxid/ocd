@@ -482,6 +482,12 @@ const decoder = new TextDecoder()
 return [[...bytes], decoder.decode(bytes), decoder.decode(), [...encoder.encode()], encoder.encoding, decoder.encoding, decoder.fatal, decoder.ignoreBOM, new TextDecoder("UTF8", { fatal: true }).fatal, new TextDecoder().decode(new Uint8Array([0xef, 0xbb, 0xbf, 0x41])), new TextDecoder("utf-8", { ignoreBOM: true }).decode(new Uint8Array([0xef, 0xbb, 0xbf, 0x41])), new TextDecoder().decode(new Uint8Array([0xff])), encoder instanceof TextEncoder, decoder instanceof TextDecoder]"####,
             r####"{"ok":true,"value":[[104,195,169,108,108,111,32,226,156,147],"héllo ✓","",[],"utf-8","utf-8",false,false,true,"A","﻿A","�",true,true],"toolCalls":[]}"####,
         ),
+        // stdlib.test.ts "encodes null as text while omitted and undefined inputs stay empty" (#57639).
+        (
+            r####"const encoder = new TextEncoder()
+return [[...encoder.encode(null)], [...encoder.encode()], [...encoder.encode(undefined)]]"####,
+            r####"{"ok":true,"value":[[110,117,108,108],[],[]],"toolCalls":[]}"####,
+        ),
         (
             r####"new TextDecoder("latin1")"####,
             r####"{"ok":false,"error":{"kind":"ExecutionFailure","message":"RangeError: The \"latin1\" encoding is not supported; only UTF-8 is. (line 1, col 1)","location":{"line":1,"column":1}},"toolCalls":[]}"####,
@@ -633,6 +639,7 @@ parts.push(first, it.next(), new TextDecoder().decode(new TextEncoder().encode("
 return parts"####,
             r####"{"ok":true,"value":[[99,2,99,7,8,200],[99,7,8],[7,8],3,2,"630708","YwcI",8,2,false,"99-7-8",2,[99,2,8,7,99,200],[99,2,7,8,99,200],[99,2,0,0,0,200],3,3,3,[105],[1,2,1,2,3],[2,3,4,5,5],{"value":99,"done":false},{"value":77,"done":false},"y"],"toolCalls":[]}"####,
         ),
+        // `encode(null)` encodes "null" since 2.2.5 (#57639).
         (
             r####"const enc = new TextEncoder()
 const dec = new TextDecoder()
@@ -647,7 +654,7 @@ out.push(m(() => new TextDecoder("utf-16le")), m(() => new TextDecoder("  Latin1
 out.push(m(() => TextDecoder.prototype.decode.call({})), m(() => TextDecoder.prototype.encoding), m(() => TextDecoder.prototype.fatal), m(() => TextEncoder()), TextEncoder.prototype.encoding, m(() => TextEncoder.prototype.encode.call(5, "a").length), m(() => TextDecoder.prototype.decode.call(new TextEncoder(), new Uint8Array(1))))
 out.push(new TextEncoder(), new TextDecoder(), JSON.stringify(new TextDecoder()), Object.keys(new TextDecoder("utf8", { fatal: true })), TextEncoder.prototype.encode.length, TextDecoder.prototype.decode.length, TextDecoder.name)
 return out"####,
-            r####"{"ok":true,"value":["utf-8",[],[],[],[49,50],[239,191,189],[97,239,191,189,239,191,189,98],[240,159,152,128,195,169],"utf-8",false,false,"","","hi",2,1,"�A�(�😀���������","�","�","�����","utf-8","utf-8","utf-8","utf-8","utf-8","utf-8","utf-8","RangeError: The \"utf-16le\" encoding is not supported; only UTF-8 is.","RangeError: The \"latin1\" encoding is not supported; only UTF-8 is.","RangeError: The \"null\" encoding is not supported; only UTF-8 is.","RangeError: The \"\" encoding is not supported; only UTF-8 is.",{},"RangeError: The \"[object object]\" encoding is not supported; only UTF-8 is.","TypeError: TextDecoder.decode expects a Uint8Array, received an array.","TypeError: TextDecoder.decode expects a Uint8Array, received null.","TypeError: TextDecoder.decode expects a Uint8Array, received a string.","TypeError: TextDecoder.decode: the input is not valid utf-8.",true,false,"a",true,"TypeError: TextDecoder.prototype.decode called on incompatible receiver a data object.","TypeError: TextDecoder.prototype.encoding called on incompatible receiver a data object.","TypeError: TextDecoder.prototype.fatal called on incompatible receiver a data object.","TypeError: Constructor TextEncoder requires 'new'.","utf-8",1,"TypeError: TextDecoder.prototype.decode called on incompatible receiver a data object.",{},{},"{}",[],0,0,"TextDecoder"],"toolCalls":[]}"####,
+            r####"{"ok":true,"value":["utf-8",[],[],[110,117,108,108],[49,50],[239,191,189],[97,239,191,189,239,191,189,98],[240,159,152,128,195,169],"utf-8",false,false,"","","hi",2,1,"�A�(�😀���������","�","�","�����","utf-8","utf-8","utf-8","utf-8","utf-8","utf-8","utf-8","RangeError: The \"utf-16le\" encoding is not supported; only UTF-8 is.","RangeError: The \"latin1\" encoding is not supported; only UTF-8 is.","RangeError: The \"null\" encoding is not supported; only UTF-8 is.","RangeError: The \"\" encoding is not supported; only UTF-8 is.",{},"RangeError: The \"[object object]\" encoding is not supported; only UTF-8 is.","TypeError: TextDecoder.decode expects a Uint8Array, received an array.","TypeError: TextDecoder.decode expects a Uint8Array, received null.","TypeError: TextDecoder.decode expects a Uint8Array, received a string.","TypeError: TextDecoder.decode: the input is not valid utf-8.",true,false,"a",true,"TypeError: TextDecoder.prototype.decode called on incompatible receiver a data object.","TypeError: TextDecoder.prototype.encoding called on incompatible receiver a data object.","TypeError: TextDecoder.prototype.fatal called on incompatible receiver a data object.","TypeError: Constructor TextEncoder requires 'new'.","utf-8",1,"TypeError: TextDecoder.prototype.decode called on incompatible receiver a data object.",{},{},"{}",[],0,0,"TextDecoder"],"toolCalls":[]}"####,
         ),
         (
             r####"const b = new Uint8Array([1, 2, 3, 4])

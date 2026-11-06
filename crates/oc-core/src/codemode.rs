@@ -1,5 +1,5 @@
 //! CodeMode exposure as the `execute` tool, its catalog instructions, and the `fetch` extension
-//! (`core/src/codemode/{tool,catalog,instructions,web}.ts`). The interpreter lives in `oc-codemode`.
+//! (`core/src/codemode/{tool,catalog,instructions,fetch}.ts`). The interpreter lives in `oc-codemode`.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -14,6 +14,7 @@ use oc_codemode::tool_schema::ToolSchema;
 use oc_schema::{Metadata, ToolContent};
 use oc_tools::registry::{execute_tool as run_tool, ExecuteHooks, NoHooks};
 use oc_tools::tool::{normalized_name, DefinitionContext};
+use oc_tools::host::PermissionError;
 use oc_tools::{Snapshot, Tool, ToolContext, ToolDefinition, ToolError, ToolResult};
 use serde_json::{json, Value};
 
@@ -140,10 +141,49 @@ fn entries(snapshot: &Snapshot) -> Vec<ToolEntry> {
     out
 }
 
-fn runtime(snapshot: &Snapshot, host: Arc<dyn Host>) -> CodeMode {
-    let extension = oc_codemode::web::extension(Arc::new(oc_codemode::web::ReqwestClient::new()));
+fn runtime(snapshot: &Snapshot, host: Arc<dyn Host>, authorize: Option<oc_codemode::web::Authorize>) -> CodeMode {
+    let extension = oc_codemode::web::extension_with(Arc::new(oc_codemode::web::ReqwestClient::new()), authorize);
     CodeMode::new(entries(snapshot), host, vec![extension], ExecutionLimits::default())
         .expect("CodeMode tool names are validated at registration")
+}
+
+/// `codemode/fetch.ts`: the same rules as the webfetch tool, so a URL denied there is denied here. A correction
+/// reaches the program as the error's message; a decline ends the execution like a declined tool call.
+fn fetch_authorize(ctx: ToolContext, stop: Stopper) -> oc_codemode::web::Authorize {
+    Arc::new(move |url: String, args: Vec<HostValue>| {
+        let ctx = ctx.clone();
+        let stop = stop.clone();
+        Box::pin(async move {
+            let metadata: Metadata = execute_tool::fetch_display(&args).into_iter().collect();
+            let request = ctx.permission("webfetch", vec![url.clone()], Some(vec!["*".into()]), Some(metadata));
+            match ctx.host.ask_permission(request).await {
+                Ok(()) => Ok(()),
+                Err(PermissionError::Corrected { feedback }) => {
+                    Err(HostValue::error("Error", format!("The user rejected fetching {url}: {feedback}")))
+                }
+                Err(PermissionError::Blocked { message }) | Err(PermissionError::Other { message }) => Err(HostValue::error("Error", message)),
+                Err(defect) => {
+                    stop.stop(defect.into_tool_error(""));
+                    Err(HostValue::error("Error", ""))
+                }
+            }
+        }) as BoxFuture<'static, Result<(), HostValue>>
+    })
+}
+
+/// Ends an execution with a defect (a declined permission) the way upstream's `Effect.die` does: the program
+/// stops and the `execute` call fails with the defect instead of a result.
+#[derive(Clone, Default)]
+struct Stopper {
+    defect: Arc<Mutex<Option<ToolError>>>,
+    token: tokio_util::sync::CancellationToken,
+}
+
+impl Stopper {
+    fn stop(&self, error: ToolError) {
+        self.defect.lock().unwrap().get_or_insert(error);
+        self.token.cancel();
+    }
 }
 
 /// Host used only to render the catalog (no tool may run).
@@ -165,7 +205,7 @@ pub fn catalog_inventory(snapshot: &Snapshot) -> Vec<catalog::CatalogEntry> {
         .collect();
     let namespaces: Vec<(String, Option<String>)> =
         snapshot.namespaces.iter().map(|n| (n.name.clone(), Some(n.description.clone()))).collect();
-    let descriptions = runtime(snapshot, Arc::new(CatalogOnly)).catalog();
+    let descriptions = runtime(snapshot, Arc::new(CatalogOnly), None).catalog();
     catalog::inventory(&descriptions, &namespaces, &pinned)
 }
 
@@ -198,6 +238,17 @@ struct Collected {
     files: Vec<ExecuteFile>,
 }
 
+/// Execute progress throttling: each update replaces the last, so at most one is sent per 100 ms, and a trailing
+/// one carries the latest rows (`codemode/tool.ts` `record`/`publish`).
+const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
+#[derive(Default)]
+struct Throttle {
+    published_at: Option<tokio::time::Instant>,
+    /// The pending trailing update.
+    trailing: Option<tokio::task::JoinHandle<()>>,
+}
+
 /// The host bridging programs to the registry's CodeMode tools.
 struct ExecuteHost {
     tools: Vec<(String, String, Arc<dyn Tool>)>,
@@ -205,18 +256,67 @@ struct ExecuteHost {
     /// `tool.execute.before/after` for nested calls (`beforeExecute` → `executeTool`).
     hooks: Arc<dyn ExecuteHooks>,
     rows: ProgressRows,
-    progress_lock: Mutex<()>,
+    throttle: Mutex<Throttle>,
     calls: Mutex<usize>,
     files: Arc<Mutex<Vec<Collected>>>,
+    stop: Stopper,
+    this: std::sync::Weak<ExecuteHost>,
 }
 
 impl ExecuteHost {
-    fn publish(&self, rows: Option<Vec<execute_tool::ExecuteCall>>) {
-        let Some(rows) = rows else { return };
-        let _guard = self.progress_lock.lock().unwrap();
+    /// Sends the current rows (the caller holds the throttle lock).
+    fn publish_locked(&self, throttle: &mut Throttle) {
+        throttle.trailing = None;
+        throttle.published_at = Some(tokio::time::Instant::now());
         let mut metadata = Metadata::new();
-        metadata.insert("toolCalls".into(), serde_json::to_value(rows).unwrap_or(Value::Array(Vec::new())));
+        metadata.insert("toolCalls".into(), serde_json::to_value(self.rows.rows()).unwrap_or(Value::Array(Vec::new())));
         self.ctx.progress(metadata);
+    }
+
+    /// `record`: the rows already changed; publish now, or schedule the trailing update unless one is pending.
+    fn record(&self, changed: bool) {
+        if !changed {
+            return;
+        }
+        let mut throttle = self.throttle.lock().unwrap();
+        if throttle.trailing.is_some() {
+            return;
+        }
+        let now = tokio::time::Instant::now();
+        let due = throttle.published_at.map(|at| at + PROGRESS_INTERVAL).filter(|due| *due > now);
+        let Some(due) = due else { return self.publish_locked(&mut throttle) };
+        let this = self.this.clone();
+        throttle.trailing = Some(tokio::spawn(async move {
+            tokio::time::sleep_until(due).await;
+            if let Some(host) = this.upgrade() {
+                let mut throttle = host.throttle.lock().unwrap();
+                if throttle.trailing.is_some() {
+                    host.publish_locked(&mut throttle);
+                }
+            }
+        }));
+    }
+
+    /// A success drops the pending update, since the result carries the final rows.
+    fn drop_trailing(&self) {
+        if let Some(handle) = self.throttle.lock().unwrap().trailing.take() {
+            handle.abort();
+        }
+    }
+
+    /// The execution ends without a result: running calls settle as errors, and the pending rows are sent.
+    fn interrupt(&self) {
+        self.record(self.rows.interrupt_running());
+        self.flush_trailing();
+    }
+
+    /// A failed or interrupted execution keeps its last progress, so pending rows are sent before it settles.
+    fn flush_trailing(&self) {
+        let mut throttle = self.throttle.lock().unwrap();
+        if let Some(handle) = throttle.trailing.take() {
+            handle.abort();
+            self.publish_locked(&mut throttle);
+        }
     }
 }
 
@@ -250,20 +350,29 @@ impl Host for ExecuteHost {
         };
         let mut ctx = self.ctx.clone();
         ctx.call_id = oc_schema::id::ascending("call");
+        // Progress replaces the execute call's own, so an inner tool's updates would hide the call rows (#60480).
+        ctx.progress = Arc::new(|_| {});
         let files = self.files.clone();
         let hooks = self.hooks.clone();
+        let stop = self.stop.clone();
         Box::pin(async move {
             let Some((_, name, tool)) = found else {
                 return Err(ToolCallError::failure("Execute context is unavailable"));
             };
+            // The program sees the same failure text the model gets for a direct call (#60109); a defect such as
+            // a declined permission ends the execution instead.
+            let fail = |e: ToolError| {
+                if e.is_defect() {
+                    let message = e.model_message();
+                    stop.stop(e);
+                    return ToolCallError::Failure(message);
+                }
+                ToolCallError::Failure(e.model_message())
+            };
             let mut input = input.unwrap_or(Value::Null);
             let mut hooked = name.clone();
-            hooks.before(&mut hooked, &mut input, &ctx).await.map_err(|e| ToolCallError::Failure(e.model_message()))?;
-            // The program sees the failure's own message (`Cause.prettyErrors`), not its unwrapped cause:
-            // a browser URL refusal reads "Invalid browser URL. ..." rather than "Unsupported browser URL".
-            let executed = run_tool(tool.as_ref(), &name, input, ctx, hooks.as_ref())
-                .await
-                .map_err(|e| ToolCallError::Failure(if e.message.is_empty() { e.model_message() } else { e.message }))?;
+            hooks.before(&mut hooked, &mut input, &ctx).await.map_err(fail)?;
+            let executed = run_tool(tool.as_ref(), &name, input, ctx, hooks.as_ref()).await.map_err(fail)?;
             let collected = output_files(&executed.content);
             if !collected.is_empty() {
                 files.lock().unwrap().push(Collected { index, files: collected });
@@ -273,22 +382,22 @@ impl Host for ExecuteHost {
     }
 
     fn tool_before(&self, call: &ToolInvocation) -> BoxFuture<'static, Result<(), ToolCallError>> {
-        let rows = self.rows.tool_started(call);
-        self.publish(Some(rows));
+        self.rows.tool_started(call);
+        self.record(true);
         Box::pin(async { Ok(()) })
     }
 
     fn tool_after(&self, call: &ToolInvocation, result: &CallResult) {
-        self.publish(self.rows.settled(call.id, result));
+        self.record(self.rows.settled(call.id, result).is_some());
     }
 
     fn extension_before(&self, call: &ExtensionInvocation) -> BoxFuture<'static, Result<(), HostValue>> {
-        self.publish(self.rows.extension_started(call));
+        self.record(self.rows.extension_started(call).is_some());
         Box::pin(async { Ok(()) })
     }
 
     fn extension_after(&self, call: &ExtensionInvocation, result: &CallResult) {
-        self.publish(self.rows.settled(call.id, result));
+        self.record(self.rows.settled(call.id, result).is_some());
     }
 }
 
@@ -310,21 +419,37 @@ pub async fn execute_with(snapshot: &Snapshot, input: Value, ctx: ToolContext, h
         .iter()
         .map(|(name, tool)| (qualified_name(tool.as_ref()), name.clone(), tool.clone()))
         .collect();
-    let host = Arc::new(ExecuteHost {
+    let stop = Stopper::default();
+    let host = Arc::new_cyclic(|this| ExecuteHost {
         tools,
         ctx: ctx.clone(),
         hooks,
         rows: ProgressRows::new(),
-        progress_lock: Mutex::new(()),
+        throttle: Mutex::new(Throttle::default()),
         calls: Mutex::new(0),
         files: files.clone(),
+        stop: stop.clone(),
+        this: this.clone(),
     });
-    let runtime = runtime(snapshot, host.clone());
+    let runtime = runtime(snapshot, host.clone(), Some(fetch_authorize(ctx.clone(), stop.clone())));
     let cancel = ctx.cancel.clone();
     let result = tokio::select! {
         result = runtime.execute(&code) => result,
-        _ = cancel.cancelled() => return Err(ToolError::interrupted()),
+        _ = cancel.cancelled() => {
+            host.interrupt();
+            return Err(ToolError::interrupted());
+        }
+        _ = stop.token.cancelled() => {
+            host.interrupt();
+            let defect = stop.defect.lock().unwrap().take();
+            return Err(defect.unwrap_or_else(ToolError::declined));
+        }
     };
+    if let Some(defect) = stop.defect.lock().unwrap().take() {
+        host.interrupt();
+        return Err(defect);
+    }
+    host.drop_trailing();
     let tool_calls = host.rows.rows();
     let mut collected = std::mem::take(&mut *files.lock().unwrap());
     collected.sort_by_key(|c| c.index);

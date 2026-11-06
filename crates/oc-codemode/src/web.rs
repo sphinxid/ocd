@@ -1,6 +1,7 @@
-//! The `fetch` extension (core's `codemode/web.ts`): a host-provided outbound HTTP capability with a 30 s timeout
+//! The `fetch` extension (core's `codemode/fetch.ts`): a host-provided outbound HTTP capability with a 30 s timeout
 //! that buffers the whole body and returns `{ url, status, statusText, ok, redirected, headers: { get, has,
-//! entries }, text(), json(), bytes() }`.
+//! entries }, text(), json(), bytes() }`. The host may check each request first (core asserts the `webfetch`
+//! permission); a rejection rejects the program's promise and nothing is sent.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,13 +12,23 @@ use crate::host::{host_fn, host_fn_async, HostCall, HostFunction, HostValue, Htt
 
 pub const TIMEOUT_MS: u64 = 30_000;
 
-/// The `web` extension exposing `fetch`.
+/// Checks a `fetch` call before anything is sent: `(url, args)`, where `url` is `String(input)`. An `Err` is the
+/// rejection the program sees.
+pub type Authorize = Arc<dyn Fn(String, Vec<HostValue>) -> BoxFuture<'static, Result<(), HostValue>> + Send + Sync>;
+
+/// The `fetch` extension exposing `fetch`, without a permission check.
 pub fn extension(client: Arc<dyn HttpClient>) -> Arc<dyn crate::host::Extension> {
-    Arc::new(SimpleExtension { name: "web".into(), globals: vec![("fetch".into(), fetch_function(client))] })
+    extension_with(client, None)
+}
+
+/// The `fetch` extension, checking each call with `authorize` after the `file:` refusal.
+pub fn extension_with(client: Arc<dyn HttpClient>, authorize: Option<Authorize>) -> Arc<dyn crate::host::Extension> {
+    Arc::new(SimpleExtension { name: "fetch".into(), globals: vec![("fetch".into(), Arc::new(Fetch { client, authorize }) as Arc<dyn HostFunction>)] })
 }
 
 struct Fetch {
     client: Arc<dyn HttpClient>,
+    authorize: Option<Authorize>,
 }
 
 impl HostFunction for Fetch {
@@ -38,12 +49,13 @@ impl HostFunction for Fetch {
                 Err(HostValue::error("Error", "fetch cannot be used for filesystem access."))
             }));
         }
-        let request = match build_request(&args) {
-            Ok(r) => r,
-            Err(e) => return HostCall::Pending(Box::pin(async move { Err(e) })),
-        };
         let client = self.client.clone();
+        let authorize = self.authorize.clone();
         HostCall::Pending(Box::pin(async move {
+            if let Some(authorize) = authorize {
+                authorize(string_of(args.first().unwrap_or(&HostValue::Undefined)), args.clone()).await?;
+            }
+            let request = build_request(&args)?;
             match client.send(request).await {
                 Ok(response) => Ok(response_value(response)),
                 Err(message) => Err(HostValue::error("TypeError", message)),
@@ -53,7 +65,7 @@ impl HostFunction for Fetch {
 }
 
 pub fn fetch_function(client: Arc<dyn HttpClient>) -> Arc<dyn HostFunction> {
-    Arc::new(Fetch { client })
+    Arc::new(Fetch { client, authorize: None })
 }
 
 fn string_of(value: &HostValue) -> String {

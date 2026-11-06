@@ -186,6 +186,17 @@ impl ProgressRows {
     pub fn settled(&self, id: u64, result: &CallResult) -> Option<Vec<ExecuteCall>> {
         self.settle(id, result)
     }
+    /// The execution was interrupted: calls still running settle as errors, as their `tool.after` would see the
+    /// interruption. Returns whether a row changed.
+    pub fn interrupt_running(&self) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        let mut changed = false;
+        for row in inner.0.iter_mut().filter(|row| row.status == CallStatus::Running) {
+            row.status = CallStatus::Error;
+            changed = true;
+        }
+        changed
+    }
     /// `extension.before`: only listed extension functions (`fetch`) get a row.
     pub fn extension_started(&self, call: &ExtensionInvocation) -> Option<Vec<ExecuteCall>> {
         match call.name.as_str() {

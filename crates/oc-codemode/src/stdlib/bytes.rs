@@ -525,7 +525,8 @@ pub fn text_encoder_global(rt: &Rt) -> Value {
         &proto,
         vec![method("encode", 0, |rt, _, _, args| {
             let input = match arg(&args, 0) {
-                Value::Undefined | Value::Null => JsStr::empty(),
+                // Only undefined is empty; null encodes as "null" (#57639).
+                Value::Undefined => JsStr::empty(),
                 other => coerce_to_string(&other),
             };
             let bytes = String::from_utf16_lossy(input.units()).into_bytes();

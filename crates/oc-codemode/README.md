@@ -24,7 +24,7 @@ strings match upstream byte for byte (verified by replaying upstream's recorded 
 | `data` | JSON boundary (`data.ts`): `toJson`/`toBoundary`/`fromJson`, JS-compatible JSON text |
 | `tool_runtime`, `tool_schema` | Tool trie, `search`, admission/limits/hooks (`tool-runtime.ts`); JSON Schema → TypeScript signatures (`tool-schema.ts`) |
 | `codemode` | Public runtime API, limits, output bounding (`codemode.ts`, `interpreter/execute.ts`) |
-| `catalog`, `execute_tool`, `web` | Core glue: catalog summarization and instruction texts (`core/src/codemode/{catalog,instructions}.ts`), the `execute` tool's description/schema/result formatting/progress rows (`codemode/tool.ts`), and the `fetch` extension (`codemode/web.ts`) |
+| `catalog`, `execute_tool`, `web` | Core glue: catalog summarization and instruction texts (`core/src/codemode/{catalog,instructions}.ts`), the `execute` tool's description/schema/result formatting/progress rows (`codemode/tool.ts`), and the `fetch` extension (`codemode/fetch.ts`) |
 | `openapi` | OpenAPI 3.x → tools adapter (`openapi/*.ts`; unused by core upstream) |
 
 Each execution runs on a dedicated thread (1 GiB stack, so deep recursion up to the 10 000-call limit is safe) with
@@ -115,9 +115,12 @@ fields, and nested host functions that become callable program functions). A hos
 `HostCall::Ready` (synchronous) or `HostCall::Pending` (the program sees a promise).
 
 HTTP: `host::{HttpClient, HttpRequest, HttpResponse}`; `web::ReqwestClient` is the default client.
-`web::extension(client)` is the `web` extension exposing `fetch(url, { method?, headers?, body? })` with a 30 s
+`web::extension(client)` is the `fetch` extension exposing `fetch(url, { method?, headers?, body? })` with a 30 s
 timeout and the upstream response shape `{ url, status, statusText, ok, redirected, headers: { get, has, entries },
-text(), json(), bytes() }`.
+text(), json(), bytes() }`. `web::extension_with(client, Some(authorize))` checks each call after the `file:` refusal
+and before anything is sent (core asserts the `webfetch` permission, `codemode/fetch.ts`); an `Err` rejects the
+program's promise. `ProgressRows::interrupt_running` settles the rows of calls still running as errors when an
+execution is interrupted.
 
 ### The `execute` tool and catalog instructions
 

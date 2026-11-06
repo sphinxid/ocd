@@ -219,7 +219,8 @@ async fn execute_runs_nested_tools_with_progress_and_files() {
     let metadata = result.metadata.unwrap();
     assert_eq!(metadata["toolCalls"], output["toolCalls"]);
     let rows: Vec<Value> = progress.lock().unwrap().iter().map(|m| m["toolCalls"].clone()).collect();
-    assert_eq!(rows.len(), 4);
+    // Progress is throttled to one update per 100 ms, and a success drops the pending one (#60120).
+    assert_eq!(rows.len(), 1);
     assert_eq!(rows[0], json!([{ "tool": "orders.lookup", "status": "running", "input": { "id": "o1" } }]));
 }
 
