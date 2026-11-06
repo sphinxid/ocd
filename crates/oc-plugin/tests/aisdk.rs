@@ -287,6 +287,8 @@ async fn plugin_hooks_and_http_middleware() {
     assert_eq!(seen.len(), 1);
     let headers = &seen[0]["headers"];
     assert_eq!(headers["x-fixture-aisdk"], format!("{}|fixture/m1|function|fixture", provider_url()));
+    // The plugin's `sdk` hook ran before the dynamic npm fallback (a `post` plugin since 2.2.5).
+    assert_eq!(headers["x-fixture-before"], "undefined");
     assert_eq!(headers["authorization"], "Bearer k");
     assert!(seen[0]["body"].as_str().unwrap().contains("\"model\":\"m1-wrapped\""));
     // The request hook's header reached the server; the response hook rewrote the body.

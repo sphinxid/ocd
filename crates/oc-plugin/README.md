@@ -18,12 +18,13 @@ What is out of scope:
 Upstream references used throughout: `packages/plugin/src/*` (public API, adapter, host, runtime)
 and `packages/core/src/plugin/{host,hooks,module,supervisor}.ts`, `packages/core/src/plugin.ts`,
 `packages/core/src/rpc.ts` and `packages/util/src/npm.ts` at commit `4617210822bd`. The bundled
-plugin-facing packages (`@opencode/plugin`, schema, protocol, `effect`) are upstream's v2.2.2, so
+plugin-facing packages (`@opencode/plugin`, schema, protocol, `effect`) are upstream's v2.2.5, so
 Promise plugins get 2.2's adapter: `ctx.permission.assert`, `ctx.credential.activate`,
 `ctx.session.list`, thrown tool errors and rejected `tool.execute.before` hooks failing only that
 call, and (2.2) `ctx.session.instructions.entry.{list,put,remove}`, `ctx.experimental.generate.{text,
 image,decisions}` (`ctx.generate.text` is deprecated), `ctx.event.subscribe({types})`, `ctx.model.list({types})`,
-`untracked` on `ctx.vcs.diff` and the `experimental.idle` session hook.
+`untracked` on `ctx.vcs.diff` and the `experimental.idle` session hook. `ctx.experimental.artifact.{transform,
+reload}` (2.2.5) exists but is a stub: ocd has no artifact service yet, so a registered provider is never used.
 
 ## Architecture
 
@@ -124,6 +125,7 @@ The protocol is newline-delimited JSON-RPC 2.0 (`src/protocol.rs`, `host/src/pee
 | `aisdk.load` | `{location, model, enabled?}` | `{}`; or an error with `type` `aisdk.init` and `data.detail` (upstream `causeMessage`) |
 | `aisdk.stream` | `{location, model, options, stream, http?: {response}, enabled?}` | `null` after the last part; or an error with `type` `aisdk.error` and `data: {operation, shape}` |
 | `aisdk.close` | `{location}` | `null` (drops the location's language model and SDK caches) |
+| `claude.transcript` | `{op: "exists" \| "fork" \| "remove", sessionID, messageID?}` | the Claude Agent provider's transcript operations with the real `@anthropic-ai/claude-agent-sdk` 0.3.301 (`getSessionInfo`, `forkSession` + `getSessionMessages` as upstream's `claude/fork.ts`, `deleteSession`): `true`/`false`, `{sessionID, messages: {old: new}}` or `null`, `null` |
 
 ### Sidecar → Rust
 
@@ -479,7 +481,10 @@ registers `session.http.request` for `github-copilot` (oc-core `copilot::http_re
 on requests that carry `x-api-key`), so every Copilot request goes through this middleware, as upstream.
 
 **Internal provider plugins** run first, in upstream's order, gated by the location's plugin
-configuration (`-opencode.provider.dynamic` etc.):
+configuration (`-opencode.provider.dynamic` etc.). `opencode.provider.dynamic` is a `post` internal plugin
+(#60380): its `sdk` hook runs after every SDK, instance and external plugin's `sdk` hook. The Claude Agent
+provider (`opencode.provider.claude-agent`) never reaches the sidecar: oc-core serves its language model natively
+(`oc_core::claude_agent::bridge`), so an external plugin's `aisdk.sdk` hook cannot replace it:
 
 | plugin | hooks | ocd |
 |---|---|---|
@@ -553,7 +558,7 @@ Without an override, Bun 1.4.4 is downloaded from the release for this platform:
 BUN=/path/to/bun-1.4.4 scripts/build-plugin-host.sh /path/to/opencode-checkout
 ```
 
-The checkout must be at upstream's `v2.2.2` tag, with `bun install` run at its root (the committed
+The checkout must be at upstream's `v2.2.5` tag, with `bun install` run at its root (the committed
 bundle was built that way with Bun 1.4.4, the version the sidecar runs on).
 `host/build.ts` bundles `host/src/main.ts` with `Bun.build` into `host/dist/host.js` (about 2.6 MiB):
 

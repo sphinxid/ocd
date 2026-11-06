@@ -123,6 +123,12 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
       },
     },
     experimental: {
+      // Artifact providers (`experimental.artifacts`, #60351): ocd has no artifact service yet, so a registered
+      // provider is never used and reloading does nothing, as with the feature off upstream.
+      artifact: {
+        transform: (_callback: (editor: any) => void) => Effect.void,
+        reload: () => Effect.void,
+      },
       terminal: {
         read: api("persistentPty.read"),
       },

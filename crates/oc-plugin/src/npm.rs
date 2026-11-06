@@ -405,6 +405,11 @@ impl Npm {
             if update {
                 command.arg("--force");
             }
+            // The Claude Agent SDK is only used for its transcript file functions: never fetch its optional
+            // native Claude Code binaries (or the peers its query API needs).
+            if pkg.starts_with("@anthropic-ai/claude-agent-sdk@") {
+                command.args(["--omit=optional", "--omit=peer"]);
+            }
             let output = command.output().await.map_err(|e| failed(e.to_string()))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();

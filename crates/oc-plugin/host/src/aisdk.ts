@@ -287,7 +287,10 @@ function installSpec(name: string) {
   return /^@ai-sdk\/[^/@]+$/.test(name) ? `${name}@ai-v6` : name
 }
 
-async function importInstalled(io: BridgeIO, spec: string, specifier?: string) {
+/** The Claude Agent SDK version upstream 2.2.5 bundles (`@anthropic-ai/claude-agent-sdk`). */
+export const CLAUDE_SDK_SPEC = "@anthropic-ai/claude-agent-sdk@0.3.301"
+
+export async function importInstalled(io: BridgeIO, spec: string, specifier?: string) {
   const installed = await io.request("npm.add", { spec })
   const resolved = Bun.resolveSync(specifier ?? installed.name, installed.directory)
   return (await import(resolved.startsWith("node:") ? resolved : pathToFileURL(resolved).href)) as Record<string, unknown>
@@ -319,6 +322,8 @@ type Entry<E> = { readonly callback: Hook<E>; readonly internal?: string }
 export class AISDKService {
   private sdkHooks: Entry<SDKEvent>[] = []
   private languageHooks: Entry<LanguageEvent>[] = []
+  /** `post` internal plugins' `sdk` hooks (the dynamic npm fallback): after every other plugin's. */
+  private postSdkHooks: Entry<SDKEvent>[] = []
   /** Internal plugin ids still enabled by the location's configuration (`-opencode.provider.x`). */
   enabled: ReadonlySet<string> | undefined
   private readonly languages = new Map<string, any>()
@@ -331,6 +336,9 @@ export class AISDKService {
     private readonly app: () => unknown,
   ) {
     for (const [id, plugin] of internalPlugins) plugin(this, io, app, id)
+    // opencode.provider.dynamic is a `post` internal plugin (#60380): it runs after SDK, instance and external
+    // plugins registered their `sdk` hooks.
+    dynamic(this, io, app, "opencode.provider.dynamic")
   }
 
   private cacheKey(input: unknown) {
@@ -347,16 +355,19 @@ export class AISDKService {
   }
 
   /** Registers a hook (`internal`: the internal plugin id); returns its disposer. */
-  hook(name: "sdk" | "language", callback: Hook<any>, internal?: string) {
+  hook(name: "sdk" | "language", callback: Hook<any>, internal?: string, post = false) {
     const entry: Entry<any> = internal === undefined ? { callback } : { callback, internal }
-    if (name === "sdk") this.sdkHooks = [...this.sdkHooks, entry]
+    if (name === "sdk" && post) this.postSdkHooks = [...this.postSdkHooks, entry]
+    else if (name === "sdk") this.sdkHooks = [...this.sdkHooks, entry]
     else this.languageHooks = [...this.languageHooks, entry]
     let active = true
     return () => {
       if (!active) return
       active = false
-      if (name === "sdk") this.sdkHooks = this.sdkHooks.filter((item) => item !== entry)
-      else this.languageHooks = this.languageHooks.filter((item) => item !== entry)
+      if (name === "sdk") {
+        this.sdkHooks = this.sdkHooks.filter((item) => item !== entry)
+        this.postSdkHooks = this.postSdkHooks.filter((item) => item !== entry)
+      } else this.languageHooks = this.languageHooks.filter((item) => item !== entry)
     }
   }
 
@@ -400,7 +411,7 @@ export class AISDKService {
     let sdk = this.sdks.get(sdkKey)
     if (!sdk) {
       try {
-        sdk = (await this.run(this.sdkHooks, { model, package: pkg, options } as SDKEvent)).sdk
+        sdk = (await this.run([...this.sdkHooks, ...this.postSdkHooks], { model, package: pkg, options } as SDKEvent)).sdk
       } catch (cause) {
         throw new InitError(cause)
       }
@@ -636,19 +647,24 @@ function record(input: unknown): input is Record<string, any> {
 
 // opencode.provider.dynamic (plugin/provider/dynamic.ts): any other package from npm (or file://).
 const dynamic: Internal = (service, io, _app, id) => {
-  service.hook("sdk", async (evt: SDKEvent) => {
-    if (evt.sdk) return
-    evt.sdk = ((await loadSDKFactory(io, evt.package)) as (options: any) => any)(evt.options)
-  }, id)
+  service.hook(
+    "sdk",
+    async (evt: SDKEvent) => {
+      if (evt.sdk) return
+      evt.sdk = ((await loadSDKFactory(io, evt.package)) as (options: any) => any)(evt.options)
+    },
+    id,
+    true,
+  )
 }
 
-// ProviderPlugins order: github-copilot, gitlab, sap-ai-core, ..., dynamic. Cohere, Perplexity and Vercel are
-// no longer special-cased (2.2): they install from npm like any other AI SDK package.
+// ProviderPlugins order: github-copilot, gitlab, sap-ai-core, ..., claude-agent (served natively by ocd, in
+// front of this service). Cohere, Perplexity and Vercel are no longer special-cased (2.2): they install from npm
+// like any other AI SDK package. The dynamic fallback is a `post` plugin (registered in the constructor).
 const internalPlugins: [string, Internal][] = [
   ["opencode.provider.github.copilot", githubCopilot],
   ["opencode.provider.gitlab", gitlab],
   ["opencode.provider.sap.ai.core", sapAICore],
-  ["opencode.provider.dynamic", dynamic],
 ]
 
 // -------------------------------------------------------------------------------------------

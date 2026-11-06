@@ -163,6 +163,18 @@ impl PluginHost {
             let _ = sidecar.request("aisdk.close", json!({ "location": location.key() })).await;
         }
     }
+
+    /// The Claude Agent provider's transcript operations (`getSessionInfo`, `forkSession` with
+    /// `getSessionMessages`, `deleteSession` of `@anthropic-ai/claude-agent-sdk` 0.3.301, which only
+    /// read and write files under Claude Code's config directory). `params` is
+    /// `{op: "exists" | "fork" | "remove", sessionID, messageID?}`; starts the sidecar when needed.
+    pub async fn claude_transcript(&self, params: Value) -> Result<Value, String> {
+        let sidecar = self.sidecar().await?;
+        sidecar.request("claude.transcript", params).await.map_err(|error| match error {
+            CallError::Remote(error) => error.message,
+            CallError::Closed(message) => format!("Plugin host is not running: {message}"),
+        })
+    }
 }
 
 /// Answers the sidecar's `aisdk.http.request` / `aisdk.http.response` calls.

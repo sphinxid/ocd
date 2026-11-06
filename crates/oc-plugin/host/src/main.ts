@@ -7,7 +7,7 @@ import { makeLoader, type Installed, type Operation } from "./loader.js"
 import { LocationRuntime, type Generation } from "./location.js"
 import { isDomain } from "./domains.js"
 import { log, logError, Peer, RemoteError } from "./peer.js"
-import { AISDKService, initFailure, stream as aisdkStream } from "./aisdk.js"
+import { AISDKService, CLAUDE_SDK_SPEC, importInstalled, initFailure, stream as aisdkStream } from "./aisdk.js"
 
 export const PROTOCOL = 1
 
@@ -141,6 +141,49 @@ peer.handle(
 peer.handle("aisdk.close", (params: { location: string }) => {
   aisdk.delete(params.location)
   return null
+})
+
+// The Claude Agent provider's transcript operations (claude/io.ts, claude/fork.ts) with the real SDK's file-only
+// functions. The SDK is installed into ocd's npm cache on first use (without its optional native `claude`).
+let claudeSDK: Promise<any> | undefined
+function loadClaudeSDK() {
+  claudeSDK ??= importInstalled(io, CLAUDE_SDK_SPEC, "@anthropic-ai/claude-agent-sdk").catch((cause) => {
+    // Let the next request try again, for example after the SDK is installed.
+    claudeSDK = undefined
+    throw new Error("Claude Agent SDK isn't installed. Install @anthropic-ai/claude-agent-sdk to use Claude Agent.", { cause })
+  })
+  return claudeSDK
+}
+
+peer.handle("claude.transcript", async (params: { op: string; sessionID: string; messageID?: string }) => {
+  const { deleteSession, forkSession, getSessionInfo, getSessionMessages } = await loadClaudeSDK()
+  if (params.op === "exists") return (await getSessionInfo(params.sessionID)) !== undefined
+  if (params.op === "remove") {
+    await deleteSession(params.sessionID)
+    return null
+  }
+  // The SDK gives forked messages fresh UUIDs. Verify the copied prefix before mapping checkpoints onto them.
+  const source = await getSessionMessages(params.sessionID)
+  const end = source.findIndex((message: any) => message.uuid === params.messageID)
+  if (end < 0) return null
+  const fork = await forkSession(params.sessionID, { upToMessageId: params.messageID })
+  try {
+    const copied = await getSessionMessages(fork.sessionId)
+    if (copied.length !== end + 1) throw new Error("Claude fork did not preserve the requested history boundary")
+    const messages: Record<string, string> = {}
+    for (let i = 0; i < copied.length; i++) {
+      const before = source[i]!
+      const after = copied[i]!
+      if (before.type !== after.type || JSON.stringify(before.message) !== JSON.stringify(after.message)) {
+        throw new Error("Claude fork changed the copied conversation")
+      }
+      messages[before.uuid] = after.uuid
+    }
+    return { sessionID: fork.sessionId, messages }
+  } catch (error) {
+    await deleteSession(fork.sessionId)
+    throw error
+  }
 })
 
 peer.handle("location.list", (params: { location: string }) => location(params.location).list())
