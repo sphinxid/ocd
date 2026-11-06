@@ -433,6 +433,34 @@ fn respells_inherited_variants_when_config_moves_a_catalog_model_to_another_pack
 }
 
 #[test]
+fn preserves_plugin_supplied_variants_on_custom_models_when_config_omits_variants() {
+    let tiers: Vec<Variant> = ["none", "low", "medium", "xhigh"]
+        .iter()
+        .map(|id| Variant { id: id.to_string(), settings: Some(obj(json!({ "reasoningEffort": id }))), ..Default::default() })
+        .collect();
+    let catalog = build(vec![
+        models(|e| {
+            for id in ["plain", "same-package"] {
+                e.update("custom", id, |m| m.variants = tiers.clone());
+            }
+            e.update("per-model", "only-model-package", |m| m.variants = tiers.clone());
+        }),
+        Box::new(ConfigProviders::from_value(&json!({
+            "custom": {
+                "package": "aisdk:@ai-sdk/openai-compatible",
+                "models": { "plain": { "name": "Plain" }, "same-package": { "package": "aisdk:@ai-sdk/openai-compatible" } }
+            },
+            "per-model": { "models": { "only-model-package": { "package": "aisdk:@ai-sdk/openai-compatible" } } }
+        }))),
+    ]);
+    let ids = |p: &str, m: &str| catalog.model(p, m).unwrap().variants.iter().map(|v| v.id.clone()).collect::<Vec<_>>();
+    let expected: Vec<String> = tiers.iter().map(|v| v.id.clone()).collect();
+    assert_eq!(ids("custom", "plain"), expected);
+    assert_eq!(ids("custom", "same-package"), expected);
+    assert_eq!(ids("per-model", "only-model-package"), expected);
+}
+
+#[test]
 fn builds_configured_reasoning_variants_after_provider_and_model_package_normalization() {
     let catalog = build(vec![Box::new(ConfigProviders::from_value(&json!({"custom": {
         "package": "aisdk:@ai-sdk/openai",

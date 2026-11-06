@@ -490,7 +490,9 @@ impl CatalogPlugin for ConfigProviders {
             let (provider_id, item) = &self.entries[*index];
             for (mid, config) in item.models.iter().flatten() {
                 let source = definitions.get(mid);
-                let inherit = source.map(|s| s.inherit).unwrap_or(false) || editor.get(provider_id, mid).is_none();
+                let existing = editor.get(provider_id, mid);
+                let had_variants = existing.is_some_and(|m| !m.variants.is_empty());
+                let inherit = source.map(|s| s.inherit).unwrap_or(false) || existing.is_none();
                 let base = source.and_then(|s| s.base.as_ref());
                 editor.update(provider_id, mid, |model| {
                     if inherit {
@@ -526,7 +528,8 @@ impl CatalogPlugin for ConfigProviders {
                     !base.variants.is_empty() && editor.get(provider_id, mid).map(|m| &m.package) != Some(&base.package)
                 });
                 let reasoning = config.capabilities.as_ref().is_some_and(|c| c.reasoning.is_some());
-                if config.variants.is_none() && !reasoning && (base.is_none() || repackaged) {
+                // Custom models start without variants, so non-empty variants here came from an earlier transform.
+                if config.variants.is_none() && !reasoning && ((base.is_none() && !had_variants) || repackaged) {
                     editor.update(provider_id, mid, |model| {
                         let mut probe = model.clone();
                         probe.package = model.package.clone().or(provider_package);
