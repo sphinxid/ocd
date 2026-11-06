@@ -28,7 +28,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Kind::Primary => "primary",
             Kind::Compaction => "compaction",
@@ -81,6 +81,7 @@ pub async fn shape(
     model: &ModelRef,
     req: &mut LLMRequest,
     preset: Option<String>,
+    agent_system: Option<&str>,
 ) -> Result<Shaped, HookError> {
     let mut shaped = Shaped::default();
     let hook = kind.hook();
@@ -89,6 +90,10 @@ pub async fn shape(
         crate::goal::remind(plugins.db(), session_id, &mut req.messages);
     }
     omit_openai_output_limit(plugins, key, kind, model, req);
+    // The Claude Agent plugin's `context` / `generate` / `compaction` hooks (a provider plugin).
+    if claude_agent_applies(plugins, key, &model.provider_id) {
+        crate::claude_agent::hooks::shape(kind, agent_system, req);
+    }
     default_text_verbosity(plugins, key, model, req);
     if plugins.has_hook(key, hook, Some(&model.provider_id)) {
         let mut event = Map::new();
@@ -243,10 +248,15 @@ fn openai_model_request(plugins: &Arc<Plugins>, key: &str, session_id: &str, mod
     req.http = Some(http);
 }
 
-/// Whether a `session.retry` hook runs for the model: a plugin registered one, or the ChatGPT
-/// plugin's built-in hook applies (token sharing).
+/// Whether the built-in Claude Agent plugin's hooks run for the provider.
+fn claude_agent_applies(plugins: &Arc<Plugins>, key: &str, provider_id: &str) -> bool {
+    provider_id == crate::claude_agent::PROVIDER_ID && plugins.builtin_enabled(key, crate::claude_agent::PLUGIN_ID)
+}
+
+/// Whether a `session.retry` hook runs for the model: a plugin registered one, or the ChatGPT or
+/// Claude Agent plugin's built-in hook applies.
 pub fn has_retry_hook(plugins: &Arc<Plugins>, key: &str, provider_id: &str) -> bool {
-    plugins.has_hook(key, "session.retry", Some(provider_id)) || chatgpt_retry_applies(plugins, key, provider_id)
+    plugins.has_hook(key, "session.retry", Some(provider_id)) || chatgpt_retry_applies(plugins, key, provider_id) || claude_agent_applies(plugins, key, provider_id)
 }
 
 fn chatgpt_retry_applies(plugins: &Arc<Plugins>, key: &str, provider_id: &str) -> bool {
@@ -453,6 +463,10 @@ pub async fn model_request(
         req.http = Some(http);
     }
     openai_model_request(plugins, key, session_id, model, req);
+    if claude_agent_applies(plugins, key, &model.provider_id) {
+        let fork = if kind == Kind::Primary { plugins.db().session_get(session_id).ok().flatten().and_then(|s| s.fork).map(|f| f.session_id) } else { None };
+        crate::claude_agent::hooks::model_request(kind, fork.as_deref(), req);
+    }
     if !plugins.has_hook(key, "session.model.request", Some(&model.provider_id)) {
         return Ok(());
     }
@@ -503,6 +517,11 @@ pub async fn retry(
     if chatgpt_retry_applies(plugins, key, &model.provider_id)
         && oc_ai::catalog::openai::token_sharing_forbids_retry(error.response.as_ref().map(|r| r.body.as_str()))
     {
+        decision = json!({ "retry": false });
+    }
+    // The Claude Agent plugin's hook: Claude Code already retries API failures. Replaying the whole turn here also
+    // retries permanent billing errors.
+    if claude_agent_applies(plugins, key, &model.provider_id) {
         decision = json!({ "retry": false });
     }
     if !plugins.has_hook(key, "session.retry", Some(&model.provider_id)) {

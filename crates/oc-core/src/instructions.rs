@@ -138,11 +138,18 @@ pub fn diff(sources: &[Source], previous: Option<&Map<String, Value>>) -> Result
 }
 
 pub fn render_initial(sources: &[Source], values: &Map<String, Value>) -> String {
-    sources
-        .iter()
-        .filter_map(|s| values.get(&s.key).and_then(|v| (s.initial)(v)))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    join(&render_initial_keyed(sources, values))
+}
+
+/// `renderInitial`: each source's rendered text, keyed so consumers can tell the sources apart
+/// (`Instructions.Rendered`).
+pub fn render_initial_keyed(sources: &[Source], values: &Map<String, Value>) -> Vec<(String, String)> {
+    sources.iter().filter_map(|s| values.get(&s.key).and_then(|v| (s.initial)(v)).map(|text| (s.key.clone(), text))).collect()
+}
+
+/// `Instructions.join`: the text models see for rendered sources.
+pub fn join(rendered: &[(String, String)]) -> String {
+    rendered.iter().map(|(_, text)| text.as_str()).collect::<Vec<_>>().join("\n\n")
 }
 
 /// `delta` maps key → `Some(current)` or `None` (removed).

@@ -70,6 +70,7 @@ impl Engine {
             &model.model_ref(),
             &mut req,
             preset,
+            None,
         )
         .await;
         let http = match shaped {

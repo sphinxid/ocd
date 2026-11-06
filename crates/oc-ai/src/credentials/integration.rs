@@ -985,12 +985,13 @@ impl Integrations {
     }
 
     /// Reports or clears a runtime problem with a connection.
-    pub fn set_status(&self, integration_id: &str, connection: &ConnectionInfo, status: Option<ConnectionStatus>) {
+    /// Returns whether the status changed.
+    pub fn set_status(&self, integration_id: &str, connection: &ConnectionInfo, status: Option<ConnectionStatus>) -> bool {
         let key = Self::status_key(integration_id, &connection.without_status());
         {
             let mut statuses = self.statuses.lock();
             if statuses.get(&key) == status.as_ref() {
-                return;
+                return false;
             }
             match status {
                 Some(status) => statuses.insert(key, status),
@@ -998,6 +999,7 @@ impl Integrations {
             };
         }
         let _ = self.events.send(IntegrationEvent::Updated);
+        true
     }
 
     // ---- OAuth attempts --------------------------------------------------------------------

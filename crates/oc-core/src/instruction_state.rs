@@ -129,12 +129,17 @@ pub fn prepare(bus: &Bus, sources: &[Source], session: &str) -> anyhow::Result<(
 
 /// The epoch baseline rendered at the start of every request.
 pub fn initial(bus: &Bus, session: &str, sources: &[Source]) -> anyhow::Result<String> {
+    Ok(instructions::join(&initial_keyed(bus, session, sources)?))
+}
+
+/// [`initial`] per source (`Instructions.Rendered`).
+pub fn initial_keyed(bus: &Bus, session: &str, sources: &[Source]) -> anyhow::Result<Vec<(String, String)>> {
     let Some(state) = find(bus, session)? else {
         anyhow::bail!("Instruction state not found during assembly: {session}");
     };
     let hashes: Vec<String> = state.initial.values().filter_map(|h| h.as_str().map(str::to_string)).collect();
     let blobs = load_blobs(bus, &hashes)?;
-    Ok(instructions::render_initial(sources, &deref(&state.initial, &blobs)?))
+    Ok(instructions::render_initial_keyed(sources, &deref(&state.initial, &blobs)?))
 }
 
 pub fn current(bus: &Bus, session: &str) -> anyhow::Result<Option<Map<String, Value>>> {

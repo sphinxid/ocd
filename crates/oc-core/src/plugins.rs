@@ -37,7 +37,7 @@ use crate::location::Location;
 
 /// Built-in (internal) plugin ids in activation order (`core/src/plugin/internal.ts` `pre`, the
 /// provider and web-search plugins, `post`), as `plugin.list` reports them.
-pub const BUILTIN_PLUGINS: [&str; 90] = [
+pub const BUILTIN_PLUGINS: [&str; 92] = [
     "opencode.tool.input.repair",
     "opencode.config.worktree",
     "opencode.config.mcp",
@@ -80,7 +80,7 @@ pub const BUILTIN_PLUGINS: [&str; 90] = [
     "opencode.provider.vllm",
     "opencode.provider.xai",
     "opencode.provider.zenmux",
-    "opencode.provider.dynamic",
+    "opencode.provider.claude-agent",
     "opencode.websearch.exa",
     "opencode.websearch.firecrawl",
     "opencode.websearch.parallel",
@@ -102,6 +102,7 @@ pub const BUILTIN_PLUGINS: [&str; 90] = [
     "opencode.tools.mcp-resources",
     "opencode.tool.question",
     "opencode.tool.read",
+    "opencode.tool.artifact",
     "opencode.tool.schedule",
     "opencode.tool.shell",
     "opencode.tool.skill",
@@ -126,12 +127,14 @@ pub const BUILTIN_PLUGINS: [&str; 90] = [
     "opencode.config.compatibility",
     "opencode.config.skill",
     "opencode.config.provider",
+    // Runs the dynamic npm SDK loader after SDK, instance and external plugins registered their `sdk` hooks (#60380).
+    "opencode.provider.dynamic",
     "opencode.config.websearch",
     "opencode.config.policy",
 ];
 
 /// Index of the first `post` internal plugin in [`BUILTIN_PLUGINS`].
-const POST_START: usize = 73;
+const POST_START: usize = 74;
 
 /// The ocd-native internal plugins in upstream order.
 pub fn internal_plugins() -> InternalPlugins {
@@ -329,6 +332,8 @@ pub struct Plugins {
     pub azure: Arc<crate::azure::Azure>,
     /// The built-in browser plugin's desktop attachments (`opencode.browser`).
     pub browsers: Arc<crate::browser::Browsers>,
+    /// The built-in Claude Agent provider plugin (`opencode.provider.claude-agent`).
+    pub claude: Arc<crate::claude_agent::ClaudeAgent>,
     /// Each location's latest model catalog, for built-in hooks that look up the request's model
     /// (`Model.Service.get` in upstream's plugins).
     catalogs: Mutex<HashMap<String, oc_ai::catalog::Catalog>>,
@@ -382,6 +387,7 @@ impl Plugins {
         let (changes, _) = broadcast::channel(256);
         Arc::new_cyclic(|me| Plugins {
             global,
+            claude: crate::claude_agent::ClaudeAgent::new(db.clone(), bus.clone(), me.clone()),
             db,
             copilot: crate::copilot::Copilot::new(bus.clone(), version),
             openai: Arc::new(crate::openai::OpenAi::new()),
@@ -1073,6 +1079,8 @@ impl Plugins {
     pub async fn close(&self, key: &str) {
         self.browsers.close_location(key);
         self.copilot.close(key);
+        // The Claude Agent plugin's scope ends; live `claude` processes are handed over to the next owner.
+        self.claude.close(key);
         let state = self.locations.lock().remove(key);
         self.websearch_by_key.lock().remove(key);
         self.plugin_integrations.lock().remove(key);
@@ -1255,6 +1263,22 @@ impl Plugins {
                 None
             }
         }
+    }
+
+    /// A built-in plugin changed location `key`'s integrations (a connection status): `integration.updated` when
+    /// the integration list's projection changed.
+    pub fn integrations_changed(&self, key: &str) {
+        self.notify_domain(key, "integration", Some(oc_schema::types::LocationRef { directory: key.to_string(), workspace_id: None }));
+    }
+
+    /// A built-in plugin's `ctx.provider.reload()` at location `key` (as a plugin's `provider.reload`).
+    /// The model state depends on the providers, so it notifies too.
+    pub fn provider_reload(&self, key: &str) {
+        self.invalidate(key, "provider");
+        let at = oc_schema::types::LocationRef { directory: key.to_string(), workspace_id: None };
+        self.notify_domain(key, "provider", Some(at.clone()));
+        self.notify_domain(key, "model", Some(at));
+        let _ = self.changes.send(DomainChange { key: key.to_string(), domain: "provider".into() });
     }
 
     /// Drops a cached domain (`<domain>.reload`).

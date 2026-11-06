@@ -90,7 +90,7 @@ async fn request(env: &Env, config: &[Entry], provider: &str, model: &str, kind:
     headers.insert("x-session-affinity".to_string(), "ses_parent".to_string());
     req.http = Some(oc_ai::types::HttpOptions { headers: Some(headers), ..Default::default() });
     req.generation = Some(GenerationOptions { max_tokens: Some(128_000.0), ..Default::default() });
-    plugin_request::shape(&env.plugins, KEY, kind, "ses_child", "build", &resolved.model_ref(), &mut req, None).await.unwrap();
+    plugin_request::shape(&env.plugins, KEY, kind, "ses_child", "build", &resolved.model_ref(), &mut req, None, None).await.unwrap();
     req
 }
 
@@ -351,7 +351,7 @@ async fn moves_only_token_sharing_credentials_to_the_new_method_id_and_caches_th
 #[test]
 fn registers_the_context_caps_plugin_after_the_openai_plugin() {
     let ids = oc_core::plugins::BUILTIN_PLUGINS;
-    assert_eq!(ids.len(), 90);
+    assert_eq!(ids.len(), 92);
     let openai = ids.iter().position(|id| *id == "opencode.provider.openai").unwrap();
     assert_eq!(ids[openai + 1], "opencode.provider.openai-context-caps");
     assert!(ids.iter().position(|id| *id == "opencode.provider.chatgpt").unwrap() < openai);

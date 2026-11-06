@@ -591,6 +591,14 @@ impl Models {
         };
         register_specs(&dev_specs);
         self.register_builtin_integrations(&state, &snapshots, &sections);
+        // opencode.provider.claude-agent: its integration, saved catalog and login check start with the location.
+        let claude = match (&host, key) {
+            (Some(plugins), Some(key)) if plugins.builtin_enabled(key, crate::claude_agent::PLUGIN_ID) => {
+                plugins.claude.activate(key, &state.integrations).await;
+                plugins.claude.provider_plugin(key)
+            }
+            _ => None,
+        };
         // Plugin `integration` transforms run between the internal plugins and the configured ones.
         if let (Some(host), Some(key)) = (&host, key) {
             host.integrations(key, integrations).await;
@@ -652,6 +660,7 @@ impl Models {
             connected.hash(&mut fingerprint);
             logins.hash(&mut fingerprint);
             plugin_state.hash(&mut fingerprint);
+            serde_json::to_string(&claude.as_ref().map(|c| &c.catalog)).unwrap_or_default().hash(&mut fingerprint);
             (&sign_in, chatgpt_on, openai_on, caps_on).hash(&mut fingerprint);
             serde_json::to_string(&policies).unwrap_or_default().hash(&mut fingerprint);
             accounts.hash(&mut fingerprint);
@@ -717,6 +726,10 @@ impl Models {
             if caps_on {
                 plugins.push(Box::new(catalog::openai::OpenAiContextCaps { sign_in: sign_in.clone() }));
             }
+            // opencode.provider.claude-agent, the last provider plugin.
+            if let Some(claude) = &claude {
+                plugins.push(Box::new(crate::claude_agent::ProviderPlugin { catalog: claude.catalog.clone() }));
+            }
             plugins.push(Box::new(config.clone()));
             plugins.push(Box::new(crate::policy::Providers {
                 statements: policies.clone(),
@@ -775,7 +788,10 @@ impl Models {
     pub fn resolve_options(&self, key: Option<&str>) -> catalog::resolve::ResolveOptions {
         let mut options = catalog::resolve::ResolveOptions::default();
         if let (Some(plugins), Some(key)) = (self.plugins.read().clone(), key) {
-            options.aisdk = Some(Arc::new(crate::aisdk::LocationBridge::new(plugins, key)));
+            let claude = plugins.claude.clone();
+            let inner: Arc<dyn oc_ai::aisdk::AiSdkBridge> = Arc::new(crate::aisdk::LocationBridge::new(plugins, key));
+            // The Claude Agent provider's language model is served natively in front of the sidecar.
+            options.aisdk = Some(Arc::new(crate::claude_agent::bridge::ClaudeBridge { inner, claude, key: key.to_string() }));
         }
         options
     }

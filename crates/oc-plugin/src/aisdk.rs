@@ -169,7 +169,7 @@ impl PluginHost {
     /// read and write files under Claude Code's config directory). `params` is
     /// `{op: "exists" | "fork" | "remove", sessionID, messageID?}`; starts the sidecar when needed.
     pub async fn claude_transcript(&self, params: Value) -> Result<Value, String> {
-        let sidecar = self.sidecar().await?;
+        let sidecar = self.sidecar().await.map_err(|error| format!("Plugin host is not running: {error}"))?;
         sidecar.request("claude.transcript", params).await.map_err(|error| match error {
             CallError::Remote(error) => error.message,
             CallError::Closed(message) => format!("Plugin host is not running: {message}"),

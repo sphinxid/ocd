@@ -921,15 +921,16 @@ impl Run<'_> {
         let model = self.model;
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
         req.model = model.language_model.clone();
-        req.system = crate::prompt::system_parts(
-            self.loaded.sel.agent.system.as_deref(),
-            &names,
-            &crate::prompt::ModelIdentity { id: &model.model.id, name: &model.model.name, provider_id: &model.model.provider_id },
+        req.system = crate::prompt::system_request(
+            crate::prompt::system_parts(
+                self.loaded.sel.agent.system.as_deref(),
+                &names,
+                &crate::prompt::ModelIdentity { id: &model.model.id, name: &model.model.name, provider_id: &model.model.provider_id },
+                &self.loaded.initial,
+            ),
             &self.loaded.initial,
-        )
-        .into_iter()
-        .map(SystemPart::text)
-        .collect();
+            &self.loaded.rendered,
+        );
         let key = metadata_key(model);
         let mut lowered = crate::lower::to_llm_messages(messages, &model.model_ref(), Some(&key));
         crate::prompt::unsupported_parts(&mut lowered, &model.capabilities().input, &model.model.provider_id);
@@ -953,6 +954,7 @@ impl Run<'_> {
             &self.model.model_ref(),
             &mut req,
             None,
+            self.loaded.sel.agent.system.as_deref(),
         )
         .await
         .map_err(|e| Fail::Failure(SessionError::new("unknown", e.to_string())))?;

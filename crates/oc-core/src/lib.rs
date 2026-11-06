@@ -7,6 +7,7 @@ pub mod attachment;
 pub mod azure;
 pub mod browser;
 pub mod bus;
+pub mod claude_agent;
 pub mod codemode;
 pub mod compaction;
 pub mod config_watch;

@@ -129,6 +129,7 @@ impl Engine {
             &loaded.resolved.model_ref(),
             &mut req,
             None,
+            loaded.sel.agent.system.as_deref(),
         )
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;

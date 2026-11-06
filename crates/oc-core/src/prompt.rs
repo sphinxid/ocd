@@ -65,6 +65,26 @@ pub fn system_parts(agent_system: Option<&str>, tools: &[&str], model: &ModelIde
     [base, identity, baseline.to_string(), SESSION_MOVE_GUIDANCE.to_string()].into_iter().filter(|p| !p.is_empty()).collect()
 }
 
+/// The request's system parts: the instruction baseline carries its sources as
+/// `metadata.experimental.instructions` (`[{key, text}]`, `model-request.ts` `baseTranscript`), for
+/// request hooks; no protocol sends the metadata.
+pub fn system_request(parts: Vec<String>, initial: &str, rendered: &[(String, String)]) -> Vec<oc_ai::types::SystemPart> {
+    let mut tagged = false;
+    parts
+        .into_iter()
+        .enumerate()
+        .map(|(i, text)| {
+            let mut part = oc_ai::types::SystemPart::text(text);
+            if i > 0 && !tagged && !initial.is_empty() && part.text == initial {
+                tagged = true;
+                let sources: Vec<serde_json::Value> = rendered.iter().map(|(key, text)| serde_json::json!({ "key": key, "text": text })).collect();
+                part.metadata = serde_json::json!({ "experimental": { "instructions": sources } }).as_object().cloned();
+            }
+            part
+        })
+        .collect()
+}
+
 /// System part the built-in `opencode.tools` plugin appends on every `context`, `compaction` and
 /// `generate` hook (core/src/tool/plugin/opencode.ts).
 pub const SESSION_MOVE_GUIDANCE: &str = "When you create a worktree outside the current working directory and intend to use it as your primary working directory, consider using `execute` to call `tools.opencode.session_move` and make the worktree the session's working directory.";

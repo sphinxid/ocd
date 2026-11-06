@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use oc_ai::types::{ContentPart, GenerationOptions, HttpOptions, Message as LlmMessage, SystemPart, ToolChoice, ToolDefinition, ToolEntry};
+use oc_ai::types::{ContentPart, GenerationOptions, HttpOptions, Message as LlmMessage, ToolChoice, ToolDefinition, ToolEntry};
 use oc_ai::{Client, LLMRequest};
 use oc_schema::event::{InterruptReason, SessionEvent};
 use oc_schema::message::{CompactionStatus, ToolState};
@@ -75,6 +75,8 @@ pub struct Loaded {
     pub resolved: oc_ai::catalog::ResolvedModel,
     pub messages: Vec<Message>,
     pub initial: String,
+    /// `initial` per instruction source (key, text).
+    pub rendered: Vec<(String, String)>,
 }
 
 /// `SessionRunnerModel.resolve` for a session without a model: the selected agent's configured model (and
@@ -561,8 +563,9 @@ impl Engine {
             .await
             .map_err(|e| crate::errors::StepFailed(SessionError::new("provider.no-route", e.to_string())))?;
         let messages = history_for_runner(&self.app.bus, &sel.session.id, &resolved.model_ref())?;
-        let initial = crate::instruction_state::initial(&self.app.bus, &sel.session.id, &sel.sources)?;
-        Ok(Loaded { sel, resolved, messages, initial })
+        let rendered = crate::instruction_state::initial_keyed(&self.app.bus, &sel.session.id, &sel.sources)?;
+        let initial = crate::instructions::join(&rendered);
+        Ok(Loaded { sel, resolved, messages, initial, rendered })
     }
 
     async fn prepare_context(&self, session_id: &str) -> anyhow::Result<Selected> {
@@ -629,7 +632,7 @@ impl Engine {
         crate::prompt::unsupported_parts(&mut messages, &model.capabilities().input, &model.model.provider_id);
         crate::prompt::bound_images(&mut messages);
         let mut req = LLMRequest::new(model.language_model.clone());
-        req.system = system.into_iter().map(SystemPart::text).collect();
+        req.system = crate::prompt::system_request(system, &loaded.initial, &loaded.rendered);
         req.messages = messages;
         req.tools = defs
             .into_iter()
@@ -685,6 +688,7 @@ impl Engine {
             &loaded.resolved.model_ref(),
             req,
             None,
+            loaded.sel.agent.system.as_deref(),
         )
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))

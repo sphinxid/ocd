@@ -2530,6 +2530,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rusqlite",
+ "ryu",
  "serde",
  "serde_json",
  "sha2",
