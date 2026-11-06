@@ -280,6 +280,16 @@ every session-facing lookup and lists them only through `available_models_of(typ
   encrypted reasoning by default).
 - Google Interactions failures read their `errors[]` messages and classify by the first coded error.
 
+opencode 2.2.5 changes (`tests/wire_2_2_5.rs`):
+- **Reasoning replay** (#60498): unsigned reasoning is never demoted to text. Anthropic Messages sends it as
+  `thinking` with `signature: ""` where signatures are not required (now also `qwen*` and `minimax-*` models and the
+  MiniMax Messages route; Meta Messages requires them again) and drops it otherwise; Bedrock drops it; Mistral drops
+  reasoning without native thinking and marks only the trailing assistant message (without tool calls) `prefix`;
+  Gemini and Google Interactions send `skip_thought_signature_validator` on every unsigned function call before the
+  first signed one, for every model.
+- LiteLLM's `Context Window exceeded` is a context overflow; Responses send `file_url` without `filename`; the
+  OpenRouter Responses route (`openrouter-responses` protocol) adds `models`, `provider`, `plugins`, `debug` and `user`.
+
 `tests/wire_2_2.rs` ports upstream's tests for these and cross-checks with the 2.2.2 checkout when `OCD_SCRATCH` and
 `OCD_BUN_PATH` are set: every recorded response of the corpus decodes to the same events as upstream's route, and a
 set of requests with the new options compiles to the same URL, body text and headers.

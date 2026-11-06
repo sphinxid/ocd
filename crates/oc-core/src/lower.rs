@@ -201,8 +201,13 @@ fn assistant(m: &Assistant, model: &ModelRef, key: &str) -> Vec<Message> {
                 // replayable against the model that produced it.
                 provider_metadata: if reuse { provider_metadata(key, native) } else { None },
             })),
+            // Errored or interrupted reasoning is not replayed; readable reasoning after a
+            // model/provider switch is left to the destination adapter.
             AssistantContent::Reasoning { text, native, .. } => {
-                if reuse && !interrupted {
+                if m.error.is_some() || interrupted {
+                    continue;
+                }
+                if reuse {
                     content.push(ContentPart::Reasoning(ReasoningPart {
                         text: text.clone(),
                         encrypted: None,
@@ -211,17 +216,13 @@ fn assistant(m: &Assistant, model: &ModelRef, key: &str) -> Vec<Message> {
                         provider_metadata: provider_metadata(key, native),
                     }));
                 } else if !text.is_empty() {
-                    if m.error.is_none() && !interrupted {
-                        content.push(ContentPart::Reasoning(ReasoningPart {
-                            text: text.clone(),
-                            encrypted: None,
-                            cache: None,
-                            metadata: None,
-                            provider_metadata: None,
-                        }));
-                    } else {
-                        content.push(ContentPart::text(text.clone()));
-                    }
+                    content.push(ContentPart::Reasoning(ReasoningPart {
+                        text: text.clone(),
+                        encrypted: None,
+                        cache: None,
+                        metadata: None,
+                        provider_metadata: None,
+                    }));
                 }
             }
             AssistantContent::Tool { id, name, executed, native, state, .. } => {

@@ -352,6 +352,8 @@ static OVERFLOW_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         r"(?i)greater than the context length",
         r"(?i)`inputs` tokens \+ `max_new_tokens` must be <= \d+",
         r"(?i)context window exceeds limit",
+        // LiteLLM's ContextWindowExceededError
+        r"(?i)context window exceeded",
         r"(?i)exceeded model token limit",
         r"(?i)context[_ ]length[_ ]exceeded",
         r"(?i)context length is only \d+ tokens",

@@ -247,11 +247,8 @@ fn lower_messages(request: &LLMRequest, cache: &mut CacheBudget) -> Result<Vec<V
                                 }
                             }
                             match signature.filter(|s| !s.trim().is_empty()) {
-                                None => {
-                                    if !r.text.trim().is_empty() {
-                                        content.extend(cache.text(&r.text, r.cache.as_ref()));
-                                    }
-                                }
+                                // Unsigned reasoning cannot be replayed as reasoningContent.
+                                None => {}
                                 Some(sig) => content.push(json!({"reasoningContent": {"reasoningText": {"text": r.text, "signature": sig}}})),
                             }
                         }

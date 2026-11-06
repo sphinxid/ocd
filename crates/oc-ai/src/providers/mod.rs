@@ -247,9 +247,11 @@ fn gateway_responses(model_id: &str, s: &mut Settings, route_id: &str, provider:
     let mut d = Defaults::from(s);
     d.provider_options = std::mem::take(&mut s.rest);
     let defaults = json!({"store": false, "include": ["reasoning.encrypted_content"]});
+    // OpenRouter's Responses route adds its shared options to the Open Responses body.
+    let protocol: Arc<dyn Protocol> = if provider == "openrouter" { Arc::new(wrappers::OpenRouterResponses) } else { orp::protocol() };
     let merged = merge_records(&[defaults.as_object(), Some(&d.provider_options)]).unwrap_or_default();
     let mut route = d
-        .apply_with_po(responses_route(route_id, provider, provider, Some(base), orp::protocol()), merged)
+        .apply_with_po(responses_route(route_id, provider, provider, Some(base), protocol), merged)
         .base_url(Some(base_url))
         .auth(bearer(api_key, env));
     if let Some(q) = query {
@@ -768,7 +770,7 @@ fn minimax(model_id: &str, s: &mut Settings, name: &str) -> Result<LanguageModel
             let route = Route::new("minimax-messages", am::protocol(), Endpoint::new(Some("https://api.minimax.io/anthropic/v1"), "/messages"), am::framing())
                 .initial_provider("minimax", Some("minimax"))
                 .headers_fn(anthropic_version());
-            model(d.apply(route).base_url(base).auth(auth), model_id)
+            Ok(with_compat(model(d.apply(route).base_url(base).auth(auth), model_id)?, compat(json!({"requireSignature": false}))))
         }
     }
 }
@@ -793,7 +795,7 @@ fn meta(model_id: &str, s: &mut Settings, name: &str) -> Result<LanguageModel> {
             let route = Route::new("meta-messages", am::meta_protocol(), Endpoint::new(None, "/messages"), am::framing())
                 .initial_provider("meta", Some("meta"))
                 .with_provider_options(po);
-            Ok(with_compat(model(d.apply(route).base_url(Some(base)).auth(auth), model_id)?, compat(json!({"requireSignature": false}))))
+            model(d.apply(route).base_url(Some(base)).auth(auth), model_id)
         }
         _ => {
             let route = responses_route("meta-responses", "meta", "meta", None, rv::meta_protocol()).with_provider_options(orp::default_options());

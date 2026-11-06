@@ -236,7 +236,7 @@ async fn gemini_forwards_native_video_urls() {
         body["input"],
         json!([
             {"type": "user_input", "content": [{"type": "video", "uri": uri, "mime_type": "video/mp4"}]},
-            {"type": "function_call", "id": "call_video", "name": "read", "arguments": {}},
+            {"type": "function_call", "id": "call_video", "name": "read", "arguments": {}, "signature": "skip_thought_signature_validator"},
             {"type": "function_result", "call_id": "call_video", "name": "read", "result": [{"type": "video", "uri": uri, "mime_type": "video/mp4"}]},
         ])
     );

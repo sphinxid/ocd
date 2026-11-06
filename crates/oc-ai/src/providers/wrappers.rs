@@ -4,6 +4,7 @@
 use crate::error::AIError;
 use crate::json::{merge_records, num, Object};
 use crate::protocols::anthropic_messages as am;
+use crate::protocols::open_responses;
 use crate::protocols::openai_chat::{self, body_fields, finalize, ChatOptions, ChatParser};
 use crate::protocols::shared::{claude_version, fit_thinking_budget};
 use crate::protocols::{Protocol, Step, StreamParser};
@@ -118,6 +119,46 @@ pub struct OpenRouter;
 /// `promptCacheKey` passes through.
 const OPENROUTER_KNOWN: &[&str] = &["usage", "models", "provider", "plugins", "web_search_options", "debug", "user", "reasoning"];
 
+fn string_array(v: &Value) -> bool {
+    v.as_array().is_some_and(|a| a.iter().all(Value::is_string))
+}
+
+fn object_array(v: &Value) -> bool {
+    v.as_array().is_some_and(|a| a.iter().all(Value::is_object))
+}
+
+/// `SharedOptions`: the OpenRouter options both the Chat and the Responses route carry, in
+/// body order, each decoded leniently (a malformed value is dropped).
+const OPENROUTER_SHARED: &[(&str, fn(&Value) -> bool)] = &[
+    ("models", string_array),
+    ("provider", Value::is_object),
+    ("plugins", object_array),
+    ("debug", Value::is_object),
+    ("user", Value::is_string),
+];
+
+/// `openrouter-responses`: the Open Responses body plus OpenRouter's shared options.
+pub struct OpenRouterResponses;
+
+impl Protocol for OpenRouterResponses {
+    fn id(&self) -> &str {
+        "openrouter-responses"
+    }
+    fn body(&self, request: &LLMRequest) -> Result<Value, AIError> {
+        let mut f = open_responses::body_fields(request, &open_responses::Adapter::base())?;
+        let po = request.provider_options.clone().unwrap_or_default();
+        for (k, check) in OPENROUTER_SHARED {
+            if let Some(v) = po.get(*k).filter(|v| check(v)) {
+                f.insert((*k).into(), Some(v.clone()));
+            }
+        }
+        Ok(open_responses::finalize(f))
+    }
+    fn parser(&self, request: &LLMRequest) -> Box<dyn StreamParser> {
+        Box::new(open_responses::ResponsesParser::new(request, &open_responses::Adapter::base()))
+    }
+}
+
 /// Project OpenRouter's reasoning fields onto a lowered assistant message.
 fn openrouter_assistant(source: &Message, o: &mut Object) {
     let reasoning: String =
@@ -167,18 +208,17 @@ impl Protocol for OpenRouter {
         if let Some(usage) = usage {
             f.insert("usage".into(), Some(usage));
         }
-        let strings = |v: &Value| v.as_array().is_some_and(|a| a.iter().all(Value::is_string));
-        let objects = |v: &Value| v.as_array().is_some_and(|a| a.iter().all(Value::is_object));
-        for (k, check) in [
-            ("models", &strings as &dyn Fn(&Value) -> bool),
-            ("provider", &Value::is_object),
-            ("plugins", &objects),
-            ("web_search_options", &Value::is_object),
-            ("debug", &Value::is_object),
-            ("user", &Value::is_string),
-        ] {
-            if let Some(v) = po.get(k).filter(|v| check(v)) {
-                f.insert(k.into(), Some(v.clone()));
+        for (k, check) in OPENROUTER_SHARED.iter().take(3) {
+            if let Some(v) = po.get(*k).filter(|v| check(v)) {
+                f.insert((*k).into(), Some(v.clone()));
+            }
+        }
+        if let Some(v) = po.get("web_search_options").filter(|v| v.is_object()) {
+            f.insert("web_search_options".into(), Some(v.clone()));
+        }
+        for (k, check) in OPENROUTER_SHARED.iter().skip(3) {
+            if let Some(v) = po.get(*k).filter(|v| check(v)) {
+                f.insert((*k).into(), Some(v.clone()));
             }
         }
         if let Some(Value::Object(reasoning)) = po.get("reasoning") {

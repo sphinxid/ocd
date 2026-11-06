@@ -201,6 +201,13 @@ fn lower_media(part: &MediaPart, request: &LLMRequest, adapter: &Adapter) -> Res
         }
         let mut o = Object::new();
         o.insert("type".into(), json!("input_file"));
+        if let Some(u) = url {
+            o.insert("file_url".into(), json!(u));
+            if let Some(d) = detail {
+                o.insert("detail".into(), json!(d));
+            }
+            return Ok(Value::Object(o));
+        }
         o.insert(
             "filename".into(),
             json!(part.filename.clone().unwrap_or_else(|| if mime == "application/pdf" { "document.pdf".into() } else { "file".into() })),
@@ -208,10 +215,7 @@ fn lower_media(part: &MediaPart, request: &LLMRequest, adapter: &Adapter) -> Res
         if let Some(d) = detail {
             o.insert("detail".into(), json!(d));
         }
-        match url {
-            Some(u) => o.insert("file_url".into(), json!(u)),
-            None => o.insert("file_data".into(), json!(location)),
-        };
+        o.insert("file_data".into(), json!(location));
         return Ok(Value::Object(o));
     }
     let mut o = Object::new();

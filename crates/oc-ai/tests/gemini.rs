@@ -94,7 +94,7 @@ async fn body_options_and_thinking() {
 }
 
 #[tokio::test]
-async fn gemini_3_unsigned_call_fallback_and_gemini_2_omits_ids() {
+async fn unsigned_call_fallback_on_every_model_and_gemini_2_omits_ids() {
     let call = |id: &str| {
         ContentPart::ToolCall(ToolCallPart {
             id: id.into(),
@@ -118,7 +118,8 @@ async fn gemini_3_unsigned_call_fallback_and_gemini_2_omits_ids() {
     req.messages.push(Message::assistant(vec![call("a")]));
     let body = compile_body(&req).await.unwrap();
     assert!(body["contents"][1]["parts"][0]["functionCall"].get("id").is_none());
-    assert!(body["contents"][1]["parts"][0].get("thoughtSignature").is_none());
+    // #60498: the sentinel applies to every model, not only Gemini 3.
+    assert_eq!(body["contents"][1]["parts"][0]["thoughtSignature"], "skip_thought_signature_validator");
 }
 
 #[tokio::test]

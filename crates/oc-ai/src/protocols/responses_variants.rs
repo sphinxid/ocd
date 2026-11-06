@@ -100,7 +100,7 @@ impl Protocol for XaiResponses {
         if request.po("contextManagement").is_some() {
             return Err(AIError::unsupported(
                 "in-band-compaction",
-                "xAI requires explicit compaction through LLMClient.compact; automatic context management is not supported",
+                "xAI requires explicit compaction through ai.compact; automatic context management is not supported",
                 Some(&request.model.provider),
                 Some(&request.model.route.id),
             ));

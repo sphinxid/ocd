@@ -68,8 +68,7 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
         };
         messages.push(json!({"role": "system", "content": content}));
     }
-    let last_index = request.messages.len().saturating_sub(1);
-    for (index, message) in request.messages.iter().enumerate() {
+    for message in &request.messages {
         match message.role {
             Role::System => {
                 let update = wrapped_system_update(NAME, message)?;
@@ -99,14 +98,12 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                     .iter()
                     .filter_map(|p| match p {
                         ContentPart::Text(t) => Some(t.text.as_str()),
-                        ContentPart::Reasoning(r) => Some(r.text.as_str()),
                         _ => None,
                     })
                     .collect();
                 if !has_tool_calls && !has_native && text.trim().is_empty() {
                     continue;
                 }
-                let prefix = !has_tool_calls && index == last_index;
                 let structured = has_native;
                 let mut content = vec![];
                 let mut texts: Vec<&str> = vec![];
@@ -120,11 +117,12 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                                 texts.push(&t.text);
                             }
                         }
-                        ContentPart::Reasoning(r) => match (structured, native_thinking(r)) {
-                            (true, Some(native)) => content.push(native.clone()),
-                            (true, None) => content.push(json!({"type": "text", "text": r.text})),
-                            (false, _) => texts.push(&r.text),
-                        },
+                        // Reasoning without native Mistral thinking is not replayed.
+                        ContentPart::Reasoning(r) => {
+                            if let (true, Some(native)) = (structured, native_thinking(r)) {
+                                content.push(native.clone());
+                            }
+                        }
                         ContentPart::ToolCall(c) => {
                             tool_calls.push(json!({"id": normalizer.normalize(&c.id), "type": "function", "function": {"name": c.name, "arguments": encode(&c.input)}}));
                         }
@@ -136,9 +134,6 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                 o.insert("content".into(), if structured { Value::Array(content) } else { json!(texts.concat()) });
                 if !tool_calls.is_empty() {
                     o.insert("tool_calls".into(), Value::Array(tool_calls));
-                }
-                if prefix {
-                    o.insert("prefix".into(), json!(true));
                 }
                 messages.push(Value::Object(o));
             }
@@ -167,6 +162,11 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                     messages.push(json!({"role": "tool", "tool_call_id": normalizer.normalize(&r.id), "name": r.name, "content": content}));
                 }
             }
+        }
+    }
+    if let Some(Value::Object(trailing)) = messages.last_mut() {
+        if trailing.get("role").and_then(Value::as_str) == Some("assistant") && !trailing.contains_key("tool_calls") {
+            trailing.insert("prefix".into(), json!(true));
         }
     }
     Ok(messages)

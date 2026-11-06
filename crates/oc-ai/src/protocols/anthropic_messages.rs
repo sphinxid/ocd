@@ -523,6 +523,9 @@ fn require_thinking_signature(request: &LLMRequest) -> bool {
     if provider.contains("xiaomi") || model.contains("mimo") || base.contains("xiaomimimo.com") {
         return false;
     }
+    if model.starts_with("qwen") || model.starts_with("minimax-") {
+        return false;
+    }
     true
 }
 
@@ -663,15 +666,13 @@ fn lower_messages(request: &LLMRequest, bp: &mut Breakpoints) -> Result<Vec<Valu
                                 }
                             }
                             match signature.filter(|s| !s.trim().is_empty()) {
+                                // Unsigned reasoning (model switches, interrupted
+                                // responses) is replayed as unsigned thinking where the
+                                // endpoint accepts it, and dropped otherwise.
                                 None => {
-                                    if r.text.trim().is_empty() {
-                                        continue;
-                                    }
-                                    if !require_thinking_signature(request) {
+                                    if !r.text.trim().is_empty() && !require_thinking_signature(request) {
                                         content.push(json!({"type": "thinking", "thinking": r.text, "signature": ""}));
-                                        continue;
                                     }
-                                    content.push(text_block(&r.text, cache_control(bp, r.cache.as_ref())));
                                 }
                                 Some(sig) => content.push(json!({"type": "thinking", "thinking": r.text, "signature": sig})),
                             }

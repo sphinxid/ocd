@@ -40,6 +40,8 @@ fn media_content(asset: &MediaAsset) -> Result<Value, AIError> {
     Ok(json!({"type": kind_name, "data": inline.base64, "mime_type": inline.mime}))
 }
 
+const SKIP_THOUGHT_SIGNATURE_VALIDATOR: &str = "skip_thought_signature_validator";
+
 fn signature(pm: Option<&ProviderMetadata>, key: &str) -> Option<String> {
     pm?.get(key)?.as_object()?.get("interactionSignature")?.as_str().map(String::from)
 }
@@ -62,6 +64,7 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                 steps.push(json!({"type": step_type, "content": [content]}));
             }
         };
+        let mut has_signed_step = false;
         for part in &message.content {
             if message.role == Role::Tool {
                 let ContentPart::ToolResult(r) = part else {
@@ -99,6 +102,7 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                     o.insert("type".into(), json!("thought"));
                     if let Some(s) = signature(r.provider_metadata.as_ref(), &key) {
                         o.insert("signature".into(), json!(s));
+                        has_signed_step = true;
                     }
                     if !r.text.is_empty() {
                         o.insert("summary".into(), json!([{"type": "text", "text": r.text}]));
@@ -111,8 +115,17 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                     o.insert("id".into(), json!(c.id));
                     o.insert("name".into(), json!(c.name));
                     o.insert("arguments".into(), c.input.clone());
-                    if let Some(s) = signature(c.provider_metadata.as_ref(), &key) {
-                        o.insert("signature".into(), json!(s));
+                    // Google documents this sentinel for replaying function calls after their
+                    // original signature was lost.
+                    match signature(c.provider_metadata.as_ref(), &key) {
+                        Some(s) => {
+                            o.insert("signature".into(), json!(s));
+                            has_signed_step = true;
+                        }
+                        None if !has_signed_step => {
+                            o.insert("signature".into(), json!(SKIP_THOUGHT_SIGNATURE_VALIDATOR));
+                        }
+                        None => {}
                     }
                     steps.push(Value::Object(o));
                 }

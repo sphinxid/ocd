@@ -30,16 +30,8 @@ pub fn finalize(fields: Fields) -> Value {
     Value::Object(fields.into_iter().filter_map(|(k, v)| v.map(|v| (k, v))).collect())
 }
 
-static GEMINI_ANY: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(^|/)gemini-").unwrap());
-static GEMINI_1_2: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(^|/)gemini-(?:1|2)(?:[.-]|$)").unwrap());
-static GEMINI_PRO: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(^|/)gemini-pro(?:-vision)?$").unwrap());
-static GEMINI_ROBOTICS: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(^|/)gemini-robotics-er-1\.5(?:[.-]|$)").unwrap());
 static GEMINI_25: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)gemini-2[.-]5(?:[.-]|$)").unwrap());
 static GEMINI_MAJOR: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^gemini(?:-live)?-(\d+)").unwrap());
-
-pub fn requires_thought_signature_fallback(model: &str) -> bool {
-    GEMINI_ANY.is_match(model) && !GEMINI_1_2.is_match(model) && !GEMINI_PRO.is_match(model) && !GEMINI_ROBOTICS.is_match(model)
-}
 
 pub fn routes_legacy_tool_media(model: &str) -> bool {
     GEMINI_25.is_match(model)
@@ -187,13 +179,7 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
                                 call.insert("args".into(), c.input.clone());
                             }
                             let sig = signature(c.provider_metadata.as_ref(), &key);
-                            let resolved = sig.clone().or_else(|| {
-                                if requires_thought_signature_fallback(model) && !has_signed {
-                                    Some(SKIP_THOUGHT_SIGNATURE_VALIDATOR.to_string())
-                                } else {
-                                    None
-                                }
-                            });
+                            let resolved = sig.clone().or_else(|| (!has_signed).then(|| SKIP_THOUGHT_SIGNATURE_VALIDATOR.to_string()));
                             let mut o = Object::new();
                             o.insert("functionCall".into(), Value::Object(call));
                             parts.push(with_sig(o, resolved));
