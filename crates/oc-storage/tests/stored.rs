@@ -126,7 +126,7 @@ fn indexes(db: &Database) -> Vec<(String, String)> {
 }
 
 #[test]
-fn a_database_migrated_from_2_1_4_matches_a_fresh_2_2_2_database() {
+fn a_database_migrated_from_2_1_4_matches_a_fresh_database() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("opencode.db");
     {
@@ -155,9 +155,9 @@ fn a_database_migrated_from_2_1_4_matches_a_fresh_2_2_2_database() {
         })
         .unwrap()
     };
-    assert_eq!(ids(&migrated).len(), 58);
+    assert_eq!(ids(&migrated).len(), 59);
     assert_eq!(ids(&migrated), ids(&fresh));
-    assert_eq!(ids(&fresh).last().unwrap(), "20261029165540_schedule_checks");
+    assert_eq!(ids(&fresh).last().unwrap(), "20261030054400_job");
 
     let mut expected = tables(&fresh);
     expected.retain(|t| t != "migration");
@@ -192,8 +192,8 @@ fn py_opt(s: &Option<String>) -> String {
     s.as_deref().map(py_str).unwrap_or_else(|| "None".into())
 }
 
-/// The schema dump `tests/fixtures/schema-2.2.2.txt` holds, taken from a 2.1.4 database that the real
-/// opencode 2.2.2 binary migrated: migration ids, every table's columns and foreign keys, every index.
+/// The schema dump `tests/fixtures/schema-2.2.5.txt` holds, taken from a 2.1.4 database that the real
+/// opencode 2.2.5 binary migrated: migration ids, every table's columns and foreign keys, every index.
 fn schema_dump(db: &Database) -> String {
     db.with(|c| {
         let mut out = Vec::new();
@@ -233,11 +233,11 @@ fn schema_dump(db: &Database) -> String {
     .unwrap()
 }
 
-/// A 2.1.4 database migrated by ocd, and a fresh one, have exactly the schema the real 2.2.2 binary gives a
+/// A 2.1.4 database migrated by ocd, and a fresh one, have exactly the schema the real 2.2.5 binary gives a
 /// migrated 2.1.4 database.
 #[test]
-fn schema_matches_the_one_the_2_2_2_binary_migrates_to() {
-    let expected = include_str!("fixtures/schema-2.2.2.txt");
+fn schema_matches_the_one_the_2_2_5_binary_migrates_to() {
+    let expected = include_str!("fixtures/schema-2.2.5.txt");
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("opencode.db");
     {
@@ -562,4 +562,73 @@ fn forks_record_refs_for_copied_media() {
     let user = msgs.iter().find(|(_, m)| matches!(m, Message::User { .. })).unwrap();
     let v = serde_json::to_value(&user.1).unwrap();
     assert_eq!(v["files"][0]["data"], json!(base64::engine::general_purpose::STANDARD.encode(PNG)));
+}
+
+/// `20261030054400_job` (`job.test.ts` "migrates legacy kv job.background/* markers into the job table"): background
+/// job markers move from `kv` into `job`, owned by the session or the subagent's parent, titled by the command,
+/// description or path; a marker without an owner is dropped, and every `job.background/*` key is deleted.
+#[test]
+fn migrates_legacy_kv_job_markers_into_the_job_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("opencode.db");
+    {
+        let db = Database::open(&path, dir.path()).unwrap();
+        db.with(|c| {
+            c.execute_batch("DROP TABLE `job`; DELETE FROM migration WHERE id = '20261030054400_job';")?;
+            let rows = [
+                ("job.background/msg_b", json!({"id": "shell_legacy", "notificationID": "msg_b", "recovery": {"kind": "shell", "sessionID": "ses_migrated", "shellID": "shell_legacy", "command": "bun test"}, "status": "completed", "output": "all green"}), 20),
+                ("job.background/msg_a", json!({"id": "ses_child", "notificationID": "msg_a", "recovery": {"kind": "subagent", "parentSessionID": "ses_parent", "childSessionID": "ses_child", "agent": "general", "description": "look around"}, "status": "running"}), 10),
+                ("job.background/msg_c", json!({"id": "img_1", "notificationID": "msg_c", "recovery": {"kind": "image", "sessionID": "ses_img", "path": "/tmp/a.png", "model": "m"}, "status": "error", "error": "boom"}), 30),
+                ("job.background/msg_d", json!({"id": "orphan", "notificationID": "msg_d", "recovery": {"kind": "shell", "shellID": "s", "command": "c"}, "status": "running"}), 40),
+                ("other/key", json!({"keep": true}), 1),
+            ];
+            for (key, value, time) in rows {
+                c.execute(
+                    "INSERT INTO kv (key, value, time_created, time_updated) VALUES (?, ?, ?, ?)",
+                    rusqlite::params![key, value.to_string(), time, time + 1],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    }
+    let db = Database::open(&path, dir.path()).unwrap();
+    type Row = (String, String, String, Option<String>, String, Option<String>, String, Option<String>, Option<String>, String, i64, i64);
+    let rows: Vec<Row> = db
+        .with(|c| {
+            let mut s = c.prepare("SELECT * FROM job ORDER BY time_created, notification_id")?;
+            let r = s
+                .query_map([], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?))
+                })?
+                .collect();
+            r
+        })
+        .unwrap();
+    let summary: Vec<(&str, &str, &str, Option<&str>, &str, Option<&str>, &str, i64, i64)> = rows
+        .iter()
+        .map(|r| (r.0.as_str(), r.1.as_str(), r.2.as_str(), r.3.as_deref(), r.4.as_str(), r.5.as_deref(), r.6.as_str(), r.10, r.11))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("msg_a", "ses_child", "ses_parent", Some("ses_child"), "subagent", Some("look around"), "running", 10, 11),
+            ("msg_b", "shell_legacy", "ses_migrated", None, "shell", Some("bun test"), "completed", 20, 21),
+            ("msg_c", "img_1", "ses_img", None, "image", Some("/tmp/a.png"), "error", 30, 31),
+        ]
+    );
+    assert_eq!(rows[1].7.as_deref(), Some("all green"));
+    assert_eq!(rows[2].8.as_deref(), Some("boom"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&rows[1].9).unwrap(),
+        json!({"kind": "shell", "sessionID": "ses_migrated", "shellID": "shell_legacy", "command": "bun test"})
+    );
+    let keys: Vec<String> = db
+        .with(|c| {
+            let mut s = c.prepare("SELECT key FROM kv ORDER BY key")?;
+            let r = s.query_map([], |r| r.get(0))?.collect();
+            r
+        })
+        .unwrap();
+    assert_eq!(keys, ["other/key"]);
 }

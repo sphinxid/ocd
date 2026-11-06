@@ -50,6 +50,20 @@ CREATE TABLE `event` (
           `data` text NOT NULL,
           CONSTRAINT `fk_event_aggregate_id_event_sequence_aggregate_id_fk` FOREIGN KEY (`aggregate_id`) REFERENCES `event_sequence`(`aggregate_id`) ON DELETE CASCADE
         );
+CREATE TABLE `job` (
+          `notification_id` text PRIMARY KEY,
+          `id` text NOT NULL,
+          `session_id` text NOT NULL,
+          `child_session_id` text,
+          `kind` text NOT NULL,
+          `title` text,
+          `status` text NOT NULL,
+          `output` text,
+          `error` text,
+          `recovery` text NOT NULL,
+          `time_created` integer NOT NULL,
+          `time_updated` integer NOT NULL
+        );
 CREATE TABLE `kv` (
           `key` text PRIMARY KEY,
           `value` text NOT NULL,
@@ -244,6 +258,9 @@ CREATE TABLE `worktree` (
         );
 CREATE UNIQUE INDEX `event_aggregate_seq_idx` ON `event` (`aggregate_id`,`seq`);
 CREATE INDEX `event_aggregate_type_seq_idx` ON `event` (`aggregate_id`,`type`,`seq`);
+CREATE INDEX `job_session_idx` ON `job` (`session_id`);
+CREATE INDEX `job_child_session_idx` ON `job` (`child_session_id`);
+CREATE INDEX `job_id_idx` ON `job` (`id`);
 CREATE UNIQUE INDEX `permission_project_action_resource_idx` ON `permission` (`project_id`,`action`,`resource`);
 CREATE INDEX `schedule_session_idx` ON `schedule` (`session_id`);
 CREATE INDEX `schedule_due_idx` ON `schedule` (`next_due_at`) WHERE "schedule"."status" = 'active' and "schedule"."next_due_at" is not null;

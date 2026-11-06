@@ -1,5 +1,8 @@
 //! Background/foreground jobs (`core/src/job.ts`) and subagent jobs
 //! (`core/session/subagent-job.ts`, `subagent-completion.ts`).
+//!
+//! Backgrounded jobs with a recovery descriptor are kept in the SQLite `job` table (`core/src/job/sql.ts`,
+//! migration `20261030054400_job`) until their completion notice is admitted, so a restart can settle them.
 
 use std::collections::HashMap;
 
@@ -13,7 +16,6 @@ use tokio_util::sync::CancellationToken;
 use oc_storage::Database;
 use oc_tools::host::{JobBlockResult, JobInfo, JobRecovery, JobStatus};
 
-const BACKGROUND_PREFIX: &str = "job.background/";
 const COMPLETED_LIMIT: usize = 25;
 pub const NO_TEXT: &str = "Subagent completed without a text response.";
 
@@ -27,6 +29,50 @@ struct Active {
     is_bg: bool,
     consumed: bool,
     recovery: Option<JobRecovery>,
+    /// `info.metadata.sessionID`, which `matchesSession` checks first.
+    metadata_session: Option<String>,
+}
+
+/// `ownerSessionID`: the parent session for a subagent.
+fn owner_session(recovery: &JobRecovery) -> &str {
+    match recovery {
+        JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } => session_id,
+        JobRecovery::Subagent { parent_session_id, .. } => parent_session_id,
+    }
+}
+
+/// `recoveryTitle`: the job's own title, else the shell command, subagent description or image path.
+fn recovery_title<'a>(job: &'a Active, recovery: &'a JobRecovery) -> &'a str {
+    if let Some(title) = &job.info.title {
+        return title;
+    }
+    match recovery {
+        JobRecovery::Shell { command, .. } => command,
+        JobRecovery::Subagent { description, .. } => description,
+        JobRecovery::Image { path, .. } => path,
+    }
+}
+
+fn recovery_kind(recovery: &JobRecovery) -> &'static str {
+    match recovery {
+        JobRecovery::Shell { .. } => "shell",
+        JobRecovery::Subagent { .. } => "subagent",
+        JobRecovery::Image { .. } => "image",
+    }
+}
+
+/// `matchesSession`
+fn matches_session(job: &Active, session: &str) -> bool {
+    if job.metadata_session.as_deref() == Some(session) || job.blocking.contains_key(session) {
+        return true;
+    }
+    match &job.recovery {
+        None => false,
+        Some(JobRecovery::Subagent { parent_session_id, child_session_id, .. }) => {
+            parent_session_id == session || child_session_id == session
+        }
+        Some(JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. }) => session_id == session,
+    }
 }
 
 pub struct Jobs {
@@ -55,21 +101,40 @@ impl Jobs {
         Jobs { db, jobs: Mutex::new(IndexMap::new()), generation: Mutex::new(0) }
     }
 
+    /// `persistBackground`: upsert on `notification_id`; a conflict only updates the status, output, error,
+    /// recovery and update time.
     fn persist(&self, job: &Active) {
         let (Some(recovery), Some(nid)) = (&job.recovery, &job.info.notification_id) else { return };
-        let mut v = json!({
-            "id": job.info.id,
-            "notificationID": nid,
-            "recovery": recovery,
-            "status": job.info.status.as_str(),
+        let child = match recovery {
+            JobRecovery::Subagent { child_session_id, .. } => Some(child_session_id.as_str()),
+            _ => None,
+        };
+        let recovery_json = serde_json::to_string(recovery).unwrap_or_default();
+        let now = now() as i64;
+        let result = self.db.with(|c| {
+            c.execute(
+                "INSERT INTO job (notification_id, id, session_id, child_session_id, kind, title, status, output, error, recovery, time_created, time_updated) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+                 ON CONFLICT (notification_id) DO UPDATE SET status = ?7, output = ?8, error = ?9, recovery = ?10, time_updated = ?12",
+                rusqlite::params![
+                    nid,
+                    job.info.id,
+                    owner_session(recovery),
+                    child,
+                    recovery_kind(recovery),
+                    recovery_title(job, recovery),
+                    job.info.status.as_str(),
+                    job.info.output,
+                    job.info.error,
+                    recovery_json,
+                    job.info.started_at as i64,
+                    now,
+                ],
+            )
         });
-        if let Some(o) = &job.info.output {
-            v["output"] = json!(o);
+        if let Err(e) = result {
+            tracing::error!(error = %e, notificationID = nid.as_str(), "failed to persist background job");
         }
-        if let Some(e) = &job.info.error {
-            v["error"] = json!(e);
-        }
-        let _ = self.db.kv_set(&format!("{BACKGROUND_PREFIX}{nid}"), &v);
     }
 
     fn consume(&self, id: &str, generation: u64) {
@@ -102,6 +167,19 @@ impl Jobs {
         id: String,
         kind: String,
         title: Option<String>,
+        recovery: Option<JobRecovery>,
+        run: BoxFuture<'static, Result<String, String>>,
+    ) -> JobInfo {
+        self.start_with(id, kind, title, None, recovery, run)
+    }
+
+    /// [`Jobs::start`] with the `sessionID` of the job's metadata (a shell job's session).
+    pub fn start_with(
+        self: &std::sync::Arc<Self>,
+        id: String,
+        kind: String,
+        title: Option<String>,
+        metadata_session: Option<String>,
         recovery: Option<JobRecovery>,
         run: BoxFuture<'static, Result<String, String>>,
     ) -> JobInfo {
@@ -138,6 +216,7 @@ impl Jobs {
                 is_bg: false,
                 consumed: false,
                 recovery,
+                metadata_session,
             },
         );
         drop(jobs);
@@ -280,6 +359,10 @@ impl Jobs {
     }
 
     pub fn cancel(&self, id: &str) -> Option<JobInfo> {
+        self.cancel_internal(id, true)
+    }
+
+    fn cancel_internal(&self, id: &str, persist: bool) -> Option<JobInfo> {
         let mut jobs = self.jobs.lock();
         let job = jobs.get_mut(id)?;
         let generation = job.generation;
@@ -295,29 +378,33 @@ impl Jobs {
         job.cancel.cancel();
         let info = job.info.clone();
         let _ = job.done.send_replace(Some(info.clone()));
-        self.persist(job);
+        if persist {
+            self.persist(job);
+        }
         drop(jobs);
         self.consume(id, generation);
         Some(info)
     }
 
-    /// Cancel every job owned by a session (`jobs.cancel(sessionID)` on interrupt).
-    pub fn cancel_session(&self, session: &str) {
+    /// `cancelSession` (on session delete): cancel the running jobs that belong to the session (by metadata,
+    /// blocking sessions, or recovery owner or child) without persisting them, delete their `job` rows, and
+    /// forget every matching job.
+    pub fn cancel_session(&self, session: &str) -> Vec<JobInfo> {
         let ids: Vec<String> = self
             .jobs
             .lock()
-            .iter()
-            .filter(|(_, j)| match &j.recovery {
-                Some(JobRecovery::Shell { session_id, .. }) => session_id == session,
-                Some(JobRecovery::Subagent { parent_session_id, .. }) => parent_session_id == session,
-                Some(JobRecovery::Image { session_id, .. }) => session_id == session,
-                None => false,
-            })
-            .map(|(k, _)| k.clone())
+            .values()
+            .filter(|j| j.info.status == JobStatus::Running && matches_session(j, session))
+            .map(|j| j.info.id.clone())
             .collect();
-        for id in ids {
-            self.cancel(&id);
+        let cancelled = ids.iter().filter_map(|id| self.cancel_internal(id, false)).collect();
+        if let Err(e) =
+            self.db.with(|c| c.execute("DELETE FROM job WHERE session_id = ?1 OR child_session_id = ?1", [session]))
+        {
+            tracing::error!(error = %e, sessionID = session, "failed to delete the session's background jobs");
         }
+        self.jobs.lock().retain(|_, j| !matches_session(j, session));
+        cancelled
     }
 
     /// `runningBackground`: recovery records of the backgrounded jobs still running.
@@ -330,22 +417,43 @@ impl Jobs {
             .collect()
     }
 
+    /// `pendingBackground`: the persisted records, oldest first (`time_created`, then `notification_id`), as
+    /// `{id, notificationID, recovery, status, output?, error?}`.
     pub fn pending_background(&self) -> Vec<Value> {
-        let mut out = Vec::new();
-        let mut after: Option<String> = None;
-        loop {
-            let Ok((entries, next)) = self.db.kv_scan(BACKGROUND_PREFIX, after.as_deref(), None) else { break };
-            out.extend(entries.into_iter().map(|(_, v)| v));
-            match next {
-                Some(n) => after = Some(n),
-                None => break,
-            }
-        }
-        out
+        type Row = (String, String, String, String, Option<String>, Option<String>);
+        let rows: Vec<Row> = self
+            .db
+            .with(|c| {
+                let mut s = c.prepare(
+                    "SELECT id, notification_id, recovery, status, output, error FROM job ORDER BY time_created ASC, notification_id ASC",
+                )?;
+                let r = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?.collect();
+                r
+            })
+            .unwrap_or_default();
+        rows.into_iter()
+            .filter_map(|(id, nid, recovery, status, output, error)| {
+                let mut v = json!({
+                    "id": id,
+                    "notificationID": nid,
+                    "recovery": serde_json::from_str::<Value>(&recovery).ok()?,
+                    "status": status,
+                });
+                if let Some(o) = output {
+                    v["output"] = json!(o);
+                }
+                if let Some(e) = error {
+                    v["error"] = json!(e);
+                }
+                Some(v)
+            })
+            .collect()
     }
 
     pub fn complete_background(&self, notification_id: &str) {
-        let _ = self.db.kv_remove(&format!("{BACKGROUND_PREFIX}{notification_id}"));
+        if let Err(e) = self.db.with(|c| c.execute("DELETE FROM job WHERE notification_id = ?", [notification_id])) {
+            tracing::error!(error = %e, notificationID = notification_id, "failed to complete background job");
+        }
         let mut jobs = self.jobs.lock();
         let key = jobs.iter().find(|(_, j)| j.info.notification_id.as_deref() == Some(notification_id)).map(|(k, j)| (k.clone(), j.info.status));
         if let Some((k, status)) = key {

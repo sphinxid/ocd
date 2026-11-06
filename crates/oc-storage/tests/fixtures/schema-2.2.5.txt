@@ -1,4 +1,4 @@
-migrations 58: last=20261029165540_schedule_checks
+migrations 59: last=20261030054400_job
   mig 20260127222353_familiar_lady_ursula
   mig 20260211171708_add_project_commands
   mig 20260213144116_wakeful_the_professor
@@ -57,6 +57,7 @@ migrations 58: last=20261029165540_schedule_checks
   mig 20261029002625_session_part
   mig 20261029073502_session_time_busy
   mig 20261029165540_schedule_checks
+  mig 20261030054400_job
 table account
   col ('access_token', 'TEXT', 1, None, 0)
   col ('email', 'TEXT', 1, None, 0)
@@ -135,6 +136,19 @@ table instruction_state
   col ('session_id', 'TEXT', 0, None, 1)
   col ('through_seq', 'INTEGER', 1, None, 0)
   fk ('session_v2', 'session_id', 'id', 'NO ACTION', 'CASCADE', 'NONE')
+table job
+  col ('child_session_id', 'TEXT', 0, None, 0)
+  col ('error', 'TEXT', 0, None, 0)
+  col ('id', 'TEXT', 1, None, 0)
+  col ('kind', 'TEXT', 1, None, 0)
+  col ('notification_id', 'TEXT', 0, None, 1)
+  col ('output', 'TEXT', 0, None, 0)
+  col ('recovery', 'TEXT', 1, None, 0)
+  col ('session_id', 'TEXT', 1, None, 0)
+  col ('status', 'TEXT', 1, None, 0)
+  col ('time_created', 'INTEGER', 1, None, 0)
+  col ('time_updated', 'INTEGER', 1, None, 0)
+  col ('title', 'TEXT', 0, None, 0)
 table kv
   col ('key', 'TEXT', 0, None, 1)
   col ('time_created', 'INTEGER', 1, None, 0)
@@ -280,6 +294,9 @@ index blob_ref_hash_idx: CREATE INDEX `blob_ref_hash_idx` ON `blob_ref` (`hash`)
 index blob_ref_session_seq_idx: CREATE INDEX `blob_ref_session_seq_idx` ON `blob_ref` (`session_id`,`seq`)
 index event_aggregate_seq_idx: CREATE UNIQUE INDEX `event_aggregate_seq_idx` ON `event` (`aggregate_id`,`seq`)
 index event_aggregate_type_seq_idx: CREATE INDEX `event_aggregate_type_seq_idx` ON `event` (`aggregate_id`,`type`,`seq`)
+index job_child_session_idx: CREATE INDEX `job_child_session_idx` ON `job` (`child_session_id`)
+index job_id_idx: CREATE INDEX `job_id_idx` ON `job` (`id`)
+index job_session_idx: CREATE INDEX `job_session_idx` ON `job` (`session_id`)
 index permission_project_action_resource_idx: CREATE UNIQUE INDEX `permission_project_action_resource_idx` ON `permission` (`project_id`,`action`,`resource`)
 index schedule_due_idx: CREATE INDEX `schedule_due_idx` ON `schedule` (`next_due_at`) WHERE "schedule"."status" = 'active' and "schedule"."next_due_at" is not null
 index schedule_session_idx: CREATE INDEX `schedule_session_idx` ON `schedule` (`session_id`)

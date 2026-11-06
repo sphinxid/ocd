@@ -1478,8 +1478,9 @@ impl Driver for ExecutionDriver {
                 };
                 // Not an error, but the one trace of who stopped a run: the reason is not stored with the session.
                 tracing::info!(sessionID = key, reason = ?reason, "Session execution interrupted");
+                // `jobs.cancel(sessionID)`: the job named after the session, i.e. a subagent run of this child.
                 if reason != InterruptReason::Shutdown {
-                    self.engine.app.jobs.cancel_session(key);
+                    self.engine.app.jobs.cancel(key);
                 }
                 let ev = vec![SessionEvent::ExecutionInterrupted { session_id: key.into(), reason }.into()];
                 if reason == InterruptReason::Shutdown { bus.commit(ev) } else { bus.commit_with(ev, release) }

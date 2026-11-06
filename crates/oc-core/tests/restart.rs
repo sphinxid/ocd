@@ -55,21 +55,46 @@ async fn pending_background_jobs_are_settled() {
         .await
         .unwrap();
 
-    app.db
-        .kv_set(
-            "job.background/msg_shell",
-            &json!({"id": "job_1", "notificationID": "msg_shell", "status": "running",
-                    "recovery": {"kind": "shell", "sessionID": parent.id, "shellID": "sh_1", "command": "sleep 100"}}),
-        )
-        .unwrap();
-    app.db
-        .kv_set(
-            "job.background/msg_sub",
-            &json!({"id": child.id, "notificationID": "msg_sub", "status": "completed", "output": "all done",
-                    "recovery": {"kind": "subagent", "parentSessionID": parent.id, "childSessionID": child.id,
-                                 "agent": "general", "description": "do work"}}),
-        )
-        .unwrap();
+    // Background job markers live in the `job` table (2.2.4+), oldest first.
+    let insert = |nid: &str, id: &str, session: &str, child: Option<&str>, kind: &str, title: &str, status: &str,
+                  output: Option<&str>, recovery: serde_json::Value, created: i64| {
+        app.db
+            .with(|c| {
+                c.execute(
+                    "INSERT INTO job (notification_id, id, session_id, child_session_id, kind, title, status, output, error, recovery, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+                    rusqlite::params![nid, id, session, child, kind, title, status, output, recovery.to_string(), created, created],
+                )
+            })
+            .unwrap();
+    };
+    insert(
+        "msg_sub",
+        &child.id,
+        &parent.id,
+        Some(&child.id),
+        "subagent",
+        "do work",
+        "completed",
+        Some("all done"),
+        json!({"kind": "subagent", "parentSessionID": parent.id, "childSessionID": child.id, "agent": "general", "description": "do work"}),
+        2,
+    );
+    insert(
+        "msg_shell",
+        "job_1",
+        &parent.id,
+        None,
+        "shell",
+        "sleep 100",
+        "running",
+        None,
+        json!({"kind": "shell", "sessionID": parent.id, "shellID": "sh_1", "command": "sleep 100"}),
+        1,
+    );
+    let pending = app.jobs.pending_background();
+    assert_eq!(pending.iter().map(|v| v["notificationID"].as_str().unwrap()).collect::<Vec<_>>(), ["msg_shell", "msg_sub"]);
+    assert_eq!(pending[1], json!({"id": child.id, "notificationID": "msg_sub", "status": "completed", "output": "all done",
+        "recovery": {"kind": "subagent", "parentSessionID": parent.id, "childSessionID": child.id, "agent": "general", "description": "do work"}}));
 
     engine.resume_suspended().await.unwrap();
 

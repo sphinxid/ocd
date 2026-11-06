@@ -247,7 +247,8 @@ impl ToolHost for CoreHost {
     }
 
     async fn job_start(&self, start: JobStart) -> Result<JobInfo, String> {
-        Ok(self.app.jobs.start(start.id, start.kind, start.title, start.recovery, start.run))
+        let metadata_session = start.metadata.get("sessionID").and_then(|v| v.as_str()).map(str::to_string);
+        Ok(self.app.jobs.start_with(start.id, start.kind, start.title, metadata_session, start.recovery, start.run))
     }
 
     async fn job_block(&self, id: &str, session_id: &str) -> Result<Option<JobBlockResult>, String> {

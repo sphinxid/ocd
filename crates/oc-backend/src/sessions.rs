@@ -80,7 +80,8 @@ impl Engine {
         self.session_api(&session)
     }
 
-    /// `Session.remove`: interrupt, wait idle, remove children, clear environment, delete.
+    /// `Session.remove`: interrupt, wait idle, cancel the session's jobs, remove children, clear environment,
+    /// delete.
     pub fn remove_session<'a>(&'a self, id: &'a str) -> futures::future::BoxFuture<'a, Result<(), ApiError>> {
         Box::pin(async move {
             self.session(id)?;
@@ -88,6 +89,7 @@ impl Engine {
                 c.interrupt(id, Some(oc_core::coordinator::Reason::User), false).await;
                 c.await_idle(id).await;
             }
+            self.app.jobs.cancel_session(id);
             self.app.model_transport.close(id);
             for child in store::children(&self.app.db, id).map_err(defect)? {
                 self.remove_session(&child).await?;
