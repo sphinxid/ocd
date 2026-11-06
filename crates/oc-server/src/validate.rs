@@ -15,8 +15,9 @@
 //!   member's issue, several failing candidates report every member issue (one per line);
 //! * check messages (`a string starting with "ses"`, `an integer`, `a value greater than 0`, ...).
 //!
-//! Constructs the document does not express precisely (`allOf`, `not`, untyped schemas) are accepted, so
-//! the checker never rejects a body upstream would accept.
+//! `{"not": {}}` is `Schema.Never` (an `optionalKey(Never)` property that must be absent): any value fails
+//! with `Expected never`. Constructs the document does not express precisely (`allOf`, other `not`s,
+//! untyped schemas) are accepted, so the checker never rejects a body upstream would accept.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::LazyLock;
@@ -225,6 +226,9 @@ fn mismatch(path: &[Seg], schema: &Value, name: Option<&str>) -> Issue {
 fn check(schema: &Value, name: Option<&str>, v: &Value, path: &mut Vec<Seg>) -> Result<(), Issue> {
     let (schema, inner) = deref(schema);
     let name = name.or(inner);
+    if schema.get("not").and_then(Value::as_object).is_some_and(|n| n.is_empty()) {
+        return Err(issue(path, "Expected never".into()));
+    }
     if let Some(members) = schema.get("anyOf").and_then(Value::as_array) {
         return check_union(schema, name, members, v, path);
     }
@@ -375,7 +379,7 @@ fn check(schema: &Value, name: Option<&str>, v: &Value, path: &mut Vec<Seg>) -> 
             }
             Ok(())
         }
-        // Untyped / allOf / not: accept.
+        // Untyped / allOf / other `not`s: accept.
         _ => Ok(()),
     }
 }
@@ -635,6 +639,36 @@ mod tests {
         assert_eq!(
             msg("session.form.create", json!({"title": "Empty", "fields": []})).unwrap(),
             "Missing key\n  at [\"fields\"][0]"
+        );
+    }
+
+    // Schedule conditions: a `run` check or a Code Mode `code` check, the other member's keys `Never`
+    // (strings captured from the 2.2.5 server).
+    #[test]
+    fn schedule_condition_members() {
+        let op = "experimental.schedule.create";
+        let body = |c: Value| json!({"sessionID": "ses_x", "prompt": "p", "if": c});
+        assert_eq!(msg(op, body(json!({"code": "return true"}))), None);
+        assert_eq!(msg(op, body(json!({"run": "x"}))), None);
+        assert_eq!(
+            msg(op, body(json!({"run": "true", "code": "x"}))).unwrap(),
+            "Expected never\n  at [\"if\"][\"code\"]\nExpected never\n  at [\"if\"][\"run\"]"
+        );
+        assert_eq!(
+            msg(op, body(json!({"code": "x", "is": "y"}))).unwrap(),
+            "Missing key\n  at [\"if\"][\"run\"]\nExpected never\n  at [\"if\"][\"is\"]"
+        );
+        assert_eq!(
+            msg(op, body(json!({"code": ""}))).unwrap(),
+            "Missing key\n  at [\"if\"][\"run\"]\nExpected a value with a length of at least 1\n  at [\"if\"][\"code\"]"
+        );
+        assert_eq!(
+            msg(op, body(json!({"is": "y"}))).unwrap(),
+            "Missing key\n  at [\"if\"][\"run\"]\nMissing key\n  at [\"if\"][\"code\"]"
+        );
+        assert_eq!(
+            msg(op, json!({"sessionID": "ses_x", "prompt": "p", "until": {"run": "x", "code": null}})).unwrap(),
+            "Expected never\n  at [\"until\"][\"code\"]\nExpected string\n  at [\"until\"][\"code\"]"
         );
     }
 

@@ -208,6 +208,29 @@ pub enum FsSource {
     Bytes(Bytes),
 }
 
+// ---- experimental.artifacts.view ------------------------------------------------------------
+
+/// `experimental.artifacts.view` input (`GET /api/experimental/artifacts/{artifactID}/view/*`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactViewRequest {
+    pub artifact_id: String,
+    /// The percent-decoded path after `/view/`; `None` for `/view` and `/view/`.
+    pub path: Option<String>,
+    /// The request was for `/view` without the trailing slash (upstream redirects it).
+    pub bare: bool,
+    /// The raw query string, kept for the redirect.
+    pub search: String,
+}
+
+/// What `experimental.artifacts.view` serves.
+#[derive(Debug, Clone)]
+pub enum ArtifactView {
+    /// `308` to `location`.
+    Redirect(String),
+    /// A stored file, served with `nosniff`, `sandbox allow-scripts` and `access-control-allow-origin: *`.
+    File { mime: String, data: Bytes },
+}
+
 // ---- experimental.media.get ------------------------------------------------------------------
 
 /// A content-addressed media blob (`SessionBlob.read`): its stored mime and raw bytes. The server

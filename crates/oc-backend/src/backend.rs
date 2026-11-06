@@ -1275,10 +1275,12 @@ impl Backend for Engine {
         req: ExperimentalPersistentPtyUpdateRequest,
     ) -> Result<PersistentPtyInfo, ApiError> {
         let pty = self.persistent().await;
-        let size = &req.body.size;
-        pty.resize(&req.pty_id, size.cols.max(0) as u64, size.rows.max(0) as u64, req.body.attachment_id.as_deref())
-            .await
-            .map_err(persistent_error)?;
+        // Since 2.2.5 `size` is optional (a rename alone sends only `title`, ported with the terminal rename).
+        if let Some(size) = &req.body.size {
+            pty.resize(&req.pty_id, size.cols.max(0) as u64, size.rows.max(0) as u64, req.body.attachment_id.as_deref())
+                .await
+                .map_err(persistent_error)?;
+        }
         conv(pty.get(&req.pty_id).await.map_err(persistent_error)?)
     }
 

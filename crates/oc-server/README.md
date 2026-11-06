@@ -1,7 +1,7 @@
 # oc-server
 
 The opencode v2 HTTP API server, wire-compatible with `assets/openapi.json` (OpenAPI 3.1,
-162 operations, 350 component schemas; v2.2.2's document) so the upstream TypeScript client/SDK/TUI and the Rust
+169 operations, 363 component schemas; v2.2.5's document) so the upstream TypeScript client/SDK/TUI and the Rust
 TUI work unchanged. Behaviour follows `docs/spec/06-http-api.md`.
 
 The engine is **not** a dependency: everything it must do is expressed by the generated
@@ -56,8 +56,8 @@ server.shutdown().await;            // or server.wait().await
 
 Generated in `src/generated.rs`: **one async method per operationId** (snake_case of the dotted
 id, e.g. `session.revert.stage` → `session_revert_stage`,
-`experimental.persistentPty.read` → `experimental_persistent_pty_read`), 158 in
-total (162 operations minus 4 the server owns: `server.pair`, `server.connect`,
+`experimental.persistentPty.read` → `experimental_persistent_pty_read`), 165 in
+total (169 operations minus 4 the server owns: `server.pair`, `server.connect`,
 `pty.connect.token`, `experimental.persistentPty.connectToken`).
 
 ```rust
@@ -116,6 +116,7 @@ pub trait Backend: Send + Sync + 'static {
 | `experimental.session.log` | `(ctx, ExperimentalSessionLogRequest{session_id, after, follow}) -> SessionLogStream` | `BoxStream<Result<Value, StreamFailure>>`; frames `data: <json>`; an `Err` emits `event: effect/http-api/stream/failure` + `data: <cause array>` and ends; errors before streaming are JSON |
 | `event.subscribe` | `(ctx, EventSubscribeRequest{location: None}) -> EventSubscription` | `Broadcast(broadcast::Receiver<Value>)` or `Stream(BoxStream<Value>)` of bus payloads; the server decodes `?types=` (repeated or single; public types or `rpc.*`, else `400` `kind: Query`) and filters per subscriber |
 | `experimental.media.get` | `(ctx, ExperimentalMediaGetRequest{hash}) -> MediaBlob{mime, data}` | hash `^[0-9a-f]{64}$`; the server adds `cache-control: private, max-age=31536000, immutable`, `etag: "<hash>"`, `x-content-type-options: nosniff`, `content-security-policy: default-src 'none'; sandbox`, the mime for png/jpeg/gif/webp else `application/octet-stream` + `content-disposition: attachment`, and answers a matching `If-None-Match` (`*`, `W/`, lists) with 304 |
+| `experimental.artifacts.view` | `(ctx, ArtifactViewRequest{artifact_id, path, bare, search}) -> ArtifactView::{Redirect(location), File{mime, data}}` | also routed at `/view` and `/view/`; a redirect is a `308`; files get `access-control-allow-origin: *`, `cache-control: private, no-cache`, `content-security-policy: sandbox allow-scripts`, `x-content-type-options: nosniff`. The 7 `experimental.artifacts.*` operations have scope `H`: the backend resolves the location after param and body validation |
 | `fs.read` | `(ctx, FsReadRequest{path}) -> FsFile{size, mtime_ms, mime, source: Path|Bytes}` | server does ETag / Last-Modified / If-None-Match / If-Modified-Since / single Range / If-Range (200/206/304/416) |
 | `pty.connect` | `(ctx, PtyAttachRequest{pty_id, cursor}) -> PtyAttachment{replay, cursor, output, control}` | `Err(ApiError::pty_not_found)` → close 4404 "session not found"; `Err(ApiError::pty_exited())` → 4404 "session exited" |
 | `experimental.persistentPty.connect` | `(ctx, PersistentPtyAttachRequest{pty_id, cursor, attachment_id, role, takeover}) -> PersistentPtyAttachment{info, role, generation, replay, events, control}` | any `Err` → close 4404 "terminal unavailable" |
@@ -150,13 +151,16 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
   named types for inline objects/enums/unions (`SessionInfoTime`, `SessionPromptBody`, …).
 * Struct fields keep schema property order (= JSON key order) with `#[serde(rename)]`.
 * required → `T`; required + nullable → `Option<T>` serialized as `null`; optional →
-  `Option<T>` omitted when `None` (both absence and `null` accepted on input).
+  `Option<T>` omitted when `None` (both absence and `null` accepted on input), except the
+  properties listed in `DOUBLE_OPTION` (`PersistentPty.UpdateInput.title`), which are
+  `Option<Option<T>>` so an absent key (`None`) differs from `null` (`Some(None)`).
 * Unions (`anyOf`) → `#[serde(untagged)]` enums; discriminator fields (`type`, `status`,
   `_tag`, …, single-value enums) are zero-sized `LitXxx` markers that only accept their
   literal, so variants are picked exactly. `From<Variant>` impls are generated.
 * `number` → `f64` serialized like `JSON.stringify` (integral values without `.0`);
   `number | "Infinity" | "-Infinity" | "NaN"` → `JsNumber`; `{type: object}` → `JsonObject`;
-  `additionalProperties: X` → `IndexMap<String, X>`; `{}`/`not` → `serde_json::Value`.
+  `additionalProperties: X` → `IndexMap<String, X>`; `{}`/`not` → `serde_json::Value` (the
+  payload checker treats a `{"not": {}}` property as `Schema.Never`: present → `Expected never`).
   Unknown input keys are ignored (as upstream).
 * `Schema.ArrayEnsure` query parameters (`model.list ?types=`) → `Option<Vec<T>>`, from repeated
   keys or one value promoted to an array.

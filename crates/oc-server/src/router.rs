@@ -318,6 +318,13 @@ pub(crate) fn api_router(app: Arc<App>) -> Router {
     for meta in OPS {
         let handler = move |State(app): State<Arc<App>>, req: Request| async move { handle_op(app, meta, req).await };
         let mr = on(method_filter(meta.method), handler);
+        // Upstream's `/view/*` also matches `/view` (redirected to `/view/`) and `/view/` itself, which
+        // axum's `{*path}` does not.
+        if meta.op == Op::ExperimentalArtifactsView {
+            for route in ["/api/experimental/artifacts/{artifactID}/view", "/api/experimental/artifacts/{artifactID}/view/"] {
+                by_route.push((route, on(method_filter(meta.method), handler)));
+            }
+        }
         if let Some((_, existing)) = by_route.iter_mut().find(|(r, _)| *r == meta.route) {
             let prev = std::mem::take(existing);
             *existing = prev.merge(mr);

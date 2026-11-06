@@ -109,6 +109,12 @@ pub fn ser_opt_f64<S: Serializer>(value: &Option<f64>, serializer: S) -> Result<
     }
 }
 
+/// Deserialize a present property into `Some(..)`, so `Option<Option<T>>` tells an absent key (`None`, via
+/// `#[serde(default)]`) from an explicit `null` (`Some(None)`).
+pub fn de_double_option<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 /// `Vec<f64>` variant of [`ser_f64`].
 pub fn ser_vec_f64<S: Serializer>(value: &[f64], serializer: S) -> Result<S::Ok, S::Error> {
     use serde::ser::SerializeSeq;

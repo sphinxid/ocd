@@ -102,6 +102,7 @@ ERROR_STATUS = {
     "CommandExecutionError": 500, "RpcInternalError": 500, "VcsInitNotSupportedError": 501,
     "ServiceUnavailableError": 503, "PluginNotFoundError": 404, "ModelNotFoundError": 404,
     "UnsupportedModelError": 422, "ProviderRequestError": 502, "ScheduleNotFoundError": 404,
+    "PtyFeatureUnsupportedError": 501, "ArtifactNotFoundError": 404,
 }
 
 # Scope per operation (spec 06 §1.1 / §7). Operations with a `location` query parameter are L.
@@ -117,7 +118,11 @@ SCOPE_S = {
 }
 SCOPE_F = {"session.form.list", "session.form.create", "session.form.get",
            "session.form.cancel", "session.form.reply"}
-SCOPE_H = {"session.permission.list", "pty.connect"}
+# The artifact routes resolve their location in the handler (explicit directory, else the session, else the
+# stored artifact, else the request), after param and body validation.
+SCOPE_H = {"session.permission.list", "pty.connect", "experimental.artifacts.providers",
+           "experimental.artifacts.list", "experimental.artifacts.create", "experimental.artifacts.get",
+           "experimental.artifacts.update", "experimental.artifacts.delete", "experimental.artifacts.view"}
 
 # Operations owned by the server itself (not part of the Backend trait).
 SERVER_OWNED = {"server.pair", "server.connect", "pty.connect.token",
@@ -134,9 +139,14 @@ SPECIAL = {
     "experimental.media.get": ("MediaGetRequest", "crate::backend::MediaBlob"),
     "experimental.persistentPty.connect": ("crate::backend::PersistentPtyAttachRequest",
                               "crate::backend::PersistentPtyAttachment"),
+    "experimental.artifacts.view": ("crate::backend::ArtifactViewRequest", "crate::backend::ArtifactView"),
     "rpc.call": None,      # generated normally, but defects map to RpcInternalError
     "server.info": None,   # generated normally, default impl builds from ctx.server
 }
+
+# Optional + nullable properties that must tell "absent" from `null` (`Option<Option<T>>`): a
+# persistent PTY `title` of `null` clears the user title, an absent one leaves it alone.
+DOUBLE_OPTION = {("PersistentPty.UpdateInput", "title")}
 
 # Numeric / boolean query parameters (OpenAPI shows them as strings; upstream decodes
 # NumberFromString + checks). (op, name) -> (rust kind, min, max)
@@ -511,7 +521,13 @@ class Gen:
             if raw != pname:
                 attrs.append(f"rename = {rust_str(pname)}")
             is_req = pname in required
-            if not is_req:
+            if not is_req and (ctx, pname) in DOUBLE_OPTION:
+                assert ty.startswith("Option<"), (ctx, pname, ty)
+                ty = f"Option<{ty}>"
+                attrs.append("default")
+                attrs.append('skip_serializing_if = "Option::is_none"')
+                attrs.append('deserialize_with = "crate::support::de_double_option"')
+            elif not is_req:
                 if not ty.startswith("Option<"):
                     ty = f"Option<{ty}>"
                     if "f64" in fl:

@@ -56,6 +56,40 @@ pub(crate) async fn special(
             let blob = app.backend.experimental_media_get(&call.ctx, ExperimentalMediaGetRequest { hash: hash.clone() }).await?;
             Ok(media_response(&hash, blob, &call.headers))
         }
+        Op::ExperimentalArtifactsView => {
+            let artifact_id = call.path_str("artifactID", Some("^art_"))?;
+            // The raw (still percent-encoded) path parameter, as upstream re-encodes the decoded one.
+            let prefix = format!("/api/experimental/artifacts/{artifact_id}/view");
+            let pathname = uri.path();
+            let bare = pathname == prefix;
+            let path = pathname
+                .strip_prefix(&format!("{prefix}/"))
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| decode_uri_component(raw).unwrap_or_else(|| raw.to_string()));
+            let search = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+            let req = crate::backend::ArtifactViewRequest { artifact_id, path, bare, search };
+            match app.backend.experimental_artifacts_view(&call.ctx, req).await? {
+                crate::backend::ArtifactView::Redirect(location) => {
+                    let mut res = StatusCode::PERMANENT_REDIRECT.into_response();
+                    if let Ok(v) = HeaderValue::from_str(&location) {
+                        res.headers_mut().insert(header::LOCATION, v);
+                    }
+                    Ok(res)
+                }
+                crate::backend::ArtifactView::File { mime, data } => {
+                    let mut res = (StatusCode::OK, data).into_response();
+                    let h = res.headers_mut();
+                    if let Ok(v) = HeaderValue::from_str(&mime) {
+                        h.insert(header::CONTENT_TYPE, v);
+                    }
+                    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+                    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+                    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox allow-scripts"));
+                    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+                    Ok(res)
+                }
+            }
+        }
         Op::FsRead => {
             let raw = uri.path().get("/api/fs/read/".len()..).unwrap_or("").to_string();
             let path = decode_uri_component(&raw).ok_or_else(|| ApiError::file_not_found(raw.clone()))?;

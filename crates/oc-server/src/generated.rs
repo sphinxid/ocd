@@ -11,6 +11,7 @@ pub use crate::support::{JsNumber, JsonObject};
 // ---- literal markers ----------------------------------------------------------------------
 
 crate::lit_str!(LitAgentNotFoundError, "AgentNotFoundError");
+crate::lit_str!(LitArtifactNotFoundError, "ArtifactNotFoundError");
 crate::lit_str!(LitCommandExecutionError, "CommandExecutionError");
 crate::lit_str!(LitCommandNotFoundError, "CommandNotFoundError");
 crate::lit_str!(LitDirectory, "directory");
@@ -80,11 +81,13 @@ crate::lit_str!(LitSummary, "summary");
 crate::lit_str!(LitNative, "native");
 crate::lit_str!(LitProviderNotFoundError, "ProviderNotFoundError");
 crate::lit_str!(LitProviderRequestError, "ProviderRequestError");
+crate::lit_str!(LitPtyFeatureUnsupportedError, "PtyFeatureUnsupportedError");
 crate::lit_str!(LitPtyNotFoundError, "PtyNotFoundError");
 crate::lit_str!(LitGit, "git");
 crate::lit_str!(LitRpcError, "RpcError");
 crate::lit_str!(LitRpcInternalError, "RpcInternalError");
 crate::lit_str!(LitPrompt, "prompt");
+crate::lit_str!(LitCode, "code");
 crate::lit_str!(LitShell, "shell");
 crate::lit_str!(LitAt, "at");
 crate::lit_str!(LitCron, "cron");
@@ -184,6 +187,110 @@ pub struct AgentNotFoundErrorEncoded {
     pub tag: LitAgentNotFoundError,
     #[serde(rename = "agentID")]
     pub agent_id: String,
+    pub message: String,
+}
+
+/// Component schema `Artifact.Capability`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ArtifactCapability {
+    #[serde(rename = "static")]
+    Static,
+    #[serde(rename = "server-code")]
+    ServerCode,
+    #[serde(rename = "sqlite")]
+    Sqlite,
+    #[serde(rename = "durable-objects")]
+    DurableObjects,
+}
+
+impl ArtifactCapability {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Static => "static",
+            Self::ServerCode => "server-code",
+            Self::Sqlite => "sqlite",
+            Self::DurableObjects => "durable-objects",
+        }
+    }
+}
+
+/// Component schema `Artifact.Content`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ArtifactContent {
+    pub info: ArtifactInfo,
+    pub files: indexmap::IndexMap<String, String>,
+}
+
+/// Component schema `Artifact.CreateInput`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ArtifactCreateInput {
+    pub title: String,
+    pub files: indexmap::IndexMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(rename = "sessionID", default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionID>,
+}
+
+/// Component schema `Artifact.ID`. Pattern: `^art_`.
+pub type ArtifactID = String;
+
+/// Component schema `Artifact.Info`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ArtifactInfo {
+    pub id: ArtifactID,
+    pub provider: ArtifactProviderIDEncoded,
+    #[serde(rename = "sessionID", default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionID>,
+    pub title: String,
+    pub entry: String,
+    pub url: String,
+    pub time: ArtifactTime,
+}
+
+/// Component schema `Artifact.Provider`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ArtifactProvider {
+    pub id: ArtifactProviderIDEncoded,
+    pub name: String,
+    pub capabilities: Vec<ArtifactCapability>,
+    pub default: bool,
+}
+
+/// Component schema `Artifact.ProviderIDEncoded`.
+pub type ArtifactProviderIDEncoded = String;
+
+/// Component schema `Artifact.Time`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ArtifactTime {
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub updated: f64,
+}
+
+/// Component schema `Artifact.UpdateInput`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ArtifactUpdateInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub files: indexmap::IndexMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
+    #[serde(rename = "sessionID", default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionID>,
+}
+
+/// Component schema `ArtifactNotFoundErrorEncoded`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ArtifactNotFoundErrorEncoded {
+    #[serde(rename = "_tag")]
+    pub tag: LitArtifactNotFoundError,
+    #[serde(rename = "artifactID")]
+    pub artifact_id: String,
     pub message: String,
 }
 
@@ -327,6 +434,9 @@ pub struct ConfigCommandEncodedModelObject {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
 }
+
+/// Component schema `Config.Compaction.Percent`. Pattern: `^([1-9]\d?(\.\d+)?)%$`.
+pub type ConfigCompactionPercent = String;
 
 /// Component schema `Config.DirectoryEncoded`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -525,8 +635,16 @@ pub enum ConfigInfoEncodedPoliciesItemAction {
     ProviderUse,
     #[serde(rename = "tool.use")]
     ToolUse,
+    #[serde(rename = "integration.connect")]
+    IntegrationConnect,
     #[serde(rename = "integration.use")]
     IntegrationUse,
+    #[serde(rename = "mcp.use")]
+    McpUse,
+    #[serde(rename = "skill.use")]
+    SkillUse,
+    #[serde(rename = "plugin.use")]
+    PluginUse,
 }
 
 impl ConfigInfoEncodedPoliciesItemAction {
@@ -535,7 +653,11 @@ impl ConfigInfoEncodedPoliciesItemAction {
         match self {
             Self::ProviderUse => "provider.use",
             Self::ToolUse => "tool.use",
+            Self::IntegrationConnect => "integration.connect",
             Self::IntegrationUse => "integration.use",
+            Self::McpUse => "mcp.use",
+            Self::SkillUse => "skill.use",
+            Self::PluginUse => "plugin.use",
         }
     }
 }
@@ -672,13 +794,26 @@ pub struct ConfigInfoEncodedCompaction {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep: Option<ConfigInfoEncodedCompactionKeep>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub buffer: Option<i64>,
+    pub buffer: Option<ConfigInfoEncodedCompactionBuffer>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ConfigInfoEncodedCompactionKeep {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigInfoEncodedCompactionBuffer {
+    ConfigCompactionPercent(ConfigCompactionPercent),
+    Number(i64),
+}
+
+impl From<ConfigCompactionPercent> for ConfigInfoEncodedCompactionBuffer {
+    fn from(value: ConfigCompactionPercent) -> Self {
+        Self::ConfigCompactionPercent(value)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -761,6 +896,8 @@ pub struct ConfigInfoEncodedExperimental {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_depth: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location_idle_timeout: Option<ConfigInfoEncodedExperimentalLocationIdleTimeout>,
@@ -835,8 +972,16 @@ pub enum ConfigInfoEncodedExperimentalPoliciesItemAction {
     ProviderUse,
     #[serde(rename = "tool.use")]
     ToolUse,
+    #[serde(rename = "integration.connect")]
+    IntegrationConnect,
     #[serde(rename = "integration.use")]
     IntegrationUse,
+    #[serde(rename = "mcp.use")]
+    McpUse,
+    #[serde(rename = "skill.use")]
+    SkillUse,
+    #[serde(rename = "plugin.use")]
+    PluginUse,
 }
 
 impl ConfigInfoEncodedExperimentalPoliciesItemAction {
@@ -845,7 +990,11 @@ impl ConfigInfoEncodedExperimentalPoliciesItemAction {
         match self {
             Self::ProviderUse => "provider.use",
             Self::ToolUse => "tool.use",
+            Self::IntegrationConnect => "integration.connect",
             Self::IntegrationUse => "integration.use",
+            Self::McpUse => "mcp.use",
+            Self::SkillUse => "skill.use",
+            Self::PluginUse => "plugin.use",
         }
     }
 }
@@ -3450,6 +3599,8 @@ pub struct PersistentPtyInfo {
     pub exit_code: Option<i64>,
     #[serde(rename = "sessionID")]
     pub session_id: SessionID,
+    #[serde(rename = "userTitle", default)]
+    pub user_title: Option<String>,
     #[serde(rename = "foregroundProcess", default)]
     pub foreground_process: Option<String>,
     pub size: PersistentPtyInfoSize,
@@ -3535,7 +3686,10 @@ pub struct PersistentPtySnapshotCursor {
 pub struct PersistentPtyUpdateInput {
     #[serde(rename = "attachmentID", default, skip_serializing_if = "Option::is_none")]
     pub attachment_id: Option<String>,
-    pub size: PersistentPtyUpdateInputSize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<PersistentPtyUpdateInputSize>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::support::de_double_option")]
+    pub title: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -4152,6 +4306,15 @@ impl PtyStatus {
 /// Component schema `Pty.ID`. Pattern: `^pty`.
 pub type PtyID = String;
 
+/// Component schema `PtyFeatureUnsupportedErrorEncoded`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PtyFeatureUnsupportedErrorEncoded {
+    #[serde(rename = "_tag")]
+    pub tag: LitPtyFeatureUnsupportedError,
+    pub feature: String,
+    pub message: String,
+}
+
 /// Component schema `PtyNotFoundErrorEncoded`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PtyNotFoundErrorEncoded {
@@ -4285,7 +4448,31 @@ pub struct ScheduleActionPrompt {
 }
 
 /// Component schema `Schedule.Condition`.
-pub type ScheduleCondition = ScheduleConditionShell;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ScheduleCondition {
+    Shell(ScheduleConditionShell),
+    Code(ScheduleConditionCode),
+}
+
+impl From<ScheduleConditionShell> for ScheduleCondition {
+    fn from(value: ScheduleConditionShell) -> Self {
+        Self::Shell(value)
+    }
+}
+
+impl From<ScheduleConditionCode> for ScheduleCondition {
+    fn from(value: ScheduleConditionCode) -> Self {
+        Self::Code(value)
+    }
+}
+
+/// Component schema `Schedule.Condition.Code`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleConditionCode {
+    pub r#type: LitCode,
+    pub code: String,
+}
 
 /// Component schema `Schedule.Condition.Shell`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -4301,8 +4488,27 @@ pub struct ScheduleConditionShell {
 }
 
 /// Component schema `Schedule.ConditionInput`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ScheduleConditionInput {
+    Object(ScheduleConditionInputObject),
+    Object2(ScheduleConditionInputObject2),
+}
+
+impl From<ScheduleConditionInputObject> for ScheduleConditionInput {
+    fn from(value: ScheduleConditionInputObject) -> Self {
+        Self::Object(value)
+    }
+}
+
+impl From<ScheduleConditionInputObject2> for ScheduleConditionInput {
+    fn from(value: ScheduleConditionInputObject2) -> Self {
+        Self::Object2(value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct ScheduleConditionInput {
+pub struct ScheduleConditionInputObject {
     /// Shell command to run in the Session's directory. Alone, exit 0 wakes and stdout is appended.
     pub run: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4311,6 +4517,22 @@ pub struct ScheduleConditionInput {
     pub matches: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScheduleConditionInputObject2 {
+    /// Code Mode JavaScript check (no fetch; 30s, 20 tool calls, 32 KB output cap). Call tools statically as tools.<ns>.<tool>(...) or tools["ns-name"].tool(...); each is authorized once at creation to run unattended. Runs once at creation with state = null (if baselines state without waking; until matches immediately if true), with globals state, now (epoch ms) and runs. Return a boolean or { wake, state?, message? } (message is appended to prompt on wake), e.g.: const t = await tools.slack.read_thread({ id }); return { wake: state !== null && t.count > state.count, state: { count: t.count }, message: "New reply" }
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matches: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes: Option<serde_json::Value>,
 }
 
 /// Component schema `Schedule.CreatePayload`.
@@ -7179,6 +7401,8 @@ pub enum EventSubscribeTypesItemEnum {
     PersistentPtyAdded,
     #[serde(rename = "persistent-pty.removed")]
     PersistentPtyRemoved,
+    #[serde(rename = "persistent-pty.updated")]
+    PersistentPtyUpdated,
     #[serde(rename = "shell.created")]
     ShellCreated,
     #[serde(rename = "shell.exited")]
@@ -7193,6 +7417,8 @@ pub enum EventSubscribeTypesItemEnum {
     FormCancelled,
     #[serde(rename = "websearch.updated")]
     WebsearchUpdated,
+    #[serde(rename = "artifact.updated")]
+    ArtifactUpdated,
     #[serde(rename = "session.status")]
     SessionStatus,
     #[serde(rename = "session.idle")]
@@ -7297,6 +7523,7 @@ impl EventSubscribeTypesItemEnum {
             Self::PtyDeleted => "pty.deleted",
             Self::PersistentPtyAdded => "persistent-pty.added",
             Self::PersistentPtyRemoved => "persistent-pty.removed",
+            Self::PersistentPtyUpdated => "persistent-pty.updated",
             Self::ShellCreated => "shell.created",
             Self::ShellExited => "shell.exited",
             Self::ShellDeleted => "shell.deleted",
@@ -7304,6 +7531,7 @@ impl EventSubscribeTypesItemEnum {
             Self::FormReplied => "form.replied",
             Self::FormCancelled => "form.cancelled",
             Self::WebsearchUpdated => "websearch.updated",
+            Self::ArtifactUpdated => "artifact.updated",
             Self::SessionStatus => "session.status",
             Self::SessionIdle => "session.idle",
             Self::TuiPromptAppend => "tui.prompt.append",
@@ -7491,6 +7719,11 @@ impl ErrorEncoded for AgentNotFoundErrorEncoded {
     const STATUS: u16 = 404;
 }
 
+impl ErrorEncoded for ArtifactNotFoundErrorEncoded {
+    const TAG: &'static str = "ArtifactNotFoundError";
+    const STATUS: u16 = 404;
+}
+
 impl ErrorEncoded for CommandExecutionErrorEncoded {
     const TAG: &'static str = "CommandExecutionError";
     const STATUS: u16 = 500;
@@ -7611,6 +7844,11 @@ impl ErrorEncoded for ProviderRequestErrorEncoded {
     const STATUS: u16 = 502;
 }
 
+impl ErrorEncoded for PtyFeatureUnsupportedErrorEncoded {
+    const TAG: &'static str = "PtyFeatureUnsupportedError";
+    const STATUS: u16 = 501;
+}
+
 impl ErrorEncoded for PtyNotFoundErrorEncoded {
     const TAG: &'static str = "PtyNotFoundError";
     const STATUS: u16 = 404;
@@ -7722,6 +7960,8 @@ pub const ERROR_STATUS: &[(&str, u16)] = &[
     ("UnsupportedModelError", 422),
     ("ProviderRequestError", 502),
     ("ScheduleNotFoundError", 404),
+    ("PtyFeatureUnsupportedError", 501),
+    ("ArtifactNotFoundError", 404),
 ];
 
 // ---- operation requests -------------------------------------------------------------------
@@ -8702,6 +8942,57 @@ pub struct ExperimentalScheduleResumeRequest {
     pub schedule_id: ScheduleID,
 }
 
+/// Request for `experimental.artifacts.providers` (`GET /api/experimental/artifacts/providers`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalArtifactsProvidersRequest {
+}
+
+/// Request for `experimental.artifacts.list` (`GET /api/experimental/artifacts`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalArtifactsListRequest {
+    /// query parameter `sessionID`.
+    pub session_id: Option<SessionID>,
+    /// query parameter `provider`.
+    pub provider: Option<ArtifactProviderIDEncoded>,
+}
+
+/// Request for `experimental.artifacts.create` (`POST /api/experimental/artifacts`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalArtifactsCreateRequest {
+    /// Request body.
+    pub body: ArtifactCreateInput,
+}
+
+/// Request for `experimental.artifacts.get` (`GET /api/experimental/artifacts/{artifactID}`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalArtifactsGetRequest {
+    /// path parameter `artifactID`.
+    pub artifact_id: ArtifactID,
+}
+
+/// Request for `experimental.artifacts.update` (`PATCH /api/experimental/artifacts/{artifactID}`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalArtifactsUpdateRequest {
+    /// path parameter `artifactID`.
+    pub artifact_id: ArtifactID,
+    /// Request body.
+    pub body: ArtifactUpdateInput,
+}
+
+/// Request for `experimental.artifacts.delete` (`DELETE /api/experimental/artifacts/{artifactID}`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalArtifactsDeleteRequest {
+    /// path parameter `artifactID`.
+    pub artifact_id: ArtifactID,
+}
+
+/// Request for `experimental.artifacts.view` (`GET /api/experimental/artifacts/{artifactID}/view/*`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalArtifactsViewRequest {
+    /// path parameter `artifactID`.
+    pub artifact_id: ArtifactID,
+}
+
 /// Request for `shell.list` (`GET /api/shell`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ShellListRequest {
@@ -9179,6 +9470,20 @@ pub enum Op {
     ExperimentalSchedulePause,
     /// `experimental.schedule.resume`
     ExperimentalScheduleResume,
+    /// `experimental.artifacts.providers`
+    ExperimentalArtifactsProviders,
+    /// `experimental.artifacts.list`
+    ExperimentalArtifactsList,
+    /// `experimental.artifacts.create`
+    ExperimentalArtifactsCreate,
+    /// `experimental.artifacts.get`
+    ExperimentalArtifactsGet,
+    /// `experimental.artifacts.update`
+    ExperimentalArtifactsUpdate,
+    /// `experimental.artifacts.delete`
+    ExperimentalArtifactsDelete,
+    /// `experimental.artifacts.view`
+    ExperimentalArtifactsView,
     /// `shell.list`
     ShellList,
     /// `shell.create`
@@ -9389,6 +9694,13 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::ExperimentalScheduleDelete, id: "experimental.schedule.delete", method: "DELETE", path: "/api/experimental/schedule/{scheduleID}", route: "/api/experimental/schedule/{scheduleID}", scope: Scope::G, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::ExperimentalSchedulePause, id: "experimental.schedule.pause", method: "POST", path: "/api/experimental/schedule/{scheduleID}/pause", route: "/api/experimental/schedule/{scheduleID}/pause", scope: Scope::G, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::ExperimentalScheduleResume, id: "experimental.schedule.resume", method: "POST", path: "/api/experimental/schedule/{scheduleID}/resume", route: "/api/experimental/schedule/{scheduleID}/resume", scope: Scope::G, envelope: Envelope::Data, special: false },
+    OpMeta { op: Op::ExperimentalArtifactsProviders, id: "experimental.artifacts.providers", method: "GET", path: "/api/experimental/artifacts/providers", route: "/api/experimental/artifacts/providers", scope: Scope::H, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalArtifactsList, id: "experimental.artifacts.list", method: "GET", path: "/api/experimental/artifacts", route: "/api/experimental/artifacts", scope: Scope::H, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalArtifactsCreate, id: "experimental.artifacts.create", method: "POST", path: "/api/experimental/artifacts", route: "/api/experimental/artifacts", scope: Scope::H, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalArtifactsGet, id: "experimental.artifacts.get", method: "GET", path: "/api/experimental/artifacts/{artifactID}", route: "/api/experimental/artifacts/{artifactID}", scope: Scope::H, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalArtifactsUpdate, id: "experimental.artifacts.update", method: "PATCH", path: "/api/experimental/artifacts/{artifactID}", route: "/api/experimental/artifacts/{artifactID}", scope: Scope::H, envelope: Envelope::Location, special: false },
+    OpMeta { op: Op::ExperimentalArtifactsDelete, id: "experimental.artifacts.delete", method: "DELETE", path: "/api/experimental/artifacts/{artifactID}", route: "/api/experimental/artifacts/{artifactID}", scope: Scope::H, envelope: Envelope::NoContent, special: false },
+    OpMeta { op: Op::ExperimentalArtifactsView, id: "experimental.artifacts.view", method: "GET", path: "/api/experimental/artifacts/{artifactID}/view/*", route: "/api/experimental/artifacts/{artifactID}/view/{*path}", scope: Scope::H, envelope: Envelope::Raw, special: true },
     OpMeta { op: Op::ShellList, id: "shell.list", method: "GET", path: "/api/shell", route: "/api/shell", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ShellCreate, id: "shell.create", method: "POST", path: "/api/shell", route: "/api/shell", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ShellGet, id: "shell.get", method: "GET", path: "/api/shell/{id}", route: "/api/shell/{id}", scope: Scope::L, envelope: Envelope::Location, special: false },
@@ -10184,7 +10496,7 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// `POST /api/credential` — `credential.create`: Create credential.
     ///
-    /// Store an integration credential. It becomes the integration's active credential unless activate is false and the integration already has one. Fails with a conflict when the requested ID already exists.
+    /// Store an integration credential. It becomes the integration's active credential unless activate is false and the integration already has one. Fails with a conflict when the requested ID already exists, and with an invalid request when an `integration.connect` policy denies the integration.
     ///
     /// Scope `G`, envelope `Data`.
     async fn credential_create(&self, ctx: &RequestContext, req: CredentialCreateRequest) -> Result<CredentialEntry, ApiError> {
@@ -10507,6 +10819,8 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// `PUT /api/experimental/persistent-pty/{ptyID}` — `experimental.persistentPty.update`.
     ///
+    /// Resize when size is present and rename when title is present; a null title clears the user title so the shell's title shows again. Renaming fails with 501 while the terminal service predates renaming.
+    ///
     /// Scope `G`, envelope `Data`.
     async fn experimental_persistent_pty_update(&self, ctx: &RequestContext, req: ExperimentalPersistentPtyUpdateRequest) -> Result<PersistentPtyInfo, ApiError> {
         let _ = (ctx, req);
@@ -10597,6 +10911,69 @@ pub trait Backend: Send + Sync + 'static {
     async fn experimental_schedule_resume(&self, ctx: &RequestContext, req: ExperimentalScheduleResumeRequest) -> Result<ScheduleInfo, ApiError> {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("experimental.schedule.resume"))
+    }
+    /// `GET /api/experimental/artifacts/providers` — `experimental.artifacts.providers`: List artifact providers.
+    ///
+    /// Return active artifact providers and default. Experimental: needs experimental.artifacts in the Location's config and may change without notice.
+    ///
+    /// Scope `H`, envelope `Location`.
+    async fn experimental_artifacts_providers(&self, ctx: &RequestContext, req: ExperimentalArtifactsProvidersRequest) -> Result<Vec<ArtifactProvider>, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.artifacts.providers"))
+    }
+    /// `GET /api/experimental/artifacts` — `experimental.artifacts.list`: List artifacts.
+    ///
+    /// List published artifacts, newest update first. Experimental: needs experimental.artifacts in the Location's config and may change without notice.
+    ///
+    /// Scope `H`, envelope `Location`.
+    async fn experimental_artifacts_list(&self, ctx: &RequestContext, req: ExperimentalArtifactsListRequest) -> Result<Vec<ArtifactInfo>, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.artifacts.list"))
+    }
+    /// `POST /api/experimental/artifacts` — `experimental.artifacts.create`: Create artifact.
+    ///
+    /// Publish a new artifact through the selected or default artifact provider. Experimental: needs experimental.artifacts in the Location's config and may change without notice.
+    ///
+    /// Scope `H`, envelope `Location`.
+    async fn experimental_artifacts_create(&self, ctx: &RequestContext, req: ExperimentalArtifactsCreateRequest) -> Result<ArtifactInfo, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.artifacts.create"))
+    }
+    /// `GET /api/experimental/artifacts/{artifactID}` — `experimental.artifacts.get`: Read artifact.
+    ///
+    /// Read an artifact's metadata and file contents. Experimental: needs experimental.artifacts in the Location's config and may change without notice.
+    ///
+    /// Scope `H`, envelope `Location`.
+    async fn experimental_artifacts_get(&self, ctx: &RequestContext, req: ExperimentalArtifactsGetRequest) -> Result<ArtifactContent, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.artifacts.get"))
+    }
+    /// `PATCH /api/experimental/artifacts/{artifactID}` — `experimental.artifacts.update`: Update artifact.
+    ///
+    /// Replace an artifact's files at the same ID and URL. Experimental: needs experimental.artifacts in the Location's config and may change without notice.
+    ///
+    /// Scope `H`, envelope `Location`.
+    async fn experimental_artifacts_update(&self, ctx: &RequestContext, req: ExperimentalArtifactsUpdateRequest) -> Result<ArtifactInfo, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.artifacts.update"))
+    }
+    /// `DELETE /api/experimental/artifacts/{artifactID}` — `experimental.artifacts.delete`: Delete artifact.
+    ///
+    /// Remove an artifact and its stored files. Experimental: needs experimental.artifacts in the Location's config and may change without notice.
+    ///
+    /// Scope `H`, envelope `NoContent`.
+    async fn experimental_artifacts_delete(&self, ctx: &RequestContext, req: ExperimentalArtifactsDeleteRequest) -> Result<(), ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.artifacts.delete"))
+    }
+    /// `GET /api/experimental/artifacts/{artifactID}/view/*` — `experimental.artifacts.view`: View local artifact.
+    ///
+    /// Serve HTML and static files from the local provider. Experimental: needs experimental.artifacts in the Location's config and may change without notice.
+    ///
+    /// Scope `H`, envelope `Raw`.
+    async fn experimental_artifacts_view(&self, ctx: &RequestContext, req: crate::backend::ArtifactViewRequest) -> Result<crate::backend::ArtifactView, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.artifacts.view"))
     }
     /// `GET /api/shell` — `shell.list`: List running shell commands.
     ///
@@ -11779,6 +12156,49 @@ pub(crate) async fn dispatch(
             };
             let out = backend.experimental_schedule_resume(&call.ctx, req).await?;
             Ok(respond::data(&out))
+        }
+        Op::ExperimentalArtifactsProviders => {
+            let req = ExperimentalArtifactsProvidersRequest {};
+            let out = backend.experimental_artifacts_providers(&call.ctx, req).await?;
+            Ok(respond::location(&call.ctx, &out))
+        }
+        Op::ExperimentalArtifactsList => {
+            let req = ExperimentalArtifactsListRequest {
+                session_id: call.query_str("sessionID", Some("^ses"))?,
+                provider: call.query_str("provider", None)?,
+            };
+            let out = backend.experimental_artifacts_list(&call.ctx, req).await?;
+            Ok(respond::location(&call.ctx, &out))
+        }
+        Op::ExperimentalArtifactsCreate => {
+            let req = ExperimentalArtifactsCreateRequest {
+                body: call.json_body_for("experimental.artifacts.create")?,
+            };
+            let out = backend.experimental_artifacts_create(&call.ctx, req).await?;
+            Ok(respond::location(&call.ctx, &out))
+        }
+        Op::ExperimentalArtifactsGet => {
+            let req = ExperimentalArtifactsGetRequest {
+                artifact_id: call.path_str("artifactID", Some("^art_"))?,
+            };
+            let out = backend.experimental_artifacts_get(&call.ctx, req).await?;
+            Ok(respond::location(&call.ctx, &out))
+        }
+        Op::ExperimentalArtifactsUpdate => {
+            let req = ExperimentalArtifactsUpdateRequest {
+                artifact_id: call.path_str("artifactID", Some("^art_"))?,
+                body: call.json_body_for("experimental.artifacts.update")?,
+            };
+            let out = backend.experimental_artifacts_update(&call.ctx, req).await?;
+            Ok(respond::location(&call.ctx, &out))
+        }
+        Op::ExperimentalArtifactsDelete => {
+            let req = ExperimentalArtifactsDeleteRequest {
+                artifact_id: call.path_str("artifactID", Some("^art_"))?,
+            };
+            let out = backend.experimental_artifacts_delete(&call.ctx, req).await?;
+            let () = out;
+            Ok(respond::no_content())
         }
         Op::ShellList => {
             let req = ShellListRequest {};
