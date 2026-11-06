@@ -36,6 +36,6 @@ this catch-up; their config keys are accepted and their endpoints answer as when
 |---|---|---|
 | Storage, API and policy | Job table and migration, OpenAPI 2.2.5 (169 operations), the policy split, `compaction.buffer` percentages, new config keys, disabled-feature answers, `NO_PROXY`, web UI CSP | Planned |
 | Claude Agent | The provider, its integration and probe, the stdio protocol, sessions and transcripts, model catalog, plugin list order, plugin variants, dynamic provider order, the plugin helper on 2.2.5 | Planned |
-| Shell scanner | The tree-sitter-free shell permission scanner | Planned |
+| Shell scanner | The tree-sitter-free shell permission scanner | Done: tree-sitter removed (about 2.4 MB smaller), the built-in scanner always runs. 95,128 calls recorded from upstream 2.2.5's own parse and scan code match, apart from two that read the recording process's environment; side-by-side group `shell225` 2 of 2 identical |
 | Session, tools and terminals | Reasoning across model switches, compaction cap, tool errors, MCP stdio and idle shutdown, Code Mode changes, provider wire changes, terminal rename and cleanup | Planned |
 | TUI and CLI | Every on-by-default TUI change, the tab pulse, undo and revert, file search, `run` JSON steps | Planned |
