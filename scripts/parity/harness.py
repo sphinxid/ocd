@@ -27,6 +27,7 @@ PASSWORD = "parity"
 #   - the application version string (dev build vs port);
 #   - absolute paths of the per-run project/state directories (identical between runs, masked for readability);
 #   - opaque base64url cursors (decoded and normalized instead of masked);
+#   - persistent terminal IDs (`pty_persistent_` + a random number the daemon picks), renumbered by first appearance;
 #   - the random trace/span IDs inside `b3`/`traceparent` header values (Effect's traced HTTP client), renumbered by
 #     first appearance so which requests share a trace or span stays visible; the headers themselves are compared.
 # Anything else is compared verbatim.
@@ -77,6 +78,12 @@ class Normalizer:
             self.ids[key] = f"<{m.group(1)}{n}>"
         return self.ids[key]
 
+    def _pty(self, m):
+        ptys = self.__dict__.setdefault("ptys", {})
+        if m.group(0) not in ptys:
+            ptys[m.group(0)] = f"<pty{len(ptys) + 1}>"
+        return ptys[m.group(0)]
+
     def _uuid(self, m):
         key = m.group(0)
         if key not in self.uuids:
@@ -89,6 +96,8 @@ class Normalizer:
                 s = s.replace(p, f"<{name}>")
         s = ID_RE.sub(self._id, s)
         s = UUID_RE.sub(self._uuid, s)
+        # Persistent terminal IDs are random numbers the daemon picks: renumbered by first appearance.
+        s = re.sub(r"\bpty_persistent_\d{6,}\b", self._pty, s)
         s = ISO_RE.sub("<iso>", s)
         s = UA_RE.sub("opencode/<channel>/<version>/", s)
         # Build version/channel embedded in text (e.g. the built-in report skill's diagnostics).
@@ -171,13 +180,13 @@ def isolated_env(state_root, extra=None):
 
 
 class Server:
-    def __init__(self, binary, cwd, env, name):
+    def __init__(self, binary, cwd, env, name, args=None):
         self.name = name
         env = dict(env)
         env["OPENCODE_PASSWORD"] = PASSWORD
         # Both binaries take the working directory from PWD when it is set; a shell would set it to cwd.
         env["PWD"] = cwd
-        self.proc = subprocess.Popen([binary, "serve", "--port", "0"], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+        self.proc = subprocess.Popen([binary, "serve", *(args or ["--port", "0"])], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.url = None
         self.output = []
@@ -346,8 +355,9 @@ class Ctx:
     def env(self):
         return isolated_env(self.state, self.env_extra)
 
-    def start(self):
-        self.server = Server(self.binary, self.project, self.env(), self.name)
+    def start(self, args=None):
+        """`args`: the `serve` arguments (default `--port 0`)."""
+        self.server = Server(self.binary, self.project, self.env(), self.name, args)
         self.server_url = self.server.url
         self.event_start = len(self.server.events)
         return self.server

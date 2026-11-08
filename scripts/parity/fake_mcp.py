@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Minimal stdio MCP server (legacy 2025-11-25 handshake) for parity scenarios. Its tools/list mixes valid tools
 with malformed ones: opencode 2.2 drops the malformed tools and keeps the rest. With `--echo` it lists typed tools
-instead and answers every call with the arguments it received (as JSON text)."""
+instead and answers every call with the arguments it received (as JSON text). With `--framing` it lists `big` (an
+11 MiB result, above the old SDK read buffer) and `huge` (17 MiB without a newline), and writes a line that is not
+JSON after the handshake."""
 import json
 import sys
 
@@ -25,7 +27,13 @@ ECHO_TOOLS = [
         "type": "object", "properties": {"count": {"type": "integer"}}}},
 ]
 
+FRAMING_TOOLS = [
+    {"name": "big", "description": "An 11 MiB result.", "inputSchema": {"type": "object"}},
+    {"name": "huge", "description": "17 MiB without a message boundary.", "inputSchema": {"type": "object"}},
+]
+
 ECHO = "--echo" in sys.argv[1:]
+FRAMING = "--framing" in sys.argv[1:]
 
 
 def send(message):
@@ -46,8 +54,17 @@ for line in sys.stdin:
             "protocolVersion": msg.get("params", {}).get("protocolVersion", "2025-11-25"),
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "fake", "version": "1.0.0"}}})
+        if FRAMING:
+            sys.stdout.write("not json\n")
+            sys.stdout.flush()
     elif method == "tools/list":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": ECHO_TOOLS if ECHO else TOOLS}})
+        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": FRAMING_TOOLS if FRAMING else ECHO_TOOLS if ECHO else TOOLS}})
+    elif method == "tools/call" and FRAMING:
+        if msg.get("params", {}).get("name") == "huge":
+            sys.stdout.write("x" * (17 * 1024 * 1024))
+            sys.stdout.flush()
+            continue
+        send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": "line\n" * (11 * 1024 * 1024 // 5)}]}})
     elif method == "tools/call":
         text = "received " + json.dumps(msg.get("params", {}).get("arguments")) if ECHO else "ok"
         send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": text}]}})
