@@ -84,6 +84,16 @@ pub struct Locations {
     on_build: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     reloading: Reloading,
     projector: Mutex<Option<LocProjector>>,
+    /// Locations built by [`Locations::get_activating`] whose boot burst waits for [`Locations::finish_boot`],
+    /// with their pending notifications.
+    deferred: Mutex<HashMap<String, Option<DeferredBoot>>>,
+}
+
+/// A boot burst that has not been published yet.
+struct DeferredBoot {
+    loc: Arc<Loc>,
+    at: oc_schema::types::LocationRef,
+    notify: Notify,
 }
 
 fn is_dir(p: &str) -> bool {
@@ -128,6 +138,7 @@ impl Locations {
             on_build: Mutex::new(None),
             reloading,
             projector: Mutex::new(None),
+            deferred: Mutex::new(HashMap::new()),
         }
     }
 
@@ -173,6 +184,36 @@ impl Locations {
             }
         }
         result
+    }
+
+    /// [`Locations::get`] for a request that does not wait for the location's plugins (credential creation at the
+    /// global config location): a location it boots is still activating while the request goes on, so its boot
+    /// burst comes after the request's own events ([`Locations::finish_boot`]), and [`Locations::activating`]
+    /// says so meanwhile.
+    pub async fn get_activating(&self, directory: &str) -> Result<Arc<Loc>, ApiError> {
+        let canonical = oc_core::location::canonical_directory(directory);
+        let fresh = !self.map.lock().contains_key(&canonical);
+        if fresh {
+            self.deferred.lock().insert(canonical.clone(), None);
+        }
+        let result = self.get(&canonical).await;
+        if fresh && result.is_err() {
+            self.deferred.lock().remove(&canonical);
+        }
+        result
+    }
+
+    /// Whether a location booted by [`Locations::get_activating`] has not announced its boot yet.
+    pub fn activating(&self, directory: &str) -> bool {
+        self.deferred.lock().contains_key(&oc_core::location::canonical_directory(directory))
+    }
+
+    /// Publishes the boot burst [`Locations::get_activating`] held back.
+    pub async fn finish_boot(&self, directory: &str) {
+        let pending = self.deferred.lock().remove(&oc_core::location::canonical_directory(directory)).flatten();
+        if let Some(DeferredBoot { loc, at, notify }) = pending {
+            boot_notifications(&self.app, &self.git, &loc, &at, notify).await;
+        }
     }
 
     /// Run `f` before every location build.
@@ -232,6 +273,10 @@ impl Locations {
                 boot_notifications(&app, &git, &loc2, &at2, notify).await;
                 app.plugins.rebuild(&loc2.location).await;
             });
+            return Ok(loc);
+        }
+        if let Some(slot) = self.deferred.lock().get_mut(directory) {
+            *slot = Some(DeferredBoot { loc: loc.clone(), at, notify });
             return Ok(loc);
         }
         boot_notifications(&self.app, &self.git, &loc, &at, notify).await;

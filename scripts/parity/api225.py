@@ -2,6 +2,7 @@
 `integration.use` by account, legacy `integration.use` conversion), new config keys."""
 import json
 import os
+import time
 
 from parity.registry import scenario
 
@@ -133,3 +134,53 @@ def api225_policy_split(ctx):
               "id": "crd_console_parity"}, record=False)
     ctx.settle("/api/provider", timeout=4.0)
     ctx.rec("providers.after.account", providers())
+
+
+CATALOG_EVENTS = ("provider.updated", "model.updated", "websearch.updated")
+
+
+@scenario("api225", hold_for_title=0)
+def api225_credential_events(ctx):
+    """what each credential change announces before it goes on: at every loaded location, in load order, a change
+    of the available providers (provider + model), then the policy plugin's reload when an integration's account
+    changed (provider + model, web search when its list changed), then `credential.switched`. Credential creation
+    through `/api/credential` boots the global config location, which announces too."""
+    boot(ctx)
+    ctx.booted()
+    ctx.settle("/api/provider")
+    config_dir = os.path.realpath(os.path.join(ctx.state, "config", "opencode"))
+
+    def where(e):
+        directory = (e.get("location") or {}).get("directory")
+        if directory is None:
+            return ""
+        if os.path.realpath(directory) == os.path.realpath(ctx.project):
+            return "@project"
+        return "@config" if os.path.realpath(directory) == config_dir else "@other"
+
+    def step(label, method, path, body=None):
+        mark = len(ctx.server.events)
+        status, _ = ctx.call(label, method, path, body, record=False)
+        time.sleep(1.5)
+        events = [e["type"] + where(e) for e in ctx.server.events[mark:]
+                  if e.get("type", "").startswith("credential.") or e.get("type") in CATALOG_EVENTS]
+        ctx.rec(label, {"status": status, "events": events})
+
+    def credentials():
+        return [c["id"] for c in ctx.data("credential.list", "GET", "/api/credential", record=False)]
+
+    step("connect.first", "POST", "/api/integration/anthropic/connect/key", {"key": "sk-first"})
+    first = credentials()[0]
+    step("connect.second", "POST", "/api/integration/anthropic/connect/key", {"key": "sk-second"})
+    second = [c for c in credentials() if c != first][0]
+    step("rename", "PATCH", f"/api/credential/{first}", {"label": "old"})
+    step("rename.same", "PATCH", f"/api/credential/{first}", {"label": "old"})
+    step("activate.first", "POST", f"/api/credential/{first}/activate")
+    step("activate.again", "POST", f"/api/credential/{first}/activate")
+    step("remove.inactive", "DELETE", f"/api/credential/{second}")
+    step("remove.last", "DELETE", f"/api/credential/{first}")
+    step("create.global", "POST", "/api/credential",
+         {"integrationID": "openai", "value": {"type": "key", "key": "sk-openai"}, "id": "crd_openai_parity"})
+    step("create.inactive", "POST", "/api/credential",
+         {"integrationID": "openai", "value": {"type": "key", "key": "sk-other"}, "id": "crd_openai_other", "activate": False})
+    step("remove.global", "DELETE", "/api/credential/crd_openai_parity")

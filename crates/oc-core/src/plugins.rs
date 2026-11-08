@@ -149,14 +149,28 @@ pub fn builtin_info(id: &str) -> Value {
     json!({ "id": id, "source": { "type": "builtin" }, "features": { "server": true }, "state": { "status": "active" } })
 }
 
+/// The domains a restart notifies, in order: `policy` and `provider` say whether `opencode.config.policy` and
+/// `opencode.config.provider` restarted (both transform providers).
+fn activation_notifications(policy: bool, provider: bool) -> impl Iterator<Item = &'static str> {
+    let order = if policy { ACTIVATION_NOTIFICATIONS } else { ACTIVATION_NOTIFICATIONS_WITHOUT_POLICY };
+    order.into_iter().filter(move |domain| policy || provider || !matches!(*domain, "provider" | "model"))
+}
+
 /// Domains whose `*.updated` notify runs through `State.changes` (#56267): it fires only when the
 /// domain's public projection changed since the last notification. Provider and model notify always.
 pub const GATED_DOMAINS: [&str; 7] = ["integration", "agent", "command", "skill", "websearch", "reference", "plugin"];
 
 /// The notifications of a plugin (re)activation after the first, in the order upstream's registry batch
-/// publishes them (recorded from the 2.2.2 binary; gated domains only when their projection changed), before
-/// `plugin.updated`.
-const ACTIVATION_NOTIFICATIONS: [&str; 8] = ["skill", "provider", "model", "websearch", "integration", "command", "agent", "reference"];
+/// publishes them (gated domains only when their projection changed), before `plugin.updated`. A batch notifies
+/// each State in the order it first changed, and the restart first closes the restarted plugins' scopes, last
+/// plugin first: `opencode.config.policy` (the last one) drops its registrations in reverse, so skill, then web
+/// search (2.2.5 added that transform), then provider. Recorded from the 2.2.5 binary.
+const ACTIVATION_NOTIFICATIONS: [&str; 8] = ["skill", "websearch", "provider", "model", "integration", "command", "agent", "reference"];
+
+/// [`ACTIVATION_NOTIFICATIONS`] when the restart leaves `opencode.config.policy` alone (it is disabled or did not
+/// restart): no web search registration closes before the providers' (the 2.2.2 order).
+const ACTIVATION_NOTIFICATIONS_WITHOUT_POLICY: [&str; 8] =
+    ["skill", "provider", "model", "websearch", "integration", "command", "agent", "reference"];
 
 /// How long a configuration reload's activation waits for the reload's notifications (a safety net for a lost
 /// `config.updated`).
@@ -370,7 +384,6 @@ pub struct Plugins {
     /// Integrations each location's plugin transforms added in the last catalog build.
     plugin_integrations: Mutex<HashMap<String, HashSet<String>>>,
     /// The policy plugin's watch of the account behind each integration (started with the first location).
-    accounts_watch: std::sync::Once,
     me: Weak<Plugins>,
 }
 
@@ -416,7 +429,6 @@ impl Plugins {
             notices: Mutex::new(HashMap::new()),
             defer_reloads: std::sync::atomic::AtomicBool::new(false),
             plugin_integrations: Mutex::new(HashMap::new()),
-            accounts_watch: std::sync::Once::new(),
             me: me.clone(),
         })
     }
@@ -438,6 +450,17 @@ impl Plugins {
         let Some(projector) = projector else { return true };
         let Some(projection) = projector(key.to_string(), domain).await else { return true };
         self.note_projection(key, domain, projection)
+    }
+
+    /// [`Plugins::domain_changed`] for a notify that follows the location's boot burst: with nothing recorded
+    /// since the boot, the projection is compared with what the boot announced, which is taken to be the current
+    /// one (recorded now, so the next notify compares with it).
+    pub async fn domain_changed_since_boot(&self, key: &str, domain: &str) -> bool {
+        if Self::gated(domain).is_some() && !self.has_projection(key, domain) {
+            self.domain_changed(key, domain).await;
+            return false;
+        }
+        self.domain_changed(key, domain).await
     }
 
     /// Whether a projection was recorded for `domain` at `key`.
@@ -822,52 +845,7 @@ impl Plugins {
         }
     }
 
-    /// `opencode.config.policy`: `integration.use` names the account behind each integration's active connection, so
-    /// on `credential.updated`/`credential.switched` a changed account map reloads providers and web search (the
-    /// catalog fingerprint includes the accounts) in every location running the plugin: `provider.updated`,
-    /// `model.updated`, and `websearch.updated` when its list changed.
-    fn watch_accounts(&self) {
-        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
-        self.accounts_watch.call_once(|| {
-            let (me, db) = (self.me.clone(), self.db.clone());
-            let mut events = self.bus.subscribe();
-            let accounts_of = move |db: &oc_storage::Database| {
-                crate::policy::accounts(&crate::models::DbCredentials::all_of(db).unwrap_or_default())
-            };
-            let mut current = accounts_of(&db);
-            handle.spawn(async move {
-                loop {
-                    let event = match events.recv().await {
-                        Ok(event) => event,
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(broadcast::error::RecvError::Closed) => return,
-                    };
-                    if event.kind != "credential.updated" && event.kind != "credential.switched" {
-                        continue;
-                    }
-                    let next = accounts_of(&db);
-                    if next == current {
-                        continue;
-                    }
-                    current = next;
-                    let Some(plugins) = me.upgrade() else { return };
-                    let keys: Vec<String> = plugins.locations.lock().keys().cloned().collect();
-                    for key in keys {
-                        if !plugins.builtin_enabled(&key, crate::policy::PLUGIN_ID) {
-                            continue;
-                        }
-                        let at = Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None });
-                        for domain in ["provider", "model", "websearch"] {
-                            plugins.notify_domain(&key, domain, at.clone());
-                        }
-                    }
-                }
-            });
-        });
-    }
-
     fn ensure_with(&self, location: &Arc<Location>, defer: bool) {
-        self.watch_accounts();
         let ops = operations(location);
         let fingerprint = serde_json::to_string(&ops).unwrap_or_default();
         let pending = {
@@ -1016,10 +994,7 @@ impl Plugins {
             if restart.is_some() {
                 self.search_providers(&key).await;
                 let at = Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None });
-                for domain in ACTIVATION_NOTIFICATIONS {
-                    if matches!(domain, "provider" | "model") && !restarted("opencode.config.provider") {
-                        continue;
-                    }
+                for domain in activation_notifications(restarted(crate::policy::PLUGIN_ID), restarted("opencode.config.provider")) {
                     self.notify_domain(&key, domain, at.clone());
                 }
             }
@@ -2760,5 +2735,24 @@ impl PluginApi for CoreApi {
     async fn storage_scan(&self, prefix: &str, after: Option<&str>, limit: Option<u64>) -> Result<StorageScan, ApiError> {
         let (entries, next) = self.plugins()?.kv().kv_scan(prefix, after, limit.map(|l| l as usize)).map_err(kv_error)?;
         Ok(StorageScan { entries: entries.into_iter().map(|(key, value)| StorageEntry { key, value }).collect(), next })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::activation_notifications;
+
+    #[test]
+    fn restarts_notify_in_the_order_their_registrations_close() {
+        // `opencode.config.policy` closes last-registered first: skill, then web search, then providers (2.2.5,
+        // plugin_live_changes).
+        let order: Vec<&str> = activation_notifications(true, true).collect();
+        assert_eq!(order, ["skill", "websearch", "provider", "model", "integration", "command", "agent", "reference"]);
+        assert_eq!(activation_notifications(true, false).collect::<Vec<_>>(), order);
+        // Without the policy plugin no web search registration closes before the providers'.
+        let order: Vec<&str> = activation_notifications(false, true).collect();
+        assert_eq!(order, ["skill", "provider", "model", "websearch", "integration", "command", "agent", "reference"]);
+        let order: Vec<&str> = activation_notifications(false, false).collect();
+        assert_eq!(order, ["skill", "websearch", "integration", "command", "agent", "reference"]);
     }
 }

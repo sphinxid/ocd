@@ -6,7 +6,8 @@
 //! - **Loaded state** per location: the active `github-copilot` OAuth connection's API base and token,
 //!   and the account's live `/models` list. Loaded when the location's catalog is first built (upstream:
 //!   in the background when the plugin activates; here that first build waits for it) and again on
-//!   every `credential.switched` for the integration.
+//!   every `credential.switched` for the integration, at every loaded location running the plugin (each
+//!   reload then announces `provider.updated` and `model.updated` there, as `ctx.provider.reload()`).
 //! - **`session.model.request`**: `X-Interaction-Type`, `X-Interaction-Id` and, for background,
 //!   compaction and subagent requests, `x-initiator: agent`.
 //! - **`session.title`**: titles from the free utility model (`gpt-4o-mini`) when the account has it.
@@ -43,8 +44,12 @@ struct Location {
     headers: RwLock<Option<IndexMap<String, String>>>,
 }
 
+/// The loaded locations running the plugin, with their integration registries (set by the server).
+pub type LoadedLocations = Arc<dyn Fn() -> futures::future::BoxFuture<'static, Vec<(String, Arc<Integrations>)>> + Send + Sync>;
+
 pub struct Copilot {
     locations: Mutex<HashMap<String, Arc<Location>>>,
+    loaded: RwLock<Vec<LoadedLocations>>,
     http: reqwest::Client,
     user_agent: String,
     bus: Bus,
@@ -64,6 +69,7 @@ impl Copilot {
     pub fn new(bus: Bus, version: &str) -> Arc<Copilot> {
         Arc::new_cyclic(|me| Copilot {
             locations: Mutex::new(HashMap::new()),
+            loaded: RwLock::new(Vec::new()),
             http: oc_util::http::client(),
             user_agent: user_agent(version),
             bus,
@@ -71,6 +77,31 @@ impl Copilot {
             revision: std::sync::atomic::AtomicU64::new(0),
             me: me.clone(),
         })
+    }
+
+    /// Adds a source of the loaded locations, where `credential.switched` finds those whose catalog was not built
+    /// yet (upstream's plugin runs in every location from its activation, so each one reloads).
+    pub fn add_loaded_locations(&self, loaded: LoadedLocations) {
+        self.loaded.write().push(loaded);
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            self.subscribe(&runtime);
+        }
+    }
+
+    fn location(&self, key: &str, integrations: &Arc<Integrations>) -> Arc<Location> {
+        self.locations
+            .lock()
+            .entry(key.to_string())
+            .or_insert_with(|| {
+                Arc::new(Location {
+                    state: RwLock::new(State::default()),
+                    loading: tokio::sync::Mutex::new(()),
+                    initialized: tokio::sync::OnceCell::new(),
+                    integrations: integrations.clone(),
+                    headers: RwLock::new(None),
+                })
+            })
+            .clone()
     }
 
     /// The loaded state of location `key` (empty before the first load).
@@ -82,21 +113,7 @@ impl Copilot {
     /// provider headers and runs the initial load (upstream's `refresh()` at activation) once.
     /// Returns whether that load changed the state, i.e. the catalog must be rebuilt.
     pub async fn register(&self, key: &str, integrations: &Arc<Integrations>, headers: Option<IndexMap<String, String>>) -> bool {
-        let location = {
-            let mut locations = self.locations.lock();
-            locations
-                .entry(key.to_string())
-                .or_insert_with(|| {
-                    Arc::new(Location {
-                        state: RwLock::new(State::default()),
-                        loading: tokio::sync::Mutex::new(()),
-                        initialized: tokio::sync::OnceCell::new(),
-                        integrations: integrations.clone(),
-                        headers: RwLock::new(None),
-                    })
-                })
-                .clone()
-        };
+        let location = self.location(key, integrations);
         *location.headers.write() = headers;
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             self.subscribe(&runtime);
@@ -135,7 +152,8 @@ impl Copilot {
         }
     }
 
-    /// `credential.switched` for `github-copilot` reloads every location.
+    /// `credential.switched` for `github-copilot` reloads every location: the ones whose catalog was built, and the
+    /// other loaded ones running the plugin (whose load then counts as their initial one).
     fn subscribe(&self, runtime: &tokio::runtime::Handle) {
         let me = self.me.clone();
         let bus = self.bus.clone();
@@ -152,10 +170,24 @@ impl Copilot {
                         continue;
                     }
                     let Some(copilot) = me.upgrade() else { return };
-                    let locations: Vec<Arc<Location>> = copilot.locations.lock().values().cloned().collect();
-                    for location in locations {
+                    let sources = copilot.loaded.read().clone();
+                    for loaded in sources {
+                        for (key, integrations) in loaded().await {
+                            copilot.location(&key, &integrations);
+                        }
+                    }
+                    let locations: Vec<(String, Arc<Location>)> =
+                        copilot.locations.lock().iter().map(|(k, l)| (k.clone(), l.clone())).collect();
+                    for (key, location) in locations {
                         let copilot = copilot.clone();
-                        tokio::spawn(async move { copilot.refresh(&location).await });
+                        tokio::spawn(async move {
+                            copilot.refresh(&location).await;
+                            let _ = location.initialized.set(());
+                            // `ctx.provider.reload()`: the Provider State notifies, then the Model State.
+                            let at = Some(oc_schema::types::LocationRef { directory: key, workspace_id: None });
+                            copilot.bus.publish("provider.updated", json!({}), at.clone());
+                            copilot.bus.publish("model.updated", json!({}), at);
+                        });
                     }
                 }
             });

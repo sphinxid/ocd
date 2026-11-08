@@ -5,8 +5,23 @@ use std::sync::{Arc, Weak};
 
 use serde_json::{Value, json};
 
+use oc_ai::credentials::CredentialEvent;
+
 use crate::engine::Engine;
 use crate::locations::Loc;
+
+/// The built-in provider plugins whose `credential.switched` subscription reloads providers right after reading
+/// the new connection (`opencode.provider.<id>` and the integration it filters on), in plugin order.
+const SWITCH_RELOADS: [(&str, &str); 8] = [
+    ("opencode.provider.azure", "azure"),
+    ("opencode.provider.chatgpt", "openai"),
+    ("opencode.provider.digitalocean", "digitalocean"),
+    ("opencode.provider.gitlab", "gitlab"),
+    ("opencode.provider.modal", "modal"),
+    ("opencode.provider.snowflake.cortex", "snowflake-cortex"),
+    ("opencode.provider.openai", "openai"),
+    ("opencode.provider.openai-context-caps", "openai"),
+];
 
 fn pick(value: &Value, keys: &[&str]) -> Value {
     let mut out = serde_json::Map::new();
@@ -107,6 +122,112 @@ impl Engine {
                 }
             }
         });
+    }
+
+    /// What upstream's `credential.updated`/`credential.switched` subscribers publish before the credential
+    /// operation goes on (the bus resumes type subscribers inline, `bus.ts` `notify`): at every loaded location,
+    /// in load order, the Provider State announces a change of the available providers (`provider.ts`, then
+    /// `model.updated` from the Model State following it), and the policy plugin, when the account behind an
+    /// integration's active credential changed, reloads providers and web search in one `State.batch`
+    /// (`config/plugin/policy.ts`: `provider.updated`, `model.updated`, and `websearch.updated` when its list
+    /// changed).
+    pub(crate) fn install_credential_observer(self: &Arc<Self>) {
+        let weak: Weak<Engine> = Arc::downgrade(self);
+        // The Copilot plugin reloads at every loaded location on a switch, also where no catalog was built yet.
+        let loaded = weak.clone();
+        self.app.plugins.copilot.add_loaded_locations(Arc::new(move || {
+            let weak = loaded.clone();
+            Box::pin(async move {
+                let Some(engine) = weak.upgrade() else { return vec![] };
+                let mut out = vec![];
+                for key in engine.locations.keys() {
+                    if engine.app.plugins.copilot_enabled(&key) {
+                        let integrations = engine.models().prepared_integrations(&key).await;
+                        out.push((key, integrations));
+                    }
+                }
+                out
+            })
+        }));
+        let all = oc_core::models::DbCredentials::all_of(&self.app.db).unwrap_or_default();
+        let accounts = Arc::new(parking_lot::Mutex::new(oc_core::policy::accounts(&all)));
+        // Every loaded location's Provider State holds the snapshot it announced: one whose catalog was never
+        // built builds it now, before the change.
+        let preparing = weak.clone();
+        self.models().prepare_credentials(Arc::new(move || {
+            let weak = preparing.clone();
+            Box::pin(async move {
+                let Some(engine) = weak.upgrade() else { return };
+                for key in engine.locations.keys() {
+                    if engine.locations.activating(&key) {
+                        continue;
+                    }
+                    let Some(loc) = engine.locations.loaded(&key) else { continue };
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), engine.app.plugins.await_activation(&key)).await;
+                    if let Ok(catalog) = engine.catalog(&loc).await {
+                        engine.models().note_availability(&key, &catalog);
+                    }
+                }
+            })
+        }));
+        self.models().observe_credentials(Arc::new(move |event| {
+            let (weak, accounts) = (weak.clone(), accounts.clone());
+            Box::pin(async move {
+                if let Some(engine) = weak.upgrade() {
+                    engine.credential_changed(&event, &accounts).await;
+                }
+            })
+        }));
+    }
+
+    async fn credential_changed(&self, event: &CredentialEvent, accounts: &parking_lot::Mutex<oc_core::policy::Accounts>) {
+        let switched = match event {
+            CredentialEvent::Switched { integration_id, .. } => Some(integration_id.as_str()),
+            CredentialEvent::Updated => None,
+        };
+        let all = oc_core::models::DbCredentials::all_of(&self.app.db).unwrap_or_default();
+        let next = oc_core::policy::accounts(&all);
+        let reload = {
+            let mut current = accounts.lock();
+            let changed = *current != next;
+            *current = next;
+            changed
+        };
+        let bus = &self.app.bus;
+        let pair = |at: &Option<oc_schema::types::LocationRef>| {
+            bus.publish("provider.updated", json!({}), at.clone());
+            bus.publish("model.updated", json!({}), at.clone());
+        };
+        for key in self.locations.keys() {
+            let at = Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None });
+            // A location still activating has its Provider State but no plugin subscribed yet; the State's first
+            // notify always announces.
+            if self.locations.activating(&key) {
+                if self.models().first_notify(&key) {
+                    pair(&at);
+                }
+                continue;
+            }
+            if self.models().availability_changed(&key).await {
+                pair(&at);
+            }
+            // The provider plugins reloading on a switch of their integration, in plugin order (`ctx.provider.reload()`
+            // after loading the new connection). GitHub Copilot, OpenCode and Claude Agent reload after their own
+            // network or process round trip.
+            if let Some(integration) = switched {
+                for (plugin, of) in SWITCH_RELOADS {
+                    if of == integration && self.app.plugins.builtin_enabled(&key, plugin) {
+                        pair(&at);
+                    }
+                }
+            }
+            if reload && self.app.plugins.builtin_enabled(&key, oc_core::policy::PLUGIN_ID) {
+                pair(&at);
+                if self.app.plugins.domain_changed_since_boot(&key, "websearch").await {
+                    bus.publish("websearch.updated", json!({}), at.clone());
+                }
+            }
+        }
     }
 
     /// Lets the plugin layer and location rebuilds gate `*.updated` events on these projections.

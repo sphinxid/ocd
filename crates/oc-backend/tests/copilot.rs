@@ -297,11 +297,20 @@ async fn the_live_model_list_drives_the_catalog() {
         assert!(models.iter().all(|m| m["id"] != absent), "{absent}");
     }
 
-    let sync = s.requests("/models");
-    assert_eq!(sync.len(), 1);
-    assert_eq!(sync[0].header("authorization").as_deref(), Some("Bearer gho_refresh"));
-    assert_eq!(sync[0].header("x-github-api-version").as_deref(), Some("2026-08-01"));
-    assert_eq!(sync[0].header("user-agent").as_deref(), Some(format!("opencode/{}/1.2.3/cli", oc_util::version::CHANNEL).as_str()));
+    // One sync per loaded location running the plugin: the project and the global config location credential
+    // creation booted.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while s.requests("/models").len() < 2 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let syncs = s.requests("/models");
+    assert_eq!(syncs.len(), 2);
+    for sync in &syncs {
+        assert_eq!(sync.header("authorization").as_deref(), Some("Bearer gho_refresh"));
+        assert_eq!(sync.header("x-github-api-version").as_deref(), Some("2026-08-01"));
+        assert_eq!(sync.header("user-agent").as_deref(), Some(format!("opencode/{}/1.2.3/cli", oc_util::version::CHANNEL).as_str()));
+    }
 }
 
 #[tokio::test]

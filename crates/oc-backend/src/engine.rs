@@ -91,6 +91,7 @@ impl Engine {
         engine.install_projector();
         engine.install_reloads();
         engine.install_pty_cleanup();
+        engine.install_credential_observer();
         engine.install_wellknown();
         engine
     }
@@ -120,6 +121,7 @@ impl Engine {
         engine.install_projector();
         engine.install_reloads();
         engine.install_pty_cleanup();
+        engine.install_credential_observer();
         engine.install_wellknown();
         engine
     }

@@ -877,30 +877,13 @@ impl Backend for Engine {
     async fn credential_create(&self, _ctx: &RequestContext, req: CredentialCreateRequest) -> Result<CredentialEntry, ApiError> {
         // Credentials are global, so `integration.connect` is read from the global config location, which carries
         // managed policy, the Console document and user config.
+        // Upstream does not wait for that location's plugins: one it boots announces its boot after this request's
+        // credential events.
         let global = self.app.global.config.display().to_string();
-        let loc = self.locations.get(&global).await?;
-        let integrations = self.models().integrations_for(Some(&loc.key));
-        self.require_connectable(&loc.key, &integrations, &req.body.integration_id).await?;
-        let b = req.body;
-        let store = self.credentials();
-        if let Some(id) = &b.id
-            && store.get(id).await.map_err(defect)?.is_some()
-        {
-            return Err(ApiError::conflict(format!("Credential already exists: {id}"), Some(id.clone())));
-        }
-        let input = oc_ai::credentials::CreateCredential {
-            id: b.id,
-            integration_id: b.integration_id,
-            value: conv(b.value)?,
-            label: b.label,
-            activate: b.activate,
-        };
-        let created = store.create(input).await.map_err(defect)?;
-        let items = store.list(&created.integration_id).await.map_err(defect)?;
-        let entry = credential_entries(&items).into_iter().find(|e| e["id"] == json!(created.id)).unwrap_or_else(|| {
-            json!({"id": created.id, "integrationID": created.integration_id, "label": created.label, "active": false, "value": created.value})
-        });
-        from_json(entry)
+        let loc = self.locations.get_activating(&global).await?;
+        let created = self.credential_create_at(&loc, req).await;
+        self.locations.finish_boot(&global).await;
+        created
     }
 
     async fn credential_update(&self, _ctx: &RequestContext, req: CredentialUpdateRequest) -> Result<(), ApiError> {
@@ -1807,6 +1790,32 @@ fn attempt_not_found(integration: &str, attempt: &str, kind: &str) -> ApiError {
 }
 
 impl Engine {
+    /// `credential.create` at the global config location.
+    async fn credential_create_at(&self, loc: &crate::locations::Loc, req: CredentialCreateRequest) -> Result<CredentialEntry, ApiError> {
+        let integrations = self.models().integrations_for(Some(&loc.key));
+        self.require_connectable(&loc.key, &integrations, &req.body.integration_id).await?;
+        let b = req.body;
+        let store = self.credentials();
+        if let Some(id) = &b.id
+            && store.get(id).await.map_err(defect)?.is_some()
+        {
+            return Err(ApiError::conflict(format!("Credential already exists: {id}"), Some(id.clone())));
+        }
+        let input = oc_ai::credentials::CreateCredential {
+            id: b.id,
+            integration_id: b.integration_id,
+            value: conv(b.value)?,
+            label: b.label,
+            activate: b.activate,
+        };
+        let created = store.create(input).await.map_err(defect)?;
+        let items = store.list(&created.integration_id).await.map_err(defect)?;
+        let entry = credential_entries(&items).into_iter().find(|e| e["id"] == json!(created.id)).unwrap_or_else(|| {
+            json!({"id": created.id, "integrationID": created.integration_id, "label": created.label, "active": false, "value": created.value})
+        });
+        from_json(entry)
+    }
+
     /// Shell commands are per location upstream: one created elsewhere is not found here.
     async fn owned_shell(&self, ctx: &RequestContext, id: &str) -> Result<(), ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;

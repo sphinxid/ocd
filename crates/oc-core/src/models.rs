@@ -19,14 +19,47 @@ use crate::bus::Bus;
 
 // ---------- credential table ----------
 
+/// A credential event observer that runs before the store's operation continues (see [`DbCredentials::observe`]).
+pub type CredentialObserver = Arc<dyn Fn(CredentialEvent) -> futures::future::BoxFuture<'static, ()> + Send + Sync>;
+
+/// Runs before a credential operation that publishes changes its rows (see [`DbCredentials::prepare`]).
+pub type CredentialPreparer = Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync>;
+
 pub struct DbCredentials {
     db: Database,
     bus: Bus,
+    observers: parking_lot::RwLock<Vec<CredentialObserver>>,
+    preparers: parking_lot::RwLock<Vec<CredentialPreparer>>,
 }
 
 impl DbCredentials {
     pub fn new(db: Database, bus: Bus) -> Arc<Self> {
-        Arc::new(DbCredentials { db, bus })
+        Arc::new(DbCredentials {
+            db,
+            bus,
+            observers: parking_lot::RwLock::new(Vec::new()),
+            preparers: parking_lot::RwLock::new(Vec::new()),
+        })
+    }
+
+    /// Runs `preparer` before every credential operation that will publish an event changes the stored rows, so
+    /// observers can record what the state was (upstream's States hold the value they last announced).
+    pub fn prepare(&self, preparer: CredentialPreparer) {
+        self.preparers.write().push(preparer);
+    }
+
+    async fn before_change(&self) {
+        let preparers = self.preparers.read().clone();
+        for preparer in preparers {
+            preparer().await;
+        }
+    }
+
+    /// Runs `observer` for every credential event once it is published, before the operation publishes its next
+    /// event or returns. Upstream's bus resumes type subscribers inline, so what the Provider State and the policy
+    /// plugin publish for `credential.updated` comes before `credential.switched` (`bus.ts` `notify`).
+    pub fn observe(&self, observer: CredentialObserver) {
+        self.observers.write().push(observer);
     }
 
     fn rows(&self) -> anyhow::Result<Vec<Row>> {
@@ -69,6 +102,15 @@ impl DbCredentials {
         };
         self.bus.publish(e.event_type(), data, None);
     }
+
+    /// Publishes `e`, then runs the observers in registration order.
+    async fn emit(&self, e: CredentialEvent) {
+        self.publish(e.clone());
+        let observers = self.observers.read().clone();
+        for observer in observers {
+            observer(e.clone()).await;
+        }
+    }
 }
 
 #[async_trait]
@@ -93,6 +135,7 @@ impl CredentialStore for DbCredentials {
             self.rows()?.into_iter().filter(|r| r.integration_id.as_deref() == Some(input.integration_id.as_str())).collect();
         let plan = plan_create(&existing, input.activate);
         let value = serde_json::to_string(&input.value)?;
+        self.before_change().await;
         self.db.transaction(|c| {
             if plan.activate {
                 c.execute("UPDATE credential SET active = 0 WHERE integration_id = ?", [&input.integration_id])?;
@@ -105,9 +148,9 @@ impl CredentialStore for DbCredentials {
             )?;
             Ok(())
         })?;
-        self.publish(CredentialEvent::Updated);
+        self.emit(CredentialEvent::Updated).await;
         if plan.activate {
-            self.publish(CredentialEvent::Switched { integration_id: input.integration_id.clone(), credential_id: Some(id.clone()) });
+            self.emit(CredentialEvent::Switched { integration_id: input.integration_id.clone(), credential_id: Some(id.clone()) }).await;
         }
         Ok(Credential { id, integration_id: input.integration_id, label, value: input.value, active: Some(plan.activate) })
     }
@@ -119,8 +162,9 @@ impl CredentialStore for DbCredentials {
         if current.as_deref() == Some(id) {
             return Ok(());
         }
+        self.before_change().await;
         self.db.with(|c| c.execute("UPDATE credential SET active = (id = ?) WHERE integration_id = ?", params![id, integration]))?;
-        self.publish(CredentialEvent::Switched { integration_id: integration, credential_id: Some(id.into()) });
+        self.emit(CredentialEvent::Switched { integration_id: integration, credential_id: Some(id.into()) }).await;
         Ok(())
     }
 
@@ -134,6 +178,9 @@ impl CredentialStore for DbCredentials {
             return Ok(());
         }
         let changed = update.label.as_ref().is_some_and(|l| *l != row.label);
+        if changed {
+            self.before_change().await;
+        }
         let label = update.label.clone().unwrap_or_else(|| row.label.clone());
         let value = match &update.value {
             Some(v) => serde_json::to_string(v)?,
@@ -146,7 +193,7 @@ impl CredentialStore for DbCredentials {
             )
         })?;
         if changed {
-            self.publish(CredentialEvent::Updated);
+            self.emit(CredentialEvent::Updated).await;
         }
         Ok(())
     }
@@ -158,15 +205,21 @@ impl CredentialStore for DbCredentials {
         let was_selected = integration.as_ref().is_some_and(|i| {
             selected(rows.iter().filter(|r| r.integration_id.as_ref() == Some(i))).is_some_and(|r| r.id == id)
         });
-        self.db.with(|c| c.execute("DELETE FROM credential WHERE id = ?", [id]))?;
-        self.publish(CredentialEvent::Updated);
-        if let (true, Some(integration)) = (was_selected, integration) {
+        self.before_change().await;
+        // One transaction: the replacement is active before anything observes `credential.updated`.
+        let switched = self.db.transaction(|c| {
+            c.execute("DELETE FROM credential WHERE id = ?", [id])?;
+            let (true, Some(integration)) = (was_selected, integration) else { return Ok(None) };
             let remaining: Vec<Row> = rows.into_iter().filter(|r| r.id != id && r.integration_id.as_deref() == Some(&integration)).collect();
             let next = replacement(remaining.iter()).map(|r| r.id.clone());
             if let Some(n) = &next {
-                self.db.with(|c| c.execute("UPDATE credential SET active = (id = ?) WHERE integration_id = ?", params![n, integration]))?;
+                c.execute("UPDATE credential SET active = (id = ?) WHERE integration_id = ?", params![n, integration])?;
             }
-            self.publish(CredentialEvent::Switched { integration_id: integration, credential_id: next });
+            Ok(Some((integration, next)))
+        })?;
+        self.emit(CredentialEvent::Updated).await;
+        if let Some((integration_id, credential_id)) = switched {
+            self.emit(CredentialEvent::Switched { integration_id, credential_id }).await;
         }
         Ok(())
     }
@@ -220,6 +273,9 @@ struct LocationIntegrations {
     /// The OpenAI provider plugins' loaded state: the `openai` active connection's key and how it
     /// signs in. Reloaded when the active connection changes (upstream: on `credential.switched`).
     openai: parking_lot::Mutex<Option<(Option<String>, catalog::openai::SignIn)>>,
+    /// The available providers the location's Provider State last announced, with the catalog build they were
+    /// computed from (`provider.ts` `published`).
+    announced: parking_lot::Mutex<Option<(usize, Vec<String>)>>,
 }
 
 impl LocationIntegrations {
@@ -231,6 +287,7 @@ impl LocationIntegrations {
             building: tokio::sync::Mutex::new(()),
             builds: std::sync::atomic::AtomicU64::new(0),
             openai: parking_lot::Mutex::new(None),
+            announced: parking_lot::Mutex::new(None),
         })
     }
 }
@@ -272,6 +329,8 @@ pub struct Models {
     default_location: Arc<LocationIntegrations>,
     by_location: parking_lot::Mutex<HashMap<String, Arc<LocationIntegrations>>>,
     store: Arc<dyn CredentialStore>,
+    /// The same store, for its observers.
+    credentials: Arc<DbCredentials>,
     pub models_dev: Arc<ModelsDev>,
     db: Database,
     user_agent: String,
@@ -319,7 +378,8 @@ fn method(m: &IntegrationMethod) -> Method {
 
 impl Models {
     pub fn new(db: Database, bus: Bus, channel: &str, version: &str) -> Models {
-        let store: Arc<dyn CredentialStore> = DbCredentials::new(db.clone(), bus);
+        let credentials = DbCredentials::new(db.clone(), bus);
+        let store: Arc<dyn CredentialStore> = credentials.clone();
         let ua = oc_ai::credentials::user_agent(channel, version, "opencode");
         let integrations = Integrations::new(store.clone());
         Models {
@@ -327,6 +387,7 @@ impl Models {
             default_location: LocationIntegrations::new(integrations),
             by_location: parking_lot::Mutex::new(HashMap::new()),
             store,
+            credentials,
             models_dev: Arc::new(ModelsDev::with_reqwest(ModelsDevOptions::from_env(ua.clone()), Arc::new(KvCatalogCache(db.clone())))),
             db,
             user_agent: ua,
@@ -334,6 +395,64 @@ impl Models {
             chatgpt_migrated: tokio::sync::OnceCell::new(),
             lock_root: parking_lot::Mutex::new(None),
         }
+    }
+
+    /// Runs `observer` after every credential event, before the credential operation continues
+    /// ([`DbCredentials::observe`]).
+    pub fn observe_credentials(&self, observer: CredentialObserver) {
+        self.credentials.observe(observer);
+    }
+
+    /// Runs `preparer` before a credential operation changes the stored rows ([`DbCredentials::prepare`]).
+    pub fn prepare_credentials(&self, preparer: CredentialPreparer) {
+        self.credentials.prepare(preparer);
+    }
+
+    /// The Provider State's first notify at location `key` (it always announces): whether this is it.
+    pub fn first_notify(&self, key: &str) -> bool {
+        let state = self.location_integrations(key);
+        let mut announced = state.announced.lock();
+        if announced.is_some() {
+            return false;
+        }
+        // No catalog build has id 0: the next comparison uses what the location's catalog was built with.
+        *announced = Some((0, Vec::new()));
+        true
+    }
+
+    /// Records the providers location `key` announces with `catalog` (built with the current connections), unless
+    /// it already recorded what this build announces.
+    pub fn note_availability(&self, key: &str, catalog: &Catalog) {
+        let state = self.location_integrations(key);
+        let mut announced = state.announced.lock();
+        if announced.as_ref().is_none_or(|(build, _)| *build != catalog.build_id()) {
+            *announced = Some((catalog.build_id(), catalog.available_ids().to_vec()));
+        }
+    }
+
+    /// The Provider State's notify after a credential or integration change (`provider.ts`): whether the providers
+    /// available at location `key` differ from the ones it last announced. The location's provider records (its
+    /// latest catalog) are filtered again by the integrations' current connections; a change that leaves the same
+    /// providers available is not a catalog change. A location whose catalog was never built has announced
+    /// nothing to compare with (a credential change first builds every loaded location's catalog, see
+    /// [`Models::note_availability`]).
+    pub async fn availability_changed(&self, key: &str) -> bool {
+        let Some(catalog) = self.plugins.read().as_ref().and_then(|p| p.catalog(key)) else { return false };
+        let Some(state) = self.by_location.lock().get(key).cloned() else { return false };
+        let Ok(list) = state.integrations.list().await else { return false };
+        let mut access = Access::new();
+        for info in list {
+            access.set(info.id.clone(), info.connections.iter().map(|c| c.key()).collect());
+        }
+        let now = catalog.available_with(&access);
+        let mut announced = state.announced.lock();
+        let changed = match &*announced {
+            Some((build, before)) if *build == catalog.build_id() => *before != now,
+            // A rebuilt catalog announced what it was built with.
+            _ => catalog.available_ids() != now.as_slice(),
+        };
+        *announced = Some((catalog.build_id(), now));
+        changed
     }
 
     /// Coordinate OAuth refreshes with other processes through file locks under `root` (`Credential.lock`).

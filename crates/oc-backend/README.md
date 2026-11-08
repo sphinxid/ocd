@@ -142,9 +142,25 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   runner, rebuilds them right away (upstream reloads its States in place): the rebuild publishes
   `provider.updated`/`model.updated` (twice) plus the gated domains whose projection changed. A reload that
   changed the plugins then releases its activation (`Plugins::release_reload`), which notifies like
-  upstream's registry batch: `skill`, `provider`, `model`, `websearch`, `integration`, `command`, `agent`,
-  `reference` (gated ones only when changed; provider/model when the restart reached
-  `opencode.config.provider`), then `plugin.updated`.
+  upstream's registry batch: `skill`, `websearch`, `provider`, `model`, `integration`, `command`, `agent`,
+  `reference` (the restarted `opencode.config.policy` closes its web search registration before its provider
+  one; without it web search comes after `model`; gated ones only when changed; provider/model when the
+  restart reached `opencode.config.provider` or the policy plugin), then `plugin.updated`.
+* **credential events** (`notify.rs` `install_credential_observer`): upstream's bus resumes type subscribers
+  inline, so what they publish for `credential.updated` precedes `credential.switched`. The credential store
+  runs the engine's observer after each event (`DbCredentials::observe`), and before a change it builds the
+  catalog of every loaded location that has none, so each has a baseline (`DbCredentials::prepare`). At every
+  loaded location, in load order: the Provider State's `provider.updated`/`model.updated` when the available
+  providers changed (`Models::availability_changed`: the location's provider records filtered by the current
+  connections); on a switch, one pair per built-in provider plugin reloading for that integration (ChatGPT,
+  OpenAI and context caps for `openai`; Azure, DigitalOcean, GitLab, Modal, Snowflake Cortex); and, when the
+  account behind an integration's active credential changed, the policy plugin's reload (`provider`, `model`,
+  `websearch` when its list changed). `credential.create` boots the global config location without waiting for
+  its plugins (`Locations::get_activating`): until the request ends it only announces its Provider State's
+  first notify, then its boot burst follows (`Locations::finish_boot`). GitHub Copilot reloads every loaded
+  location running the plugin after its `/models` request, Claude Agent after its login check. Not reproduced: the OpenCode plugin's `provider.updated`/`model.updated` after the
+  Console request a switch triggers (ocd announces only a changed Console document, as a config reload), and
+  an integration change (`integration.updated`) re-checking the available providers.
 * **prompt attachments**: png/jpeg/gif/webp/bmp images are normalized with `oc_tools::image::normalize`
   under the location's `media.image` limits (`oc_config::fold::media_image`; HEIC/AVIF and other types go
   unchanged); data attachments keep the client's `source`; failures → 400 `{field:"files"}`.
@@ -253,4 +269,6 @@ tabs, refused URLs), the request timeout with its `cancel` event, a desktop leav
 to a loopback server ending with the attachment. `tests/aisdk.rs` configures oc-plugin's
 fixture AI SDK provider package (`aisdk:file://...`) and runs prompts through the AI SDK bridge:
 text, reasoning, a tool call and usage; plugin `aisdk.sdk` / `aisdk.language` and `session.http.*`
-hooks; a provider HTTP error and a package that fails to initialize.
+hooks; a provider HTTP error and a package that fails to initialize. `tests/credential_events.rs` checks what
+credential creation, a second credential, renames, activation, removal, the global config location and an
+account change announce, and in which order (matching the 2.2.5 binary, `api225_credential_events`).

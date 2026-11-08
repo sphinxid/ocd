@@ -426,6 +426,23 @@ impl Catalog {
         self.inner.available.iter().any(|id| id == provider_id)
     }
 
+    /// Ids of the providers available when the catalog was built, in definition order.
+    pub fn available_ids(&self) -> &[String] {
+        &self.inner.available
+    }
+
+    /// Ids of this catalog's providers available with other connections (`Provider.snapshot` filtering the
+    /// same records again after a credential or integration change), in definition order.
+    pub fn available_with(&self, access: &Access) -> Vec<String> {
+        self.inner.records.values().filter(|r| is_available(r, access)).map(|r| r.provider.id.clone()).collect()
+    }
+
+    /// Identity of this build: clones share it, every build has its own (`Provider.snapshot` keeps reusing a
+    /// snapshot while its records are the same object).
+    pub fn build_id(&self) -> usize {
+        Arc::as_ptr(&self.inner) as usize
+    }
+
     /// Integration owning a provider's credentials (`integrationID ?? providerID`).
     pub fn integration_id(&self, provider_id: &str) -> String {
         self.provider(provider_id).and_then(|p| p.integration_id.clone()).unwrap_or_else(|| provider_id.to_string())
