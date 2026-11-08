@@ -107,25 +107,44 @@ fn row(tool: &str, status: &str) -> Value {
     json!({ "tool": tool, "status": status })
 }
 
-/// "execute sends at most one progress update per 100 ms with the latest rows"
+/// Progress updates with the time each was sent.
+fn timed_context(host: Arc<Host>, sent: Arc<Mutex<Vec<(std::time::Instant, Value)>>>) -> ToolContext {
+    let mut ctx = context(host, Default::default());
+    ctx.progress = Arc::new(move |m| sent.lock().unwrap().push((std::time::Instant::now(), Value::Object(m.into_iter().collect()))));
+    ctx
+}
+
+/// The updates are at least 100 ms apart (allowing for timer granularity).
+fn assert_throttled(sent: &[(std::time::Instant, Value)]) {
+    for pair in sent.windows(2) {
+        assert!(pair[1].0 - pair[0].0 >= Duration::from_millis(95), "{:?}", sent.iter().map(|(_, v)| v).collect::<Vec<_>>());
+    }
+}
+
+/// "execute sends at most one progress update per 100 ms with the latest rows". The exact updates depend on how
+/// fast the program runs, so this checks the rule rather than upstream's TestClock sequence: the first rows go out
+/// at once, updates are 100 ms apart, the trailing one carries the latest rows, and a success drops a pending one.
 #[tokio::test]
 async fn progress_is_sent_at_most_every_100_ms() {
-    let progress = Arc::new(Mutex::new(Vec::new()));
+    let sent = Arc::new(Mutex::new(Vec::new()));
     let result = codemode::execute(
         &snapshot(Some(250), Default::default()),
         json!({ "code": "for (const i of [1, 2, 3]) await tools.step({}); await tools.wait({}); return await tools.step({})" }),
-        context(host(Ok(())), progress.clone()),
+        timed_context(host(Ok(())), sent.clone()),
     )
     .await
     .unwrap();
+    let at_end = sent.lock().unwrap().len();
     tokio::time::sleep(Duration::from_millis(300)).await;
+    let sent = sent.lock().unwrap().clone();
+    assert_eq!(sent.len(), at_end, "a success drops the pending update");
+    assert_eq!(sent[0].1, json!({ "toolCalls": [row("step", "running")] }));
+    assert_throttled(&sent);
     let steps = [row("step", "completed"), row("step", "completed"), row("step", "completed")];
     let with = |last: Value| json!({ "toolCalls": steps.iter().cloned().chain([last]).collect::<Vec<_>>() });
-    // The wait ends 150 ms after the trailing update, so its row goes out at once; the last step's never does.
-    assert_eq!(
-        rows(&progress),
-        vec![json!({ "toolCalls": [row("step", "running")] }), with(row("wait", "running")), with(row("wait", "completed"))]
-    );
+    // While the 250 ms wait runs, a trailing update reports it; when it ends long after, its row goes out at once.
+    assert!(sent.iter().any(|(_, v)| *v == with(row("wait", "running"))), "{sent:?}");
+    assert!(sent.iter().any(|(_, v)| *v == with(row("wait", "completed"))), "{sent:?}");
     let all: Vec<Value> = steps.iter().cloned().chain([row("wait", "completed"), row("step", "completed")]).collect();
     assert_eq!(result.metadata.unwrap()["toolCalls"], json!(all));
 }
@@ -133,9 +152,9 @@ async fn progress_is_sent_at_most_every_100_ms() {
 /// "interrupted execute sends its latest progress rows before it settles"
 #[tokio::test]
 async fn interrupted_execute_sends_its_latest_rows() {
-    let progress = Arc::new(Mutex::new(Vec::new()));
+    let sent = Arc::new(Mutex::new(Vec::new()));
     let started = Arc::new(tokio::sync::Notify::new());
-    let ctx = context(host(Ok(())), progress.clone());
+    let ctx = timed_context(host(Ok(())), sent.clone());
     let cancel = ctx.cancel.clone();
     let snapshot = snapshot(None, started.clone());
     let run = tokio::spawn(async move {
@@ -144,13 +163,14 @@ async fn interrupted_execute_sends_its_latest_rows() {
     started.notified().await;
     cancel.cancel();
     assert!(run.await.unwrap().is_err());
+    let at_end = sent.lock().unwrap().clone();
     tokio::time::sleep(Duration::from_millis(300)).await;
+    let sent = sent.lock().unwrap().clone();
+    assert_eq!(sent.len(), at_end.len(), "nothing is sent after the execution settled");
+    assert_eq!(sent[0].1, json!({ "toolCalls": [row("step", "running")] }));
     assert_eq!(
-        rows(&progress),
-        vec![
-            json!({ "toolCalls": [row("step", "running")] }),
-            json!({ "toolCalls": [row("step", "completed"), row("step", "completed"), row("wait", "error")] }),
-        ]
+        sent.last().unwrap().1,
+        json!({ "toolCalls": [row("step", "completed"), row("step", "completed"), row("wait", "error")] })
     );
 }
 
@@ -161,7 +181,9 @@ async fn nested_progress_does_not_replace_the_call_rows() {
     let result = codemode::execute(&snapshot(None, Default::default()), json!({ "code": "return await tools.noisy({})" }), context(host(Ok(())), progress.clone()))
         .await
         .unwrap();
-    assert_eq!(rows(&progress), vec![json!({ "toolCalls": [row("noisy", "running")] })]);
+    let rows = rows(&progress);
+    assert_eq!(rows[0], json!({ "toolCalls": [row("noisy", "running")] }));
+    assert!(rows.iter().all(|r| r.get("stage").is_none() && r.get("toolCalls").is_some()), "{rows:?}");
     assert_eq!(result.metadata.unwrap()["toolCalls"], json!([row("noisy", "completed")]));
 }
 
