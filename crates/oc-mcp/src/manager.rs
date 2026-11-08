@@ -155,7 +155,15 @@ struct Inner {
     /// their callbacks never run, because clients re-fetch on MCP events, which would boot the Location
     /// straight back up (`mcp/index.ts` `callbacks`).
     closing: std::sync::atomic::AtomicBool,
+    /// The tools the session tool registry lists ([`McpManager::registered_tools`]), once read.
+    registered: Mutex<Option<Vec<Tool>>>,
+    /// Bumped by every `ToolsChanged`; the registry reads the tools again once these settle.
+    tools_changed: tokio::sync::watch::Sender<u64>,
 }
+
+/// How long `ToolsChanged` bursts settle before the session tool registry reads the tools again (`tool/mcp.ts`
+/// `Stream.debounce("100 millis")`).
+pub const TOOLS_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Receives every `mcp.*.changed` event synchronously, in publication order (see [`McpManager::on_event`]).
 pub type EventSink = Arc<dyn Fn(&McpEvent) + Send + Sync>;
@@ -169,20 +177,42 @@ pub struct McpManager {
 impl McpManager {
     pub fn new(options: ManagerOptions) -> Self {
         let (events, _) = broadcast::channel(1024);
-        Self {
-            inner: Arc::new(Inner {
-                options,
-                entries: Mutex::new(IndexMap::new()),
-                locks: KeyedMutex::default(),
-                events,
-                base: Mutex::new(IndexMap::new()),
-                overrides: Mutex::new(IndexMap::new()),
-                applied: Mutex::new(None),
-                reconcile_lock: tokio::sync::Mutex::new(()),
-                sink: Mutex::new(None),
-                closing: Default::default(),
-            }),
+        let (tools_changed, mut changes) = tokio::sync::watch::channel(0u64);
+        let inner = Arc::new(Inner {
+            options,
+            entries: Mutex::new(IndexMap::new()),
+            locks: KeyedMutex::default(),
+            events,
+            base: Mutex::new(IndexMap::new()),
+            overrides: Mutex::new(IndexMap::new()),
+            applied: Mutex::new(None),
+            reconcile_lock: tokio::sync::Mutex::new(()),
+            sink: Mutex::new(None),
+            closing: Default::default(),
+            registered: Mutex::new(None),
+            tools_changed,
+        });
+        // `tool/mcp.ts`: after the initial registration, `ToolsChanged` bursts settle for 100 ms before the
+        // registry reads the tools again.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let weak = Arc::downgrade(&inner);
+            runtime.spawn(async move {
+                while changes.changed().await.is_ok() {
+                    loop {
+                        match tokio::time::timeout(TOOLS_DEBOUNCE, changes.changed()).await {
+                            Ok(Ok(())) => continue,
+                            Ok(Err(_)) => return,
+                            Err(_) => break,
+                        }
+                    }
+                    let Some(inner) = weak.upgrade() else { return };
+                    let manager = McpManager { inner };
+                    let tools = manager.tools();
+                    *manager.inner.registered.lock() = Some(tools);
+                }
+            });
         }
+        Self { inner }
     }
 
     /// Subscribes to `mcp.*.changed` events.
@@ -204,6 +234,9 @@ impl McpManager {
     fn publish(&self, event: McpEvent) {
         if self.closing() {
             return;
+        }
+        if matches!(event, McpEvent::ToolsChanged { .. }) {
+            self.inner.tools_changed.send_modify(|n| *n += 1);
         }
         let sink = self.inner.sink.lock().clone();
         if let Some(sink) = sink {
@@ -619,6 +652,13 @@ impl McpManager {
         self.inner.overrides.lock().insert(server.to_string(), None);
         self.reconcile().await;
         Ok(())
+    }
+
+    /// The tools the session tool registry lists (`tool/mcp.ts`): read once when first needed (after the servers'
+    /// first connection attempts settled), then again only once `ToolsChanged` events have settled for
+    /// [`TOOLS_DEBOUNCE`]. A step that starts right after a server went away still lists its tools.
+    pub fn registered_tools(&self) -> Vec<Tool> {
+        self.inner.registered.lock().get_or_insert_with(|| self.tools()).clone()
     }
 
     /// All connected tools sorted by server, then name.

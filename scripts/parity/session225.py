@@ -98,16 +98,24 @@ def _mcp_status(ctx, want, timeout=20):
 @scenario("session225", timeout=240)
 def session225_mcp_framing(ctx):
     """an MCP result above the old 10 MiB read buffer arrives, an invalid line is only reported, and a line over
-    16 MiB closes the connection (#60694)."""
+    16 MiB closes the connection (#60694). The next step still lists the failed server's tools: the session tool
+    registry reads them again only 100 ms after `mcp.tools.changed` settles.
+
+    When the connection closes, the server's status change (its own fiber) and the step that saw the call fail
+    race: whether `mcp.resources.changed`/`mcp.status.changed` come before or after that step's usage is timing,
+    so they are recorded on their own, in order, and left out of the session's event list."""
+    mcp = lambda e: e.get("type", "").startswith("mcp.")  # noqa: E731
+
     def after(ctx, sid):
         ctx.call("mcp.after", "GET", f"/api/mcp?directory={ctx.project}")
+        ctx.rec("events.mcp", [e for e in ctx.events() if mcp(e)])
 
     run_prompt(ctx, [
         {"tools": [{"name": "fake_big", "id": "call_big", "args": {}}]},
         {"tools": [{"name": "fake_huge", "id": "call_huge", "args": {}}]},
         {"text": "Done."},
     ], text="call mcp", config_extra=_framing_mcp(), before=lambda ctx, sid: _mcp_status(ctx, "connected"),
-        after=after, timeout=120)
+        after=after, timeout=120, events=lambda e: not mcp(e))
 
 
 @scenario("session225")

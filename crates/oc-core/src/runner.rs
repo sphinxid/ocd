@@ -486,7 +486,7 @@ impl Engine {
                 }
             }
         }
-        for t in mcp.tools() {
+        for t in mcp.registered_tools() {
             let _ = registry.add(Arc::new(oc_tools::tools::mcp::McpTool::new(oc_tools::tools::mcp::McpToolInfo {
                 server: t.server.clone(),
                 name: t.name.clone(),

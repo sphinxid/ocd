@@ -57,6 +57,7 @@ notification returns; core publishes them on the bus through the sink.
 | `add(name, config)` | runtime add/replace, connects immediately (not persisted) |
 | `connect(name)` / `disconnect(name)` / `remove(name)` | stop+start (overrides `disabled`) / stop + `disabled` / remove until restart |
 | `tools() -> Vec<Tool>` | connected tools sorted by server, name; `Tool::prefixed_name()` = `namespace(server)_sanitize(tool)`; `registry_input()`/`registry_output()` give the registry schemas |
+| `registered_tools() -> Vec<Tool>` | what the session tool registry lists (`tool/mcp.ts`): `tools()` read when first needed, then again only once `mcp.tools.changed` events settled for 100 ms (`TOOLS_DEBOUNCE`), so a step right after a server went away still lists its tools |
 | `call_tool(server, tool, args, session_id) -> Result<ToolResult, ManagerError>` | waits for startup; unavailable/failed messages verbatim (`MCP server "<s>" is not connected: <e>. Reconnect it from /mcps.` …, `MCP tool "<t>" on server "<s>" failed: <msg>`); `naming::tool_output` maps the result to the tool output (`isError` → failure text) |
 | `instructions() -> Vec<(server, text)>` | trimmed, non-empty, sorted |
 | `prompts()`, `prompt(server, name, args)` | prompt list; `prompts/get` (`None` on any failure) |

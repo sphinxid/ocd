@@ -313,6 +313,11 @@ async fn stdio_lifecycle_tools_and_calls() {
     );
     assert_eq!(oc_mcp::naming::resource_files(&content).len(), 1);
 
+    // The session tool registry reads the tools once, then again only after `ToolsChanged` settles for 100 ms.
+    let registered = |m: &McpManager| m.registered_tools().iter().map(|t| t.prefixed_name()).collect::<Vec<_>>();
+    let before = registered(&manager);
+    assert_eq!(before, manager.tools().iter().map(|t| t.prefixed_name()).collect::<Vec<_>>());
+
     // list_changed → tools re-listed.
     let mut events = manager.subscribe();
     manager.call_tool("my.fake", "notify", None, None).await.unwrap();
@@ -327,6 +332,9 @@ async fn stdio_lifecycle_tools_and_calls() {
     .unwrap();
     assert_eq!(event.server(), "my.fake");
     assert_eq!(manager.tools().iter().map(|t| t.prefixed_name()).collect::<Vec<_>>(), vec!["my_fake_late_tool"]);
+    assert_eq!(registered(&manager), before);
+    tokio::time::sleep(oc_mcp::manager::TOOLS_DEBOUNCE * 3).await;
+    assert_eq!(registered(&manager), vec!["my_fake_late_tool"]);
 
     // Disconnect / connect.
     manager.disconnect("my.fake").await.unwrap();

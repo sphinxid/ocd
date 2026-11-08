@@ -3,7 +3,7 @@ from parity.registry import scenario
 
 
 def run_prompt(ctx, script, text="hello", files=None, git_repo=False, config_extra=None, llm_full=False, before=None,
-               after=None, timeout=60, race_sort=()):
+               after=None, timeout=60, race_sort=(), events=None):
     ctx.set_script(script)
     ctx.make_project(files=files, git_repo=git_repo, config_extra=config_extra)
     ctx.start()
@@ -15,7 +15,7 @@ def run_prompt(ctx, script, text="hello", files=None, git_repo=False, config_ext
         after(ctx, sid)
     ctx.call("messages", "GET", f"/api/session/{sid}/message")
     ctx.call("session.get", "GET", f"/api/session/{sid}")
-    ctx.record_events(race_sort=race_sort)
+    ctx.record_events(race_sort=race_sort, filt=events)
     ctx.record_llm(full=llm_full)
     return sid
 
