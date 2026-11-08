@@ -230,6 +230,11 @@ Server plugins run in oc-plugin's Bun sidecar, driven by `oc_core::plugins::Plug
   `RpcInternalError` (500, `rpc.internal`/`rpc.invalid_output`); unknown ids answer `rpc.unavailable` /
   `RPC is unavailable: <id>`. The browser's `attach` stays pending while the desktop is attached; the
   request going away drops the handler future, which detaches the desktop (its session allows removed).
+* **browser results**: a desktop result the operation's output schema rejects fails with upstream's protocol
+  error, caused by the Effect decode error (`Missing key\n  at ["requests"]`), which is what the model and a
+  Code Mode program read (#60109). The exported JSON Schemas carry no schema identifiers, so a value matching
+  no member of a named union reads `Expected object | object | object` where upstream names the union
+  (`Expected Browser.NetworkRequest`).
 * **`session.prompt`**: awaits activation and runs the `session.prompt` hook before attachments
   are materialised (the message id is generated first when the hook exists).
 * **`session.command`**: awaits activation; plugin commands execute through their handle. `goal`
@@ -264,8 +269,8 @@ removal without starting Bun; local plugin hot reload; successive live `plugins`
 other plugins → built-in removals → none → plugins) with lists and RPC answering after each. `tests/browser.rs` attaches a stand-in desktop
 over the `experimental.browser` routes: the grant and removal of the session allows, replacement, detach and
 session deletion, the `browser.*` tools through Code Mode answered from the control events (outputs decoded
-with the operation schemas, captures saved, uploads sent as bytes, desktop failures, invalid results, unknown
-tabs, refused URLs), the request timeout with its `cancel` event, a desktop leaving mid-request, and tunnels
+with the operation schemas, captures saved, uploads sent as bytes, desktop failures, invalid results read as
+their schema decode error, unknown tabs, refused URLs), the request timeout with its `cancel` event, a desktop leaving mid-request, and tunnels
 to a loopback server ending with the attachment. `tests/aisdk.rs` configures oc-plugin's
 fixture AI SDK provider package (`aisdk:file://...`) and runs prompts through the AI SDK bridge:
 text, reasoning, a tool call and usage; plugin `aisdk.sdk` / `aisdk.language` and `session.http.*`

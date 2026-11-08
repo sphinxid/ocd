@@ -140,10 +140,15 @@ fn decode_result(op: &Operation, result: &super::BrowserResult) -> Result<Value,
         Value::Object(object)
     };
     schema::decode(&op.output_schema, &value).ok_or_else(|| {
-        ToolError::new(format!(
+        let message = format!(
             "Browser returned an invalid result for browser.{}. Check that the desktop and server plugin use compatible versions. Do not retry the same action to repair a protocol error; it may already have run. Report the mismatch if versions match.",
             op.name
-        ))
+        );
+        // The decode error is the cause, so the model (and a Code Mode program, #60109) reads the schema issue.
+        match super::input_issue(&op.output_schema, &value) {
+            Some(issue) => ToolError::with_cause(message, ErrorCause::Error(issue)),
+            None => ToolError::new(message),
+        }
     })
 }
 
@@ -378,9 +383,21 @@ mod tests {
             format!(r#"{{"tab":{},"content":"x","truncated":false}}"#, serde_json::to_string(&tab).unwrap())
         );
         let invalid = super::super::BrowserResult { value: json!({"tab": tab}), files: vec![] };
-        assert!(
-            decode_result(snapshot, &invalid).unwrap_err().message.starts_with("Browser returned an invalid result for browser.snapshot.")
+        let failure = decode_result(snapshot, &invalid).unwrap_err();
+        assert!(failure.message.starts_with("Browser returned an invalid result for browser.snapshot."));
+        // The model and Code Mode programs read the Effect decode error, the failure's cause (#60109).
+        assert_eq!(failure.model_message(), "Missing key\n  at [\"content\"]");
+        let invalid = super::super::BrowserResult { value: json!({"tab": tab, "content": 1, "truncated": false}), files: vec![] };
+        assert_eq!(decode_result(snapshot, &invalid).unwrap_err().model_message(), "Expected string\n  at [\"content\"]");
+        let mut wrong = tab.clone();
+        wrong["generation"] = json!(-1);
+        let invalid = super::super::BrowserResult { value: json!({"tab": wrong, "content": "x", "truncated": false}), files: vec![] };
+        assert_eq!(
+            decode_result(snapshot, &invalid).unwrap_err().model_message(),
+            "Expected a value greater than or equal to 0\n  at [\"tab\"][\"generation\"]"
         );
+        let invalid = super::super::BrowserResult { value: json!("nope"), files: vec![] };
+        assert_eq!(decode_result(snapshot, &invalid).unwrap_err().model_message(), "Expected object");
         let file = files::File {
             id: "file_00000000-0000-4000-9000-000000000001".into(),
             name: "a.png".into(),

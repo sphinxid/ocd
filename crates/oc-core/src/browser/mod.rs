@@ -595,8 +595,9 @@ fn decode_result(result: &Value) -> Result<BrowserResult, String> {
     Ok(BrowserResult { value: result["value"].clone(), files })
 }
 
-/// The first issue of decoding `input` against an RPC input schema, as Effect's `SchemaError` reads.
-fn input_issue(schema: &Value, input: &Value) -> Option<String> {
+/// The first issue of decoding `input` against an RPC input schema (or an operation's output schema), as
+/// Effect's `SchemaError` message reads (`SchemaIssue.makeFormatterDefault`).
+pub(crate) fn input_issue(schema: &Value, input: &Value) -> Option<String> {
     let issues = oc_tools::validate::validate(schema, input, oc_tools::validate::Flavor::Effect);
     let issue = issues.first()?;
     let path: String = issue

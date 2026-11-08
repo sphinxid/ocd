@@ -250,7 +250,8 @@ async fn codemode_tools_round_trip_through_the_desktop() {
         out["errors"],
         json!([
             "[browser.unsupported] No console here.",
-            "Browser returned an invalid result for browser.network.list. Check that the desktop and server plugin use compatible versions. Do not retry the same action to repair a protocol error; it may already have run. Report the mismatch if versions match.",
+            // An invalid result reads as its schema decode error, the failure's cause (#60109).
+            "Missing key\n  at [\"requests\"]",
             "[browser.tab_unavailable] This tab is closed or does not belong to the connected session. Call browser.tabs.list({}) and use an exact returned tabID. If no tabs exist, use browser.tabs.open({}). Never substitute a request ID, file ID, or element ref for tabID.",
             // Programs see the failure text a direct call gives the model, the unwrapped cause (2.2.5, #60109).
             "Unsupported browser URL",
