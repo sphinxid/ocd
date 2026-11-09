@@ -152,7 +152,7 @@ pub async fn with_sources(skills: Vec<Skill>, location: &Location, global: &oc_u
             SkillSource::Url { url } => crate::skill_discovery::pull_cached(&global.cache, &url).await,
         };
         for path in dirs {
-            let Ok(dir) = std::fs::canonicalize(&path) else { continue };
+            let Ok(dir) = oc_util::fs::canonicalize(&path) else { continue };
             for s in oc_config::sources::scan_skills(&dir) {
                 out.insert(s.id.clone(), s);
             }

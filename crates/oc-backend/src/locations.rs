@@ -464,6 +464,6 @@ impl Locations {
 
     /// Paths of every loaded location, used by `permission.request.list` filtering.
     pub fn canonical_of(&self, directory: &str) -> PathBuf {
-        std::fs::canonicalize(directory).unwrap_or_else(|_| PathBuf::from(directory))
+        oc_util::fs::canonicalize(directory).unwrap_or_else(|_| PathBuf::from(directory))
     }
 }

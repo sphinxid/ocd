@@ -20,7 +20,7 @@ fn lock_for(map: &LockMap, key: &str) -> Arc<Mutex<()>> {
 /// `FSUtil.resolve`: realpath when it exists, else the lexical path.
 pub fn fs_resolve(path: &Path) -> String {
     let resolved = crate::util::normalize(path);
-    std::fs::canonicalize(&resolved).unwrap_or(resolved).to_string_lossy().into_owned()
+    oc_util::fs::canonicalize(&resolved).unwrap_or(resolved).to_string_lossy().into_owned()
 }
 
 /// Guard for a mutation transaction.

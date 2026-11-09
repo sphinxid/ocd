@@ -159,7 +159,7 @@ pub async fn create(
         project_row(bus, project_id).ok().flatten().ok_or_else(|| WorktreeError::ProjectNotFound(project_id.into()))?;
     let selected = strategies.get(&strategies.selected)?;
     let parent = directory.map(Path::to_path_buf).unwrap_or_else(|| parent_directory(global, project_id, Path::new(&worktree), configured_parent));
-    let source = std::fs::canonicalize(from.unwrap_or(&worktree)).unwrap_or_else(|_| PathBuf::from(from.unwrap_or(&worktree)));
+    let source = oc_util::fs::canonicalize(from.unwrap_or(&worktree)).unwrap_or_else(|_| PathBuf::from(from.unwrap_or(&worktree)));
     let known: bool = bus
         .db()
         .with(|c| {
@@ -216,7 +216,7 @@ pub async fn create(
 }
 
 pub async fn remove(bus: &Bus, project_id: &str, directory: &str, force: bool, strategies: &Strategies) -> Result<(), WorktreeError> {
-    let dir = std::fs::canonicalize(directory).map(|p| p.display().to_string()).unwrap_or_else(|_| directory.to_string());
+    let dir = oc_util::fs::canonicalize(directory).map(|p| p.display().to_string()).unwrap_or_else(|_| directory.to_string());
     let strategy: Option<Option<String>> = bus
         .db()
         .with(|c| {
@@ -353,7 +353,7 @@ mod tests {
     #[tokio::test]
     async fn git_strategy_keeps_directory_unavailable() {
         let root = tempfile::tempdir().unwrap();
-        let source = std::fs::canonicalize(root.path()).unwrap();
+        let source = oc_util::fs::canonicalize(root.path()).unwrap();
         let error = GitStrategy.create(&source.join("wt"), &source, None).await.unwrap_err();
         assert_eq!(error, StrategyError::DirectoryUnavailable(source.display().to_string()));
         let message = error.into_error("git", "create").to_string();

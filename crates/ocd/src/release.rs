@@ -544,7 +544,7 @@ pub async fn download(release: &Release, platform: &str) -> Result<Vec<u8>, Upgr
 pub fn executable() -> Result<PathBuf, UpgradeError> {
     let exe = std::env::current_exe()
         .map_err(|e| UpgradeError::new("Could not find the ocd executable", e.to_string(), "Replace the binary yourself."))?;
-    Ok(std::fs::canonicalize(&exe).unwrap_or(exe))
+    Ok(oc_util::fs::canonicalize(&exe).unwrap_or(exe))
 }
 
 fn file_name(exe: &Path) -> String {

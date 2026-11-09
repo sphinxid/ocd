@@ -64,7 +64,7 @@ pub async fn discover_git(dir: &Path) -> Option<GitRepo> {
     let abs = |p: &str| {
         let p = PathBuf::from(p.trim());
         let p = if p.is_absolute() { p } else { dir.join(p) };
-        std::fs::canonicalize(&p).unwrap_or(p)
+        oc_util::fs::canonicalize(&p).unwrap_or(p)
     };
     Some(GitRepo { git_directory: abs(lines.next()?), common_directory: abs(lines.next()?), worktree: abs(lines.next()?) })
 }
@@ -223,7 +223,7 @@ async fn git_lookup(dot_git: &Path) -> Option<Resolved> {
 }
 
 pub async fn resolve(input: &Path) -> Resolved {
-    let directory = std::fs::canonicalize(input).unwrap_or_else(|_| input.to_path_buf());
+    let directory = oc_util::fs::canonicalize(input).unwrap_or_else(|_| input.to_path_buf());
     let native = find_vcs(&directory);
     if let Some(native) = native.as_ref().filter(|p| p.file_name().is_some_and(|n| n == ".git"))
         && let Some(resolved) = git_lookup(native).await
@@ -310,7 +310,7 @@ mod tests {
 
         fn tmp() -> (tempfile::TempDir, PathBuf) {
             let dir = tempfile::tempdir().unwrap();
-            let path = std::fs::canonicalize(dir.path()).unwrap();
+            let path = oc_util::fs::canonicalize(dir.path()).unwrap();
             (dir, path)
         }
 
@@ -566,7 +566,7 @@ pub fn persist(bus: &Bus, project: &Resolved) -> anyhow::Result<()> {
         if stored.is_some() {
             continue;
         }
-        let resolved = std::fs::canonicalize(&directory).unwrap_or(directory.clone());
+        let resolved = oc_util::fs::canonicalize(&directory).unwrap_or(directory.clone());
         let candidates: Vec<(String, String)> = db.with(|c| {
             let mut s = c.prepare("SELECT id, worktree FROM project WHERE vcs IS NULL AND worktree >= ?1 AND worktree <= ?1 || char(65535)")?;
             let r = s.query_map([resolved.display().to_string()], |r| Ok((r.get(0)?, r.get(1)?)))?.collect();
@@ -578,7 +578,7 @@ pub fn persist(bus: &Bus, project: &Resolved) -> anyhow::Result<()> {
                 id != &project.id
                     && contains(&resolved, Path::new(dir))
                     && find_vcs(Path::new(dir))
-                        .and_then(|f| f.parent().map(|p| std::fs::canonicalize(p).unwrap_or(p.to_path_buf())))
+                        .and_then(|f| f.parent().map(|p| oc_util::fs::canonicalize(p).unwrap_or(p.to_path_buf())))
                         .is_some_and(|p| p == resolved)
             })
             .map(|(id, _)| id)

@@ -83,7 +83,7 @@ async fn lists_archived_projects_only_when_requested() {
 async fn archives_projects_whose_directories_are_gone_and_unarchives_them_on_resolve() {
     let h = harness();
     let tmp = tempfile::tempdir().unwrap();
-    let base = std::fs::canonicalize(tmp.path()).unwrap();
+    let base = oc_util::fs::canonicalize(tmp.path()).unwrap();
     let (kept, removed) = (base.join("kept"), base.join("removed"));
     std::fs::create_dir(&kept).unwrap();
     std::fs::create_dir(&removed).unwrap();
@@ -168,7 +168,7 @@ async fn moves_the_canonical_directory_to_a_surviving_clone_instead_of_archiving
     }
     let h = harness();
     let tmp = tempfile::tempdir().unwrap();
-    let base = std::fs::canonicalize(tmp.path()).unwrap();
+    let base = oc_util::fs::canonicalize(tmp.path()).unwrap();
     let (main, clone, linked) = (base.join("repo"), base.join("clone"), base.join("linked"));
     std::fs::create_dir(&main).unwrap();
     git(&main, &["init", "-q"]);

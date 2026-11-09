@@ -293,7 +293,7 @@ async fn initialize(git: &Git, location: &SnapshotLocation) -> Result<SnapshotRe
     let Some(source) = git.discover(&location.project_directory).await else {
         return Err(SnapshotError::new(SnapshotOperation::Capture, "Project is not a Git repository"));
     };
-    let worktree = tokio::fs::canonicalize(&source.worktree)
+    let worktree = oc_util::fs::canonicalize_async(&source.worktree)
         .await
         .map_err(|cause| SnapshotError::new(SnapshotOperation::Capture, cause.to_string()))?;
     let git_directory = store_directory(&location.data, &location.project_id, &worktree);

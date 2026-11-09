@@ -195,7 +195,7 @@ async fn decision_question_names_must_be_unique() {
 async fn generate_reports_typed_model_errors() {
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
     let root = tempfile::tempdir().unwrap();
-    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
     let g = global(&root_path);
     std::fs::write(
         g.config.join("opencode.json"),

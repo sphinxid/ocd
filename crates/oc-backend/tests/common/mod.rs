@@ -55,7 +55,7 @@ pub fn harness() -> Harness {
     // SAFETY: tests only ever set this to the same value.
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
     let root = tempfile::tempdir().unwrap();
-    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
     let cwd = root_path.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
     let db = oc_storage::Database::memory().unwrap();

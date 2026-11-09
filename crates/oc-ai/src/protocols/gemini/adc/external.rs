@@ -239,7 +239,7 @@ fn identity_pool(json: &Value) -> Result<Source, String> {
 
 /// `FileSubjectTokenSupplier.getSubjectToken`.
 fn file_token(path: &str, format: &Format) -> Result<String, String> {
-    let real = std::fs::canonicalize(path).map_err(|e| format!("The file at {path} does not exist, or it is not a file. {e}"))?;
+    let real = oc_util::fs::canonicalize(path).map_err(|e| format!("The file at {path} does not exist, or it is not a file. {e}"))?;
     if !std::fs::symlink_metadata(&real).is_ok_and(|m| m.is_file()) {
         return Err(format!("The file at {} does not exist, or it is not a file. ", real.display()));
     }
@@ -645,7 +645,7 @@ impl Executable {
     /// `retrieveCachedResponse`.
     fn cached(&self) -> Result<Option<ExecutableResponse>, String> {
         let Some(file) = self.output_file.as_ref().filter(|f| !f.is_empty()) else { return Ok(None) };
-        let Ok(real) = std::fs::canonicalize(file) else { return Ok(None) };
+        let Ok(real) = oc_util::fs::canonicalize(file) else { return Ok(None) };
         if !std::fs::symlink_metadata(&real).is_ok_and(|m| m.is_file()) {
             return Ok(None);
         }

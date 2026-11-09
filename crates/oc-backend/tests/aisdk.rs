@@ -42,7 +42,7 @@ macro_rules! require_bun {
 }
 
 fn fixture(name: &str) -> String {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../oc-plugin/tests/fixtures").join(name).canonicalize().unwrap().display().to_string()
+    oc_util::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../oc-plugin/tests/fixtures").join(name)).unwrap().display().to_string()
 }
 
 #[derive(Clone)]
@@ -144,7 +144,7 @@ async fn setup(plugins: Value, model: &str, turns: Vec<Turn>) -> Setup {
     // SAFETY: tests only ever set this to the same value.
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
     let root = tempfile::tempdir().unwrap();
-    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
     let cwd = root_path.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
     std::fs::write(cwd.join("hello.txt"), "hello from the file\n").unwrap();

@@ -59,7 +59,7 @@ pub fn read(path: impl AsRef<Path>) -> String {
 }
 
 pub fn real(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap()
+    oc_util::fs::canonicalize(path).unwrap()
 }
 
 pub fn tmp() -> tempfile::TempDir {

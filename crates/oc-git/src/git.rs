@@ -207,14 +207,14 @@ pub fn fingerprint(dot_git: &Path) -> Option<String> {
     let git_dir = match git_file.filter(|file| !file.is_empty()) {
         Some(file) => {
             let resolved = crate::paths::resolve(dot_git.parent().unwrap_or(Path::new("/")), &file);
-            std::fs::canonicalize(&resolved).unwrap_or(resolved)
+            oc_util::fs::canonicalize(&resolved).unwrap_or(resolved)
         }
         None => dot_git.to_path_buf(),
     };
     let common_dir = match read_text(&git_dir.join("commondir")).map(|text| text.trim().to_string()) {
         Some(commondir) if !commondir.is_empty() => {
             let resolved = crate::paths::resolve(&git_dir, &commondir);
-            std::fs::canonicalize(&resolved).unwrap_or(resolved)
+            oc_util::fs::canonicalize(&resolved).unwrap_or(resolved)
         }
         _ => git_dir.clone(),
     };

@@ -185,7 +185,7 @@ fn enabled_config() -> Value {
 fn harness_with(db: Option<oc_storage::Database>, clock: Clock, tmp: Option<tempfile::TempDir>) -> H {
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
     let tmp = tmp.unwrap_or_else(|| tempfile::tempdir().unwrap());
-    let root = std::fs::canonicalize(tmp.path()).unwrap();
+    let root = oc_util::fs::canonicalize(tmp.path()).unwrap();
     write_config(&root.join("enabled"), enabled_config());
     write_config(&root.join("disabled"), json!({"experimental": {"schedules": false}}));
     write_config(&root.join("toggle"), json!({"experimental": {"schedules": false}}));

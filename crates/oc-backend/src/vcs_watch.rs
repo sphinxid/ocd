@@ -111,7 +111,7 @@ async fn target(git: &Git, loc: &Loc) -> Option<Target> {
 }
 
 fn realpath(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    oc_util::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// `isBranchMetadata`: git's `HEAD` anywhere under the store, or the store's hg `branch` file.

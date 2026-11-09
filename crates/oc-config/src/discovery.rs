@@ -167,7 +167,7 @@ pub fn lexical(path: &Path) -> PathBuf {
 /// `FSUtil.resolve`: `path.resolve` then `realpath`, falling back to the unresolved path.
 pub fn resolve(path: &Path) -> PathBuf {
     let resolved = absolute(path);
-    std::fs::canonicalize(&resolved).unwrap_or(resolved)
+    oc_util::fs::canonicalize(&resolved).unwrap_or(resolved)
 }
 
 /// `FSUtil.contains(parent, child)` (lexical).

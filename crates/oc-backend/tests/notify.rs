@@ -45,7 +45,7 @@ async fn wait_for(rx: &mut Rx, kind: &str) -> Vec<String> {
 async fn reloads_announce_only_changed_domains() {
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
     let root = tempfile::tempdir().unwrap();
-    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
     let project = root_path.join("project");
     std::fs::create_dir_all(&project).unwrap();
     let config = project.join("opencode.json");
@@ -126,7 +126,7 @@ async fn reloads_announce_only_changed_domains() {
 async fn mcp_servers_start_before_the_boot_burst() {
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
     let root = tempfile::tempdir().unwrap();
-    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
     let project = root_path.join("project");
     std::fs::create_dir_all(&project).unwrap();
     // A server that never answers stays `pending` through the burst.

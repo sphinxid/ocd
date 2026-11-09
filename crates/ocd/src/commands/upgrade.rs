@@ -28,7 +28,7 @@ fn exe() -> PathBuf {
 /// `executable`: the real path of the running binary.
 fn executable() -> PathBuf {
     let exe = exe();
-    std::fs::canonicalize(&exe).unwrap_or(exe)
+    oc_util::fs::canonicalize(&exe).unwrap_or(exe)
 }
 
 /// WinGet's package identifier and the arguments every `winget` call passes.
@@ -56,7 +56,7 @@ fn probe_order(executable: &Path) -> Vec<&'static str> {
 
 /// `installedPackage`: the npm package owning the executable, if any.
 fn installed_package() -> Option<String> {
-    let real = std::fs::canonicalize(exe()).ok()?;
+    let real = oc_util::fs::canonicalize(exe()).ok()?;
     let pkg = real.parent()?.parent()?.join("package.json");
     let v: Value = serde_json::from_str(&std::fs::read_to_string(&pkg).ok()?).ok()?;
     let name = v.get("name")?.as_str()?.to_string();
@@ -66,15 +66,15 @@ fn installed_package() -> Option<String> {
     }
     let dir = pkg.parent()?;
     let owns = match v.get("bin") {
-        Some(Value::String(s)) => std::fs::canonicalize(dir.join(s)).ok().as_ref() == Some(&real),
-        Some(Value::Object(m)) => m.values().filter_map(Value::as_str).any(|s| std::fs::canonicalize(dir.join(s)).ok().as_ref() == Some(&real)),
+        Some(Value::String(s)) => oc_util::fs::canonicalize(dir.join(s)).ok().as_ref() == Some(&real),
+        Some(Value::Object(m)) => m.values().filter_map(Value::as_str).any(|s| oc_util::fs::canonicalize(dir.join(s)).ok().as_ref() == Some(&real)),
         _ => false,
     };
     owns.then_some(name)
 }
 
 fn brew_formula() -> Option<String> {
-    let real = std::fs::canonicalize(exe()).ok()?.display().to_string();
+    let real = oc_util::fs::canonicalize(exe()).ok()?.display().to_string();
     ["opencode", "opencode-beta", "opencode-v2"].iter().find(|f| real.contains(&format!("/Cellar/{f}/"))).map(|f| f.to_string())
 }
 
@@ -82,7 +82,7 @@ fn brew_formula() -> Option<String> {
 pub fn detect_method() -> Option<String> {
     let executable = executable();
     let curl_path = home().join(".opencode").join("bin").join(if cfg!(windows) { "opencode.exe" } else { "opencode" });
-    let curl = std::fs::canonicalize(&curl_path).unwrap_or(curl_path);
+    let curl = oc_util::fs::canonicalize(&curl_path).unwrap_or(curl_path);
     if executable == curl {
         return Some("curl".into());
     }

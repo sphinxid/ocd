@@ -28,7 +28,7 @@ fn read_xcode_select_link(link: &str) -> Option<String> {
     if !Path::new(link).exists() {
         return None;
     }
-    std::fs::canonicalize(link).ok().map(|path| path.to_string_lossy().into_owned())
+    oc_util::fs::canonicalize(link).ok().map(|path| path.to_string_lossy().into_owned())
 }
 
 /// Node `path.posix.resolve` of an absolute or cwd-relative path, lexically.

@@ -20,8 +20,8 @@ pub fn read(loc: &Loc, key: &str, input: &str) -> Result<FsFile, ApiError> {
     if !paths::contains(base, &absolute) {
         return Err(missing());
     }
-    let real = std::fs::canonicalize(&absolute).map_err(|_| missing())?;
-    let root = std::fs::canonicalize(base).unwrap_or_else(|_| loc.directory().to_path_buf());
+    let real = oc_util::fs::canonicalize(&absolute).map_err(|_| missing())?;
+    let root = oc_util::fs::canonicalize(base).unwrap_or_else(|_| loc.directory().to_path_buf());
     if !paths::contains(&root, &real) {
         return Err(missing());
     }

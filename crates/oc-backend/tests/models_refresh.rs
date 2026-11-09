@@ -47,7 +47,7 @@ async fn refresh_publishes_globally_and_rebuilds_catalogs() {
     }
 
     let root = tempfile::tempdir().unwrap();
-    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
     let cwd = root_path.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
     let g = |p: &str| {

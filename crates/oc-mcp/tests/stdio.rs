@@ -262,10 +262,10 @@ async fn stdio_lifecycle_tools_and_calls() {
     // Environment and resolved cwd.
     let result = manager.call_tool("my.fake", "env", None, None).await.unwrap();
     let CallToolContent::Text { text } = &result.content[0] else { panic!() };
-    let expected_cwd = std::fs::canonicalize(dir.path().join("sub")).unwrap();
+    let expected_cwd = oc_util::fs::canonicalize(dir.path().join("sub")).unwrap();
     let (var, cwd) = text.split_once('|').unwrap();
     assert_eq!(var, "hello");
-    assert_eq!(std::fs::canonicalize(cwd).unwrap(), expected_cwd);
+    assert_eq!(oc_util::fs::canonicalize(cwd).unwrap(), expected_cwd);
 
     // Server → client roots/list request.
     let result = manager.call_tool("my.fake", "roots", None, None).await.unwrap();

@@ -732,7 +732,7 @@ pub fn from_json(json: &Value, ctx: &Ctx) -> Result<Client, String> {
 
 /// `_getApplicationCredentialsFromFilePath`.
 fn from_file(path: &Path, ctx: &Ctx) -> Result<Client, String> {
-    let real = std::fs::canonicalize(path).map_err(|e| format!("The file at {} does not exist, or it is not a file. {e}", path.display()))?;
+    let real = oc_util::fs::canonicalize(path).map_err(|e| format!("The file at {} does not exist, or it is not a file. {e}", path.display()))?;
     if !std::fs::symlink_metadata(&real).is_ok_and(|m| m.is_file()) {
         return Err(format!("The file at {} does not exist, or it is not a file. ", real.display()));
     }

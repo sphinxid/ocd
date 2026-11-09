@@ -237,7 +237,7 @@ async fn an_unwritable_directory_fails_before_downloading() {
     assert_eq!(o.status.code(), Some(1), "{}", out(&o));
     let text = common::text(&o.stdout);
     // The executable's path as the OS reports it: physical on macOS (`/private/var/...` for a temporary `/var/...`).
-    let exe = std::fs::canonicalize(&c.exe).unwrap();
+    let exe = oc_util::fs::canonicalize(&c.exe).unwrap();
     assert!(
         text.contains(&format!("■  Cannot replace {}\n", c.exe.display()))
             || text.contains(&format!("■  Cannot replace {}\n", exe.display())),

@@ -73,7 +73,7 @@ impl Location {
         wellknown: Option<std::sync::Arc<dyn oc_config::load::WellKnown>>,
     ) -> anyhow::Result<Location> {
         let key = directory.display().to_string();
-        let directory = std::fs::canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
+        let directory = oc_util::fs::canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
         let project = project::resolve_and_persist(bus, &directory).await?;
         // The OpenCode Console's workspace config, when the location is signed in (`Config.integration`).
         let mut loader = oc_config::load::Loader::new(global, directory.clone(), oc_config::discovery::Options::from_env())
