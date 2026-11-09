@@ -16,7 +16,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude schedule image artifact media
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -67,11 +67,11 @@ upgrade while this is the first unused turn). The mock records every upgrade (he
 
 ### What the normalizer masks (and nothing else)
 
-- generated IDs (`<prefix>_` + 12 hex + 14 base62, also with derived suffixes like `msg_…_4`), renumbered by
-  first appearance; UUIDs;
+- generated IDs (`<prefix>_` + 12 hex + 14 base62, also with derived suffixes like `msg_…_4`, and a schedule ID
+  inside a scheduled prompt's message ID, `msg_sch_…_<n>`), renumbered by first appearance; UUIDs;
 - epoch-millisecond numbers (any key), ISO timestamps, `duration`/`elapsed`-style keys, `pid`;
 - session `slug`s;
-- the build version (`0.0.0-v2-…` or `0.0.0-detached-…` upstream, `2.0.26` or `2.1.4` port) wherever it appears,
+- the build version (`0.0.0-v2-…` or `0.0.0-detached-…` upstream, `2.0.26`, `2.1.4`, `2.2.2` or `2.2.5` port) wherever it appears,
   the channel in the User-Agent and in the report skill's diagnostics (`v2`/`detached` vs `latest`);
 - the per-run project/state/server paths and URL (identical between runs; masked for readability);
 - pagination cursors are base64url-decoded and normalized instead of masked;
@@ -89,7 +89,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (149)
+## Scenarios (177)
 
 | group | scenarios |
 |---|---|
@@ -116,7 +116,17 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | session225 | reasoning across model switches and an interrupt, `read`/`edit` misses and `bash` as `shell`, MCP stdio framing, quiet location close, Code Mode `fetch` permissions, well-known config, terminal rename and removal with the session, restart recovery only under `serve --service` |
 | claude | the Claude Agent provider against a scripted stand-in for `claude` (both binaries use the same stand-in, which logs its arguments, environment and every message): sign-in states, prices, a missing or crashing executable, text and tool turns, an unoffered tool, errors, cancel, fork and compaction |
 
+| schedule | `experimental.schedules`: the schedule API and its errors, unattended creation over HTTP, a schedule firing a prompt, `/schedule` and the schedule tools through Code Mode and directly, shell and Code Mode checks (valid, invalid, paused), two servers on one data directory firing once |
+| image | image generation and decisions over HTTP (with the one-shot retry), the image tool by default, edits, model choice, turned off, failures, restart recovery, the plugin API, background jobs at the idle boundary |
+| artifact | `experimental.artifacts`: the HTTP routes and `view`, location resolution, the tools directly and through Code Mode, a plugin provider and its failures |
+| media | `experimental.media_blob`: images stored from a prompt and from the read tool, reads with and without the media capability, the media route, fork, import, cancel, revert and delete, a fork from a location without the flag |
+
 ## Results
+
+**Run with the opt-in features of 2.2.x (debug build, 2026-11-09):** all 177 scenarios against the local v2.2.5
+build: **173 of 177 identical**, including every `schedule` (7), `image` (11), `artifact` (6) and `media` (4) scenario.
+Left: `cli_help`, `cli_inventory`, `stop_retry_exhausted`, and `loop_http_400` (the title rename vs failed step race,
+on both sides).
 
 **Final run against 2.2.5 (debug build, 2026-11-09):** all 149 scenarios against the local v2.2.5 build, `hg`
 7.2.4 on `PATH`, the scripted stand-in for the Claude Agent provider: **145 of 149 identical**. Left: `cli_help`,

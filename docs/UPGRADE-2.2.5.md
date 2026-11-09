@@ -31,6 +31,20 @@ each batch is checked against an upstream 2.2.5 build from the tag and against u
 Opt-in features of these releases (scheduled prompts under `serve`, artifacts, media references) are not part of
 this catch-up; their config keys are accepted and their endpoints answer as when the feature is off.
 
+## Opt-in features (after the catch-up)
+
+The opt-in features of 2.2.x were ported next, each checked against the 2.2.5 build:
+
+| Feature | Status |
+|---|---|
+| Image generation and decisions | Done: every image and decision provider route of 2.2.5, the generate endpoints, the plugin API, the image tool with its on-by-default rule, background image jobs and recovery, GPT Image 2 after a Codex sign-in. Side-by-side group `image` 11 of 11 identical |
+| Scheduled prompts (`experimental.schedules`) | Done: `/schedule`, the schedule tools and API, shell and Code Mode checks (Code Mode's `scanTools` and bindings), unattended permissions, cron/duration/date parsing as Effect does it, and the `schedule:leader` lease. Group `schedule` 7 of 7 identical |
+| Artifacts (`experimental.artifacts`) | Done: the local and plugin providers, tools, routes and `view`, `artifact.updated`. Group `artifact` 6 of 6 identical |
+| Session media (`experimental.media_blob`) | Done: blob writes, `media:` references under the media capability, fork and import, release, and the TUI's restore of stored images. Group `media` 4 of 4 identical. The TUI's image previews are not ported (ocd draws no images in the terminal) |
+| Platforms | A CI workflow runs the whole test suite on macOS, Windows and Linux ARM. Its first runs found the retired `macos-14` runner (the release workflow now uses `macos-15`) and two kinds of platform-dependent test expectations (libm digits of the transcendental `Math` functions, and macOS's physical temporary paths); the tests now account for both |
+
+Afterwards: tests 2,407 passed; the full side-by-side suite **173 of 177 identical**.
+
 ## Batches
 
 | Batch | Scope | Status |

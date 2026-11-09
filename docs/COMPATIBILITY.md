@@ -15,7 +15,7 @@ look like opencode, ocd reports version 2.2.5.
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 149 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 177 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
@@ -25,13 +25,13 @@ look like opencode, ocd reports version 2.2.5.
   - Mercurial repositories and the desktop browser attachment.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 145 of the 149 scenarios are identical. The other three differ in ways that are expected or harmless:
+- **Result:** 173 of the 177 scenarios are identical. The other four differ in ways that are expected or harmless:
   - the intended renames;
   - the upstream test build's database file name;
-  - a timing race that also varies between runs of upstream.
+  - two timing races that also vary between runs of upstream (one is the title rename racing a failed step).
 
-  Two more scenarios are timing-sensitive and occasionally differ: the title rename racing a failed step (on both
-  sides), and the last burst of `run`'s output, which ocd emulates with a short hold that can miss on a busy machine.
+  One more scenario is timing-sensitive and occasionally differs: the last burst of `run`'s output, which ocd
+  emulates with a short hold that can miss on a busy machine.
 - **Per-crate tests:** each crate has its own test suite, many replaying recorded upstream data.
 
 ## Same as upstream
@@ -57,6 +57,10 @@ look like opencode, ocd reports version 2.2.5.
 | Server plugins | Tools, hooks, transforms, storage, rpc and events, plus `ocd plugin add/check/update`. They run in a small Bun helper process. Changing `plugins` while the server runs reloads them live, any number of times, with upstream's notifications |
 | AI SDK provider packages | Such as `@ai-sdk/deepseek`, through the same Bun helper |
 | Clients and API | The full TUI. The web UI served by `ocd serve`, built from upstream's 2.2.5 app (88 of 88 compared requests were identical with the 2.0.26 app; the serving code is unchanged since apart from its content-security policy). The HTTP API (169 endpoints, from upstream 2.2.5's OpenAPI document) and the event stream. The background service on port 49374 (28894 on Windows) |
+| Image generation and decisions | The `experimental_image_generate` tool (on while a connected provider has image models, unless `experimental.image_generate` is `false`), background image jobs and their recovery, `/api/experimental/generate/image` and `/generate/decisions`, `ctx.experimental.generate.image`/`.decisions`, every image and decision provider route 2.2.5 ships, and GPT Image 2 after a Codex sign-in |
+| Scheduled prompts | `experimental.schedules`: `/schedule`, the schedule tools and API, shell and Code Mode `if`/`until` checks, unattended permissions, and the `schedule:leader` lease so a schedule fires once across processes |
+| Artifacts | `experimental.artifacts`: the local and plugin providers, the `artifact_*` tools, the routes including `view`, and `artifact.updated` |
+| Session media storage | `experimental.media_blob`: images stored as blobs with `media:` references, read back under `X-OpenCode-Capabilities: experimental-media-uri`, kept through fork and import and released with their messages; the TUI restores them into prompts |
 | Git | Status, diffs, branches, snapshots and worktrees |
 | Shell permissions | The built-in shell scanner of 2.2.5 (no tree-sitter): redirects, PowerShell method calls and dynamic `cd` are permission resources. 95,128 calls recorded from upstream's own scanner match |
 | Persistent terminals | `@opencode/pty` 0.4.0: terminals belong to their session, are removed with it, and can be renamed |
@@ -87,13 +91,11 @@ look like opencode, ocd reports version 2.2.5.
 |---|---|
 | TUI plugins (the `tui` entrypoint) | Not planned: they need upstream's SolidJS terminal UI |
 | Third-party packages for upstream's model runtime (`@opencode/ai`) | AI SDK packages do work |
-| Image generation | The `image_generate` tool (on by default in 2.2.2 when a connected provider has image models), the image and decision APIs and models. The endpoints answer as when the feature is off |
-| Scheduled prompts | `/schedule` and `experimental.schedules`. The endpoints answer as when the feature is off |
-| Session media storage | `experimental.media_blob` writes and media URIs. ocd reads media blobs that upstream wrote |
+| Image previews in the TUI | `session.image_preview` and `prompt.image_preview` (off by default): ocd draws no images in the terminal |
 | Speech, video and transcription models | Upstream has these only as library code that nothing in the app calls |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 |
 | Other experimental features | `location_idle_timeout` and the new designs. Their config keys are accepted and do nothing |
-| Testing on macOS, Windows and Linux ARM | Release binaries are built for them, but only Linux x86_64 is tested |
+| Day-to-day testing on macOS, Windows and Linux ARM | CI runs the whole test suite on them on every push to main; only Linux x86_64 is also compared side by side with upstream |
 
 ## Different on purpose
 

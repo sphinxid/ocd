@@ -116,6 +116,12 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
   `Plugins::load` returned early without settling every activation after the first (a lost wakeup: agent.list 503,
   RPC hung); activations now run one at a time with a settle-on-drop guard, and reload notifications follow 2.2.2's
   fixed batch order. Parity 118/121; tests 2160 passed.
+- 2026-11-09: OPT-IN 2.2.x FEATURES: image generation and decisions (oc-ai `image`/`decision`/`route::media`/
+  `providers::media`, core `generate`, the image tool and jobs), schedules (oc-core `schedule/` with Effect cron/date
+  parsing in `time.rs`, Code Mode `scan_tools`/bindings, `Permission.Unattended`, oc-backend `schedules.rs`), artifacts
+  (`oc-core/src/artifact.rs`, sidecar `artifact` domain) and media blob writes (`Committing.media`, `*_media` reads,
+  TUI `app/media.rs`). CI `test.yml` runs the tests on macOS/Windows/Linux ARM and annotates failing tests (logs need
+  admin rights; annotations are public). Tests 2407 passed; parity 173/177 (groups schedule, image, artifact, media).
 - 2026-11-09: CAUGHT UP WITH 2.2.5 (`docs/UPGRADE-2.2.5.md`): four reviews, five batches (storage/API/policy, the
   Claude Agent provider in `oc-core/src/claude_agent`, the shell scanner without tree-sitter, session/tools/terminals,
   TUI/CLI incl. the tab pulse) and one fix batch; upstream binary built from the tag like 2.2.2's. Migration 59 (`job`
