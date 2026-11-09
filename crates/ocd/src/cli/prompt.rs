@@ -1640,6 +1640,16 @@ impl ScriptTerminal {
     }
 }
 
+/// Expected prompt text, written with `defaultTheme`'s figures, as this platform's theme draws it: `windowsTheme`'s
+/// figures on Windows.
+#[cfg(test)]
+pub fn platform_figures(text: &str) -> String {
+    if !cfg!(windows) {
+        return text.to_string();
+    }
+    text.replace('❯', ">").replace('›', "»").replace('…', "...").replace('✔', "√")
+}
+
 #[cfg(test)]
 impl Terminal for ScriptTerminal {
     fn columns(&mut self) -> usize {
@@ -1680,6 +1690,10 @@ mod tests {
         Theme::new(false)
     }
 
+    fn w(text: &str) -> String {
+        platform_figures(text)
+    }
+
     #[test]
     fn js_numbers() {
         assert_eq!(js_parse_int("12a"), 12.0);
@@ -1702,8 +1716,8 @@ mod tests {
         assert!(value);
         assert_eq!(
             term.out,
-            "\x1b[?25l\x1b[96m?\x1b[0m \x1b[1mContinue?\x1b[0m \x1b[90m›\x1b[0m \x1b[90m(y/N)\x1b[0m\x07\
-             \x1b[2K\x1b[G\x1b[2K\x1b[G\x1b[32m✔\x1b[0m \x1b[1mContinue?\x1b[0m \x1b[90m…\x1b[0m yes\n\x1b[?25h"
+            w("\x1b[?25l\x1b[96m?\x1b[0m \x1b[1mContinue?\x1b[0m \x1b[90m›\x1b[0m \x1b[90m(y/N)\x1b[0m\x07\
+             \x1b[2K\x1b[G\x1b[2K\x1b[G\x1b[32m✔\x1b[0m \x1b[1mContinue?\x1b[0m \x1b[90m…\x1b[0m yes\n\x1b[?25h")
         );
     }
 
@@ -1715,7 +1729,7 @@ mod tests {
         }
         let mut term = ScriptTerminal::new(&["\x03"], 80);
         assert_eq!(run(&Confirm::new("Q", true, &plain()), &mut term), Err(Quit));
-        assert_eq!(term.out, "\x1b[?25l? Q › (Y/n)\x07\x1b[?25h");
+        assert_eq!(term.out, w("\x1b[?25l? Q › (Y/n)\x07\x1b[?25h"));
     }
 
     #[test]
@@ -1725,21 +1739,21 @@ mod tests {
         let mut term = ScriptTerminal::new(&["\r", "ab", "\x1b[D", "c", "\x01", "\x15", "z", "\r"], 20);
         assert_eq!(run(&prompt, &mut term), Ok("z".into()));
         let frames: Vec<&str> = term.out.split("\x1b[2K\x1b[G").collect();
-        assert_eq!(frames[0], "? Name › ");
+        assert_eq!(frames[0], w("? Name › "));
         // the error frame: saved cursor, the error lines, restored cursor
-        assert!(frames[2].starts_with("? Name › \x1b[s\n› required\nnow\x1b[u"));
+        assert!(frames[2].starts_with(&w("? Name › \x1b[s\n› required\nnow\x1b[u")));
         // clearing it moves down over the error, erases it and the prompt line
         assert!(term.out.contains("\x1b[2B\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K\x1b[G"));
-        assert!(term.out.contains("? Name › acb\x1b[1D"));
-        assert!(term.out.ends_with("✔ Name … z\n\x1b[?25h"));
+        assert!(term.out.contains(&w("? Name › acb\x1b[1D")));
+        assert!(term.out.ends_with(&w("✔ Name … z\n\x1b[?25h")));
     }
 
     #[test]
     fn hidden_shows_nothing() {
         let mut term = ScriptTerminal::new(&["abc", "\r"], 80);
         assert_eq!(run(&Text::new("Token", TextKind::Hidden, &plain()), &mut term), Ok("abc".into()));
-        assert!(term.out.starts_with("? Token › \x1b[2K\x1b[G\x1b[2K\x1b[G? Token › \x1b[2K"));
-        assert!(term.out.ends_with("✔ Token … \n\x1b[?25h"));
+        assert!(term.out.starts_with(&w("? Token › \x1b[2K\x1b[G\x1b[2K\x1b[G? Token › \x1b[2K")));
+        assert!(term.out.ends_with(&w("✔ Token … \n\x1b[?25h")));
     }
 
     #[test]
@@ -1748,8 +1762,8 @@ mod tests {
         prompt.default = "pw".into();
         let mut term = ScriptTerminal::new(&["\x15", "\t", "x\r"], 80);
         assert_eq!(run(&prompt, &mut term), Ok("pwx".into()));
-        assert!(term.out.starts_with("? Secret › **"));
-        assert!(term.out.ends_with("✔ Secret … ***\n\x1b[?25h"));
+        assert!(term.out.starts_with(&w("? Secret › **")));
+        assert!(term.out.ends_with(&w("✔ Secret … ***\n\x1b[?25h")));
     }
 
     #[test]
@@ -1760,18 +1774,18 @@ mod tests {
         prompt.max = 2.0;
         let mut term = ScriptTerminal::new(&["k", "k", "\r", "\x7f", "a", "-", "\r", "\x15", "2", "\r"], 80);
         assert_eq!(run(&prompt, &mut term), Ok(2.0));
-        assert!(term.out.contains("? Count › 3\x1b[s\n› 3 must be less than or equal to 2\x1b[u"));
+        assert!(term.out.contains(&w("? Count › 3\x1b[s\n› 3 must be less than or equal to 2\x1b[u")));
         // "a" beeps (NaN), "-" starts a negative number, which alone is no integer
-        assert!(term.out.contains("? Count › -\x1b[s\n› Must provide an integer value\x1b[u"));
-        assert!(term.out.contains("? Count › -\x1b[2K"));
+        assert!(term.out.contains(&w("? Count › -\x1b[s\n› Must provide an integer value\x1b[u")));
+        assert!(term.out.contains(&w("? Count › -\x1b[2K")));
     }
 
     #[test]
     fn number_prompt_rounds() {
         let mut term = ScriptTerminal::new(&["1", ".", ".", "2", "5", "6", "\r"], 80);
         assert_eq!(run(&Number::float("N", &plain()), &mut term), Ok(1.26));
-        assert!(term.out.contains("? N › 1.\x07"));
-        assert!(term.out.ends_with("✔ N … 1.256\n\x1b[?25h"));
+        assert!(term.out.contains(&w("? N › 1.\x07")));
+        assert!(term.out.ends_with(&w("✔ N … 1.256\n\x1b[?25h")));
     }
 
     #[test]
@@ -1781,13 +1795,13 @@ mod tests {
         let mut term = ScriptTerminal::new(&["\x1b[A", "j", "\r"], 80);
         assert_eq!(run(&Select::new(Some("Pick"), choices, &plain()), &mut term), Ok(0));
         let first: Vec<&str> = term.out.split("\x1b[2K").next().unwrap().lines().collect();
-        assert_eq!(first[0], "\x1b[?25l? Pick › ");
-        assert_eq!(first[1], "❯ c0 - d0");
+        assert_eq!(first[0], w("\x1b[?25l? Pick › "));
+        assert_eq!(first[1], w("❯ c0 - d0"));
         assert_eq!(first[10], "↓ c9 ");
         // the cursor on the last choice shows the last page with an up arrow
-        assert!(term.out.contains("? Pick › \n↑ c2 \n"));
-        assert!(term.out.contains("❯ c11 - d11"));
-        assert!(term.out.ends_with("✔ Pick …  c0\n\x1b[?25h"));
+        assert!(term.out.contains(&w("? Pick › \n↑ c2 \n")));
+        assert!(term.out.contains(&w("❯ c11 - d11")));
+        assert!(term.out.ends_with(&w("✔ Pick …  c0\n\x1b[?25h")));
     }
 
     #[test]
@@ -1822,8 +1836,8 @@ mod tests {
         let date = run(&prompt, &mut term).unwrap();
         let f = date.fields();
         assert_eq!((f.year, f.month, f.date, f.hours, f.minutes), (2025.0, 1.0, 7.0, 23.0, 5.0));
-        assert!(term.out.contains("? When › 2025-03-03 23:05:00"));
-        assert!(term.out.ends_with("✔ When … 2025-02-07 23:05:00\n\x1b[?25h"));
+        assert!(term.out.contains(&w("? When › 2025-03-03 23:05:00")));
+        assert!(term.out.ends_with(&w("✔ When … 2025-02-07 23:05:00\n\x1b[?25h")));
         assert_eq!(JsDate(1_700_000_000_123.0).to_iso_string(), "2023-11-14T22:13:20.123Z");
         assert!(term.out.contains("\x07"));
     }

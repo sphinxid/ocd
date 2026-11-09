@@ -223,7 +223,8 @@ mod tests {
             .await
     }
 
-    #[tokio::test]
+    // A paused clock: the pauses are exact even where the system timer is coarse (about 16 ms on Windows).
+    #[tokio::test(start_paused = true)]
     async fn split_mouse_report_is_not_an_escape_press() {
         let out = run(vec![(0, vec![key(KeyCode::Esc)]), (5, chars("[<35;10;10M")), (5, chars("hi"))]).await;
         assert_eq!(out, vec!["Char('h')", "Char('i')"]);
@@ -235,7 +236,7 @@ mod tests {
         assert_eq!(out, vec!["Esc"]);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_real_escape_press_comes_through() {
         // Alone: released once the window passes.
         let out = run(vec![(0, vec![key(KeyCode::Esc)]), (60, chars("x"))]).await;

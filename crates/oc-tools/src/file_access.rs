@@ -170,10 +170,12 @@ mod tests {
         std::fs::create_dir_all(outside.join("deep")).unwrap();
         let t = resolve_in(&root, &root, &home, &outside.join("deep/file.txt").to_string_lossy(), Some(Kind::File));
         let ext = t.external_directory.unwrap();
-        assert_eq!(ext.resource, format!("{}/deep/*", outside.to_string_lossy()));
-        assert_eq!(ext.save, format!("{}/*", outside.to_string_lossy()));
+        // Permission resources always use `/`.
+        let outside_slash = outside.to_string_lossy().replace('\\', "/");
+        assert_eq!(ext.resource, format!("{outside_slash}/deep/*"));
+        assert_eq!(ext.save, format!("{outside_slash}/*"));
         let t = resolve_in(&root, &root, &home, &outside.join("deep").to_string_lossy(), None);
-        assert_eq!(t.external_directory.unwrap().resource, format!("{}/deep/*", outside.to_string_lossy()));
+        assert_eq!(t.external_directory.unwrap().resource, format!("{outside_slash}/deep/*"));
         let t = resolve_in(&root, &root, &home, "~/x", None);
         assert_eq!(t.absolute, home.join("x"));
     }

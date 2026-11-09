@@ -22,11 +22,15 @@ impl Fixture {
     fn new() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_string_lossy().to_string();
-        let vars = vec![
+        let mut vars = vec![
             ("HOME".to_string(), home.clone()),
             ("CLOUDSDK_CONFIG".to_string(), format!("{home}/gcloud")),
             ("METADATA_SERVER_DETECTION".to_string(), "none".to_string()),
         ];
+        // Windows keeps gcloud's configuration in `%APPDATA%\gcloud` instead of `$HOME/.config/gcloud`.
+        if cfg!(windows) {
+            vars.push(("APPDATA".to_string(), format!("{home}/.config")));
+        }
         Fixture { dir, vars }
     }
     fn path(&self, name: &str) -> PathBuf {
@@ -302,17 +306,29 @@ async fn aws_source() {
     assert!(decoded["headers"][0]["value"].as_str().unwrap().contains("Credential=AKENV/") && decoded["url"].as_str().unwrap().contains("eu-west-1"));
 }
 
+/// Writes the script an executable source runs and returns the command for it: `sh` runs the Unix lines, `cmd` the
+/// Windows ones.
+fn executable(f: &Fixture, unix: &str, windows: &str) -> String {
+    if cfg!(windows) {
+        let script = f.file("exec.cmd", &format!("@echo off\r\n{windows}\r\n"));
+        let cmd = std::env::var("ComSpec").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".into());
+        format!("{cmd} /d /c {script}")
+    } else {
+        let script = f.file("exec.sh", &format!("#!/bin/sh\n{unix}\n"));
+        format!("/bin/sh {script}")
+    }
+}
+
 #[tokio::test]
 async fn executable_source() {
     let server = mock(sts_server_routes()).await;
     let mut f = Fixture::new();
     let seen = f.path("seen-env");
-    let script = f.file(
-        "exec.sh",
-        &format!(
-            "#!/bin/sh\nenv | grep GOOGLE_EXTERNAL_ACCOUNT | sort > '{}'\necho '{{\"version\": 1, \"success\": true, \"token_type\": \"urn:ietf:params:oauth:token-type:id_token\", \"id_token\": \"exec-token\", \"expiration_time\": 4102444800}}'\n",
-            seen.display()
-        ),
+    let reply = r#"{"version": 1, "success": true, "token_type": "urn:ietf:params:oauth:token-type:id_token", "id_token": "exec-token", "expiration_time": 4102444800}"#;
+    let command = executable(
+        &f,
+        &format!("env | grep GOOGLE_EXTERNAL_ACCOUNT | sort > '{}'\necho '{reply}'", seen.display()),
+        &format!("set GOOGLE_EXTERNAL_ACCOUNT > \"{}\"\r\necho {reply}", seen.display()),
     );
     let output = f.path("exec-cache.json").to_string_lossy().to_string();
     let config = json!({
@@ -321,7 +337,7 @@ async fn executable_source() {
         "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
         "token_url": format!("{}/v1/token", server.base),
         "service_account_impersonation_url": format!("{}/v1/projects/-/serviceAccounts/sa@p.iam.gserviceaccount.com:generateAccessToken", server.base),
-        "credential_source": {"executable": {"command": format!("/bin/sh {script}"), "timeout_millis": 5000, "output_file": output}},
+        "credential_source": {"executable": {"command": command, "timeout_millis": 5000, "output_file": output}},
     });
     f.adc(config.clone());
     // Executables must be allowed explicitly.
@@ -353,7 +369,8 @@ async fn executable_source() {
     assert!(!seen.exists());
     // A failure reported by the executable.
     std::fs::remove_file(&output).unwrap();
-    f.file("exec.sh", "#!/bin/sh\necho '{\"version\": 1, \"success\": false, \"code\": \"401\", \"message\": \"denied\"}'\n");
+    let reply = r#"{"version": 1, "success": false, "code": "401", "message": "denied"}"#;
+    executable(&f, &format!("echo '{reply}'"), &format!("echo {reply}"));
     let error = f.auth(Endpoints::default()).token().await.unwrap_err();
     assert_eq!(error, "The executable failed with exit code: 401 and error message: denied.");
 }

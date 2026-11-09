@@ -100,7 +100,7 @@ fn debug_paths_lists_global_paths_without_a_server() {
     assert_eq!(out.status.code(), Some(0));
     let stdout = common::text(&out.stdout);
     let data = env.path("data").join("opencode");
-    let tmp = std::fs::canonicalize(std::env::temp_dir().join("opencode")).unwrap();
+    let tmp = oc_util::fs::canonicalize(std::env::temp_dir().join("opencode")).unwrap();
     let expected = [
         ("home", env.path("home")),
         ("data", data.clone()),
@@ -147,6 +147,14 @@ fn wizard(env: &common::Env, args: &[&str], chunks: &[&str]) -> std::process::Ou
     child.wait_with_output().unwrap()
 }
 
+/// The prompt's figures as the platform's theme draws them (`windowsTheme` on Windows).
+fn figures(text: &str) -> String {
+    if !cfg!(windows) {
+        return text.to_string();
+    }
+    text.replace('❯', ">").replace('›', "»").replace('…', "...").replace('✔', "√")
+}
+
 #[test]
 fn wizard_builds_runs_cancels_and_validates() {
     let env = common::Env::new();
@@ -154,9 +162,9 @@ fn wizard_builds_runs_cancels_and_validates() {
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
     let stdout = common::text(&out.stdout);
     assert!(stdout.contains(" · Command wizard\nocd command line interface\nBuild a command interactively. Press Ctrl+C to cancel.\n\n"));
-    assert!(stdout.contains("Current command\n  $ ocd debug paths\n\nPATHS · ARGUMENTS\n\x1b[?25l? Set Name? › (y/N)\x1b[2K\x1b[1G"));
-    assert!(stdout.contains("✔ Name …  home\n\x1b[?25h\nCommand ready\n  $ ocd debug paths home\n\n"), "{stdout}");
-    assert!(stdout.ends_with(&format!("✔ Run this command? … yes / no\n\x1b[?25h\n{}\n", env.path("home").display())), "{stdout}");
+    assert!(stdout.contains(&figures("Current command\n  $ ocd debug paths\n\nPATHS · ARGUMENTS\n\x1b[?25l? Set Name? › (y/N)\x1b[2K\x1b[1G")), "{stdout}");
+    assert!(stdout.contains(&figures("✔ Name …  home\n\x1b[?25h\nCommand ready\n  $ ocd debug paths home\n\n")), "{stdout}");
+    assert!(stdout.ends_with(&figures(&format!("✔ Run this command? … yes / no\n\x1b[?25h\n{}\n", env.path("home").display()))), "{stdout}");
 
     // escape quits: exit 0
     let out = wizard(&env, &["session", "--wizard"], &["\x1b"]);

@@ -195,6 +195,8 @@ async fn scopes_to_the_location_directory_and_inits() {
     write(directory.join("sub/inner.txt"), "inner\n");
     let vcs = HgVcs::new(directory.join("sub"), &directory);
     let diff = vcs.diff(Mode::Working, &DiffOptions::default()).await.unwrap();
-    assert_eq!(names(&diff), [("sub/inner.txt", FileStatus::Added)]);
+    // `hg status` names files with the platform separator (`ui.slash` is off), and upstream keeps them that way.
+    let inner = if cfg!(windows) { "sub\\inner.txt" } else { "sub/inner.txt" };
+    assert_eq!(names(&diff), [(inner, FileStatus::Added)]);
     assert!(HgVcs::init(&directory.join("missing")).await.is_err());
 }

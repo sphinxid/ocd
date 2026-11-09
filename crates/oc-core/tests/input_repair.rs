@@ -165,7 +165,8 @@ async fn repairs_tool_input_unless_removed() {
     let (path, parts) = &results[1];
     assert_eq!(parts.len(), 3, "{parts:#?}");
     assert!(parts[0].1.starts_with("Invalid arguments for tool \"read\":\n- offset: Expected number\n- limit: Expected number\n"), "{}", parts[0].1);
-    assert!(parts[0].1.contains(&format!("\"path\": \"{path}\",\n  \"offset\": \"2\",\n  \"limit\": \"1\",\n  \"extra\": true")), "{}", parts[0].1);
+    // The path as a JSON string (escaped backslashes on Windows).
+    assert!(parts[0].1.contains(&format!("\"path\": {},\n  \"offset\": \"2\",\n  \"limit\": \"1\",\n  \"extra\": true", json!(path))), "{}", parts[0].1);
     assert!(parts[1].1.contains("\"bogus\": 1"), "{}", parts[1].1);
     // Without the repair plugin there is no alias either.
     assert_eq!(parts[2].1, "No tool named \"bash\" is currently available. Please use a tool from the available tool list.");

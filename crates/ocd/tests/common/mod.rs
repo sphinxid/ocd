@@ -8,6 +8,9 @@ pub mod releases;
 
 pub struct Env {
     pub root: tempfile::TempDir,
+    /// `root` canonicalized. The Windows temporary directory can have short (8.3) names (`RUNNER~1`), and Git and
+    /// the snapshot store name a repository by its long, real path, so the commands run in that.
+    base: PathBuf,
 }
 
 impl Env {
@@ -16,11 +19,12 @@ impl Env {
         for d in ["home", "data", "config", "state", "cache", "work"] {
             std::fs::create_dir_all(root.path().join(d)).unwrap();
         }
-        Env { root }
+        let base = oc_util::fs::canonicalize(root.path()).unwrap();
+        Env { root, base }
     }
 
     pub fn path(&self, p: &str) -> PathBuf {
-        self.root.path().join(p)
+        self.base.join(p)
     }
 
     pub fn command(&self, args: &[&str]) -> Command {
@@ -28,6 +32,7 @@ impl Env {
         c.args(args)
             .current_dir(self.path("work"))
             .env("HOME", self.path("home"))
+            .env("USERPROFILE", self.path("home"))
             .env("XDG_DATA_HOME", self.path("data"))
             .env("XDG_CONFIG_HOME", self.path("config"))
             .env("XDG_STATE_HOME", self.path("state"))
@@ -50,8 +55,9 @@ impl Env {
     }
 }
 
+/// Output text with `\n` line ends: the CLI ends its lines with `os.EOL`, which is `\r\n` on Windows.
 pub fn text(b: &[u8]) -> String {
-    String::from_utf8_lossy(b).into_owned()
+    String::from_utf8_lossy(b).replace("\r\n", "\n")
 }
 
 pub fn exists(p: &Path) -> bool {

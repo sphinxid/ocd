@@ -699,9 +699,11 @@ mod tests {
         std::fs::write(dir.path().join("b.txt"), "").unwrap();
         std::fs::write(dir.path().join("A.txt"), "").unwrap();
         let out = read(dir.path(), "x", Page::default()).unwrap();
-        assert_eq!(text(&out, "x", None), "Read directory x, entries 1-4\nadir/\nzdir/\nA.txt\nb.txt");
+        // Directories end in the platform separator (`path.sep`).
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(text(&out, "x", None), format!("Read directory x, entries 1-4\nadir{sep}\nzdir{sep}\nA.txt\nb.txt"));
         let out = read(dir.path(), "x", Page { offset: Some(2), limit: Some(2) }).unwrap();
-        assert_eq!(text(&out, "x", Some(2)), "Read directory x, entries 2-3\nzdir/\nA.txt\n[Output truncated. Continue reading with offset: 4]");
+        assert_eq!(text(&out, "x", Some(2)), format!("Read directory x, entries 2-3\nzdir{sep}\nA.txt\n[Output truncated. Continue reading with offset: 4]"));
         let out = read(dir.path(), "x", Page { offset: Some(9), limit: None }).unwrap();
         assert_eq!(text(&out, "x", Some(9)), "Read directory x, 0 entries");
     }

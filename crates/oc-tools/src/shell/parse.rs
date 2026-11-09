@@ -1026,6 +1026,9 @@ FOR {line}");
         Some(got == expected)
     }
 
+    // Recorded from upstream on Linux: on Windows `parse.ts` resolves paths with `path.win32` and leaves Bash's tilde
+    // prefixes (`~+`, `~-`, `~user`) alone, so these POSIX cases do not apply there.
+    #[cfg(unix)]
     #[test]
     fn golden_upstream_cases() {
         let mut checked = 0;
@@ -1094,8 +1097,14 @@ FOR {line}");
         ]);
         let tilde = run("cd ~+/../outside && cd ~- && cd ~+1 && cd ~0 && cd ~__opencode_nonexistent_user__", "/bin/bash")
             .unwrap();
-        assert_eq!(tilde.directories, ["/outside"]);
-        assert_eq!(tilde.commands.len(), 4);
+        if cfg!(windows) {
+            // Windows has no Bash tilde prefixes (`expandKnownDirectory`): they stay as written, as plain directories.
+            assert_eq!(tilde.directories, ["~+/../outside", "~-", "~+1", "~0", "~__opencode_nonexistent_user__"]);
+            assert!(tilde.commands.is_empty());
+        } else {
+            assert_eq!(tilde.directories, ["/outside"]);
+            assert_eq!(tilde.commands.len(), 4);
+        }
         let globs = run("cd {..,x} && cd .[.] && cd .? && cd $'\\x2e'[.] && cd '.[.]'", "/bin/bash").unwrap();
         assert_eq!(globs.directories, [".[.]"]);
         assert_eq!(globs.commands.len(), 4);

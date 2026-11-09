@@ -90,6 +90,11 @@ fn assert_same(actual: &Value, expected: &Value, path: &str) {
     }
 }
 
+/// `path.parse(dataDir).root`, the global project's worktree: `/`, or the drive (`C:\`) on Windows.
+fn root(data_dir: &std::path::Path) -> String {
+    if cfg!(windows) { format!("{}\\", &data_dir.to_string_lossy()[..2]) } else { "/".into() }
+}
+
 #[test]
 fn imports_like_upstream() {
     let dir = tempfile::tempdir().unwrap();
@@ -98,7 +103,13 @@ fn imports_like_upstream() {
     assert_eq!(importer.status(&db).unwrap(), Status::Required);
     importer.run(&db, dir.path(), &Options::default()).unwrap();
     assert_eq!(importer.status(&db).unwrap(), Status::Completed);
-    let expected: Value = serde_json::from_str(EXPECTED).unwrap();
+    let mut expected: Value = serde_json::from_str(EXPECTED).unwrap();
+    // Recorded on Linux.
+    for project in expected["project"].as_array_mut().unwrap() {
+        if project["worktree"] == "/" {
+            project["worktree"] = json!(root(dir.path()));
+        }
+    }
     assert_same(&dump(&db), &expected, "$");
 
     // A second run is a no-op once completed.
@@ -234,8 +245,11 @@ fn reassigns_sessions_with_missing_projects() {
         );
         Importer::new().run(&db, dir.path(), &Options::default()).unwrap();
         assert_eq!(rows(&db, "SELECT project_id FROM session_v2 WHERE id = 'ses_orphan'"), vec![json!({ "project_id": "global" })]);
-        assert_eq!(rows(&db, "SELECT worktree FROM project WHERE id = 'global'"), vec![json!({ "worktree": "/" })]);
-        let expected = if directory == "." { "/" } else { directory };
+        let root = root(dir.path());
+        assert_eq!(rows(&db, "SELECT worktree FROM project WHERE id = 'global'"), vec![json!({ "worktree": root })]);
+        // Stored with `/` (`storedAbsolutePath`).
+        let stored = root.replace('\\', "/");
+        let expected = if directory == "." { stored.as_str() } else { directory };
         assert_eq!(rows(&db, "SELECT directory FROM session_v2 WHERE id = 'ses_orphan'"), vec![json!({ "directory": expected })]);
         assert_eq!(rows(&db, "SELECT value FROM kv WHERE key = 'migration.v1-v2'"), vec![json!({ "value": r#"{"phase":"completed"}"# })]);
     }
@@ -259,7 +273,7 @@ fn git(dir: &Path, args: &[&str]) {
 #[tokio::test]
 async fn attributes_global_sessions_to_their_directory_projects() {
     let tmp = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(tmp.path()).unwrap();
+    let root = oc_util::fs::canonicalize(tmp.path()).unwrap();
     let plain = root.join("plain");
     let nested = plain.join("nested");
     let repo = root.join("repo");

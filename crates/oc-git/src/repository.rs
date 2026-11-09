@@ -307,10 +307,11 @@ mod tests {
 
     #[test]
     fn file_references() {
-        let url = url::Url::from_file_path("/tmp/x/repo.git").unwrap();
+        let path = if cfg!(windows) { r"C:\tmp\x\repo.git" } else { "/tmp/x/repo.git" };
+        let url = url::Url::from_file_path(path).unwrap();
         let reference = parse(url.as_str()).unwrap();
         assert_eq!(reference.host, "file");
-        assert_eq!(reference.label, "/tmp/x/repo.git");
+        assert_eq!(reference.label, path);
         assert_eq!(reference.repo, "repo");
         assert!(is_file(&reference) && !is_remote(&reference));
         assert!(matches!(parse_remote(url.as_str()), Err(RepositoryError::UnsupportedLocalRepository { .. })));

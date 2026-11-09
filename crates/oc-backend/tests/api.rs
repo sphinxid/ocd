@@ -204,7 +204,7 @@ async fn prompt_attachments_and_skills() {
     let h = harness();
     let id = h.session().await;
     std::fs::write(h.cwd.join("a.txt"), "line1\nline2\nline3\n").unwrap();
-    let uri = format!("file://{}?start=2&end=2", h.cwd.join("a.txt").display());
+    let uri = format!("{}?start=2&end=2", file_url(&h.cwd.join("a.txt")));
     let r = h
         .post(
             &format!("/api/session/{id}/prompt"),
@@ -225,6 +225,12 @@ async fn prompt_attachments_and_skills() {
     let r = h.post(&format!("/api/session/{id}/prompt"), json!({"text": "x", "skills": [{"id": "nope"}]})).await;
     assert_eq!(r.status, 400);
     assert_eq!(r.json(), json!({"_tag":"InvalidRequestError","message":"Skill not found: nope","field":"skills"}));
+}
+
+/// `pathToFileURL(path).href` for these plain paths: `file:///C:/dir/a.txt` on Windows.
+fn file_url(path: &std::path::Path) -> String {
+    let path = path.display().to_string().replace('\\', "/");
+    if path.starts_with('/') { format!("file://{path}") } else { format!("file:///{path}") }
 }
 
 fn base64_encode(b: &[u8]) -> String {
@@ -312,17 +318,23 @@ async fn filesystem() {
     std::fs::write(h.cwd.join("README.md"), "# hi").unwrap();
     let r = h.get("/api/fs/list").await;
     assert_eq!(r.status, 200);
-    assert_eq!(r.json()["data"], json!([{"path":"src/","type":"directory"},{"path":"README.md","type":"file"}]));
+    // Listed paths use the platform separator (`path.relative` + `path.sep`).
+    let sep = std::path::MAIN_SEPARATOR;
+    assert_eq!(r.json()["data"], json!([{"path":format!("src{sep}"),"type":"directory"},{"path":"README.md","type":"file"}]));
     let r = h.get("/api/fs/list?path=src").await;
-    assert_eq!(r.json()["data"], json!([{"path":"src/nested/","type":"directory"},{"path":"src/main.rs","type":"file"}]));
+    assert_eq!(
+        r.json()["data"],
+        json!([{"path":format!("src{sep}nested{sep}"),"type":"directory"},{"path":format!("src{sep}main.rs"),"type":"file"}])
+    );
     let r = h.get("/api/fs/list?path=missing").await;
     assert_eq!(r.status, 404);
     assert_eq!(r.json(), json!({"_tag":"FileNotFoundError","path":"missing","message":"Directory not found: missing"}));
 
     let r = h.get("/api/fs/find?query=main").await;
     assert_eq!(r.json()["data"][0], json!({"path":"src/main.rs","type":"file"}));
+    // Found files use `/`; a directory ends in the platform separator.
     let r = h.get("/api/fs/find?query=src&type=directory").await;
-    assert_eq!(r.json()["data"][0], json!({"path":"src/","type":"directory"}));
+    assert_eq!(r.json()["data"][0], json!({"path":format!("src{sep}"),"type":"directory"}));
 
     let r = h.get("/api/fs/read/src/main.rs").await;
     assert_eq!(r.status, 200);
@@ -460,7 +472,9 @@ async fn session_move() {
     std::fs::create_dir_all(&other).unwrap();
     let r = h.post(&format!("/api/session/{id}/move"), json!({"directory": "/definitely/missing"})).await;
     assert_eq!(r.status, 400);
-    assert_eq!(r.json()["message"], "Directory does not exist: /definitely/missing");
+    // `path.resolve`: on Windows the root-relative path lands on the session directory's drive.
+    let missing = oc_git::paths::resolve(&h.cwd, "/definitely/missing");
+    assert_eq!(r.json()["message"], json!(format!("Directory does not exist: {}", missing.display())));
     let r = h.post(&format!("/api/session/{id}/move"), json!({"directory": other.display().to_string()})).await;
     assert_eq!(r.status, 204, "{:?}", String::from_utf8_lossy(&r.body));
     let inbox = h.get(&format!("/api/session/{id}/inbox")).await.json();
@@ -525,7 +539,7 @@ async fn vcs_branch_follows_head() {
 
     git(&h.cwd, &["checkout", "-qb", "feature"]);
     let changed = next_event(&mut events, "filesystem.changed").await;
-    let head = std::fs::canonicalize(h.cwd.join(".git")).unwrap().join("HEAD");
+    let head = oc_util::fs::canonicalize(h.cwd.join(".git")).unwrap().join("HEAD");
     assert_eq!(changed.data, json!({"file": head.display().to_string(), "event": "change"}));
     assert_eq!(next_event(&mut events, "vcs.branch.updated").await.data, json!({"branch": "feature"}));
     assert_eq!(h.get("/api/vcs").await.json()["data"]["branch"]["current"], "feature");
@@ -594,7 +608,7 @@ async fn vcs_branch_follows_mercurial_branch_file() {
 
     hg(&h.cwd, &["branch", "-q", "feature"]);
     let changed = next_event(&mut events, "filesystem.changed").await;
-    let branch = std::fs::canonicalize(h.cwd.join(".hg")).unwrap().join("branch");
+    let branch = oc_util::fs::canonicalize(h.cwd.join(".hg")).unwrap().join("branch");
     assert_eq!(changed.data["file"], json!(branch.display().to_string()));
     assert_eq!(next_event(&mut events, "vcs.branch.updated").await.data, json!({"branch": "feature"}));
     assert_eq!(h.get("/api/vcs").await.json()["data"]["branch"]["current"], "feature");
@@ -794,7 +808,8 @@ async fn pty_lifecycle_and_attach() {
     use futures::StreamExt;
     use oc_server::{Backend, RequestContext};
     let h = harness();
-    let r = h.post("/api/pty", json!({"command": "/bin/sh", "title": "t"})).await;
+    let shell = if cfg!(windows) { "cmd.exe" } else { "/bin/sh" };
+    let r = h.post("/api/pty", json!({"command": shell, "title": "t"})).await;
     assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));
     let pty = r.json()["data"].clone();
     let id = pty["id"].as_str().unwrap().to_string();
@@ -816,7 +831,12 @@ async fn pty_lifecycle_and_attach() {
     engine.pty_owner.lock().insert(id.clone(), h.dir());
     let ctx = RequestContext::for_test(&h.dir());
     let att = engine.pty_connect(&ctx, oc_server::PtyAttachRequest { pty_id: id.clone(), cursor: None }).await.unwrap();
-    att.control.write("echo marker-$((40+2))\n");
+    // ConPTY waits for the terminal to report its cursor position (`ESC [ 6 n`) before it starts the shell.
+    if cfg!(windows) {
+        att.control.write("\x1b[1;1R");
+    }
+    // The terminal echoes the input, so the marker only appears once the shell has expanded it.
+    att.control.write(if cfg!(windows) { "set N=42\r\necho marker-%N%\r\n" } else { "echo marker-$((40+2))\n" });
     let mut out = att.replay.clone();
     let mut stream = att.output;
     while !out.contains("marker-42") {
@@ -946,7 +966,8 @@ async fn persistent_pty_without_daemon() {
     let h = harness();
     let r = h.get("/api/info").await;
     assert_eq!(r.status, 200);
-    assert_eq!(r.json()["capabilities"]["persistentPty"], json!(cfg!(unix)));
+    // `PersistentPty.available` is true on every platform since 2.1.
+    assert_eq!(r.json()["capabilities"]["persistentPty"], json!(true));
     let id = h.session().await;
     let r = h.get(&format!("/api/experimental/session/{id}/terminal")).await;
     assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));

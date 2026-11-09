@@ -116,10 +116,13 @@ mod tests {
         let (directory, output) = prepare(&skill);
         let d = root.to_string_lossy();
         assert_eq!(directory, d);
+        // Absolute glob matches in the platform's form.
+        let (hidden, script) = (root.join(".hidden"), root.join("scripts").join("run.sh"));
+        let (hidden, script) = (hidden.display(), script.display());
         assert_eq!(
             output,
             format!(
-                "<skill_content name=\"My Skill\">\n# Skill: My Skill\n\n# Body\n\nBase directory for this skill: {d}\nRelative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.\nNote: file list is sampled.\n\n<skill_files>\n<file>{d}/.hidden</file>\n<file>{d}/scripts/run.sh</file>\n</skill_files>\n</skill_content>"
+                "<skill_content name=\"My Skill\">\n# Skill: My Skill\n\n# Body\n\nBase directory for this skill: {d}\nRelative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.\nNote: file list is sampled.\n\n<skill_files>\n<file>{hidden}</file>\n<file>{script}</file>\n</skill_files>\n</skill_content>"
             )
         );
     }

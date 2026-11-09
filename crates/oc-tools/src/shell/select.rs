@@ -186,6 +186,8 @@ mod tests {
     fn compat_rejects_fish() {
         let chosen = select(Some("/usr/bin/fish"), true, None);
         assert_ne!(name(&chosen), "fish");
-        assert_eq!(select(Some("/bin/sh"), true, None), "/bin/sh");
+        if cfg!(unix) {
+            assert_eq!(select(Some("/bin/sh"), true, None), "/bin/sh");
+        }
     }
 }

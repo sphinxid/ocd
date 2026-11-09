@@ -609,6 +609,8 @@ fn mouse_drag_select_copies() {
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     let mk = |kind, column, row| MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
     let mut a = app();
+    // Copy on select is the default everywhere but Windows, where it is `manual`.
+    a.config = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "animations": false, "terminal": { "copy": "select" } }));
     let lines = render(&mut a, 100, 30);
     let (row, line) = lines.iter().enumerate().find(|(_, l)| l.contains("ctrl+p commands")).map(|(i, l)| (i as u16, l.clone())).unwrap();
     let col = line.find("ctrl+p").unwrap() as u16;

@@ -206,7 +206,9 @@ async fn restores_the_other_files_when_removing_one_path_fails() {
     write(project.join("c.txt"), "changed\n");
     write(project.join("a"), "file\n");
     let result = snapshot.restore(&[("a/b".to_string(), first.clone()), ("c.txt".to_string(), first)]).await;
-    assert!(result.is_err());
+    // Removing `a/b` fails with ENOTDIR on Unix; Windows reports a path through a file as missing (ENOENT), which a
+    // forced removal ignores, as Node's `fs.rm` does.
+    assert_eq!(result.is_err(), cfg!(unix));
     assert_eq!(read(project.join("c.txt")), "old\n");
 }
 

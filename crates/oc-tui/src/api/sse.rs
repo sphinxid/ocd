@@ -356,7 +356,9 @@ mod live_tests {
         assert_eq!(called.len(), 2);
         let waited = at.duration_since(called[1]);
         assert!(waited >= RECONNECT_DELAY - Duration::from_millis(50), "second retry waited {waited:?}");
-        assert!(called[1].duration_since(called[0]) < Duration::from_millis(500), "first retry was immediate");
+        // Windows takes about 2 s to refuse a connection to a closed local port.
+        let immediate = Duration::from_millis(if cfg!(windows) { 3000 } else { 500 });
+        assert!(called[1].duration_since(called[0]) < immediate, "first retry was immediate");
     }
 
     /// A failing hook keeps the old endpoint and retries after the delay.

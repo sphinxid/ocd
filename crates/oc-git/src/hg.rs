@@ -237,7 +237,8 @@ mod tests {
     #[test]
     fn scope_is_relative_to_the_worktree() {
         assert_eq!(HgVcs::new("/r", "/r").scope, ".");
-        assert_eq!(HgVcs::new("/r/a/b", "/r").scope, "a/b");
+        // `path.relative`: platform separators.
+        assert_eq!(HgVcs::new("/r/a/b", "/r").scope, format!("a{}b", std::path::MAIN_SEPARATOR));
     }
 
     #[tokio::test]

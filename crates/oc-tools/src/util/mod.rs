@@ -145,8 +145,10 @@ mod tests {
     fn paths() {
         assert_eq!(resolve(Path::new("/a/b"), "../c"), PathBuf::from("/a/c"));
         assert_eq!(resolve(Path::new("/a/b"), "/x/./y/"), PathBuf::from("/x/y"));
-        assert_eq!(relative(Path::new("/a/b"), Path::new("/a/b/c/d")), "c/d");
-        assert_eq!(relative(Path::new("/a/b"), Path::new("/a/x")), "../x");
+        // `path.relative`: platform separators.
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(relative(Path::new("/a/b"), Path::new("/a/b/c/d")), format!("c{sep}d"));
+        assert_eq!(relative(Path::new("/a/b"), Path::new("/a/x")), format!("..{sep}x"));
         assert_eq!(relative(Path::new("/a/b"), Path::new("/a/b")), "");
         assert!(contains(Path::new("/a/b"), Path::new("/a/b/c")));
         assert!(contains(Path::new("/a/b"), Path::new("/a/b")));

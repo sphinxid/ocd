@@ -17,7 +17,7 @@ impl Tmp {
     fn new() -> Tmp {
         let dir = std::env::temp_dir().join(format!("oc-config-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        Tmp(std::fs::canonicalize(&dir).unwrap())
+        Tmp(oc_util::fs::canonicalize(&dir).unwrap())
     }
     fn path(&self) -> &Path {
         &self.0
@@ -500,7 +500,8 @@ fn watch_plan_groups_missing_candidates_and_keeps_parent_watches() {
     let mut expected = vec![json!({ "path": root, "type": "directory", "ignore": ignore })];
     expected.push(serde_json::to_value(&missing[0]).unwrap());
     assert_eq!(serde_json::to_value(&present).unwrap(), json!(expected));
-    assert_eq!(present[0].key(), r#"{"path":"/watch-plan-project/.opencode","type":"directory","ignore":["node_modules",".git",".venv","venv","__pycache__","**/{node_modules,.git,.venv,venv,__pycache__}/**"]}"#);
+    let key = format!(r#"{{"path":{},"type":"directory","ignore":["node_modules",".git",".venv","venv","__pycache__","**/{{node_modules,.git,.venv,venv,__pycache__}}/**"]}}"#, json!(root));
+    assert_eq!(present[0].key(), key);
     let system = project.join("system-opencode");
     let with_system = plan(&Sources {
         system: Some(ProjectRoot { path: system.clone(), present: true }),
@@ -780,7 +781,7 @@ fn skill_scan_is_bounded() {
     tmp.write("skills/deep/notes.md", "nested markdown is not a skill");
     let files: Vec<String> = sources::scan_skill_files(&root)
         .into_iter()
-        .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().to_string())
+        .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"))
         .collect();
     assert_eq!(files, vec!["a/SKILL.md", "b/c/d/e/f/SKILL.md", "top.md"]);
     // A SKILL.md at the root is the root's skill; top-level markdown is then not scanned.
@@ -811,12 +812,12 @@ fn plugin_directory_discovery_and_operations() {
     ];
     let ops = sources::plugin_operations(&entries, tmp.path()).unwrap();
     assert_eq!(serde_json::to_value(&ops).unwrap(), json!([
-        { "type": "add", "target": root.join("plugin/b.ts"), "options": {} },
-        { "type": "add", "target": root.join("plugins/a-dir"), "options": {} },
-        { "type": "add", "target": root.join("plugins/c.js"), "options": {} },
+        { "type": "add", "target": root.join("plugin").join("b.ts"), "options": {} },
+        { "type": "add", "target": root.join("plugins").join("a-dir"), "options": {} },
+        { "type": "add", "target": root.join("plugins").join("c.js"), "options": {} },
         { "type": "add", "target": "pkg", "options": {} },
         { "type": "remove", "target": "other" },
-        { "type": "add", "target": tmp.path().join("project/local"), "options": {} },
+        { "type": "add", "target": tmp.path().join("project").join("local"), "options": {} },
         { "type": "add", "target": "x", "options": { "a": 1 } },
     ]));
     let bad = vec![Entry::Document { integration: None, path: None, info: Info::from_value(&json!({ "plugins": ["-"] })).unwrap(), wellknown: None }];
@@ -871,9 +872,11 @@ fn per_key_folds() {
     assert_eq!(fold::watcher_ignore(&entries), vec!["a", "b"]);
     assert_eq!(fold::tool_output(&entries).unwrap().max_bytes, None);
     assert_eq!(fold::skills(&entries), vec!["x", "y", "z"]);
-    let refs = fold::references(&entries, Path::new("/home/u"), Path::new("/loc"));
+    // `path.join(home, "d")`.
+    let home = Path::new(if cfg!(windows) { r"C:\home\u" } else { "/home/u" });
+    let refs = fold::references(&entries, home, Path::new("/loc"));
     assert_eq!(serde_json::to_value(&refs).unwrap(), json!({
-        "docs": { "type": "local", "path": "/home/u/d", "hidden": true },
+        "docs": { "type": "local", "path": home.join("d"), "hidden": true },
         "repo": { "type": "git", "repository": "github.com/a/b" },
     }));
     let w = fold::warming(&entries).unwrap();

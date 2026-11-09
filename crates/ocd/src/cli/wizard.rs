@@ -486,7 +486,8 @@ mod tests {
                     "failed"
                 }
             };
-            let mut expected = case.expected.clone();
+            // Recorded with `defaultTheme`.
+            let mut expected = crate::cli::prompt::platform_figures(&case.expected);
             if let Some(error) = case.end.get("error").and_then(|e| e.as_str()) {
                 expected.push_str(error);
             }

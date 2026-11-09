@@ -377,15 +377,14 @@ async fn restores_one_by_one_when_paths_cannot_be_batched() {
     let repository = git.discover(&project).await.unwrap();
     let before = git.capture(&capture_input(&repository, None)).await.unwrap();
     write(project.join("caf\u{e9}.txt"), "two\n");
-    write(project.join("new*.txt"), "new\n");
-    git.restore(
-        &repository,
-        &[("caf\u{e9}.txt".to_string(), before.clone()), ("new*.txt".to_string(), before.clone())],
-    )
-    .await
-    .unwrap();
+    // A name with glob characters (Windows allows no `*` in names).
+    let added = if cfg!(windows) { "new[1].txt" } else { "new*.txt" };
+    write(project.join(added), "new\n");
+    git.restore(&repository, &[("caf\u{e9}.txt".to_string(), before.clone()), (added.to_string(), before.clone())])
+        .await
+        .unwrap();
     assert_eq!(read(project.join("caf\u{e9}.txt")), "one\n");
-    assert!(!project.join("new*.txt").exists());
+    assert!(!project.join(added).exists());
     // Nested selections ("dir" and "dir/inner.txt") take the ordered path too.
     write(project.join("dir/inner.txt"), "changed\n");
     git.restore(&repository, &[("dir".to_string(), before.clone()), ("dir/inner.txt".to_string(), before)])

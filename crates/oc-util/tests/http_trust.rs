@@ -169,7 +169,8 @@ fn environment_controls_certificate_trust() {
     // The system store locations.
     assert!(probe(&url, &[("SSL_CERT_FILE", path(&ca))]).ok());
     assert!(probe(&url, &[("SSL_CERT_DIR", path(&certs))]).ok());
-    let list = format!("{}:{}", path(&dir.path().join("nonexistent")), path(&certs));
+    // A path list: `:`-separated, `;` on Windows.
+    let list = std::env::join_paths([dir.path().join("nonexistent"), certs.clone()]).unwrap().to_string_lossy().into_owned();
     assert!(probe(&url, &[("SSL_CERT_DIR", &list)]).ok());
 
     // Verification off only for exactly "0".

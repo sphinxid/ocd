@@ -24,7 +24,6 @@ Scenario keys (all optional):
                 {"exit": n, "stderr": "..."}            exit now
               A turn without a result step ends with a default success result.
 """
-import fcntl
 import json
 import os
 import queue
@@ -32,6 +31,29 @@ import sys
 import threading
 import time
 import uuid
+
+try:
+    import fcntl
+
+    def lock(f):
+        fcntl.flock(f, fcntl.LOCK_EX)
+
+    def unlock(f):
+        fcntl.flock(f, fcntl.LOCK_UN)
+except ImportError:  # Windows
+    import msvcrt
+
+    def lock(f):
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+    def unlock(f):
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
+# One JSON message per `\n`-terminated line, as Claude Code writes them (no CRLF on Windows).
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
+sys.stdin.reconfigure(encoding="utf-8")
 
 LOG = os.environ.get("CLAUDE_STANDIN_LOG")
 SCENARIO = {}
@@ -224,12 +246,14 @@ def next_turn():
     if not LOG:
         return turns[0] if turns else [{"text": "OK"}]
     with open(path, "a+") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        lock(f)
         f.seek(0)
         index = int(f.read() or 0)
         f.seek(0)
         f.truncate()
         f.write(str(index + 1))
+        f.flush()
+        unlock(f)
     return turns[index] if index < len(turns) else [{"text": "OK"}]
 
 

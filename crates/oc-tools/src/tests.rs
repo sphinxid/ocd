@@ -299,9 +299,10 @@ async fn external_directory_request() {
     assert_eq!(text(&ok), format!("Read file {path}, lines 1-1\n1: data"));
     let requests = host.requests.lock();
     assert_eq!(requests[0].action, "external_directory");
-    assert_eq!(requests[0].resources, vec![format!("{}/*", outside.to_string_lossy())]);
+    // Permission resources always use `/`.
+    assert_eq!(requests[0].resources, vec![format!("{}/*", outside.to_string_lossy().replace('\\', "/"))]);
     assert_eq!(requests[1].action, "read");
-    assert_eq!(requests[1].resources, vec![path.clone()]);
+    assert_eq!(requests[1].resources, vec![path.replace('\\', "/")]);
     assert_eq!(ok.metadata.as_ref().unwrap()["truncated"], json!(false));
 }
 

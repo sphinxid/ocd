@@ -134,14 +134,14 @@ fn sends_directory_as_an_absolute_path_and_warns_only_when_the_server_ignores_it
         sent.push(requested.clone());
         // Answer like a current server, which joins the directory and file name, for the first request, and like
         // one that predates `directory` for the second.
+        // (`path.join` on the server's machine, here this one).
         let folder = if sent.len() == 1 {
-            requested.trim_end_matches('/').to_string()
+            requested.trim_end_matches(['/', '\\']).to_string()
         } else {
             "/server/log".to_string()
         };
-        axum::Json(
-            json!({ "path": format!("{folder}/heap-1-2.heapsnapshot"), "pid": std::process::id() }),
-        )
+        let path = std::path::Path::new(&folder).join("heap-1-2.heapsnapshot").display().to_string();
+        axum::Json(json!({ "path": path, "pid": std::process::id() }))
         .into_response()
     }));
     register(&env, &url);
@@ -153,7 +153,7 @@ fn sends_directory_as_an_absolute_path_and_warns_only_when_the_server_ignores_it
 
     // A relative directory resolves against the working directory as the OS reports it, like Node's `path.resolve`
     // (`process.cwd()`): on macOS that is the physical path (`/private/var/...` for a temporary `/var/...` one).
-    let resolved = std::fs::canonicalize(env.path("work")).unwrap().join("snapshots").display().to_string();
+    let resolved = oc_util::fs::canonicalize(env.path("work")).unwrap().join("snapshots").display().to_string();
     assert_eq!(*sent.lock().unwrap(), vec![with_separator.clone(), resolved]);
     assert_eq!(
         [&current, &old].map(|o| (o.status.code(), common::text(&o.stderr).trim().to_string())),
@@ -164,7 +164,7 @@ fn sends_directory_as_an_absolute_path_and_warns_only_when_the_server_ignores_it
     );
     assert_eq!(
         common::text(&current.stdout).trim(),
-        format!("{directory}/heap-1-2.heapsnapshot")
+        std::path::Path::new(&directory).join("heap-1-2.heapsnapshot").display().to_string()
     );
 }
 

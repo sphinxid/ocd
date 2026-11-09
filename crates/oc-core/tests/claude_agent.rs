@@ -16,8 +16,36 @@ use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
+/// Builds `claude.exe` on Windows, which runs no script as a program: distlib's console-script launcher (the one pip
+/// puts in `Scripts`) followed by the stand-in as a zip application. It runs the script with this Python and takes
+/// the Python process down with it when it is terminated.
+#[cfg(windows)]
+const LAUNCHER: &str = r##"
+import io, os, platform, sys, zipfile
+from pip._vendor import distlib
+name = "t64-arm.exe" if platform.machine().lower() in ("arm64", "aarch64") else "t64.exe"
+with open(os.path.join(os.path.dirname(distlib.__file__), name), "rb") as f:
+    launcher = f.read()
+python = '"%s"' % sys.executable if " " in sys.executable else sys.executable
+archive = io.BytesIO()
+with zipfile.ZipFile(archive, "w") as z:
+    z.write(sys.argv[1], "__main__.py")
+with open(sys.argv[2], "wb") as f:
+    f.write(launcher + b"#!" + python.encode() + b"\r\n" + archive.getvalue())
+"##;
+
+/// The Python 3 that runs the stand-in (`python3`; on Windows also `python`, with pip for the launcher).
+fn python() -> Option<&'static str> {
+    static PYTHON: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+    *PYTHON.get_or_init(|| {
+        let check = if cfg!(windows) { "import sys, pip._vendor.distlib; assert sys.version_info[0] == 3" } else { "import sys; assert sys.version_info[0] == 3" };
+        let candidates: &[&'static str] = if cfg!(windows) { &["python", "python3"] } else { &["python3"] };
+        candidates.iter().copied().find(|python| std::process::Command::new(python).args(["-c", check]).output().is_ok_and(|o| o.status.success()))
+    })
+}
+
 fn standin() -> Option<PathBuf> {
-    if std::process::Command::new("python3").arg("--version").output().is_err() {
+    if python().is_none() {
         eprintln!("python3 not found: skipping");
         return None;
     }
@@ -34,13 +62,26 @@ impl Env {
     fn new(scenario: Value) -> Env {
         let dir = tempfile::tempdir().unwrap();
         // A `.py` path would be run with Bun; the stand-in must look like a native executable.
-        let script = dir.path().join("claude");
-        std::fs::copy(standin().unwrap(), &script).unwrap();
+        // A link to the (executable) script, not a copy: a file just written can still be open in a child another test
+        // thread is forking, and executing it then fails with ETXTBSY.
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        let script = {
+            let script = dir.path().join("claude");
+            std::os::unix::fs::symlink(standin().unwrap(), &script).unwrap();
+            script
+        };
+        #[cfg(windows)]
+        let script = {
+            let script = dir.path().join("claude.exe");
+            let status = std::process::Command::new(python().unwrap())
+                .args(["-c", LAUNCHER])
+                .arg(standin().unwrap())
+                .arg(&script)
+                .status()
+                .unwrap();
+            assert!(status.success(), "building the stand-in's launcher failed");
+            script
+        };
         std::fs::write(dir.path().join("scenario.json"), scenario.to_string()).unwrap();
         Env { dir, script }
     }
@@ -49,6 +90,11 @@ impl Env {
         let mut env = BTreeMap::new();
         env.insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
         env.insert("HOME".into(), self.dir.path().join("home").to_string_lossy().into_owned());
+        // Python finds `~` through USERPROFILE on Windows, and needs SystemRoot to start up.
+        if cfg!(windows) {
+            env.insert("USERPROFILE".into(), self.dir.path().join("home").to_string_lossy().into_owned());
+            env.insert("SystemRoot".into(), std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()));
+        }
         env.insert("CLAUDE_STANDIN_LOG".into(), self.dir.path().join("log.jsonl").to_string_lossy().into_owned());
         env.insert("CLAUDE_STANDIN_SCENARIO".into(), self.dir.path().join("scenario.json").to_string_lossy().into_owned());
         env.insert("CLAUDE_CODE_SIMPLE".into(), "1".into());

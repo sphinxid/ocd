@@ -471,7 +471,8 @@ mod tests {
             json!({"id": "a", "source": {"type": "local", "path": "/x/a.ts"}}),
             json!({"source": {"type": "builtin"}}),
         ];
-        assert_eq!(format_list(&plugins, false), "ID  VERSION  SOURCE\na   local    /x/a.ts\nb   0123456  pkg-b");
+        // Rows end with `os.EOL`.
+        assert_eq!(format_list(&plugins, false), ["ID  VERSION  SOURCE", "a   local    /x/a.ts", "b   0123456  pkg-b"].join(crate::term::EOL));
         assert!(format_list(&plugins, true).contains("-   -        builtin"));
     }
 
