@@ -5,7 +5,7 @@ name: Test
 # missing; every network access in the tests goes to local mock servers.
 on:
   push:
-    branches: [main]
+    branches: [main, "ci/**"]
     paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
 
@@ -19,7 +19,8 @@ concurrency:
 
 env:
   RUST_VERSION: "1.99.0"
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: never
+  NO_COLOR: "1"
   OPENCODE_DISABLE_MODELS_FETCH: "1"
 
 jobs:
@@ -60,7 +61,7 @@ jobs:
           set +e
           if [ "$RUNNER_OS" = "Windows" ]; then
             # nextest's `ci` profile (.config/nextest.toml) ends a test that runs longer than 4 minutes and names it.
-            cargo nextest run --workspace --profile ci --locked 2>&1 | tee test.log
+            cargo nextest run --workspace --profile ci --locked --color never 2>&1 | tee test.log
           else
             cargo test --workspace --no-fail-fast --locked 2>&1 | tee test.log
           fi
