@@ -188,17 +188,17 @@ async fn plugins_generate_text_through_the_experimental_api() {
         assert_eq!(out, json!({ "output": { "text": "generated text" } }), "{kind}");
     }
     assert_eq!(bodies.lock().len(), 2);
-    // Image and decision generation fail like upstream's `Generate` service for a chat model: an
-    // `UnsupportedModelError` with the same message as the HTTP endpoints.
+    // Image and decision generation call the `Generate` service in process: for a chat model it fails with the
+    // service's `Generate.UnsupportedModelError`, with the same message as the HTTP endpoints' `UnsupportedModelError`.
     let image = rpc(&h, "generate", json!({ "kind": "image" })).await;
     let http_image = h.post("/api/experimental/generate/image", json!({ "prompt": "a cat", "model": { "providerID": "mock", "id": "m1" } })).await.json();
     assert_eq!(http_image["_tag"], "UnsupportedModelError", "{http_image}");
     assert_eq!(image["message"], "mock/m1 is a chat model, not a image model", "{image}");
-    assert_eq!(image["data"]["name"], "UnsupportedModelError", "{image}");
+    assert_eq!(image["data"]["name"], "Generate.UnsupportedModelError", "{image}");
     assert_eq!(image["message"], http_image["message"]);
     let decisions = rpc(&h, "generate", json!({ "kind": "decisions" })).await;
     assert_eq!(decisions["message"], "mock/m1 is a chat model, not a decision model", "{decisions}");
-    assert_eq!(decisions["data"]["name"], "UnsupportedModelError", "{decisions}");
+    assert_eq!(decisions["data"]["name"], "Generate.UnsupportedModelError", "{decisions}");
     h.app.plugins.shutdown().await;
 }
 

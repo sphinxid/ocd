@@ -18,7 +18,8 @@ agent/provider registries. It uses the functions below to do that work.
   `Reference`, `Plugin`, `Worktree`, `Warming`/`WarmingInfo`/`Duration`, `WebSearch`,
   `Provider`/`ProviderModel` (with `type`)/`Settings`/`ModelSettings`/`VariantSettings` (no `cache`)/`Cache`/`Compatibility`/`Capabilities`/`Variant`/
   `Cost`/`CostSetting`/`Limit`, `Experimental` (incl. 2.2.2's `media_blob`, `image_generate`/`ImageGenerate`,
-  `schedules` (scheduled prompts, `oc_core::schedule`) and 2.2.5's `artifacts`, accepted and normalized)/`Policy`, `UpdatePolicy`,
+  `schedules` (scheduled prompts, `oc_core::schedule`) and 2.2.5's `artifacts`, accepted and normalized; `image_generate`
+  drives the image tool, see `fold::image_generate`)/`Policy`, `UpdatePolicy`,
   `Share`, `Patch`; `Info.timezone`.
 - `Compaction.buffer` is a `CompactionBuffer`: `Tokens(u64)` or `Percent(String)` (`Config.Compaction.Percent`,
   `^([1-9]\d?(\.\d+)?)%$`, kept as written); `tokens(window)` is `Math.round(window * pct / 100)`. The legacy

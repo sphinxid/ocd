@@ -500,3 +500,56 @@ async fn sends_mid_session_reasoning_effort_switches_in_a_form_its_backend_accep
         }
     }
 }
+
+/// GPT Image 2 on the Codex login (#60085): the only image model left enabled, free under the plan, and it edits
+/// through the ChatGPT backend with JSON bodies (the backend rejects multipart) and the Codex headers.
+#[tokio::test]
+async fn offers_gpt_image_2_after_a_codex_sign_in() {
+    let setup = providers(|e| {
+        e.update("openai", |p| p.package = "@opencode/ai/providers/openai".into());
+        e.update_model("openai", "gpt-5.6-sol", |_| {});
+        for id in ["gpt-image-2", "gpt-image-1.5"] {
+            e.update_model("openai", id, |m| {
+                m.kind = Some("image".into());
+                m.package = Some("@opencode/ai/providers/openai/images".into());
+                m.cost = paid();
+            });
+        }
+    });
+    let catalog = build(codex(), setup, false, vec![]);
+    let images = catalog.available_models_of(&["image".to_string()]);
+    assert_eq!(images.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["gpt-image-2"]);
+    assert!(images[0].cost.is_empty());
+    let credential = CredentialValue::Oauth {
+        method_id: "chatgpt".into(),
+        refresh: "r".into(),
+        access: "codex-token".into(),
+        expires: u64::MAX,
+        metadata: None,
+    };
+    let resolved = oc_ai::catalog::resolve::resolve_media(
+        catalog.provider("openai"),
+        images[0],
+        oc_ai::catalog::resolve::MediaType::Image,
+        None,
+        Some(&credential),
+        &Default::default(),
+    )
+    .unwrap();
+    let oc_ai::catalog::resolve::MediaModel::Image(model) = resolved else { panic!("not an image model") };
+    let mut request = oc_ai::image::ImageRequest::new(model.clone(), "Add a red cap");
+    request.images = vec![oc_ai::MediaAsset::bytes(vec![1, 2, 3], Some("image/png"))];
+    let body = oc_ai::image::body(&request).unwrap();
+    assert_eq!(
+        Value::Object(body.json_value().unwrap().clone()),
+        json!({ "model": "gpt-image-2", "prompt": "Add a red cap", "images": [{ "image_url": "data:image/png;base64,AQID" }] })
+    );
+    let resolved_request = oc_ai::image::resolve(&request);
+    let call = oc_ai::route::media::prepare(&model.route.endpoint, model.route.auth.as_ref(), resolved_request.http.as_ref(), &resolved_request, &body)
+        .await
+        .unwrap();
+    assert_eq!(call.url, format!("{CODEX_BASE_URL}/images/edits"));
+    assert_eq!(call.headers["authorization"], "Bearer codex-token");
+    assert_eq!(call.headers["originator"], "opencode");
+    assert_eq!(call.headers["chatgpt-account-id"], "acct_123");
+}

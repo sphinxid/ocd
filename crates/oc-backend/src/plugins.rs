@@ -156,6 +156,44 @@ impl BackendApi {
         })
     }
 
+    /// `ctx.experimental.generate.image` / `.decisions` (core/src/plugin/host.ts): the `Generate` service of the
+    /// plugin's own location, called in process (no HTTP validation, unlike the routes), so failures carry the
+    /// service's `Generate.*` tags.
+    async fn generate(&self, request: &ApiRequest) -> Result<Value, ApiError> {
+        use oc_core::generate::GenerateError as G;
+        let engine = self.engine()?;
+        let runner = engine.runner.clone().ok_or_else(|| ApiError::new("generation is unavailable"))?;
+        let directory = &request.location.directory;
+        let result = if request.method == "generate.image" {
+            runner.generate_image(directory, &request.input).await
+        } else {
+            runner.generate_decisions(directory, &request.input).await
+        };
+        result.map_err(|error| {
+            let (tag, mut data) = match &error {
+                G::ModelNotFound { provider_id, model_id, .. } => {
+                    ("ModelNotFoundError", json!({ "providerID": provider_id, "modelID": model_id }))
+                }
+                G::UnsupportedModel { provider_id, model_id, capability, .. } => {
+                    ("UnsupportedModelError", json!({ "providerID": provider_id, "modelID": model_id, "capability": capability }))
+                }
+                G::InvalidRequest { field, .. } => ("InvalidRequestError", json!({ "field": field })),
+                G::ProviderRequest { provider_id, reason, status, retry_after_ms, .. } => (
+                    "ProviderRequestError",
+                    json!({ "providerID": provider_id, "reason": reason, "status": status, "retryAfterMs": retry_after_ms }),
+                ),
+                G::Unavailable { service, .. } => ("UnavailableError", json!({ "service": service })),
+            };
+            let name = format!("Generate.{tag}");
+            if let Some(o) = data.as_object_mut() {
+                o.retain(|_, v| !v.is_null());
+                o.insert("_tag".into(), json!(name));
+                o.insert("message".into(), json!(error.to_string()));
+            }
+            ApiError { message: error.to_string(), name: Some(name), data: Some(data) }
+        })
+    }
+
     /// `ctx.permission.assert` (core/src/plugin/host.ts): evaluates the session's rules and, when approval is
     /// required, asks and waits. Failures carry the upstream error tag as the name; the plugin host turns a
     /// deny rule, feedback or a missing session into a `Tool.Error` and a plain rejection into a defect.
@@ -230,6 +268,9 @@ impl PluginApi for BackendApi {
         }
         if request.method == "permission.assert" {
             return self.permission_assert(&request).await;
+        }
+        if matches!(request.method.as_str(), "generate.image" | "generate.decisions") {
+            return self.generate(&request).await;
         }
         if let Some(engine) = self.engine.upgrade()
             && let Some(result) = engine.app.plugins.core_call(&request).await

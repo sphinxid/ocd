@@ -241,6 +241,18 @@ fn check(schema: &Value, name: Option<&str>, v: &Value, path: &mut Vec<Seg>) -> 
     match type_of(schema) {
         Some("string") => {
             let Some(s) = v.as_str() else { return Err(mismatch(path, schema, name)) };
+            if name == Some("Generate.ImageAspect") {
+                // `TemplateLiteral([Number, ":", Number])` (the document's pattern), then its `isPattern` check.
+                let template = schema.get("pattern").and_then(Value::as_str).and_then(|p| regex::Regex::new(p).ok());
+                if template.is_some_and(|re| !re.is_match(s)) {
+                    return Err(issue(path, "Expected a string matching template literal parts".into()));
+                }
+                let strict = r"^\d+(?:\.\d+)?:\d+(?:\.\d+)?$";
+                if !regex::Regex::new(strict).is_ok_and(|re| re.is_match(s)) {
+                    return Err(issue(path, format!("Expected a string matching the RegExp {strict}")));
+                }
+                return Ok(());
+            }
             if let Some(p) = schema.get("pattern").and_then(Value::as_str) {
                 if let Some(prefix) = starts_with_prefix(p) {
                     if !s.starts_with(&prefix) {

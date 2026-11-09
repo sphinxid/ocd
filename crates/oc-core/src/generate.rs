@@ -2,9 +2,12 @@
 
 use std::sync::Arc;
 
+use oc_ai::catalog::resolve::{MediaModel, MediaType};
+use oc_ai::decision::{DecisionPart, DecisionRequest};
 use oc_ai::types::{ContentPart, Message as LlmMessage, Role};
 use oc_ai::{AIError, CancellationToken, ErrorKind, LLMRequest};
 use oc_schema::types::ModelRef;
+use serde_json::{json, Map, Value};
 
 use crate::runner::Engine;
 
@@ -172,29 +175,146 @@ impl Engine {
         Ok(response.text())
     }
 
-    /// `Generate.image` / `Generate.decisions` (`kind` = `image` / `decision`). Image and decision models are not
-    /// ported yet, so a ref resolves like upstream's when no model of that type matches: another type's model is a
-    /// 422, anything else a 404.
-    pub async fn generate_media(self: &Arc<Self>, directory: &str, kind: &str, model: &ModelRef) -> Result<serde_json::Value, GenerateError> {
+    /// `ModelResolver.resolveImage` / `resolveDecision` at `directory`'s location: an enabled model of that type by
+    /// ref, else upstream's `missing` (another type's model is a 422, anything else a 404).
+    async fn media_model(self: &Arc<Self>, directory: &str, kind: MediaType, model: &ModelRef) -> Result<MediaModel, GenerateError> {
         let location = self.location(directory).await.map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
-        let catalog = self.models.catalog_at(&location.entries, Some(&location.key)).await.map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
-        let typed = catalog
-            .available_models_of(&[kind.to_string()])
+        let catalog = self
+            .models
+            .catalog_at(&location.entries, Some(&location.key))
+            .await
+            .map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
+        let Some(selected) = catalog
+            .available_models_of(&[kind.as_str().to_string()])
             .into_iter()
-            .find(|m| m.provider_id == model.provider_id && m.id == model.id);
-        if let Some(found) = typed {
-            // `fromCatalogMedia` with no runtime for this type: the package cannot serve it.
-            let package = found.package.clone().unwrap_or_else(|| "unknown".into());
-            return Err(resolution_error(
-                model,
-                kind,
-                &oc_ai::catalog::resolve::ResolveError::UnsupportedPackage {
-                    provider_id: model.provider_id.clone(),
-                    model_id: model.id.clone(),
-                    package,
-                },
-            ));
-        }
-        Err(missing(&catalog, model, kind))
+            .find(|m| m.provider_id == model.provider_id && m.id == model.id)
+            .cloned()
+        else {
+            return Err(missing(&catalog, model, kind.as_str()));
+        };
+        let credential = self.models.credential(Some(&location.key), &catalog, &selected.provider_id).await;
+        oc_ai::catalog::resolve::resolve_media(
+            catalog.provider(&selected.provider_id),
+            &selected,
+            kind,
+            model.variant.as_deref(),
+            credential.as_ref(),
+            &self.models.resolve_options(Some(&location.key)),
+        )
+        .map_err(|e| resolution_error(model, kind.as_str(), &e))
     }
+
+    /// `Generate.image`: generate or edit images and return them inline (`Generate.ImageResult`).
+    pub async fn generate_image(self: &Arc<Self>, directory: &str, input: &Value) -> Result<Value, GenerateError> {
+        let model: ModelRef = serde_json::from_value(input["model"].clone())
+            .map_err(|e| GenerateError::InvalidRequest { message: e.to_string(), field: Some("model".into()) })?;
+        let MediaModel::Image(image_model) = self.media_model(directory, MediaType::Image, &model).await? else { unreachable!() };
+        let mut request = oc_ai::image::ImageRequest::new(image_model, input["prompt"].as_str().unwrap_or_default());
+        request.images = input
+            .get("images")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|f| oc_ai::MediaAsset::base64(f["data"].as_str().unwrap_or_default(), f["mime"].as_str().unwrap_or_default()))
+            .collect();
+        request.n = input.get("n").and_then(Value::as_i64);
+        request.aspect = input.get("aspect").and_then(Value::as_str).map(String::from);
+        request.resolution = input.get("resolution").and_then(Value::as_str).map(String::from);
+        let http = self.client.http().clone();
+        let response = crate::retry::one_shot(|| oc_ai::image::generate(&http, request.clone()))
+            .await
+            .map_err(|e| provider_error(&model, &e))?;
+        // URL results are downloaded so every image comes back inline, like the request's own files. Materializing
+        // also detects the type of a downloaded image from its bytes when the URL didn't say.
+        let mut images = vec![];
+        for asset in &response.images {
+            let (data, mime) = oc_ai::image::materialize(&http, asset).await.map_err(|e| provider_error(&model, &e))?;
+            images.push(json!({ "type": "image", "data": data, "mime": mime }));
+        }
+        let mut out = Map::new();
+        out.insert("images".into(), Value::Array(images));
+        if let Some(usage) = &response.usage
+            && (usage.input.is_some() || usage.output.is_some())
+        {
+            out.insert("tokens".into(), tokens(usage.input, usage.output));
+        }
+        if let Some(native) = response.provider_metadata {
+            out.insert("native".into(), Value::Object(native));
+        }
+        Ok(Value::Object(out))
+    }
+
+    /// `Generate.decisions`: one probability-bearing answer per question, in question order
+    /// (`Generate.DecisionResult`).
+    pub async fn generate_decisions(self: &Arc<Self>, directory: &str, input: &Value) -> Result<Value, GenerateError> {
+        let model: ModelRef = serde_json::from_value(input["model"].clone())
+            .map_err(|e| GenerateError::InvalidRequest { message: e.to_string(), field: Some("model".into()) })?;
+        let MediaModel::Decision(decision_model) = self.media_model(directory, MediaType::Decision, &model).await? else { unreachable!() };
+        let parts = input
+            .get("input")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|part| match part["type"].as_str() {
+                Some("text") => DecisionPart::Text(part["text"].as_str().unwrap_or_default().into()),
+                Some("json") => DecisionPart::Json(part["value"].clone()),
+                _ => DecisionPart::Media {
+                    media: oc_ai::MediaAsset::base64(part["data"].as_str().unwrap_or_default(), part["mime"].as_str().unwrap_or_default()),
+                    filename: part.get("name").and_then(Value::as_str).map(String::from),
+                },
+            })
+            .collect();
+        let questions = input.get("questions").and_then(Value::as_array).into_iter().flatten().filter_map(|q| q.as_object().cloned()).collect();
+        let request = DecisionRequest { model: decision_model, input: parts, questions, provider_options: None, http: None };
+        let http = self.client.http().clone();
+        let response = crate::retry::one_shot(|| oc_ai::decision::generate(&http, request.clone()))
+            .await
+            .map_err(|e| provider_error(&model, &e))?;
+        let mut out = Map::new();
+        out.insert("answers".into(), Value::Array(response.answers.into_iter().map(http_answer).collect()));
+        if let Some(cost) = response.usage.as_ref().and_then(|u| u.cost) {
+            out.insert("cost".into(), oc_ai::json::num(cost));
+        }
+        if let Some(usage) = &response.usage
+            && (usage.input_tokens.is_some() || usage.output_tokens.is_some())
+        {
+            out.insert("tokens".into(), tokens(usage.input_tokens, usage.output_tokens));
+        }
+        if let Some(native) = response.provider_metadata {
+            out.insert("native".into(), Value::Object(native));
+        }
+        Ok(Value::Object(out))
+    }
+}
+
+/// `{input, output}` token counts, absent ones left out.
+fn tokens(input: Option<f64>, output: Option<f64>) -> Value {
+    let mut out = Map::new();
+    if let Some(i) = input {
+        out.insert("input".into(), oc_ai::json::num(i));
+    }
+    if let Some(o) = output {
+        out.insert("output".into(), oc_ai::json::num(o));
+    }
+    Value::Object(out)
+}
+
+/// An answer in the `Generate.DecisionAnswer` shape (`type` first, the schema's fields only).
+fn http_answer(answer: oc_ai::json::Object) -> Value {
+    let kind = answer.get("type").cloned().unwrap_or(Value::Null);
+    let mut out = Map::new();
+    out.insert("type".into(), kind.clone());
+    out.insert("name".into(), answer.get("name").cloned().unwrap_or(Value::Null));
+    let keys: &[&str] = match kind.as_str() {
+        Some("predicate") => &["probability"],
+        Some("choice") => &["choice", "probabilities", "confidence"],
+        Some("score") => &["score", "probabilities", "confidence"],
+        _ => &["reason", "message"],
+    };
+    for key in keys {
+        if let Some(v) = answer.get(*key) {
+            out.insert((*key).into(), v.clone());
+        }
+    }
+    Value::Object(out)
 }

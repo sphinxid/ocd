@@ -114,6 +114,12 @@ pub fn experimental(entries: &[Entry]) -> Option<&Experimental> {
     latest(entries, |i| i.experimental.as_ref())
 }
 
+/// `experimental.image_generate`, read per field: the latest document that sets it, so a later config that
+/// sets other experimental options doesn't hide it.
+pub fn image_generate(entries: &[Entry]) -> Option<&crate::schema::ImageGenerate> {
+    latest(entries, |i| i.experimental.as_ref().and_then(|e| e.image_generate.as_ref()))
+}
+
 /// `experimental.subagent_depth ?? 1`.
 pub fn subagent_depth(entries: &[Entry]) -> u64 {
     experimental(entries).and_then(|e| e.subagent_depth).unwrap_or(1)

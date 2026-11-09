@@ -1645,7 +1645,8 @@ pub struct Experimental {
     /// reads blobs other releases stored).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_blob: Option<bool>,
-    /// Settings for the experimental_image_generate tool (accepted; image generation is not ported).
+    /// Settings for the experimental_image_generate tool: `false` turns the tool off, `{model}` sets its preferred
+    /// model.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_generate: Option<ImageGenerate>,
     /// Enable experimental scheduled tasks (accepted; schedules are not ported, so their routes answer as if off).

@@ -20,6 +20,8 @@ pub struct CoreHost {
     pub mcp: Option<Arc<oc_mcp::manager::McpManager>>,
     /// Plugin location key of the session (`shell.create.before`).
     pub location: Option<String>,
+    /// The engine, for generation calls tools make at the session's location (`Generate.image`).
+    pub engine: Option<std::sync::Weak<crate::runner::Engine>>,
 }
 
 #[async_trait]
@@ -368,6 +370,12 @@ impl ToolHost for CoreHost {
         Ok(catalog.available_models_of(types).into_iter().map(model_summary).collect())
     }
 
+    async fn generate_image(&self, request: Value) -> Result<Value, String> {
+        let engine = self.engine.as_ref().and_then(std::sync::Weak::upgrade).ok_or("image generation is unavailable")?;
+        let key = self.location.clone().ok_or("image generation is unavailable")?;
+        engine.generate_image(&key, &request).await.map_err(|e| e.to_string())
+    }
+
     async fn providers_list(&self) -> Result<Vec<ProviderSummary>, String> {
         let catalog = self.location.as_deref().and_then(|key| self.app.plugins.catalog(key)).ok_or("providers are unavailable")?;
         Ok(catalog.available_providers().into_iter().map(|p| ProviderSummary { id: p.id.clone(), name: p.name.clone() }).collect())
@@ -397,5 +405,6 @@ fn model_summary(model: &oc_ai::catalog::ModelInfo) -> ModelSummary {
         variants: model.variants.iter().map(|v| v.id.clone()).collect(),
         cost: serde_json::to_value(&model.cost).unwrap_or(Value::Array(vec![])),
         status: serde_json::to_value(model.status).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "active".into()),
+        input: model.capabilities.input.clone(),
     }
 }

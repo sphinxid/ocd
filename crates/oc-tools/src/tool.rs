@@ -116,6 +116,8 @@ pub struct ToolConfig {
     pub shell: Option<String>,
     /// `media.image.*`.
     pub image: ImageLimits,
+    /// `experimental.image_generate.model`: the image tool's preferred model.
+    pub image_model: Option<crate::tools::image_generate::ConfiguredModel>,
 }
 
 impl Default for ToolConfig {
@@ -127,6 +129,7 @@ impl Default for ToolConfig {
             subagent_depth: None,
             shell: None,
             image: ImageLimits::default(),
+            image_model: None,
         }
     }
 }

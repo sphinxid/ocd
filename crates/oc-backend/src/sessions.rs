@@ -1013,7 +1013,7 @@ impl Engine {
             description,
         };
         use oc_tools::host::ToolHost;
-        let host = oc_core::host::CoreHost { app: self.app.clone(), skills: Arc::new(vec![]), mcp: None, location: None };
+        let host = oc_core::host::CoreHost { app: self.app.clone(), skills: Arc::new(vec![]), mcp: None, location: None, engine: None };
         host.subagent_job_start(recovery.clone()).await.map_err(ApiError::defect)?;
         host.subagent_job_background(recovery).await.map_err(ApiError::defect)?;
         Ok(())

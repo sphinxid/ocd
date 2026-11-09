@@ -311,6 +311,7 @@ mod tests {
             variants: vec![],
             cost: json!([]),
             status: "active".into(),
+            input: vec![],
         }
     }
 

@@ -218,6 +218,7 @@ pub fn tool_plugin(tool: &dyn Tool) -> Option<&'static str> {
         "edit" => "opencode.tool.edit",
         "glob" => "opencode.tool.glob",
         "grep" => "opencode.tool.grep",
+        oc_tools::tools::image_generate::NAME => "opencode.tool.image-generate",
         "list_mcp_resources" | "read_mcp_resource" => "opencode.tools.mcp-resources",
         "question" => "opencode.tool.question",
         "read" => "opencode.tool.read",

@@ -491,8 +491,8 @@ impl Backend for Engine {
         let loc = self.locations.get(&directory).await?;
         self.await_plugins(&loc).await?;
         let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
-        let model: oc_schema::types::ModelRef = conv(req.body.model)?;
-        match runner.generate_media(&directory, "image", &model).await {
+        let body = serde_json::to_value(&req.body).map_err(|e| defect(e.to_string()))?;
+        match runner.generate_image(&directory, &body).await {
             Ok(data) => from_json(json!({ "data": data })),
             Err(e) => Err(generate_error(e)),
         }
@@ -514,8 +514,8 @@ impl Backend for Engine {
         }
         self.await_plugins(&loc).await?;
         let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
-        let model: oc_schema::types::ModelRef = conv(req.body.model)?;
-        match runner.generate_media(&directory, "decision", &model).await {
+        let body = serde_json::to_value(&req.body).map_err(|e| defect(e.to_string()))?;
+        match runner.generate_decisions(&directory, &body).await {
             Ok(data) => from_json(json!({ "data": data })),
             Err(e) => Err(generate_error(e)),
         }

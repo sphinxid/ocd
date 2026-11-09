@@ -228,6 +228,7 @@ async fn subagent_model_failures() {
         variants: variants.iter().map(|v| v.to_string()).collect(),
         cost: json!([]),
         status: "active".into(),
+        input: vec![],
     };
     *host.models.lock() = vec![
         ("chat", model("override", &["fast"])),
@@ -490,7 +491,7 @@ async fn registry_snapshot_and_execute() {
     let rules = vec![PermissionRule { action: "webfetch".into(), resource: "*".into(), effect: Effect::Deny }];
     let snapshot = registry.snapshot(&rules);
     let names: Vec<String> = snapshot.registered_definitions().into_iter().map(|d| d.name).collect();
-    assert_eq!(names, vec!["edit", "glob", "grep", "patch", "question", "read", "shell", "skill", "subagent", "todowrite", "websearch", "write"]);
+    assert_eq!(names, vec!["edit", "experimental_image_generate", "glob", "grep", "patch", "question", "read", "shell", "skill", "subagent", "todowrite", "websearch", "write"]);
     assert_eq!(snapshot.codemode.len(), 8);
     let claude = DefinitionContext { model_id: Some("claude-sonnet".into()), shell: Some("/bin/bash".into()), ..Default::default() };
     let defs = snapshot.definitions(&claude, None);

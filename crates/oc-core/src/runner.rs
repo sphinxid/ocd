@@ -457,7 +457,7 @@ impl Engine {
                 let _ = mcp.wait_ready(&server.name).await;
             }
         }
-        let registry = self.base_registry(&location, &mcp);
+        let registry = self.base_registry(&location, &mcp).await;
         let registry = self.post_registry(&location.key, self.app.plugins.tools(&location.key, registry).await);
         let snapshot = registry.snapshot(&permissions);
         let skills = self.app.plugins.skills(&location, &self.app.global, &self.app.version).await;
@@ -482,12 +482,22 @@ impl Engine {
     }
 
     /// The native tool registry of a location: built-ins plus its MCP tools.
-    pub fn base_registry(&self, location: &Location, mcp: &oc_mcp::manager::McpManager) -> Registry {
+    pub async fn base_registry(&self, location: &Location, mcp: &oc_mcp::manager::McpManager) -> Registry {
         let key = location.key.as_str();
         let mut registry = self.registry.clone();
         // `opencode.tool.todo` adds `todowrite` only while the latest `experimental` config entry sets `todo: true`.
         if oc_config::fold::experimental(&location.entries).and_then(|e| e.todo) != Some(true) {
             registry.remove(oc_tools::tools::todo::NAME);
+        }
+        // `opencode.tool.image-generate` registers its tool only while an image model is available. It is on by
+        // default; `experimental.image_generate: false` is still honored for configs from when it was opt-in.
+        let image_models = match self.models.catalog_at(&location.entries, Some(key)).await {
+            Ok(catalog) => !catalog.available_models_of(&["image".to_string()]).is_empty(),
+            Err(_) => false,
+        };
+        let image_off = matches!(oc_config::fold::image_generate(&location.entries), Some(oc_config::schema::ImageGenerate::Enabled(false)));
+        if !image_models || image_off {
+            registry.remove(oc_tools::tools::image_generate::NAME);
         }
         // Built-in tool plugins removed by configuration (`-opencode.tool.read`, `-*`, ...).
         if let Some(enabled) = self.app.plugins.enabled(key) {
@@ -747,6 +757,14 @@ impl Engine {
             tool_output_max_bytes: oc_config::fold::tool_output(entries).and_then(|t| t.max_bytes).map(|v| v as usize),
             subagent_depth: Some(oc_config::fold::subagent_depth(entries)),
             shell: oc_config::fold::shell(entries).map(str::to_string),
+            image_model: match oc_config::fold::image_generate(entries) {
+                Some(oc_config::schema::ImageGenerate::Settings { model: Some(m) }) => Some(oc_tools::tools::image_generate::ConfiguredModel {
+                    provider_id: m.provider_id.clone(),
+                    model: m.model.clone(),
+                    variant: m.variant.clone(),
+                }),
+                _ => None,
+            },
             ..Default::default()
         };
         // The tools advertised in this request: a call to a known tool that was not offered (e.g. `patch`
@@ -1373,6 +1391,7 @@ impl ToolRunner for LocalTools {
             skills: self.skills.clone(),
             mcp: Some(self.mcp.clone()),
             location: Some(self.key.clone()),
+            engine: Some(Arc::downgrade(&self.engine)),
         });
         let ctx = ToolContext {
             session_id: self.session.id.clone(),
@@ -1452,7 +1471,7 @@ impl crate::plugins::ToolSource for RunnerTools {
             let engine = engine?;
             let location = engine.location(&key).await.ok()?;
             let mcp = engine.mcp(&location).await;
-            let registry = engine.app.plugins.tools(&key, engine.base_registry(&location, &mcp)).await;
+            let registry = engine.app.plugins.tools(&key, engine.base_registry(&location, &mcp).await).await;
             let registry = engine.post_registry(&key, registry);
             Some(crate::plugins::tool_value(&registry))
         })

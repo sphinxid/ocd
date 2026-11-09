@@ -45,7 +45,7 @@ async fn todowrite_is_absent_unless_experimental_todo_is_enabled() {
         std::fs::write(project.join("opencode.json"), config.to_string()).unwrap();
         let location = engine.location(&project.display().to_string()).await.unwrap();
         let mcp = engine.mcp(&location).await;
-        let registry = engine.base_registry(&location, &mcp);
+        let registry = engine.base_registry(&location, &mcp).await;
         let names: Vec<String> = registry.list().into_iter().map(|(id, _)| id).collect();
         assert_eq!(names.iter().any(|n| n == "todowrite"), expected, "{name}: {names:?}");
         if expected {

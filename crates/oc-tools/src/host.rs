@@ -153,6 +153,8 @@ pub struct ModelSummary {
     pub cost: Value,
     /// `alpha` | `beta` | `deprecated` | `active`.
     pub status: String,
+    /// `capabilities.input` (`text`, `image`, ...).
+    pub input: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,8 +184,7 @@ pub enum JobRecovery {
         agent: String,
         description: String,
     },
-    /// A background `experimental_image_generate` job (2.2.2). ocd never starts one, but settles those another
-    /// release left pending in a shared database.
+    /// A background `experimental_image_generate` job.
     #[serde(rename = "image")]
     Image {
         #[serde(rename = "sessionID")]
@@ -408,6 +409,12 @@ pub trait ToolHost: Send + Sync {
 
     async fn providers_list(&self) -> Result<Vec<ProviderSummary>, String> {
         Err(unsupported("providers"))
+    }
+
+    /// `Generate.image` at the session's location: a `Generate.ImageRequest` JSON body in, the
+    /// `Generate.ImageResult` JSON out; a failure is the generate error's message.
+    async fn generate_image(&self, _request: Value) -> Result<Value, String> {
+        Err(unsupported("image generation"))
     }
 
     // ---------------------------------------------------------------- jobs

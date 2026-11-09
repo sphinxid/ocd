@@ -52,7 +52,8 @@ pub trait Tool: Send + Sync {
   - `global: Arc<oc_util::Global>` and `cancel: CancellationToken`
   - `progress` callback: publishes `session.tool.progress`
   - `config: Arc<ToolConfig>`: `tool_output.max_*`, resolved `formatter` config,
-    `experimental.subagent_depth`, `shell` and `media.image` limits
+    `experimental.subagent_depth`, `shell`, `media.image` limits and `image_model`
+    (`experimental.image_generate.model`)
   - `host: Arc<dyn ToolHost>`
 
 ## ToolHost (`src/host.rs`)
@@ -66,7 +67,7 @@ Each method has a default that reports the capability as unavailable. The except
 | read tool | `load_instructions(session, paths)`: nested AGENTS.md |
 | skills | `get_skill(id)`, `list_skills()` |
 | sessions | `session_get/create/switch_agent/switch_model/prompt/interrupt/rename/move/synthetic`, `session_environment` |
-| agents / models | `agent_resolve`, `models_available`, `models_list(types)` (the `opencode_models` tool's `type` filter, chat by default), `providers_list` |
+| agents / models | `agent_resolve`, `models_available`, `models_list(types)` (the `opencode_models` tool's `type` filter, chat by default), `providers_list`, `generate_image(request)` (`Generate.image` at the session's location; `ModelSummary.input` tells which image models take input images) |
 | jobs | `job_start(JobStart{run: BoxFuture})`, `job_block`, `job_background`, `job_wait`, `job_cancel`, `job_complete_background`, `subagent_job_start/background/notify` |
 | shell | `shell_create_before(&mut ShellInvocation)`: plugin hook |
 | worktrees | `worktree_create/list/remove` (remove returns `WorktreeRemoveError` classes) |
@@ -137,7 +138,7 @@ Each method has a default that reports the capability as unavailable. The except
 
 | module | upstream |
 |---|---|
-| `tools::{read, edit, write, patch, grep, glob, shell, webfetch, websearch, question, skill, subagent, todo}` | `core/src/tool/plugin/*.ts` (`todo`: `todowrite`, which oc-core keeps only where `experimental.todo` is on). `webfetch` uses its own client that never follows redirects: it follows up to 10 itself, checking each target with `check_permission`. `patch` chains later hunks onto files an earlier hunk added, moved or deleted, and a move onto the file itself is a plain update. `subagent` names image and decision models in its "needs a chat model" error. |
+| `tools::{read, edit, write, patch, grep, glob, image_generate, shell, webfetch, websearch, question, skill, subagent, todo}` | `core/src/tool/plugin/*.ts` (`todo`: `todowrite`, which oc-core keeps only where `experimental.todo` is on; `image_generate`: `experimental_image_generate`, which oc-core keeps only while an image model is available and `experimental.image_generate` is not `false`; it checks permissions and reads input images up front, then generates in a background job whose `<image>` notice gives the saved path). `webfetch` uses its own client that never follows redirects: it follows up to 10 itself, checking each target with `check_permission`. `patch` chains later hunks onto files an earlier hunk added, moved or deleted, and a move onto the file itself is a plain update. `subagent` names image and decision models in its "needs a chat model" error. |
 | `tools::opencode` (6 tools + namespace + `SYSTEM_HINT`), `tools::mcp_resource`, `tools::mcp::McpTool` | `opencode.ts`, `mcp-resource.ts`, `tool/mcp.ts` |
 | `file_access`, `file_mutation`, `file_diff`, `jsdiff` (byte-exact jsdiff 8.0.4 port: `createTwoFilesPatch`, `structuredPatch`, `parsePatch`, `reversePatch`, `applyPatch`) | `file-access.ts`, `file-mutation.ts`, `file-diff.ts` |
 | `patch` (grammar, 4-pass seek), `validate` (Effect-compatible issues) | `util/src/patch.ts`, `tool/runtime.ts` |
