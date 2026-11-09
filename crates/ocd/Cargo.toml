@@ -49,6 +49,9 @@ libc = "0.2"
 percent-encoding = "2"
 flate2 = "1"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
+
 [build-dependencies]
 serde_json.workspace = true
 

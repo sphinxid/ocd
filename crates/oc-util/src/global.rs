@@ -22,7 +22,14 @@ fn env_nonempty(key: &str) -> Option<PathBuf> {
     std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
-fn os_home() -> PathBuf {
+/// `os.homedir()`: `$HOME` on Unix; on Windows `%USERPROFILE%` (libuv reads it before asking the system), then
+/// the profile folder.
+pub fn os_home() -> PathBuf {
+    if cfg!(windows)
+        && let Some(profile) = env_nonempty("USERPROFILE")
+    {
+        return profile;
+    }
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
 }
 
@@ -30,11 +37,11 @@ impl Global {
     /// Paths without side effects. `config` honors `OPENCODE_CONFIG_DIR`.
     pub fn resolve() -> Self {
         let home = os_home();
-        let data = env_nonempty("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share")).join(APP);
+        let data = env_nonempty("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local").join("share")).join(APP);
         let cache = env_nonempty("XDG_CACHE_HOME").unwrap_or_else(|| home.join(".cache")).join(APP);
         let config = env_nonempty("OPENCODE_CONFIG_DIR")
             .unwrap_or_else(|| env_nonempty("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config")).join(APP));
-        let state = env_nonempty("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state")).join(APP);
+        let state = env_nonempty("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local").join("state")).join(APP);
         let tmp = std::env::temp_dir().join(APP);
         Global {
             home: std::env::var_os("OPENCODE_TEST_HOME").map(PathBuf::from).unwrap_or(home),
@@ -55,7 +62,7 @@ impl Global {
         for dir in [&g.data, &g.config, &g.state, &g.log, &g.bin, &g.repos, &g.tmp] {
             std::fs::create_dir_all(dir)?;
         }
-        g.tmp = std::fs::canonicalize(&g.tmp)?;
+        g.tmp = crate::fs::canonicalize(&g.tmp)?;
         Ok(g)
     }
 

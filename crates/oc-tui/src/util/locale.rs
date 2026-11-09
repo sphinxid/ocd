@@ -330,15 +330,13 @@ fn truncate_basename(value: &str, max: usize) -> String {
 
 /// Replace `$HOME` prefix by `~`.
 pub fn abbreviate_home(path: &str) -> String {
-    if let Some(home) = dirs::home_dir() {
-        let h = home.to_string_lossy().to_string();
-        if !h.is_empty() && h != "/" {
-            if path == h {
-                return "~".into();
-            }
-            if let Some(rest) = path.strip_prefix(&format!("{h}/")) {
-                return format!("~/{rest}");
-            }
+    let h = oc_util::global::os_home().to_string_lossy().to_string();
+    if !h.is_empty() && h != "/" {
+        if path == h {
+            return "~".into();
+        }
+        if let Some(rest) = path.strip_prefix(&format!("{h}/")) {
+            return format!("~/{rest}");
         }
     }
     path.to_string()

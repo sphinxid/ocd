@@ -153,10 +153,16 @@ pub fn read(paths: &[String], directory: &Path) -> Result<Vec<File>, ToolError> 
 
 fn read_one(input: &str, directory: &Path) -> Result<File, NodeError> {
     let path = crate::session::relative_join(directory, input);
-    let mut file = std::fs::File::open(&path).map_err(|e| NodeError::fs(&e, "open", Some(&path)))?;
+    let directory_error = || NodeError::plain("Upload paths must name files, not directories. Select a server-local file.");
+    let mut file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        // Windows refuses to open a directory as a file; libuv opens it, and `fstat` then finds the directory.
+        Err(_) if cfg!(windows) && path.is_dir() => return Err(directory_error()),
+        Err(e) => return Err(NodeError::fs(&e, "open", Some(&path))),
+    };
     let stat = file.metadata().map_err(|e| NodeError::fs(&e, "fstat", None))?;
     if !stat.is_file() {
-        return Err(NodeError::plain("Upload paths must name files, not directories. Select a server-local file."));
+        return Err(directory_error());
     }
     if stat.len() > MAX_FILE_BYTES as u64 {
         return Err(NodeError::plain(format!(

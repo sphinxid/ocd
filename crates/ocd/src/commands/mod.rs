@@ -333,7 +333,7 @@ async fn debug_heap_dump(global: &Global, input: &Input) -> anyhow::Result<i32> 
 
 /// `path.isAbsolute` for this platform.
 fn is_absolute(value: &str) -> bool {
-    std::path::Path::new(value).is_absolute()
+    std::path::Path::new(value).has_root()
 }
 
 /// `path.resolve(value)` against the process cwd.

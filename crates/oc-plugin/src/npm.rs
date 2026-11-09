@@ -385,7 +385,7 @@ impl Npm {
             return Ok(Self::metadata(active, &name, &active.join("node_modules").join(&name), target));
         }
         std::fs::create_dir_all(dir).map_err(|e| failed(e.to_string()))?;
-        let root = std::fs::canonicalize(dir).map_err(|e| failed(e.to_string()))?;
+        let root = oc_util::fs::canonicalize(dir).map_err(|e| failed(e.to_string()))?;
         let staging = root.join(format!(".staging-{}-{:032x}", now_ms(), rand::random::<u128>()));
         let staged = async {
             std::fs::create_dir_all(&staging).map_err(|e| failed(e.to_string()))?;
@@ -522,7 +522,7 @@ mod tests {
         let npm = Npm::new(dir.path(), dir.path().join("locks"));
         let (missing, exists) = npm.resolve("pkg@1.0.0");
         assert!(!exists);
-        assert!(missing.directory.ends_with("npm/pkg@1.0.0/node_modules/pkg"));
+        assert!(Path::new(&missing.directory).ends_with("npm/pkg@1.0.0/node_modules/pkg"), "{}", missing.directory);
         let package = dir.path().join("npm/pkg@1.0.0/17/node_modules/pkg");
         std::fs::create_dir_all(&package).unwrap();
         std::fs::write(package.join("package.json"), r#"{"name":"pkg","version":"1.0.0"}"#).unwrap();

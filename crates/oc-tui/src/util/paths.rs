@@ -7,7 +7,7 @@ fn env_dir(var: &str) -> Option<PathBuf> {
 }
 
 fn home() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
+    oc_util::global::os_home()
 }
 
 /// `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode` (overridable by `OPENCODE_CONFIG_DIR`).

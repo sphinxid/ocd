@@ -290,6 +290,30 @@ pub fn mcp_servers(entries: &[Entry]) -> IndexMap<String, McpServer> {
 /// Actions whose resources are filesystem paths and get `~`/`$HOME` expansion.
 pub const PATH_ACTIONS: [&str; 3] = ["external_directory", "read", "edit"];
 
+/// `path.posix.normalize`: `.` and `..` segments and repeated slashes resolved; a trailing slash is kept.
+fn posix_normalize(path: &str) -> String {
+    let absolute = path.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|p| *p != "..") => {
+                parts.pop();
+            }
+            ".." if absolute => {}
+            part => parts.push(part),
+        }
+    }
+    let mut out = format!("{}{}", if absolute { "/" } else { "" }, parts.join("/"));
+    if out.is_empty() {
+        out.push('.');
+    }
+    if path.ends_with('/') && !out.ends_with('/') {
+        out.push('/');
+    }
+    out
+}
+
 /// `expandHome`: `~`, `$HOME`, `~/…`, `$HOME/…`, `$HOME\…`.
 pub fn expand_home(resource: &str, home: &Path) -> String {
     if resource == "~" || resource == "$HOME" {
@@ -303,7 +327,8 @@ pub fn expand_home(resource: &str, home: &Path) -> String {
         Some(rel) => {
             let home_str = home.to_string_lossy();
             if home_str.starts_with('/') {
-                crate::discovery::lexical(&home.join(rel)).to_string_lossy().to_string()
+                // `path.posix.join`, on every platform.
+                posix_normalize(&format!("{home_str}/{rel}"))
             } else {
                 // path.win32.join
                 let joined = format!("{}\\{}", home_str.trim_end_matches(['\\', '/']), rel.replace('/', "\\"));
@@ -461,7 +486,7 @@ pub fn references(entries: &[Entry], home: &Path, location: &Path) -> IndexMap<S
             }
             let local_path = |value: &str| match value.strip_prefix("~/") {
                 Some(rest) => home.join(rest),
-                None if Path::new(value).is_absolute() => PathBuf::from(value),
+                None if Path::new(value).has_root() => PathBuf::from(value),
                 None => crate::discovery::lexical(&directory.join(value)),
             };
             let source = match entry {

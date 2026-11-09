@@ -3,9 +3,10 @@
 
 use serde_json::{Map, Value};
 
-/// `os.homedir()`.
+/// `os.homedir()`: `$HOME`, or `%USERPROFILE%` on Windows.
 pub fn home_dir() -> String {
-    std::env::var("HOME").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
+    let variable = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var(variable).ok().filter(|h| !h.is_empty()).unwrap_or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
 }
 
 fn windows_path(input: &str) -> bool {
@@ -54,32 +55,124 @@ pub fn relative(from: &str, to: &str) -> String {
     out.join("/")
 }
 
+/// The subset of Node's `path.win32` that `path-format.ts` uses, for Windows paths (`C:\dir`, `\\server\share`).
+mod win32 {
+    fn is_separator(c: char) -> bool {
+        c == '\\' || c == '/'
+    }
+
+    /// `path.win32.isAbsolute`.
+    pub fn is_absolute(input: &str) -> bool {
+        let b = input.as_bytes();
+        input.starts_with(is_separator) || (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && is_separator(b[2] as char))
+    }
+
+    /// The root (`C:\`, `\\server\share\`, `\`) and the segments after it.
+    fn split(path: &str) -> (String, Vec<&str>) {
+        let b = path.as_bytes();
+        let (root, rest) = if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+            let rooted = b.len() >= 3 && is_separator(b[2] as char);
+            (format!("{}{}", &path[..2], if rooted { "\\" } else { "" }), &path[if rooted { 3 } else { 2 }..])
+        } else if path.len() >= 2 && path.chars().take(2).all(is_separator) {
+            // `\\server\share`: two names after the leading separators.
+            let mut names: Vec<&str> = Vec::new();
+            let mut rest = &path[2..];
+            while names.len() < 2 && !rest.is_empty() {
+                rest = rest.trim_start_matches(is_separator);
+                let end = rest.find(is_separator).unwrap_or(rest.len());
+                names.push(&rest[..end]);
+                rest = &rest[end..];
+            }
+            (format!("\\\\{}\\", names.join("\\")), rest)
+        } else if path.starts_with(is_separator) {
+            ("\\".to_string(), &path[1..])
+        } else {
+            (String::new(), path)
+        };
+        let mut segments: Vec<&str> = Vec::new();
+        for segment in rest.split(is_separator) {
+            match segment {
+                "" | "." => {}
+                ".." if segments.last().is_some_and(|s| *s != "..") => {
+                    segments.pop();
+                }
+                ".." if !root.is_empty() => {}
+                segment => segments.push(segment),
+            }
+        }
+        (root, segments)
+    }
+
+    /// `path.win32.resolve(base, input)` for an absolute `base`.
+    pub fn resolve(base: &str, input: &str) -> String {
+        let joined = if is_absolute(input) && input.as_bytes().get(1) == Some(&b':') {
+            input.to_string()
+        } else if input.starts_with(is_separator) && !input.starts_with("\\\\") {
+            // Root-relative: on the drive of `base`.
+            format!("{}{input}", split(base).0.trim_end_matches('\\'))
+        } else if is_absolute(input) {
+            input.to_string()
+        } else {
+            format!("{base}\\{input}")
+        };
+        let (root, segments) = split(&joined);
+        format!("{root}{}", segments.join("\\"))
+    }
+
+    /// `path.win32.relative(from, to)`: case-insensitive, `to` itself when the roots differ.
+    pub fn relative(from: &str, to: &str) -> String {
+        let from_resolved = resolve(from, ".");
+        let (from_root, from_segments) = split(&from_resolved);
+        let to_resolved = resolve(from, to);
+        let (to_root, to_segments) = split(&to_resolved);
+        if !from_root.eq_ignore_ascii_case(&to_root) {
+            return to_resolved;
+        }
+        let common = from_segments.iter().zip(&to_segments).take_while(|(a, b)| a.eq_ignore_ascii_case(b)).count();
+        let mut out: Vec<&str> = vec![".."; from_segments.len() - common];
+        out.extend(&to_segments[common..]);
+        out.join("\\")
+    }
+}
+
 /// `abbreviateHome(input, home)`.
 pub fn abbreviate_home(input: &str, home: &str) -> String {
     if home.is_empty() {
         return input.to_string();
     }
-    let rel = relative(home, input);
+    let windows = windows_path(home);
+    let rel = if windows { win32::relative(home, input) } else { relative(home, input) };
+    let sep = if windows { "\\" } else { "/" };
     if rel.is_empty() {
         return "~".into();
     }
-    if rel == ".." || rel.starts_with("../") || rel.starts_with('/') {
+    let absolute = if windows { win32::is_absolute(&rel) } else { rel.starts_with('/') };
+    if rel == ".." || rel.starts_with(&format!("..{sep}")) || absolute {
         return input.to_string();
     }
-    format!("~/{rel}")
+    format!("~/{}", rel.split(sep).collect::<Vec<_>>().join("/"))
 }
 
-/// `formatPath(input, {base, home, forwardSlashes: true})` (posix bases).
+/// `formatPath(input, {base, home, forwardSlashes: true})`.
 pub fn format_path(input: Option<&str>, base: &str, home: Option<&str>) -> String {
     let Some(input) = input.filter(|s| !s.is_empty()) else { return String::new() };
-    if !windows_path(base) && windows_path(input) {
+    let windows = windows_path(base);
+    if !windows && windows_path(input) {
         return input.replace('\\', "/");
     }
-    let absolute = if input.starts_with('/') { input.to_string() } else { resolve(base, input) };
-    let rel = relative(base, &absolute);
+    let (absolute, rel, sep) = if windows {
+        let absolute = if win32::is_absolute(input) { input.to_string() } else { win32::resolve(base, input) };
+        let rel = win32::relative(base, &absolute);
+        (absolute, rel, "\\")
+    } else {
+        let absolute = if input.starts_with('/') { input.to_string() } else { resolve(base, input) };
+        let rel = relative(base, &absolute);
+        (absolute, rel, "/")
+    };
+    let rel_absolute = if windows { win32::is_absolute(&rel) } else { rel.starts_with('/') };
     let formatted = if rel.is_empty() {
         ".".to_string()
-    } else if rel != ".." && !rel.starts_with("../") && !rel.starts_with('/') {
+    } else if rel != ".." && !rel.starts_with(&format!("..{sep}")) && !rel_absolute {
         rel
     } else if let Some(home) = home {
         abbreviate_home(&absolute, home)
@@ -444,6 +537,22 @@ mod tests {
         assert_eq!(format_path(Some("/work/project"), "/work/project", None), ".");
         assert_eq!(format_path(Some("/home/u/x/y"), "/home/u/p", Some("/home/u")), "~/x/y");
         assert_eq!(format_path(Some("src/a.ts"), "/w", None), "src/a.ts");
+    }
+
+    // `path-format.ts` with Windows bases goes through `path.win32` on every platform.
+    #[test]
+    fn windows_paths() {
+        assert_eq!(format_path(Some(r"C:\work\project\src\a.ts"), r"C:\work\project", None), "src/a.ts");
+        assert_eq!(format_path(Some("src/a.ts"), r"C:\work\project", None), "src/a.ts");
+        assert_eq!(format_path(Some(r"c:\WORK\project"), r"C:\work\project", None), ".");
+        assert_eq!(format_path(Some(r"..\shared\x.txt"), r"C:\work\project", None), "C:/work/shared/x.txt");
+        assert_eq!(format_path(Some(r"\top\x.txt"), r"C:\work\project", None), "/top/x.txt");
+        assert_eq!(format_path(Some(r"D:\other\x.txt"), r"C:\work\project", None), "D:/other/x.txt");
+        assert_eq!(format_path(Some("C:/Users/u/outside/folder"), r"C:\Users\u\project", Some(r"C:\Users\u")), "~/outside/folder");
+        assert_eq!(format_path(Some(r"\\srv\share\a\b"), r"\\srv\share\a", None), "b");
+        assert_eq!(format_path(Some(r"C:\x"), "/posix/base", None), "C:/x");
+        assert_eq!(abbreviate_home(r"C:\Users\u", r"C:\Users\u"), "~");
+        assert_eq!(abbreviate_home(r"C:\Users\other", r"C:\Users\u"), r"C:\Users\other");
     }
 
     #[test]

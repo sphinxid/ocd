@@ -157,7 +157,7 @@ impl Engine {
         // body); `AbsolutePath` carries no check, so it is not a 400.
         if let Some(dir) = body.location.as_ref().map(|l| &l.directory)
             && body.parent_id.is_none()
-            && !std::path::Path::new(dir).is_absolute()
+            && !std::path::Path::new(dir).has_root()
         {
             return Err(ApiError::defect(format!("relative session directory: {dir}")));
         }

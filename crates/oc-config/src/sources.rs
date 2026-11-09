@@ -22,7 +22,7 @@ use crate::schema::{AGENT_FIELDS, Agent, Command, Entry, Info, Plugin};
 
 /// Files (following symlinks) ending in `suffix` directly in `dir` or, when `recursive`, below it.
 fn scan(dir: &Path, recursive: bool, accept: &dyn Fn(&Path) -> bool, out: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
-    let Ok(canonical) = std::fs::canonicalize(dir) else { return };
+    let Ok(canonical) = oc_util::fs::canonicalize(dir) else { return };
     if !seen.insert(canonical) {
         return;
     }
@@ -409,7 +409,7 @@ pub fn skill_sources(entries: &[Entry], home: &Path, location: &Path) -> Vec<Ski
 pub fn compatibility_skills(claude: &[PathBuf], agents: &[PathBuf]) -> Vec<Skill> {
     let mut out: IndexMap<String, Skill> = IndexMap::new();
     for root in claude.iter().chain(agents) {
-        let Ok(resolved) = std::fs::canonicalize(root.join("skills")) else { continue };
+        let Ok(resolved) = oc_util::fs::canonicalize(root.join("skills")) else { continue };
         for skill in scan_skills(&resolved) {
             out.insert(skill.id.clone(), skill);
         }
@@ -511,7 +511,7 @@ pub fn plugin_operations(entries: &[Entry], location: &Path) -> Result<Vec<Plugi
                 remove => remove,
             };
             if let PluginOperation::Add { target, .. } = &operation
-                && Path::new(target).is_absolute()
+                && Path::new(target).has_root()
                 && Path::new(target).is_file()
             {
                 tracing::warn!(target = %target, "configured plugin path must be a directory");

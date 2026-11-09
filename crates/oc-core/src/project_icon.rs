@@ -71,7 +71,7 @@ fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// `read`: a regular file inside the root, with an allowed extension, of 1 byte to 64 KiB.
 fn read(root: &Path, name: &Path, extensions: &[&str]) -> Option<(PathBuf, Vec<u8>)> {
-    let file = std::fs::canonicalize(name).ok()?;
+    let file = oc_util::fs::canonicalize(name).ok()?;
     if file == root || !contains(root, &file) || !extensions.contains(&extname(&file).as_str()) {
         return None;
     }
@@ -216,7 +216,7 @@ fn relative(root: &Path, file: &Path) -> String {
 
 /// `discover`: the first usable icon under `directory`, or `None`.
 pub fn discover(directory: &Path) -> Option<Icon> {
-    let root = std::fs::canonicalize(directory).ok()?;
+    let root = oc_util::fs::canonicalize(directory).ok()?;
     let mut children: Vec<String> = std::fs::read_dir(&root)
         .map(|entries| {
             entries
@@ -236,7 +236,7 @@ pub fn discover(directory: &Path) -> Option<Icon> {
         .chain(catalogs)
         .chain(std::iter::once("resources/windows".to_string()));
     for name in names {
-        let Ok(candidate) = std::fs::canonicalize(root.join(&name)) else { continue };
+        let Ok(candidate) = oc_util::fs::canonicalize(root.join(&name)) else { continue };
         if candidate == root || !contains(&root, &candidate) {
             continue;
         }
@@ -422,7 +422,8 @@ mod tests {
             if name == "Scrawl oversized flat icon" {
                 write(base.join("assets/app-icon.png"), "x".repeat(65537));
             }
-            assert_eq!(discover(base).map(|icon| icon.path), Some(file.to_string()), "{name}");
+            // `path.relative`: platform separators.
+            assert_eq!(discover(base).map(|icon| icon.path), Some(file.replace('/', std::path::MAIN_SEPARATOR_STR)), "{name}");
         }
     }
 

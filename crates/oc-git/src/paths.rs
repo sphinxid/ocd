@@ -58,7 +58,7 @@ pub fn contains(parent: &Path, child: &Path) -> bool {
 /// `FSUtil.resolve`: absolute path, realpath'd when it exists.
 pub fn real_or_resolved(input: &Path) -> PathBuf {
     let resolved = resolve(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")), input);
-    std::fs::canonicalize(&resolved).unwrap_or(resolved)
+    oc_util::fs::canonicalize(&resolved).unwrap_or(resolved)
 }
 
 /// `resolvePath` in `git.ts`: resolve a path printed by Git against `cwd`.
@@ -77,8 +77,10 @@ mod tests {
     #[test]
     fn relative_and_contains() {
         assert_eq!(relative(Path::new("/a/b"), Path::new("/a/b")), "");
-        assert_eq!(relative(Path::new("/a/b"), Path::new("/a/b/c/d")), "c/d");
-        assert_eq!(relative(Path::new("/a/b"), Path::new("/a/x")), "../x");
+        // Joined with the platform separator, like `path.relative`.
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(relative(Path::new("/a/b"), Path::new("/a/b/c/d")), format!("c{sep}d"));
+        assert_eq!(relative(Path::new("/a/b"), Path::new("/a/x")), format!("..{sep}x"));
         assert!(contains(Path::new("/a/b"), Path::new("/a/b/..c")));
         assert!(!contains(Path::new("/a/b"), Path::new("/a/bc")));
         assert!(!contains(Path::new("/a/b"), Path::new("/a")));

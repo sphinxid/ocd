@@ -90,7 +90,7 @@ impl Env {
         if self.vars.is_some() {
             return PathBuf::new();
         }
-        dirs::home_dir().unwrap_or_default()
+        oc_util::global::os_home()
     }
 
     /// `getHomeDir` of `@smithy/core/config`: `HOME`, `USERPROFILE`, `HOMEDRIVE` + `HOMEPATH`, then `os.homedir()`.

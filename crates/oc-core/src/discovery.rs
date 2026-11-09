@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::instructions::File;
 
 fn resolve(p: &Path) -> PathBuf {
-    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    oc_util::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 /// Directories from `start` up to and including `stop` (nearest first).
@@ -455,7 +455,7 @@ mod tests {
         std::fs::create_dir_all(project.join("rules")).unwrap();
         std::fs::create_dir_all(&directory).unwrap();
         let agents = project.join("AGENTS.md");
-        let (first, second) = (project.join("rules/a.md"), project.join("rules/b.md"));
+        let (first, second) = (project.join("rules").join("a.md"), project.join("rules").join("b.md"));
         let (absolute, home_file) = (root.join("absolute.md"), root.join("home.md"));
         for (path, content) in [(&agents, "agents"), (&first, "first"), (&second, "second"), (&absolute, "absolute"), (&home_file, "home")] {
             std::fs::write(path, content).unwrap();
@@ -559,7 +559,7 @@ mod tests {
         let names = |pattern: &str| {
             glob_scan(&root, pattern)
                 .into_iter()
-                .map(|p| p.strip_prefix(&root).unwrap().display().to_string())
+                .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"))
                 .collect::<Vec<_>>()
         };
         assert_eq!(names("*.md"), vec![".hidden.md", "a.md"]);

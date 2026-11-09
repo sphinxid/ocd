@@ -9,7 +9,8 @@
 //!   SDK's error answer.
 //! - Messages other than control traffic are delivered in order; `keep_alive`, `transcript_mirror`
 //!   and `sdk_host_only` state changes are consumed.
-//! - Close: end stdin, then SIGTERM after 2 s and SIGKILL 5 s later if the process is still alive.
+//! - Close: end stdin, then SIGTERM after 2 s and SIGKILL 5 s later if the process is still alive (on Windows both
+//!   terminate it, as Node does, and its exit reports the signal).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -471,7 +472,35 @@ fn signal(pid: u32, signal: i32) {
     }
 }
 
-#[cfg(not(unix))]
+/// Windows has no signals: like Node's `child.kill(signal)` (libuv `uv_process_kill`), terminate the process and
+/// remember the signal, which its exit then reports.
+#[cfg(windows)]
+fn signal(pid: u32, signal: i32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+    // Recorded first: the exit can be seen as soon as the process is gone.
+    SIGNALLED.lock().insert(pid, signal);
+    // SAFETY: opens, terminates and closes a handle to a child we spawned and have not reaped.
+    let terminated = unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if handle.is_null() {
+            false
+        } else {
+            let ok = TerminateProcess(handle, 1) != 0;
+            CloseHandle(handle);
+            ok
+        }
+    };
+    if !terminated {
+        SIGNALLED.lock().remove(&pid);
+    }
+}
+
+/// Children `signal` terminated on Windows, with the signal their exit reports.
+#[cfg(windows)]
+static SIGNALLED: once_cell::sync::Lazy<Mutex<HashMap<u32, i32>>> = once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(not(any(unix, windows)))]
 fn signal(_pid: u32, _signal: i32) {}
 
 impl Query {
@@ -583,7 +612,12 @@ impl Query {
                                 _ => Exit::Code(0),
                             }
                         }
-                        #[cfg(not(unix))]
+                        #[cfg(windows)]
+                        Ok(status) => match pid.and_then(|pid| SIGNALLED.lock().remove(&pid)) {
+                            Some(signal) => Exit::Signal(signal),
+                            None => Exit::Code(status.code().unwrap_or(0)),
+                        },
+                        #[cfg(not(any(unix, windows)))]
                         Ok(status) => Exit::Code(status.code().unwrap_or(0)),
                         Err(_) => Exit::Code(-1),
                     };

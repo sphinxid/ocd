@@ -19,7 +19,7 @@ fn find_executable(name: &str, bin: &Path) -> Option<String> {
 }
 
 fn executable(file: &str, bin: &Path) -> Option<String> {
-    if Path::new(file).is_absolute() {
+    if Path::new(file).has_root() {
         return Path::new(file).is_file().then(|| file.to_string());
     }
     find_executable(file, bin)

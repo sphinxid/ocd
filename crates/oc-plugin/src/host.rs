@@ -761,7 +761,7 @@ impl Inner {
 
     async fn load_module(self: Arc<Self>, operation: &Operation, blocked: Option<&(dyn Fn(&str) -> bool + Send + Sync)>) -> LoadOutcome {
         let Operation::Add { target, .. } = operation else { return LoadOutcome::Blocked };
-        let absolute = Path::new(target).is_absolute();
+        let absolute = Path::new(target).has_root();
         let version = target.rfind('@');
         let unversioned = if absolute || version.is_none_or(|v| v == 0) { target.as_str() } else { &target[..version.unwrap_or(0)] };
         if blocked.is_some_and(|blocked| blocked(unversioned)) {

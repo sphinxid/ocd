@@ -386,6 +386,25 @@ pub async fn incumbent(file: &Path, url: &str, timeout: Duration) -> Option<(End
 
 const STDERR_LIMIT: usize = 8 * 1024;
 
+/// Windows hands every inheritable handle to a new process, so the long-lived server would also keep this command's
+/// own stdin, stdout and stderr open (on Unix only the descriptors it is given survive `exec`): a caller reading this
+/// command's output to its end, such as a pipe or a script, would wait for the server to exit. Children that are to
+/// share them still get them: `Stdio::inherit` hands over inheritable duplicates.
+#[cfg(windows)]
+fn keep_std_handles_from_children() {
+    use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation};
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+    for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: only clears the inherit flag of this process's own standard handles.
+        unsafe {
+            let handle = GetStdHandle(id);
+            if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
+                SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
+}
+
 struct Contender {
     child: std::process::Child,
     stderr: Arc<Mutex<Vec<u8>>>,
@@ -416,6 +435,16 @@ impl Contender {
                     Ok(())
                 });
             }
+        }
+        // Node's `detached: true, windowsHide: true`: its own process group, no console window.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+            keep_std_handles_from_children();
         }
         let mut child = cmd.spawn().map_err(|_| "Failed to start server".to_string())?;
         let stderr = Arc::new(Mutex::new(Vec::new()));

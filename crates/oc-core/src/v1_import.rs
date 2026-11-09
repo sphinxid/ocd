@@ -332,19 +332,16 @@ pub fn default_next_path(data_dir: &Path) -> Option<PathBuf> {
     Some(data_dir.join("opencode-next.db"))
 }
 
-/// `path.parse(dir).root`.
+/// `path.parse(dir).root`: the prefix (`C:`, `\\server\share`) and the separator after it, as written.
 fn path_root(dir: &Path) -> String {
     use std::path::Component;
+    let text = dir.to_string_lossy();
     let mut root = String::new();
-    for c in dir.components() {
-        match c {
-            Component::Prefix(p) => root.push_str(&p.as_os_str().to_string_lossy()),
-            Component::RootDir => {
-                root.push(std::path::MAIN_SEPARATOR);
-                break;
-            }
-            _ => break,
-        }
+    if let Some(Component::Prefix(p)) = dir.components().next() {
+        root.push_str(&p.as_os_str().to_string_lossy());
+    }
+    if let Some(separator) = text[root.len()..].chars().next().filter(|c| *c == '/' || std::path::is_separator(*c)) {
+        root.push(separator);
     }
     root
 }
@@ -503,7 +500,7 @@ fn resolve_directory(directory: &str) -> Option<Option<Owner>> {
                 return None;
             }
             let absolute = oc_config::discovery::absolute(Path::new(&directory));
-            let normalized = std::fs::canonicalize(absolute).ok()?;
+            let normalized = oc_util::fs::canonicalize(absolute).ok()?;
             if !normalized.is_dir() {
                 return None;
             }
@@ -2206,5 +2203,10 @@ mod tests {
     #[test]
     fn root_of_data_dir() {
         assert_eq!(path_root(Path::new("/home/x/.local/share/opencode")), "/");
+        assert_eq!(path_root(Path::new("relative/dir")), "");
+        if cfg!(windows) {
+            assert_eq!(path_root(Path::new(r"C:\Users\x\.local\share\opencode")), r"C:\");
+            assert_eq!(path_root(Path::new("C:/Users/x")), "C:/");
+        }
     }
 }

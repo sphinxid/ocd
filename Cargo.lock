@@ -2548,6 +2548,7 @@ dependencies = [
  "url",
  "uuid",
  "which",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2903,6 +2904,7 @@ dependencies = [
  "unicode-width 0.2.0",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -794,7 +794,7 @@ impl App {
                     None => (String::new(), q.clone()),
                 };
                 let path = if parent.starts_with('~') {
-                    format!("{}{}", dirs::home_dir().map(|h| h.to_string_lossy().to_string()).unwrap_or_default(), &parent[1..])
+                    format!("{}{}", oc_util::global::os_home().to_string_lossy(), &parent[1..])
                 } else {
                     parent.clone()
                 };

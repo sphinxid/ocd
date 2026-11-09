@@ -60,7 +60,7 @@ fn substitute_files(input: &Input, text: &str) -> String {
         }
         let raw = &token["{file:".len()..token.len() - 1];
         let resolved: PathBuf = if let Some(rest) = raw.strip_prefix("~/") {
-            dirs::home_dir().unwrap_or_default().join(rest)
+            crate::global::os_home().join(rest)
         } else if Path::new(raw).is_absolute() {
             PathBuf::from(raw)
         } else {

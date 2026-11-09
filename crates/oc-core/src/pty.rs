@@ -14,6 +14,28 @@ use tokio::sync::mpsc;
 
 use crate::bus::Bus;
 
+/// `pty.bun.ts` on Windows: a detached server starts with Ctrl+C ignored, and ConPTY shells inherit that, so the
+/// attribute is cleared once before the first shell starts (registered handlers stay).
+fn enable_ctrl_c() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        static ENABLED: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+        return ENABLED
+            .get_or_init(|| {
+                use windows_sys::Win32::Foundation::GetLastError;
+                use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
+                // SAFETY: a null handler with FALSE only restores this process's normal Ctrl+C processing.
+                if unsafe { SetConsoleCtrlHandler(None, 0) } == 0 {
+                    return Err(format!("Failed to enable PTY Ctrl+C handling: Windows error {}", unsafe { GetLastError() }));
+                }
+                Ok(())
+            })
+            .clone();
+    }
+    #[cfg(not(windows))]
+    Ok(())
+}
+
 pub const BUFFER_LIMIT: usize = 1024 * 1024 * 2;
 pub const EXITED_LIMIT: usize = 25;
 
@@ -137,6 +159,7 @@ impl Ptys {
         self.sessions.lock().get(id).map(|s| s.info.clone()).ok_or_else(|| PtyError::NotFound(id.into()))
     }
 
+    /// `Pty.create`.
     pub fn create(&self, input: CreateInput, default_cwd: &str, default_shell: &str) -> Result<PtyInfo, PtyError> {
         let id = oc_schema::id::pty();
         let command = input.command.filter(|c| !c.is_empty()).unwrap_or_else(|| default_shell.to_string());
@@ -145,6 +168,7 @@ impl Ptys {
             args.push("-l".into());
         }
         let cwd = input.cwd.filter(|c| !c.is_empty()).unwrap_or_else(|| default_cwd.to_string());
+        enable_ctrl_c().map_err(PtyError::Spawn)?;
         let pair = native_pty_system()
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| PtyError::Spawn(e.to_string()))?;
@@ -159,6 +183,11 @@ impl Ptys {
         }
         cmd.env("TERM", "xterm-256color");
         cmd.env("OPENCODE_TERMINAL", "1");
+        if cfg!(windows) {
+            cmd.env("LC_ALL", "C.UTF-8");
+            cmd.env("LC_CTYPE", "C.UTF-8");
+            cmd.env("LANG", "C.UTF-8");
+        }
         let mut child = pair.slave.spawn_command(cmd).map_err(|e| PtyError::Spawn(e.to_string()))?;
         let pid = child.process_id().unwrap_or(0);
         let killer = child.clone_killer();

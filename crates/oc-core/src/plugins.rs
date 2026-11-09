@@ -933,7 +933,7 @@ impl Plugins {
             state.locals = ops
                 .iter()
                 .filter_map(|op| match op {
-                    Operation::Add { target, .. } if Path::new(target).is_absolute() => Some(PathBuf::from(target)),
+                    Operation::Add { target, .. } if Path::new(target).has_root() => Some(PathBuf::from(target)),
                     _ => None,
                 })
                 .collect();
@@ -2539,7 +2539,7 @@ impl crate::worktree::Strategy for PluginStrategy {
         // `Worktree.Info`: `{directory: AbsolutePath}`.
         out.get("directory")
             .and_then(Value::as_str)
-            .filter(|d| std::path::Path::new(d).is_absolute())
+            .filter(|d| std::path::Path::new(d).has_root())
             .map(std::path::PathBuf::from)
             .ok_or_else(|| crate::worktree::StrategyError::Other(format!("Expected an absolute path at [\"directory\"], got {out}")))
     }

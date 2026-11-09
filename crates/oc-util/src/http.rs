@@ -4,8 +4,8 @@
 //!
 //! - Bun's bundled Mozilla roots (here: `webpki-roots`);
 //! - the system store: every PEM certificate in the bundle files of [`SYSTEM_FILES`] (or only `$SSL_CERT_FILE` when
-//!   that is set) and in every regular file directly inside [`SYSTEM_DIRS`] (or the `:`-separated `$SSL_CERT_DIR`
-//!   when that is set). A set but empty variable means no files or directories;
+//!   that is set) and in every regular file directly inside [`SYSTEM_DIRS`] (or the `:`-separated `$SSL_CERT_DIR`,
+//!   `;`-separated on Windows, when that is set). A set but empty variable means no files or directories;
 //! - the PEM certificates in the file named by `$NODE_EXTRA_CA_CERTS`. If it can't be read or holds no certificate,
 //!   Bun prints `warn: ignoring extra certs from <path>, load failed: <reason>` once on stderr and goes on.
 //!
@@ -257,6 +257,15 @@ impl Certs {
 
 /// The OS error text without Rust's ` (os error N)` suffix, as Bun prints it.
 fn io_reason(error: &std::io::Error) -> String {
+    // BoringSSL reports the C runtime's `strerror` text, which on Windows is not the system's own message (opening
+    // a directory fails there with EACCES).
+    if cfg!(windows) {
+        match error.kind() {
+            std::io::ErrorKind::NotFound => return "No such file or directory".into(),
+            std::io::ErrorKind::PermissionDenied => return "Permission denied".into(),
+            _ => {}
+        }
+    }
     let text = error.to_string();
     match text.rfind(" (os error ") {
         Some(at) => text[..at].to_string(),
@@ -421,7 +430,8 @@ mod tests {
         assert_eq!((extra.roots(), extra.warnings.len()), (base + 2, 0));
         assert!(load(&[("NODE_EXTRA_CA_CERTS", "")], &[], &[]).warnings.is_empty());
         let dir_warning = load(&[("NODE_EXTRA_CA_CERTS", dir)], &[], &[]).warnings;
-        assert_eq!(dir_warning, vec![format!("warn: ignoring extra certs from {dir}, load failed: Is a directory")]);
+        let reason = if cfg!(windows) { "Permission denied" } else { "Is a directory" };
+        assert_eq!(dir_warning, vec![format!("warn: ignoring extra certs from {dir}, load failed: {reason}")]);
     }
 
     #[test]

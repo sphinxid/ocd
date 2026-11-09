@@ -104,7 +104,7 @@ fn matches(selector: &str, target: &str) -> bool {
 }
 
 fn source_for(target: &str) -> Value {
-    if Path::new(target).is_absolute() {
+    if Path::new(target).has_root() {
         json!({ "type": "local", "path": target })
     } else {
         json!({ "type": "package", "target": target })

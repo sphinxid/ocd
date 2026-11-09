@@ -971,7 +971,7 @@ impl Backend for Engine {
     /// directory check it fails the way upstream reports a snapshot it could not write (`500 UnknownError`).
     async fn debug_heap_dump(&self, _ctx: &RequestContext, req: DebugHeapDumpRequest) -> Result<DebugHeapDumpResponse, ApiError> {
         if let Some(directory) = &req.directory
-            && !std::path::Path::new(directory).is_absolute()
+            && !std::path::Path::new(directory).has_root()
         {
             return Err(ApiError::invalid_request("directory must be an absolute path").with_field("directory"));
         }

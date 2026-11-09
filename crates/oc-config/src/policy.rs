@@ -115,7 +115,7 @@ pub fn plugin_allowed(policies: &[Statement], target: &str) -> bool {
 pub fn plugin_policy_target(target: &str) -> String {
     let version = target.rfind('@').filter(|&i| i > 0);
     match version {
-        Some(i) if !Path::new(target).is_absolute() => target[..i].to_string(),
+        Some(i) if !Path::new(target).has_root() => target[..i].to_string(),
         _ => target.to_string(),
     }
 }

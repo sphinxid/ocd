@@ -957,13 +957,13 @@ impl App {
         }
         let base = self.location_dir();
         let dir = if let Some(rest) = input.strip_prefix("~") {
-            format!("{}{}", dirs::home_dir().map(|h| h.to_string_lossy().to_string()).unwrap_or_default(), rest)
+            format!("{}{}", oc_util::global::os_home().to_string_lossy(), rest)
         } else if input.starts_with('/') {
             input.clone()
         } else {
             format!("{}/{}", base.trim_end_matches('/'), input)
         };
-        let dir = std::path::Path::new(&dir).canonicalize().map(|p| p.to_string_lossy().to_string()).unwrap_or(dir);
+        let dir = oc_util::fs::canonicalize(&dir).map(|p| p.to_string_lossy().to_string()).unwrap_or(dir);
         let c = self.client.clone();
         match self.session_id().map(|s| s.to_string()) {
             Some(s) => {

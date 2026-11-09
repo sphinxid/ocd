@@ -163,25 +163,29 @@ impl Conn {
 // ---------------------------------------------------------------------------------------------
 // paths & directories (`acp/directories.ts`)
 
-fn fs_resolve(p: &str) -> String {
-    let path = std::path::Path::new(p);
-    let abs = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(path) };
-    let abs = crate::run::tool_path(&abs.display().to_string(), "/");
-    let abs = format!("/{}", abs.trim_start_matches('/'));
-    std::fs::canonicalize(&abs).map(|c| c.display().to_string()).unwrap_or(abs)
+/// `path.resolve(FSUtil.windowsPath(p))` against the process directory.
+fn node_resolve(p: &str) -> String {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    oc_tools::util::resolve(&cwd, &oc_tools::file_access::windows_path(p)).display().to_string()
 }
 
+/// `FSUtil.resolve`: [`node_resolve`], then the real path when there is one.
+fn fs_resolve(p: &str) -> String {
+    let abs = node_resolve(p);
+    oc_util::fs::canonicalize(&abs).map(|c| c.display().to_string()).unwrap_or(abs)
+}
+
+/// `absolutePath` (`acp/tool.ts`): `path.resolve(cwd, p)` unless `p` is absolute already.
 fn absolutize(p: &str, cwd: &str) -> String {
-    if std::path::Path::new(p).is_absolute() {
+    if std::path::Path::new(p).has_root() {
         return p.to_string();
     }
-    let joined = std::path::Path::new(cwd).join(p);
-    format!("/{}", crate::run::tool_path(&joined.display().to_string(), "/").trim_start_matches('/'))
+    oc_tools::util::resolve(std::path::Path::new(cwd), p).display().to_string()
 }
 
 fn parse_cwd(cwd: &Value) -> R<String> {
     let c = cwd.as_str().unwrap_or("");
-    if c.is_empty() || !std::path::Path::new(c).is_absolute() {
+    if c.is_empty() || !std::path::Path::new(c).has_root() {
         return Err(AcpError::invalid_request(&format!("cwd must be an absolute path: {c}"), Some("cwd")));
     }
     Ok(c.to_string())
@@ -192,13 +196,13 @@ fn parse_directories(cwd: &Value, dirs: Option<&Value>) -> R<(String, Vec<String
     let mut out: Vec<String> = vec![];
     for d in dirs.and_then(Value::as_array).cloned().unwrap_or_default() {
         let d = d.as_str().unwrap_or("").to_string();
-        if d.is_empty() || !std::path::Path::new(&d).is_absolute() || d.contains('*') || d.contains('?') {
+        if d.is_empty() || !std::path::Path::new(&d).has_root() || d.contains('*') || d.contains('?') {
             return Err(AcpError::invalid_params(
                 format!("additional directory must be an absolute path without glob characters: {d}"),
                 json!({"additionalDirectory": d}),
             ));
         }
-        let n = absolutize(&d, "/");
+        let n = node_resolve(&d);
         if !out.contains(&n) {
             out.push(n);
         }
@@ -2502,9 +2506,10 @@ mod tests {
         assert_eq!(call["kind"], "execute");
         assert_eq!(call["locations"], json!([{"path": "/workspace"}]));
         assert_eq!(call["rawInput"], json!({"command": "printf hello", "cwd": "/workspace"}));
-        let err = error_update("t", "read", &json!({"path": "a.txt"}), &json!([]), None, "boom", "/w");
+        let w = if cfg!(windows) { r"C:\w" } else { "/w" };
+        let err = error_update("t", "read", &json!({"path": "a.txt"}), &json!([]), None, "boom", w);
         assert_eq!(err["content"], json!([{"type": "content", "content": {"type": "text", "text": "boom"}}]));
-        assert_eq!(err["locations"], json!([{"path": "/w/a.txt"}]));
+        assert_eq!(err["locations"], json!([{"path": std::path::Path::new(w).join("a.txt")}]));
     }
 
     const PATCH: &str = "*** Begin Patch\n*** Update File: b.py\n@@\n def f():\n-    x = 1\n+    x = 2\n     return x\n*** Update File: e.py\n@@\n     a = 1\n-    b = 2\n+    b = 3\n     c = 3\n*** Add File: c.txt\n+hello\n*** Delete File: gone.txt\n*** End Patch";
@@ -2531,7 +2536,7 @@ mod tests {
         let input = json!({"patchText": PATCH});
         let update = with_update("tool_call_update", completed_update("call_patch", "patch", &input, &json!([{"type": "text", "text": "Success."}]), Some(&metadata), &cwd));
         let update = with_completed_diffs(update, "patch", &input, Some(&metadata), &cwd);
-        let p = |f: &str| format!("{cwd}/{f}");
+        let p = |f: &str| dir.path().join(f).display().to_string();
         assert_eq!(
             update["content"],
             json!([
@@ -2562,7 +2567,7 @@ mod tests {
         std::fs::write(dir.path().join("e.py"), "    a = 1\n    b = 2\n    c = 3\n").unwrap();
         std::fs::write(dir.path().join("gone.txt"), "bye\n").unwrap();
         std::fs::write(dir.path().join("a.txt"), "one\ntwo\nthree\n").unwrap();
-        let p = |f: &str| format!("{cwd}/{f}");
+        let p = |f: &str| dir.path().join(f).display().to_string();
         let tool = Tracked { session: "s".into(), id: "call_patch".into(), name: "patch".into(), input: json!({"patchText": PATCH}), metadata: json!({}) };
         let params = permission_params("root", &cwd, &json!({"id": "per", "action": "edit", "resources": []}), Some(&tool), None);
         let call = &params["toolCall"];

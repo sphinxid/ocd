@@ -274,7 +274,7 @@ async fn session_list(app: &App, call: &Call) -> Result<Response, ApiError> {
     let archived = call.query_bool("archived")?;
     let directory = call.query_str("directory", None)?;
     // `AbsolutePath` has no check: upstream fails later with a defect (500, empty body).
-    if directory.as_deref().is_some_and(|d| !std::path::Path::new(d).is_absolute()) {
+    if directory.as_deref().is_some_and(|d| !std::path::Path::new(d).has_root()) {
         return Err(ApiError::defect("relative session list directory"));
     }
     let project = call.query_str("project", None)?;
