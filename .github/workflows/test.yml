@@ -30,7 +30,7 @@ jobs:
       matrix:
         os: [macos-15, windows-2022, ubuntu-22.04-arm]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 150
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
       - name: Install Rust
@@ -44,15 +44,29 @@ jobs:
           git config --global user.name "ocd tests"
           git config --global user.email "tests@localhost"
           git config --global init.defaultBranch main
+      - name: Build tests
+        shell: bash
+        run: cargo test --workspace --no-run --locked
+      - name: Install cargo-nextest
+        if: runner.os == 'Windows'
+        shell: bash
+        run: curl -LsSf https://get.nexte.st/latest/windows-tar | tar zxf - -C "$HOME/.cargo/bin"
       - name: Test
         shell: bash
         run: |
           set +e
-          cargo test --workspace --no-fail-fast --locked 2>&1 | tee test.log
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # nextest's `ci` profile (.config/nextest.toml) ends a test that runs longer than 4 minutes and names it.
+            cargo nextest run --workspace --profile ci --locked 2>&1 | tee test.log
+          else
+            cargo test --workspace --no-fail-fast --locked 2>&1 | tee test.log
+          fi
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             # Annotations are readable without access to the logs: one with the failing tests, then the first panics.
-            failed=$(grep -E '^test .* FAILED$' test.log | sed -E 's/^test (.*) \.\.\. FAILED$/\1/' | head -60 | paste -sd ',' -)
+            failed=$( { grep -E '^test .* FAILED$' test.log | sed -E 's/^test (.*) \.\.\. FAILED$/\1/';
+                        grep -E '^ +(FAIL|TIMEOUT|SIGSEGV|SIGABRT|ABORT) \[' test.log | sed -E 's/^ +([A-Z]+) \[[^]]*\] +/\1 /'; } \
+                      | head -60 | paste -sd ',' -)
             [ -n "$failed" ] && echo "::error title=Failing tests::${failed}"
             # Each panic with up to 12 following lines, one annotation each (GitHub keeps 10 errors per step).
             awk '/panicked at / { if (msg) print msg; msg = $0; n = 0; next }
