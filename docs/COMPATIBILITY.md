@@ -2,10 +2,10 @@
 
 [← README](../README.md)
 
-ocd targets opencode **2.2.2** (`anomalyco/opencode`, tag `v2.2.2`, commit `098aa7f`). It was first ported from
-branch `v2` at commit `4617210` (2.0.26). It then caught up with 2.1.4 and 2.2.2 in batches, listed with what each
-one checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md) and [UPGRADE-2.2.2.md](UPGRADE-2.2.2.md). Wherever it has to
-look like opencode, ocd reports version 2.2.2.
+ocd targets opencode **2.2.5** (`anomalyco/opencode`, tag `v2.2.5`, commit `9bbb8ce`). It was first ported from
+branch `v2` at commit `4617210` (2.0.26). It then caught up with 2.1.4, 2.2.2 and 2.2.5 in batches, listed with what each
+one checked in [UPGRADE-2.1.4.md](UPGRADE-2.1.4.md), [UPGRADE-2.2.2.md](UPGRADE-2.2.2.md) and [UPGRADE-2.2.5.md](UPGRADE-2.2.5.md). Wherever it has to
+look like opencode, ocd reports version 2.2.5.
 
 - [How it is compared](#how-it-is-compared)
 - [Same as upstream](#same-as-upstream)
@@ -15,7 +15,7 @@ look like opencode, ocd reports version 2.2.2.
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 121 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 149 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
@@ -25,7 +25,7 @@ look like opencode, ocd reports version 2.2.2.
   - Mercurial repositories and the desktop browser attachment.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 118 of the 121 scenarios are identical. The other three differ in ways that are expected or harmless:
+- **Result:** 145 of the 149 scenarios are identical. The other three differ in ways that are expected or harmless:
   - the intended renames;
   - the upstream test build's database file name;
   - a timing race that also varies between runs of upstream.
@@ -45,7 +45,8 @@ look like opencode, ocd reports version 2.2.2.
 | Permissions and forms | Ask, once, always, and reject with feedback; the question tool |
 | Built-in tools | read, write, edit, patch, glob, grep, shell, webfetch, websearch, todo, task and others. Output limits and scanners checked against 81,787 upstream cases |
 | Code Mode | The JavaScript `execute` tool has its own interpreter. 1,800 of 1,802 programs recorded from upstream 2.2.2 replay identically (the other two depend on how a timed-out tool call is cleaned up) |
-| Project setup | Agents, commands, skills (including remote skill discovery), `AGENTS.md` instructions and references, config files and live reload, configured `instructions` (files, globs and URLs), `policies`, and managed system config (`/etc/opencode` and its platform equivalents) |
+| Project setup | Agents, commands, skills (including remote skill discovery), `AGENTS.md` instructions and references, config files and live reload, configured `instructions` (files, globs and URLs), `policies` (with 2.2.5's `integration.connect`, `integration.use` per account, `mcp.use`, `skill.use` and `plugin.use`, and old `mcp:`/`skill:`/`plugin:` rules converted), well-known organization config, and managed system config (`/etc/opencode` and its platform equivalents) |
+| Claude Agent provider | Runs sessions through the local Claude Code CLI (`claude auth login`, `OPENCODE_CLAUDE_PATH`) with OpenCode's tools: the integration and its sign-in check, the model catalog, the stdio and control protocol, sessions, forks and compaction. Checked side by side against a scripted stand-in for `claude`. Transcript forks and deletes use the real Claude Agent SDK in the plugin helper (Bun, installed on first use) |
 | opencode v1 import | Imports v1 history into the v2 tables byte-identically to upstream, with the same progress badge in the TUI |
 | Chat providers | Anthropic, OpenAI, Google, Bedrock, Mistral, Cohere, OpenAI-compatible, OpenCode Zen, and every models.dev provider using those protocols. 229 recorded upstream streams decode identically |
 | Sign-in | API keys and OAuth. ChatGPT, with token sharing, the Codex browser and device-code logins, and upstream's model list, endpoints and headers. Also GitHub Copilot and the Azure CLI. Available from `ocd auth` or the TUI's `/connect` (accounts, sign-in forms, browser and device OAuth, pasted codes, login commands) |
@@ -55,8 +56,10 @@ look like opencode, ocd reports version 2.2.2.
 | MCP servers | stdio and HTTP transports, OAuth and elicitation. Remote servers are sign-in integrations, so `ocd mcp auth` and `/connect` can sign in to them |
 | Server plugins | Tools, hooks, transforms, storage, rpc and events, plus `ocd plugin add/check/update`. They run in a small Bun helper process. Changing `plugins` while the server runs reloads them live, any number of times, with upstream's notifications |
 | AI SDK provider packages | Such as `@ai-sdk/deepseek`, through the same Bun helper |
-| Clients and API | The full TUI. The web UI served by `ocd serve`, built from upstream's 2.2.2 app (88 of 88 compared requests were identical with the 2.0.26 app; the serving code is unchanged since). The HTTP API (162 endpoints, from upstream 2.2.2's OpenAPI document) and the event stream. The background service on port 49374 (28894 on Windows) |
+| Clients and API | The full TUI. The web UI served by `ocd serve`, built from upstream's 2.2.5 app (88 of 88 compared requests were identical with the 2.0.26 app; the serving code is unchanged since apart from its content-security policy). The HTTP API (169 endpoints, from upstream 2.2.5's OpenAPI document) and the event stream. The background service on port 49374 (28894 on Windows) |
 | Git | Status, diffs, branches, snapshots and worktrees |
+| Shell permissions | The built-in shell scanner of 2.2.5 (no tree-sitter): redirects, PowerShell method calls and dynamic `cd` are permission resources. 95,128 calls recorded from upstream's own scanner match |
+| Persistent terminals | `@opencode/pty` 0.4.0: terminals belong to their session, are removed with it, and can be renamed |
 | Mercurial | Project identity, status, working and branch diffs, `vcs.init` for hg and branch watching. Like upstream, snapshots and worktrees are git-only. Needs `hg` on `PATH` |
 | Desktop browser attachment | The built-in `opencode.browser` plugin: the `experimental.browser` RPC (attach, state, commands and results, tunnels), its control events, the session permissions an attached desktop grants, the 45 `browser.*` Code Mode tools with file uploads and captures, and the 60 s request timeout. The `browser` skill is denied to every agent until a desktop attaches. The desktop's own proxy is part of the desktop app, not the server |
 | Editor integration (ACP) | `ocd acp`, including the file diffs on permission requests and completed edits |
@@ -100,4 +103,4 @@ look like opencode, ocd reports version 2.2.2.
 | TUI working status line | After you press Enter, a line above the prompt shows what's happening: waiting for the model, thinking, writing, running a tool, retrying or compacting. It also shows a timer ticking every second, the output token count and the interrupt key. A running shell command goes on the row below. Upstream shows only its moving progress bar, which ocd keeps, plus a live "Thinking" row in the transcript, which ocd leaves out while the status line shows it |
 | `ocd upgrade` and update checks | Installs from ocd's GitHub releases with checksum verification, and checks once a day instead of every 10 minutes ([details](INSTALL.md#upgrading)) |
 | Heap snapshots | The server has no JavaScript heap, so `POST /api/debug/heap-dump` answers `500 UnknownError`. `ocd debug heap-dump --server URL` still captures one from an upstream server |
-| Version | `ocd --version` shows ocd's own build next to the compatible opencode version. Clients, plugins and the service see 2.2.2 on the `latest` channel ([details](INSTALL.md#versions)) |
+| Version | `ocd --version` shows ocd's own build next to the compatible opencode version. Clients, plugins and the service see 2.2.5 on the `latest` channel ([details](INSTALL.md#versions)) |

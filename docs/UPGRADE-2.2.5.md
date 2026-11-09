@@ -2,8 +2,9 @@
 
 [← Compatibility](COMPATIBILITY.md)
 
-Status: planned (2026-11-06). ocd tracks opencode 2.2.2 ([UPGRADE-2.2.2.md](UPGRADE-2.2.2.md)); upstream released
-2.2.3 and 2.2.4 (Oct 30) and 2.2.5 (Oct 30, tag `v2.2.5`, commit `9bbb8ce`).
+Status: done (2026-11-09); ocd now reports 2.2.5, and its releases and web UI are built from the `v2.2.5` tag.
+Before, ocd tracked opencode 2.2.2 ([UPGRADE-2.2.2.md](UPGRADE-2.2.2.md)); upstream released 2.2.3 and 2.2.4 (Oct 30)
+and 2.2.5 (Oct 30, tag `v2.2.5`, commit `9bbb8ce`).
 
 How it was planned: four read-only reviews of the tree diff `v2.2.2..v2.2.5` (about 33,000 added lines, much of it
 the desktop app), one per area, each checked against ocd's code. Every change that is on by default is ported;

@@ -7,12 +7,12 @@ Goal (user request): an exact behavioral replica of **opencode v2** in Rust — 
 `docs/PORTING.md`. Specs: `docs/spec/01..08` (~18k lines, all complete).
 
 ## Upstream reference
-- Repo `anomalyco/opencode`, tag `v2.2.2`, commit `098aa7fd6e02b03d6fc410f0b052038c7d4c5e81`, MIT (`LICENSE-opencode`).
+- Repo `anomalyco/opencode`, tag `v2.2.5`, commit `9bbb8ce18c80f099e0e448775f59d965ead40a21`, MIT (`LICENSE-opencode`).
   The port started from branch `v2` at `4617210822bdbb31e5749751afbfb4584ccedac8` (2.0.26) and caught up with
-  2.1.4 (`docs/UPGRADE-2.1.4.md`) and 2.2.2 (`docs/UPGRADE-2.2.2.md`) in batches; the specs in `docs/spec/` still
+  2.1.4 (`docs/UPGRADE-2.1.4.md`), 2.2.2 (`docs/UPGRADE-2.2.2.md`) and 2.2.5 (`docs/UPGRADE-2.2.5.md`) in batches; the specs in `docs/spec/` still
   cite the 4617210 sources. The 2.2 tags are not descendants of `v2.1.4`: compare trees, not commit logs.
 - Read-only checkout (may vanish with the session scratchpad; re-clone if missing):
-  `git clone https://github.com/anomalyco/opencode.git && git -C opencode checkout v2.2.2`
+  `git clone https://github.com/anomalyco/opencode.git && git -C opencode checkout v2.2.5`
   (was at `$OCD_SCRATCH/src/opencode`).
 - Toolchain: rustup in `~/.cargo` (Rust 1.99, edition 2024). Always `export PATH=$HOME/.cargo/bin:$PATH`.
   Machine: 8 cores, 13 GB RAM. No git commits (user's global rule: only commit when asked; never add AI attribution).
@@ -23,7 +23,7 @@ Goal (user request): an exact behavioral replica of **opencode v2** in Rust — 
   Core is **event-sourced**: durable session events → projectors → SQLite tables; `event` table stays empty locally
   (persist=false); `event_sequence` holds per-aggregate seq (first event seq 0).
 - DB: `<XDG_DATA_HOME|~/.local/share>/opencode/opencode.db` (release channels), WAL, pragmas in spec 02 §1.3.
-  Fresh DB = run `assets/sql/schema.sql` + insert all 58 ids from `assets/sql/migration_ids.txt`.
+  Fresh DB = run `assets/sql/schema.sql` + insert all 59 ids from `assets/sql/migration_ids.txt`.
 - Paths are XDG on every OS. Log: `<data>/log/opencode.log`, logfmt, trimmed >50MiB → ~25MiB.
 - IDs: 12 hex (48-bit, ts<<12+counter, truncated) + 14 base62; `ses_` descending, others ascending.
 - v2 messages have no "parts": assistant `content[]` items (text/reasoning/tool). Stored `data` excludes `id`/`type`.
@@ -116,6 +116,12 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
   `Plugins::load` returned early without settling every activation after the first (a lost wakeup: agent.list 503,
   RPC hung); activations now run one at a time with a settle-on-drop guard, and reload notifications follow 2.2.2's
   fixed batch order. Parity 118/121; tests 2160 passed.
+- 2026-11-09: CAUGHT UP WITH 2.2.5 (`docs/UPGRADE-2.2.5.md`): four reviews, five batches (storage/API/policy, the
+  Claude Agent provider in `oc-core/src/claude_agent`, the shell scanner without tree-sitter, session/tools/terminals,
+  TUI/CLI incl. the tab pulse) and one fix batch; upstream binary built from the tag like 2.2.2's. Migration 59 (`job`
+  table), OpenAPI 169 ops, `@opencode/pty` 0.4.0, web UI from 2.2.5. The guard forces `OPENCODE_CLAUDE_PATH` to a
+  refusing stub (`$S/guard/no-claude`); the parity group uses a scripted stand-in and the SDK package from the 2.2.5
+  checkout. Tests 2287 passed; parity 145/149 against 2.2.5.
 - 2026-10-30: 2.2.2 FINAL CHECK: full side-by-side 95/98 identical against the v2.2.2 build (cli_help renames,
   cli_inventory detached db path, stop_retry_exhausted upstream race). Follow-up fixes: browser skill + denies
   (`location::browser_denies`, `assets/skill/browser.md`), unlocated events for location-free session routes

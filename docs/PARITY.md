@@ -1,9 +1,10 @@
 # Differential parity: upstream opencode v2 vs ocd
 
-Upstream reference: since the 2.2.2 catch-up, a local build of `anomalyco/opencode` at tag `v2.2.2` (commit
-`098aa7f`, built in `packages/cli` with `OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui`;
-reports `0.0.0-detached-<timestamp>`, channel `detached`). Port: `target/debug/ocd` (workspace version 2.2.2,
-channel `latest`). From 2026-10-27 to 2026-10-29 the reference was the same kind of build at tag `v2.1.4` (commit
+Upstream reference: since the 2.2.5 catch-up, a local build of `anomalyco/opencode` at tag `v2.2.5` (commit
+`9bbb8ce`, built in `packages/cli` with `OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui`;
+reports `0.0.0-detached-<timestamp>`, channel `detached`). Port: `target/debug/ocd` (workspace version 2.2.5,
+channel `latest`). From 2026-10-30 to 2026-11-06 the reference was the same kind of build at tag `v2.2.2`
+(commit `098aa7f`); from 2026-10-27 to 2026-10-29 it was the same kind of build at tag `v2.1.4` (commit
 `68bc26b`; ocd then reported 2.1.4). Results before 2026-10-27 were against the build of
 branch `v2` at commit `4617210` (reports `0.0.0-v2-<timestamp>`, channel `v2`; ocd then reported 2.0.26), and the
 upstream sources cited below are relative to `packages/` of that commit unless they say otherwise.
@@ -15,7 +16,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -88,7 +89,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (121)
+## Scenarios (149)
 
 | group | scenarios |
 |---|---|
@@ -110,7 +111,20 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | hg | Mercurial repositories (needs `hg` on `PATH`, otherwise recorded as skipped; the helper fixes author, date and config so changeset and project IDs match): a clean repo with every vcs endpoint and mode, worktree list/create, every kind of change (modified, added, removed, missing, moved, untracked files and folders, binary and BOM files), named branches and `.hg/branch` changes, a repo with no commits, git and hg nested both ways, `vcs.init?provider=hg`, a session with a write tool |
 | browser | the desktop browser attachment against a stand-in desktop (`scripts/parity/browser.py`): attach, replace and detach with the control events and session permissions, the `browser.*` Code Mode tools and what the model receives, tool errors, a desktop leaving mid-request, the 60 s timeout, tunnels, the attachment ending with its session, its location or the plugin |
 
+| shell225 | shell permission asks and saved patterns under the 2.2.5 scanner, bash and PowerShell (redirects, dynamic `cd`, an eval sink, method calls) |
+| api225 | the 2.2.5 policy split (connect and use, per account, legacy conversion), artifact and schedule answers with the features off, and the catalog notifications of credential changes |
+| session225 | reasoning across model switches and an interrupt, `read`/`edit` misses and `bash` as `shell`, MCP stdio framing, quiet location close, Code Mode `fetch` permissions, well-known config, terminal rename and removal with the session, restart recovery only under `serve --service` |
+| claude | the Claude Agent provider against a scripted stand-in for `claude` (both binaries use the same stand-in, which logs its arguments, environment and every message): sign-in states, prices, a missing or crashing executable, text and tool turns, an unoffered tool, errors, cancel, fork and compaction |
+
 ## Results
+
+**Final run against 2.2.5 (debug build, 2026-11-09):** all 149 scenarios against the local v2.2.5 build, `hg`
+7.2.4 on `PATH`, the scripted stand-in for the Claude Agent provider: **145 of 149 identical**. Left: `cli_help`,
+`cli_inventory`, `stop_retry_exhausted` as before, and `tools22_repair_builtin`, which was identical in three reruns
+(two files created in the same millisecond sort by modification time either way). The first full run found the
+credential-change notifications, the plugin restart order, Copilot's per-location model sync, invalid browser
+results' decode errors and the MCP tool list after a server closes; all fixed. Two upstream races are recorded
+robustly: Copilot sometimes syncs its models a third time, and `mcp.*` events race the failed step's usage event.
 
 **Run after the tool input repair and the plugin reload fix (debug build, 2026-11-01):** all 121 scenarios
 against the local v2.2.2 build, `hg` 7.2.4 on `PATH`: **118 of 121 identical**. Left: `cli_help`, `cli_inventory` and
