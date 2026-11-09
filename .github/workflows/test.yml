@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+# A newer push supersedes a running test of the same branch.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   RUST_VERSION: "1.99.0"
   CARGO_TERM_COLOR: always
