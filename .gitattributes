@@ -1,0 +1,3 @@
+# Check out text files with LF line endings everywhere, as upstream does for its prompt text: embedded prompts and
+# test fixtures must not pick up CRLF from a Windows checkout.
+* text=auto eol=lf
