@@ -135,7 +135,10 @@ async fn shares_failures_but_allows_a_later_refresh() {
         let (b, connection) = (b.clone(), connection.clone());
         tokio::spawn(async move { b.resolve(&connection).await })
     };
-    tokio::task::yield_now().await;
+    // The second caller must join the running refresh before it settles: a caller arriving after it settled starts
+    // its own refresh (as upstream's does), which would wait for a release that never comes. One `yield_now` was
+    // not always enough on a busy machine.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     method.release.notify_one();
     let failure = IntegrationError::Authorization("refresh rejected".into());
     assert_eq!(first.await.unwrap().unwrap_err(), failure);
