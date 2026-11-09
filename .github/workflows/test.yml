@@ -49,8 +49,11 @@ jobs:
         run: cargo test --workspace --no-run --locked
       - name: Install cargo-nextest
         if: runner.os == 'Windows'
-        shell: bash
-        run: curl -LsSf https://get.nexte.st/latest/windows-tar | tar zxf - -C "$HOME/.cargo/bin"
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "cargo-nextest.zip"
+          Invoke-WebRequest -OutFile $zip https://get.nexte.st/latest/windows
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $HOME ".cargo/bin") -Force
       - name: Test
         shell: bash
         run: |
