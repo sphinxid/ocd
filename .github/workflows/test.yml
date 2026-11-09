@@ -65,17 +65,10 @@ jobs:
           else
             cargo test --workspace --no-fail-fast --locked 2>&1 | tee test.log
           fi
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            # Annotations are readable without access to the logs: one with the failing tests, then the first panics.
-            failed=$( { grep -E '^test .* FAILED$' test.log | sed -E 's/^test (.*) \.\.\. FAILED$/\1/';
-                        grep -E '^ +(FAIL|TIMEOUT|SIGSEGV|SIGABRT|ABORT) \[' test.log | sed -E 's/^ +([A-Z]+) \[[^]]*\] +/\1 /'; } \
-                      | head -60 | paste -sd ',' -)
-            [ -n "$failed" ] && echo "::error title=Failing tests::${failed}"
-            # Each panic with up to 12 following lines, one annotation each (GitHub keeps 10 errors per step).
-            awk '/panicked at / { if (msg) print msg; msg = $0; n = 0; next }
-                 msg && n < 12 && !/^note: / { msg = msg "%0A" $0; n++ }
-                 END { if (msg) print msg }' test.log \
-              | head -9 | while IFS= read -r line; do echo "::error title=Panic::${line}"; done
-          fi
-          exit "$status"
+          exit "${PIPESTATUS[0]}"
+      - name: Report failures
+        if: failure()
+        shell: bash
+        # Annotations are readable without access to the logs: failures per test binary, every failing test, then
+        # the panics.
+        run: bash .github/ci-annotate.sh test.log
