@@ -2353,7 +2353,7 @@ dependencies = [
 
 [[package]]
 name = "oc-ai"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "oc-backend"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2441,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "oc-codemode"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2468,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "oc-config"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2492,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "oc-core"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2550,7 +2550,7 @@ dependencies = [
 
 [[package]]
 name = "oc-git"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "futures",
@@ -2571,7 +2571,7 @@ dependencies = [
 
 [[package]]
 name = "oc-mcp"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2605,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "oc-persistent-pty"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2627,7 +2627,7 @@ dependencies = [
 
 [[package]]
 name = "oc-plugin"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "async-trait",
  "flate2",
@@ -2649,7 +2649,7 @@ dependencies = [
 
 [[package]]
 name = "oc-schema"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2664,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "oc-server"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2706,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "oc-storage"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2727,7 +2727,7 @@ dependencies = [
 
 [[package]]
 name = "oc-tools"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2764,7 +2764,7 @@ dependencies = [
 
 [[package]]
 name = "oc-tui"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2798,7 +2798,7 @@ dependencies = [
 
 [[package]]
 name = "oc-tunnel"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2823,7 +2823,7 @@ dependencies = [
 
 [[package]]
 name = "oc-util"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2854,7 +2854,7 @@ dependencies = [
 
 [[package]]
 name = "ocd"
-version = "2.2.2"
+version = "2.2.5"
 dependencies = [
  "anyhow",
  "async-trait",

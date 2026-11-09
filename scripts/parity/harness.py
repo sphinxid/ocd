@@ -41,7 +41,7 @@ DURATION_KEYS = {"duration", "elapsed", "durationMs", "ms", "uptime"}
 VOLATILE_KEYS = {"pid"}  # OS process ids
 # User-Agent `opencode/<channel>/<version>/<app>`: channel and version come from the build (a local upstream build:
 # channel "v2" or "detached" + 0.0.0-<channel>-<timestamp>; the port: "latest" + the workspace version).
-BUILD_RE = re.compile(r"\b(0\.0\.0-(?:v2|detached)-\d{12}|2\.0\.26|2\.1\.4|2\.2\.2)\b")
+BUILD_RE = re.compile(r"\b(0\.0\.0-(?:v2|detached)-\d{12}|2\.0\.26|2\.1\.4|2\.2\.2|2\.2\.5)\b")
 UA_RE = re.compile(r"opencode/(v2|detached|latest|local|dev)/(0\.0\.0-[\w.-]+|2\.[012]\.\d+)/")
 # `b3: <trace>-<span>-<sampled>[-<parent>]` and `traceparent: 00-<trace>-<span>-<flags>` (HttpTraceContext.toHeaders).
 B3_RE = re.compile(r"^([0-9a-f]{32})-([0-9a-f]{16})-([01d])(?:-([0-9a-f]{16}))?$")
