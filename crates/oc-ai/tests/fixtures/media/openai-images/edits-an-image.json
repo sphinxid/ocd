@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:openai-images",
+   "provider:openai",
+   "protocol:openai-images"
+  ],
+  "name": "openai-images/edits-an-image",
+  "recordedAt": "2026-07-20T21:03:15.875Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/images/edits",
+    "headers": {
+     "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryd815191b7a314b73933388622c7ece5a"
+    },
+    "body": "------WebKitFormBoundaryd815191b7a314b73933388622c7ece5a\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-1-mini\r\n------WebKitFormBoundaryd815191b7a314b73933388622c7ece5a\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nKeep the simple shape and change it from black to bright green.\r\n------WebKitFormBoundaryd815191b7a314b73933388622c7ece5a\r\nContent-Disposition: form-data; name=\"output_format\"\r\n\r\njpeg\r\n------WebKitFormBoundaryd815191b7a314b73933388622c7ece5a\r\nContent-Disposition: form-data; name=\"output_compression\"\r\n\r\n10\r\n------WebKitFormBoundaryd815191b7a314b73933388622c7ece5a\r\nContent-Disposition: form-data; name=\"quality\"\r\n\r\nlow\r\n------WebKitFormBoundaryd815191b7a314b73933388622c7ece5a\r\nContent-Disposition: form-data; name=\"size\"\r\n\r\n1024x1024\r\n------WebKitFormBoundaryd815191b7a314b73933388622c7ece5a\r\nContent-Disposition: form-data; name=\"image[]\"; filename=\"image-0\"\r\nContent-Type: image/jpeg\r\n\r\n\ufffd\ufffd\ufffd\ufffd\u0000\u0010JFIF\u0000\u0001\u0002\u0000\u0000\u0001\u0000\u0001\u0000\u0000\ufffd\ufffd\u0000\u0010Lavc60.31.102\u0000\ufffd\ufffd\u0000C\u0000\b\u0010\u0010\u0013\u0010\u0013\u0016\u0016\u0016\u0016\u0016\u0016\u001a\u0018\u001a\u001b\u001b\u001b\u001a\u001a\u001a\u001a\u001b\u001b\u001b\u001d\u001d\u001d\"\"\"\u001d\u001d\u001d\u001b\u001b\u001d\u001d  \"\"%&%##\"#&&(((00..88:EES\ufffd\ufffd\u0000k\u0000\u0001\u0001\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0007\b\u0006\u0004\u0005\u0001\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0010\u0000\u0002\u0002\u0001\u0001\u0005\u0007\u0003\u0004\u0003\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u0001\u0003\u0002\u0004\u0011\u0006\u0005\u0012!a\ufffdq\ufffdQA1\u0013\ufffd\ufffdSB\ufffdr\"\ufffd\ufffd#\u0011\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\ufffd\ufffd\u0000\u0011\b\u0000\ufffd\u0000\ufffd\u0003\u0001\"\u0000\u0002\u0011\u0000\u0003\u0011\u0000\ufffd\ufffd\u0000\f\u0003\u0001\u0000\u0002\u0011\u0003\u0011\u0000?\u0000\ufffd\ufffd\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u001e9\ufffd\"\u014e\ufffd\ufffdz\ufffdJ\ufffd\ufffd\ufffdE\ufffd\ufffd{\ufffd\ufffd\ufffd\ufffdb\ufffd\ufffd\u06c6\ufffd\ufffd\ufffd\u03e2\ufffd~\ufffd\ufffd\ufffd[\ufffd|O\ufffd\ufffd\u2db5\ufffd\ufffd\ufffdqk\u02ab\ufffd\ufffd\ufffd\ufffd\ufffd\u0004\u00057?l\ufffd\ufffd\ufffdD\ufffd\ufffd\ufffd\ufffd\u03edh\ufffd\ufffd\ufffd\u0002s.\ufffdoY^\ufffd*\ufffd\ufffdEJ/\ufffdu8\ufffd\u0007k\u001e\ufffdoX\ufffd\ufffd*\ufffd\ufffduK\ufffd\ufffdJ&\u0006\u067dUsbZ~X\ufffd\ufffd\ufffd\u0477\ufffd~\u0004\u0018\u0001\ufffd\ufffd\ufffd!\u028e\ufffd\ufffdz\ufffdK{Z\ufffdU\ufffd\u001fG\ufffd\ufffd\u0018\ufffdtoy\ufffdL\ufffdt\ufffd\ufffd\ufffd\ufffd\u0000\ufffd\u0016\ufffd\ufffd\ufffd\u05d5\ufffd\ufffd\ufffd\ufffd\ufffd\u001f\"<\ufffdi4V\u2915V\ufffd\ufffd\ufffd\ufffdf\ufffd\ufffd\ufffd\ufffd\u0000\u0000\u0000\u0000\u0000\u0000\u0000\ufffd\ufffd{\ufffd,*\ufffdZ|\ufffdu\ufffd\ufffd_\ufffd\ufffd\ufffd1\ufffd\ufffd\f\ufffd]\ufffd\ufffd\u9ea2\ufffdR8\ufffd\u0000\u0000\u0000\u0000\u0005\ufffdc7\ufffdV\ufffd\n\u03d3_,}\u001f\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd$\ufffd6~W\u0016\ufffd\ufffdk\ufffdN\u0007\ufffdt\ufffd\ufffd\u0006\ufffd\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0001\ufffd\ufffd\ufffd'\u0016\ufffd\ufffdO\ufffd]]w^\ufffd\ufffdav\ufffd<\u0006\ufffd\u0016eW&\ufffd):5\ufffd\ufffd}\ufffd\ufffd\u0604\ufffd\u0000\u0000\u0000\u0000:\ufffd\ufffd\u001b\ufffdz\ufffd\ufffd'\u001f\ufffd\u0013\ufffda\ufffd\u0017\u001d\ufffd\ufffdv\ufffd\\\ufffd/\ufffdE\ufffdG\ufffd\u03dd\ufffd\ufffdZ/\u001040\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u000f\u000eN4Yp\ufffd\f\ufffd\u2915\ufffdk\ufffdu^\uba4f\ufffd\ufffd\ufffduN\ufffd;Q\ufffd\ufffd\u0267+\ufffd\ufffd/Tl\ufffd\ufffd\ufffd\ufffd\u00d9\u0015\ufffd\ufffd:\ufffdK{\ufffd\ufffd\u0000S\ufffdO\u026e`a\ufffd\\s\ufffd6J\ufffdl9U\ufffd\ufffd\ufffd\ufffde\ufffd]r~)\u0013\ufffdw\u0016\ufffd\ufffdl9\ufffd\ufffd\\k\ufffdF\ufffd\ufffd\ufffd\ufffd\u01f8\ufffd\ufffd\ufffdE\ufffd2\ufffdU\ufffd_{\ufffdP\ufffd66k\ufffdl\ufffdTu\ufffdq\ufffd+\ufffd\ufffd\ufffdp\ufffd\r@\ufffdn\ufffd\ufffd>\ufffd\ufffdE\u001a\u04abO\ufffdM?\ufffd+\ufffd\ufffd\ufffd\ufffd\ufffdq1b\u00828\"\\4\ufffdh\ufffd\u07db}[\ufffd\ufffd.$\u0018Q(\ufffd\ufffd\ufffd\ufffdz/W\ufffd\u07fb}Y\ufffd@\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\ufffd\ufffd\r\n------WebKitFormBoundaryd815191b7a314b73933388622c7ece5a--\r\n"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 1784581395, \"background\": \"opaque\", \"data\": [{\"b64_json\": \"/9j/4AAQSkZJRgABAQAAAQABAAD/62EsSlACEQAAAAEAAGEianVtYgAAAB5qdW1k\"}], \"output_format\": \"jpeg\", \"quality\": \"low\", \"size\": \"1024x1024\", \"usage\": {\"input_tokens\": 229, \"input_tokens_details\": {\"image_tokens\": 194, \"text_tokens\": 35}, \"output_tokens\": 272, \"output_tokens_details\": {\"image_tokens\": 272, \"text_tokens\": 0}, \"total_tokens\": 501}}"
+   }
+  }
+ ]
+}

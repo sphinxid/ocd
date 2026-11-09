@@ -52,8 +52,8 @@ pub fn package_name(value: &str) -> String {
 }
 
 /// Native `@opencode/ai/providers/*` entrypoints bundled with Core and loadable by name from config
-/// (`packages/core/src/provider.ts` `builtinPackages`, without the image and decision entrypoints this
-/// build cannot run yet). The legacy hyphenated Vertex names and `amazon-bedrock-mantle` are not listed:
+/// (`packages/core/src/provider.ts` `builtinPackages`) as chat packages; the image and decision entrypoints are
+/// in [`CATALOG_PACKAGES`] and load through [`super::resolve::from_catalog_media`]. The legacy hyphenated Vertex names and `amazon-bedrock-mantle` are not listed:
 /// [`super::native::resolve`] rewrites them to the nested entrypoints, though the loader still accepts
 /// them.
 pub const BUILTIN_PACKAGES: &[&str] = &[
@@ -131,9 +131,9 @@ pub const BUILTIN_PACKAGES: &[&str] = &[
 ];
 
 /// Every `@opencode/ai/providers/*` entrypoint upstream's Core bundles (`Provider.builtinPackages`),
-/// including the image and decision entrypoints this build cannot run yet. The models.dev catalog keeps
-/// models whose API names one of these (`loadable`); resolving a package missing from
-/// [`BUILTIN_PACKAGES`] fails as an unsupported package.
+/// including the image and decision entrypoints. The models.dev catalog keeps
+/// models whose API names one of these (`loadable`); a chat model whose package is missing from
+/// [`BUILTIN_PACKAGES`] fails to load.
 pub const CATALOG_PACKAGES: &[&str] = &[
     "@opencode/ai/providers/alibaba",
     "@opencode/ai/providers/alibaba/chat",

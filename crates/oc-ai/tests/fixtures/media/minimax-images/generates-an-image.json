@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:minimax-images",
+   "provider:minimax",
+   "protocol:minimax-images"
+  ],
+  "name": "minimax-images/generates-an-image",
+  "recordedAt": "2026-10-28T14:31:36.981Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://api.minimax.io/v1/image_generation",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"image-01\",\"prompt\":\"A simple flat red circle centered on a plain white background.\",\"width\":512,\"height\":512,\"response_format\":\"base64\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json; charset=utf-8"
+    },
+    "body": "{\"id\": \"07313a409af3baeeaff6248b2369f641\", \"data\": {\"image_base64\": [\"/9j/4AAQSkZJRgABAQAAAQABAAD/4QTsRXhpZgAATU0AKgAAAAgABQEaAAUAAAAB\"]}, \"metadata\": {\"failed_count\": \"0\", \"success_count\": \"1\"}, \"base_resp\": {\"status_code\": 0, \"status_msg\": \"success\"}}"
+   }
+  }
+ ]
+}

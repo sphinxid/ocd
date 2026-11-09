@@ -515,6 +515,124 @@ impl Catalog {
     }
 }
 
+/// The model types a media resolution serves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaType {
+    Image,
+    Decision,
+}
+
+impl MediaType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Image => "image",
+            Self::Decision => "decision",
+        }
+    }
+}
+
+/// A resolved image or decision model.
+#[derive(Debug, Clone)]
+pub enum MediaModel {
+    Image(crate::image::ImageModel),
+    Decision(crate::decision::DecisionModel),
+}
+
+/// `loadCatalogPackage` + `fromCatalogMedia`: build an image or decision model from its catalog package. The
+/// entrypoint (`providers/<P>/images`) exports the same `model(modelID, settings)` as chat; a package that returns
+/// another kind of model cannot serve this type.
+pub fn from_catalog_media(
+    model: &ModelInfo,
+    kind: MediaType,
+    credential: Option<&CredentialValue>,
+    options: &ResolveOptions,
+) -> Result<MediaModel, ResolveError> {
+    let mut resolved = model.clone();
+    if resolved.settings.as_ref().and_then(|s| s.get("apiKey")) == Some(&Value::String(String::new())) {
+        if let Some(settings) = resolved.settings.as_mut() {
+            settings.shift_remove("apiKey");
+        }
+    }
+    let package = resolved.package.clone().unwrap_or_default();
+    let unsupported = || ResolveError::UnsupportedPackage {
+        provider_id: resolved.provider_id.clone(),
+        model_id: resolved.id.clone(),
+        package: resolved.package.clone().unwrap_or_else(|| "unknown".into()),
+    };
+    let specifier = package_name(&package);
+    if specifier.is_empty() || is_aisdk(Some(&package)) {
+        return Err(unsupported());
+    }
+    let configured = resolved.settings.clone().unwrap_or_default();
+    let mapped = prepare_provider_settings(&resolved, native_settings(&configured), options)?;
+    let loader: Arc<dyn PackageLoader> = options.loader.clone().unwrap_or_else(|| Arc::new(NativePackages));
+    // The image and decision entrypoints are bundled too (`CATALOG_PACKAGES`); chat resolution does not load them.
+    if !loader.has(&specifier) && !super::types::CATALOG_PACKAGES.contains(&specifier.as_str()) {
+        return Err(ResolveError::ModelInitialization {
+            provider_id: resolved.provider_id.clone(),
+            model_id: resolved.id.clone(),
+            package: package.clone(),
+            phase: InitializationPhase::Load,
+            detail: format!("Provider package {specifier} is not installed"),
+        });
+    }
+    let mut settings = if credential.is_some() { omit(&mapped, &["accessToken", "apiKey", "authToken"]) } else { mapped };
+    if let Some(canonical) = &resolved.canonical {
+        settings.insert("provider".into(), Value::String(canonical.clone()));
+    }
+    for (k, v) in native_credential_settings(&resolved.provider_id, &specifier, credential) {
+        settings.insert(k, v);
+    }
+    if let Some(headers) = &resolved.headers {
+        settings.insert("headers".into(), Value::Object(headers_to_object(headers)));
+    }
+    if let Some(body) = &resolved.body {
+        settings.insert("body".into(), Value::Object(body.clone()));
+    }
+    let construction = |cause: ProviderConfigurationError| ResolveError::ModelConfiguration {
+        provider_id: resolved.provider_id.clone(),
+        model_id: resolved.id.clone(),
+        package: if package.is_empty() { "unknown".into() } else { package.clone() },
+        detail: cause.message,
+    };
+    match kind {
+        MediaType::Image => match crate::providers::media::image_model(&specifier, &resolved.model_id, &settings) {
+            Some(built) => Ok(MediaModel::Image(built.map_err(construction)?)),
+            None => Err(unsupported()),
+        },
+        MediaType::Decision => match crate::providers::media::decision_model(&specifier, &resolved.model_id, &settings) {
+            Some(built) => {
+                let mut model = built.map_err(construction)?;
+                // Catalog and config compatibility tell a decision route how its host takes media, as chat does.
+                if let Some(media_input) = resolved.compatibility.as_ref().and_then(|c| c.media_input.clone()) {
+                    model.media_input = Some(media_input);
+                }
+                Ok(MediaModel::Decision(model))
+            }
+            None => Err(unsupported()),
+        },
+    }
+}
+
+/// `ModelResolver.resolveImage` / `resolveDecision` for a selected model of that type: the variant overlay and the
+/// provider settings, then [`from_catalog_media`].
+pub fn resolve_media(
+    provider: Option<&ProviderInfo>,
+    selected: &ModelInfo,
+    kind: MediaType,
+    variant: Option<&str>,
+    credential: Option<&CredentialValue>,
+    options: &ResolveOptions,
+) -> Result<MediaModel, ResolveError> {
+    let selected_variant = with_variant(selected, variant)?;
+    let mut runtime_info = selected_variant.clone();
+    runtime_info.settings = merge_overlay(
+        provider.and_then(|p| p.settings.as_ref()),
+        model_settings(selected_variant.settings.as_ref()).as_ref(),
+    );
+    from_catalog_media(&runtime_info, kind, credential, options)
+}
+
 /// `ModelResolver.resolveModel` for a selected effective model and its provider definition.
 pub fn resolve_model(
     provider: Option<&ProviderInfo>,

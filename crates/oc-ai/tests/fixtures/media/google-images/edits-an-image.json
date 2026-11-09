@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:google-images",
+   "provider:google",
+   "protocol:google-images"
+  ],
+  "name": "google-images/edits-an-image",
+  "recordedAt": "2026-07-20T21:03:59.635Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Transform this minimal source into a bright orange sun icon with eight rounded rays on a pale blue background.\"},{\"inlineData\":{\"mimeType\":\"image/jpeg\",\"data\":\"/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwMgD/2wBDAAgQEBMQExYWFhYWFhoYGhsbGxoaGhobGxsdHR0iIiIdHR0bGx0dICAiIiUmJSMjIiMmJigoKDAwLi44ODpFRVP/xABrAAEBAQEBAQAAAAAAAAAAAAAABwgGBAUBAQAAAAAAAAAAAAAAAAAAAAAQAAICAQEFBwMEAwEAAAAAAAABAwIEEQYFEiFhwXGBUUExE6GRU0LwciLh8bEjEQEAAAAAAAAAAAAAAAAAAAAA/8AAEQgAgACAAwEiAAIRAAMRAP/aAAwDAQACEQMRAD8Av4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB458iLFjtLNesdK+9rPRf76e4yMiPFivNLbhpHV2s+i7X6LzMhb33xPvabitrWKrfxxa8qrzfnZ+r8EBTc/bPm64USa/LLrz61omvq/AnMu0W9ZXq8q9elFSi+ldTigB2se0W9Ynqsq9ul1S6+tSiYG2b1Vc2Jafli15dXRt/R+BBgBuvHyIcqOssN6yUt7Wq9V/h9HzPYY03RvefdM3HTW0dn/AOkWvKy815WXo/ua+x8iPKhpNFbipJVWq/36r2a8wPaAAAAAAAAAAIDtnnvWLCq+WnyydfSlX9X9iDHZ7QyuXeuW3+m6ou6lUjjAAAAAAAXbYzeDVpcKz5NfLH0ftdLv5P7kJOw2flcW9cRr1k4H3XTr2gbHAAAAAAAAAAGO9oYnFvXLT/VdXXdeqZxhdts8Bq0WZVcmvik6NaujffzX2ISAAAAAADr9wRuXeuGl6ScfhRO3YcgXHYzAdpZcyy/rRfFH1s+dmu5aLxA0MAAAAAAAAAAPDk40WXDJDLXipJXha7V1Xuupj7eu6p91TuORO1Hr8cmnK67LL1Rs8+fk4sOZFaKeOslLe6f/AFP3T8muYGGAXHP2Nkq3bDlV6/jl5WXRXXJ+KROpdxb0ielsOZ/wXGvvRsDkwdXHuLekr0WHMv5V4F97tFDwNjZrtWzJVHX8cb4rvo7acK8NQJtuvdc+9Z1FGtKrT5JNP60r2vyXqbBxMWLCgjgiXDSNaLzfm31b5sYuJBhRKKCOsdF6L1fm37t9WfRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k=\"}}]}],\"generationConfig\":{\"responseModalities\":[\"IMAGE\"],\"imageConfig\":{\"aspectRatio\":\"1:1\"}}}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json; charset=UTF-8"
+    },
+    "body": "{\"candidates\": [{\"content\": {\"parts\": [{\"inlineData\": {\"mimeType\": \"image/jpeg\", \"data\": \"/9j/4AAQSkZJRgABAQAAAQABAAD/6xjJSlAAAQAAAAEAABi/anVtYgAAAB5qdW1k\"}, \"thoughtSignature\": \"EtiwLQrUsC0BEU0yDww7pV9yfe1hfDNVUmooIDxjv6f/gEEZyrV8c4rE+aH1Y2S8\"}], \"role\": \"model\"}, \"finishReason\": \"STOP\", \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 279, \"candidatesTokenCount\": 1343, \"totalTokenCount\": 1622, \"promptTokensDetails\": [{\"modality\": \"TEXT\", \"tokenCount\": 21}, {\"modality\": \"IMAGE\", \"tokenCount\": 258}], \"candidatesTokensDetails\": [{\"modality\": \"IMAGE\", \"tokenCount\": 1120}], \"serviceTier\": \"standard\"}, \"modelVersion\": \"gemini-3.1-flash-image\", \"responseId\": \"Oo1easiTJpCa_uMP6bT1uQM\"}"
+   }
+  }
+ ]
+}

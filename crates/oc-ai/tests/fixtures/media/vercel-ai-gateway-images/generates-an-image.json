@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:vercel-ai-gateway-images",
+   "provider:vercel-ai-gateway",
+   "protocol:openai-images"
+  ],
+  "name": "vercel-ai-gateway-images/generates-an-image",
+  "recordedAt": "2026-10-23T14:49:14.488Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/images/generations",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"meta/muse-image-1.0\",\"prompt\":\"A simple flat black circle centered on a plain white background.\",\"output_format\":\"webp\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 1792766954, \"data\": [{\"b64_json\": \"UklGRpphAABXRUJQVlA4WAoAAAAEAAAAPwYAPwYAVlA4IPJfAACwPASdASpABkAG\"}], \"usage\": {\"total_tokens\": 10072, \"input_tokens\": 9668, \"output_tokens\": 404, \"input_tokens_details\": {\"text_tokens\": 0, \"image_tokens\": 0}}, \"providerMetadata\": {\"openai\": {\"images\": [{\"created\": 1792766954, \"background\": \"opaque\", \"outputFormat\": \"webp\"}]}, \"gateway\": {\"routing\": {\"originalModelId\": \"meta/muse-image-1.0\", \"resolvedProvider\": \"meta\", \"fallbacksAvailable\": [], \"planningReasoning\": \"System credentials planned for: meta. Total execution order: meta(system)\", \"canonicalSlug\": \"meta/muse-image-1.0\", \"finalProvider\": \"meta\", \"modelAttemptCount\": 1, \"modelAttempts\": [{\"canonicalSlug\": \"meta/muse-image-1.0\", \"success\": true, \"providerAttemptCount\": 1, \"providerAttempts\": [{\"provider\": \"meta\", \"credentialType\": \"system\", \"success\": true, \"startTime\": 1792766949294, \"endTime\": 1792766954432, \"statusCode\": 200}]}], \"totalProviderAttemptCount\": 1}, \"cost\": \"0.01\", \"marketCost\": \"0.01\", \"surchargeCost\": \"0\", \"gatewayCost\": \"0.01\", \"inferenceCost\": \"0.01\", \"inputInferenceCost\": \"0\", \"outputInferenceCost\": \"0.01\", \"generationId\": \"gen_01M5MKSDW6DJYX8P6NJMS0CA21\"}}}"
+   }
+  }
+ ]
+}

@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:cloudflare-workers-ai-images",
+   "provider:cloudflare-workers-ai",
+   "protocol:cloudflare-workers-ai-images"
+  ],
+  "name": "cloudflare-workers-ai-images/generates-a-flux-2-image-from-multipart-fields",
+  "recordedAt": "2026-10-23T07:50:08.675Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/@cf/black-forest-labs/flux-2-klein-4b",
+    "headers": {
+     "content-type": "multipart/form-data; boundary=----WebKitFormBoundary7f319b8533aa40cabcb669acb955728d"
+    },
+    "body": "------WebKitFormBoundary7f319b8533aa40cabcb669acb955728d\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nA red apple on a wooden table\r\n------WebKitFormBoundary7f319b8533aa40cabcb669acb955728d\r\nContent-Disposition: form-data; name=\"width\"\r\n\r\n64\r\n------WebKitFormBoundary7f319b8533aa40cabcb669acb955728d\r\nContent-Disposition: form-data; name=\"height\"\r\n\r\n64\r\n------WebKitFormBoundary7f319b8533aa40cabcb669acb955728d\r\nContent-Disposition: form-data; name=\"seed\"\r\n\r\n3\r\n------WebKitFormBoundary7f319b8533aa40cabcb669acb955728d\r\nContent-Disposition: form-data; name=\"steps\"\r\n\r\n1\r\n------WebKitFormBoundary7f319b8533aa40cabcb669acb955728d--\r\n"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"result\": {\"image\": \"/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB\"}, \"success\": true, \"errors\": [], \"messages\": []}"
+   }
+  }
+ ]
+}

@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:openrouter-images",
+   "provider:openrouter",
+   "protocol:openai-images"
+  ],
+  "name": "openrouter-images/renders-flux-3-from-an-aspect-ratio-and-tier",
+  "recordedAt": "2026-10-28T14:28:31.744Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://openrouter.ai/api/v1/images/generations",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"black-forest-labs/flux-3-image-klein\",\"prompt\":\"A simple flat black circle centered on a plain white background.\",\"aspect_ratio\":\"16:9\",\"resolution\":\"1K\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 0, \"data\": [{\"b64_json\": \"/9j/4AAQSkZJRgABAQAAAQABAAD/60SySlACEQAAAAEAAESoanVtYgAAAB5qdW1k\", \"media_type\": \"image/jpeg\"}], \"usage\": {\"prompt_tokens\": 16, \"completion_tokens\": 4175, \"total_tokens\": 4191, \"cost\": 0.009, \"is_byok\": false, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"cost_details\": {\"upstream_inference_cost\": 0.009, \"upstream_inference_prompt_cost\": 0, \"upstream_inference_completions_cost\": 0.009}, \"completion_tokens_details\": {\"reasoning_tokens\": 0, \"image_tokens\": 4175}}}"
+   }
+  }
+ ]
+}

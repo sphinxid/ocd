@@ -5,6 +5,7 @@
 //! (`apiKey`, `baseURL`, `headers`, `body`, plus provider-specific keys like `region`, `project`,
 //! `resourceName`) and everything else becomes provider options for the route's protocol.
 
+pub mod media;
 pub mod wrappers;
 
 use crate::error::ProviderConfigurationError;
@@ -804,6 +805,17 @@ fn meta(model_id: &str, s: &mut Settings, name: &str) -> Result<LanguageModel> {
     }
 }
 
+/// Alibaba's Model Studio host per region (`hosts`).
+pub(crate) fn alibaba_host(region: &str) -> Option<&'static str> {
+    match region {
+        "ap-southeast-1" => Some("dashscope-intl.aliyuncs.com"),
+        "cn-beijing" => Some("dashscope.aliyuncs.com"),
+        "cn-hongkong" => Some("cn-hongkong.dashscope.aliyuncs.com"),
+        "us-east-1" => Some("dashscope-us.aliyuncs.com"),
+        _ => None,
+    }
+}
+
 fn alibaba(model_id: &str, s: &mut Settings, name: &str) -> Result<LanguageModel> {
     // upstream drops `body` for Alibaba settings
     let _ = s.take("body");
@@ -814,13 +826,7 @@ fn alibaba(model_id: &str, s: &mut Settings, name: &str) -> Result<LanguageModel
     let headers = s.headers();
     let host = match (&region, &workspace) {
         (None, _) => None,
-        (Some(r), None) => match r.as_str() {
-            "ap-southeast-1" => Some("dashscope-intl.aliyuncs.com".to_string()),
-            "cn-beijing" => Some("dashscope.aliyuncs.com".to_string()),
-            "cn-hongkong" => Some("cn-hongkong.dashscope.aliyuncs.com".to_string()),
-            "us-east-1" => Some("dashscope-us.aliyuncs.com".to_string()),
-            _ => None,
-        },
+        (Some(r), None) => alibaba_host(r).map(String::from),
         (Some(r), Some(w)) => Some(format!("{w}.{r}.maas.aliyuncs.com")),
     };
     if base.is_none() {

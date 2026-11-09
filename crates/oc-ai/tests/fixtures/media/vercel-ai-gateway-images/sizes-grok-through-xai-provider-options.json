@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:vercel-ai-gateway-images",
+   "provider:vercel-ai-gateway",
+   "protocol:openai-images"
+  ],
+  "name": "vercel-ai-gateway-images/sizes-grok-through-xai-provider-options",
+  "recordedAt": "2026-10-28T14:29:01.587Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://ai-gateway.vercel.sh/v1/images/generations",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"spacexai/grok-imagine-image\",\"prompt\":\"A simple flat black circle centered on a plain white background.\",\"providerOptions\":{\"xai\":{\"aspect_ratio\":\"16:9\",\"resolution\":\"1k\"}}}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 1793197741, \"data\": [{\"b64_json\": \"/9j/4AAQSkZJRgABAQAAAQABAAD/6zSRSlACEQAAAAEAADSHanVtYgAAAB5qdW1k\"}], \"usage\": {\"total_tokens\": 0, \"input_tokens\": 0, \"output_tokens\": 0}, \"providerMetadata\": {\"xai\": {\"images\": [{}], \"costInUsdTicks\": 200000000}, \"gateway\": {\"routing\": {\"originalModelId\": \"xai/grok-imagine-image\", \"resolvedProvider\": \"xai\", \"fallbacksAvailable\": [], \"planningReasoning\": \"System credentials planned for: xai. Total execution order: xai(system)\", \"canonicalSlug\": \"xai/grok-imagine-image\", \"finalProvider\": \"xai\", \"modelAttemptCount\": 1, \"modelAttempts\": [{\"canonicalSlug\": \"xai/grok-imagine-image\", \"success\": true, \"providerAttemptCount\": 1, \"providerAttempts\": [{\"provider\": \"xai\", \"credentialType\": \"system\", \"success\": true, \"startTime\": 1793197737411, \"endTime\": 1793197741640, \"statusCode\": 200}]}], \"totalProviderAttemptCount\": 1}, \"cost\": \"0.02\", \"marketCost\": \"0.02\", \"surchargeCost\": \"0\", \"gatewayCost\": \"0.02\", \"inferenceCost\": \"0.02\", \"inputInferenceCost\": \"0\", \"outputInferenceCost\": \"0.02\", \"generationId\": \"gen_01M61EM1D7BAZJTX3W9GXV0WGH\"}}}"
+   }
+  }
+ ]
+}

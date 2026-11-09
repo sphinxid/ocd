@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:openai-images",
+   "provider:openai",
+   "protocol:openai-images"
+  ],
+  "name": "openai-images/generates-an-image",
+  "recordedAt": "2026-07-19T14:41:43.188Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/images/generations",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"gpt-image-1-mini\",\"prompt\":\"A simple flat black circle centered on a plain white background.\",\"size\":\"1024x1024\",\"quality\":\"low\",\"output_format\":\"jpeg\",\"output_compression\":10}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 1784472103, \"background\": \"opaque\", \"data\": [{\"b64_json\": \"/9j/4AAQSkZJRgABAQAAAQABAAD/63FxSlACEQAAAAEAAHFnanVtYgAAAB5qdW1k\"}], \"output_format\": \"jpeg\", \"quality\": \"low\", \"size\": \"1024x1024\", \"usage\": {\"input_tokens\": 18, \"input_tokens_details\": {\"image_tokens\": 0, \"text_tokens\": 18}, \"output_tokens\": 272, \"output_tokens_details\": {\"image_tokens\": 272, \"text_tokens\": 0}, \"total_tokens\": 290}}"
+   }
+  }
+ ]
+}

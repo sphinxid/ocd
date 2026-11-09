@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:google-images",
+   "provider:google",
+   "protocol:google-images"
+  ],
+  "name": "google-images/generates-an-image",
+  "recordedAt": "2026-07-19T16:05:51.868Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"A simple flat blue circle centered on a plain white background.\"}]}],\"generationConfig\":{\"responseModalities\":[\"IMAGE\"],\"imageConfig\":{\"aspectRatio\":\"1:1\"}}}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json; charset=UTF-8"
+    },
+    "body": "{\"candidates\": [{\"content\": {\"parts\": [{\"inlineData\": {\"mimeType\": \"image/jpeg\", \"data\": \"/9j/4AAQSkZJRgABAQEBLAEsAAD/6xeGSlAAAQAAAAEAABd8anVtYgAAAB5qdW1k\"}, \"thoughtSignature\": \"EpuTJAqXkyQBEU0yD1QZzsIXNw+O9+NIFkIeAgjyDjfj+/SalcoyRYZkiUh/iHj1\"}], \"role\": \"model\"}, \"finishReason\": \"STOP\", \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 13, \"candidatesTokenCount\": 1399, \"totalTokenCount\": 1412, \"promptTokensDetails\": [{\"modality\": \"TEXT\", \"tokenCount\": 13}], \"candidatesTokensDetails\": [{\"modality\": \"IMAGE\", \"tokenCount\": 1120}], \"serviceTier\": \"standard\"}, \"modelVersion\": \"gemini-3.1-flash-image\", \"responseId\": \"2fVcat7PCOSf-8YP0Jfm8QM\"}"
+   }
+  }
+ ]
+}

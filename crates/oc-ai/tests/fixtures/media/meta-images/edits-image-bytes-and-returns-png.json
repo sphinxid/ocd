@@ -1,0 +1,36 @@
+{
+ "version": 1,
+ "metadata": {
+  "model": "muse-image-1.0",
+  "tags": [
+   "prefix:meta-images",
+   "provider:meta",
+   "image",
+   "protocol:meta-images",
+   "editing",
+   "png"
+  ],
+  "name": "meta-images/edits-image-bytes-and-returns-png",
+  "recordedAt": "2026-09-07T17:27:08.994Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://api.meta.ai/v1/images/edits",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"muse-image-1.0\",\"prompt\":\"Change the shape to bright purple. Keep the plain white background.\",\"images\":[{\"image_url\":\"data:image/jpeg;base64,/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwMgD/2wBDAAgQEBMQExYWFhYWFhoYGhsbGxoaGhobGxsdHR0iIiIdHR0bGx0dICAiIiUmJSMjIiMmJigoKDAwLi44ODpFRVP/xABrAAEBAQEBAQAAAAAAAAAAAAAABwgGBAUBAQAAAAAAAAAAAAAAAAAAAAAQAAICAQEFBwMEAwEAAAAAAAABAwIEEQYFEiFhwXGBUUExE6GRU0LwciLh8bEjEQEAAAAAAAAAAAAAAAAAAAAA/8AAEQgAgACAAwEiAAIRAAMRAP/aAAwDAQACEQMRAD8Av4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB458iLFjtLNesdK+9rPRf76e4yMiPFivNLbhpHV2s+i7X6LzMhb33xPvabitrWKrfxxa8qrzfnZ+r8EBTc/bPm64USa/LLrz61omvq/AnMu0W9ZXq8q9elFSi+ldTigB2se0W9Ynqsq9ul1S6+tSiYG2b1Vc2Jafli15dXRt/R+BBgBuvHyIcqOssN6yUt7Wq9V/h9HzPYY03RvefdM3HTW0dn/AOkWvKy815WXo/ua+x8iPKhpNFbipJVWq/36r2a8wPaAAAAAAAAAAIDtnnvWLCq+WnyydfSlX9X9iDHZ7QyuXeuW3+m6ou6lUjjAAAAAAAXbYzeDVpcKz5NfLH0ftdLv5P7kJOw2flcW9cRr1k4H3XTr2gbHAAAAAAAAAAGO9oYnFvXLT/VdXXdeqZxhdts8Bq0WZVcmvik6NaujffzX2ISAAAAAADr9wRuXeuGl6ScfhRO3YcgXHYzAdpZcyy/rRfFH1s+dmu5aLxA0MAAAAAAAAAAPDk40WXDJDLXipJXha7V1Xuupj7eu6p91TuORO1Hr8cmnK67LL1Rs8+fk4sOZFaKeOslLe6f/AFP3T8muYGGAXHP2Nkq3bDlV6/jl5WXRXXJ+KROpdxb0ielsOZ/wXGvvRsDkwdXHuLekr0WHMv5V4F97tFDwNjZrtWzJVHX8cb4rvo7acK8NQJtuvdc+9Z1FGtKrT5JNP60r2vyXqbBxMWLCgjgiXDSNaLzfm31b5sYuJBhRKKCOsdF6L1fm37t9WfRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k=\"}],\"output_format\":\"png\",\"reasoning_strength\":\"low\",\"tool_enablement\":{\"enable_image_search\":false,\"enable_web_search\":false,\"enable_shell\":false},\"n\":1,\"size\":\"256x256\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 1788802028, \"data\": [{\"b64_json\": \"iVBORw0KGgoAAAANSUhEUgAABkAAAAZACAIAAACubhnwAAABl2lUWHRYTUw6Y29t\"}], \"output_format\": \"png\", \"background\": \"opaque\", \"usage\": {\"input_tokens\": 4083, \"output_tokens\": 261, \"total_tokens\": 4344}}"
+   }
+  }
+ ]
+}

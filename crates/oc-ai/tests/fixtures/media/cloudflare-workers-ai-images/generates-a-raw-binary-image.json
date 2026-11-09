@@ -1,0 +1,33 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:cloudflare-workers-ai-images",
+   "provider:cloudflare-workers-ai",
+   "protocol:cloudflare-workers-ai-images"
+  ],
+  "name": "cloudflare-workers-ai-images/generates-a-raw-binary-image",
+  "recordedAt": "2026-10-23T07:50:02.769Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/@cf/bytedance/stable-diffusion-xl-lightning",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"prompt\":\"A red apple on a wooden table\",\"width\":256,\"height\":256,\"seed\":3,\"num_steps\":1}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "image/png"
+    },
+    "body": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkS",
+    "bodyEncoding": "base64"
+   }
+  }
+ ]
+}

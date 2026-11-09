@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:xai-images",
+   "provider:xai",
+   "protocol:xai-images"
+  ],
+  "name": "xai-images/edits-an-image",
+  "recordedAt": "2026-07-20T21:03:29.413Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://api.x.ai/v1/images/edits",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"Keep the simple shape and change it from black to bright purple.\",\"image\":{\"url\":\"data:image/jpeg;base64,/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwMgD/2wBDAAgQEBMQExYWFhYWFhoYGhsbGxoaGhobGxsdHR0iIiIdHR0bGx0dICAiIiUmJSMjIiMmJigoKDAwLi44ODpFRVP/xABrAAEBAQEBAQAAAAAAAAAAAAAABwgGBAUBAQAAAAAAAAAAAAAAAAAAAAAQAAICAQEFBwMEAwEAAAAAAAABAwIEEQYFEiFhwXGBUUExE6GRU0LwciLh8bEjEQEAAAAAAAAAAAAAAAAAAAAA/8AAEQgAgACAAwEiAAIRAAMRAP/aAAwDAQACEQMRAD8Av4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB458iLFjtLNesdK+9rPRf76e4yMiPFivNLbhpHV2s+i7X6LzMhb33xPvabitrWKrfxxa8qrzfnZ+r8EBTc/bPm64USa/LLrz61omvq/AnMu0W9ZXq8q9elFSi+ldTigB2se0W9Ynqsq9ul1S6+tSiYG2b1Vc2Jafli15dXRt/R+BBgBuvHyIcqOssN6yUt7Wq9V/h9HzPYY03RvefdM3HTW0dn/AOkWvKy815WXo/ua+x8iPKhpNFbipJVWq/36r2a8wPaAAAAAAAAAAIDtnnvWLCq+WnyydfSlX9X9iDHZ7QyuXeuW3+m6ou6lUjjAAAAAAAXbYzeDVpcKz5NfLH0ftdLv5P7kJOw2flcW9cRr1k4H3XTr2gbHAAAAAAAAAAGO9oYnFvXLT/VdXXdeqZxhdts8Bq0WZVcmvik6NaujffzX2ISAAAAAADr9wRuXeuGl6ScfhRO3YcgXHYzAdpZcyy/rRfFH1s+dmu5aLxA0MAAAAAAAAAAPDk40WXDJDLXipJXha7V1Xuupj7eu6p91TuORO1Hr8cmnK67LL1Rs8+fk4sOZFaKeOslLe6f/AFP3T8muYGGAXHP2Nkq3bDlV6/jl5WXRXXJ+KROpdxb0ielsOZ/wXGvvRsDkwdXHuLekr0WHMv5V4F97tFDwNjZrtWzJVHX8cb4rvo7acK8NQJtuvdc+9Z1FGtKrT5JNP60r2vyXqbBxMWLCgjgiXDSNaLzfm31b5sYuJBhRKKCOsdF6L1fm37t9WfRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k=\",\"type\":\"image_url\"},\"aspect_ratio\":\"1:1\",\"response_format\":\"b64_json\",\"resolution\":\"1k\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"data\": [{\"b64_json\": \"/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUE\", \"mime_type\": \"image/jpeg\"}], \"usage\": {\"cost_in_usd_ticks\": 220000000}}"
+   }
+  }
+ ]
+}

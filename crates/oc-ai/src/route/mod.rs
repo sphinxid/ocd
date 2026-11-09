@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod framing;
+pub mod media;
 pub mod transport;
 pub mod websocket;
 

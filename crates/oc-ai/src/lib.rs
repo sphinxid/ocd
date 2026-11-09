@@ -12,6 +12,8 @@ pub mod route;
 pub mod protocols;
 pub mod client;
 pub mod aisdk;
+pub mod image;
+pub mod decision;
 
 pub use client::{Client, Compiled, LLMStream, StreamDriver, StreamOptions};
 pub use error::{AIError, ErrorKind, HttpContext, ProviderConfigurationError, ProviderError};

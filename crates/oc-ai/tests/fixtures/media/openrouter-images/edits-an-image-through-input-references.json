@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:openrouter-images",
+   "provider:openrouter",
+   "protocol:openai-images"
+  ],
+  "name": "openrouter-images/edits-an-image-through-input-references",
+  "recordedAt": "2026-10-29T01:09:45.628Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://openrouter.ai/api/v1/images/generations",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"openai/gpt-image-1-mini\",\"prompt\":\"Keep the simple shape and change it from black to bright green.\",\"input_references\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/jpeg;base64,/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwMgD/2wBDAAgQEBMQExYWFhYWFhoYGhsbGxoaGhobGxsdHR0iIiIdHR0bGx0dICAiIiUmJSMjIiMmJigoKDAwLi44ODpFRVP/xABrAAEBAQEBAQAAAAAAAAAAAAAABwgGBAUBAQAAAAAAAAAAAAAAAAAAAAAQAAICAQEFBwMEAwEAAAAAAAABAwIEEQYFEiFhwXGBUUExE6GRU0LwciLh8bEjEQEAAAAAAAAAAAAAAAAAAAAA/8AAEQgAgACAAwEiAAIRAAMRAP/aAAwDAQACEQMRAD8Av4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB458iLFjtLNesdK+9rPRf76e4yMiPFivNLbhpHV2s+i7X6LzMhb33xPvabitrWKrfxxa8qrzfnZ+r8EBTc/bPm64USa/LLrz61omvq/AnMu0W9ZXq8q9elFSi+ldTigB2se0W9Ynqsq9ul1S6+tSiYG2b1Vc2Jafli15dXRt/R+BBgBuvHyIcqOssN6yUt7Wq9V/h9HzPYY03RvefdM3HTW0dn/AOkWvKy815WXo/ua+x8iPKhpNFbipJVWq/36r2a8wPaAAAAAAAAAAIDtnnvWLCq+WnyydfSlX9X9iDHZ7QyuXeuW3+m6ou6lUjjAAAAAAAXbYzeDVpcKz5NfLH0ftdLv5P7kJOw2flcW9cRr1k4H3XTr2gbHAAAAAAAAAAGO9oYnFvXLT/VdXXdeqZxhdts8Bq0WZVcmvik6NaujffzX2ISAAAAAADr9wRuXeuGl6ScfhRO3YcgXHYzAdpZcyy/rRfFH1s+dmu5aLxA0MAAAAAAAAAAPDk40WXDJDLXipJXha7V1Xuupj7eu6p91TuORO1Hr8cmnK67LL1Rs8+fk4sOZFaKeOslLe6f/AFP3T8muYGGAXHP2Nkq3bDlV6/jl5WXRXXJ+KROpdxb0ielsOZ/wXGvvRsDkwdXHuLekr0WHMv5V4F97tFDwNjZrtWzJVHX8cb4rvo7acK8NQJtuvdc+9Z1FGtKrT5JNP60r2vyXqbBxMWLCgjgiXDSNaLzfm31b5sYuJBhRKKCOsdF6L1fm37t9WfRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k=\"}}],\"aspect_ratio\":\"1:1\",\"resolution\":\"1K\",\"output_compression\":10,\"output_format\":\"jpeg\",\"quality\":\"low\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 1793236185, \"data\": [{\"b64_json\": \"/9j/4AAQSkZJRgABAQAAAQABAAD/61wsSlACEQAAAAEAAFwianVtYgAAAB5qdW1k\", \"media_type\": \"image/jpeg\"}], \"usage\": {\"prompt_tokens\": 35, \"completion_tokens\": 272, \"total_tokens\": 307, \"cost\": 0.002254, \"is_byok\": false, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"cost_details\": {\"upstream_inference_cost\": 0.002254, \"upstream_inference_prompt_cost\": 7.8e-05, \"upstream_inference_completions_cost\": 0.002176}, \"completion_tokens_details\": {\"reasoning_tokens\": 0, \"image_tokens\": 272}}}"
+   }
+  }
+ ]
+}

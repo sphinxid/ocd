@@ -1,0 +1,36 @@
+{
+ "version": 1,
+ "metadata": {
+  "model": "muse-image-1.0",
+  "tags": [
+   "prefix:meta-images",
+   "provider:meta",
+   "image",
+   "protocol:meta-images",
+   "generation",
+   "webp"
+  ],
+  "name": "meta-images/generates-default-webp-bytes",
+  "recordedAt": "2026-09-07T17:26:22.034Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://api.meta.ai/v1/images/generations",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"muse-image-1.0\",\"prompt\":\"A flat black square centered on a plain white background. No text.\",\"reasoning_strength\":\"low\",\"tool_enablement\":{\"enable_image_search\":false,\"enable_web_search\":false,\"enable_shell\":false},\"n\":1,\"size\":\"256x256\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 1788801982, \"data\": [{\"b64_json\": \"UklGRig/AABXRUJQVlA4WAoAAAAEAAAAPwYAPwYAVlA4IIA9AACQ4QOdASpABkAG\"}], \"output_format\": \"webp\", \"background\": \"opaque\", \"usage\": {\"input_tokens\": 4014, \"output_tokens\": 330, \"total_tokens\": 4344}}"
+   }
+  }
+ ]
+}

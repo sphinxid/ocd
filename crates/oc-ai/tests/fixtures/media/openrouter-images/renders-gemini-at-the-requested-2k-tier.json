@@ -1,0 +1,32 @@
+{
+ "version": 1,
+ "metadata": {
+  "tags": [
+   "prefix:openrouter-images",
+   "provider:openrouter",
+   "protocol:openai-images"
+  ],
+  "name": "openrouter-images/renders-gemini-at-the-requested-2k-tier",
+  "recordedAt": "2026-10-28T14:28:22.436Z"
+ },
+ "interactions": [
+  {
+   "transport": "http",
+   "request": {
+    "method": "POST",
+    "url": "https://openrouter.ai/api/v1/images/generations",
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"model\":\"google/gemini-3.1-flash-image\",\"prompt\":\"A simple flat black circle centered on a plain white background.\",\"aspect_ratio\":\"16:9\",\"resolution\":\"2K\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": "{\"created\": 0, \"data\": [{\"b64_json\": \"iVBORw0KGgoAAAANSUhEUgAACsAAAAYACAIAAABNKYhaAAAd52NhQlgAAB3nanVt\", \"media_type\": \"image/png\"}], \"usage\": {\"prompt_tokens\": 12, \"completion_tokens\": 1680, \"total_tokens\": 1692, \"cost\": 0.100806, \"is_byok\": false, \"prompt_tokens_details\": {\"cached_tokens\": 0, \"cache_write_tokens\": 0, \"audio_tokens\": 0, \"video_tokens\": 0}, \"cost_details\": {\"upstream_inference_cost\": 0.100806, \"upstream_inference_prompt_cost\": 6e-06, \"upstream_inference_completions_cost\": 0.1008}, \"completion_tokens_details\": {\"reasoning_tokens\": 0, \"image_tokens\": 1680}}}"
+   }
+  }
+ ]
+}
