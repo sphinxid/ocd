@@ -150,12 +150,42 @@ pub fn messages(
     kind: Option<&str>,
     cursor: Option<(&str, CursorDirection)>,
 ) -> anyhow::Result<Vec<MessageRow>> {
+    // `decodeMessageRows`: parts a newer release moved to `session_part`, then media from `blob`.
+    Ok(messages_read(db, session, limit, asc_requested, kind, cursor, |c, rows| oc_storage::stored::restore(c, rows))?.0)
+}
+
+/// `SessionStore.messagesWithRefs`: like [`messages`], but media stored in `blob` stays `media:` refs (those
+/// whose blob is gone read as the unavailable placeholder); also the metadata of every blob still named.
+pub fn messages_with_refs(
+    db: &Database,
+    session: &str,
+    limit: Option<i64>,
+    asc_requested: bool,
+    kind: Option<&str>,
+    cursor: Option<(&str, CursorDirection)>,
+) -> anyhow::Result<(Vec<MessageRow>, MediaMeta)> {
+    messages_read(db, session, limit, asc_requested, kind, cursor, |c, rows| oc_storage::stored::keep_refs(c, rows))
+}
+
+/// Blob metadata by hash (`SessionBlob.Meta`).
+pub type MediaMeta = std::collections::HashMap<String, oc_storage::stored::Meta>;
+
+#[allow(clippy::too_many_arguments)]
+fn messages_read<T: Default>(
+    db: &Database,
+    session: &str,
+    limit: Option<i64>,
+    asc_requested: bool,
+    kind: Option<&str>,
+    cursor: Option<(&str, CursorDirection)>,
+    read: impl FnOnce(&rusqlite::Connection, &mut [MessageRow]) -> rusqlite::Result<T>,
+) -> anyhow::Result<(Vec<MessageRow>, T)> {
     let direction = cursor.map(|c| c.1).unwrap_or(CursorDirection::Next);
     let asc = if direction == CursorDirection::Previous { !asc_requested } else { asc_requested };
     let anchor = match cursor {
         Some((id, _)) => match message_seq(db, session, id)? {
             Some(seq) => Some(seq),
-            None => return Ok(vec![]),
+            None => return Ok((vec![], T::default())),
         },
         None => None,
     };
@@ -173,17 +203,32 @@ pub fn messages(
     if let Some(l) = limit {
         sql.push_str(&format!(" LIMIT {l}"));
     }
-    let mut rows: Vec<MessageRow> = db.with(|c| {
+    let (mut rows, extra) = db.with(|c| {
         let mut s = c.prepare(&sql)?;
         let mut rows: Vec<MessageRow> = s.query_map(params_from_iter(args.iter()), message_row)?.collect::<rusqlite::Result<_>>()?;
-        // `decodeMessageRows`: parts a newer release moved to `session_part`, then media from `blob`.
-        oc_storage::stored::restore(c, &mut rows)?;
-        Ok(rows)
+        let extra = read(c, &mut rows)?;
+        Ok((rows, extra))
     })?;
     if direction == CursorDirection::Previous {
         rows.reverse();
     }
-    Ok(rows)
+    Ok((rows, extra))
+}
+
+/// `SessionStore.messageWithRefs`: one message by id (any session) with its refs kept.
+pub fn message_with_refs(db: &Database, id: &str) -> anyhow::Result<Option<(String, MessageRow, MediaMeta)>> {
+    db.with(|c| {
+        let found = c
+            .query_row("SELECT seq, id, type, data, session_id FROM session_message WHERE id = ?", [id], |r| {
+                Ok((r.get::<_, String>(4)?, message_row(r)?))
+            })
+            .optional()?;
+        let Some((session, row)) = found else { return Ok(None) };
+        let mut rows = [row];
+        let meta = oc_storage::stored::keep_refs(c, &mut rows)?;
+        let [row] = rows;
+        Ok(Some((session, row, meta)))
+    })
 }
 
 /// One message by id (any session).

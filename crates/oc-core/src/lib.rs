@@ -3,6 +3,7 @@
 pub mod agent;
 pub mod aisdk;
 pub mod app;
+pub mod artifact;
 pub mod attachment;
 pub mod azure;
 pub mod browser;

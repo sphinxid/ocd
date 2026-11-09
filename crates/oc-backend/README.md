@@ -81,11 +81,16 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   process (`serve`, `--standalone`, the service) runs the schedule loop (`schedules::start`); scheduled wakes go
   through `Engine::prompt` (activation, `session.prompt` hook, admission, wake). `/schedule` is a native command
   (`CommandDef::Schedule`) listed only where the flag is on and `opencode.tool.schedule` is enabled.
-* **disabled features**: the seven `experimental.artifacts.*`
-  routes answer as with `experimental.artifacts` off (after param/body validation, the location resolves from an
-  explicit directory, else the session (404), else the stored `artifact:item:<id>` record, else the request
-  (404 `LocationNotFoundError`), then 403 `Artifacts are disabled; set experimental.artifacts in config`, even when
-  a location sets it: artifacts are not ported), `plugin.gui` is always 404 `PluginNotFoundError`.
+* **disabled features**: `plugin.gui` is always 404 `PluginNotFoundError`.
+* **artifacts** (`server/src/handlers/artifact.ts` over `oc_core::artifact`, `experimental.artifacts`): after
+  param/body validation the location resolves from an explicit directory, else the session (404), else the stored
+  `artifact:item:<id>` record, else the request (404 `LocationNotFoundError`), boots and waits for its plugins; a
+  location without the flag answers 403 `Artifacts are disabled; set experimental.artifacts in config`. Errors map
+  like `mapCommon`: `ArtifactNotFoundError`, `ProviderNotFoundError{providerID, message:"Artifact provider not
+  found: <id>"}`, 400 `{kind:"artifact_invalid", field?}`, 503 `ServiceUnavailableError{service:<provider>}`; the
+  view's missing file is 404 `FileNotFoundError{path:<subpath>}`, `/view` redirects (308) after `info`.
+  `artifact.updated` follows the provider snapshot (`notify.rs` projection `artifact`; in a boot burst it comes
+  right before `reference.updated` when a configured plugin registers providers).
 * **integration policy** (2.2.5): `integration.list` drops non-MCP integrations `integration.connect` denies; the
   four connect routes and `experimental.integration.wellknown.add` (the URL without trailing `/`) answer 400
   `{kind:"integration_policy", message:"<statement message>: connecting <id> is not allowed"}` before any 404;
@@ -94,7 +99,13 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
 * **session delete** cancels the session's running jobs (`Jobs::cancel_session`) and deletes their `job` rows after
   the session goes idle, before its transport closes and its children are removed.
 * **media**: `experimental.media.get` serves `blob` rows some message still references
-  (`oc_storage::stored::read_blob`); `media:` prompt attachments re-admit stored bytes.
+  (`oc_storage::stored::read_blob`); `media:` prompt attachments re-admit stored bytes. With
+  `X-OpenCode-Capabilities: experimental-media-uri`, `session.message.list`, `session.message.get` and
+  `session.inbox.list` of a session whose location sets `experimental.media_blob` keep stored media as `media:` refs
+  (`*_media` Backend methods: `store::messages_with_refs`, `inbox::list_with_refs`, `keepRefs` + `describe`, a ref
+  file encoded as `Prompt.MediaFileAttachment` with `bytes`). The flag is read from the session's location config,
+  booting it when nothing loaded it yet (`media_blob_for`); a fork boots the parent's the same way, and an import
+  carrying inline media asks the destination's.
 * **transfer**: `experimental.session.export` (`oc_core::transfer::export`, `sanitize`),
   `experimental.session.import` (`body.location ?? cwd`; 409 `Session already exists: <id>`).
 * **mcp** (runner `engine.mcp(&location)`): `mcp.list` (`{name,status,integrationID}`),

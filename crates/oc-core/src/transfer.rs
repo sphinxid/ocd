@@ -216,7 +216,19 @@ pub enum ImportError {
 }
 
 /// `SessionTransfer.import`
-pub async fn import(bus: &Bus, sessions: &Sessions, data: &Value, location: LocationRef) -> Result<SessionInfo, ImportError> {
+/// `media_for` answers whether the destination location stores media as blobs (`SessionBlob.enabledFor`); it is
+/// asked only when the import carries inline media.
+pub async fn import<F, M>(
+    bus: &Bus,
+    sessions: &Sessions,
+    data: &Value,
+    location: LocationRef,
+    media_for: M,
+) -> Result<SessionInfo, ImportError>
+where
+    M: FnOnce() -> F,
+    F: std::future::Future<Output = bool>,
+{
     let info: SessionInfo = serde_json::from_value(data["info"].clone()).map_err(anyhow::Error::from)?;
     if bus.db().session_get(&info.id)?.is_some() {
         return Err(ImportError::Conflict(info.id.clone()));
@@ -233,6 +245,21 @@ pub async fn import(bus: &Bus, sessions: &Sessions, data: &Value, location: Loca
         .filter(is_settled)
         .collect();
     let subpath = crate::session::relative(&project.directory, std::path::Path::new(&location.directory));
+    // Only inline media the import carries becomes blobs, and only its blobs get refs: refs it carried in could
+    // otherwise keep or expose blobs it never held.
+    let split: Vec<(String, oc_storage::stored::Taken)> = messages
+        .iter()
+        .map(|m| {
+            let data = m.to_row_data();
+            if !data.contains("\"data") {
+                return (data, oc_storage::stored::Taken::default());
+            }
+            let mut value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+            let taken = oc_storage::stored::split(&mut value);
+            if taken.is_empty() { (data, taken) } else { (value.to_string(), taken) }
+        })
+        .collect();
+    let media = split.iter().any(|(_, t)| !t.is_empty()) && media_for().await;
     let event = SessionEvent::Created {
         session_id: info.id.clone(),
         project_id: project.id.clone(),
@@ -249,11 +276,22 @@ pub async fn import(bus: &Bus, sessions: &Sessions, data: &Value, location: Loca
     };
     let sid = info.id.clone();
     let result = bus.commit_with(vec![Durable1::from(event)], |c, _, seq| {
+        if media {
+            for (_, taken) in &split {
+                oc_storage::stored::save(c, taken)?;
+            }
+        }
         for (i, m) in messages.iter().enumerate() {
+            let data = if media { split[i].0.clone() } else { m.to_row_data() };
             c.execute(
                 "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                params![m.id(), sid, m.kind(), (i + 1) as i64, m.created() as i64, oc_schema::id::now_ms() as i64, m.to_row_data()],
+                params![m.id(), sid, m.kind(), (i + 1) as i64, m.created() as i64, oc_schema::id::now_ms() as i64, data],
             )?;
+        }
+        if media {
+            for (i, m) in messages.iter().enumerate() {
+                oc_storage::stored::record_taken(c, &sid, m.id(), (i + 1) as i64, &split[i].1.hashes())?;
+            }
         }
         if !messages.is_empty() {
             oc_storage::projector::reserve_seq(c, &sid, seq + messages.len() as i64)?;

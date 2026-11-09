@@ -17,13 +17,14 @@ import { Reference } from "@opencode/schema/reference"
 import { Skill } from "@opencode/schema/skill"
 import { Tool } from "@opencode/schema/tool"
 import { ToolDefinition } from "@opencode/ai/effect"
-import { Result, Schema, SchemaIssue } from "effect"
+import { Effect, Result, Schema, SchemaIssue } from "effect"
 import { definition, effectiveName, normalizedName } from "@upstream-core/tool/runtime"
 import { FN, fromWire, isWireFn, stub, stubHandle, toWire, type Handles, type Remote } from "./codec.js"
 import { log } from "./peer.js"
 
 export const DOMAINS = [
   "agent",
+  "artifact",
   "command",
   "integration",
   "mcp",
@@ -106,6 +107,93 @@ const agent: Spec<AgentState, unknown> = {
   encode: (state) => ({
     agents: Array.from(state.agents.values(), (item) => encodeWith(Agent.Info, item)),
     ...(state.default === undefined ? {} : { default: state.default }),
+  }),
+}
+
+// ---------------------------------------------------------------------------------------------
+// artifact (core/src/artifact.ts, `experimental.artifacts`)
+// ---------------------------------------------------------------------------------------------
+//
+// Providers keyed by id, starting from the native local provider Rust sends (`native: true`, no
+// functions). Plugins add (an existing id is replaced in place, `local` included), remove (never
+// `local`) and pick the default. A plugin provider crosses with wrapped functions: files travel as
+// base64 and a typed failure comes back as `{ error: message | null }` (the message only when the
+// cause is an Error with one, as `Artifact.ProviderError` reads it), a success as `{ ok: value }`.
+
+type ArtifactState = { providers: Map<string, any>; selection?: string }
+
+// `Artifact.ProviderID.make`: a non-empty string without surrounding whitespace.
+function artifactProviderID(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value)
+    throw new Error(`Invalid artifact provider ID: ${JSON.stringify(value)}`)
+  return value
+}
+
+const artifactBytes = (files: unknown) =>
+  Object.fromEntries(
+    Object.entries((files ?? {}) as Record<string, unknown>).map(([path, data]) => [
+      path,
+      new Uint8Array(Buffer.from(String(data), "base64")),
+    ]),
+  )
+
+const artifactSettle = (effect: unknown) =>
+  (effect as Effect.Effect<unknown, unknown>).pipe(
+    Effect.map((value) => ({ ok: value ?? null })),
+    Effect.catch((cause) =>
+      Effect.succeed({ error: cause instanceof Error && cause.message ? cause.message : null }),
+    ),
+  )
+
+const artifactInput = (input: any) => ({ ...input, files: artifactBytes(input?.files) })
+
+const wrappedArtifactProviders = new WeakMap<object, any>()
+
+function artifactProvider(definition: any) {
+  const cached = wrappedArtifactProviders.get(definition)
+  if (cached) return cached
+  const wrapped = {
+    id: artifactProviderID(definition.id),
+    name: definition.name,
+    capabilities: [...(definition.capabilities ?? [])],
+    prompt: definition.prompt,
+    create: (input: any) => artifactSettle(definition.create(artifactInput(input))),
+    read: (id: string) => artifactSettle(definition.read(id)),
+    update: (id: string, input: any) => artifactSettle(definition.update(id, artifactInput(input))),
+    delete: (id: string) => artifactSettle(definition.delete(id)),
+  }
+  wrappedArtifactProviders.set(definition, wrapped)
+  return wrapped
+}
+
+const artifact: Spec<ArtifactState, unknown> = {
+  decode: (value, codec) => ({
+    providers: new Map(
+      ((value?.providers ?? []) as any[]).map((item) => [item.id, item.native ? item : liveFunctions(item, codec)]),
+    ),
+    ...(typeof value?.selection === "string" ? { selection: value.selection } : {}),
+  }),
+  editor: (state) => ({
+    add: (definition: any) => {
+      const provider = artifactProvider(definition)
+      state.providers.set(provider.id, provider)
+    },
+    remove: (id: unknown) => {
+      const providerID = artifactProviderID(id)
+      if (providerID === "local") return
+      state.providers.delete(providerID)
+      if (state.selection === providerID) state.selection = undefined
+    },
+    default: {
+      get: () => state.selection,
+      set: (providerID: unknown) => {
+        state.selection = providerID === undefined ? undefined : artifactProviderID(providerID)
+      },
+    },
+  }),
+  encode: (state, codec) => ({
+    providers: Array.from(state.providers.values(), (item) => (item.native ? item : wireFunctions(item, codec))),
+    ...(state.selection === undefined ? {} : { selection: state.selection }),
   }),
 }
 
@@ -683,6 +771,7 @@ const integration: Spec<IntegrationState, unknown> = {
 
 export const SPECS: Record<Domain, Spec<any, any>> = {
   agent,
+  artifact,
   command,
   integration,
   mcp,

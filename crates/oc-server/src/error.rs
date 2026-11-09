@@ -191,6 +191,16 @@ impl ApiError {
         tagged(404, "ProviderNotFoundError", json!({ "providerID": id, "message": format!("Provider not found: {id}") }))
     }
 
+    /// `404 ProviderNotFoundError` with its own message (`Artifact provider not found: <id>`).
+    pub fn provider_not_found_message(provider_id: impl Into<String>, message: impl Into<String>) -> Self {
+        tagged(404, "ProviderNotFoundError", json!({ "providerID": provider_id.into(), "message": message.into() }))
+    }
+
+    /// `404 ArtifactNotFoundError` — `Artifact not found: <id>`.
+    pub fn artifact_not_found(artifact_id: impl Into<String>, message: impl Into<String>) -> Self {
+        tagged(404, "ArtifactNotFoundError", json!({ "artifactID": artifact_id.into(), "message": message.into() }))
+    }
+
     /// `404 IntegrationNotFoundError` — `Integration not found: <id>`.
     pub fn integration_not_found(integration_id: impl Into<String>) -> Self {
         let id = integration_id.into();

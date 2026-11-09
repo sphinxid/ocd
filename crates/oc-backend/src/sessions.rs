@@ -42,7 +42,112 @@ pub fn decode_message(row: &store::MessageRow) -> Result<api::SessionMessageInfo
     serde_json::from_value(json).map_err(|e| ApiError::unknown(format!("failed to decode session message {}: {e}", row.id)))
 }
 
+/// Encodes a value whose user `files` may keep `media:` refs (`Session.Message.MediaInfo`,
+/// `Session.Inbox.MediaUser`): decoded as the plain type with the refs set aside, then each ref file written as a
+/// `Prompt.MediaFileAttachment` with its blob's size and dimensions (`SessionBlob.describe`).
+fn encode_with_refs<T: serde::de::DeserializeOwned + serde::Serialize>(
+    value: Value,
+    files_at: &str,
+    meta: &store::MediaMeta,
+) -> Result<Value, ApiError> {
+    let (mut decodable, refs) = match value.pointer(files_at).is_some() {
+        true => {
+            let parent = files_at.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+            let mut value = value;
+            let holder = if parent.is_empty() { Some(&mut value) } else { value.pointer_mut(parent) };
+            let refs = match holder {
+                Some(holder) => {
+                    let (stripped, refs) = oc_storage::stored::without_refs(holder.take());
+                    *holder = stripped;
+                    refs
+                }
+                None => vec![],
+            };
+            (value, refs)
+        }
+        false => (value, vec![]),
+    };
+    let typed: T = serde_json::from_value(std::mem::take(&mut decodable))
+        .map_err(|e| ApiError::unknown(format!("failed to decode session message: {e}")))?;
+    let mut out = serde_json::to_value(typed).map_err(|e| defect(e.to_string()))?;
+    let parent = files_at.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+    let holder = if parent.is_empty() { Some(&mut out) } else { out.pointer_mut(parent) };
+    if let Some(holder) = holder {
+        oc_storage::stored::restore_refs(holder, &refs);
+        if let Some(files) = holder.get_mut("files").and_then(Value::as_array_mut) {
+            oc_storage::stored::describe(files, meta);
+        }
+    }
+    Ok(out)
+}
+
+/// A message row read with its refs kept, as `Session.Message.MediaInfo`.
+pub fn decode_media_message(row: &store::MessageRow, meta: &store::MediaMeta) -> Result<Value, ApiError> {
+    let json = row.json().ok_or_else(|| ApiError::unknown(format!("failed to decode session message {}", row.id)))?;
+    if row.kind != "user" {
+        let typed: api::SessionMessageInfo = serde_json::from_value(json)
+            .map_err(|e| ApiError::unknown(format!("failed to decode session message {}: {e}", row.id)))?;
+        return serde_json::to_value(typed).map_err(|e| defect(e.to_string()));
+    }
+    encode_with_refs::<api::SessionMessageInfo>(json, "/files", meta)
+}
+
 impl Engine {
+    /// `mediaBlob(session)` (`SessionBlob.enabledFor`): whether the session's location stores media as blobs,
+    /// booting it when nothing loaded it yet (one that cannot boot keeps media inline).
+    pub async fn media_blob_for(&self, session: &SessionInfo) -> bool {
+        let directory = &session.location.directory;
+        if !self.app.bus.media_blob_known(directory) {
+            let _ = self.locations.get(directory).await;
+        }
+        self.app.bus.media_blob(directory)
+    }
+
+    /// `messagesWithRefs`; `None` when the session's location keeps media inline.
+    pub async fn message_list_media(&self, req: oc_server::SessionMessageListRequest) -> Result<Option<Vec<Value>>, ApiError> {
+        let session = self.session(&req.session_id)?;
+        if !self.media_blob_for(&session).await {
+            return Ok(None);
+        }
+        let asc = matches!(req.order, api::SessionMessageListOrder::Asc);
+        let kind = req.r#type.and_then(|t| serde_json::to_value(t).ok().and_then(|v| v.as_str().map(str::to_string)));
+        let cursor = req.cursor.as_ref().map(|c| (c.id.as_str(), c.direction));
+        let (rows, meta) =
+            store::messages_with_refs(&self.app.db, &req.session_id, Some(req.limit), asc, kind.as_deref(), cursor).map_err(defect)?;
+        rows.iter().map(|r| decode_media_message(r, &meta)).collect::<Result<Vec<_>, _>>().map(Some)
+    }
+
+    /// `messageWithRefs`; `None` when the session's location keeps media inline.
+    pub async fn message_get_media(&self, id: &str, message_id: &str) -> Result<Option<Value>, ApiError> {
+        let session = self.session(id)?;
+        if !self.media_blob_for(&session).await {
+            return Ok(None);
+        }
+        match store::message_with_refs(&self.app.db, message_id).map_err(defect)? {
+            Some((sid, row, meta)) if sid == id => decode_media_message(&row, &meta).map(Some),
+            _ => Err(ApiError::message_not_found(id, message_id)),
+        }
+    }
+
+    /// `inboxWithRefs`; `None` when the session's location keeps media inline.
+    pub async fn inbox_list_media(&self, id: &str) -> Result<Option<Vec<Value>>, ApiError> {
+        let session = self.session(id)?;
+        if !self.media_blob_for(&session).await {
+            return Ok(None);
+        }
+        let (rows, meta) = inbox::list_with_refs(&self.app.bus, id).map_err(defect)?;
+        rows.iter()
+            .map(|r| {
+                if r.kind != "user" {
+                    let typed: api::SessionInboxInfo = from_json(r.to_api())?;
+                    return serde_json::to_value(typed).map_err(|e| defect(e.to_string()));
+                }
+                encode_with_refs::<api::SessionInboxInfo>(r.to_api(), "/payload/files", &meta)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
+    }
+
     pub fn session_api(&self, s: &SessionInfo) -> Result<api::SessionInfo, ApiError> {
         conv(s)
     }

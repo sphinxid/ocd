@@ -1,0 +1,280 @@
+[
+ {
+  "name": "artifact_create",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "title": {
+     "type": "string",
+     "description": "Human-readable artifact title."
+    },
+    "files": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     },
+     "description": "UTF-8 file map keyed by relative path (for example index.html and assets/app.js)."
+    },
+    "entry": {
+     "type": "string"
+    },
+    "provider": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "title",
+    "files"
+   ],
+   "additionalProperties": false
+  },
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^art_"
+    },
+    "provider": {
+     "type": "string"
+    },
+    "sessionID": {
+     "type": "string",
+     "pattern": "^ses"
+    },
+    "title": {
+     "type": "string"
+    },
+    "entry": {
+     "type": "string"
+    },
+    "url": {
+     "type": "string"
+    },
+    "time": {
+     "type": "object",
+     "properties": {
+      "created": {
+       "type": "number"
+      },
+      "updated": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "created",
+      "updated"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "id",
+    "provider",
+    "title",
+    "entry",
+    "url",
+    "time"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "artifact_read",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^art_",
+     "description": "Artifact ID (art_...) to read."
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  },
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "info": {
+     "type": "object",
+     "properties": {
+      "id": {
+       "type": "string",
+       "pattern": "^art_"
+      },
+      "provider": {
+       "type": "string"
+      },
+      "sessionID": {
+       "type": "string",
+       "pattern": "^ses"
+      },
+      "title": {
+       "type": "string"
+      },
+      "entry": {
+       "type": "string"
+      },
+      "url": {
+       "type": "string"
+      },
+      "time": {
+       "type": "object",
+       "properties": {
+        "created": {
+         "type": "number"
+        },
+        "updated": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "created",
+        "updated"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "id",
+      "provider",
+      "title",
+      "entry",
+      "url",
+      "time"
+     ],
+     "additionalProperties": false
+    },
+    "files": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "info",
+    "files"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "artifact_update",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^art_",
+     "description": "Artifact ID (art_...) to update."
+    },
+    "title": {
+     "type": "string"
+    },
+    "files": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     },
+     "description": "Replacement UTF-8 file map keyed by relative path."
+    },
+    "entry": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id",
+    "files"
+   ],
+   "additionalProperties": false
+  },
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^art_"
+    },
+    "provider": {
+     "type": "string"
+    },
+    "sessionID": {
+     "type": "string",
+     "pattern": "^ses"
+    },
+    "title": {
+     "type": "string"
+    },
+    "entry": {
+     "type": "string"
+    },
+    "url": {
+     "type": "string"
+    },
+    "time": {
+     "type": "object",
+     "properties": {
+      "created": {
+       "type": "number"
+      },
+      "updated": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "created",
+      "updated"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "id",
+    "provider",
+    "title",
+    "entry",
+    "url",
+    "time"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "artifact_delete",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^art_",
+     "description": "Artifact ID (art_...) to delete."
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  },
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^art_"
+    },
+    "deleted": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "id",
+    "deleted"
+   ],
+   "additionalProperties": false
+  }
+ }
+]

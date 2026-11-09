@@ -1641,8 +1641,7 @@ pub struct Experimental {
     /// Enable experimental background compaction (accepted; not implemented by ocd).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_compaction: Option<bool>,
-    /// Store new session media once in a deduplicated blob table (accepted; ocd keeps media inline and only
-    /// reads blobs other releases stored).
+    /// Store new session media once in a deduplicated blob table.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_blob: Option<bool>,
     /// Settings for the experimental_image_generate tool: `false` turns the tool off, `{model}` sets its preferred
@@ -1652,8 +1651,7 @@ pub struct Experimental {
     /// Enable experimental scheduled tasks (accepted; schedules are not ported, so their routes answer as if off).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedules: Option<bool>,
-    /// Enable experimental artifacts backed by pluggable providers. Defaults to false. (Accepted; artifacts are not
-    /// ported, so their routes answer as if off.)
+    /// Enable experimental artifacts backed by pluggable providers. Defaults to false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifacts: Option<bool>,
     /// Maximum subagent nesting depth. Defaults to 1.

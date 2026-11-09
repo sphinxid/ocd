@@ -61,6 +61,24 @@ fn delivery(s: &str) -> Delivery {
 }
 
 fn rows(bus: &Bus, session: &str, filter: &str) -> anyhow::Result<Vec<InboxRow>> {
+    Ok(rows_read(bus, session, filter, |c, payloads| oc_storage::stored::hydrate_inbox(c, payloads))?.0)
+}
+
+/// `SessionInbox.listWithRefs`: media stored in `blob` stays `media:` refs (gone ones read as the
+/// placeholder); also the metadata of every blob still named.
+pub fn list_with_refs(
+    bus: &Bus,
+    session: &str,
+) -> anyhow::Result<(Vec<InboxRow>, HashMap<String, oc_storage::stored::Meta>)> {
+    rows_read(bus, session, "", |c, payloads| oc_storage::stored::keep_inbox_refs(c, payloads))
+}
+
+fn rows_read<T>(
+    bus: &Bus,
+    session: &str,
+    filter: &str,
+    read: impl FnOnce(&rusqlite::Connection, &mut [&mut Value]) -> rusqlite::Result<T>,
+) -> anyhow::Result<(Vec<InboxRow>, T)> {
     bus.db().with(|c| {
         let mut s = c.prepare(&format!(
             "SELECT id, session_id, type, payload, delivery, enqueued_seq, time_created FROM session_inbox WHERE session_id = ? {filter} ORDER BY enqueued_seq ASC"
@@ -83,8 +101,8 @@ fn rows(bus: &Bus, session: &str, filter: &str) -> anyhow::Result<Vec<InboxRow>>
         let mut rows = r;
         // `SessionBlob.hydrateInbox`: media a ref keeps in `blob` reads inline.
         let mut payloads: Vec<&mut Value> = rows.iter_mut().map(|r| &mut r.payload).collect();
-        oc_storage::stored::hydrate_inbox(c, &mut payloads)?;
-        Ok(rows)
+        let extra = read(c, &mut payloads)?;
+        Ok((rows, extra))
     })
 }
 

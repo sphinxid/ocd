@@ -158,7 +158,12 @@ impl Backend for Engine {
     }
 
     async fn session_fork(&self, _ctx: &RequestContext, req: SessionForkRequest) -> Result<SessionInfo, ApiError> {
-        self.session(&req.session_id)?;
+        let parent = self.session(&req.session_id)?;
+        // `mediaBlob(parent)`: the parent's location decides whether the copy's media is stored as blobs, so it
+        // is booted when nothing loaded it yet (one that cannot boot keeps media inline).
+        if !self.app.bus.media_blob_known(&parent.location.directory) {
+            let _ = self.locations.get(&parent.location.directory).await;
+        }
         self.fork_session(&req.session_id, req.body.before)
     }
 
@@ -365,6 +370,22 @@ impl Backend for Engine {
         self.message_list(req)
     }
 
+    async fn session_message_list_media(
+        &self,
+        _ctx: &RequestContext,
+        req: SessionMessageListRequest,
+    ) -> Result<Option<Vec<Value>>, ApiError> {
+        self.message_list_media(req).await
+    }
+
+    async fn session_message_get_media(&self, _ctx: &RequestContext, req: SessionMessageGetRequest) -> Result<Option<Value>, ApiError> {
+        self.message_get_media(&req.session_id, &req.message_id).await
+    }
+
+    async fn session_inbox_list_media(&self, _ctx: &RequestContext, req: SessionInboxListRequest) -> Result<Option<Vec<Value>>, ApiError> {
+        self.inbox_list_media(&req.session_id).await
+    }
+
     async fn session_environment(&self, _ctx: &RequestContext, req: SessionEnvironmentRequest) -> Result<(), ApiError> {
         self.set_environment(&req.session_id, req.body.variables)
     }
@@ -536,14 +557,16 @@ impl Backend for Engine {
         }
     }
 
-    // ---- artifacts (experimental.artifacts is not ported: every location answers as if it were off) ----
+    // ---- artifacts (`server/src/handlers/artifact.ts`, `experimental.artifacts`) ------------------
 
     async fn experimental_artifacts_providers(
         &self,
         ctx: &RequestContext,
         _req: ExperimentalArtifactsProvidersRequest,
     ) -> Result<Vec<ArtifactProvider>, ApiError> {
-        Err(self.artifacts_disabled(ctx, None, None).await)
+        let loc = self.artifact_location(ctx, None, None).await?;
+        let list = oc_core::artifact::Service::new(&self.app, &loc.location).providers().await.map_err(artifact_error)?;
+        list.into_iter().map(from_json).collect()
     }
 
     async fn experimental_artifacts_list(
@@ -551,7 +574,12 @@ impl Backend for Engine {
         ctx: &RequestContext,
         req: ExperimentalArtifactsListRequest,
     ) -> Result<Vec<ArtifactInfo>, ApiError> {
-        Err(self.artifacts_disabled(ctx, req.session_id.as_deref(), None).await)
+        let loc = self.artifact_location(ctx, req.session_id.as_deref(), None).await?;
+        let provider = req.provider.as_deref().map(|p| oc_tools::util::js::trim(p).to_string());
+        let list = oc_core::artifact::Service::new(&self.app, &loc.location)
+            .list(req.session_id.as_deref(), provider.as_deref())
+            .map_err(artifact_error)?;
+        list.iter().map(conv).collect()
     }
 
     async fn experimental_artifacts_create(
@@ -559,7 +587,17 @@ impl Backend for Engine {
         ctx: &RequestContext,
         req: ExperimentalArtifactsCreateRequest,
     ) -> Result<ArtifactInfo, ApiError> {
-        Err(self.artifacts_disabled(ctx, req.body.session_id.as_deref(), None).await)
+        let loc = self.artifact_location(ctx, req.body.session_id.as_deref(), None).await?;
+        let body = req.body;
+        let input = oc_core::artifact::CreateInput {
+            title: body.title,
+            files: oc_core::artifact::js_entries(body.files),
+            entry: body.entry,
+            provider: body.provider.map(|p| oc_tools::util::js::trim(&p).to_string()),
+            session_id: body.session_id,
+        };
+        let info = oc_core::artifact::Service::new(&self.app, &loc.location).create(input).await.map_err(artifact_error)?;
+        conv(&info)
     }
 
     async fn experimental_artifacts_get(
@@ -567,7 +605,9 @@ impl Backend for Engine {
         ctx: &RequestContext,
         req: ExperimentalArtifactsGetRequest,
     ) -> Result<ArtifactContent, ApiError> {
-        Err(self.artifacts_disabled(ctx, None, Some(&req.artifact_id)).await)
+        let loc = self.artifact_location(ctx, None, Some(&req.artifact_id)).await?;
+        let content = oc_core::artifact::Service::new(&self.app, &loc.location).get(&req.artifact_id).await.map_err(artifact_error)?;
+        from_json(content)
     }
 
     async fn experimental_artifacts_update(
@@ -575,11 +615,24 @@ impl Backend for Engine {
         ctx: &RequestContext,
         req: ExperimentalArtifactsUpdateRequest,
     ) -> Result<ArtifactInfo, ApiError> {
-        Err(self.artifacts_disabled(ctx, req.body.session_id.as_deref(), Some(&req.artifact_id)).await)
+        let loc = self.artifact_location(ctx, req.body.session_id.as_deref(), Some(&req.artifact_id)).await?;
+        let body = req.body;
+        let input = oc_core::artifact::UpdateInput {
+            title: body.title,
+            files: oc_core::artifact::js_entries(body.files),
+            entry: body.entry,
+            session_id: body.session_id,
+        };
+        let info = oc_core::artifact::Service::new(&self.app, &loc.location)
+            .update(&req.artifact_id, input)
+            .await
+            .map_err(artifact_error)?;
+        conv(&info)
     }
 
     async fn experimental_artifacts_delete(&self, ctx: &RequestContext, req: ExperimentalArtifactsDeleteRequest) -> Result<(), ApiError> {
-        Err(self.artifacts_disabled(ctx, None, Some(&req.artifact_id)).await)
+        let loc = self.artifact_location(ctx, None, Some(&req.artifact_id)).await?;
+        oc_core::artifact::Service::new(&self.app, &loc.location).remove(&req.artifact_id).await.map_err(artifact_error)
     }
 
     async fn experimental_artifacts_view(
@@ -587,7 +640,21 @@ impl Backend for Engine {
         ctx: &RequestContext,
         req: oc_server::backend::ArtifactViewRequest,
     ) -> Result<oc_server::backend::ArtifactView, ApiError> {
-        Err(self.artifacts_disabled(ctx, None, Some(&req.artifact_id)).await)
+        let loc = self.artifact_location(ctx, None, Some(&req.artifact_id)).await?;
+        let service = oc_core::artifact::Service::new(&self.app, &loc.location);
+        if req.bare {
+            service.info(&req.artifact_id).map_err(artifact_error)?;
+            let prefix = oc_core::artifact::view_url(&req.artifact_id);
+            return Ok(oc_server::backend::ArtifactView::Redirect(format!("{prefix}{}", req.search)));
+        }
+        match service.read_local_file(&req.artifact_id, req.path.as_deref()) {
+            Ok(file) => Ok(oc_server::backend::ArtifactView::File { mime: file.mime, data: file.bytes.into() }),
+            Err(oc_core::artifact::Error::FileMissing { path, .. }) => {
+                let message = format!("Artifact file not found: {path}");
+                Err(ApiError::file_not_found_message(path, message))
+            }
+            Err(e) => Err(artifact_error(e)),
+        }
     }
 
     // ---- schedules (`schedule.*`, experimental.schedules) ----
@@ -666,7 +733,12 @@ impl Backend for Engine {
             return Err(ApiError::schema("Payload", issue));
         }
         let data = json!({"info": b.info, "messages": messages});
-        match oc_core::transfer::import(&self.app.bus, &self.app.sessions, &data, location).await {
+        let directory = location.directory.clone();
+        let media_for = || async move {
+            // `SessionBlob.enabledFor`: the destination location's config; one that cannot boot keeps media inline.
+            self.locations.get(&directory).await.is_ok() && self.app.bus.media_blob(&directory)
+        };
+        match oc_core::transfer::import(&self.app.bus, &self.app.sessions, &data, location, media_for).await {
             Ok(s) => self.session_api(&s),
             Err(oc_core::transfer::ImportError::Conflict(id)) => {
                 Err(ApiError::conflict(format!("Session already exists: {id}"), Some(id)))
@@ -2017,33 +2089,49 @@ fn generate_error(error: oc_core::generate::GenerateError) -> ApiError {
 }
 
 impl Engine {
-    /// The artifact routes after validation (`server/src/handlers/artifact.ts`): resolve the location (an explicit
-    /// directory, else the session's, else the stored artifact's, else the request's), load it, then fail with
-    /// `Artifact.DisabledError` as a 403.
-    async fn artifacts_disabled(&self, ctx: &RequestContext, session_id: Option<&str>, artifact_id: Option<&str>) -> ApiError {
+    /// The location of an artifact route after validation (`server/src/handlers/artifact.ts`
+    /// `inLocation`): an explicit directory, else the session's, else the stored artifact's, else the
+    /// request's; booted, with its plugins activated.
+    async fn artifact_location(
+        &self,
+        ctx: &RequestContext,
+        session_id: Option<&str>,
+        artifact_id: Option<&str>,
+    ) -> Result<Arc<crate::locations::Loc>, ApiError> {
         let directory = if ctx.explicit_location {
             ctx.location.directory.clone()
         } else if let Some(session_id) = session_id {
-            match self.session(session_id) {
-                Ok(session) => session.location.directory,
-                Err(e) => return e,
-            }
+            self.session(session_id)?.location.directory
         } else {
-            // `Artifact.locate`: the directory of the stored `artifact:item:<id>` record.
             artifact_id
-                .and_then(|id| self.app.db.kv_get(&format!("artifact:item:{id}")).ok().flatten())
-                .and_then(|record| record.get("directory").and_then(Value::as_str).map(String::from))
+                .and_then(|id| oc_core::artifact::locate(&self.app.db, id))
                 .unwrap_or_else(|| ctx.location.directory.clone())
         };
-        match self.locations.get(&directory).await {
-            Err(e) => e,
-            Ok(_) => artifacts_disabled(),
-        }
+        let loc = self.locations.get(&directory).await?;
+        self.await_plugins(&loc).await?;
+        Ok(loc)
     }
 }
 
-/// `Artifact.DisabledError` as the server reports it.
-fn artifacts_disabled() -> ApiError {
-    ApiError::forbidden("Artifacts are disabled; set experimental.artifacts in config")
+/// An `Artifact.*Error` as the routes report it (`mapCommon`).
+fn artifact_error(error: oc_core::artifact::Error) -> ApiError {
+    use oc_core::artifact::Error as E;
+    let message = error.message();
+    match error {
+        E::Disabled => ApiError::forbidden(message),
+        E::NotFound(id) => ApiError::artifact_not_found(id, message),
+        E::ProviderNotFound(id) => ApiError::provider_not_found_message(id, message),
+        E::Invalid { field, .. } => {
+            let e = ApiError::invalid_request(message).with_kind("artifact_invalid");
+            match field {
+                Some(f) => e.with_field(f),
+                None => e,
+            }
+        }
+        E::Provider { provider_id, .. } => ApiError::service_unavailable(message, Some(provider_id)),
+        E::SessionNotFound(id) => ApiError::session_not_found(id),
+        E::FileMissing { path, .. } => ApiError::file_not_found_message(path, message),
+        E::Defect(m) => defect(m),
+    }
 }
 

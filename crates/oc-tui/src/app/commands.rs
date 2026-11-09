@@ -1252,9 +1252,24 @@ impl App {
         d.size = Size::Large;
         self.dialogs.clear();
         self.open_dialog(d);
+        let message = before.as_ref().and_then(|b| self.store.messages(sid).iter().find(|m| &m.id == b && m.kind == "user").cloned());
+        let sid = sid.to_string();
+        match message {
+            // `restorePrompt(message, { allowMissing: false })`: a fork without its prompt is not what was asked for.
+            Some(message) => self.restore_prompt(&message, false, move |app, r| match r {
+                Ok(prompt) => app.fork_with(&sid, before, Some(prompt)),
+                Err(e) => {
+                    app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000));
+                    app.dialogs.clear();
+                }
+            }),
+            None => self.fork_with(&sid, before, None),
+        }
+    }
+
+    fn fork_with(&mut self, sid: &str, before: Option<String>, prompt: Option<crate::state::PromptInfo>) {
         let c = self.client.clone();
         let s = sid.to_string();
-        let prompt = before.as_ref().and_then(|b| self.store.messages(sid).iter().find(|m| &m.id == b && m.kind == "user").map(super::go_upsell::projected_prompt));
         self.spawn(async move { c.session_fork(&s, before.as_deref()).await }, move |app, r| {
             let info = match r {
                 Ok(info) => info,

@@ -832,3 +832,76 @@ async fn successive_live_plugin_changes() {
     }
     s.shutdown().await;
 }
+
+/// `ctx.experimental.artifact.transform` (`core/test/artifact.test.ts`, `server/test/artifact.test.ts`): a plugin's
+/// providers are listed, named in `artifact_create`'s description, become the default when it says so, and serve
+/// create/read/update/delete for the tools and the routes; their failures map to 503.
+#[tokio::test]
+async fn plugin_artifact_providers_back_the_tools_and_routes() {
+    require_bun!();
+    let s = setup_with(
+        json!([{ "package": fixture("artifact-plugin"), "options": { "default": "pages" } }]),
+        vec![
+            Turn::Tool("opencode_artifact_create", json!({ "title": "Flamegraph", "files": { "index.html": "<b>v1</b>", "assets/app.js": "1" } })),
+            Turn::Tool("opencode_artifact_create", json!({ "title": "Broken", "files": { "a.txt": "a" }, "provider": "broken" })),
+            Turn::Text("done"),
+        ],
+        json!({ "experimental": { "artifacts": true }, "permission": { "execute": "deny" } }),
+    )
+    .await;
+    let providers = s.h.get("/api/experimental/artifacts/providers").await.json();
+    assert_eq!(
+        providers["data"],
+        json!([
+            { "id": "pages", "name": "Pages", "capabilities": ["static", "server-code"], "default": true },
+            { "id": "broken", "name": "Broken", "capabilities": ["static"], "default": false },
+            { "id": "local", "name": "Local", "capabilities": ["static"], "default": false },
+        ])
+    );
+    let session = s.h.session().await;
+    s.run(&session, "publish").await;
+    let tools = s.tools(0);
+    let create = tools.iter().find(|t| t["function"]["name"] == "opencode_artifact_create").expect("artifact_create offered");
+    assert_eq!(
+        create["function"]["description"],
+        "Publish a new artifact to the default artifact provider or a named override.\nDefault provider (pages [static, server-code]): Artifacts are published to the Pages fixture.\nOther active providers (pass provider to override): broken [static], local [static]."
+    );
+    let messages = s.messages(&session);
+    let results: Vec<Value> = messages
+        .iter()
+        .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+        .filter(|p| p["type"] == "tool")
+        .map(|p| p["state"].clone())
+        .collect();
+    let published = results[0]["content"][0]["text"].as_str().unwrap();
+    assert!(published.starts_with("Published Flamegraph (art_"), "{published}");
+    assert!(published.contains(" via pages): https://pages.example/art_"), "{published}");
+    assert!(published.ends_with(&format!("/index.html?files=index.html,assets/app.js&sizes=9,1&session={session}")), "{published}");
+    assert_eq!(results[1]["error"]["message"], "Artifact provider broken failed: quota exceeded");
+
+    let list = s.h.get("/api/experimental/artifacts").await.json();
+    let id = list["data"][0]["id"].as_str().unwrap().to_string();
+    let content = s.h.get(&format!("/api/experimental/artifacts/{id}")).await.json();
+    assert_eq!(content["data"]["files"], json!({ "index.html": "<b>v1</b>", "assets/app.js": "1" }));
+    let r = s.h.req("PATCH", &format!("/api/experimental/artifacts/{id}"), Some(json!({ "title": "keep url", "files": { "index.html": "v2" } }))).await;
+    assert_eq!(r.json()["data"]["url"], list["data"][0]["url"]);
+    let r = s.h.get(&format!("/api/experimental/artifacts/{id}/view/")).await;
+    assert_eq!(
+        r.json(),
+        json!({
+            "_tag": "InvalidRequestError",
+            "message": format!("Artifact {id} is hosted by provider \"pages\", not the local server"),
+            "kind": "artifact_invalid",
+            "field": "artifactID",
+        })
+    );
+    let r = s.h.post("/api/experimental/artifacts", json!({ "title": "B", "files": { "a": "b" }, "provider": "broken" })).await;
+    assert_eq!(
+        (r.status.as_u16(), r.json()),
+        (503, json!({ "_tag": "ServiceUnavailableError", "message": "Artifact provider broken failed: quota exceeded", "service": "broken" }))
+    );
+    let r = s.h.req("DELETE", &format!("/api/experimental/artifacts/{id}"), None).await;
+    assert_eq!(r.status, 204);
+    assert_eq!(s.h.get(&format!("/api/experimental/artifacts/{id}")).await.json()["_tag"], "ArtifactNotFoundError");
+    s.shutdown().await;
+}

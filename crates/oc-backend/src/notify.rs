@@ -76,6 +76,8 @@ impl Engine {
                 });
                 Value::Array(list)
             }
+            // `snapshotProviders`: `[{id, name, capabilities, selection?}]` sorted by id.
+            "artifact" => oc_core::artifact::providers(&self.app.plugins, &loc.key).await.snapshot(),
             // The inventory (GUI bundle revisions are not served by ocd).
             "plugin" => json!([self.app.plugins.inventory(&loc.key), []]),
             _ => return None,

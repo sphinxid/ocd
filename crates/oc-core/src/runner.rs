@@ -457,7 +457,7 @@ impl Engine {
                 let _ = mcp.wait_ready(&server.name).await;
             }
         }
-        let registry = self.base_registry(&location, &mcp).await;
+        let registry = self.artifact_registry(&location, self.base_registry(&location, &mcp).await).await;
         let registry = self.post_registry(&location.key, self.app.plugins.tools(&location.key, registry).await);
         let snapshot = registry.snapshot(&permissions);
         let skills = self.app.plugins.skills(&location, &self.app.global, &self.app.version).await;
@@ -478,6 +478,17 @@ impl Engine {
         if self.app.plugins.builtin_enabled(key, crate::browser::PLUGIN_ID) {
             crate::browser::tools::register(&mut registry, &self.app.plugins.browsers, key);
         }
+        registry
+    }
+
+    /// `registry` with the `opencode.tool.artifact` tools where `experimental.artifacts` is on (their
+    /// description names the location's artifact providers, which plugins transform).
+    pub async fn artifact_registry(&self, location: &Arc<Location>, mut registry: Registry) -> Registry {
+        if !self.app.plugins.builtin_enabled(&location.key, crate::artifact::tools::PLUGIN_ID) {
+            return registry;
+        }
+        let tools = crate::artifact::tools::tools(&self.app, location).await;
+        crate::artifact::tools::insert(&mut registry, tools);
         registry
     }
 
@@ -1264,7 +1275,7 @@ impl Engine {
             .or_else(|| session.agent.clone())
             .unwrap_or_else(|| crate::agent::DEFAULT_ID.to_string());
         let mcp = self.mcp(&location).await;
-        let registry = self.base_registry(&location, &mcp);
+        let registry = self.artifact_registry(&location, self.base_registry(&location, &mcp).await).await;
         let registry = self.post_registry(&location.key, self.app.plugins.tools(&location.key, registry).await);
         let entries = &location.entries;
         let config = ToolConfig {
@@ -1337,6 +1348,7 @@ impl Engine {
             skills: Arc::new(Vec::new()),
             mcp: Some(env.mcp.clone()),
             location: Some(env.location.key.clone()),
+            engine: Some(self.me.clone()),
         });
         let ctx = ToolContext {
             session_id: session.id.clone(),
@@ -1471,7 +1483,8 @@ impl crate::plugins::ToolSource for RunnerTools {
             let engine = engine?;
             let location = engine.location(&key).await.ok()?;
             let mcp = engine.mcp(&location).await;
-            let registry = engine.app.plugins.tools(&key, engine.base_registry(&location, &mcp).await).await;
+            let registry = engine.artifact_registry(&location, engine.base_registry(&location, &mcp).await).await;
+            let registry = engine.app.plugins.tools(&key, registry).await;
             let registry = engine.post_registry(&key, registry);
             Some(crate::plugins::tool_value(&registry))
         })

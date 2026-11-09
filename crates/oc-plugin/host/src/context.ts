@@ -123,11 +123,11 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
       },
     },
     experimental: {
-      // Artifact providers (`experimental.artifacts`, #60351): ocd has no artifact service yet, so a registered
-      // provider is never used and reloading does nothing, as with the feature off upstream.
+      // Artifact providers (`experimental.artifacts`): the `artifact` transform domain, whose providers Rust
+      // calls through their wrapped functions.
       artifact: {
-        transform: (_callback: (editor: any) => void) => Effect.void,
-        reload: () => Effect.void,
+        transform: transform("artifact"),
+        reload: reload("artifact"),
       },
       terminal: {
         read: api("persistentPty.read"),

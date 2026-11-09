@@ -101,6 +101,22 @@ impl Registry {
         Ok(())
     }
 
+    /// [`Registry::add`] at `index` (clamped): a plugin whose tools register between built-ins. An
+    /// existing tool of the same name is replaced in place.
+    pub fn insert(&mut self, index: usize, tool: Arc<dyn Tool>) -> Result<(), RegistrationError> {
+        if let Some(error) = registration_error(tool.as_ref()) {
+            tracing::error!(name = tool.name(), namespace = ?tool.options().namespace, error = %error.message, "Skipping invalid tool registration");
+            self.errors.push(error.clone());
+            return Err(error);
+        }
+        let id = effective_name(tool.name(), tool.options().namespace.as_deref());
+        match self.tools.iter_mut().find(|(name, _)| *name == id) {
+            Some(slot) => slot.1 = tool,
+            None => self.tools.insert(index.min(self.tools.len()), (id, tool)),
+        }
+        Ok(())
+    }
+
     /// `editor.namespace`.
     pub fn namespace(&mut self, namespace: Namespace) -> Result<(), RegistrationError> {
         if let Some(error) = namespace_error(&namespace.name) {

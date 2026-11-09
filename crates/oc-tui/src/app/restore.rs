@@ -4,8 +4,9 @@
 //! `queued_prompt.undo` handlers of `routes/session/index.tsx`.
 //!
 //! The whole projected prompt comes back (text, files, agents, skills; pasted ranges are dropped), after
-//! anything already in the session's composer, or in its stashed draft when another session is routed. Stored
-//! media references (`experimental.media_blob`) are not ported, so restoring never reads anything.
+//! anything already in the session's composer, or in its stashed draft when another session is routed. Files the
+//! server kept as `media:` refs (`experimental.media_blob`) are read back into `data:` URIs first
+//! (`App::restore_prompt`, `app/media.rs`).
 
 use super::{App, Toast};
 use crate::api::types::Message;
@@ -90,13 +91,40 @@ impl App {
     }
 
     /// `undoPending`: cancel a pending inbox prompt and give it back. Single-flight per inbox item
-    /// (`runPendingAction`); `done` runs only once the prompt is back, with whether the composer took it.
-    fn undo_pending(&mut self, sid: &str, inbox: &str, prompt: PromptInfo, failure: &'static str, done: impl FnOnce(&mut App, bool) + Send + 'static) {
+    /// (`runPendingAction`). The cancel releases blobs nothing else references, so media refs load into the draft
+    /// first; a failed read toasts `error` (`(title, duration)`) and cancels nothing. `done` runs only once the
+    /// prompt is back, with whether the composer took it.
+    fn undo_pending(
+        &mut self,
+        sid: &str,
+        inbox: &str,
+        message: Message,
+        failure: &'static str,
+        error: (Option<&'static str>, Option<u64>),
+        done: impl FnOnce(&mut App, bool) + Send + 'static,
+    ) {
         if !self.pending_actions.insert(inbox.to_string()) {
             return;
         }
-        let c = self.client.clone();
         let (sid, inbox) = (sid.to_string(), inbox.to_string());
+        self.restore_prompt(&message, true, move |app, r| match r {
+            Ok(prompt) => app.cancel_pending(sid, inbox, prompt, failure, done),
+            Err(e) => {
+                app.pending_actions.remove(&inbox);
+                let mut toast = Toast::new("error", crate::api::error_message(&e));
+                if let Some(title) = error.0 {
+                    toast = toast.title(title);
+                }
+                if let Some(ms) = error.1 {
+                    toast = toast.duration(ms);
+                }
+                app.toast(toast);
+            }
+        });
+    }
+
+    fn cancel_pending(&mut self, sid: String, inbox: String, prompt: PromptInfo, failure: &'static str, done: impl FnOnce(&mut App, bool) + Send + 'static) {
+        let c = self.client.clone();
         let (s2, i2) = (sid.clone(), inbox.clone());
         self.spawn(async move { c.inbox_cancel(&s2, &i2).await }, move |app, r| {
             app.pending_actions.remove(&inbox);
@@ -125,26 +153,33 @@ impl App {
             self.dialogs.clear();
             return;
         };
-        let restored = restored_prompt(&target);
         let pending = self.store.pending.get(&sid).is_some_and(|p| p.iter().any(|i| i.kind == "user" && i.id == target.id));
         if pending {
-            self.undo_pending(&sid, &target.id, restored, "delete", |_, _| {});
+            let id = target.id.clone();
+            self.undo_pending(&sid, &id, target, "delete", (None, Some(5000)), |_, _| {});
         } else {
-            let c = self.client.clone();
-            let (s2, mid) = (sid.clone(), target.id.clone());
-            self.spawn(
-                async move {
-                    c.interrupt(&s2, false).await?;
-                    c.wait(&s2).await?;
-                    c.revert_stage(&s2, &mid).await
-                },
-                move |app, r| match r {
-                    Ok(_) => {
-                        app.append_to_session_prompt(&sid, &restored);
-                    }
-                    Err(e) => app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000)),
-                },
-            );
+            let mid = target.id.clone();
+            self.restore_prompt(&target, true, move |app, r| {
+                let restored = match r {
+                    Ok(p) => p,
+                    Err(e) => return app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000)),
+                };
+                let c = app.client.clone();
+                let s2 = sid.clone();
+                app.spawn(
+                    async move {
+                        c.interrupt(&s2, false).await?;
+                        c.wait(&s2).await?;
+                        c.revert_stage(&s2, &mid).await
+                    },
+                    move |app, r| match r {
+                        Ok(_) => {
+                            app.append_to_session_prompt(&sid, &restored);
+                        }
+                        Err(e) => app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000)),
+                    },
+                );
+            });
         }
         self.dialogs.clear();
     }
@@ -152,18 +187,27 @@ impl App {
     /// Revert (`DialogMessage`): stage the revert first; the composer changes only once it is staged, so a failed
     /// revert leaves the draft alone.
     pub fn revert_message(&mut self, sid: &str, mid: &str) {
-        let restored = self.store.messages(sid).iter().find(|m| m.id == mid && m.kind == "user").map(restored_prompt);
-        let c = self.client.clone();
+        let message = self.store.messages(sid).iter().find(|m| m.id == mid && m.kind == "user").cloned();
         let (sid, mid) = (sid.to_string(), mid.to_string());
-        let s2 = sid.clone();
-        self.spawn(async move { c.revert_stage(&s2, &mid).await }, move |app, r| match r {
-            Ok(_) => {
-                if let Some(p) = restored {
-                    app.append_to_session_prompt(&sid, &p);
+        let stage = move |app: &mut App, restored: Option<PromptInfo>| {
+            let c = app.client.clone();
+            let s2 = sid.clone();
+            app.spawn(async move { c.revert_stage(&s2, &mid).await }, move |app, r| match r {
+                Ok(_) => {
+                    if let Some(p) = restored {
+                        app.append_to_session_prompt(&sid, &p);
+                    }
                 }
-            }
-            Err(e) => app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000)),
-        });
+                Err(e) => app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000)),
+            });
+        };
+        match message {
+            Some(message) => self.restore_prompt(&message, true, move |app, r| match r {
+                Ok(p) => stage(app, Some(p)),
+                Err(e) => app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000)),
+            }),
+            None => stage(self, None),
+        }
         self.dialogs.clear();
     }
 
@@ -179,15 +223,12 @@ impl App {
         payload.insert("id".into(), json!(queued.id));
         payload.insert("type".into(), json!("user"));
         payload.insert("time".into(), json!({ "created": queued.time.created }));
-        let restored = match Message::from_value(Value::Object(payload)) {
-            Some(m) => restored_prompt(&m),
-            None => {
-                let mut p = PromptInfo::empty();
-                p.text = queued.payload.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
-                p
-            }
-        };
-        self.undo_pending(&sid, inbox, restored, "undo", |app, _composer| {
+        let message = Message::from_value(Value::Object(payload)).unwrap_or_else(|| {
+            let mut m = Message::from_value(json!({ "id": queued.id, "type": "user", "time": { "created": 0 }, "text": "" })).expect("user message");
+            m.text = Some(queued.payload.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string());
+            m
+        });
+        self.undo_pending(&sid, inbox, message, "undo", (Some("Failed to undo pending prompt"), None), |app, _composer| {
             app.dialogs.clear();
             app.right_focus = false;
             app.dirty = true;

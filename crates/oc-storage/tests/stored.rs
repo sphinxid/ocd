@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 fn commit(db: &Database, e: SessionEvent, created: u64) -> (String, i64) {
     let eid = id::event();
-    let seq = db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e }).unwrap();
+    let seq = db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e, media: false }).unwrap();
     (eid, seq)
 }
 
@@ -491,7 +491,8 @@ fn inbox_payloads_hydrate_media_refs() {
         },
         5,
     );
-    insert_ref(&db, &sid, &inbox, &h, 1);
+    // The projection records the ref its payload names (`recordRefs` at admission).
+    assert_eq!(count(&db, "blob_ref"), 1);
     let rows = db.session_inbox(&sid).unwrap();
     assert_eq!(rows[0].2["files"][0]["data"], json!(base64::engine::general_purpose::STANDARD.encode(PNG)));
 
@@ -631,4 +632,232 @@ fn migrates_legacy_kv_job_markers_into_the_job_table() {
         })
         .unwrap();
     assert_eq!(keys, ["other/key"]);
+}
+
+// ---- media blob writes (`experimental.media_blob`, `core/test/session-projector.test.ts`) ----------------------
+
+fn commit_media(db: &Database, e: SessionEvent, created: u64) -> i64 {
+    let eid = id::event();
+    db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e, media: true }).unwrap()
+}
+
+fn inline_file(name: &str) -> Value {
+    json!({"data": base64::engine::general_purpose::STANDARD.encode(PNG), "mime": "image/png", "source": {"type": "inline"}, "name": name})
+}
+
+fn inbox_payload(db: &Database, id: &str) -> Value {
+    let raw: String = db.with(|c| c.query_row("SELECT payload FROM session_inbox WHERE id = ?", [id], |r| r.get(0))).unwrap();
+    serde_json::from_str(&raw).unwrap()
+}
+
+fn refs(db: &Database) -> Vec<(String, String, String, i64)> {
+    db.with(|c| {
+        let mut s = c.prepare("SELECT session_id, message_id, hash, seq FROM blob_ref ORDER BY seq, message_id")?;
+        let r = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect();
+        r
+    })
+    .unwrap()
+}
+
+/// "stores media once and refs it from inbox, message, and tool rows when experimental.media_blob is on"
+#[test]
+fn stores_media_once_and_refs_it_from_inbox_message_and_tool_rows() {
+    let (db, sid) = setup();
+    let h = hash(PNG);
+    let uri = format!("media:{h}");
+    let reference = |name: &str| json!({"mime": "image/png", "source": {"type": "inline"}, "name": name, "uri": uri});
+    let inbox = "msg_media_user".to_string();
+    commit_media(
+        &db,
+        SessionEvent::InboxEnqueued {
+            session_id: sid.clone(),
+            inbox_id: inbox.clone(),
+            item: InboxItem {
+                kind: "user".into(),
+                payload: json!({"text": "look", "files": [inline_file("shot.png"), inline_file("copy.png")]}),
+                delivery: Delivery::Steer,
+            },
+        },
+        1,
+    );
+    assert_eq!(inbox_payload(&db, &inbox), json!({"text": "look", "files": [reference("shot.png"), reference("copy.png")]}));
+    // Reads restore the bytes.
+    let rows = db.session_inbox(&sid).unwrap();
+    assert_eq!(rows[0].2["files"][1], inline_file("copy.png"));
+
+    let delivered = commit_media(&db, SessionEvent::InboxDelivered { session_id: sid.clone(), inbox_id: inbox.clone() }, 2);
+    assert_eq!(row_data(&db, &inbox)["files"], json!([reference("shot.png"), reference("copy.png")]));
+    assert_eq!(message_json(&db, &sid, &inbox)["files"][0], inline_file("shot.png"));
+
+    // A tool result's `data:` file.
+    let assistant = "msg_media_tool";
+    insert_row(&db, &sid, assistant, "assistant", 0, assistant_row(None));
+    let b64 = base64::engine::general_purpose::STANDARD.encode(PNG);
+    let events = [
+        SessionEvent::ToolInputStarted { session_id: sid.clone(), assistant_message_id: assistant.into(), id: "shot".into(), name: "shot".into() },
+        SessionEvent::ToolCalled {
+            session_id: sid.clone(),
+            assistant_message_id: assistant.into(),
+            id: "shot".into(),
+            input: Default::default(),
+            executed: true,
+            native: None,
+        },
+        SessionEvent::ToolSuccess {
+            session_id: sid.clone(),
+            assistant_message_id: assistant.into(),
+            id: "shot".into(),
+            content: vec![ToolContent::File { uri: format!("data:image/png;base64,{b64}"), mime: "image/png".into(), name: None }],
+            metadata: None,
+            executed: true,
+            native: None,
+        },
+    ];
+    for (i, e) in events.into_iter().enumerate() {
+        commit_media(&db, e, 3 + i as u64);
+    }
+    assert_eq!(row_data(&db, assistant)["content"][0]["state"]["content"], json!([{"type": "file", "uri": uri, "mime": "image/png"}]));
+    assert_eq!(
+        message_json(&db, &sid, assistant)["content"][0]["state"]["content"][0]["uri"],
+        json!(format!("data:image/png;base64,{b64}"))
+    );
+
+    let blobs: Vec<(String, String, i64)> = db
+        .with(|c| {
+            let mut s = c.prepare("SELECT hash, mime, bytes FROM blob")?;
+            let r = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect();
+            r
+        })
+        .unwrap();
+    assert_eq!(blobs, [(h.clone(), "image/png".to_string(), PNG.len() as i64)]);
+    assert_eq!(refs(&db), [(sid.clone(), assistant.to_string(), h.clone(), 0), (sid.clone(), inbox.clone(), h.clone(), delivered)]);
+}
+
+/// "keeps media inline unless experimental.media_blob is on"
+#[test]
+fn keeps_media_inline_unless_media_blob_is_on() {
+    let (db, sid) = setup();
+    commit(
+        &db,
+        SessionEvent::InboxEnqueued {
+            session_id: sid.clone(),
+            inbox_id: "msg_media_inline".into(),
+            item: InboxItem { kind: "user".into(), payload: json!({"text": "look", "files": [inline_file("shot.png")]}), delivery: Delivery::Steer },
+        },
+        1,
+    );
+    commit(&db, SessionEvent::InboxDelivered { session_id: sid.clone(), inbox_id: "msg_media_inline".into() }, 2);
+    assert_eq!(row_data(&db, "msg_media_inline")["files"], json!([inline_file("shot.png")]));
+    assert_eq!(count(&db, "blob"), 0);
+    assert_eq!(count(&db, "blob_ref"), 0);
+}
+
+/// "deletes a cancelled inbox row's blob refs and blobs"
+#[test]
+fn a_cancelled_inbox_row_releases_the_blobs_it_stored() {
+    let (db, sid) = setup();
+    commit_media(
+        &db,
+        SessionEvent::InboxEnqueued {
+            session_id: sid.clone(),
+            inbox_id: "msg_media_cancel".into(),
+            item: InboxItem { kind: "user".into(), payload: json!({"text": "later", "files": [inline_file("shot.png")]}), delivery: Delivery::Queue },
+        },
+        1,
+    );
+    assert_eq!((count(&db, "blob_ref"), count(&db, "blob")), (1, 1));
+    commit(&db, SessionEvent::InboxCancelled { session_id: sid.clone(), inbox_id: "msg_media_cancel".into() }, 2);
+    assert_eq!((count(&db, "blob_ref"), count(&db, "blob")), (0, 0));
+}
+
+/// "forks a session's inline media into blobs when its location enables media_blob" (`ForkMedia`); without it the
+/// copy keeps media inline.
+#[test]
+fn forks_store_inline_media_as_blobs_only_with_fork_media() {
+    for media in [true, false] {
+        let (db, sid) = setup();
+        insert_row(&db, &sid, "msg_parent", "user", 1, json!({"time": {"created": 0}, "text": "look", "files": [inline_file("shot.png")]}));
+        let child = id::session();
+        let eid = id::event();
+        let e = SessionEvent::Forked {
+            session_id: child.clone(),
+            parent_id: sid.clone(),
+            boundary: ForkBoundary { kind: ForkBoundaryType::Through, message_id: "msg_parent".into() },
+            instructions: None,
+            instruction_entries: None,
+        };
+        db.commit_session_event(Committing { id: &eid, created: 3, metadata: None, event: &e, media }).unwrap();
+        let copy: (String, i64, String) = db
+            .with(|c| {
+                c.query_row("SELECT id, seq, data FROM session_message WHERE session_id = ?", [&child], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+            })
+            .unwrap();
+        let data: Value = serde_json::from_str(&copy.2).unwrap();
+        // The parent's row is never rewritten.
+        assert_eq!(row_data(&db, "msg_parent")["files"], json!([inline_file("shot.png")]));
+        if media {
+            let h = hash(PNG);
+            assert_eq!(data["files"], json!([{"mime": "image/png", "source": {"type": "inline"}, "name": "shot.png", "uri": format!("media:{h}")}]));
+            assert_eq!(refs(&db), [(child.clone(), copy.0.clone(), h, 1)]);
+        } else {
+            assert_eq!(data["files"], json!([inline_file("shot.png")]));
+            assert_eq!(count(&db, "blob"), 0);
+        }
+    }
+}
+
+/// `keepRefs` / `describe`: refs stay with their blob's size; refs whose blob is gone or unreferenced read as the
+/// placeholder.
+#[test]
+fn reads_with_refs_keep_referenced_blobs_and_describe_them() {
+    let (db, sid) = setup();
+    let h = seed_media(&db, &sid);
+    let orphan = insert_blob(&db, b"abc", "image/png");
+    insert_row(
+        &db,
+        &sid,
+        "msg_orphan",
+        "user",
+        5,
+        json!({"time": {"created": 0}, "text": "o", "files": [{"uri": format!("media:{orphan}"), "mime": "image/png", "name": "gone.png", "source": {"type": "inline"}}]}),
+    );
+    let mut rows: Vec<(i64, String, String, String)> = db
+        .with(|c| {
+            let mut s = c.prepare("SELECT seq, id, type, data FROM session_message WHERE session_id = ? ORDER BY seq")?;
+            let r = s.query_map([&sid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect();
+            r
+        })
+        .unwrap();
+    let meta = db.with(|c| oc_storage::stored::keep_refs(c, &mut rows)).unwrap();
+    let user: Value = serde_json::from_str(&rows[0].3).unwrap();
+    assert_eq!(user["files"][0]["uri"], json!(format!("media:{h}")));
+    let placeholder = |text: &str| base64::engine::general_purpose::STANDARD.encode(text);
+    assert_eq!(user["files"][1]["data"], json!(placeholder("[media unavailable: application/pdf]")));
+    let tool: Value = serde_json::from_str(&rows[1].3).unwrap();
+    assert_eq!(tool["content"][0]["state"]["content"][0]["uri"], json!(format!("media:{h}")));
+    assert_eq!(tool["content"][0]["state"]["content"][1], json!({"type": "text", "text": "[media unavailable: anim.gif (image/gif)]"}));
+    let orphaned: Value = serde_json::from_str(&rows[2].3).unwrap();
+    assert_eq!(orphaned["files"][0]["data"], json!(placeholder("[media unavailable: gone.png (image/png)]")));
+    assert_eq!(orphaned["files"][0]["mime"], "text/plain");
+
+    let mut files = user["files"].as_array().unwrap().clone();
+    oc_storage::stored::describe(&mut files, &meta);
+    assert_eq!(
+        serde_json::to_string(&files[0]).unwrap(),
+        format!("{{\"mime\":\"image/png\",\"source\":{{\"type\":\"inline\"}},\"name\":\"shot.png\",\"uri\":\"media:{h}\",\"bytes\":{}}}", PNG.len())
+    );
+}
+
+/// `split` only moves media a row carries inline (an import's), and the ref files it keeps name no new blob.
+#[test]
+fn split_moves_only_inline_media() {
+    let d = "d".repeat(64);
+    let mut user = json!({"text": "x", "files": [inline_file("a.png"), {"mime": "image/png", "source": {"type": "inline"}, "uri": format!("media:{d}")}]});
+    let taken = oc_storage::stored::split(&mut user);
+    assert_eq!(taken.hashes().into_iter().collect::<Vec<_>>(), [hash(PNG)]);
+    assert_eq!(user["files"][0]["uri"], json!(format!("media:{}", hash(PNG))));
+    let mut refs_only = json!({"text": "x", "files": [{"mime": "image/png", "source": {"type": "inline"}, "uri": format!("media:{d}")}]});
+    assert!(oc_storage::stored::split(&mut refs_only).is_empty());
 }

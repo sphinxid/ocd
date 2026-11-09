@@ -19,8 +19,10 @@ pub fn projected_prompt(m: &Message) -> crate::state::PromptInfo {
     p.text = m.text_str().to_string();
     for f in m.files.iter().flatten() {
         let v = serde_json::to_value(f).unwrap_or(Value::Null);
+        // A file the server kept as a `media:<hash>` ref stays a ref.
         let uri = match v.pointer("/source/type").and_then(|t| t.as_str()) {
             Some("uri") => v.pointer("/source/uri").and_then(|u| u.as_str()).unwrap_or("").to_string(),
+            _ if v.get("uri").and_then(|u| u.as_str()).is_some() => v["uri"].as_str().unwrap_or("").to_string(),
             _ => format!("data:{};base64,{}", v.get("mime").and_then(|m| m.as_str()).unwrap_or(""), v.get("data").and_then(|d| d.as_str()).unwrap_or("")),
         };
         let mut file = json!({ "uri": uri });
@@ -88,21 +90,43 @@ impl App {
             return;
         }
         // Put the turn's prompt back: the last user message before the failed step, unless it is
-        // still pending in the inbox; a shell or idle row ends the turn.
+        // still pending in the inbox; a shell or idle row ends the turn. Its media refs load first
+        // (`restorePrompt`); typing or a shell command meanwhile keeps the composer and skips the offer.
         let list = self.store.messages(&sid).to_vec();
+        let mut recalled = None;
         if let Some(end) = list.iter().position(|m| m.id == aid) {
             for m in list[..end].iter().rev() {
                 if m.kind == "shell" || m.kind == "idle" {
                     break;
                 }
                 if m.kind == "user" && !self.store.pending_has_input(&sid, &m.id) {
-                    let p = projected_prompt(m);
-                    self.editor.set(&p);
-                    self.editor.buffer_end();
+                    recalled = Some(m.clone());
                     break;
                 }
             }
         }
+        let retry = ev.data.pointer("/error/retryAfterMs").and_then(|v| v.as_f64());
+        let created = ev.created;
+        let Some(recalled) = recalled else {
+            self.free_limit_offer(&sid, go_limit, retry, created);
+            return;
+        };
+        self.restore_prompt(&recalled, true, move |app, r| {
+            let restored = match r {
+                Ok(p) => p,
+                Err(e) => return app.toast(Toast::new("error", crate::api::error_message(&e)).duration(5000)),
+            };
+            if app.session_id() != Some(sid.as_str()) || !prompt_empty(&app.editor.info()) || app.editor.shell {
+                return;
+            }
+            app.editor.set(&restored);
+            app.editor.buffer_end();
+            app.free_limit_offer(&sid, go_limit, retry, created);
+        });
+    }
+
+    /// The rest of [`App::free_limit_hit`] once the prompt is back: the OpenCode Go offer, at most once a day.
+    fn free_limit_offer(&mut self, sid: &str, go_limit: bool, retry: Option<f64>, created: i64) {
         if go_limit || !self.dialogs.is_empty() {
             return;
         }
@@ -127,8 +151,7 @@ impl App {
             }
             v["lastSeenAt"] = json!(now);
         });
-        let retry = ev.data.pointer("/error/retryAfterMs").and_then(|v| v.as_f64());
-        let reset = crate::util::locale::free_limit_reset(retry, ev.created, now);
+        let reset = crate::util::locale::free_limit_reset(retry, created, now);
         let mut d = Dialog::new("go-upsell", Body::GoUpsell(Box::new(GoUpsell::new(reset, self.config.animations()))));
         d.data = json!({ "session": sid, "prompt": prompt_shape(&self.editor.info()) });
         self.open_dialog(d);

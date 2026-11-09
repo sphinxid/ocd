@@ -49,6 +49,8 @@ fn unlocated() -> bool {
 pub struct Bus {
     db: Database,
     tx: broadcast::Sender<Event>,
+    /// `experimental.media_blob` of each loaded location, by directory (see [`Bus::set_media_blob`]).
+    media: Arc<parking_lot::RwLock<std::collections::HashMap<String, bool>>>,
 }
 
 /// A durable session event to publish.
@@ -68,11 +70,30 @@ impl From<SessionEvent> for Durable1 {
 impl Bus {
     pub fn new(db: Database) -> Self {
         let (tx, _) = broadcast::channel(4096);
-        Bus { db, tx }
+        Bus { db, tx, media: Default::default() }
     }
 
     pub fn db(&self) -> &Database {
         &self.db
+    }
+
+    /// Records a loaded location's `experimental.media_blob` (`SessionBlob.enabledFor`): events of sessions in
+    /// that directory store their inline media as blobs. A location that never loaded keeps media inline.
+    pub fn set_media_blob(&self, directories: &[&str], on: bool) {
+        let mut media = self.media.write();
+        for d in directories {
+            media.insert(d.to_string(), on);
+        }
+    }
+
+    /// Whether a location (by directory) loaded, so [`Bus::media_blob`] knows its config.
+    pub fn media_blob_known(&self, directory: &str) -> bool {
+        self.media.read().contains_key(directory)
+    }
+
+    /// Whether a location (by directory) stores media as blobs.
+    pub fn media_blob(&self, directory: &str) -> bool {
+        self.media.read().get(directory).copied().unwrap_or(false)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -148,12 +169,19 @@ impl Bus {
         }
         let session = events[0].event.session_id().to_string();
         let before = self.session_location(&session);
+        // The config the projection sees: the session's location, the parent's for a fork (`ForkMedia`).
+        let media = match &events[0].event {
+            SessionEvent::Forked { parent_id, .. } => {
+                self.session_location(parent_id).is_some_and(|l| self.media_blob(&l.directory))
+            }
+            _ => before.as_ref().is_some_and(|l| self.media_blob(&l.directory)),
+        };
         let ids: Vec<String> = events.iter().map(|e| e.id.clone().unwrap_or_else(oc_schema::id::event)).collect();
         let created = oc_schema::id::now_ms();
         let committing: Vec<Committing> = events
             .iter()
             .zip(&ids)
-            .map(|(e, id)| Committing { id, created, metadata: e.metadata.as_ref(), event: &e.event })
+            .map(|(e, id)| Committing { id, created, metadata: e.metadata.as_ref(), event: &e.event, media })
             .collect();
         let seqs = self.db.commit_session_events(&committing, hook)?;
         let after = self.session_location(&session);

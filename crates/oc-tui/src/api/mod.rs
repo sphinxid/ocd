@@ -10,6 +10,10 @@ use serde_json::{Value, json};
 use std::sync::{Arc, RwLock};
 use types::*;
 
+/// The experimental capability a client lists to read stored media as `media:<hash>` refs (`client/src/promise/media.ts`).
+const CAPABILITIES_HEADER: &str = "X-OpenCode-Capabilities";
+const MEDIA_URI_CAPABILITY: &str = "experimental-media-uri";
+
 /// An error returned by the server (`{_tag, message, ...}`) or the transport.
 #[derive(Debug, Clone)]
 pub struct ApiError {
@@ -420,6 +424,19 @@ impl Client {
         self.empty(self.request(Method::POST, &format!("/api/session/{id}/revert/commit"))).await
     }
 
+    /// `inbox` with `media:` refs (`withMediaRefs`): the transcript store's read.
+    pub async fn inbox_refs(&self, id: &str) -> anyhow::Result<Vec<InboxItem>> {
+        let r = self.request(Method::GET, &format!("/api/session/{id}/inbox")).header(CAPABILITIES_HEADER, MEDIA_URI_CAPABILITY);
+        let env: DataEnvelope<Vec<InboxItem>> = self.json(r).await?;
+        Ok(env.data)
+    }
+
+    /// `experimental.media.get`: a stored media blob's bytes.
+    pub async fn media_get(&self, hash: &str) -> anyhow::Result<Vec<u8>> {
+        let resp = self.send(self.request(Method::GET, &format!("/api/experimental/media/{hash}"))).await?;
+        Ok(resp.bytes().await?.to_vec())
+    }
+
     pub async fn inbox(&self, id: &str) -> anyhow::Result<Vec<InboxItem>> {
         let env: DataEnvelope<Vec<InboxItem>> = self.json(self.request(Method::GET, &format!("/api/session/{id}/inbox"))).await?;
         Ok(env.data)
@@ -463,8 +480,30 @@ impl Client {
         Ok(env.data)
     }
 
+    /// `message_get` with `media:` refs (`withMediaRefs`): the transcript store's read.
+    pub async fn message_get_refs(&self, id: &str, message: &str) -> anyhow::Result<Value> {
+        let r = self
+            .request(Method::GET, &format!("/api/session/{id}/message/{message}"))
+            .header(CAPABILITIES_HEADER, MEDIA_URI_CAPABILITY);
+        let env: DataEnvelope<Value> = self.json(r).await?;
+        Ok(env.data)
+    }
+
+    /// `messages` with `media:` refs (`withMediaRefs`): the transcript store's read. Only the transcript store
+    /// opts in; mini mode and other readers keep inline bytes.
+    pub async fn messages_refs(&self, id: &str, limit: u32, cursor: Option<&str>) -> anyhow::Result<Page<Value>> {
+        self.messages_with(id, limit, cursor, true).await
+    }
+
     pub async fn messages(&self, id: &str, limit: u32, cursor: Option<&str>) -> anyhow::Result<Page<Value>> {
+        self.messages_with(id, limit, cursor, false).await
+    }
+
+    async fn messages_with(&self, id: &str, limit: u32, cursor: Option<&str>, refs: bool) -> anyhow::Result<Page<Value>> {
         let mut r = self.request(Method::GET, &format!("/api/session/{id}/message")).query(&[("limit", limit.to_string())]);
+        if refs {
+            r = r.header(CAPABILITIES_HEADER, MEDIA_URI_CAPABILITY);
+        }
         r = match cursor {
             Some(c) => r.query(&[("cursor", c)]),
             None => r.query(&[("order", "desc")]),

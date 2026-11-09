@@ -24,7 +24,10 @@ Promise plugins get 2.2's adapter: `ctx.permission.assert`, `ctx.credential.acti
 call, and (2.2) `ctx.session.instructions.entry.{list,put,remove}`, `ctx.experimental.generate.{text,
 image,decisions}` (`ctx.generate.text` is deprecated), `ctx.event.subscribe({types})`, `ctx.model.list({types})`,
 `untracked` on `ctx.vcs.diff` and the `experimental.idle` session hook. `ctx.experimental.artifact.{transform,
-reload}` (2.2.5) exists but is a stub: ocd has no artifact service yet, so a registered provider is never used.
+reload}` (2.2.5) is the `artifact` transform domain (`host/src/domains.ts`): Rust sends the native `local` provider
+(`native: true`), plugins add (an id replaces in place, `local` too), remove (never `local`) and set the default;
+a plugin provider's functions cross wrapped so files travel as base64 and a typed failure comes back as
+`{error: message|null}` (`oc_core::artifact`).
 
 ## Architecture
 

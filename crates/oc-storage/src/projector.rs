@@ -18,6 +18,9 @@ pub struct Committing<'a> {
     pub created: u64,
     pub metadata: Option<&'a Metadata>,
     pub event: &'a SessionEvent,
+    /// `SessionBlob.enabled` where the event projects: `experimental.media_blob` of the session's location (the
+    /// parent's for `session.forked`, `ForkMedia`). On, inline media is stored in `blob` behind `media:` refs.
+    pub media: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -86,6 +89,7 @@ impl Database {
         })
     }
 
+    /// Commit one durable event.
     pub fn commit_session_event(&self, e: Committing<'_>) -> anyhow::Result<i64> {
         Ok(self.commit_session_events(std::slice::from_ref(&e), |_, _, _| Ok(()))?[0])
     }
@@ -282,8 +286,9 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             msg.insert("id".into(), Value::String(inbox_id.clone()));
             msg.insert("type".into(), Value::String(kind));
             msg.insert("time".into(), serde_json::json!({ "created": created }));
-            let message: Message = serde_json::from_value(Value::Object(msg))?;
-            insert_message(c, session_id, seq, &message)?;
+            let (decodable, refs) = crate::stored::without_refs(Value::Object(msg));
+            let message: Message = serde_json::from_value(decodable)?;
+            insert_message_with(c, session_id, seq, &message, &refs, e.media)?;
         }
         E::InboxEnqueued { session_id, inbox_id, item } => {
             let exists = c
@@ -293,13 +298,19 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             if exists {
                 return Err(ProjectError::LifecycleConflict(inbox_id.clone()).into());
             }
+            // `externalizePayload`: a user payload's inline files go to `blob` where the flag is on.
+            let mut payload = item.payload.clone();
+            if item.kind == "user" && e.media {
+                let taken = crate::stored::externalize("user", &mut payload);
+                crate::stored::save(c, &taken)?;
+            }
             let n = c.execute(
                 "INSERT INTO session_inbox (id, session_id, type, payload, delivery, enqueued_seq, time_created) VALUES (?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
                 params![
                     inbox_id,
                     session_id,
                     item.kind,
-                    item.payload.to_string(),
+                    payload.to_string(),
                     delivery_str(item.delivery),
                     seq,
                     created as i64
@@ -308,6 +319,7 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             if n == 0 {
                 return Err(ProjectError::LifecycleConflict(inbox_id.clone()).into());
             }
+            crate::stored::record_refs(c, session_id, inbox_id, seq, &payload)?;
             touch(c, session_id, created)?;
         }
         E::InboxCancelled { session_id, inbox_id } => {
@@ -536,6 +548,9 @@ fn project_fork(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<
         )?;
         fork_inline_parts(c, session_id, parent_id, &prefix, copied)?;
         fork_keep_ids(c, session_id, parent_id, &prefix)?;
+        if e.media {
+            fork_externalize(c, session_id)?;
+        }
         fork_record_refs(c, session_id)?;
         reserve_seq(c, session_id, copied)?;
     }
@@ -571,6 +586,30 @@ fn fork_inline_parts(c: &Connection, session: &str, parent: &str, prefix: &str, 
             "UPDATE session_message SET data = ? WHERE session_id = ? AND id = ?",
             params![data, session, format!("{prefix}_{seq}")],
         )?;
+    }
+    Ok(())
+}
+
+/// `SessionBlob.externalizeRow` for every copied row (`ForkMedia`): the child stores the parent's inline media
+/// as blobs; the parent's rows are never rewritten. (Upstream copies a summary's original data when it
+/// re-points its `keepID`; summaries carry no media.)
+fn fork_externalize(c: &Connection, session: &str) -> anyhow::Result<()> {
+    let rows: Vec<(String, String, String)> = {
+        let mut s = c.prepare("SELECT id, type, data FROM session_message WHERE session_id = ? ORDER BY seq")?;
+        let rows = s.query_map([session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+        rows
+    };
+    for (id, kind, data) in rows {
+        if kind == "compaction" {
+            continue;
+        }
+        let Ok(mut value) = serde_json::from_str::<Value>(&data) else { continue };
+        let taken = crate::stored::split(&mut value);
+        if taken.is_empty() {
+            continue;
+        }
+        crate::stored::save(c, &taken)?;
+        c.execute("UPDATE session_message SET data = ? WHERE session_id = ? AND id = ?", params![value.to_string(), session, id])?;
     }
     Ok(())
 }
@@ -619,8 +658,30 @@ fn fork_keep_ids(c: &Connection, session: &str, parent: &str, prefix: &str) -> a
     Ok(())
 }
 
-fn insert_message(c: &Connection, session: &str, seq: i64, m: &Message) -> rusqlite::Result<()> {
-    let data = m.to_row_data();
+fn insert_message(c: &Connection, e: &Committing<'_>, session: &str, seq: i64, m: &Message) -> rusqlite::Result<()> {
+    insert_message_with(c, session, seq, m, &[], e.media)
+}
+
+/// `insertMessage`: the row (with `refs`, the user files a payload kept as refs, put back), its inline media
+/// externalized where the flag is on, then the refs it names recorded.
+fn insert_message_with(
+    c: &Connection,
+    session: &str,
+    seq: i64,
+    m: &Message,
+    refs: &[(usize, String)],
+    media: bool,
+) -> rusqlite::Result<()> {
+    let mut data = m.to_row_data();
+    if !refs.is_empty() || media {
+        let mut value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+        crate::stored::restore_refs(&mut value, refs);
+        if media {
+            let taken = crate::stored::externalize(m.kind(), &mut value);
+            crate::stored::save(c, &taken)?;
+        }
+        data = value.to_string();
+    }
     c.execute(
         "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
         params![m.id(), session, m.kind(), seq, m.created() as i64, now_ms(), data],
@@ -636,7 +697,18 @@ fn insert_message(c: &Connection, session: &str, seq: i64, m: &Message) -> rusql
 /// `content` envelope in its row and has the parts written there; others are written inline. A
 /// content rewrite also syncs the blob refs the message names.
 fn update_message(c: &Connection, e: &Committing<'_>, session: &str, m: &Message) -> rusqlite::Result<()> {
-    let data = m.to_row_data();
+    let mut data = m.to_row_data();
+    // `externalize`: tool `data:` files of an assistant message go to `blob` where the flag is on.
+    let mut moved = false;
+    if e.media && matches!(m, Message::Assistant(_)) && data.contains("data:") {
+        let mut value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+        let taken = crate::stored::externalize(m.kind(), &mut value);
+        if !taken.is_empty() {
+            crate::stored::save(c, &taken)?;
+            data = value.to_string();
+            moved = true;
+        }
+    }
     let mut row: Map<String, Value> = crate::stored::parse_object(&data);
     let parts = match (m, row.contains_key("content")) {
         (Message::Assistant(_), true) => crate::stored::part_rows(c, m.id())?,
@@ -663,6 +735,9 @@ fn update_message(c: &Connection, e: &Committing<'_>, session: &str, m: &Message
     if matches!(e.event, SessionEvent::MessageContentUpdated { .. }) {
         let value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
         crate::stored::sync_refs(c, session, m.id(), seq, &value)?;
+    } else if moved {
+        let value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+        crate::stored::record_refs(c, session, m.id(), seq, &value)?;
     }
     Ok(())
 }
@@ -768,7 +843,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
     let from_event = message_from_event(e.id);
     let session = e.event.session_id().to_string();
     let s = session.as_str();
-    let append = |m: Message| insert_message(c, s, seq, &m);
+    let append = |m: Message| insert_message(c, e, s, seq, &m);
     let idle = |outcome: Outcome, error: Option<SessionError>| -> rusqlite::Result<()> {
         clear_current_retry(c, e, s)?;
         append(Message::Idle { id: from_event.clone(), metadata: meta.clone(), time: Created { created }, outcome, error })

@@ -16,6 +16,7 @@ pub mod execute;
 pub mod highlights;
 pub mod integration;
 pub mod location;
+pub mod media;
 pub mod session_list;
 pub mod sidebar_todo;
 pub mod panel;
@@ -303,6 +304,8 @@ pub struct App {
     pub title_generating: std::collections::HashSet<String>,
     /// `runPendingAction`: inbox items with an undo in flight.
     pub pending_actions: std::collections::HashSet<String>,
+    /// Bytes of `media:` refs read so far (`createMediaCache`).
+    pub media: std::sync::Arc<media::MediaCache>,
     pub epilogue: Option<String>,
     pub default_model: Option<ModelRef>,
     pub prompt_sent: bool,
@@ -449,6 +452,7 @@ impl App {
             shell_output: HashMap::new(),
             drafts: HashMap::new(),
             pending_actions: Default::default(),
+            media: Default::default(),
             cursor_look: None,
             rail_fx: HashMap::new(),
             strip_fx: HashMap::new(),
@@ -901,7 +905,7 @@ impl App {
                 Effect::Catalog(dir, cat) => self.fetch_catalog(&dir, cat),
                 Effect::MessageGet(sid, mid) => {
                     let c = self.client.clone();
-                    self.spawn(async move { c.message_get(&sid, &mid).await.map(|v| (sid, v)) }, |app, r| {
+                    self.spawn(async move { c.message_get_refs(&sid, &mid).await.map(|v| (sid, v)) }, |app, r| {
                         if let Ok((sid, v)) = r
                             && let Some(m) = Message::from_value(v)
                         {
@@ -954,7 +958,7 @@ impl App {
         let c = self.client.clone();
         let sid = id.to_string();
         let started = self.store.deletion_epoch;
-        self.spawn(async move { c.messages(&sid, 100, None).await.map(|p| (sid, p)) }, move |app, r| {
+        self.spawn(async move { c.messages_refs(&sid, 100, None).await.map(|p| (sid, p)) }, move |app, r| {
             let r = r.inspect_err(|e| {
                 app.evict_missing(e);
             });
@@ -973,7 +977,7 @@ impl App {
         let c = self.client.clone();
         let sid = id.to_string();
         self.store.message_cursor.insert(sid.clone(), None);
-        self.spawn(async move { c.messages(&sid, 100, Some(&cursor)).await.map(|p| (sid, p)) }, |app, r| {
+        self.spawn(async move { c.messages_refs(&sid, 100, Some(&cursor)).await.map(|p| (sid, p)) }, |app, r| {
             if let Ok((sid, page)) = r {
                 let msgs: Vec<Message> = page.data.into_iter().filter_map(Message::from_value).collect();
                 app.store.prepend_messages(&sid, msgs, page.cursor.next);
@@ -986,7 +990,7 @@ impl App {
         let c = self.client.clone();
         let sid = id.to_string();
         let started = self.store.deletion_epoch;
-        self.spawn(async move { c.inbox(&sid).await.map(|p| (sid, p)) }, move |app, r| {
+        self.spawn(async move { c.inbox_refs(&sid).await.map(|p| (sid, p)) }, move |app, r| {
             let r = r.inspect_err(|e| {
                 app.evict_missing(e);
             });
@@ -1542,3 +1546,5 @@ mod usage_tests;
 mod catchup225_tests;
 #[cfg(test)]
 mod perf;
+#[cfg(test)]
+mod media_tests;

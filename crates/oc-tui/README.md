@@ -152,7 +152,15 @@ The modules below cover the main session and home screens and all dialogs. They 
   idle), waited for and reverted; with nothing to undo it shows the error "Nothing to undo" (3 s). Revert stages
   first and changes the composer only when that worked (errors toast for 5 s). A queued prompt's undo is refused
   while a shell command is typed ("Leave shell mode before undoing a queued prompt") and reports "Failed to undo
-  pending prompt". Stored media references (`experimental.media_blob`) are not ported, so nothing is read back.
+  pending prompt". The transcript store reads messages and the inbox with `X-OpenCode-Capabilities:
+  experimental-media-uri` (mini mode and other readers do not), so files a server keeps in blobs
+  (`experimental.media_blob`) arrive as `media:<hash>` refs; restoring a prompt (undo, revert, queued undo, fork,
+  the free-limit recall) first reads each ref (`GET /api/experimental/media/<hash>`, cached by hash, `app/media.rs`)
+  into a `data:` URI. A blob the server no longer has (404 `FileNotFoundError`) is left out with the warning "An
+  image in this message is no longer stored, so it can't be restored" (or "`N` images ... they can't be
+  restored"); a fork fails instead (error toast, no fork); any other failed read toasts the error and changes
+  nothing. Not ported: transcript and prompt image previews (`session.image_preview`, `prompt.image_preview`; ocd
+  draws no terminal images, so no "No preview" placeholder either).
 - **Missing sessions** (2.2.5 #60459, `data.ts` `markDeleted`): a `SessionNotFound` answer to a session, message,
   inbox, permission or form read, like `session.deleted`, removes the session from the store and remembers it
   (the last 512); a read that started before the deletion drops its answer. `session.created`, a local create and a

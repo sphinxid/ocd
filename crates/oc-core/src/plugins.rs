@@ -158,7 +158,7 @@ fn activation_notifications(policy: bool, provider: bool) -> impl Iterator<Item 
 
 /// Domains whose `*.updated` notify runs through `State.changes` (#56267): it fires only when the
 /// domain's public projection changed since the last notification. Provider and model notify always.
-pub const GATED_DOMAINS: [&str; 7] = ["integration", "agent", "command", "skill", "websearch", "reference", "plugin"];
+pub const GATED_DOMAINS: [&str; 8] = ["integration", "agent", "command", "skill", "websearch", "reference", "plugin", "artifact"];
 
 /// The notifications of a plugin (re)activation after the first, in the order upstream's registry batch
 /// publishes them (gated domains only when their projection changed), before `plugin.updated`. A batch notifies
@@ -190,6 +190,7 @@ pub fn domain_event(domain: &str) -> Option<&'static str> {
         "integration" => "integration.updated",
         "websearch" => "websearch.updated",
         "reference" => "reference.updated",
+        "artifact" => "artifact.updated",
         _ => return None,
     })
 }
@@ -232,6 +233,7 @@ pub fn tool_plugin(tool: &dyn Tool) -> Option<&'static str> {
         name if tool.options().namespace.as_deref() == Some("opencode") && crate::schedule::tools::is_schedule_tool(name) => {
             crate::schedule::PLUGIN_ID
         }
+        name if crate::artifact::tools::is_artifact_tool(name) => crate::artifact::tools::PLUGIN_ID,
         _ if tool.options().namespace.as_deref() == Some("opencode") => "opencode.tools",
         _ => return None,
     })
@@ -1761,7 +1763,7 @@ impl Plugins {
     }
 
     /// Calls a function handle: native (`rs:`) ones in process, plugin ones in the sidecar.
-    async fn call_handle(&self, key: &str, handle: &str, args: Vec<Value>) -> Result<Value, oc_plugin::protocol::WireError> {
+    pub(crate) async fn call_handle(&self, key: &str, handle: &str, args: Vec<Value>) -> Result<Value, oc_plugin::protocol::WireError> {
         let location = LocationRef::new(key.to_string());
         if !oc_plugin::protocol::is_plugin_handle(handle) {
             return self.invoke_native(&location, handle, args).await.map_err(|e| {

@@ -357,14 +357,28 @@ async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_s
     // a Mercurial location, where the git plugin skips, by the hg plugin (after skills, before
     // web search).
     let vcs_slot = if loc.vcs() == Some("hg") { "websearch.updated" } else { "agent.updated" };
+    // A configured plugin that registers artifact providers (`ctx.experimental.artifact.transform`) changes the
+    // artifact State in the same batch, after the built-ins before the configured plugins and before the `post`
+    // ones (the first to touch references is `opencode.config.reference`): its first notify always fires.
+    let artifacts = app.plugins.transforms(&loc.key, oc_core::artifact::DOMAIN);
     for kind in BOOT_NOTIFICATIONS {
         if kind == vcs_slot {
             crate::vcs_watch::refresh(app, loc).await;
+        }
+        if kind == "reference.updated" && artifacts {
+            app.bus.publish("artifact.updated", json!({}), Some(at.clone()));
         }
         app.bus.publish(kind, json!({}), Some(at.clone()));
     }
     // A booted location's first notify always fires: whatever was recorded for an earlier instance is stale.
     app.plugins.forget_projections(&loc.key);
+    // The artifact State announced its providers in the burst; a later notify compares with them.
+    if artifacts
+        && let Some(projector) = &notify.projector
+        && let Some(projection) = projector(loc.clone(), oc_core::artifact::DOMAIN).await
+    {
+        app.plugins.note_projection(&loc.key, oc_core::artifact::DOMAIN, projection);
+    }
     // `LocationWatcher` starts once plugins have activated, in the background.
     let (app, git, loc) = (app.clone(), git.clone(), loc.clone());
     tokio::spawn(async move { crate::vcs_watch::watch(&app, &git, &loc).await });

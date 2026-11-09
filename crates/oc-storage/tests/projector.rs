@@ -8,7 +8,7 @@ use serde_json::json;
 
 fn commit(db: &Database, e: SessionEvent, created: u64) -> (String, i64) {
     let eid = id::event();
-    let seq = db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e }).unwrap();
+    let seq = db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e, media: false }).unwrap();
     (eid, seq)
 }
 

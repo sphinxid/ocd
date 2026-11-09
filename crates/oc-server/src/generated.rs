@@ -11209,6 +11209,21 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("experimental.config.update"))
     }
+    /// `session.message.list` for a client that opted into `media:` refs (`experimental-media-uri`).
+    async fn session_message_list_media(&self, ctx: &RequestContext, req: crate::backend::SessionMessageListRequest) -> Result<Option<Vec<serde_json::Value>>, ApiError> {
+        let _ = (ctx, req);
+        Ok(None)
+    }
+    /// `session.message.get` for a client that opted into `media:` refs (`experimental-media-uri`).
+    async fn session_message_get_media(&self, ctx: &RequestContext, req: SessionMessageGetRequest) -> Result<Option<serde_json::Value>, ApiError> {
+        let _ = (ctx, req);
+        Ok(None)
+    }
+    /// `session.inbox.list` for a client that opted into `media:` refs (`experimental-media-uri`).
+    async fn session_inbox_list_media(&self, ctx: &RequestContext, req: SessionInboxListRequest) -> Result<Option<Vec<serde_json::Value>>, ApiError> {
+        let _ = (ctx, req);
+        Ok(None)
+    }
 }
 
 // ---- generic dispatcher -------------------------------------------------------------------
@@ -11477,6 +11492,11 @@ pub(crate) async fn dispatch(
             let req = SessionInboxListRequest {
                 session_id: call.path_str("sessionID", Some("^ses"))?,
             };
+            if crate::handlers::wants_media_refs(&call.headers)
+                && let Some(out) = backend.session_inbox_list_media(&call.ctx, req.clone()).await?
+            {
+                return Ok(respond::data(&out));
+            }
             let out = backend.session_inbox_list(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }
@@ -11554,6 +11574,11 @@ pub(crate) async fn dispatch(
                 session_id: call.path_str("sessionID", Some("^ses"))?,
                 message_id: call.path_str("messageID", Some("^msg_"))?,
             };
+            if crate::handlers::wants_media_refs(&call.headers)
+                && let Some(out) = backend.session_message_get_media(&call.ctx, req.clone()).await?
+            {
+                return Ok(respond::data(&out));
+            }
             let out = backend.session_message_get(&call.ctx, req).await?;
             Ok(respond::data(&out))
         }

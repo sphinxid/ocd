@@ -1037,6 +1037,20 @@ for info in op_infos:
     w("        let _ = (ctx, req);")
     w(f"        Err(ApiError::not_implemented({rust_str(oid)}))")
     w("    }")
+# Reads for clients that send `X-OpenCode-Capabilities: experimental-media-uri` (server/src/media-uri.ts): the
+# responses (`Session.Message.MediaInfo`, `Session.Inbox.MediaInfo`) are not in the OpenAPI document, so they are
+# raw JSON. `None` means the session's location keeps media inline: the server answers the plain read instead.
+for oid, req_ty, resp_ty in [
+    ("session.message.list", "crate::backend::SessionMessageListRequest", "Option<Vec<serde_json::Value>>"),
+    ("session.message.get", "SessionMessageGetRequest", "Option<serde_json::Value>"),
+    ("session.inbox.list", "SessionInboxListRequest", "Option<Vec<serde_json::Value>>"),
+]:
+    snake = oid.replace(".", "_")
+    w(f"    /// `{oid}` for a client that opted into `media:` refs (`experimental-media-uri`).")
+    w(f"    async fn {snake}_media(&self, ctx: &RequestContext, req: {req_ty}) -> Result<{resp_ty}, ApiError> {{")
+    w("        let _ = (ctx, req);")
+    w("        Ok(None)")
+    w("    }")
 w("}")
 w("")
 
@@ -1065,6 +1079,12 @@ for info in op_infos:
         w("            };")
     else:
         w(f"            let req = {info['req_ty']} {{}};")
+    if oid in ("session.message.get", "session.inbox.list"):
+        w("            if crate::handlers::wants_media_refs(&call.headers)")
+        w(f"                && let Some(out) = backend.{info['snake']}_media(&call.ctx, req.clone()).await?")
+        w("            {")
+        w("                return Ok(respond::data(&out));")
+        w("            }")
     if oid == "rpc.call":
         w(f"            let out = backend.{info['snake']}(&call.ctx, req).await.map_err(crate::error::rpc_defect)?;")
     else:

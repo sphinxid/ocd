@@ -60,7 +60,9 @@ pub(crate) async fn special(
             let artifact_id = call.path_str("artifactID", Some("^art_"))?;
             // The raw (still percent-encoded) path parameter, as upstream re-encodes the decoded one.
             let prefix = format!("/api/experimental/artifacts/{artifact_id}/view");
-            let pathname = uri.path();
+            // `new URL(request.url).pathname`: dot segments (also percent-encoded ones) resolved.
+            let pathname = whatwg_pathname(uri.path());
+            let pathname = pathname.as_str();
             let bare = pathname == prefix;
             let path = pathname
                 .strip_prefix(&format!("{prefix}/"))
@@ -313,6 +315,42 @@ fn decode_message_cursor(input: &str) -> Option<(MessageCursor, SessionMessageLi
     Some((MessageCursor { id: raw.id, direction: raw.direction }, raw.order))
 }
 
+/// The pathname the WHATWG URL parser makes of `path`: `.`/`..` segments, also percent-encoded (`%2e`), are
+/// resolved; a dot segment at the end leaves a trailing slash.
+fn whatwg_pathname(path: &str) -> String {
+    let single = |s: &str| s == "." || s.eq_ignore_ascii_case("%2e");
+    let double = |s: &str| {
+        let l = s.to_ascii_lowercase();
+        matches!(l.as_str(), ".." | ".%2e" | "%2e." | "%2e%2e")
+    };
+    let raw: Vec<&str> = path.strip_prefix('/').unwrap_or(path).split('/').collect();
+    let mut out: Vec<&str> = Vec::new();
+    for (i, seg) in raw.iter().enumerate() {
+        let last = i + 1 == raw.len();
+        if double(seg) {
+            out.pop();
+            if last {
+                out.push("");
+            }
+        } else if single(seg) {
+            if last {
+                out.push("");
+            }
+        } else {
+            out.push(seg);
+        }
+    }
+    format!("/{}", out.join("/"))
+}
+
+/// `wantsMediaRefs` (server/src/media-uri.ts): the client listed `experimental-media-uri` in
+/// `X-OpenCode-Capabilities`, so message and inbox reads may leave stored media as `media:` refs.
+pub(crate) fn wants_media_refs(headers: &axum::http::HeaderMap) -> bool {
+    headers.get("x-opencode-capabilities").and_then(|v| v.to_str().ok()).is_some_and(|v| {
+        v.split(',').any(|token| token.trim_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}').eq_ignore_ascii_case("experimental-media-uri"))
+    })
+}
+
 async fn session_message_list(app: &App, call: &Call) -> Result<Response, ApiError> {
     let session_id = call.path_str("sessionID", Some("^ses"))?;
     let limit = call.query_int("limit", Some(1), Some(200))?.unwrap_or(50);
@@ -330,13 +368,19 @@ async fn session_message_list(app: &App, call: &Call) -> Result<Response, ApiErr
         None => None,
     };
     let order = decoded.as_ref().map(|d| d.1).or(order_q).unwrap_or(SessionMessageListOrder::Desc);
-    let messages = app
-        .backend
-        .session_message_list(
-            &call.ctx,
-            SessionMessageListRequest { session_id, limit, order, r#type, cursor: decoded.map(|d| d.0) },
-        )
-        .await?;
+    let req = SessionMessageListRequest { session_id, limit, order, r#type, cursor: decoded.map(|d| d.0) };
+    if wants_media_refs(&call.headers)
+        && let Some(messages) = app.backend.session_message_list_media(&call.ctx, req.clone()).await?
+    {
+        let id_of = |m: &Value| m.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+        let previous = messages.first().map(|m| encode_message_cursor(&id_of(m), order, CursorDirection::Previous));
+        let next = messages.last().map(|m| encode_message_cursor(&id_of(m), order, CursorDirection::Next));
+        return Ok(respond::bare(&json!({
+            "data": messages,
+            "cursor": { "previous": previous, "next": next },
+        })));
+    }
+    let messages = app.backend.session_message_list(&call.ctx, req).await?;
     let id_of = |m: &crate::generated::SessionMessageInfo| -> String {
         serde_json::to_value(m).ok().and_then(|v| v.get("id").and_then(Value::as_str).map(str::to_string)).unwrap_or_default()
     };
@@ -351,6 +395,31 @@ async fn session_message_list(app: &App, call: &Call) -> Result<Response, ApiErr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn view_paths_resolve_dot_segments_like_the_url_parser() {
+        let p = "/api/experimental/artifacts/art_x/view";
+        assert_eq!(whatwg_pathname(&format!("{p}/a/%2E%2E/index.html")), format!("{p}/index.html"));
+        assert_eq!(whatwg_pathname(&format!("{p}/a/.%2e/b/%2e/c")), format!("{p}/b/c"));
+        assert_eq!(whatwg_pathname(&format!("{p}/a/..")), format!("{p}/"));
+        assert_eq!(whatwg_pathname(&format!("{p}/.")), format!("{p}/"));
+        assert_eq!(whatwg_pathname(&format!("{p}/")), format!("{p}/"));
+        assert_eq!(whatwg_pathname(p), p);
+        assert_eq!(whatwg_pathname("/../../x"), "/x");
+    }
+
+    #[test]
+    fn media_refs_capability_is_one_case_insensitive_token() {
+        let headers = |v: &str| {
+            let mut h = axum::http::HeaderMap::new();
+            h.insert("x-opencode-capabilities", HeaderValue::from_str(v).unwrap());
+            h
+        };
+        assert!(wants_media_refs(&headers("experimental-media-uri")));
+        assert!(wants_media_refs(&headers("other, Experimental-Media-URI ")));
+        assert!(!wants_media_refs(&headers("experimental-media-uris")));
+        assert!(!wants_media_refs(&axum::http::HeaderMap::new()));
+    }
 
     #[test]
     fn sessions_cursor_round_trip_and_key_order() {
