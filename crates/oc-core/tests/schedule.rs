@@ -594,14 +594,18 @@ async fn validates_durations_times_and_checks_at_creation() {
 }
 
 /// A shell check whose output and exit code the test controls through files in the location.
+#[cfg(unix)]
 fn shell_state(h: &H, stdout: &str, code: i32) {
     let dir = h.root.join("enabled");
     std::fs::write(dir.join("out.txt"), stdout).unwrap();
     std::fs::write(dir.join("code.txt"), code.to_string()).unwrap();
 }
 
+#[cfg(unix)]
 const CHECK: &str = "cat out.txt; exit $(cat code.txt)";
 
+/// Shell checks run POSIX `sh` commands.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_until_checks_match_immediately_poll_and_expire() {
     let h = harness();
@@ -656,6 +660,8 @@ async fn shell_until_checks_match_immediately_poll_and_expire() {
     subset(&h.get(expiring["id"].as_str().unwrap()), json!({"status": "done", "runCount": 1, "lastOutcome": "expired", "nextDueAt": null}));
 }
 
+/// Shell checks run POSIX `sh` commands.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_if_checks_seed_changes_and_support_is_and_matches() {
     let h = harness();
@@ -706,25 +712,26 @@ async fn shell_if_checks_seed_changes_and_support_is_and_matches() {
     assert_eq!(pending, expected);
 }
 
-/// Answers every `permission.asked` with `once`, recording the requests.
+/// Answers every pending permission request with `once`, recording the requests. Polls the pending list rather than
+/// following the bus, whose receiver may lag behind the session events under load.
 fn answer_asks(h: &H) -> (Arc<Mutex<Vec<Value>>>, tokio::task::JoinHandle<()>) {
     let asked = Arc::new(Mutex::new(Vec::new()));
-    let mut rx = h.app.bus.subscribe();
     let app = h.app.clone();
     let record = asked.clone();
     let task = tokio::spawn(async move {
-        while let Ok(event) = rx.recv().await {
-            if event.kind != "permission.asked" {
-                continue;
+        loop {
+            for request in app.permissions.list() {
+                record.lock().push(serde_json::to_value(&request).unwrap());
+                let _ = app.permissions.reply(&request.id, oc_core::permission::Reply::Once, None).await;
             }
-            record.lock().push(event.data.clone());
-            let id = event.data["id"].as_str().unwrap_or_default().to_string();
-            let _ = app.permissions.reply(&id, oc_core::permission::Reply::Once, None).await;
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     });
     (asked, task)
 }
 
+/// Shell checks run POSIX `sh` commands.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_checks_ask_once_run_unattended_and_pause_after_three_failures() {
     let h = harness();
@@ -782,6 +789,8 @@ async fn http_style_creation_settles_asks_unattended() {
     assert_eq!(created, Err(ScheduleError::Blocked("Permission shell needs approval, and nobody is present to give it".into())));
 }
 
+/// Shell checks run POSIX `sh` commands.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pauses_when_the_session_directory_disappears() {
     let h = harness();
