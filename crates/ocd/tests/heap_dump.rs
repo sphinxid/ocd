@@ -151,10 +151,10 @@ fn sends_directory_as_an_absolute_path_and_warns_only_when_the_server_ignores_it
     let current = env.run(&["debug", "heap-dump", "--directory", &with_separator]);
     let old = env.run(&["debug", "heap-dump", "--directory", "snapshots"]);
 
-    assert_eq!(
-        *sent.lock().unwrap(),
-        vec![with_separator.clone(), directory.clone()]
-    );
+    // A relative directory resolves against the working directory as the OS reports it, like Node's `path.resolve`
+    // (`process.cwd()`): on macOS that is the physical path (`/private/var/...` for a temporary `/var/...` one).
+    let resolved = std::fs::canonicalize(env.path("work")).unwrap().join("snapshots").display().to_string();
+    assert_eq!(*sent.lock().unwrap(), vec![with_separator.clone(), resolved]);
     assert_eq!(
         [&current, &old].map(|o| (o.status.code(), common::text(&o.stderr).trim().to_string())),
         [

@@ -25,11 +25,28 @@ fn same(a: &Json, b: &Json) -> bool {
     }
 }
 
+/// The transcendental `Math` functions come from the platform's libm, in JavaScriptCore as in ocd, so their last
+/// digits depend on the platform. The expected results were recorded with Bun on Linux x86_64 (glibc); elsewhere the
+/// cases that call them are skipped, since upstream on that platform prints that platform's digits too.
+const LIBM: &[&str] = &[
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "log",
+    "log2", "log10", "log1p", "exp", "expm1", "cbrt", "pow", "hypot",
+];
+
+fn libm_dependent(code: &str) -> bool {
+    !cfg!(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))
+        && LIBM.iter().any(|f| code.contains(&format!("Math.{f}(")) || code.contains(&format!("\"{f}\"")) || code.contains(&format!("'{f}'")))
+}
+
 /// Runs every `(program, upstream result JSON)` pair and reports all mismatches at once.
 fn check(cases: &[(&str, &str)]) {
     let runtime = CodeMode::new(Vec::new(), Arc::new(NoTools), Vec::new(), ExecutionLimits::default()).unwrap();
     let mut failures = Vec::new();
     for (code, expected) in cases {
+        if libm_dependent(code) {
+            eprintln!("skipped on this platform (libm-dependent): {}", code.lines().next().unwrap_or_default());
+            continue;
+        }
         dump::case("stdlib_number", code, expected);
         let actual = runtime.execute_blocking(code).to_json();
         let expected: Json = serde_json::from_str(expected).expect("expected JSON");

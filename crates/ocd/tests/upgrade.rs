@@ -236,7 +236,13 @@ async fn an_unwritable_directory_fails_before_downloading() {
     std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(o.status.code(), Some(1), "{}", out(&o));
     let text = common::text(&o.stdout);
-    assert!(text.contains(&format!("■  Cannot replace {}\n", c.exe.display())), "{text}");
+    // The executable's path as the OS reports it: physical on macOS (`/private/var/...` for a temporary `/var/...`).
+    let exe = std::fs::canonicalize(&c.exe).unwrap();
+    assert!(
+        text.contains(&format!("■  Cannot replace {}\n", c.exe.display()))
+            || text.contains(&format!("■  Cannot replace {}\n", exe.display())),
+        "{text}"
+    );
     assert!(text.contains("is not writable by this user"), "{text}");
     assert!(text.contains("Retry    Run sudo ocd upgrade, or download the release from"), "{text}");
     assert!(!text.contains("Upgrading"), "fails before the download starts: {text}");

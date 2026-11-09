@@ -49,8 +49,10 @@ jobs:
             # Annotations are readable without access to the logs: one with the failing tests, then the first panics.
             failed=$(grep -E '^test .* FAILED$' test.log | sed -E 's/^test (.*) \.\.\. FAILED$/\1/' | head -60 | paste -sd ',' -)
             [ -n "$failed" ] && echo "::error title=Failing tests::${failed}"
-            grep -E "panicked at " -A3 test.log | grep -vE '^(--|note: )' | head -36 | paste -sd '|' - | tr '|' '\n' \
-              | awk 'NR % 4 == 1 { if (msg) print msg; msg = $0; next } { msg = msg "%0A" $0 } END { if (msg) print msg }' \
+            # Each panic with up to 12 following lines, one annotation each (GitHub keeps 10 errors per step).
+            awk '/panicked at / { if (msg) print msg; msg = $0; n = 0; next }
+                 msg && n < 12 && !/^note: / { msg = msg "%0A" $0; n++ }
+                 END { if (msg) print msg }' test.log \
               | head -9 | while IFS= read -r line; do echo "::error title=Panic::${line}"; done
           fi
           exit "$status"
