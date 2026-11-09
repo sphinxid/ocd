@@ -70,6 +70,24 @@ def decompress(raw, encoding):
     return raw
 
 
+MEDIA_PATHS = ("/images/generations", "/images/edits", "/image_generation", ":generateContent", "/systemone",
+               "/decisions", "/ai/run")
+
+# A 1x1 PNG, the default image every media endpoint answers with.
+PIXEL = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
+
+def is_media(path):
+    """Image and decision APIs (OpenAI Images, MiniMax, Gemini, System One, OpenAI Decisions, Cloudflare Run)."""
+    return any(marker in path.split("?")[0] for marker in MEDIA_PATHS) or "/ai/run/" in path
+
+
+def boundary_free(text):
+    """Multipart bodies with the random boundary replaced."""
+    import re
+    return re.sub(r"----WebKitFormBoundary[0-9a-f]{32}", "<boundary>", text)
+
+
 def classify(body):
     text = json.dumps(body)
     if "title generator" in text or "You name conversations" in text:
@@ -115,11 +133,14 @@ class Mock:
                     return
                 # A str body is sent as text/plain; a third element adds response headers (e.g. `location`).
                 text = isinstance(route[1], str)
-                payload = route[1].encode() if text else json.dumps(route[1]).encode()
+                binary = isinstance(route[1], bytes)
+                payload = route[1] if binary else route[1].encode() if text else json.dumps(route[1]).encode()
                 self.send_response(route[0])
-                self.send_header("content-type", "text/plain" if text else "application/json")
+                extra = dict(route[2] if len(route) > 2 else {})
+                ctype = "application/octet-stream" if binary else "text/plain" if text else "application/json"
+                self.send_header("content-type", extra.pop("content-type", ctype))
                 self.send_header("content-length", str(len(payload)))
-                for key, value in (route[2] if len(route) > 2 else {}).items():
+                for key, value in extra.items():
                     self.send_header(key, value)
                 self.end_headers()
                 self.wfile.write(payload)
@@ -129,6 +150,12 @@ class Mock:
                 # `encoding` (zstd/gzip) compresses request bodies; the recorded body is the decoded JSON and the
                 # recorded headers keep `content-encoding`.
                 raw = decompress(raw, (self.headers.get("content-encoding") or "").lower())
+                if is_media(self.path):
+                    try:
+                        mock._answer_media(self, raw)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
                 try:
                     body = json.loads(raw)
                 except Exception:
@@ -185,6 +212,47 @@ class Mock:
 
     def main_requests(self):
         return [r for r in self.requests if r["kind"] == "main"]
+
+    def media_requests(self):
+        return [r for r in self.requests if r["kind"] == "media"]
+
+    def _answer_media(self, h, raw):
+        """Image and decision endpoints answer from `self.media`: a queue of `{status?, json? | bytes? (base64),
+        content_type?, delay?, hang?, match?}` entries, the first unconsumed one whose `match` occurs in the raw
+        body; when none is left, OpenAI Images JSON with a 1x1 PNG. The recorded body is the raw text with the
+        multipart boundary replaced."""
+        text = boundary_free(raw.decode("utf-8", "replace"))
+        headers = {k: boundary_free(v) for k, v in dict(h.headers).items()}
+        entry = None
+        with self.lock:
+            media = self.__dict__.setdefault("media", [])
+            for item in media:
+                if item.get("_used") or (item.get("match") and item["match"] not in text):
+                    continue
+                item["_used"] = True
+                entry = item
+                break
+        self._record("media", h.path, text, headers)
+        entry = entry or {"json": {"data": [{"b64_json": PIXEL}]}}
+        if entry.get("delay"):
+            time.sleep(entry["delay"])
+        if entry.get("hang"):
+            while not self.stopping.is_set():
+                time.sleep(0.05)
+            return
+        if entry.get("bytes") is not None:
+            payload = base64.b64decode(entry["bytes"])
+            ctype = entry.get("content_type", "image/png")
+        else:
+            payload = json.dumps(entry.get("json", {})).encode()
+            ctype = entry.get("content_type", "application/json")
+        h.send_response(entry.get("status", 200))
+        h.send_header("content-type", ctype)
+        for k, v in (entry.get("headers") or {}).items():
+            h.send_header(k, str(v))
+        h.send_header("content-length", str(len(payload)))
+        h.end_headers()
+        h.wfile.write(payload)
 
     def _answer(self, h, kind, turn):
         if kind == "main" and self.hold_for_title > 0 and self.title_done.wait(self.hold_for_title):
