@@ -1,0 +1,21 @@
+{"code":"return await tools.slack[name]({})","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must reference tools statically (e.g. tools.slack.read_thread), not with dynamic bracket expressions. (line 1, col 26)","location":{"line":1,"column":26}}}}
+{"code":"const s = tools.slack; return await s.read_thread({})","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must call tools directly as tools.<name>(...), not alias or pass the tools object. (line 1, col 11)","location":{"line":1,"column":11}}}}
+{"code":"return Object.keys(tools)","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must call tools directly as tools.<name>(...), not alias or pass the tools object. (line 1, col 20)","location":{"line":1,"column":20}}}}
+{"code":"return tools.a?.b()","result":{"_id":"Result","_tag":"Success","value":["a.b"]}}
+{"code":"return await tools.a.b({}) && tools.c({})","result":{"_id":"Result","_tag":"Success","value":["a.b","c"]}}
+{"code":"return tools","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must call tools directly as tools.<name>(...), not alias or pass the tools object. (line 1, col 8)","location":{"line":1,"column":8}}}}
+{"code":"var tools = 1; return tools","result":{"_id":"Result","_tag":"Success","value":[]}}
+{"code":"class A { m() { return tools.x.y() } }; return 1","result":{"_id":"Result","_tag":"Success","value":["x.y"]}}
+{"code":"if (x) { var tools = 1 }; return tools[k]()","result":{"_id":"Result","_tag":"Success","value":[]}}
+{"code":"for (const tools of []) {}; return tools[k]()","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must reference tools statically (e.g. tools.slack.read_thread), not with dynamic bracket expressions. (line 1, col 42)","location":{"line":1,"column":42}}}}
+{"code":"label: for(;;) { break label }; return tools.a.b()","result":{"_id":"Result","_tag":"Success","value":["a.b"]}}
+{"code":"const o = { tools }; return 1","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must call tools directly as tools.<name>(...), not alias or pass the tools object. (line 1, col 13)","location":{"line":1,"column":13}}}}
+{"code":"const o = { tools: tools.a() }; return 1","result":{"_id":"Result","_tag":"Success","value":["a"]}}
+{"code":"return tools?.a.b()","result":{"_id":"Result","_tag":"Success","value":["a.b"]}}
+{"code":"return (tools.a.b)()","result":{"_id":"Result","_tag":"Success","value":["a.b"]}}
+{"code":"return tools['a']['b-c']()","result":{"_id":"Result","_tag":"Success","value":["a.b-c"]}}
+{"code":"return tools.a[`b`]()","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must reference tools statically (e.g. tools.slack.read_thread), not with dynamic bracket expressions. (line 1, col 16)","location":{"line":1,"column":16}}}}
+{"code":"  \n  ","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"ParseError","message":"Code cannot be empty."}}}
+{"code":"const x = {","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"ParseError","message":"SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 12)","location":{"line":1,"column":12}}}}
+{"code":"return new tools.a.b()","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must call tools directly as tools.<name>(...), not alias or pass the tools object. (line 1, col 12)","location":{"line":1,"column":12}}}}
+{"code":"return tools.a.b`x`","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Schedule checks must call tools directly as tools.<name>(...), not alias or pass the tools object. (line 1, col 8)","location":{"line":1,"column":8}}}}

@@ -182,6 +182,15 @@ literals, BigInt, arbitrary `Symbol()` values and symbol-keyed properties (only 
 `TextDecoder`, `Iterator.concat`/`zip`, array methods on array-likes (`Array.prototype.slice.call(arguments)`),
 TypeScript syntax. Unsupported syntax is reported lazily (when reached) as `UnsupportedSyntax`.
 
+### Schedule checks
+
+- `scan::scan_tools(code)` is `CodeMode.scanTools`: the `tools.<path>` a program calls statically, in first-seen
+  order, or the diagnostic for dynamic bracket access, aliasing/passing `tools`, a syntax error or empty code
+  (cases captured from upstream in `tests/fixtures/scan_tools.jsonl`).
+- `CodeMode::with_bindings(vec![(name, json)])` binds read-only JSON globals (upstream `execute(code, bindings)`),
+  which top-level declarations may shadow.
+- `parser::validate_regexp(pattern, flags)` exposes acorn's regular expression validation.
+
 ## Known differences from upstream
 
 - A timeout that fires while a tool's uninterruptible cleanup is still running upstream (Effect waits for it) cannot
@@ -198,3 +207,6 @@ TypeScript syntax. Unsupported syntax is reported lazily (when reached) as `Unsu
   each execution has its own thread, so there is nothing to yield to. A synchronous generator body that awaits
   across its caller (only possible through `search(...)` arguments holding promises inside a generator) is not
   supported.
+- `scan_tools` walks the parser's ESTree JSON, where node kinds outside the interpreter's subset (classes, `import()`,
+  `new.target`) carry no children, so a `tools.<path>` call inside a class body is not found (upstream finds it; the
+  program fails when it runs either way).

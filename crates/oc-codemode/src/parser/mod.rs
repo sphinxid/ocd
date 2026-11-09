@@ -60,6 +60,12 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+/// Validates a regular expression source with acorn's rules (as `new RegExp(pattern, flags)` sees it); `Err` is the
+/// reason acorn appends after `Invalid regular expression: /<source>/: `.
+pub fn validate_regexp(pattern: &str, flags: &str) -> Result<(), String> {
+    regexp::validate_regexp_pattern(&pattern.encode_utf16().collect::<Vec<u16>>(), flags)
+}
+
 /// Parses a script the way upstream codemode's acorn call does.
 pub fn parse(source: &str) -> Result<crate::ast::Program, ParseError> {
     state::Parser::new(source).parse_program()

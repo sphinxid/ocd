@@ -11,6 +11,7 @@ pub mod number;
 pub mod object;
 pub mod openapi;
 pub mod parser;
+pub mod scan;
 pub mod stdlib;
 pub mod tool_runtime;
 pub mod tool_schema;

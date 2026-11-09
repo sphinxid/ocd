@@ -139,6 +139,8 @@ pub struct CodeMode {
     extensions: Vec<Arc<dyn Extension>>,
     limits: ResolvedLimits,
     globals: Option<GlobalsFactory>,
+    /// Read-only JSON values bound in the program's outer global scope (upstream `execute(code, bindings)`).
+    bindings: Arc<Vec<(String, Json)>>,
 }
 
 /// Interpreter threads get a large stack: evaluation recursion is deep (call depth limit 10 000).
@@ -170,13 +172,20 @@ impl CodeMode {
                 bound.push(name);
             }
         }
-        Ok(CodeMode { prepared: Arc::new(prepared), host, extensions, limits: resolved, globals: None })
+        Ok(CodeMode { prepared: Arc::new(prepared), host, extensions, limits: resolved, globals: None, bindings: Arc::new(Vec::new()) })
     }
 
     /// Adds host-defined program globals (like upstream `executeProgram`'s `globals`); used by test harnesses.
     #[doc(hidden)]
     pub fn with_program_globals(mut self, factory: GlobalsFactory) -> CodeMode {
         self.globals = Some(factory);
+        self
+    }
+
+    /// Binds read-only JSON values in the program's outer global scope, shadowable by top-level declarations
+    /// (upstream `Runtime.execute(code, bindings)`).
+    pub fn with_bindings(mut self, bindings: Vec<(String, Json)>) -> CodeMode {
+        self.bindings = Arc::new(bindings);
         self
     }
 
@@ -285,6 +294,10 @@ impl CodeMode {
         for (name, value) in globals(&rt) {
             global.set_binding(Rc::from(name), Binding { mutable: false, value, initialized: true });
         }
+        for (name, value) in self.bindings.iter() {
+            let value = crate::data::from_json_value(&rt, value);
+            global.set_binding(Rc::from(name.as_str()), Binding { mutable: false, value, initialized: true });
+        }
         for (name, value) in crate::interp::extensions::extension_globals(&rt) {
             global.set_binding(Rc::from(name.as_str()), Binding { mutable: false, value, initialized: true });
         }
@@ -345,7 +358,7 @@ impl CodeMode {
 
 /// A located `ParseError` for acorn's syntax errors (`parseDiagnostic`). Nesting too deep for the parser is the
 /// host-stack overflow upstream hits instead, which normalizes to the nesting-depth failure.
-fn parse_diagnostic(error: &crate::parser::ParseError) -> Diagnostic {
+pub(crate) fn parse_diagnostic(error: &crate::parser::ParseError) -> Diagnostic {
     if error.depth {
         return Diagnostic::new(DiagnosticKind::ExecutionFailure, "Execution exceeded the maximum nesting depth.");
     }
