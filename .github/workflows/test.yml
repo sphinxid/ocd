@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-2022, ubuntu-22.04-arm]
+        os: [macos-15, windows-2022, ubuntu-22.04-arm]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     steps:
@@ -41,4 +41,16 @@ jobs:
           git config --global init.defaultBranch main
       - name: Test
         shell: bash
-        run: cargo test --workspace --no-fail-fast --locked
+        run: |
+          set +e
+          cargo test --workspace --no-fail-fast --locked 2>&1 | tee test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Annotations are readable without access to the logs: one with the failing tests, then the first panics.
+            failed=$(grep -E '^test .* FAILED$' test.log | sed -E 's/^test (.*) \.\.\. FAILED$/\1/' | head -60 | paste -sd ',' -)
+            [ -n "$failed" ] && echo "::error title=Failing tests::${failed}"
+            grep -E "panicked at " -A3 test.log | grep -vE '^(--|note: )' | head -36 | paste -sd '|' - | tr '|' '\n' \
+              | awk 'NR % 4 == 1 { if (msg) print msg; msg = $0; next } { msg = msg "%0A" $0 } END { if (msg) print msg }' \
+              | head -9 | while IFS= read -r line; do echo "::error title=Panic::${line}"; done
+          fi
+          exit "$status"
