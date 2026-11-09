@@ -63,6 +63,7 @@ look like opencode, ocd reports version 2.2.5.
 | Session media storage | `experimental.media_blob`: images stored as blobs with `media:` references, read back under `X-OpenCode-Capabilities: experimental-media-uri`, kept through fork and import and released with their messages; the TUI restores them into prompts |
 | Git | Status, diffs, branches, snapshots and worktrees |
 | Shell permissions | The built-in shell scanner of 2.2.5 (no tree-sitter): redirects, PowerShell method calls and dynamic `cd` are permission resources. 95,128 calls recorded from upstream's own scanner match |
+| Platforms | Linux, macOS and Windows. CI runs the whole test suite on macOS, Windows and Linux ARM on every push to main; on Windows ocd follows upstream's Node behaviour: paths without the `\\?\` prefix, `path.isAbsolute`, `os.homedir`, win32 path formatting in the TUI, the terminal locale and Ctrl+C, and the detached background service. The side-by-side comparison runs on Linux x86_64 |
 | Persistent terminals | `@opencode/pty` 0.4.0: terminals belong to their session, are removed with it, and can be renamed |
 | Mercurial | Project identity, status, working and branch diffs, `vcs.init` for hg and branch watching. Like upstream, snapshots and worktrees are git-only. Needs `hg` on `PATH` |
 | Desktop browser attachment | The built-in `opencode.browser` plugin: the `experimental.browser` RPC (attach, state, commands and results, tunnels), its control events, the session permissions an attached desktop grants, the 45 `browser.*` Code Mode tools with file uploads and captures, and the 60 s request timeout. The `browser` skill is denied to every agent until a desktop attaches. The desktop's own proxy is part of the desktop app, not the server |
@@ -95,7 +96,6 @@ look like opencode, ocd reports version 2.2.5.
 | Speech, video and transcription models | Upstream has these only as library code that nothing in the app calls |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 |
 | Other experimental features | `location_idle_timeout` and the new designs. Their config keys are accepted and do nothing |
-| Day-to-day testing on macOS, Windows and Linux ARM | CI runs the whole test suite on them on every push to main; only Linux x86_64 is also compared side by side with upstream |
 
 ## Different on purpose
 

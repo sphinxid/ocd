@@ -116,6 +116,13 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
   `Plugins::load` returned early without settling every activation after the first (a lost wakeup: agent.list 503,
   RPC hung); activations now run one at a time with a settle-on-drop guard, and reload notifications follow 2.2.2's
   fixed batch order. Parity 118/121; tests 2160 passed.
+- 2026-11-09: WINDOWS, MACOS, LINUX ARM GREEN IN CI (`.github/workflows/test.yml`; Windows runs under nextest's `ci`
+  profile with a 4-minute test limit; `.github/ci-annotate.sh` turns failures into public annotations, since job logs
+  need admin rights). Windows fixes: `oc_util::fs::canonicalize` strips the `\\?\` prefix like libuv, `has_root()`
+  ports `path.isAbsolute`, `oc_util::global::os_home()` reads `USERPROFILE`, `.gitattributes` keeps LF, win32 TUI
+  path formatting, PTY locale/Ctrl+C, detached service spawn. Libm-dependent Math cases are checked only on Linux
+  x86_64 (the recording platform). Open: nextest LEAK on two service tests (inherited handles), TUI autocomplete file
+  URIs are not a `pathToFileURL` port.
 - 2026-11-09: OPT-IN 2.2.x FEATURES: image generation and decisions (oc-ai `image`/`decision`/`route::media`/
   `providers::media`, core `generate`, the image tool and jobs), schedules (oc-core `schedule/` with Effect cron/date
   parsing in `time.rs`, Code Mode `scan_tools`/bindings, `Permission.Unattended`, oc-backend `schedules.rs`), artifacts
