@@ -110,14 +110,26 @@ def copilot_models(ctx, wait_for):
 
 
 def record_requests(ctx):
-    """Everything the binary sent to the mock Copilot API: the model sync, titles, then the model requests in
+    """Everything the binary sent to the mock Copilot API: the model syncs, titles, then the model requests in
     order. Header names are lowercased and sorted (the native routes' HTTP client does not keep case or order);
-    transport headers are dropped."""
+    transport headers are dropped.
+
+    The credential's switch syncs the model list at every loaded location running the plugin: the project and the
+    global config location credential creation boots, so two identical syncs. Upstream sometimes sends a third:
+    that location's plugin also syncs when it finishes activating, and whether its switch subscription exists by
+    then is a race. Identical syncs are recorded once, with whether there were at least two."""
     order = {"GET": 0, "title": 1, "main": 2}
     out = []
+    syncs = 0
     for r in sorted(ctx.mock.requests, key=lambda r: (order.get(r["kind"], 3), r["at"])):
         headers = {k.lower(): v for k, v in r["headers"].items() if k.lower() not in TRANSPORT_HEADERS}
-        out.append({"kind": r["kind"], "path": r["path"], "headers": dict(sorted(headers.items())), "body": r["body"]})
+        entry = {"kind": r["kind"], "path": r["path"], "headers": dict(sorted(headers.items())), "body": r["body"]}
+        if r["kind"] == "GET":
+            syncs += 1
+            if entry in out:
+                continue
+        out.append(entry)
+    ctx.rec("syncs.at.least.two", syncs >= 2)
     ctx.rec("requests", out)
 
 
