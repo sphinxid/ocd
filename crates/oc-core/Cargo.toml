@@ -53,6 +53,8 @@ uuid = { version = "1", features = ["v4"] }
 percent-encoding = "2"
 ryu = "1"
 notify = "8"
+regress = { version = "0.12", features = ["utf16"] }
+chrono-tz = { version = "0.10", features = ["case-insensitive"] }
 
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
 libc = "0.2"

@@ -47,6 +47,7 @@ pub mod reference;
 pub mod restart;
 pub mod retry;
 pub mod runner;
+pub mod schedule;
 pub mod services;
 pub mod session;
 pub mod shell_cmd;

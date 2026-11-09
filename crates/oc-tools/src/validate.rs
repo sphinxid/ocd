@@ -178,6 +178,11 @@ fn check(root: &Value, schema: &Value, value: &Value, path: &mut Vec<PathSegment
         check_union(root, schema, members, value, path, flavor, issues);
         return;
     }
+    // `Schema.Never` (an absent variant field, `optionalKey(Schema.Never)`): any present value fails.
+    if map.get("not").is_some_and(|n| n.as_object().is_some_and(Map::is_empty)) {
+        issues.push(Issue::new(path.clone(), "Expected never"));
+        return;
+    }
     if let Some(Value::Array(values)) = map.get("enum") {
         if !values.iter().any(|v| v == value) {
             issues.push(Issue::new(path.clone(), format!("Expected {}", describe(root, schema))));
@@ -229,8 +234,11 @@ fn check_union(root: &Value, schema: &Value, members: &[Value], value: &Value, p
     }
     // Members whose base type matches report their own issues.
     let typed: Vec<_> = candidates.iter().filter(|(member, _)| !type_names(member).is_empty() && matches_base_type(member, value)).collect();
-    if typed.len() == 1 {
-        issues.extend(typed[0].1.iter().cloned());
+    // Every member whose base type matches reports its issues, in member order (Effect's `AnyOf` issue).
+    if !typed.is_empty() {
+        for (_, nested) in typed {
+            issues.extend(nested.iter().cloned());
+        }
         return;
     }
     issues.push(Issue::new(path.clone(), format!("Expected {}", describe(root, schema))));

@@ -71,9 +71,15 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `InvalidRequestError{field?}`, 502 `ProviderRequestError`, 503 `ServiceUnavailableError`; one-shot
   retries). `experimental.generate.image` / `.decisions` validate (unique question names) and resolve
   the ref like upstream, but image and decision models are not ported, so they end in 404/422.
-* **disabled features**: the schedule routes answer as with `experimental.schedules` off (404
-  `SessionNotFoundError` / `ScheduleNotFoundError`, else 403 `ForbiddenError`; 400 `{kind:"schedule"}` when
-  the session's directory is gone; Code Mode `code` checks pass validation), the seven `experimental.artifacts.*`
+* **schedules** (`schedules.rs`, `experimental.schedules`): the six `experimental.schedule.*` routes over
+  `oc_core::schedule::Schedules` (`server/src/handlers/schedule.ts`): create settles permission asks unattended
+  (no listener can answer them), `Schedule.InvalidError` → 400 `{kind:"schedule"}`, disabled → 403, permission
+  blocks/corrections → 403, a missing session → 404 `SessionNotFoundError`; get/pause/resume/delete read a schedule
+  whose session is gone as 404 `ScheduleNotFoundError` and one whose location has the flag off as 403. Every server
+  process (`serve`, `--standalone`, the service) runs the schedule loop (`schedules::start`); scheduled wakes go
+  through `Engine::prompt` (activation, `session.prompt` hook, admission, wake). `/schedule` is a native command
+  (`CommandDef::Schedule`) listed only where the flag is on and `opencode.tool.schedule` is enabled.
+* **disabled features**: the seven `experimental.artifacts.*`
   routes answer as with `experimental.artifacts` off (after param/body validation, the location resolves from an
   explicit directory, else the session (404), else the stored `artifact:item:<id>` record, else the request
   (404 `LocationNotFoundError`), then 403 `Artifacts are disabled; set experimental.artifacts in config`, even when

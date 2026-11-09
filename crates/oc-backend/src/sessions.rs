@@ -802,6 +802,7 @@ impl Engine {
         let text = match def {
             crate::catalog::CommandDef::Plugin(_) => return Err(failed("Plugin commands run in the plugin host".into())),
             crate::catalog::CommandDef::Goal => return self.goal_command(id, body).await.map_err(failed),
+            crate::catalog::CommandDef::Schedule => oc_core::schedule::COMMAND_TEMPLATE.replace("$ARGUMENTS", body.text.trim()),
             crate::catalog::CommandDef::Init => {
                 crate::catalog::append(&crate::catalog::PROMPT_INITIALIZE.replace("${path}", &project_dir), &body.text)
             }

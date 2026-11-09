@@ -25,6 +25,22 @@ pub fn merge(sets: &[&[PermissionRule]]) -> Ruleset {
     sets.iter().flat_map(|s| s.iter().cloned()).collect()
 }
 
+tokio::task_local! {
+    /// `Permission.Unattended`: rules that settle a request which would otherwise ask, for work nobody is present to
+    /// answer (a schedule's check). A request they do not allow is denied; configured denies still win.
+    static UNATTENDED: Ruleset;
+}
+
+/// Runs `future` with the `Unattended` rules in effect (`Effect.provideService(Permission.Unattended, rules)`).
+pub async fn unattended<F: std::future::Future>(rules: Ruleset, future: F) -> F::Output {
+    UNATTENDED.scope(rules, future).await
+}
+
+/// The `Unattended` rules of the current task, if any.
+pub fn current_unattended() -> Option<Ruleset> {
+    UNATTENDED.try_with(Clone::clone).ok()
+}
+
 pub fn missing_agent_permissions() -> Ruleset {
     vec![PermissionRule { action: "*".into(), resource: "*".into(), effect: Effect::Deny }]
 }
@@ -164,6 +180,15 @@ impl Permissions {
             "allow" => Evaluated::Allow(rules),
             _ => Evaluated::Ask(rules),
         };
+        // Nobody is present to answer: the unattended rules settle the ask.
+        if let (Evaluated::Ask(rules), Some(unattended)) = (&evaluated, current_unattended()) {
+            let settled = merge(&[rules, &unattended]);
+            if input.resources.iter().all(|r| evaluate(&input.action, r, &settled).effect == Effect::Allow) {
+                return Some((Evaluated::Allow(rules.clone()), None));
+            }
+            let message = format!("Permission {} needs approval, and nobody is present to give it", input.action);
+            return Some((Evaluated::Deny(rules.clone()), Some(message)));
+        }
         Some((evaluated, message))
     }
 

@@ -73,7 +73,7 @@ fn output_schema() -> Value {
 }
 
 /// `qualifiedName(registration)`: `<namespace>.<normalized name>` or the normalized name.
-fn qualified_name(tool: &dyn Tool) -> String {
+pub(crate) fn qualified_name(tool: &dyn Tool) -> String {
     let normalized = normalized_name(tool.name());
     match tool.options().namespace {
         None => normalized,
@@ -472,6 +472,84 @@ pub async fn execute_with(snapshot: &Snapshot, input: Value, ctx: ToolContext, h
     Ok(ToolResult { output: Some(output), content, metadata: Some(metadata) })
 }
 
+
+/// The host of a schedule check (`CodeModeTool.check`): nested calls get the ids `call_<messageID>_<n>`, run
+/// through the plugin hooks, and see the declared output (or the joined text) like an `execute` call.
+struct CheckHost {
+    tools: Vec<(String, String, Arc<dyn Tool>)>,
+    ctx: ToolContext,
+    hooks: Arc<dyn ExecuteHooks>,
+    calls: Mutex<usize>,
+    /// The `Unattended` rules in effect: nested calls run on the interpreter thread, outside the caller's task.
+    unattended: Option<oc_schema::types::Ruleset>,
+}
+
+impl Host for CheckHost {
+    fn call(&self, path: &str, input: Option<Json>) -> BoxFuture<'static, Result<Option<Json>, ToolCallError>> {
+        let found = self.tools.iter().find(|(qualified, _, _)| qualified == path).cloned();
+        let index = {
+            let mut calls = self.calls.lock().unwrap();
+            let index = *calls;
+            *calls += 1;
+            index
+        };
+        let mut ctx = self.ctx.clone();
+        ctx.call_id = format!("call_{}_{index}", ctx.message_id);
+        let hooks = self.hooks.clone();
+        let unattended = self.unattended.clone();
+        let run = async move {
+            let Some((_, name, tool)) = found else {
+                return Err(ToolCallError::failure("Execute context is unavailable"));
+            };
+            let mut input = input.unwrap_or(Value::Null);
+            let mut hooked = name.clone();
+            let fail = |e: ToolError| ToolCallError::Failure(e.model_message());
+            hooks.before(&mut hooked, &mut input, &ctx).await.map_err(fail)?;
+            let executed = run_tool(tool.as_ref(), &name, input, ctx, hooks.as_ref()).await.map_err(fail)?;
+            Ok(Some(result_value(&executed)))
+        };
+        match unattended {
+            Some(rules) => Box::pin(crate::permission::unattended(rules, run)),
+            None => Box::pin(run),
+        }
+    }
+}
+
+/// `CodeModeTool.check`: runs one program over the snapshot's Code Mode tools alone, with no model step and no
+/// `fetch`, binding `bindings` as outer globals.
+pub async fn check(
+    snapshot: &Snapshot,
+    code: &str,
+    bindings: Vec<(String, Value)>,
+    limits: ExecutionLimits,
+    ctx: ToolContext,
+    hooks: Arc<dyn ExecuteHooks>,
+) -> oc_codemode::codemode::ExecResult {
+    let tools = snapshot
+        .codemode
+        .iter()
+        .map(|(name, tool)| (qualified_name(tool.as_ref()), name.clone(), tool.clone()))
+        .collect();
+    let host = Arc::new(CheckHost {
+        tools,
+        ctx,
+        hooks,
+        calls: Mutex::new(0),
+        unattended: crate::permission::current_unattended(),
+    });
+    let runtime = match CodeMode::new(entries(snapshot), host, Vec::new(), limits) {
+        Ok(runtime) => runtime.with_bindings(bindings),
+        Err(e) => {
+            return oc_codemode::codemode::ExecResult::Failure {
+                error: oc_codemode::interp::errors::Diagnostic::new(oc_codemode::interp::errors::DiagnosticKind::ExecutionFailure, e.to_string()),
+                logs: None,
+                truncated: false,
+                tool_calls: Vec::new(),
+            };
+        }
+    };
+    runtime.execute(code).await
+}
 
 /// The `execute` tool over a request snapshot, so it runs through the same hooks and normalization as direct tools.
 pub struct ExecuteTool(pub Snapshot, pub Arc<dyn ExecuteHooks>);

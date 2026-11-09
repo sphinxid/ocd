@@ -228,6 +228,9 @@ pub fn tool_plugin(tool: &dyn Tool) -> Option<&'static str> {
         "webfetch" => "opencode.tool.webfetch",
         "websearch" => "opencode.tool.websearch",
         "write" => "opencode.tool.write",
+        name if tool.options().namespace.as_deref() == Some("opencode") && crate::schedule::tools::is_schedule_tool(name) => {
+            crate::schedule::PLUGIN_ID
+        }
         _ if tool.options().namespace.as_deref() == Some("opencode") => "opencode.tools",
         _ => return None,
     })

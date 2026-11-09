@@ -38,6 +38,8 @@ pub enum CommandDef {
     Mcp(oc_mcp::Prompt),
     /// `/goal` (the built-in `opencode.goal` plugin).
     Goal,
+    /// `/schedule` (the built-in `opencode.tool.schedule` plugin, while `experimental.schedules` is on).
+    Schedule,
     Config(Command),
     /// A plugin command: its `execute` function handle in the plugin host.
     Plugin(String),
@@ -81,6 +83,11 @@ pub fn native(prompts: &[oc_mcp::Prompt]) -> IndexMap<String, (Option<String>, C
     }
     // `opencode.goal` registers its command after the command plugin's.
     out.insert(oc_core::goal::COMMAND.to_string(), (Some(oc_core::goal::DESCRIPTION.to_string()), CommandDef::Goal));
+    // `opencode.tool.schedule` registers `/schedule` later in the same pass (dropped where schedules are off).
+    out.insert(
+        oc_core::schedule::COMMAND.to_string(),
+        (Some(oc_core::schedule::COMMAND_DESCRIPTION.to_string()), CommandDef::Schedule),
+    );
     out
 }
 

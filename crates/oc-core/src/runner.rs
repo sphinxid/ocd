@@ -53,6 +53,11 @@ pub struct Engine {
     pub goals: crate::goal::Goals,
     /// Background summaries held per session (`experimental.background_compaction`).
     pub(crate) precomputed: Mutex<HashMap<String, crate::compaction::Precomputed>>,
+    /// Scheduled prompts (`experimental.schedules`).
+    pub schedules: Arc<crate::schedule::Schedules>,
+    /// Tools tests register in every location after the built-ins (a stand-in for a plugin's tool transform).
+    #[doc(hidden)]
+    pub extra_tools: Mutex<Vec<Arc<dyn oc_tools::Tool>>>,
     me: std::sync::Weak<Engine>,
 }
 
@@ -102,6 +107,7 @@ impl Engine {
         models.set_plugins(app.plugins.clone());
         models.set_lock_root(app.global.locks());
         app.plugins.add_websearch(services.websearch.clone());
+        let schedules = crate::schedule::Schedules::new(&app);
         Arc::new_cyclic(|me| Engine {
             app,
             models,
@@ -116,6 +122,11 @@ impl Engine {
             consoles: Mutex::new(HashMap::new()),
             goals: Default::default(),
             precomputed: Mutex::new(HashMap::new()),
+            schedules: {
+                schedules.set_engine(me.clone());
+                schedules
+            },
+            extra_tools: Mutex::new(Vec::new()),
             me: me.clone(),
         })
     }
@@ -485,6 +496,30 @@ impl Engine {
                     registry.remove(&id);
                 }
             }
+        }
+        // `opencode.tool.schedule` (registered after `read`) adds its tools only while `experimental.schedules` is on.
+        if crate::schedule::settings_of(&location.entries).enabled
+            && self.app.plugins.enabled(key).is_none_or(|enabled| enabled.iter().any(|e| e == crate::schedule::PLUGIN_ID))
+        {
+            let mut next = Registry::new();
+            for namespace in registry.namespaces().to_vec() {
+                let _ = next.namespace(namespace);
+            }
+            let mut added = false;
+            for (id, tool) in registry.list() {
+                let _ = next.add(tool);
+                if id == "read" {
+                    crate::schedule::tools::register(&mut next, &self.schedules);
+                    added = true;
+                }
+            }
+            if !added {
+                crate::schedule::tools::register(&mut next, &self.schedules);
+            }
+            registry = next;
+        }
+        for tool in self.extra_tools.lock().iter() {
+            let _ = registry.add(tool.clone());
         }
         for t in mcp.registered_tools() {
             let _ = registry.add(Arc::new(oc_tools::tools::mcp::McpTool::new(oc_tools::tools::mcp::McpToolInfo {
@@ -1167,6 +1202,149 @@ fn settle_stale(bus: &Bus, session: &str) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// What a schedule check needs from its session's location (`schedule/check.ts` runs under `instances.provide`).
+pub struct CheckEnv {
+    pub location: Arc<Location>,
+    /// The session's agent id (as selected; may name a missing agent).
+    pub agent_id: String,
+    pub agent: Option<Agent>,
+    /// The location's registered tools (`Tool.list()`).
+    pub registry: Registry,
+    pub mcp: Arc<oc_mcp::manager::McpManager>,
+    pub home: PathBuf,
+    pub bin: PathBuf,
+    /// Configured `shell`.
+    pub shell: Option<String>,
+    config: Arc<ToolConfig>,
+}
+
+impl CheckEnv {
+    /// `mcpTools.flush`: let pending servers finish their first connection attempt.
+    pub async fn flush_mcp(&self) {
+        for server in self.mcp.servers() {
+            if matches!(server.status, oc_mcp::types::Status::Pending) {
+                let _ = self.mcp.wait_ready(&server.name).await;
+            }
+        }
+    }
+}
+
+impl Engine {
+    /// The location services a schedule check runs with: plugins activated, the session's agent and the
+    /// registered tools.
+    pub async fn check_env(&self, session: &SessionInfo) -> anyhow::Result<CheckEnv> {
+        let location = self.location(&session.location.directory).await?;
+        self.app.plugins.await_activation(&location.key).await;
+        let agents = self.app.plugins.agents(&location, &self.app.global.home).await;
+        *self.app.agents.write() = agents.clone();
+        let agent = agents.select(session.agent.as_deref()).cloned();
+        let agent_id = agent
+            .as_ref()
+            .map(|a| a.id.clone())
+            .or_else(|| session.agent.clone())
+            .unwrap_or_else(|| crate::agent::DEFAULT_ID.to_string());
+        let mcp = self.mcp(&location).await;
+        let registry = self.base_registry(&location, &mcp);
+        let registry = self.post_registry(&location.key, self.app.plugins.tools(&location.key, registry).await);
+        let entries = &location.entries;
+        let config = ToolConfig {
+            tool_output_max_lines: oc_config::fold::tool_output(entries).and_then(|t| t.max_lines).map(|v| v as usize),
+            tool_output_max_bytes: oc_config::fold::tool_output(entries).and_then(|t| t.max_bytes).map(|v| v as usize),
+            subagent_depth: Some(oc_config::fold::subagent_depth(entries)),
+            shell: oc_config::fold::shell(entries).map(str::to_string),
+            ..Default::default()
+        };
+        Ok(CheckEnv {
+            shell: config.shell.clone(),
+            config: Arc::new(config),
+            location,
+            agent_id,
+            agent,
+            registry,
+            mcp,
+            home: self.app.global.home.clone(),
+            bin: self.app.global.bin.clone(),
+        })
+    }
+
+    /// `Tool.check`: runs a Code Mode program with no model step over only the Code Mode tools named in `paths`
+    /// (still subject to whole-tool permission filtering and each tool's own permissions), with no `fetch`. Nested
+    /// calls get the ids `call_<messageID>_<n>`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_check(
+        &self,
+        env: &CheckEnv,
+        session: &SessionInfo,
+        agent: &str,
+        message_id: &str,
+        code: &str,
+        paths: &[String],
+        bindings: Vec<(String, serde_json::Value)>,
+        permissions: &[oc_schema::types::PermissionRule],
+        limits: oc_codemode::codemode::ExecutionLimits,
+    ) -> oc_codemode::codemode::ExecResult {
+        use oc_tools::registry::wholly_disabled;
+        if wholly_disabled("execute", permissions) {
+            return oc_codemode::codemode::ExecResult::Failure {
+                error: oc_codemode::interp::errors::Diagnostic::new(
+                    oc_codemode::interp::errors::DiagnosticKind::ExecutionFailure,
+                    "Code Mode is disabled for this agent",
+                ),
+                logs: None,
+                truncated: false,
+                tool_calls: Vec::new(),
+            };
+        }
+        let tools: Vec<(String, Arc<dyn oc_tools::Tool>)> = env
+            .registry
+            .list()
+            .into_iter()
+            .filter(|(name, tool)| {
+                tool.options().codemode
+                    && paths.iter().any(|p| *p == crate::codemode::qualified_name(tool.as_ref()))
+                    && !wholly_disabled(&tool.options().permission.unwrap_or_else(|| name.clone()), permissions)
+            })
+            .collect();
+        let snapshot = Snapshot {
+            direct: Vec::new(),
+            codemode: tools,
+            namespaces: env.registry.namespaces().to_vec(),
+            execute_enabled: true,
+            registered: env.registry.list(),
+        };
+        let host: Arc<dyn oc_tools::ToolHost> = Arc::new(crate::host::CoreHost {
+            app: self.app.clone(),
+            skills: Arc::new(Vec::new()),
+            mcp: Some(env.mcp.clone()),
+            location: Some(env.location.key.clone()),
+        });
+        let ctx = ToolContext {
+            session_id: session.id.clone(),
+            message_id: message_id.to_string(),
+            call_id: String::new(),
+            agent: agent.to_string(),
+            directory: PathBuf::from(&session.location.directory),
+            worktree: env.location.project.canonical.clone(),
+            project_id: session.project_id.clone(),
+            workspace_id: session.location.workspace_id.clone(),
+            global: self.app.global.clone(),
+            cancel: CancellationToken::new(),
+            progress: Arc::new(|_| {}),
+            config: env.config.clone(),
+            host,
+        };
+        let hooks: Arc<dyn oc_tools::registry::ExecuteHooks> = Arc::new(CoreHooks {
+            snapshot: snapshot.clone(),
+            repair: self.app.plugins.builtin_enabled(&env.location.key, oc_tools::repair::PLUGIN_ID),
+            plan: (agent == "plan").then(|| PlanHooks { dir: crate::agent::plan_dir(&self.app.global.home).display().to_string() }),
+            plugins: self.app.plugins.clone(),
+            key: env.location.key.clone(),
+            aliased: Default::default(),
+        });
+        crate::codemode::check(&snapshot, code, bindings, limits, ctx, hooks).await
+    }
 }
 
 struct LocalTools {

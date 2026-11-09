@@ -590,40 +590,34 @@ impl Backend for Engine {
         Err(self.artifacts_disabled(ctx, None, Some(&req.artifact_id)).await)
     }
 
-    // ---- schedules (experimental.schedules is not ported: every location answers as if it were off) ----
+    // ---- schedules (`schedule.*`, experimental.schedules) ----
 
     async fn experimental_schedule_create(
         &self,
         _ctx: &RequestContext,
         req: ExperimentalScheduleCreateRequest,
     ) -> Result<ScheduleInfo, ApiError> {
-        let session = self.session(&req.body.session_id)?;
-        if !std::path::Path::new(&session.location.directory).is_dir() {
-            return Err(ApiError::invalid_request(format!("Session directory does not exist: {}", session.location.directory))
-                .with_kind("schedule"));
-        }
-        Err(schedules_disabled())
+        self.schedule_create(&req.body).await
     }
 
     async fn experimental_schedule_list(&self, _ctx: &RequestContext, req: ExperimentalScheduleListRequest) -> Result<Vec<ScheduleInfo>, ApiError> {
-        self.session(&req.session_id)?;
-        Err(schedules_disabled())
+        self.schedule_list(&req.session_id).await
     }
 
     async fn experimental_schedule_get(&self, _ctx: &RequestContext, req: ExperimentalScheduleGetRequest) -> Result<ScheduleInfo, ApiError> {
-        Err(self.schedule_find(&req.schedule_id))
+        self.schedule_get(&req.schedule_id).await
     }
 
     async fn experimental_schedule_pause(&self, _ctx: &RequestContext, req: ExperimentalSchedulePauseRequest) -> Result<ScheduleInfo, ApiError> {
-        Err(self.schedule_find(&req.schedule_id))
+        self.schedule_pause(&req.schedule_id).await
     }
 
     async fn experimental_schedule_resume(&self, _ctx: &RequestContext, req: ExperimentalScheduleResumeRequest) -> Result<ScheduleInfo, ApiError> {
-        Err(self.schedule_find(&req.schedule_id))
+        self.schedule_resume(&req.schedule_id).await
     }
 
     async fn experimental_schedule_delete(&self, _ctx: &RequestContext, req: ExperimentalScheduleDeleteRequest) -> Result<(), ApiError> {
-        Err(self.schedule_find(&req.schedule_id))
+        self.schedule_delete(&req.schedule_id).await
     }
 
     async fn plugin_gui(&self, ctx: &RequestContext, req: PluginGuiRequest) -> Result<PluginGuiBundle, ApiError> {
@@ -2053,26 +2047,3 @@ fn artifacts_disabled() -> ApiError {
     ApiError::forbidden("Artifacts are disabled; set experimental.artifacts in config")
 }
 
-/// `Schedule.DisabledError` as the server reports it.
-fn schedules_disabled() -> ApiError {
-    ApiError::forbidden("Scheduled tasks are disabled; set experimental.schedules in config")
-}
-
-impl Engine {
-    /// The schedule routes' `find`: a missing row, or one whose session is gone, is a 404; any other is forbidden
-    /// because schedules are off everywhere.
-    fn schedule_find(&self, id: &str) -> ApiError {
-        let session: Result<Option<Option<String>>, _> = self.app.db.with(|c| {
-            use rusqlite::OptionalExtension;
-            c.query_row("SELECT session_id FROM schedule WHERE id = ?", [id], |r| r.get::<_, Option<String>>(0)).optional()
-        });
-        match session {
-            Err(e) => defect(e.to_string()),
-            Ok(None) | Ok(Some(None)) => ApiError::schedule_not_found(id),
-            Ok(Some(Some(session))) => match self.session(&session) {
-                Ok(_) => schedules_disabled(),
-                Err(_) => ApiError::schedule_not_found(id),
-            },
-        }
-    }
-}

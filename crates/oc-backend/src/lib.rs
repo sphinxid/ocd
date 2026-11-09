@@ -11,6 +11,7 @@ pub mod locations;
 pub mod notify;
 pub mod persistent;
 pub mod plugins;
+pub mod schedules;
 pub mod sessions;
 pub mod shells;
 pub mod stats;
@@ -62,6 +63,8 @@ pub async fn start(
     start_v1_import(&engine);
     start_models_refresh(&engine);
     start_project_sweep(&engine);
+    // Schedules fire from any server process (`service`, `serve` or `--standalone`); the table holds their state.
+    schedules::start(&engine);
     Ok((server, engine))
 }
 
