@@ -1,7 +1,8 @@
 """Background compaction (`experimental.background_compaction`): a summary of the prefix the provider just processed
-is written off the critical path once the context passes 85% of the compaction ceiling, held, and swapped in when
-automatic compaction is due. The mock reports large prompt token counts so a short conversation crosses the limits:
-a 100k window compacts at 84k and starts a background summary at 71.4k (with at least 64k measured)."""
+is written off the critical path once the context is within a fixed lead of the compaction ceiling (60k, at most half
+the room the cycle started with; 2.2.7), held, and swapped in when automatic compaction is due. The mock reports large
+prompt token counts so a short conversation crosses the limits: a 100k window compacts at 84k, and with a first step
+measured at 30k a background summary starts at 57k."""
 from parity.registry import scenario
 
 SUMMARY = "You MUST summarize the conversation above"
@@ -13,7 +14,8 @@ def step(text, prompt_tokens):
 
 @scenario("compaction")
 def compaction_background_swap(ctx):
-    """a background summary starts after a step past 85% of the ceiling and is swapped in when compaction is due."""
+    """a background summary starts after a step past the lead before the ceiling and is swapped in when compaction is
+    due."""
     ctx.set_script([
         step("First answer.", 30_000),
         step("Second answer.", 72_000),
