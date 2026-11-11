@@ -1560,6 +1560,12 @@ impl Engine {
         Ok(())
     }
 
+    /// Whether a background summary held for `session_id` is still being written (for tests that need it settled).
+    #[doc(hidden)]
+    pub fn precompute_running(&self, session_id: &str) -> bool {
+        self.precomputed.lock().get(session_id).is_some_and(|held| held.state.load(Ordering::SeqCst) == 0)
+    }
+
     /// Stops the background summaries of the sessions `matches` selects (their location closed).
     pub fn cancel_precomputed(&self, matches: impl Fn(&str) -> bool) {
         self.precomputed.lock().retain(|session, held| {

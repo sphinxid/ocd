@@ -169,6 +169,17 @@ impl Harness {
 
 }
 
+/// Waits until the background summary held for the session has finished, however it ended.
+async fn settle(engine: &Engine, session_id: &str) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while engine.precompute_running(session_id) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
 fn last_text(request: &Value) -> String {
     let last = request["messages"].as_array().unwrap().last().unwrap();
     last["content"].as_str().map(str::to_string).unwrap_or_else(|| last["content"][0]["text"].as_str().unwrap_or_default().to_string())
@@ -467,9 +478,9 @@ async fn scenarios() {
                 let reached = Arc::new(tokio::sync::Notify::new());
                 h.mock.lock().fail = Some(reached.clone());
                 h.engine.precompute(&h.with(near, messages), false).await.unwrap();
-                reached.notified().await;
-                // Let the failed task settle.
-                tokio::time::sleep(Duration::from_millis(200)).await;
+                tokio::time::timeout(Duration::from_secs(10), reached.notified()).await.unwrap();
+                // Wait until the failed task has recorded its failure: the next precompute reads it.
+                settle(&h.engine, &near.sel.session.id).await;
             }
         };
         failing(history.near.clone()).await;
@@ -483,7 +494,7 @@ async fn scenarios() {
         assert!(requests[1]["messages"].to_string().contains("Second answer"));
         // Two failures in a row stop background summaries until the next compaction.
         h.engine.precompute(&h.with(&near, latest), false).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        settle(&h.engine, &near.sel.session.id).await;
         assert_eq!(h.requests().len(), 2);
         h.mock.lock().fail = None;
     })
