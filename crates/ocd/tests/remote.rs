@@ -147,9 +147,11 @@ async fn pair_remote_creates_the_tunnel_and_serves_the_route_through_the_relay()
     }
 
     // A public HTTPS request reaches the service through the relay (TLS ends in the service with the tunnel's
-    // certificate, so only the fake CA has to be trusted).
+    // certificate, so only the fake CA has to be trusted). The domain resolves to the local relay, so no proxy
+    // from the environment may apply.
     let domain = format!("{route}.{hostname}");
     let client = reqwest::Client::builder()
+        .no_proxy()
         .add_root_certificate(reqwest::Certificate::from_pem(relay.ca_pem().as_bytes()).unwrap())
         .resolve(&domain, relay.public)
         .build()
