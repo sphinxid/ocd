@@ -141,7 +141,7 @@ def readonly_vcs_none(ctx):
     ctx.call("vcs.init", "POST", f"/api/vcs/init?{d}", {})
     import time
     ctx.call("vcs.get.after.warmup", "GET", f"/api/vcs?{d}", record=False)  # see readonly_vcs
-    time.sleep(0.5)
+    time.sleep(3)  # 2.2.7: the rebooted location answers before its plugins activated (vcs.init no longer waits)
     ctx.call("vcs.get.after", "GET", f"/api/vcs?{d}")
 
 

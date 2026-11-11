@@ -430,11 +430,17 @@ impl Engine {
         let conflict = |mid: &str| {
             ApiError::conflict(format!("Synthetic input ID conflicts with an existing durable record: {mid}"), Some(mid.to_string()))
         };
-        let admitted = self
-            .app
-            .sessions
-            .synthetic(id, body.id.clone(), body.text, body.description, body.metadata.map(conv).transpose()?, delivery(body.delivery))
-            .await
+        // Outside any Location scope, so the admission's events carry no location.
+        let metadata = body.metadata.map(conv).transpose()?;
+        let admitted = oc_core::bus::without_location_async(self.app.sessions.synthetic(
+            id,
+            body.id.clone(),
+            body.text,
+            body.description,
+            metadata,
+            delivery(body.delivery),
+        ))
+        .await
             .map_err(|e| match e {
                 SessionError::PromptConflict(mid) => conflict(&mid),
                 SessionError::Other(e) if is_lifecycle_conflict(&e) => conflict(body.id.as_deref().unwrap_or_default()),
@@ -463,8 +469,17 @@ impl Engine {
             Some(_) => return Err(conflict()),
             None => {
                 let d = delivery(body.delivery).unwrap_or(Delivery::Steer);
-                inbox::admit(&self.app.bus, &self.app.sessions.locks, id, &input_id, "compaction", json!({}), d)
-                    .await
+                // Outside any Location scope, so the admission's events carry no location.
+                oc_core::bus::without_location_async(inbox::admit(
+                    &self.app.bus,
+                    &self.app.sessions.locks,
+                    id,
+                    &input_id,
+                    "compaction",
+                    json!({}),
+                    d,
+                ))
+                .await
                     .map_err(|e| if is_lifecycle_conflict(&e) { conflict() } else { defect(format!("{e:#}")) })?;
                 inbox::list(&self.app.bus, id)
                     .map_err(defect)?
