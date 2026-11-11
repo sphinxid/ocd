@@ -1,7 +1,9 @@
 //! The `fetch` extension (core's `codemode/fetch.ts`): a host-provided outbound HTTP capability with a 30 s timeout
 //! that buffers the whole body and returns `{ url, status, statusText, ok, redirected, headers: { get, has,
 //! entries }, text(), json(), bytes() }`. The host may check each request first (core asserts the `webfetch`
-//! permission); a rejection rejects the program's promise and nothing is sent.
+//! permission); a rejection rejects the program's promise and nothing is sent. URLs with credentials are refused, the
+//! `#fragment` is dropped before any check, and redirects are followed here (up to 20, one 30 s deadline for the whole
+//! chain) so the host can check each target against the same rules (#60502, #61701, #62373).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,9 +14,17 @@ use crate::host::{host_fn, host_fn_async, HostCall, HostFunction, HostValue, Htt
 
 pub const TIMEOUT_MS: u64 = 30_000;
 
-/// Checks a `fetch` call before anything is sent: `(url, args)`, where `url` is `String(input)`. An `Err` is the
-/// rejection the program sees.
+/// Checks a `fetch` call before anything is sent: `(url, args)`, where `url` is `String(input)` without its
+/// `#fragment`. An `Err` is the rejection the program sees.
 pub type Authorize = Arc<dyn Fn(String, Vec<HostValue>) -> BoxFuture<'static, Result<(), HostValue>> + Send + Sync>;
+
+/// Checks each redirect before it is followed: `(next, args, url)`, the target without its fragment, the call's
+/// arguments and the URL the program fetched. An `Err` is the rejection the program sees.
+pub type CheckRedirect = Arc<dyn Fn(String, Vec<HostValue>, String) -> BoxFuture<'static, Result<(), HostValue>> + Send + Sync>;
+
+/// Redirects followed before a fetch fails.
+pub const MAX_REDIRECTS: usize = 20;
+const REDIRECT_STATUSES: [u16; 5] = [301, 302, 303, 307, 308];
 
 /// The `fetch` extension exposing `fetch`, without a permission check.
 pub fn extension(client: Arc<dyn HttpClient>) -> Arc<dyn crate::host::Extension> {
@@ -23,12 +33,29 @@ pub fn extension(client: Arc<dyn HttpClient>) -> Arc<dyn crate::host::Extension>
 
 /// The `fetch` extension, checking each call with `authorize` after the `file:` refusal.
 pub fn extension_with(client: Arc<dyn HttpClient>, authorize: Option<Authorize>) -> Arc<dyn crate::host::Extension> {
-    Arc::new(SimpleExtension { name: "fetch".into(), globals: vec![("fetch".into(), Arc::new(Fetch { client, authorize }) as Arc<dyn HostFunction>)] })
+    extension_checked(client, authorize, None)
+}
+
+/// The `fetch` extension, checking each call with `authorize` and each redirect target with `check_redirect`.
+/// Redirects are followed here, so `client` must not follow them itself (see [`ReqwestClient::manual`]).
+pub fn extension_checked(
+    client: Arc<dyn HttpClient>,
+    authorize: Option<Authorize>,
+    check_redirect: Option<CheckRedirect>,
+) -> Arc<dyn crate::host::Extension> {
+    let fetch = Fetch { client, authorize, check_redirect };
+    Arc::new(SimpleExtension { name: "fetch".into(), globals: vec![("fetch".into(), Arc::new(fetch) as Arc<dyn HostFunction>)] })
 }
 
 struct Fetch {
     client: Arc<dyn HttpClient>,
     authorize: Option<Authorize>,
+    check_redirect: Option<CheckRedirect>,
+}
+
+/// Rules match the URL, so `https://user@evil.com` would slip past a rule for `https://evil.com/*`.
+fn has_credentials(url: &url::Url) -> bool {
+    !url.username().is_empty() || url.password().is_some_and(|p| !p.is_empty())
 }
 
 impl HostFunction for Fetch {
@@ -43,29 +70,98 @@ impl HostFunction for Fetch {
         true
     }
     fn call(&self, args: Vec<HostValue>) -> HostCall {
-        // `URL.parse(String(input))?.protocol === "file:"`: the host never reads local files for a program.
-        if url::Url::parse(&string_of(args.first().unwrap_or(&HostValue::Undefined))).is_ok_and(|u| u.scheme() == "file") {
+        // Rules match the URL as written. The fragment is never sent, and would keep a rule for the exact URL from
+        // matching.
+        let input = string_of(args.first().unwrap_or(&HostValue::Undefined));
+        let url = input.split('#').next().unwrap_or_default().to_string();
+        let parsed = url::Url::parse(&url).ok();
+        // `URL.parse(url)?.protocol === "file:"`: the host never reads local files for a program.
+        if parsed.as_ref().is_some_and(|u| u.scheme() == "file") {
             return HostCall::Pending(Box::pin(async {
                 Err(HostValue::error("Error", "fetch cannot be used for filesystem access."))
             }));
         }
+        if parsed.as_ref().is_some_and(has_credentials) {
+            return HostCall::Pending(Box::pin(async {
+                Err(HostValue::error("TypeError", "fetch cannot be used with credentials in the URL."))
+            }));
+        }
         let client = self.client.clone();
         let authorize = self.authorize.clone();
+        let check_redirect = self.check_redirect.clone();
         HostCall::Pending(Box::pin(async move {
             if let Some(authorize) = authorize {
-                authorize(string_of(args.first().unwrap_or(&HostValue::Undefined)), args.clone()).await?;
+                authorize(url.clone(), args.clone()).await?;
             }
-            let request = build_request(&args)?;
-            match client.send(request).await {
-                Ok(response) => Ok(response_value(response)),
-                Err(message) => Err(HostValue::error("TypeError", message)),
+            let mut request = build_request(&args)?;
+            // One deadline covers the whole redirect chain and the body.
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(TIMEOUT_MS);
+            let mut target = url.clone();
+            let mut redirects = 0;
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    return Err(HostValue::error("TypeError", "The operation timed out."));
+                }
+                request.url = target.clone();
+                request.timeout = Some(remaining);
+                let mut response = client.send(request.clone()).await.map_err(|message| HostValue::error("TypeError", message))?;
+                let location = response.headers.iter().rev().find(|(k, _)| k.eq_ignore_ascii_case("location")).map(|(_, v)| v.clone());
+                let Some(location) = location.filter(|_| REDIRECT_STATUSES.contains(&response.status)) else {
+                    response.url = target;
+                    response.redirected = redirects > 0;
+                    return Ok(response_value(response));
+                };
+                if redirects >= MAX_REDIRECTS {
+                    return Err(HostValue::error("Error", format!("Too many redirects (more than {MAX_REDIRECTS})")));
+                }
+                let mut next = url::Url::parse(&target)
+                    .and_then(|base| base.join(&location))
+                    .map_err(|_| HostValue::error("TypeError", format!("{} cannot be parsed as a URL.", crate::data::quote(&location))))?;
+                if next.scheme() != "http" && next.scheme() != "https" {
+                    return Err(HostValue::error("Error", format!("fetch cannot follow a redirect to {}: URLs.", next.scheme())));
+                }
+                if has_credentials(&next) {
+                    return Err(HostValue::error("Error", "fetch cannot follow a redirect with credentials in the URL."));
+                }
+                next.set_fragment(None);
+                if let Some(check) = &check_redirect {
+                    check(next.to_string(), args.clone(), url.clone()).await?;
+                }
+                request = redirected(request, response.status, &target, &next);
+                target = next.to_string();
+                redirects += 1;
             }
         }))
     }
 }
 
+/// The request a browser sends after a redirect: 303, and 301/302 after a POST, become a GET without a body, and
+/// credentials are not sent to another origin.
+fn redirected(request: HttpRequest, status: u16, from: &str, to: &url::Url) -> HttpRequest {
+    let method = request.method.to_uppercase();
+    let to_get = if status == 303 { method != "HEAD" } else { (status == 301 || status == 302) && method == "POST" };
+    let cross_origin = url::Url::parse(from).map(|from| from.origin() != to.origin()).unwrap_or(true);
+    let dropped: &[&str] = &["content-type", "content-length", "content-encoding", "content-language", "content-location"];
+    let credentials: &[&str] = &["authorization", "cookie", "proxy-authorization"];
+    let headers = request
+        .headers
+        .into_iter()
+        .filter(|(name, _)| {
+            let name = name.to_ascii_lowercase();
+            !(to_get && dropped.contains(&name.as_str())) && !(cross_origin && credentials.contains(&name.as_str()))
+        })
+        .collect();
+    HttpRequest {
+        method: if to_get { "GET".into() } else { request.method },
+        url: request.url,
+        headers,
+        body: if to_get { None } else { request.body },
+        timeout: request.timeout,
+    }
+}
 pub fn fetch_function(client: Arc<dyn HttpClient>) -> Arc<dyn HostFunction> {
-    Arc::new(Fetch { client, authorize: None })
+    Arc::new(Fetch { client, authorize: None, check_redirect: None })
 }
 
 fn string_of(value: &HostValue) -> String {
@@ -220,6 +316,12 @@ impl ReqwestClient {
         ReqwestClient { client: oc_util::http::client() }
     }
     pub fn with_client(client: reqwest::Client) -> Self {
+        ReqwestClient { client }
+    }
+    /// A client that returns redirects instead of following them (`redirect: "manual"`), for the `fetch` extension,
+    /// which follows them itself.
+    pub fn manual() -> Self {
+        let client = oc_util::http::client_builder().redirect(reqwest::redirect::Policy::none()).build().unwrap_or_default();
         ReqwestClient { client }
     }
 }

@@ -164,6 +164,10 @@ pub(super) struct Parser {
     pub private_name_stack: Vec<PrivateNameScope>,
     /// Nesting depth guard against native stack exhaustion.
     pub depth: u32,
+    /// The top-level `exports` set acorn's `parseTopLevel` hands to `parseExport` (`Duplicate export` checks).
+    pub exports: std::collections::HashSet<String>,
+    /// The id of the last class [`Parser::parse_class`] parsed, for the export checks (the AST keeps no class id).
+    pub last_class_id: Option<ast::Ident>,
 }
 
 /// Deepest nesting the parser allows before failing with "Maximum call stack size exceeded" (where acorn would run out
@@ -205,6 +209,8 @@ impl Parser {
             labels: Vec::new(),
             scope_stack: Vec::new(),
             private_name_stack: Vec::new(),
+            exports: std::collections::HashSet::new(),
+            last_class_id: None,
             depth: 0,
         };
         p.strict = p.strict_directive(0);

@@ -11,6 +11,7 @@ pub mod generators;
 pub mod globals;
 pub mod iteration;
 pub mod limits;
+pub mod modules;
 pub mod promises;
 pub mod references;
 pub mod runner;
@@ -272,6 +273,10 @@ pub struct Interp {
     pub var_names: RefCell<HashMap<usize, Rc<Vec<Rc<str>>>>>,
     /// Whether a function reads `arguments` (memoized by function address).
     pub arguments_use: RefCell<HashMap<usize, bool>>,
+    /// Loaded modules by Node module name (`import`, `require`).
+    pub modules: RefCell<HashMap<String, Value>>,
+    /// Module namespaces (`import * as`, `import()`) by Node module name.
+    pub namespaces: RefCell<HashMap<String, Obj>>,
 }
 
 pub type Rt = Rc<Interp>;

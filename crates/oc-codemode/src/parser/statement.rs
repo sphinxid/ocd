@@ -1,7 +1,7 @@
 //! Statement parsing (acorn's `statement.js`), including the class syntax the AST only keeps as unsupported.
 
 use super::chars::{has_line_break, skip_white_space};
-use super::expression::{FUNC_HANGING_STATEMENT, FUNC_STATEMENT, key_is};
+use super::expression::{FUNC_HANGING_STATEMENT, FUNC_NULLABLE_ID, FUNC_STATEMENT, key_is};
 use super::node::{ClassElement, InFor};
 use super::state::{
     BIND_LEXICAL, BIND_NONE, BIND_SIMPLE_CATCH, BIND_VAR, DestructuringErrors, Label, LabelKind, Parser,
@@ -9,8 +9,9 @@ use super::state::{
 };
 use super::tokentype::TT;
 use crate::ast::{
-    self, Block, CatchClause, Expr, ForHead, ForInit, Ident, Pat, PropKey, Stmt, SwitchCase, VarDecl, VarDeclarator,
-    VarKind,
+    self, Block, CatchClause, ExportDecl, ExportDefault, ExportSpec, Expr, ForHead, ForInit, Ident, ImportAttr,
+    ImportDecl, ImportSpec, Lit, LitValue, ModuleName, ObjectPatMember, Pat, PropKey, Stmt, SwitchCase, VarDecl,
+    VarDeclarator, VarKind,
 };
 use std::rc::Rc;
 
@@ -183,10 +184,12 @@ impl Parser {
                         return self.parse_expression_statement(expr, start, start_loc);
                     }
                 }
-                if !top_level {
-                    return Err(self.raise(self.start, "'import' and 'export' may only appear at the top level"));
+                // `allowImportExportEverywhere`: declarations parse anywhere; only top-level ones see `exports`.
+                if starttype == TT::Import {
+                    self.parse_import(start, start_loc)
+                } else {
+                    self.parse_export(start, start_loc, top_level)
                 }
-                Err(self.raise(self.start, "'import' and 'export' may appear only with 'sourceType: module'"))
             }
             _ => {
                 if self.is_async_function() {
@@ -612,19 +615,27 @@ impl Parser {
 
     // ## Classes (parsed and validated, kept as unsupported nodes)
 
-    /// Parses a class declaration (`is_statement`) or expression; the caller builds the node.
+    /// Parses a class declaration (`is_statement`) or expression; the caller builds the node. `nullable_id` is
+    /// acorn's `"nullableID"` (`export default class {}`): a declaration whose name may be left out. The class id is
+    /// left in [`Parser::last_class_id`].
     pub(super) fn parse_class(&mut self, is_statement: bool) -> R<()> {
+        self.parse_class_with(is_statement, false)
+    }
+
+    pub(super) fn parse_class_with(&mut self, is_statement: bool, nullable_id: bool) -> R<()> {
         self.next(false)?;
         // A class definition is always strict mode code.
         let old_strict = self.strict;
         self.strict = true;
 
+        let mut class_id = None;
         if self.ty == TT::Name {
             let id = self.parse_ident(false)?;
             if is_statement {
                 self.check_lval_ident(&id, BIND_LEXICAL, None)?;
             }
-        } else if is_statement {
+            class_id = Some(id);
+        } else if is_statement && !nullable_id {
             return Err(self.unexpected());
         }
         let has_super_class = if self.eat(TT::Extends)? {
@@ -652,7 +663,9 @@ impl Parser {
         }
         self.strict = old_strict;
         self.next(false)?;
-        self.exit_class_body()
+        self.exit_class_body()?;
+        self.last_class_id = class_id;
+        Ok(())
     }
 
     fn is_private_name_conflicted(&mut self, element: &ClassElement, key: &Ident) -> bool {
@@ -825,5 +838,327 @@ impl Parser {
         self.exit_scope();
         self.labels = old_labels;
         Ok(())
+    }
+}
+
+/// A string holding an unpaired surrogate (acorn's `loneSurrogate`).
+fn has_lone_surrogate(units: &[u16]) -> bool {
+    let mut i = 0;
+    while i < units.len() {
+        let c = units[i];
+        if (0xd800..=0xdbff).contains(&c) {
+            if units.get(i + 1).is_some_and(|n| (0xdc00..=0xdfff).contains(n)) {
+                i += 2;
+                continue;
+            }
+            return true;
+        }
+        if (0xdc00..=0xdfff).contains(&c) {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+// ## Modules (acorn's `parseImport` / `parseExport`, with `allowImportExportEverywhere`)
+impl Parser {
+    fn expect_contextual(&mut self, name: &str) -> R<()> {
+        if !self.eat_contextual(name)? {
+            return Err(self.unexpected());
+        }
+        Ok(())
+    }
+
+    /// A string literal token as the module specifier or attribute value (`parseExprAtom` on a string).
+    fn parse_string_literal(&mut self) -> R<Lit> {
+        if self.ty != TT::String {
+            return Err(self.unexpected());
+        }
+        self.parse_literal()
+    }
+
+    fn parse_module_export_name(&mut self) -> R<ModuleName> {
+        if self.ty == TT::String {
+            let lit = self.parse_literal()?;
+            let LitValue::String(value) = lit.value else { unreachable!("string token") };
+            if has_lone_surrogate(&value) {
+                return Err(self.raise(lit.loc.start as usize, "An export name cannot include a lone surrogate."));
+            }
+            return Ok(ModuleName::Str { value, loc: lit.loc });
+        }
+        Ok(ModuleName::Ident(self.parse_ident(true)?))
+    }
+
+    fn parse_import(&mut self, start: usize, start_loc: super::state::Pos) -> R<Stmt> {
+        self.next(false)?;
+        let (specifiers, source) = if self.ty == TT::String {
+            (Vec::new(), self.parse_literal()?)
+        } else {
+            let specifiers = self.parse_import_specifiers()?;
+            self.expect_contextual("from")?;
+            (specifiers, self.parse_string_literal()?)
+        };
+        let attributes = self.parse_with_clause()?;
+        self.semicolon()?;
+        Ok(Stmt::Import(Rc::new(ImportDecl { specifiers, source, attributes, loc: self.finish_loc(start, start_loc) })))
+    }
+
+    fn parse_import_specifiers(&mut self) -> R<Vec<ImportSpec>> {
+        let mut nodes = Vec::new();
+        if self.ty == TT::Name {
+            let (start, start_loc) = (self.start, self.start_loc);
+            let local = self.parse_ident(false)?;
+            self.check_lval_ident(&local, BIND_LEXICAL, None)?;
+            nodes.push(ImportSpec::Default { local, loc: self.finish_loc(start, start_loc) });
+            if !self.eat(TT::Comma)? {
+                return Ok(nodes);
+            }
+        }
+        if self.ty == TT::Star {
+            let (start, start_loc) = (self.start, self.start_loc);
+            self.next(false)?;
+            self.expect_contextual("as")?;
+            let local = self.parse_ident(false)?;
+            self.check_lval_ident(&local, BIND_LEXICAL, None)?;
+            nodes.push(ImportSpec::Namespace { local, loc: self.finish_loc(start, start_loc) });
+            return Ok(nodes);
+        }
+        self.expect(TT::BraceL)?;
+        let mut first = true;
+        while !self.eat(TT::BraceR)? {
+            if !first {
+                self.expect(TT::Comma)?;
+                if self.after_trailing_comma(TT::BraceR, false)? {
+                    break;
+                }
+            } else {
+                first = false;
+            }
+            nodes.push(self.parse_import_specifier()?);
+        }
+        Ok(nodes)
+    }
+
+    fn parse_import_specifier(&mut self) -> R<ImportSpec> {
+        let (start, start_loc) = (self.start, self.start_loc);
+        let imported = self.parse_module_export_name()?;
+        let local = if self.eat_contextual("as")? {
+            self.parse_ident(false)?
+        } else {
+            match &imported {
+                ModuleName::Ident(id) => {
+                    self.check_unreserved(id)?;
+                    id.clone()
+                }
+                // `checkLValSimple` on the literal itself.
+                ModuleName::Str { loc, .. } => return Err(self.raise(loc.start as usize, "Binding rvalue")),
+            }
+        };
+        self.check_lval_ident(&local, BIND_LEXICAL, None)?;
+        Ok(ImportSpec::Named { imported, local, loc: self.finish_loc(start, start_loc) })
+    }
+
+    fn parse_with_clause(&mut self) -> R<Vec<ImportAttr>> {
+        let mut nodes = Vec::new();
+        if !self.eat(TT::With)? {
+            return Ok(nodes);
+        }
+        self.expect(TT::BraceL)?;
+        let mut keys: std::collections::HashSet<Vec<u16>> = std::collections::HashSet::new();
+        let mut first = true;
+        while !self.eat(TT::BraceR)? {
+            if !first {
+                self.expect(TT::Comma)?;
+                if self.after_trailing_comma(TT::BraceR, false)? {
+                    break;
+                }
+            } else {
+                first = false;
+            }
+            let (start, start_loc) = (self.start, self.start_loc);
+            let key = if self.ty == TT::String {
+                let lit = self.parse_literal()?;
+                let LitValue::String(value) = lit.value else { unreachable!("string token") };
+                ModuleName::Str { value, loc: lit.loc }
+            } else {
+                ModuleName::Ident(self.parse_ident(true)?)
+            };
+            self.expect(TT::Colon)?;
+            let value = self.parse_string_literal()?;
+            let units: Vec<u16> = match &key {
+                ModuleName::Ident(id) => id.name.encode_utf16().collect(),
+                ModuleName::Str { value, .. } => value.to_vec(),
+            };
+            if !keys.insert(units.clone()) {
+                return Err(self.raise(
+                    key.loc().start as usize,
+                    &format!("Duplicate attribute key '{}'", String::from_utf16_lossy(&units)),
+                ));
+            }
+            nodes.push(ImportAttr { key, value, loc: self.finish_loc(start, start_loc) });
+        }
+        Ok(nodes)
+    }
+
+    /// acorn's `checkExport`: only the top level hands `parseExport` its `exports` set.
+    fn check_export(&mut self, top_level: bool, name: &str, pos: usize) -> R<()> {
+        if !top_level {
+            return Ok(());
+        }
+        if !self.exports.insert(name.to_string()) {
+            return Err(self.raise(pos, &format!("Duplicate export '{name}'")));
+        }
+        Ok(())
+    }
+
+    fn check_pattern_export(&mut self, top_level: bool, pat: &Pat) -> R<()> {
+        match pat {
+            Pat::Ident(id) => self.check_export(top_level, &id.name, id.loc.start as usize),
+            Pat::Object { properties, .. } => {
+                for prop in properties {
+                    match prop {
+                        ObjectPatMember::Prop(p) => self.check_pattern_export(top_level, &p.value)?,
+                        ObjectPatMember::Rest { argument, .. } => self.check_pattern_export(top_level, argument)?,
+                    }
+                }
+                Ok(())
+            }
+            Pat::Array { elements, .. } => {
+                for element in elements.iter().flatten() {
+                    self.check_pattern_export(top_level, element)?;
+                }
+                Ok(())
+            }
+            Pat::Assign { left, .. } => self.check_pattern_export(top_level, left),
+            Pat::Rest { argument, .. } => self.check_pattern_export(top_level, argument),
+            Pat::Member(_) => Ok(()),
+        }
+    }
+
+    fn should_parse_export_statement(&self) -> bool {
+        matches!(self.ty, TT::Var | TT::Const | TT::Class | TT::Function) || self.is_let(None) || self.is_async_function()
+    }
+
+    fn parse_export(&mut self, start: usize, start_loc: super::state::Pos, top_level: bool) -> R<Stmt> {
+        self.next(false)?;
+        // export * from '...'
+        if self.eat(TT::Star)? {
+            let exported = if self.eat_contextual("as")? {
+                let name = self.parse_module_export_name()?;
+                self.check_export(top_level, &name.name(), self.last_tok_start)?;
+                Some(name)
+            } else {
+                None
+            };
+            self.expect_contextual("from")?;
+            let source = self.parse_string_literal()?;
+            let attributes = self.parse_with_clause()?;
+            self.semicolon()?;
+            let loc = self.finish_loc(start, start_loc);
+            return Ok(Stmt::Export(Box::new(ExportDecl::All { exported, source, attributes, loc })));
+        }
+        // export default ...
+        if self.eat(TT::Default)? {
+            self.check_export(top_level, "default", self.last_tok_start)?;
+            let declaration = self.parse_export_default_declaration()?;
+            let loc = self.finish_loc(start, start_loc);
+            return Ok(Stmt::Export(Box::new(ExportDecl::Default { declaration, loc })));
+        }
+        // export var|const|let|function|class ...
+        if self.should_parse_export_statement() {
+            self.last_class_id = None;
+            let declaration = self.parse_statement(None, false)?;
+            match &declaration {
+                Stmt::VarDecl(d) => {
+                    for decl in &d.declarations {
+                        self.check_pattern_export(top_level, &decl.id)?;
+                    }
+                }
+                Stmt::FunctionDecl(f) => {
+                    if let Some(id) = &f.id {
+                        self.check_export(top_level, &id.name, id.loc.start as usize)?;
+                    }
+                }
+                Stmt::Unsupported { kind: "ClassDeclaration", .. } => {
+                    if let Some(id) = self.last_class_id.clone() {
+                        self.check_export(top_level, &id.name, id.loc.start as usize)?;
+                    }
+                }
+                _ => {}
+            }
+            let loc = self.finish_loc(start, start_loc);
+            return Ok(Stmt::Export(Box::new(ExportDecl::Named {
+                declaration: Some(declaration),
+                specifiers: Vec::new(),
+                source: None,
+                attributes: Vec::new(),
+                loc,
+            })));
+        }
+        // export { x, y as z } [from '...']
+        let mut specifiers = Vec::new();
+        self.expect(TT::BraceL)?;
+        let mut first = true;
+        while !self.eat(TT::BraceR)? {
+            if !first {
+                self.expect(TT::Comma)?;
+                if self.after_trailing_comma(TT::BraceR, false)? {
+                    break;
+                }
+            } else {
+                first = false;
+            }
+            let (spec_start, spec_start_loc) = (self.start, self.start_loc);
+            let local = self.parse_module_export_name()?;
+            let exported = if self.eat_contextual("as")? { self.parse_module_export_name()? } else { local.clone() };
+            self.check_export(top_level, &exported.name(), exported.loc().start as usize)?;
+            specifiers.push(ExportSpec { local, exported, loc: self.finish_loc(spec_start, spec_start_loc) });
+        }
+        let (source, attributes) = if self.eat_contextual("from")? {
+            let source = self.parse_string_literal()?;
+            (Some(source), self.parse_with_clause()?)
+        } else {
+            for spec in &specifiers {
+                match &spec.local {
+                    // Check for keywords used as local names.
+                    ModuleName::Ident(id) => self.check_unreserved(id)?,
+                    ModuleName::Str { loc, .. } => {
+                        return Err(self.raise(
+                            loc.start as usize,
+                            "A string literal cannot be used as an exported binding without `from`.",
+                        ));
+                    }
+                }
+            }
+            (None, Vec::new())
+        };
+        self.semicolon()?;
+        let loc = self.finish_loc(start, start_loc);
+        Ok(Stmt::Export(Box::new(ExportDecl::Named { declaration: None, specifiers, source, attributes, loc })))
+    }
+
+    fn parse_export_default_declaration(&mut self) -> R<ExportDefault> {
+        let is_async = self.ty != TT::Function && self.is_async_function();
+        if self.ty == TT::Function || is_async {
+            let (start, start_loc) = (self.start, self.start_loc);
+            self.next(false)?;
+            if is_async {
+                self.next(false)?;
+            }
+            let f = self.parse_function(start, start_loc, FUNC_STATEMENT | FUNC_NULLABLE_ID, is_async, InFor::No)?;
+            return Ok(ExportDefault::Decl(Stmt::FunctionDecl(f)));
+        }
+        if self.ty == TT::Class {
+            let (start, start_loc) = (self.start, self.start_loc);
+            self.parse_class_with(true, true)?;
+            return Ok(ExportDefault::Decl(Stmt::Unsupported {
+                kind: "ClassDeclaration",
+                loc: self.finish_loc(start, start_loc),
+            }));
+        }
+        let declaration = self.parse_maybe_assign(InFor::No, None)?;
+        self.semicolon()?;
+        Ok(ExportDefault::Expr(declaration))
     }
 }

@@ -190,6 +190,10 @@ pub fn range_error_at(message: impl Into<String>, node: Loc) -> Thrown {
 pub fn reference_error_at(message: impl Into<String>, node: Loc) -> Thrown {
     pending(ErrorType::ReferenceError, message.into(), Some(node), DiagnosticKind::ExecutionFailure)
 }
+/// A failure of the given type, located at `node` when there is one (upstream `new PendingThrow(type, message, site)`).
+pub fn error_at(error_type: ErrorType, message: impl Into<String>, node: Option<Loc>) -> Thrown {
+    pending(error_type, message.into(), node, DiagnosticKind::ExecutionFailure)
+}
 pub fn syntax_error(message: impl Into<String>) -> Thrown {
     pending(ErrorType::SyntaxError, message.into(), None, DiagnosticKind::ExecutionFailure)
 }

@@ -1,8 +1,9 @@
 //! `CodeMode.scanTools` (`packages/codemode/src/scan.ts`): the `tools.<path>` a program calls, found statically.
 //!
 //! The walk runs over the parser's ESTree JSON (the same node shapes and key order acorn produces), so children
-//! are visited in acorn's `Object.entries` order like upstream. Node kinds outside the interpreter's subset (classes,
-//! `import()`, `new.target`) carry no children in that JSON, so a `tools` reference inside a class body is not seen;
+//! are visited in acorn's `Object.entries` order like upstream. The program is parsed like `execute` parses it, so a
+//! top-level export is the same `ParseError`. Node kinds outside the interpreter's subset (classes, `new.target`,
+//! `import.meta`) carry no children in that JSON, so a `tools` reference inside a class body is not seen;
 //! such a program fails when it runs anyway (`Syntax 'ClassDeclaration' is not supported`).
 
 use std::collections::HashSet;
@@ -22,7 +23,7 @@ pub fn scan_tools(code: &str) -> Result<Vec<String>, Diagnostic> {
     }
     let code = code.to_string();
     let worker = std::thread::Builder::new().name("codemode-scan".into()).stack_size(STACK_SIZE).spawn(move || {
-        let program = crate::parser::parse(&code).map_err(|e| crate::codemode::parse_diagnostic(&e))?;
+        let program = crate::codemode::parse_program(&code)?;
         Ok::<Value, Diagnostic>(crate::parser::to_estree(&program))
     });
     let tree = match worker.map(|w| w.join()) {

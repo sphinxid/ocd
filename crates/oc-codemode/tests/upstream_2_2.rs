@@ -199,14 +199,11 @@ fn parse_errors_carry_a_location_and_a_hint() {
         error(&runtime, "const = 1"),
         json!({ "kind": "ParseError", "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 7)", "location": { "line": 1, "column": 7 } })
     );
+    // 2.2.7: imports load globals and exports have their own text (see `tests/upstream_2_2_7.rs`).
     assert_eq!(
-        error(&runtime, r#"import x from "y""#),
-        json!({ "kind": "ParseError", "message": "SyntaxError: Imports and exports aren't available. Call tools through `tools` and use the built-in globals. (line 1, col 1)", "location": { "line": 1, "column": 1 } })
+        error(&runtime, "export const x = 1"),
+        json!({ "kind": "ParseError", "message": "SyntaxError: Exports aren't available. Return the result instead. (line 1, col 1)", "location": { "line": 1, "column": 1 } })
     );
-    assert!(error(&runtime, "export const x = 1")["message"]
-        .as_str()
-        .unwrap()
-        .starts_with("SyntaxError: Imports and exports aren't available."));
     let typescript = error(&runtime, "const value: number = 1; return value");
     assert!(typescript["message"].as_str().unwrap().ends_with("Code must be plain JavaScript written as a program body. (line 1, col 12)"));
     assert_eq!(typescript["location"], json!({ "line": 1, "column": 12 }));

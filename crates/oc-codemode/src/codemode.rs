@@ -274,6 +274,8 @@ impl CodeMode {
             extensions: self.extensions.clone(),
             var_names: RefCell::new(HashMap::new()),
             arguments_use: RefCell::new(HashMap::new()),
+            modules: RefCell::new(HashMap::new()),
+            namespaces: RefCell::new(HashMap::new()),
         });
         set_rt(Some(rt.clone()));
         let logs = |rt: &Rc<Interp>| {
@@ -282,10 +284,10 @@ impl CodeMode {
         };
         let calls = |rt: &Rc<Interp>| rt.tools.calls.borrow().iter().map(|n| ToolCall { name: n.clone() }).collect::<Vec<_>>();
 
-        let program = match crate::parser::parse(code) {
+        let program = match parse_program(code) {
             Ok(p) => Rc::new(p),
-            Err(e) => {
-                return ExecResult::Failure { error: parse_diagnostic(&e), logs: None, truncated: false, tool_calls: Vec::new() };
+            Err(error) => {
+                return ExecResult::Failure { error, logs: None, truncated: false, tool_calls: Vec::new() };
             }
         };
         // Program code has no receiver: top-level `this` is undefined, as in a module.
@@ -356,6 +358,26 @@ impl CodeMode {
     }
 }
 
+/// `parseProgram`: acorn with `allowImportExportEverywhere` (imports bind globals by module name; scripts keep
+/// sloppy-mode semantics), and a top-level export is a located `ParseError`.
+pub(crate) fn parse_program(code: &str) -> Result<crate::ast::Program, Diagnostic> {
+    let program = crate::parser::parse(code).map_err(|e| parse_diagnostic(&e))?;
+    if let Some(exported) = program.body.iter().find(|s| matches!(s, crate::ast::Stmt::Export(_))) {
+        let loc = exported.loc();
+        let location = crate::interp::errors::Location { line: loc.line, column: loc.column + 1 };
+        return Err(Diagnostic {
+            kind: DiagnosticKind::ParseError,
+            message: format!(
+                "SyntaxError: Exports aren't available. Return the result instead. (line {}, col {})",
+                location.line, location.column
+            ),
+            location: Some(location),
+            suggestions: None,
+        });
+    }
+    Ok(program)
+}
+
 /// A located `ParseError` for acorn's syntax errors (`parseDiagnostic`). Nesting too deep for the parser is the
 /// host-stack overflow upstream hits instead, which normalizes to the nesting-depth failure.
 pub(crate) fn parse_diagnostic(error: &crate::parser::ParseError) -> Diagnostic {
@@ -381,12 +403,8 @@ pub(crate) fn parse_diagnostic(error: &crate::parser::ParseError) -> Diagnostic 
         }
         _ => error.message.as_str(),
     };
-    let text = if reason == "'import' and 'export' may appear only with 'sourceType: module'" {
-        "Imports and exports aren't available. Call tools through `tools` and use the built-in globals.".to_string()
-    } else {
-        let sentence = if reason.ends_with('.') { reason.to_string() } else { format!("{reason}.") };
-        format!("{sentence} Code must be plain JavaScript written as a program body.")
-    };
+    let sentence = if reason.ends_with('.') { reason.to_string() } else { format!("{reason}.") };
+    let text = format!("{sentence} Code must be plain JavaScript written as a program body.");
     Diagnostic {
         kind: DiagnosticKind::ParseError,
         message: format!("SyntaxError: {text} (line {}, col {})", location.line, location.column),

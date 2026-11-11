@@ -39,19 +39,22 @@ pub struct Listing {
     pub line: String,
 }
 
+/// A namespace as the stored summary records it. `tools` holds every tool's path, so an update can tell a new tool
+/// from one that was not shown. Field order is the hashed JSON's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NamespaceSummary {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
-    pub count: usize,
+    pub tools: Vec<String>,
     pub entries: Vec<Listing>,
 }
 
+/// `CodeModeCatalog.Summary` (2.2.7): a summary stored in the older shape (no namespace `tools`) does not decode, so
+/// a resumed session gets the whole catalog again. Unknown keys are ignored, as Effect's decoding does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
     pub total: usize,
-    pub shown: usize,
     pub namespaces: Vec<NamespaceSummary>,
 }
 
@@ -59,13 +62,15 @@ const DESCRIPTION_LIMIT: usize = 120;
 const CHARACTERS_PER_TOKEN: f64 = 4.0;
 /// Inline budget in "tokens" (characters / 4, rounded).
 pub const INLINE_BUDGET: usize = 2_000;
+/// What the new listings of an update may cost while the catalog is partial.
+const UPDATE_BUDGET: f64 = 1_000.0;
 
 fn utf16_len(s: &str) -> usize {
     s.encode_utf16().count()
 }
 
-fn cost(text: &str) -> i64 {
-    // Math.round(length / 4)
+/// `cost(text)`: `Math.round(length / 4)`.
+pub fn cost(text: &str) -> i64 {
     ((utf16_len(text) as f64 / CHARACTERS_PER_TOKEN) + 0.5).floor() as i64
 }
 
@@ -117,15 +122,26 @@ fn flatten(entries: &[CatalogEntry], path: &[String], tools: &mut Vec<FlatTool>,
     }
 }
 
-/// `- name (N tools[, K shown | , none shown])[ // description]`
-pub fn namespace_line(namespace: &NamespaceSummary) -> String {
-    let count = if namespace.count == 1 { "1 tool".to_string() } else { format!("{} tools", namespace.count) };
-    let label = if namespace.entries.len() == namespace.count {
+/// `listing(entry)`: the tool's signature and the first line of its description, cut to 117 characters plus `...`.
+fn listing(tool: &FlatTool) -> Listing {
+    let first_line = js_trim(tool.description.split('\n').next().unwrap_or("")).to_string();
+    let description =
+        if utf16_len(&first_line) > DESCRIPTION_LIMIT { format!("{}...", utf16_prefix(&first_line, DESCRIPTION_LIMIT - 3)) } else { first_line };
+    let suffix = if description.is_empty() { String::new() } else { format!(" // {description}") };
+    Listing { path: tool.path.clone(), line: format!("  - {}{}", tool.signature, suffix) }
+}
+
+/// `- name (N tools[, K shown | , none shown])[ // description]`, where `shown` defaults to the listed entries.
+pub fn namespace_line(namespace: &NamespaceSummary, shown: Option<usize>) -> String {
+    let shown = shown.unwrap_or(namespace.entries.len());
+    let total = namespace.tools.len();
+    let count = if total == 1 { "1 tool".to_string() } else { format!("{total} tools") };
+    let label = if shown == total {
         count
-    } else if namespace.entries.is_empty() {
+    } else if shown == 0 {
         format!("{count}, none shown")
     } else {
-        format!("{count}, {} shown", namespace.entries.len())
+        format!("{count}, {shown} shown")
     };
     match &namespace.description {
         None => format!("- {} ({label})", namespace.name),
@@ -133,8 +149,9 @@ pub fn namespace_line(namespace: &NamespaceSummary) -> String {
     }
 }
 
-/// Keeps every namespace visible, then selects full listings one per namespace per round, shorter listings first,
-/// until the inline budget is exhausted. Pinned listings are always shown.
+/// Keeps every namespace visible, then selects full listings one per namespace per round, in path order, until the
+/// inline budget is exhausted; a namespace stops at its first listing that does not fit. Pinned listings are always
+/// shown. The selection depends only on the tools.
 pub fn summarize(inventory: &[CatalogEntry], budget: Option<usize>) -> Summary {
     let budget = budget.unwrap_or(INLINE_BUDGET) as i64;
     let mut tools = Vec::new();
@@ -150,77 +167,41 @@ pub fn summarize(inventory: &[CatalogEntry], budget: Option<usize>) -> Summary {
     }
     groups.sort_by(|a, b| js_lt(&a.0, &b.0));
 
-    struct Ns {
-        name: String,
-        description: Option<String>,
-        listings: Vec<Listing>,
-        order: Vec<(usize, i64)>,
-        selected: Vec<bool>,
+    struct Ns<'a> {
+        summary: NamespaceSummary,
+        order: Vec<&'a FlatTool>,
         index: usize,
     }
     let mut namespaces: Vec<Ns> = groups
         .into_iter()
-        .map(|(name, entries)| {
+        .map(|(name, mut entries)| {
             let description = namespace_meta.iter().find(|(k, _)| *k == name).and_then(|(_, d)| d.clone());
-            let mut listings: Vec<(Listing, bool)> = entries
-                .iter()
-                .map(|entry| {
-                    let first_line = js_trim(entry.description.split('\n').next().unwrap_or("")).to_string();
-                    let description = if utf16_len(&first_line) > DESCRIPTION_LIMIT {
-                        format!("{}...", utf16_prefix(&first_line, DESCRIPTION_LIMIT - 3))
-                    } else {
-                        first_line
-                    };
-                    let suffix = if description.is_empty() { String::new() } else { format!(" // {description}") };
-                    (Listing { path: entry.path.clone(), line: format!("  - {}{}", entry.signature, suffix) }, entry.pinned)
-                })
-                .collect();
-            listings.sort_by(|a, b| js_lt(&a.0.path, &b.0.path));
-            let pinned_paths: HashSet<String> =
-                listings.iter().filter(|(_, p)| *p).map(|(l, _)| l.path.clone()).collect();
-            let listings: Vec<Listing> = listings.into_iter().map(|(l, _)| l).collect();
-            // Duplicate paths: only the first listing with a pinned path is selected (`listings.find`).
-            let mut selected_fixed = vec![false; listings.len()];
-            for path in &pinned_paths {
-                if let Some(i) = listings.iter().position(|l| &l.path == path) {
-                    selected_fixed[i] = true;
-                }
-            }
-            let mut ranked: Vec<(usize, i64)> = listings.iter().enumerate().map(|(i, l)| (i, cost(&l.line))).collect();
-            ranked.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| js_lt(&listings[a.0].path, &listings[b.0].path)));
-            let order: Vec<(usize, i64)> = ranked.into_iter().filter(|(i, _)| !selected_fixed[*i]).collect();
-            Ns { name, description, listings, order, selected: selected_fixed, index: 0 }
+            entries.sort_by(|a, b| js_lt(&a.path, &b.path));
+            let summary = NamespaceSummary {
+                name,
+                description,
+                tools: entries.iter().map(|e| e.path.clone()).collect(),
+                entries: entries.iter().filter(|e| e.pinned).map(|e| listing(e)).collect(),
+            };
+            Ns { summary, order: entries.into_iter().filter(|e| !e.pinned).collect(), index: 0 }
         })
         .collect();
 
     let mut remaining = budget
-        - namespaces
-            .iter()
-            .map(|ns| {
-                cost(&namespace_line(&NamespaceSummary {
-                    name: ns.name.clone(),
-                    description: ns.description.clone(),
-                    count: ns.listings.len(),
-                    entries: Vec::new(),
-                }))
-            })
-            .sum::<i64>()
-        - namespaces
-            .iter()
-            .flat_map(|ns| ns.listings.iter().zip(ns.selected.iter()).filter(|(_, s)| **s).map(|(l, _)| cost(&l.line)))
-            .sum::<i64>();
+        - namespaces.iter().map(|ns| cost(&namespace_line(&NamespaceSummary { entries: Vec::new(), ..ns.summary.clone() }, None))).sum::<i64>()
+        - namespaces.iter().flat_map(|ns| ns.summary.entries.iter()).map(|l| cost(&l.line)).sum::<i64>();
     let mut active: Vec<bool> = vec![true; namespaces.len()];
     while active.iter().any(|a| *a) {
         for (i, ns) in namespaces.iter_mut().enumerate() {
             if !active[i] {
                 continue;
             }
-            let candidate = ns.order.get(ns.index).copied();
+            let candidate = ns.order.get(ns.index).map(|tool| listing(tool));
             match candidate {
-                Some((listing, c)) if c <= remaining => {
-                    ns.selected[listing] = true;
+                Some(candidate) if cost(&candidate.line) <= remaining => {
+                    remaining -= cost(&candidate.line);
+                    ns.summary.entries.push(candidate);
                     ns.index += 1;
-                    remaining -= c;
                     if ns.index == ns.order.len() {
                         active[i] = false;
                     }
@@ -229,16 +210,18 @@ pub fn summarize(inventory: &[CatalogEntry], budget: Option<usize>) -> Summary {
             }
         }
     }
-    let summaries: Vec<NamespaceSummary> = namespaces
-        .iter()
-        .map(|ns| NamespaceSummary {
-            name: ns.name.clone(),
-            description: ns.description.clone(),
-            count: ns.listings.len(),
-            entries: ns.listings.iter().zip(ns.selected.iter()).filter(|(_, s)| **s).map(|(l, _)| l.clone()).collect(),
-        })
-        .collect();
-    Summary { total: tools.len(), shown: summaries.iter().map(|n| n.entries.len()).sum(), namespaces: summaries }
+    Summary { total: tools.len(), namespaces: namespaces.into_iter().map(|ns| ns.summary).collect() }
+}
+
+/// `lookup(inventory)`: any tool's listing as the catalog would show it (the last tool of a path wins).
+pub fn lookup(inventory: &[CatalogEntry]) -> impl Fn(&str) -> Option<Listing> + Send + Sync + 'static {
+    let mut tools = Vec::new();
+    flatten(inventory, &[], &mut tools, &mut Vec::new());
+    let mut listings: std::collections::HashMap<String, Listing> = std::collections::HashMap::new();
+    for tool in &tools {
+        listings.insert(tool.path.clone(), listing(tool));
+    }
+    move |path| listings.get(path).cloned()
 }
 
 fn prompt(has_more_tools: bool) -> String {
@@ -257,9 +240,21 @@ fn prompt(has_more_tools: bool) -> String {
     out
 }
 
+/// Sent once, when tools arrive that the catalog cannot list in full, so the model learns about `search`.
+fn search_note() -> String {
+    format!(
+        "You can also look up tools that aren't listed with the global `search(...)` function inside `execute`. Before calling a tool that is not listed, find it this way. Do not guess tool names. Each result's `path` is the complete call expression: write it out as code, for example `await tools.ns.tool_name({{ ... }})`. Do not use it as a key such as `tools[path]`.\n\n- {SEARCH_SIGNATURE}"
+    )
+}
+
 pub const EMPTY_CATALOG: &str = "No Code Mode tools are currently available. Later Code Mode catalog updates may add or remove tools. Do not call `execute` unless there is at least one available Code Mode tool.";
 pub const REMOVED_CATALOG: &str =
     "Code Mode tools are no longer available. Do not use any previously listed Code Mode tools.";
+
+/// Every tool is listed.
+fn complete(catalog: &Summary) -> bool {
+    catalog.namespaces.iter().all(|ns| ns.entries.len() == ns.tools.len())
+}
 
 /// The initial catalog instruction (keyed `core/codemode` upstream).
 pub fn render(catalog: &Summary) -> String {
@@ -268,10 +263,10 @@ pub fn render(catalog: &Summary) -> String {
     }
     let mut tools: Vec<String> = Vec::new();
     for ns in &catalog.namespaces {
-        tools.push(namespace_line(ns));
+        tools.push(namespace_line(ns, None));
         tools.extend(ns.entries.iter().map(|e| e.line.clone()));
     }
-    format!("{}\n\n{}", prompt(catalog.shown < catalog.total), tools.join("\n"))
+    format!("{}\n\n{}", prompt(!complete(catalog)), tools.join("\n"))
 }
 
 struct Diff<'a, A> {
@@ -280,119 +275,116 @@ struct Diff<'a, A> {
     changed: Vec<(&'a A, &'a A)>,
 }
 
-impl<A> Diff<'_, A> {
-    fn any(&self) -> bool {
-        !self.added.is_empty() || !self.removed.is_empty() || !self.changed.is_empty()
-    }
-}
-
+/// `Instructions.diffByKey`.
 fn diff_by_key<'a, A>(
-    previous: &[&'a A],
-    current: &[&'a A],
+    previous: &'a [A],
+    current: &'a [A],
     key: impl Fn(&A) -> String,
     changed: impl Fn(&A, &A) -> bool,
 ) -> Diff<'a, A> {
-    let current_keys: HashSet<String> = current.iter().map(|v| key(v)).collect();
+    let current_keys: HashSet<String> = current.iter().map(&key).collect();
     // Map semantics: the last previous value for a key wins.
-    let previous_by_key = |k: &str| previous.iter().rev().find(|v| key(v) == k).copied();
+    let previous_by_key = |k: &str| previous.iter().rev().find(|v| key(v) == k);
     Diff {
-        added: current.iter().filter(|v| previous_by_key(&key(v)).is_none()).copied().collect(),
-        removed: previous.iter().filter(|v| !current_keys.contains(&key(v))).copied().collect(),
+        added: current.iter().filter(|v| previous_by_key(&key(v)).is_none()).collect(),
+        removed: previous.iter().filter(|v| !current_keys.contains(&key(v))).collect(),
         changed: current
             .iter()
-            .filter_map(|v| previous_by_key(&key(v)).filter(|before| changed(before, v)).map(|before| (before, *v)))
+            .filter_map(|v| previous_by_key(&key(v)).filter(|before| changed(before, v)).map(|before| (before, v)))
             .collect(),
     }
 }
 
-/// The instruction text when the catalog changes between steps: a delta when shorter, else a replacement.
-pub fn update(previous: &Summary, current: &Summary) -> String {
+/// `fit(listings, budget)`: the leading listings whose cost fits `budget`.
+fn fit(listings: Vec<Listing>, budget: f64) -> Vec<Listing> {
+    let mut total = 0i64;
+    let end = listings.iter().position(|entry| {
+        total += cost(&entry.line);
+        total as f64 > budget
+    });
+    match end {
+        Some(end) => listings.into_iter().take(end).collect(),
+        None => listings,
+    }
+}
+
+/// The instruction text when the catalog changes between steps (`update`): what changed for the model — namespaces
+/// and tools that came or went, and signatures it was shown that changed, even if they are no longer shown — when
+/// that is shorter than the whole catalog restated. `None` when nothing the model was told changed. `lookup` gives
+/// any current tool's listing.
+pub fn update(previous: &Summary, current: &Summary, lookup: &dyn Fn(&str) -> Option<Listing>) -> Option<String> {
     let replacement = format!(
         "The Code Mode tool catalog has changed. This catalog supersedes the previous Code Mode tool catalog.\n\n{}",
         render(current)
     );
-    if current.total == 0 {
-        return replacement;
+    if current.total == 0 || previous.total == 0 {
+        return Some(replacement);
     }
-    let previous_complete = previous.shown == previous.total;
-    let current_complete = current.shown == current.total;
-    if previous_complete != current_complete {
-        return replacement;
-    }
-    fn with_desc(s: &Summary) -> Vec<&NamespaceSummary> {
-        s.namespaces.iter().filter(|n| n.description.is_some()).collect()
-    }
-    let (pd, cd) = (with_desc(previous), with_desc(current));
-    let descriptions = diff_by_key(&pd, &cd, |n| n.name.clone(), |b, a| b.description != a.description);
-    if descriptions.any() {
-        return replacement;
-    }
-    let pe: Vec<&Listing> = previous.namespaces.iter().flat_map(|n| n.entries.iter()).collect();
-    let ce: Vec<&Listing> = current.namespaces.iter().flat_map(|n| n.entries.iter()).collect();
-    let diff = diff_by_key(&pe, &ce, |e| e.path.clone(), |b, a| b.line != a.line);
-    let entries_changed = diff.any();
-    let js_len = |s: &str| utf16_len(s);
+    let namespaces = diff_by_key(&previous.namespaces, &current.namespaces, |n| n.name.clone(), |b, a| b.description != a.description);
+    // A namespace whose description changed is restated as if new.
+    let restated: Vec<&NamespaceSummary> = namespaces.added.iter().copied().chain(namespaces.changed.iter().map(|(_, c)| *c)).collect();
+    let unchanged: HashSet<&str> =
+        current.namespaces.iter().map(|n| n.name.as_str()).filter(|name| !restated.iter().any(|r| r.name == *name)).collect();
+    let kept = |path: &str| unchanged.contains(path.split('.').next().unwrap_or(path));
+    let before: indexmap::IndexSet<&str> = previous.namespaces.iter().flat_map(|n| n.tools.iter().map(String::as_str)).collect();
+    let after: indexmap::IndexSet<&str> = current.namespaces.iter().flat_map(|n| n.tools.iter().map(String::as_str)).collect();
+    let added: Vec<&str> = after.iter().copied().filter(|path| kept(path) && !before.contains(path)).collect();
+    let removed: Vec<&str> = before.iter().copied().filter(|path| kept(path) && !after.contains(path)).collect();
+    let changed: Vec<Listing> = previous
+        .namespaces
+        .iter()
+        .flat_map(|n| n.entries.iter())
+        .filter(|entry| kept(&entry.path) && after.contains(entry.path.as_str()))
+        .filter_map(|entry| lookup(&entry.path).filter(|listing| listing.line != entry.line))
+        .collect();
+    let groups = restated.len() + usize::from(!added.is_empty());
+    let budget = if complete(current) { f64::INFINITY } else { UPDATE_BUDGET / (if groups == 0 { 1 } else { groups }) as f64 };
 
-    if !current_complete {
-        if entries_changed {
-            return replacement;
-        }
-        let pn: Vec<&NamespaceSummary> = previous.namespaces.iter().collect();
-        let cn: Vec<&NamespaceSummary> = current.namespaces.iter().collect();
-        let namespaces = diff_by_key(&pn, &cn, |n| n.name.clone(), |b, a| b.count != a.count);
-        if !namespaces.any() {
-            return replacement;
-        }
-        let mut parts = vec!["The Code Mode tool catalog has changed.".to_string()];
-        if !namespaces.added.is_empty() {
-            parts.push(format!(
-                "New tool namespaces are available: {}.",
-                namespaces.added.iter().map(|n| format!("`{}` ({} tools)", n.name, n.count)).collect::<Vec<_>>().join(", ")
-            ));
-        }
-        if !namespaces.changed.is_empty() {
-            parts.push(format!(
-                "The following namespace inventories changed; search them again before relying on previous results: {}.",
-                namespaces
-                    .changed
-                    .iter()
-                    .map(|(_, c)| format!("`{}` now has {} tools", c.name, c.count))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        if !namespaces.removed.is_empty() {
-            parts.push(format!(
-                "The following tool namespaces are no longer available and must not be used: {}.",
-                namespaces.removed.iter().map(|n| format!("`{}`", n.name)).collect::<Vec<_>>().join(", ")
-            ));
-        }
-        let delta = parts.join("\n\n");
-        return if js_len(&delta) < js_len(&replacement) { delta } else { replacement };
-    }
-
-    if !entries_changed {
-        return replacement;
-    }
     let mut parts = vec!["The Code Mode tool catalog has changed.".to_string()];
-    if !diff.added.is_empty() {
+    if !restated.is_empty() {
+        let mut lines = vec!["New tools are available:".to_string()];
+        for namespace in &restated {
+            let shown = fit(namespace.tools.iter().filter_map(|path| lookup(path)).collect(), budget);
+            lines.push(namespace_line(namespace, Some(shown.len())));
+            lines.extend(shown.into_iter().map(|entry| entry.line));
+        }
+        parts.push(lines.join("\n"));
+    }
+    if !added.is_empty() {
+        let shown = fit(added.iter().filter_map(|path| lookup(path)).collect(), budget);
+        let rest = added.len() - shown.len();
         let mut lines = vec!["New tools are available in addition to those previously listed:".to_string()];
-        lines.extend(diff.added.iter().map(|e| e.line.clone()));
+        lines.extend(shown.into_iter().map(|entry| entry.line));
+        if rest != 0 {
+            lines.push(format!("  - {rest} more; search for them"));
+        }
         parts.push(lines.join("\n"));
     }
-    if !diff.changed.is_empty() {
+    if complete(previous) && !complete(current) {
+        parts.push(search_note());
+    }
+    if !changed.is_empty() {
         let mut lines = vec!["Changed tool listings supersede the previously listed ones:".to_string()];
-        lines.extend(diff.changed.iter().map(|(_, c)| c.line.clone()));
+        lines.extend(changed.into_iter().map(|entry| entry.line));
         parts.push(lines.join("\n"));
     }
-    if !diff.removed.is_empty() {
+    if !removed.is_empty() {
         parts.push(format!(
             "The following tools are no longer available and must not be called: {}.",
-            diff.removed.iter().map(|e| tool_expression(&e.path)).collect::<Vec<_>>().join(", ")
+            removed.iter().map(|path| tool_expression(path)).collect::<Vec<_>>().join(", ")
         ));
     }
+    if !namespaces.removed.is_empty() {
+        parts.push(format!(
+            "The following tool namespaces are no longer available and must not be used: {}.",
+            namespaces.removed.iter().map(|n| format!("`{}`", n.name)).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    if parts.len() == 1 {
+        return None;
+    }
     let delta = parts.join("\n\n");
-    if js_len(&delta) < js_len(&replacement) { delta } else { replacement }
+    Some(if utf16_len(&delta) < utf16_len(&replacement) { delta } else { replacement })
 }
 
 /// Builds the catalog inventory tree from a runtime catalog, namespace metadata, and pinned paths (core's
@@ -482,7 +474,7 @@ mod tests {
         })];
         let summary = summarize(&inv, None);
         assert_eq!(summary.total, 1);
-        assert_eq!(summary.shown, 1);
+        assert_eq!(summary.namespaces[0].entries.len(), 1);
         let text = render(&summary);
         assert!(text.ends_with("## Code Mode tools (call only inside `execute`)\n\n- github (1 tool) // GitHub\n  - tools.github.list(): Promise<void> // List things"));
         assert!(text.contains("The catalog is complete."));
@@ -494,9 +486,10 @@ mod tests {
             (0..50).map(|i| tool(&format!("t{i:02}"), &format!("tools.ns.t{i:02}({{ x: string }}): Promise<void>"), "d")).collect();
         let inv = vec![CatalogEntry::Namespace(CatalogNamespace { name: "ns".into(), description: None, tools })];
         let summary = summarize(&inv, Some(100));
-        assert!(summary.shown < 50);
+        let shown = summary.namespaces[0].entries.len();
+        assert!(shown < 50);
         let text = render(&summary);
         assert!(text.contains("The catalog is partial."));
-        assert!(text.contains(&format!("- ns (50 tools, {} shown)", summary.shown)));
+        assert!(text.contains(&format!("- ns (50 tools, {} shown)", shown)));
     }
 }

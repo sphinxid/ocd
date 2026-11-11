@@ -141,8 +141,14 @@ fn entries(snapshot: &Snapshot) -> Vec<ToolEntry> {
     out
 }
 
-fn runtime(snapshot: &Snapshot, host: Arc<dyn Host>, authorize: Option<oc_codemode::web::Authorize>) -> CodeMode {
-    let extension = oc_codemode::web::extension_with(Arc::new(oc_codemode::web::ReqwestClient::new()), authorize);
+fn runtime(
+    snapshot: &Snapshot,
+    host: Arc<dyn Host>,
+    checks: Option<(oc_codemode::web::Authorize, oc_codemode::web::CheckRedirect)>,
+) -> CodeMode {
+    let (authorize, redirect) = checks.unzip();
+    let client = Arc::new(oc_codemode::web::ReqwestClient::manual());
+    let extension = oc_codemode::web::extension_checked(client, authorize, redirect);
     CodeMode::new(entries(snapshot), host, vec![extension], ExecutionLimits::default())
         .expect("CodeMode tool names are validated at registration")
 }
@@ -167,6 +173,29 @@ fn fetch_authorize(ctx: ToolContext, stop: Stopper) -> oc_codemode::web::Authori
                     Err(HostValue::error("Error", ""))
                 }
             }
+        }) as BoxFuture<'static, Result<(), HostValue>>
+    })
+}
+
+/// Redirects are followed by `fetch` so each new URL meets the same deny rules as the webfetch tool's hops
+/// (`assertNotDenied`, which never asks), with the original call's method and the URL it redirected from.
+fn fetch_redirect_check(ctx: ToolContext) -> oc_codemode::web::CheckRedirect {
+    Arc::new(move |next: String, args: Vec<HostValue>, from: String| {
+        let ctx = ctx.clone();
+        Box::pin(async move {
+            let mut call = args.clone();
+            match call.first_mut() {
+                Some(first) => *first = HostValue::String(next.clone()),
+                None => call.push(HostValue::String(next.clone())),
+            }
+            let mut metadata: Metadata = execute_tool::fetch_display(&call).into_iter().collect();
+            metadata.insert("redirectedFrom".into(), Value::String(from));
+            let request = ctx.permission("webfetch", vec![next], None, Some(metadata));
+            ctx.host.check_permission(request).await.map_err(|error| match error {
+                PermissionError::Blocked { message } | PermissionError::Other { message } => HostValue::error("Error", message),
+                PermissionError::Corrected { feedback } => HostValue::error("Error", feedback),
+                other => HostValue::error("Error", other.into_tool_error("").model_message()),
+            })
         }) as BoxFuture<'static, Result<(), HostValue>>
     })
 }
@@ -219,16 +248,30 @@ pub fn catalog_summary(snapshot: &Snapshot) -> Option<Summary> {
 
 /// The `core/codemode` instruction source (`CodeModeInstructions.make`).
 pub fn instruction_source(snapshot: &Snapshot) -> Source {
-    let read = match catalog_summary(snapshot) {
-        Some(summary) => Read::Value(serde_json::to_value(summary).unwrap_or(Value::Null)),
+    let inventory = snapshot.execute_enabled.then(|| catalog_inventory(snapshot));
+    let read = match &inventory {
+        Some(inventory) => Read::Value(serde_json::to_value(catalog::summarize(inventory, None)).unwrap_or(Value::Null)),
         None => Read::Removed,
+    };
+    // Rendered once, against the inventory that produced `current`, and stored with the update.
+    let lookup: Box<dyn Fn(&str) -> Option<catalog::Listing> + Send + Sync> = match &inventory {
+        Some(inventory) => Box::new(catalog::lookup(inventory)),
+        None => Box::new(|_| None),
     };
     let parse = |v: &Value| serde_json::from_value::<Summary>(v.clone()).ok();
     Source {
         key: KEY.into(),
         read,
         initial: Box::new(move |v| Some(catalog::render(&parse(v)?))),
-        changed: Box::new(move |previous, current| Some(catalog::update(&parse(previous)?, &parse(current)?))),
+        // A previous value that no longer decodes (a 2.2.5 summary) restates the whole catalog; an update that names
+        // nothing new is still committed, without a message.
+        changed: Box::new(move |previous, current| {
+            let after = parse(current)?;
+            match parse(previous) {
+                None => Some(catalog::render(&after)),
+                Some(before) => catalog::update(&before, &after, &lookup),
+            }
+        }),
         removed: Box::new(|_| Some(catalog::REMOVED_CATALOG.into())),
     }
 }
@@ -431,7 +474,7 @@ pub async fn execute_with(snapshot: &Snapshot, input: Value, ctx: ToolContext, h
         stop: stop.clone(),
         this: this.clone(),
     });
-    let runtime = runtime(snapshot, host.clone(), Some(fetch_authorize(ctx.clone(), stop.clone())));
+    let runtime = runtime(snapshot, host.clone(), Some((fetch_authorize(ctx.clone(), stop.clone()), fetch_redirect_check(ctx.clone()))));
     let cancel = ctx.cancel.clone();
     let result = tokio::select! {
         result = runtime.execute(&code) => result,

@@ -1,0 +1,1043 @@
+[
+ {
+  "code": "import { URL } from \"url\"\nreturn new URL(\"https://a.test/x\").pathname",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "/x",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import u from \"url\"\nreturn Object.keys(u)",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "URL",
+    "URLSearchParams"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import * as ns from \"node:url\"\nreturn Object.keys(ns)",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "URL",
+    "URLSearchParams",
+    "default"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import * as ns from \"url\"\nreturn [Object.getPrototypeOf(ns) === null, ns.default === require(\"url\")]",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { TextEncoder, TextDecoder } from \"util\"\nreturn new TextDecoder().decode(new TextEncoder().encode(\"hi\"))",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "hi",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import b from \"buffer\"\nreturn Object.keys(b)",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "atob",
+    "btoa"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { btoa, atob } from \"node:buffer\"\nreturn atob(btoa(\"hi\"))",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "hi",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { Buffer } from \"buffer\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: \"buffer\" has no export named \"Buffer\". (line 1, col 10)",
+    "location": {
+     "line": 1,
+     "column": 10
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import crypto from \"crypto\"\nreturn typeof crypto.randomUUID",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import * as c from \"node:crypto\"\nreturn [typeof c.default, Object.keys(c)]",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "object",
+    [
+     "default"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { randomUUID } from \"crypto\"\nreturn typeof randomUUID",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: \"crypto\" has no export named \"randomUUID\". (line 1, col 10)",
+    "location": {
+     "line": 1,
+     "column": 10
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return require(\"crypto\") === require(\"node:crypto\")",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return require(\"url\") === require(\"node:url\")",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return require(\"node:node:url\") === require(\"url\")",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const a = await import(\"url\"); const b = await import(\"node:url\"); return a === b",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const a = await import(\"url\"); return [Object.keys(a), a.default === require(\"url\")]",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "URL",
+     "URLSearchParams",
+     "default"
+    ],
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import * as ns from \"url\"\nconst d = await import(\"url\")\nreturn d === ns",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import yaml from \"yaml\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"yaml\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import \"child_process\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"child_process\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import \"url\"\nreturn 1",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { await import(\"child_process\") } catch (e) { return [e.name, e.message] }",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "Error",
+    "Cannot import \"child_process\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const p = import(\"nope\"); return typeof p.then",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "function",
+   "warnings": [
+    {
+     "kind": "ExecutionFailure",
+     "message": "Unhandled rejection from an un-awaited promise: Error: Cannot import \"nope\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 11)",
+     "location": {
+      "line": 1,
+      "column": 11
+     }
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { writeFile } from \"fs\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"fs\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 10)",
+    "location": {
+     "line": 1,
+     "column": 10
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { readFile } from \"fs/promises\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"fs/promises\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 10)",
+    "location": {
+     "line": 1,
+     "column": 10
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { nope } from \"url\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: \"url\" has no export named \"nope\". (line 1, col 10)",
+    "location": {
+     "line": 1,
+     "column": 10
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { URL, nope } from \"url\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: \"url\" has no export named \"nope\". (line 1, col 15)",
+    "location": {
+     "line": 1,
+     "column": 15
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "require(1)",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: require expects a module name string. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { require(1) } catch (e) { return [e.name, e.message] }",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "require expects a module name string."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { require(\"left-pad\") } catch (e) { return [e.name, e.message] }",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "Error",
+    "Cannot import \"left-pad\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "require(\"left-pad\")",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"left-pad\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [typeof require, require.length, require.name]",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "function",
+    1,
+    "require"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "if (true) { import x from \"url\" }",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: An import declaration may only appear at the top level of the program. (line 1, col 13)",
+    "location": {
+     "line": 1,
+     "column": 13
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function f() { import x from \"url\" }\nreturn 1",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function f() { import x from \"url\" }\nreturn f()",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: An import declaration may only appear at the top level of the program. (line 1, col 16)",
+    "location": {
+     "line": 1,
+     "column": 16
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const x = 1\nexport { x }",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Exports aren't available. Return the result instead. (line 2, col 1)",
+    "location": {
+     "line": 2,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "export default 1",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Exports aren't available. Return the result instead. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "export const a = 1",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Exports aren't available. Return the result instead. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "export * from \"url\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Exports aren't available. Return the result instead. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "export function f() {}\nreturn 1",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Exports aren't available. Return the result instead. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "{ export const a = 1 }",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Syntax 'ExportNamedDeclaration' is not supported. This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead. (line 1, col 3)",
+    "location": {
+     "line": 1,
+     "column": 3
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "if (false) { export const a = 1 }\nreturn 2",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": 2,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return import.meta",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Syntax 'MetaProperty' is not supported. This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return typeof import.meta",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Syntax 'MetaProperty' is not supported. This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead. (line 1, col 15)",
+    "location": {
+     "line": 1,
+     "column": 15
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"url\" with { type: \"json\" }\nreturn typeof x.URL",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const x = import(\"url\"); return typeof x.then",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return await import(\"url\", { with: {} }).then((m) => typeof m.URL)",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { \"URL\" as U } from \"url\"\nreturn typeof U",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { default as d } from \"url\"\nreturn d === require(\"url\")",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"Math\"\nreturn x.max(1, 2)",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": 2,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { max } from \"Math\"\nreturn max(1, 2)",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: \"Math\" has no export named \"max\". (line 1, col 10)",
+    "location": {
+     "line": 1,
+     "column": 10
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import t from \"tools\"\nreturn typeof t",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "object",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return require(\"JSON\").stringify([1])",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "[1]",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import u from \"undefined\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"undefined\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import n from \"NaN\"\nreturn Number.isNaN(n)",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import u from \"url\"\nu = 2",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot assign to constant 'u'. (line 2, col 1)",
+    "location": {
+     "line": 2,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "x\nimport x from \"url\"\nreturn typeof x",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "object",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const r = require\nreturn typeof r(\"url\").URL",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [\"url\", \"util\", \"buffer\"].map((name) => Object.keys(require(name)))",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "URL",
+     "URLSearchParams"
+    ],
+    [
+     "TextEncoder",
+     "TextDecoder"
+    ],
+    [
+     "atob",
+     "btoa"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import req from \"require\"\nreturn req === require",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return require(\"search\") === search",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [1].map(require)",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: require expects a module name string. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [\"url\"].map(require).length",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "export { a }; export { a }",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Duplicate export 'a'. Code must be plain JavaScript written as a program body. (line 1, col 24)",
+    "location": {
+     "line": 1,
+     "column": 24
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "export { a as b, c as b } from \"x\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Duplicate export 'b'. Code must be plain JavaScript written as a program body. (line 1, col 23)",
+    "location": {
+     "line": 1,
+     "column": 23
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import { \"a\" } from \"x\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Binding rvalue. Code must be plain JavaScript written as a program body. (line 1, col 10)",
+    "location": {
+     "line": 1,
+     "column": 10
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "export { \"a\" }",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: A string literal cannot be used as an exported binding without `from`. Code must be plain JavaScript written as a program body. (line 1, col 10)",
+    "location": {
+     "line": 1,
+     "column": 10
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "export default function () {}\nexport default 2",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Duplicate export 'default'. Code must be plain JavaScript written as a program body. (line 2, col 8)",
+    "location": {
+     "line": 2,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import a from \"x\"; import a from \"y\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Identifier 'a' has already been declared. Code must be plain JavaScript written as a program body. (line 1, col 27)",
+    "location": {
+     "line": 1,
+     "column": 27
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import url from \"url\"\nconst url2 = await import(url)",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"[object Object]\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 2, col 20)",
+    "location": {
+     "line": 2,
+     "column": 20
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const m = await import({ toString() { return \"url\" } }); return Object.keys(m)",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"[object Object]\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const m = await import([\"url\"]); return Object.keys(m)",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": [
+    "URL",
+    "URLSearchParams",
+    "default"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { await import(undefined) } catch (e) { return e.message }",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "Cannot import \"undefined\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import rf from \"readFile\"\nreturn rf(\"a\")",
+  "extension": true,
+  "result": {
+   "ok": true,
+   "value": "text of a",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return require(\"readFile\") === readFile",
+  "extension": true,
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import * as ns from \"readFile\"\nreturn Object.keys(ns)",
+  "extension": true,
+  "result": {
+   "ok": true,
+   "value": [
+    "default"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return (await require(\"stat\")(\"b\")).size",
+  "extension": true,
+  "result": {
+   "ok": true,
+   "value": 3,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { require(\"fs\") } catch (e) { return e.message }",
+  "extension": false,
+  "result": {
+   "ok": true,
+   "value": "Cannot import \"fs\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"node:yaml\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"node:yaml\": it isn't available in Code Mode, which can't load packages or files. Use the provided globals, or call tools through `tools`. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import {\n  URL,\n  missing as m\n} from \"url\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: \"url\" has no export named \"missing\". (line 3, col 3)",
+    "location": {
+     "line": 3,
+     "column": 3
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "label: import x from \"url\"",
+  "extension": false,
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: An import declaration may only appear at the top level of the program. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]

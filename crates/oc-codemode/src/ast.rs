@@ -1,7 +1,7 @@
 //! ESTree-shaped AST produced by the acorn port in [`crate::parser`].
 //!
 //! The shapes mirror what acorn 8.15 (`ecmaVersion: "latest"`, `sourceType: "script"`) produces. Node kinds the
-//! interpreter never evaluates (classes, `import()`, `new.target`, ...) are kept as [`Expr::Unsupported`] /
+//! interpreter never evaluates (classes, `import.meta`, `new.target`, ...) are kept as [`Expr::Unsupported`] /
 //! [`Stmt::Unsupported`] carrying only their ESTree type name and location, because the interpreter reports them
 //! lazily, when reached, as `Syntax '<Type>' is not supported`.
 
@@ -57,8 +57,118 @@ pub enum Stmt {
     ForOf { left: ForHead, right: Expr, body: Box<Stmt>, is_await: bool, loc: Loc },
     FunctionDecl(Rc<Function>),
     VarDecl(VarDecl),
+    /// `ImportDeclaration`: binds globals by Node module name at the top level (upstream `bindImport`).
+    Import(Rc<ImportDecl>),
+    /// `ExportNamedDeclaration`, `ExportDefaultDeclaration`, `ExportAllDeclaration`: a top-level export is a parse
+    /// error (`parseProgram`), a nested one is unsupported syntax when reached.
+    Export(Box<ExportDecl>),
     /// Any statement outside the interpreter's subset: `ClassDeclaration`, `DebuggerStatement`, `WithStatement`.
     Unsupported { kind: &'static str, loc: Loc },
+}
+
+/// acorn's `parseModuleExportName`: an identifier, or a string literal without lone surrogates.
+#[derive(Debug, Clone)]
+pub enum ModuleName {
+    Ident(Ident),
+    Str { value: Utf16, loc: Loc },
+}
+
+impl ModuleName {
+    pub fn loc(&self) -> Loc {
+        match self {
+            ModuleName::Ident(i) => i.loc,
+            ModuleName::Str { loc, .. } => *loc,
+        }
+    }
+
+    /// The name as a string (an identifier's name or the literal's value).
+    pub fn name(&self) -> String {
+        match self {
+            ModuleName::Ident(i) => i.name.to_string(),
+            ModuleName::Str { value, .. } => String::from_utf16_lossy(value),
+        }
+    }
+}
+
+/// `ImportAttribute` (`with { type: "json" }`): the key is an identifier or a string literal, the value a string.
+#[derive(Debug)]
+pub struct ImportAttr {
+    pub key: ModuleName,
+    pub value: Lit,
+    pub loc: Loc,
+}
+
+#[derive(Debug)]
+pub enum ImportSpec {
+    /// `import x from`
+    Default { local: Ident, loc: Loc },
+    /// `import * as x from`
+    Namespace { local: Ident, loc: Loc },
+    /// `import { a as b } from` (without `as`, `local` is the same node as `imported`).
+    Named { imported: ModuleName, local: Ident, loc: Loc },
+}
+
+impl ImportSpec {
+    pub fn local(&self) -> &Ident {
+        match self {
+            ImportSpec::Default { local, .. } | ImportSpec::Namespace { local, .. } | ImportSpec::Named { local, .. } => {
+                local
+            }
+        }
+    }
+
+    pub fn loc(&self) -> Loc {
+        match self {
+            ImportSpec::Default { loc, .. } | ImportSpec::Namespace { loc, .. } | ImportSpec::Named { loc, .. } => *loc,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ImportDecl {
+    pub specifiers: Vec<ImportSpec>,
+    /// The module specifier (a string literal).
+    pub source: Lit,
+    pub attributes: Vec<ImportAttr>,
+    pub loc: Loc,
+}
+
+/// `ExportSpecifier`: without `as`, `exported` is the same node as `local`.
+#[derive(Debug)]
+pub struct ExportSpec {
+    pub local: ModuleName,
+    pub exported: ModuleName,
+    pub loc: Loc,
+}
+
+/// What `export default` exports: a function or class declaration, or an expression.
+#[derive(Debug)]
+pub enum ExportDefault {
+    Decl(Stmt),
+    Expr(Expr),
+}
+
+#[derive(Debug)]
+pub enum ExportDecl {
+    Named { declaration: Option<Stmt>, specifiers: Vec<ExportSpec>, source: Option<Lit>, attributes: Vec<ImportAttr>, loc: Loc },
+    Default { declaration: ExportDefault, loc: Loc },
+    All { exported: Option<ModuleName>, source: Lit, attributes: Vec<ImportAttr>, loc: Loc },
+}
+
+impl ExportDecl {
+    pub fn loc(&self) -> Loc {
+        match self {
+            ExportDecl::Named { loc, .. } | ExportDecl::Default { loc, .. } | ExportDecl::All { loc, .. } => *loc,
+        }
+    }
+
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            ExportDecl::Named { .. } => "ExportNamedDeclaration",
+            ExportDecl::Default { .. } => "ExportDefaultDeclaration",
+            ExportDecl::All { .. } => "ExportAllDeclaration",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -372,7 +482,9 @@ pub enum Expr {
     Chain { expression: Box<Expr>, loc: Loc },
     /// `#x` as the left operand of `#x in obj`.
     PrivateName(Ident),
-    /// Expression node types outside the subset: `ClassExpression`, `ImportExpression`, `MetaProperty`.
+    /// `import(source[, options])`: a promise of the module namespace.
+    Import { source: Box<Expr>, options: Option<Box<Expr>>, loc: Loc },
+    /// Expression node types outside the subset: `ClassExpression`, `MetaProperty`.
     Unsupported { kind: &'static str, loc: Loc },
 }
 
@@ -400,6 +512,7 @@ impl Expr {
             | Expr::Assign { loc, .. }
             | Expr::Sequence { loc, .. }
             | Expr::Chain { loc, .. }
+            | Expr::Import { loc, .. }
             | Expr::Unsupported { loc, .. } => *loc,
         }
     }
@@ -434,6 +547,7 @@ impl Expr {
             Expr::Sequence { .. } => "SequenceExpression",
             Expr::Chain { .. } => "ChainExpression",
             Expr::PrivateName(_) => "PrivateIdentifier",
+            Expr::Import { .. } => "ImportExpression",
             Expr::Unsupported { kind, .. } => kind,
         }
     }
@@ -492,6 +606,8 @@ impl Stmt {
             Stmt::Empty(loc) => *loc,
             Stmt::FunctionDecl(f) => f.loc,
             Stmt::VarDecl(v) => v.loc,
+            Stmt::Import(i) => i.loc,
+            Stmt::Export(e) => e.loc(),
             Stmt::Expr { loc, .. }
             | Stmt::Return { loc, .. }
             | Stmt::Labeled { loc, .. }

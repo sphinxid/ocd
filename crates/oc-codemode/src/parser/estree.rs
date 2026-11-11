@@ -4,7 +4,8 @@
 //! Every node is `{type, start, end, loc: {line, column}, ...fields}` with acorn's field names. Differences from raw
 //! acorn output, mirrored by the generator: `raw` is omitted; numeric literal values are `{"f64": "<hex bits>"}`;
 //! BigInt literals carry only `bigint` and regex literals only `regex`; strings holding a lone surrogate are arrays of
-//! UTF-16 code units; node kinds outside the interpreter's subset carry only type and location.
+//! UTF-16 code units; node kinds outside the interpreter's subset (classes, `debugger`, `with`, `MetaProperty`) carry
+//! only type and location.
 
 use crate::ast::*;
 use serde_json::{Map, Value, json};
@@ -182,9 +183,103 @@ fn stmt(s: &Stmt) -> Value {
         }
         Stmt::FunctionDecl(f) => return function(f),
         Stmt::VarDecl(v) => return var_decl(v),
+        Stmt::Import(i) => {
+            let mut n = node("ImportDeclaration", i.loc);
+            n.insert("specifiers".into(), Value::Array(i.specifiers.iter().map(import_spec).collect()));
+            n.insert("source".into(), lit(&i.source));
+            n.insert("attributes".into(), attributes(&i.attributes));
+            n
+        }
+        Stmt::Export(e) => match &**e {
+            ExportDecl::Named { declaration, specifiers, source, attributes: attrs, loc } => {
+                let mut n = node("ExportNamedDeclaration", *loc);
+                n.insert("declaration".into(), opt(declaration, stmt));
+                n.insert(
+                    "specifiers".into(),
+                    Value::Array(
+                        specifiers
+                            .iter()
+                            .map(|s| {
+                                let mut n = node("ExportSpecifier", s.loc);
+                                n.insert("local".into(), module_name(&s.local));
+                                n.insert("exported".into(), module_name(&s.exported));
+                                Value::Object(n)
+                            })
+                            .collect(),
+                    ),
+                );
+                n.insert("source".into(), opt(source, lit));
+                n.insert("attributes".into(), attributes(attrs));
+                n
+            }
+            ExportDecl::Default { declaration, loc } => {
+                let mut n = node("ExportDefaultDeclaration", *loc);
+                n.insert(
+                    "declaration".into(),
+                    match declaration {
+                        ExportDefault::Decl(s) => stmt(s),
+                        ExportDefault::Expr(e) => expr(e),
+                    },
+                );
+                n
+            }
+            ExportDecl::All { exported, source, attributes: attrs, loc } => {
+                let mut n = node("ExportAllDeclaration", *loc);
+                n.insert("exported".into(), opt(exported, module_name));
+                n.insert("source".into(), lit(source));
+                n.insert("attributes".into(), attributes(attrs));
+                n
+            }
+        },
         Stmt::Unsupported { kind, loc } => node(kind, *loc),
     };
     Value::Object(n)
+}
+
+fn module_name(m: &ModuleName) -> Value {
+    match m {
+        ModuleName::Ident(i) => ident(i),
+        ModuleName::Str { value, loc } => {
+            let mut n = node("Literal", *loc);
+            n.insert("value".into(), utf16(value));
+            Value::Object(n)
+        }
+    }
+}
+
+fn import_spec(s: &ImportSpec) -> Value {
+    let n = match s {
+        ImportSpec::Default { local, loc } => {
+            let mut n = node("ImportDefaultSpecifier", *loc);
+            n.insert("local".into(), ident(local));
+            n
+        }
+        ImportSpec::Namespace { local, loc } => {
+            let mut n = node("ImportNamespaceSpecifier", *loc);
+            n.insert("local".into(), ident(local));
+            n
+        }
+        ImportSpec::Named { imported, local, loc } => {
+            let mut n = node("ImportSpecifier", *loc);
+            n.insert("imported".into(), module_name(imported));
+            n.insert("local".into(), ident(local));
+            n
+        }
+    };
+    Value::Object(n)
+}
+
+fn attributes(list: &[ImportAttr]) -> Value {
+    Value::Array(
+        list.iter()
+            .map(|a| {
+                let mut n = node("ImportAttribute", a.loc);
+                n.insert("key".into(), module_name(&a.key));
+                n.insert("value".into(), lit(&a.value));
+                Value::Object(n)
+            })
+            .collect(),
+    )
 }
 
 fn for_head(h: &ForHead) -> Value {
@@ -488,6 +583,12 @@ fn expr(e: &Expr) -> Value {
             n
         }
         Expr::PrivateName(i) => return private(i),
+        Expr::Import { source, options, loc } => {
+            let mut n = node("ImportExpression", *loc);
+            n.insert("source".into(), expr(source));
+            n.insert("options".into(), opt(options, |o| expr(o)));
+            n
+        }
         Expr::Unsupported { kind, loc } => node(kind, *loc),
     };
     Value::Object(n)

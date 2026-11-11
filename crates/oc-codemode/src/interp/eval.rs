@@ -108,6 +108,14 @@ fn callee_description(node: Option<&Expr>) -> Option<String> {
     }
 }
 
+/// A string literal's value as a Rust string (module specifiers).
+fn lit_string(node: &Lit) -> String {
+    match &node.value {
+        LitValue::String(units) => String::from_utf16_lossy(units),
+        _ => String::new(),
+    }
+}
+
 fn literal(node: &Lit) -> JsResult<Value> {
     Ok(match &node.value {
         LitValue::Null => Value::Null,
@@ -252,6 +260,7 @@ fn uses_arguments(f: &Function) -> bool {
             Expr::Assign { left, right, .. } => pat(left) || expr(right),
             Expr::Sequence { expressions, .. } => expressions.iter().any(expr),
             Expr::Chain { expression, .. } => expr(expression),
+            Expr::Import { source, options, .. } => expr(source) || options.as_ref().is_some_and(|o| expr(o)),
         }
     }
     fn member(m: &Member) -> bool {
@@ -331,7 +340,7 @@ fn uses_arguments(f: &Function) -> bool {
                 }) || expr(right)
                     || stmt(body)
             }
-            Stmt::FunctionDecl(_) => false,
+            Stmt::FunctionDecl(_) | Stmt::Import(_) | Stmt::Export(_) => false,
             Stmt::VarDecl(d) => decl(d),
         }
     }
@@ -509,12 +518,21 @@ impl Frame {
     pub async fn run(&self, global: &Env, program: &Program) -> JsResult<Value> {
         // Keep top-level declarations separate so they can shadow builtins.
         let env = new_env(Some(global));
+        // Imports load before any code runs, as in a module.
+        for statement in &program.body {
+            if let Stmt::Import(node) = statement {
+                self.bind_import(&env, node)?;
+            }
+        }
         self.predeclare_lexical(&env, &program.body)?;
         self.hoist_functions(&env, &program.body);
         self.hoist_vars(&env, &program.body, None);
         let mut value = Value::Undefined;
         let count = program.body.len();
         for (index, statement) in program.body.iter().enumerate() {
+            if let Stmt::Import(_) = statement {
+                continue;
+            }
             if index == count - 1
                 && let Stmt::Expr { expr, .. } = statement
             {
@@ -537,6 +555,57 @@ impl Frame {
         }
         // The implicit async body adopts returned promises before copy-out.
         if is_thenable(&value) { self.await_value(value, None).await } else { Ok(value) }
+    }
+
+    fn bind_import(&self, env: &Env, node: &ImportDecl) -> JsResult<()> {
+        let specifier = lit_string(&node.source);
+        if node.specifiers.is_empty() {
+            super::modules::module(&self.rt, &specifier, Some(node.loc))?;
+        }
+        for binding in &node.specifiers {
+            let value = self.imported(binding, &specifier)?;
+            let local = binding.local();
+            self.declare(env, &local.name, value, false, binding.loc())?;
+        }
+        Ok(())
+    }
+
+    // A default import binds the module itself and a named import one of its properties, as Node imports CommonJS.
+    fn imported(&self, binding: &ImportSpec, specifier: &str) -> JsResult<Value> {
+        let site = Some(binding.loc());
+        let (imported, loc) = match binding {
+            ImportSpec::Default { loc, .. } => return super::modules::module(&self.rt, specifier, Some(*loc)),
+            ImportSpec::Namespace { .. } => {
+                return Ok(Value::Object(super::modules::namespace(&self.rt, specifier, site)?));
+            }
+            ImportSpec::Named { imported, loc, .. } => (imported, *loc),
+        };
+        let namespace = super::modules::namespace(&self.rt, specifier, site)?;
+        let name = imported.name();
+        let key = PropKey::from(name.as_str());
+        if !crate::object::has_own(&namespace, &key) {
+            return Err(locate(
+                syntax_error(format!("\"{specifier}\" has no export named \"{name}\".")),
+                Some(loc),
+            ));
+        }
+        crate::object::get_own(&namespace, &key)
+    }
+
+    // A module that fails to load rejects the promise, as a failed dynamic import does.
+    async fn import_expr(&self, env: &Env, source: &Expr, options: &Option<Box<Expr>>, loc: Loc) -> JsResult<Value> {
+        let value = self.eval(env, source).await?;
+        let specifier = coerce_to_string(&value).to_rust();
+        if let Some(options) = options {
+            self.eval(env, options).await?;
+        }
+        let promise = super::promises::capability(&self.rt, Some(loc))?;
+        match super::modules::namespace(&self.rt, &specifier, Some(loc)) {
+            Ok(namespace) => promise.resolve(&self.rt, Value::Object(namespace)),
+            Err(error @ Thrown::Pending(_)) => promise.reject(&self.rt, error),
+            Err(other) => return Err(other),
+        }
+        Ok(Value::Object(promise.promise.clone()))
     }
 
     // ---- awaiting ----
@@ -599,6 +668,11 @@ impl Frame {
             }),
             Stmt::Try { block, handler, finalizer, .. } => Box::pin(self.try_stmt(env, block, handler, finalizer)),
             Stmt::Empty(_) | Stmt::FunctionDecl(_) => ready(Ok(Completion::Normal)),
+            Stmt::Import(i) => ready(Err(locate(
+                syntax_error("An import declaration may only appear at the top level of the program."),
+                Some(i.loc),
+            ))),
+            Stmt::Export(e) => ready(Err(unsupported_syntax(e.type_name(), e.loc()))),
             Stmt::Unsupported { kind, loc } => ready(Err(unsupported_syntax(kind, *loc))),
         }
     }
@@ -1735,6 +1809,7 @@ impl Frame {
             Expr::New { callee, arguments, loc } => Box::pin(self.new_expr(env, callee, arguments, *loc)),
             Expr::Super(loc) => ready(Err(unsupported_syntax("Super", *loc))),
             Expr::PrivateName(i) => ready(Err(unsupported_syntax("PrivateIdentifier", i.loc))),
+            Expr::Import { source, options, loc } => Box::pin(self.import_expr(env, source, options, *loc)),
             Expr::Unsupported { kind, loc } => ready(Err(unsupported_syntax(kind, *loc))),
         }
     }

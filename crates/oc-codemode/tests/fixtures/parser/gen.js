@@ -11,8 +11,7 @@
 //
 // Normalization (mirrored by `to_estree` in src/parser/estree.rs and by `canonical` in tests/parser_acorn.rs):
 // - every node: type, start, end, loc = {line, column} of loc.start, then its fields; `raw` is dropped;
-// - ClassDeclaration, DebuggerStatement, WithStatement, ClassExpression, ImportExpression, MetaProperty keep only
-//   type/start/end/loc;
+// - ClassDeclaration, DebuggerStatement, WithStatement, ClassExpression, MetaProperty keep only type/start/end/loc;
 // - number literal value -> {"f64": "<16 lowercase hex digits of the IEEE-754 bits>"};
 // - BigInt literal -> `bigint` only (no value); regex literal -> `regex: {pattern, flags}` only (no value);
 // - strings (literal values, template cooked/raw) -> JSON string, or an array of UTF-16 code units when the string
@@ -46,6 +45,8 @@ const OPTIONS = {
   sourceType: "script",
   allowReturnOutsideFunction: true,
   allowAwaitOutsideFunction: true,
+  // Imports bind globals by module name (upstream 2.2.6+); exports are rejected after parsing.
+  allowImportExportEverywhere: true,
   locations: true,
 }
 const UNSUPPORTED = new Set([
@@ -53,7 +54,6 @@ const UNSUPPORTED = new Set([
   "DebuggerStatement",
   "WithStatement",
   "ClassExpression",
-  "ImportExpression",
   "MetaProperty",
 ])
 

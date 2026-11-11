@@ -18,6 +18,7 @@ use std::rc::Rc;
 /// Flags for [`Parser::parse_function`] (acorn's `FUNC_*`).
 pub(super) const FUNC_STATEMENT: u8 = 1;
 pub(super) const FUNC_HANGING_STATEMENT: u8 = 2;
+pub(super) const FUNC_NULLABLE_ID: u8 = 4;
 
 /// The `__proto__` tracking of acorn's `propHash` (the only part used for `ecmaVersion >= 6`).
 #[derive(Default)]
@@ -713,11 +714,12 @@ impl Parser {
         if self.ty == TT::ParenL && !for_new {
             // Dynamic import.
             self.next(false)?;
-            self.parse_maybe_assign(InFor::No, None)?;
+            let source = self.parse_maybe_assign(InFor::No, None)?;
+            let mut options = None;
             if !self.eat(TT::ParenR)? {
                 self.expect(TT::Comma)?;
                 if !self.after_trailing_comma(TT::ParenR, false)? {
-                    self.parse_maybe_assign(InFor::No, None)?;
+                    options = Some(Box::new(self.parse_maybe_assign(InFor::No, None)?));
                     if !self.eat(TT::ParenR)? {
                         self.expect(TT::Comma)?;
                         if !self.after_trailing_comma(TT::ParenR, false)? {
@@ -726,7 +728,7 @@ impl Parser {
                     }
                 }
             }
-            Ok(Expr::Unsupported { kind: "ImportExpression", loc: self.finish_loc(start, start_loc) })
+            Ok(Expr::Import { source: Box::new(source), options, loc: self.finish_loc(start, start_loc) })
         } else if self.ty == TT::Dot {
             self.next(false)?;
             let contains_esc = self.contains_esc;
@@ -739,13 +741,14 @@ impl Parser {
             if contains_esc {
                 return Err(self.raise(start, "'import.meta' must not contain escaped characters"));
             }
-            Err(self.raise(start, "Cannot use 'import.meta' outside a module"))
+            // `allowImportExportEverywhere` lets `import.meta` parse outside a module; it is unsupported when reached.
+            Ok(Expr::Unsupported { kind: "MetaProperty", loc: self.finish_loc(start, start_loc) })
         } else {
             Err(self.unexpected())
         }
     }
 
-    fn parse_literal(&mut self) -> R<Lit> {
+    pub(super) fn parse_literal(&mut self) -> R<Lit> {
         let value = match &self.value {
             TokVal::Num(n) => LitValue::Number(*n),
             TokVal::BigInt(b) => LitValue::BigInt(b.clone()),
@@ -1209,7 +1212,7 @@ impl Parser {
         }
         let generator = self.eat(TT::Star)?;
         let mut id = None;
-        if statement & FUNC_STATEMENT != 0 {
+        if statement & FUNC_STATEMENT != 0 && !(statement & FUNC_NULLABLE_ID != 0 && self.ty != TT::Name) {
             let ident = self.parse_ident(false)?;
             if statement & FUNC_HANGING_STATEMENT == 0 {
                 // Sloppy-mode plain function declarations follow Annex B (BIND_FUNCTION).

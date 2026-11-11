@@ -284,6 +284,7 @@ fn symbol_global(rt: &Rt) -> Value {
 pub const GLOBAL_NAMES: &[&str] = &[
     "tools",
     "search",
+    "require",
     "undefined",
     "NaN",
     "Infinity",
@@ -349,6 +350,19 @@ fn search_global(rt: &Rt) -> Value {
     ))
 }
 
+/// `require(name)`: a module by its Node module name (see [`super::modules`]).
+fn require_global(rt: &Rt) -> Value {
+    function_value(rt, "require", 1, |rt, site, _, args| {
+        let Some(Value::String(specifier)) = args.first() else {
+            return NResult::err(type_error("require expects a module name string."));
+        };
+        match super::modules::module(rt, &specifier.to_rust(), site.node) {
+            Ok(module) => NResult::ok(module),
+            Err(e) => NResult::err(e),
+        }
+    })
+}
+
 /// The immutable global bindings of every program, in declaration order.
 pub fn globals(rt: &Rt) -> Vec<(&'static str, Value)> {
     super::generators::generator_globals(rt);
@@ -357,6 +371,7 @@ pub fn globals(rt: &Rt) -> Vec<(&'static str, Value)> {
         let value = match name {
             "tools" => Value::Tool(ToolRef::new(Vec::new())),
             "search" => search_global(rt),
+            "require" => require_global(rt),
             "undefined" => Value::Undefined,
             "NaN" => Value::Number(f64::NAN),
             "Infinity" => Value::Number(f64::INFINITY),

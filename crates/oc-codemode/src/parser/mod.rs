@@ -2,6 +2,7 @@
 //!
 //! The parser runs with the options upstream `@opencode/codemode` passes to acorn: `ecmaVersion: "latest"`,
 //! `sourceType: "script"`, `allowReturnOutsideFunction: true`, `allowAwaitOutsideFunction: true`,
+//! `allowImportExportEverywhere: true` (2.2.6+: import and export declarations parse anywhere, `import.meta` too),
 //! `locations: true`. It accepts exactly the programs acorn accepts and fails with acorn's error message and position
 //! otherwise, including acorn's validation of regular expression literals.
 //!
