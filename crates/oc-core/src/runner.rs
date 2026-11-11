@@ -888,8 +888,14 @@ impl Engine {
         })
     }
 
-    /// `drain`
-    pub async fn drain(self: &Arc<Self>, session_id: &str, mut force: bool, promotable: Scope, cancel: CancellationToken) -> Result<(), DrainError> {
+    /// `drain`: `Effect.fn("SessionRunner.drain", { root: true })`, so each drain is one turn under a trace of its
+    /// own, whatever woke it (`oc_util::trace::root`); the work it forks keeps that trace.
+    pub async fn drain(self: &Arc<Self>, session_id: &str, force: bool, promotable: Scope, cancel: CancellationToken) -> Result<(), DrainError> {
+        // Boxed: the turn's future is large and is not built on the execution task's stack.
+        oc_util::trace::root(Box::pin(self.drain_turn(session_id, force, promotable, cancel))).await
+    }
+
+    async fn drain_turn(self: &Arc<Self>, session_id: &str, mut force: bool, promotable: Scope, cancel: CancellationToken) -> Result<(), DrainError> {
         let bus = &self.app.bus;
         let locks = &self.app.sessions.locks;
         let mut continuing = false;
@@ -952,6 +958,8 @@ impl Engine {
                 if let Some(p) = &pending {
                     if p.kind == "move" {
                         self.invalidate_locations();
+                        // Upstream returns `DrainResult.Moved` and drains again: a new root span.
+                        oc_util::trace::reroot();
                         force = false;
                         continue;
                     }
@@ -1054,12 +1062,13 @@ impl Engine {
         }
         let this = self.clone();
         let id = session_id.to_string();
-        tokio::spawn(async move {
+        // The forked fiber keeps the drain's trace.
+        tokio::spawn(oc_util::trace::inherit(async move {
             if let Err(e) = this.generate_title(&id).await {
                 tracing::warn!(sessionID = %id, error = %e, "title generation failed");
             }
             this.titles.lock().remove(&id);
-        });
+        }));
         true
     }
 

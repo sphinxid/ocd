@@ -1329,8 +1329,13 @@ impl Engine {
             .ok()
     }
 
-    /// `SessionCompaction.compact(trigger)`.
+    /// `SessionCompaction.compact(trigger)`: one span, the parent of every request the compaction sends (the summary,
+    /// its reminder, the shorter resends).
     pub async fn compact(self: &Arc<Self>, loaded: &Loaded, trigger: Trigger, cancel: CancellationToken) -> anyhow::Result<CompactOutcome> {
+        oc_util::trace::span(self.compact_in_span(loaded, trigger, cancel)).await
+    }
+
+    async fn compact_in_span(self: &Arc<Self>, loaded: &Loaded, trigger: Trigger, cancel: CancellationToken) -> anyhow::Result<CompactOutcome> {
         let settings = Settings::from_entries(&loaded.sel.location.entries);
         let session_model = &loaded.resolved;
         // Only the user compacts when automatic compaction is off, overflow included.
@@ -1524,7 +1529,9 @@ impl Engine {
         let state = Arc::new(AtomicU8::new(0));
         let background = Background { messages: messages[..anchor_index].to_vec(), usage: usage.clone() };
         let (engine, context, keep, done) = (self.clone(), loaded.clone(), settings.keep, state.clone());
-        let task = tokio::spawn(async move {
+        // Forked inside the `SessionCompaction.precompute` span: the drain's trace, and that span is the parent of the
+        // summary's requests.
+        let task = tokio::spawn(oc_util::trace::inherit(oc_util::trace::span(async move {
             let trigger = Trigger::Auto;
             let run = Run {
                 engine: &engine,
@@ -1542,7 +1549,7 @@ impl Engine {
             }
             done.store(if result.is_ok() { 1 } else { 2 }, Ordering::SeqCst);
             result
-        });
+        })));
         self.precomputed.lock().insert(
             session_id,
             Precomputed {

@@ -145,8 +145,10 @@ Endpoints)` lets tests point the fixed Google URLs at local servers.
   `Client::stream_with` / `generate_with`. The request hook sees a `WireRequest` (prepared headers incl.
   `content-length`, body); the response hook a `WireResponse` (status, empty status text, headers, body read in
   full, only when `wants_response()`), and the status check runs on its result.
-- Every request carries Effect's trace propagation headers (`b3`, `traceparent`) from `oc_util::trace`: one trace
-  ID per process, a fresh span and parent span per request, set after the `HttpHook` request hook.
+- Every request carries Effect's trace propagation headers (`b3`, `traceparent`) from `oc_util::trace`, set after
+  the `HttpHook` request hook: the caller's trace (each session drain is a root of its own and its forked work
+  inherits it; outside one, the process trace), a fresh span, and a fresh parent span unless the caller groups
+  requests in one (`oc_util::trace::span`, as a compaction does).
 - `catalog::PackageLoader`: optional override of the native package loader.
 - `aisdk::AiSdkBridge`: the JS runtime behind `aisdk:` packages (`load(model)` = `AISDK.language`,
   `stream(call)` = `doStream`, parts as JSON). Pass it in `ResolveOptions.aisdk` (core: the oc-plugin

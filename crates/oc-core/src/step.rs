@@ -142,7 +142,8 @@ struct Run {
 fn start_tools(runs: &mut [Run]) {
     for r in runs.iter_mut() {
         if let Some(task) = r.task.take() {
-            r.handle = Some(tokio::spawn(task));
+            // The forked fiber keeps the drain's trace.
+            r.handle = Some(tokio::spawn(oc_util::trace::inherit(task)));
         }
     }
 }

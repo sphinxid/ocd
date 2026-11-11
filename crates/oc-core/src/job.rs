@@ -221,13 +221,14 @@ impl Jobs {
         );
         drop(jobs);
         let this = self.clone();
-        tokio::spawn(async move {
+        // The job's fiber is forked from the caller's and keeps its trace (a tool's job: the drain's).
+        tokio::spawn(oc_util::trace::inherit(async move {
             let exit = tokio::select! {
                 r = run => Some(r),
                 _ = cancel.cancelled() => None,
             };
             this.settle(&id, generation, exit);
-        });
+        }));
         info
     }
 
