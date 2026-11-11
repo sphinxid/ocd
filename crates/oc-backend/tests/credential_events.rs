@@ -123,8 +123,8 @@ async fn credential_creation_announces_at_the_global_config_location_too() {
             "websearch.updated@config",
         ]
     );
-    // Booted: both locations announce, and the three OpenAI provider plugins (ChatGPT, OpenAI, context caps) reload
-    // on the switch at each.
+    // Booted: both locations announce. The three OpenAI provider plugins (ChatGPT, OpenAI, context caps) reload on
+    // the switch only when what they derive from the credential changed (2.2.7): an API key changes none of it.
     let r = h.post("/api/credential", json!({ "integrationID": "openai", "value": { "type": "key", "key": "sk" } })).await;
     assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     settle().await;
@@ -135,8 +135,6 @@ async fn credential_creation_announces_at_the_global_config_location_too() {
     expected.extend(pairs("work", 2));
     expected.extend(pairs("config", 2));
     expected.push("credential.switched".into());
-    expected.extend(pairs("work", 3));
-    expected.extend(pairs("config", 3));
     assert_eq!(drain(&mut rx, &h), expected);
 }
 
