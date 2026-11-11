@@ -1,10 +1,13 @@
 """The built-in GitHub Copilot provider plugin (core/src/plugin/provider/github-copilot.ts, core/src/github-copilot)
 against the mock as a Copilot API: a fake OAuth credential whose `apiEndpoint` metadata points at the mock (the
 same credential for both binaries, created through the API in the isolated store), the live `/models` sync, the
-catalog it derives and the requests of each route (upstream's in-tree AI SDK provider for `/responses` and
-`/chat/completions`, the native Anthropic package for `/v1/messages`), plus the utility-model title.
+catalog it derives and the requests of each route (since 2.2.7 all native: OpenAI-compatible Responses for
+`/responses`, OpenAI-compatible Chat for `/chat/completions`, Anthropic for `/v1/messages`), the utility-model
+title, and Copilot Auto (the `auto` model, the `/auto` router, the per-session pick and its session token).
 
-No request may leave the machine: HTTPS goes to a dead proxy, so a regression cannot reach GitHub."""
+No request may leave the machine: HTTPS goes to a dead proxy, so a regression cannot reach GitHub. The account
+lookup (`https://api.github.com/copilot_internal/user`) therefore fails in both binaries, after its retries, and the
+stored `apiEndpoint` serves."""
 import os
 
 from parity.registry import scenario
@@ -14,7 +17,7 @@ from parity.plugins import BUN
 
 
 def _remote(id, name, family, endpoints=None, version=None, picker=True, efforts=None, adaptive=None,
-            max_think=None, vision=None, media=None, prices=None, policy=None, tools=True):
+            max_think=None, vision=None, media=None, prices=None, policy=None, tools=True, auto=None, fallback=None):
     caps = {"family": family,
             "limits": {"max_context_window_tokens": 200000, "max_output_tokens": 64000, "max_prompt_tokens": 128000},
             "supports": {"streaming": True}}
@@ -36,8 +39,14 @@ def _remote(id, name, family, endpoints=None, version=None, picker=True, efforts
              "object": "model", "vendor": "mock"}
     if endpoints is not None:
         model["supported_endpoints"] = endpoints
+    if prices or auto is not None:
+        model["billing"] = {}
     if prices:
-        model["billing"] = {"token_prices": {"batch_size": prices[0], "default": prices[1]}}
+        model["billing"]["token_prices"] = {"batch_size": prices[0], "default": prices[1]}
+    if auto is not None:
+        model["billing"]["auto_discount"] = auto
+    if fallback is not None:
+        model["is_chat_fallback"] = fallback
     if policy:
         model["policy"] = {"state": policy}
     return model
@@ -71,11 +80,22 @@ SAFE_ENV = {"HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.
 TRANSPORT_HEADERS = ("content-length", "host", "connection", "accept-encoding", "accept")
 
 
-def setup(ctx, model, synced):
+# A free plan's list: every model hidden from the picker, an Auto pool and a chat fallback.
+AUTO_MODELS = {"object": "list", "data": [
+    _remote("gpt-5.4", "GPT-5.4", "gpt-5.4", ["/responses", "/chat/completions"], picker=False, auto=0.1,
+            efforts=["low", "medium", "high"]),
+    _remote("claude-haiku-4.5", "Claude Haiku 4.5", "claude-haiku-4.5", ["/v1/messages"], picker=False, auto=0.1),
+    _remote("gemini-3.5-flash", "Gemini 3.5 Flash", "gemini-3.5-flash", ["/chat/completions"], picker=False,
+            fallback=True),
+    _remote("gpt-4o-mini", "GPT-4o mini", "gpt-4o-mini", ["/chat/completions"], picker=False),
+]}
+
+
+def setup(ctx, model, synced, models=None):
     ctx.env_extra.update(SAFE_ENV)
     ctx.env_extra["OCD_BUN_PATH"] = BUN
     if synced:
-        ctx.mock.routes["/models"] = (200, MODELS)
+        ctx.mock.routes["/models"] = (200, models or MODELS)
     ctx.set_script([
         {"match": "read hello", "tools": [{"name": "read", "args": {"path": "$PROJECT/hello.txt"}}]},
         {"text": ["The file ", "says hi."], "usage": {"prompt_tokens": 20, "completion_tokens": 4}},
@@ -98,7 +118,8 @@ def connect(ctx):
 def copilot_models(ctx, wait_for):
     """The `github-copilot` catalog once it shows `wait_for` (the synced or the base-URL catalog), sorted by id."""
     import time
-    deadline = time.time() + 15
+    # The account lookup fails through the dead proxy after its retries (1, 2 and 4 seconds) before the list loads.
+    deadline = time.time() + 40
     rows = []
     while time.time() < deadline:
         _, _, data = ctx.server.request("GET", "/api/model", headers={"x-opencode-directory": ctx.project})
@@ -118,7 +139,7 @@ def record_requests(ctx):
     global config location credential creation boots, so two identical syncs. Upstream sometimes sends a third:
     that location's plugin also syncs when it finishes activating, and whether its switch subscription exists by
     then is a race. Identical syncs are recorded once, with whether there were at least two."""
-    order = {"GET": 0, "title": 1, "main": 2}
+    order = {"GET": 0, "title": 1, "main": 2, "POST": 3}
     out = []
     syncs = 0
     for r in sorted(ctx.mock.requests, key=lambda r: (order.get(r["kind"], 3), r["at"])):
@@ -148,9 +169,9 @@ def converse(ctx, models):
 
 @scenario("plugin", hold_for_title=0, timeout=300)
 def plugin_copilot(ctx):
-    """GitHub Copilot with a synced model list: the derived catalog (native Anthropic for `/v1/messages`, the in-tree
-    AI SDK provider with the advertised endpoint otherwise), `/responses`, `/chat/completions` and `/v1/messages`
-    requests with the Copilot headers, and the utility-model title."""
+    """GitHub Copilot with a synced model list: the derived catalog (native Anthropic for `/v1/messages`, the native
+    OpenAI-compatible Responses or Chat package for the advertised endpoint otherwise), `/responses`,
+    `/chat/completions` and `/v1/messages` requests with the Copilot headers, and the utility-model title."""
     setup(ctx, "github-copilot/gpt-5.4", synced=True)
     connect(ctx)
     ctx.rec("models", copilot_models(ctx, lambda rows: any(m["id"] == "oswe-4.6" for m in rows)))
@@ -159,9 +180,48 @@ def plugin_copilot(ctx):
 
 
 @scenario("plugin", hold_for_title=0, timeout=300)
+def plugin_copilot_auto(ctx):
+    """GitHub Copilot Auto on a free plan's list: the `auto` model (the pool's smallest window), the `/auto` router
+    call with the last user prompt, the pick kept for the session with its `Copilot-Session-Token`, a new route after
+    a compaction, and the chat fallback when the router fails."""
+    picks = [
+        (200, {"session_token": "auto-token-1", "expires_at": 4000000000, "selected_model": {"id": "gpt-5.4"}}),
+        (200, {"session_token": "auto-token-2", "expires_at": 4000000000, "selected_model": {"id": "claude-haiku-4.5"}}),
+        (503, {"error": "unavailable"}),
+    ]
+    ctx.mock.post_routes["/auto"] = lambda body: picks.pop(0) if len(picks) > 1 else picks[0]
+    setup(ctx, "github-copilot/auto", synced=True, models=AUTO_MODELS)
+    ctx.set_script([
+        {"match": "read hello", "tools": [{"name": "read", "args": {"path": "$PROJECT/hello.txt"}}]},
+        {"text": ["The file ", "says hi."], "usage": {"prompt_tokens": 20, "completion_tokens": 4}},
+        {"text": "Second answer."},
+        {"text": "Compacted summary."},
+        {"text": "Third answer."},
+        {"text": "Fallback answer."},
+    ])
+    connect(ctx)
+    ctx.rec("models", copilot_models(ctx, lambda rows: any(m["id"] == "auto" for m in rows)))
+    sid = ctx.create_session()
+    ctx.call("session.model.auto", "POST", f"/api/session/{sid}/model", {"model": {"providerID": "github-copilot", "id": "auto"}})
+    ctx.prompt(sid, "read hello", timeout=90)
+    ctx.prompt(sid, "prompt 2", timeout=90)
+    mark = len(ctx.server.events)
+    ctx.call("compact", "POST", f"/api/session/{sid}/compact", {})
+    ctx.wait_idle(sid, start=mark, timeout=90)
+    ctx.prompt(sid, "prompt 3", timeout=90)
+    child = ctx.create_session(label="session.child", parentID=sid)
+    ctx.call("session.child.model.auto", "POST", f"/api/session/{child}/model", {"model": {"providerID": "github-copilot", "id": "auto"}})
+    ctx.prompt(child, "prompt 4", timeout=90)
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.call("messages.child", "GET", f"/api/session/{child}/message")
+    record_requests(ctx)
+
+
+@scenario("plugin", hold_for_title=0, timeout=300)
 def plugin_copilot_unsynced(ctx):
-    """GitHub Copilot whose model sync fails (404): every models.dev model through the in-tree AI SDK provider at the
-    connection's API base, routed by model id (GPT-5+ to `/responses`, the rest to `/chat/completions`)."""
+    """GitHub Copilot whose model sync fails (404): every models.dev model on a native package at the connection's API
+    base, routed by its models.dev package (Anthropic to `/v1/messages`) or else by model id (GPT-5+, Grok and MAI
+    Code to `/responses`, the rest to `/chat/completions`)."""
     setup(ctx, "github-copilot/gpt-5.4", synced=False)
     connect(ctx)
     base = f"http://127.0.0.1:{ctx.mock.port}"

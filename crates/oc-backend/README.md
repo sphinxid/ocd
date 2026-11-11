@@ -175,13 +175,16 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   catalog of every loaded location that has none, so each has a baseline (`DbCredentials::prepare`). At every
   loaded location, in load order: the Provider State's `provider.updated`/`model.updated` when the available
   providers changed (`Models::availability_changed`: the location's provider records filtered by the current
-  connections); on a switch, one pair per built-in provider plugin reloading for that integration (ChatGPT,
-  OpenAI and context caps for `openai`; Azure, DigitalOcean, GitLab, Modal, Snowflake Cortex); and, when the
+  connections); on a switch, one pair per built-in provider plugin reloading for that integration, only when
+  what it derives from the active credential changed (2.2.7 `ProviderRefresh.reloadIfChanged`,
+  `oc_core::provider_reload`: ChatGPT, OpenAI and context caps for `openai`; the `credentialSettings` of Amazon
+  Bedrock, the Cloudflare gateways and GitLab; Azure, DigitalOcean, GitLab, Modal, Snowflake Cortex); and, when the
   account behind an integration's active credential changed, the policy plugin's reload (`provider`, `model`,
   `websearch` when its list changed). `credential.create` boots the global config location without waiting for
   its plugins (`Locations::get_activating`): until the request ends it only announces its Provider State's
   first notify, then its boot burst follows (`Locations::finish_boot`). GitHub Copilot reloads every loaded
-  location running the plugin after its `/models` request, Claude Agent after its login check. Not reproduced: the OpenCode plugin's `provider.updated`/`model.updated` after the
+  location running the plugin when its loaded state changed (the cached list at once, then a forced load, and
+  every 10 minutes), Claude Agent after its login check. Not reproduced: the OpenCode plugin's `provider.updated`/`model.updated` after the
   Console request a switch triggers (ocd announces only a changed Console document, as a config reload), and
   an integration change (`integration.updated`) re-checking the available providers.
 * **prompt attachments**: png/jpeg/gif/webp/bmp images are normalized with `oc_tools::image::normalize`

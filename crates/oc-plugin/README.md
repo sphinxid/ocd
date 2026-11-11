@@ -234,6 +234,7 @@ Callbacks scoped by `providerID` are filtered in the sidecar using `event.model.
 | `session.compaction` | as context + **`result?`** (set → skip the model call) | `session/model-request.ts:422` via `:426` | `compaction.rs` `Run::stream` | wired |
 | `session.generate` | as context | `session/model-request.ts:422` via `:427` | `generate.rs` `session_generate` | wired |
 | `session.title` | `sessionID, model, `**`system, messages, options, result?`** | `session/model-request.ts:428` | `title.rs` `title_attempt` | wired |
+| `session.experimental.model.resolve` | `sessionID, agent, kind, `**`model`**`{providerID, id, variant?}` | `session/runner/model.ts` `resolve` | `plugin_request.rs` `resolve_model`, from `Models::resolve_for_session` / `resolve_selected` for every resolution (primary, compaction, title candidates, generate), after the built-in Copilot Auto hook; another model of the same provider (also one hidden from the picker) serves the request, any other provider's is `Model unavailable` | wired |
 | `session.model.request` | `sessionID, agent, model, kind, `**`baseURL?, headers`** | `session/model-request.ts:305` | `plugin_request.rs` `model_request`, after each shaping hook (primary/compaction/title/generate) | wired |
 | `session.http.request` | `sessionID, agent, model, kind, `**`request`**`{url, method, headers, body}` | `session/model-request.ts:343` | `plugin_request.rs` `http_hooks` → oc-ai `HttpHook` (`Client::stream_with`), for primary/compaction/generate/title requests; the request has the prepared headers incl. `content-length`, before the trace headers | wired |
 | `session.http.response` | `..., request, `**`response`**`{status, statusText, headers, body}` | `session/model-request.ts:355` | same; `statusText` is `""` as upstream re-wraps the response; the body is read in full first, only when a plugin registered this hook; the status check runs on the returned response | wired |
@@ -422,8 +423,7 @@ streaming `Response`); see docs/PARITY.md "Remaining".
 
 Upstream references: `packages/core/src/aisdk.ts` (the `AISDK` location node), `aisdk-native.ts`
 (which packages are native), `model-resolver.ts` (`loadAISDK`), `plugin/provider/{dynamic,
-sdk-factory,github-copilot,gitlab,sap-ai-core}.ts`, `github-copilot/`
-(the in-tree Copilot provider) and `plugin/host.ts:157`.
+sdk-factory,gitlab,sap-ai-core}.ts` and `plugin/host.ts:157`.
 
 **Which models use it.** Exactly upstream's decision: the catalog rewrites known AI SDK packages to
 native ones (`AISDKNative.rewrite`, oc-ai `catalog/native.rs`); a model whose effective package still
@@ -431,24 +431,9 @@ starts with `aisdk:` (an AI SDK package with no native implementation, e.g. `ais
 under a provider id other than `deepseek`, `aisdk:@ai-sdk/perplexity`, `aisdk:file:///...`) resolves
 through the bridge (oc-ai `ResolveOptions.aisdk`). Native packages never touch it.
 
-**GitHub Copilot** (`opencode.provider.github.copilot`) follows upstream's provider transform
-(oc-ai `catalog/copilot.rs`, state from oc-core `copilot.rs`):
-
-- no `github-copilot` OAuth connection: every Copilot model gets `aisdk:@ai-sdk/github-copilot`
-  (models.dev's endpoints stay);
-- an OAuth connection whose `/models` sync failed: the same, with the connection's API base
-  (`metadata.apiEndpoint`, else `https://copilot-api.<enterprise>` / `https://api.githubcopilot.com`) as
-  every model's `baseURL`;
-- a synced list: the account's models only (models.dev entries whose API model is listed, plus the
-  rest of the list). Models advertising `/v1/messages` use the native `@opencode/ai/providers/anthropic`
-  at `<base>/v1` (not the bridge); the others `aisdk:@ai-sdk/github-copilot` with `endpoint:
-  "responses"` or `"chat"` from the advertised endpoints. The record is tied to the connection
-  (`sourceConnection`).
-
-The `language` hook then picks `responses` / `chat` from that `endpoint`, else by model id (GPT-5 and
-later except `gpt-5-mini*`, `grok-*` and `mai-code-*` use `/responses`, the rest `/chat/completions`).
-The sidecar runs upstream's in-tree provider (`core/src/github-copilot`, an adapted OpenAI-compatible
-chat model plus an OpenAI Responses model) bundled from the checkout, so requests are upstream's own.
+**GitHub Copilot** no longer uses the bridge (2.2.7): every Copilot model runs on a native package (oc-ai
+`catalog/copilot.rs`, oc-core `copilot.rs`), and the sidecar has no Copilot provider or hooks. An
+explicitly configured `aisdk:@ai-sdk/github-copilot` package installs from npm like any other.
 
 **Split of work.**
 
@@ -476,15 +461,15 @@ location closes.
 responseHeaders, responseBody, isRetryable}` for an `APICallError` (detected by its
 `vercel.ai.error.AI_APICallError` marker, message from `providerErrorMessage`), `{kind: "network",
 message, code}` for upstream's network failure codes and messages, else `{kind: "unknown", message,
-data, responseBody}` (`unknownErrorMessage`). oc-ai turns them into the same `AIError`s.
+data, responseBody}` (`unknownErrorMessage`). oc-ai turns them into the same `AIError`s. A retryable
+`APICallError` without a status also carries its cause's network code (`code`), and the network codes include
+the unreachable-host ones (`ENOTFOUND`, `EAI_AGAIN`, `ENETUNREACH`, `EHOSTUNREACH`, `ENETDOWN`).
 
 **HTTP hooks.** With `session.http.request` / `.response` plugin hooks, the SDK's `fetch` goes
 through them (upstream `throughMiddleware`): the sidecar sends the request (`content-length` added
 for a body) to Rust (`aisdk.http.request`), which runs the plugin hooks, fetches with the result and,
 when a response hook exists, reads the body and passes it through `aisdk.http.response`. No
-`b3`/`traceparent` headers (the SDK uses plain `fetch`, as upstream). The built-in Copilot plugin
-registers `session.http.request` for `github-copilot` (oc-core `copilot::http_request`: Copilot headers
-on requests that carry `x-api-key`), so every Copilot request goes through this middleware, as upstream.
+`b3`/`traceparent` headers (the SDK uses plain `fetch`, as upstream).
 
 **Internal provider plugins** run first, in upstream's order, gated by the location's plugin
 configuration (`-opencode.provider.dynamic` etc.). `opencode.provider.dynamic` is a `post` internal plugin

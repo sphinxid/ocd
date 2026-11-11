@@ -1,11 +1,12 @@
 //! The built-in GitHub Copilot provider plugin end to end against a local mock Copilot API (no
 //! network, fake token): the live `/models` sync and the catalog it derives, the routing of each
-//! model (upstream's in-tree AI SDK provider in the Bun sidecar for `/responses` and
-//! `/chat/completions`, the native Anthropic package for `/v1/messages`), the Copilot request
-//! headers, and the utility-model title.
+//! model (since 2.2.7 all native: OpenAI-compatible Responses for `/responses`, OpenAI-compatible Chat for
+//! `/chat/completions`, Anthropic for `/v1/messages`), the Copilot request headers, and the utility-model title.
+//! The account lookup (`/copilot_internal/user`) goes to the mock too, which does not answer it, so the stored
+//! `apiEndpoint` serves.
 //!
-//! The request tests need Bun (`OCD_BUN_PATH`, `OCD_TEST_BUN` or `$OCD_SCRATCH/bun144/...`) and are
-//! skipped without it.
+//! The request tests ran through the Bun sidecar before 2.2.7 and still need Bun (`OCD_BUN_PATH`, `OCD_TEST_BUN`
+//! or `$OCD_SCRATCH/bun144/...`) for the location's plugin host; they are skipped without it.
 
 mod common;
 
@@ -203,6 +204,8 @@ async fn setup(model: &str) -> Setup {
     std::fs::write(cwd.join("opencode.json"), json!({ "model": model }).to_string()).unwrap();
     let db = oc_storage::Database::memory().unwrap();
     let app = oc_core::app::App::new(global(&root_path), db, "1.2.3");
+    // Never GitHub: the account lookup goes to the mock (which answers 404 or 405).
+    app.plugins.copilot.set_github_api(Some(format!("http://127.0.0.1:{}", mock.port)));
     let services = oc_core::services::default_services(&app);
     let runner = oc_core::runner::Engine::new(app.clone(), &services);
     let opts = oc_server::ServerOptions { cwd: Some(cwd.display().to_string()), version: "1.2.3".into(), ready: true, ..Default::default() };
@@ -281,31 +284,28 @@ async fn the_live_model_list_drives_the_catalog() {
     let base = format!("http://127.0.0.1:{}", s.mock.port);
 
     let gpt = find(&models, "gpt-5.4");
-    assert_eq!(gpt["package"], "aisdk:@ai-sdk/github-copilot");
-    assert_eq!(gpt["settings"], json!({"baseURL": base, "endpoint": "responses"}));
+    assert_eq!(gpt["package"], "@opencode/ai/providers/openai-compatible-responses");
+    assert_eq!(gpt["settings"], json!({"baseURL": base}));
     let claude = find(&models, "claude-sonnet-4.6");
     assert_eq!(claude["package"], "@opencode/ai/providers/anthropic");
-    assert_eq!(claude["settings"], json!({"baseURL": format!("{base}/v1"), "endpoint": "messages"}));
-    assert_eq!(find(&models, "gemini-3.5-flash")["settings"]["endpoint"], "chat");
+    assert_eq!(claude["settings"], json!({"baseURL": format!("{base}/v1")}));
+    assert_eq!(find(&models, "gemini-3.5-flash")["package"], "@opencode/ai/providers/openai-compatible");
     let added = find(&models, "remote-only");
     assert_eq!(added["name"], "Remote remote-only");
     assert_eq!(added["time"]["released"], 1759276800000u64);
-    assert!(added["settings"].get("endpoint").is_none());
+    assert_eq!(added["settings"], json!({"baseURL": base}));
     // Only models the account has; the policy-disabled one, the picker-hidden utility model and the
     // chat alias are not offered.
     for absent in ["disabled", "gpt-4o-mini", "gpt-5-chat-latest", "claude-opus-4.7"] {
         assert!(models.iter().all(|m| m["id"] != absent), "{absent}");
     }
 
-    // One sync per loaded location running the plugin: the project and the global config location credential
-    // creation booted.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while s.requests("/models").len() < 2 && tokio::time::Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    // The loaded locations running the plugin (the project and the global config location credential creation
+    // booted) share the list through the process-wide cache: one sync, or one more when their forced loads after
+    // the switch do not overlap.
     tokio::time::sleep(Duration::from_millis(300)).await;
     let syncs = s.requests("/models");
-    assert_eq!(syncs.len(), 2);
+    assert!((1..=2).contains(&syncs.len()), "{}", syncs.len());
     for sync in &syncs {
         assert_eq!(sync.header("authorization").as_deref(), Some("Bearer gho_refresh"));
         assert_eq!(sync.header("x-github-api-version").as_deref(), Some("2026-08-01"));

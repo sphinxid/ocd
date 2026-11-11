@@ -1,12 +1,11 @@
 //! GitHub Copilot catalog data: the live `/models` list (`packages/core/src/github-copilot/models.ts`)
 //! and the provider/model transforms of the `opencode.provider.github.copilot` plugin
-//! (`packages/core/src/plugin/provider/github-copilot.ts:216-244`).
+//! (`packages/core/src/plugin/provider/github-copilot.ts`).
 //!
-//! Without a synced model list every Copilot model goes through upstream's in-tree AI SDK provider
-//! (`aisdk:@ai-sdk/github-copilot`, run by the plugin sidecar), pointed at the connection's API base
-//! when an OAuth connection exists. With a list, the catalog is rebuilt from it: models advertising
-//! `/v1/messages` use the native Anthropic package at `<base>/v1`, the others the AI SDK provider
-//! with an `endpoint` setting (`responses` or `chat`) that picks the language model.
+//! Every Copilot model runs on a native package (`routeFor`): Anthropic Messages at `<base>/v1`, OpenAI-compatible
+//! Responses or Chat Completions at the API base. With a synced list the catalog is rebuilt from it, the endpoint
+//! each model advertises picks the package, and the account's Auto pool adds the `auto` router model; without one
+//! the models.dev package (or else the model id) picks it.
 
 use std::sync::Arc;
 
@@ -18,8 +17,10 @@ use super::types::{merge_overlay, Capabilities, Cost, CostCache, Limit, ModelInf
 use crate::json::Object;
 
 pub const PROVIDER_ID: &str = "github-copilot";
-/// `Provider.aisdk("@ai-sdk/github-copilot")`.
-pub const PACKAGE: &str = "aisdk:@ai-sdk/github-copilot";
+/// The Copilot API base without a connection (`baseURL()`).
+pub const DEFAULT_BASE_URL: &str = "https://api.githubcopilot.com";
+/// Copilot's Auto model: Copilot's router picks the model that serves each session from the account's Auto pool.
+pub const AUTO: &str = "auto";
 /// `X-GitHub-Api-Version` of Copilot API requests.
 pub const API_VERSION: &str = "2026-08-01";
 /// The chat-only alias the model transform hides.
@@ -41,11 +42,15 @@ pub struct Prices {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RemoteModel {
     pub model_picker_enabled: bool,
+    /// The model Auto falls back to when routing fails.
+    pub is_chat_fallback: Option<bool>,
     pub id: String,
     pub name: String,
     pub version: String,
     pub supported_endpoints: Option<Vec<String>>,
     pub policy_state: Option<String>,
+    /// `billing.auto_discount`: the model is in the account's Auto pool.
+    pub auto_discount: Option<f64>,
     pub prices: Option<Prices>,
     pub family: String,
     pub max_context_window_tokens: Option<f64>,
@@ -115,19 +120,21 @@ pub fn decode_model(value: &Value) -> Option<RemoteModel> {
         Some(policy) => optional(&policy, "state", string)?,
         None => None,
     };
-    let prices = match optional(raw, "billing", |v| object(v).cloned())? {
-        Some(billing) => optional(&billing, "token_prices", decode_prices)?,
-        None => None,
+    let (auto_discount, prices) = match optional(raw, "billing", |v| object(v).cloned())? {
+        Some(billing) => (optional(&billing, "auto_discount", number)?, optional(&billing, "token_prices", decode_prices)?),
+        None => (None, None),
     };
     let capabilities = object(raw.get("capabilities")?)?;
     let family = string(capabilities.get("family")?)?;
     let mut model = RemoteModel {
         model_picker_enabled: boolean(raw.get("model_picker_enabled")?)?,
+        is_chat_fallback: optional(raw, "is_chat_fallback", boolean)?,
         id: string(raw.get("id")?)?,
         name: string(raw.get("name")?)?,
         version: string(raw.get("version")?)?,
         supported_endpoints: optional(raw, "supported_endpoints", strings)?,
         policy_state,
+        auto_discount,
         prices,
         family,
         max_context_window_tokens: None,
@@ -214,20 +221,91 @@ fn variants(remote: &RemoteModel, messages: bool) -> Vec<Variant> {
     ]
 }
 
-/// `build`: a catalog model from a remote entry, keeping a source template's identity and overlays.
-pub fn build(id: &str, remote: &RemoteModel, base_url: &str, previous: Option<&ModelInfo>) -> ModelInfo {
-    let endpoints = remote.supported_endpoints.as_deref().unwrap_or_default();
-    let has = |e: &str| endpoints.iter().any(|x| x == e);
-    let messages = has("/v1/messages");
-    let endpoint = if messages {
-        Some("messages")
+/// The Copilot API that serves a model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Endpoint {
+    Messages,
+    Responses,
+    Chat,
+}
+
+/// `routeFor`: the endpoint, native package and base URL for the Copilot API that serves a model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Route {
+    pub endpoint: Endpoint,
+    pub package: &'static str,
+    pub base_url: String,
+}
+
+/// `routeFor(modelID, advertised, root)`: Copilot serves Anthropic Messages under `/v1` and its OpenAI APIs at
+/// the root.
+pub fn route_for(model_id: &str, advertised: Option<Endpoint>, root: &str) -> Route {
+    let endpoint = advertised.unwrap_or_else(|| fallback_endpoint(model_id));
+    let package = match endpoint {
+        Endpoint::Messages => "@opencode/ai/providers/anthropic",
+        Endpoint::Responses => "@opencode/ai/providers/openai-compatible-responses",
+        Endpoint::Chat => "@opencode/ai/providers/openai-compatible",
+    };
+    let base_url = if endpoint == Endpoint::Messages { format!("{root}/v1") } else { root.to_string() };
+    Route { endpoint, package, base_url }
+}
+
+/// `endpoint(supported_endpoints)`: Messages, then Responses, then Chat Completions.
+fn advertised(supported: Option<&[String]>) -> Option<Endpoint> {
+    let has = |e: &str| supported.is_some_and(|s| s.iter().any(|x| x == e));
+    if has("/v1/messages") {
+        Some(Endpoint::Messages)
     } else if has("/responses") {
-        Some("responses")
+        Some(Endpoint::Responses)
     } else if has("/chat/completions") {
-        Some("chat")
+        Some(Endpoint::Chat)
     } else {
         None
+    }
+}
+
+/// Without advertised endpoints, Copilot serves GPT-5 and later (except GPT-5 mini), Grok and MAI Code only on
+/// `/responses`, and Gemini and the rest on `/chat/completions`.
+fn fallback_endpoint(model_id: &str) -> Endpoint {
+    let major = model_id.strip_prefix("gpt-").map(|rest| rest.chars().take_while(char::is_ascii_digit).collect::<String>());
+    if let Some(major) = major.filter(|m| !m.is_empty())
+        && major.parse::<f64>().is_ok_and(|n| n >= 5.0)
+        && !model_id.starts_with("gpt-5-mini")
+    {
+        return Endpoint::Responses;
+    }
+    if model_id.starts_with("grok-") || model_id.starts_with("mai-code-") {
+        return Endpoint::Responses;
+    }
+    Endpoint::Chat
+}
+
+/// `autoModel`: Copilot's Auto model when the account has an Auto pool (models with `billing.auto_discount`).
+/// Any pool model may serve a session, so it shows the smallest window.
+pub fn auto_model(base_url: &str, remote: &Snapshot) -> Option<ModelInfo> {
+    let pool: Vec<&RemoteModel> = remote.values().filter(|m| m.auto_discount.is_some()).collect();
+    if pool.is_empty() {
+        return None;
+    }
+    let route = route_for(AUTO, Some(Endpoint::Chat), base_url);
+    let min = |values: &mut dyn Iterator<Item = f64>| values.fold(f64::INFINITY, f64::min);
+    let mut model = ModelInfo::default_for(PROVIDER_ID, AUTO);
+    model.name = "Auto".into();
+    model.package = Some(route.package.into());
+    model.settings = json!({"baseURL": route.base_url}).as_object().cloned();
+    model.capabilities = Capabilities { tools: true, input: vec!["text".into(), "image".into()], output: vec!["text".into()], temperature: None };
+    model.limit = Limit {
+        context: min(&mut pool.iter().map(|m| m.max_context_window_tokens.or(m.max_prompt_tokens).unwrap_or_default())) as i64,
+        input: Some(min(&mut pool.iter().map(|m| m.max_prompt_tokens.unwrap_or_default())) as i64),
+        output: min(&mut pool.iter().map(|m| m.max_output_tokens.unwrap_or_default())) as i64,
     };
+    Some(model)
+}
+
+/// `build`: a catalog model from a remote entry, keeping a source template's identity and overlays.
+pub fn build(id: &str, remote: &RemoteModel, base_url: &str, previous: Option<&ModelInfo>) -> ModelInfo {
+    let route = route_for(&remote.id, advertised(remote.supported_endpoints.as_deref()), base_url);
+    let messages = route.endpoint == Endpoint::Messages;
     let vision = remote.vision.unwrap_or(false);
     let media = remote.vision_media_types.as_deref().unwrap_or_default();
     let image = vision || media.iter().any(|m| m.starts_with("image/"));
@@ -250,17 +328,14 @@ pub fn build(id: &str, remote: &RemoteModel, base_url: &str, previous: Option<&M
     let previous_released = previous.map(|p| p.time.released).filter(|r| *r != 0.0 && !r.is_nan());
     let released = previous_released.or_else(|| crate::js_date::parse(version)).unwrap_or(0.0);
     let mut overlay = Object::new();
-    overlay.insert("baseURL".into(), json!(if messages { format!("{base_url}/v1") } else { base_url.to_string() }));
-    if let Some(endpoint) = endpoint {
-        overlay.insert("endpoint".into(), json!(endpoint));
-    }
+    overlay.insert("baseURL".into(), json!(route.base_url));
     let mut model = ModelInfo::default_for(PROVIDER_ID, id);
     model.id = id.to_string();
     model.model_id = remote.id.clone();
     model.provider_id = PROVIDER_ID.to_string();
     model.family = Some(previous.and_then(|p| p.family.clone()).unwrap_or_else(|| remote.family.clone()));
     model.name = previous.map(|p| p.name.clone()).unwrap_or_else(|| remote.name.clone());
-    model.package = Some(if messages { "@opencode/ai/providers/anthropic".into() } else { PACKAGE.into() });
+    model.package = Some(route.package.into());
     model.settings = merge_overlay(previous.and_then(|p| p.settings.as_ref()), Some(&overlay));
     model.headers = previous.and_then(|p| p.headers.clone());
     model.body = previous.and_then(|p| p.body.clone());
@@ -322,7 +397,8 @@ pub fn derive(base_url: &str, remote: &Snapshot, existing: &[ModelInfo]) -> Vec<
 /// The plugin's loaded state (`loaded` in github-copilot.ts): set from the active OAuth connection.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct State {
-    /// API base of the connection (`copilotBaseURL(metadata)`).
+    /// API base of the connection: the account's `/copilot_internal/user` endpoint, else
+    /// `copilotBaseURL(metadata)`.
     pub base_url: Option<String>,
     /// The OAuth refresh token (utility title requests).
     pub token: Option<String>,
@@ -340,36 +416,28 @@ pub struct GithubCopilot {
 impl CatalogPlugin for GithubCopilot {
     fn providers(&mut self, editor: &mut ProviderEditor) {
         let Some(record) = editor.get(PROVIDER_ID) else { return };
+        let base_url = self.state.base_url.clone().unwrap_or_else(|| DEFAULT_BASE_URL.into());
         if let Some(models) = &self.state.models {
             let existing: Vec<ModelInfo> = record.models.values().cloned().collect();
-            let base_url = self.state.base_url.clone().unwrap_or_else(|| "https://api.githubcopilot.com".into());
-            let derived = derive(&base_url, models, &existing);
+            let mut derived = derive(&base_url, models, &existing);
+            derived.extend(auto_model(&base_url, models));
             editor.add(record.provider.clone(), derived, self.state.connection.clone());
             return;
         }
         // Without the live model list, the models.dev package says which Copilot API serves each model:
-        // Anthropic Messages stays native, OpenAI means Responses, and anything else goes through the
-        // bundled Copilot SDK's model ID fallback.
+        // Anthropic means Messages, OpenAI means Responses, and anything else falls back to the model ID.
         let ids: Vec<String> = record.models.keys().cloned().collect();
         for id in ids {
             editor.update_model(PROVIDER_ID, &id, |model| {
-                if model.package.as_deref() == Some("@opencode/ai/providers/anthropic") {
-                    if let Some(base_url) = &self.state.base_url {
-                        let mut overlay = Object::new();
-                        overlay.insert("baseURL".into(), json!(format!("{base_url}/v1")));
-                        model.settings = merge_overlay(model.settings.as_ref(), Some(&overlay));
-                    }
-                    return;
-                }
-                let responses = model.package.as_deref() == Some("@opencode/ai/providers/openai");
-                model.package = Some(PACKAGE.into());
+                let advertised = match model.package.as_deref() {
+                    Some("@opencode/ai/providers/anthropic") => Some(Endpoint::Messages),
+                    Some("@opencode/ai/providers/openai") => Some(Endpoint::Responses),
+                    _ => None,
+                };
+                let route = route_for(&model.model_id, advertised, &base_url);
+                model.package = Some(route.package.into());
                 let mut overlay = Object::new();
-                if let Some(base_url) = &self.state.base_url {
-                    overlay.insert("baseURL".into(), json!(base_url));
-                }
-                if responses {
-                    overlay.insert("endpoint".into(), json!("responses"));
-                }
+                overlay.insert("baseURL".into(), json!(route.base_url));
                 model.settings = merge_overlay(model.settings.as_ref(), Some(&overlay));
             });
         }
@@ -425,7 +493,7 @@ mod tests {
         .unwrap();
         let model = build("claude", &messages, "http://x", None);
         assert_eq!(model.package.as_deref(), Some("@opencode/ai/providers/anthropic"));
-        assert_eq!(serde_json::to_value(&model.settings).unwrap(), json!({"baseURL": "http://x/v1", "endpoint": "messages"}));
+        assert_eq!(serde_json::to_value(&model.settings).unwrap(), json!({"baseURL": "http://x/v1"}));
         assert_eq!(model.capabilities.input, vec!["text", "image", "pdf"]);
         assert_eq!(model.variants[0].settings, json!({"thinking": {"type": "adaptive", "display": "summarized"}, "effort": "low"}).as_object().cloned());
         assert_eq!(model.cost[0].input, 3.0 * (10_000.0 / 2_000_000.0));
@@ -435,7 +503,8 @@ mod tests {
 
         let budget = decode_model(&remote("haiku", json!({"capabilities": {"supports": {"max_thinking_budget": 32000}}}))).unwrap();
         let model = build("haiku", &budget, "http://x", None);
-        assert_eq!(model.package.as_deref(), Some(PACKAGE));
+        // No advertised endpoint: by model id (`haiku` → Chat Completions).
+        assert_eq!(model.package.as_deref(), Some("@opencode/ai/providers/openai-compatible"));
         assert_eq!(serde_json::to_value(&model.settings).unwrap(), json!({"baseURL": "http://x"}));
         assert_eq!(
             serde_json::to_value(&model.variants).unwrap(),
@@ -454,8 +523,9 @@ mod tests {
         assert_eq!(model.time.released, 5.0);
         assert_eq!(
             serde_json::to_value(&model.settings).unwrap(),
-            json!({"baseURL": "http://x", "provider": "github-copilot", "endpoint": "responses"})
+            json!({"baseURL": "http://x", "provider": "github-copilot"})
         );
+        assert_eq!(model.package.as_deref(), Some("@opencode/ai/providers/openai-compatible-responses"));
         assert_eq!(model.variants[0].settings, json!({"reasoningEffort": "low", "reasoningSummary": "auto", "include": ["reasoning.encrypted_content"]}).as_object().cloned());
     }
 
@@ -475,18 +545,17 @@ mod tests {
 
     #[test]
     fn without_a_list_models_follow_their_models_dev_package() {
-        // No connection: Anthropic Messages stays native at models.dev's endpoint, OpenAI models use the
-        // Copilot SDK's Responses endpoint, and the rest the Copilot SDK fallback.
+        // No connection: the default API base. Anthropic means Messages, OpenAI Responses, else by model id.
         let mut editor = copilot_editor();
         GithubCopilot { state: State::default() }.providers(&mut editor);
         let record = editor.get(PROVIDER_ID).unwrap();
         let claude = &record.models["claude-sonnet-4.6"];
         assert_eq!(claude.package.as_deref(), Some("@opencode/ai/providers/anthropic"));
         assert_eq!(serde_json::to_value(&claude.settings).unwrap(), json!({"baseURL": "https://api.githubcopilot.com/v1"}));
-        assert_eq!(record.models["gpt-5.4"].package.as_deref(), Some(PACKAGE));
-        assert_eq!(serde_json::to_value(&record.models["gpt-5.4"].settings).unwrap(), json!({}));
-        assert_eq!(record.models["gpt-5.5"].package.as_deref(), Some(PACKAGE));
-        assert_eq!(serde_json::to_value(&record.models["gpt-5.5"].settings).unwrap(), json!({"endpoint": "responses"}));
+        assert_eq!(record.models["gpt-5.4"].package.as_deref(), Some("@opencode/ai/providers/openai-compatible-responses"));
+        assert_eq!(serde_json::to_value(&record.models["gpt-5.4"].settings).unwrap(), json!({"baseURL": "https://api.githubcopilot.com"}));
+        assert_eq!(record.models["gpt-5.5"].package.as_deref(), Some("@opencode/ai/providers/openai-compatible-responses"));
+        assert_eq!(record.models[CHAT_ALIAS].package.as_deref(), Some("@opencode/ai/providers/openai-compatible-responses"));
         // A connection whose model sync failed: its API base for every model (`/v1` for Messages).
         let mut editor = copilot_editor();
         let state = State { base_url: Some("http://x".into()), token: Some("t".into()), models: None, connection: Some("credential:c".into()) };
@@ -494,8 +563,62 @@ mod tests {
         let record = editor.get(PROVIDER_ID).unwrap();
         assert_eq!(serde_json::to_value(&record.models["claude-sonnet-4.6"].settings).unwrap(), json!({"baseURL": "http://x/v1"}));
         assert_eq!(serde_json::to_value(&record.models["gpt-5.4"].settings).unwrap(), json!({"baseURL": "http://x"}));
-        assert_eq!(serde_json::to_value(&record.models["gpt-5.5"].settings).unwrap(), json!({"baseURL": "http://x", "endpoint": "responses"}));
+        assert_eq!(serde_json::to_value(&record.models["gpt-5.5"].settings).unwrap(), json!({"baseURL": "http://x"}));
         assert_eq!(record.source_connection, None);
+    }
+
+    // provider-github-copilot.test.ts "routes models.dev fallback models to native Copilot APIs".
+    #[test]
+    fn routes_fallback_models_to_native_copilot_apis() {
+        let root = DEFAULT_BASE_URL;
+        let messages = ("@opencode/ai/providers/anthropic", "https://api.githubcopilot.com/v1".to_string());
+        let responses = ("@opencode/ai/providers/openai-compatible-responses", root.to_string());
+        let chat = ("@opencode/ai/providers/openai-compatible", root.to_string());
+        let route = |id: &str, advertised: Option<Endpoint>| {
+            let r = route_for(id, advertised, root);
+            (r.package, r.base_url)
+        };
+        assert_eq!(route("claude-sonnet-4.5", Some(Endpoint::Messages)), messages);
+        assert_eq!(route("gpt-4.1", Some(Endpoint::Responses)), responses);
+        for id in ["gpt-5", "gpt-5.1-codex", "gpt-10", "grok-4.5", "mai-code-1.1-flash"] {
+            assert_eq!(route(id, None), responses, "{id}");
+        }
+        for id in ["gpt-5-mini", "gpt-4o", "gemini-3.8-flash", "gpt-", "oswe"] {
+            assert_eq!(route(id, None), chat, "{id}");
+        }
+    }
+
+    // provider-github-copilot.test.ts "routes Auto ...": the account's Auto pool adds the `auto` model, with the
+    // smallest window of the pool.
+    #[test]
+    fn auto_model_from_the_pool() {
+        let pick = |id: &str, extra: Value| remote(id, crate::json::deep_merge(&json!({"model_picker_enabled": false, "supported_endpoints": ["/chat/completions"]}), &extra));
+        let body = json!({"data": [
+            pick("routed", json!({"billing": {"auto_discount": 0.1}, "capabilities": {"limits": {"max_context_window_tokens": 150000}}})),
+            pick("other", json!({"billing": {"auto_discount": 0}, "capabilities": {"limits": {"max_prompt_tokens": 64000, "max_output_tokens": 32000}}})),
+            pick("fallback", json!({"is_chat_fallback": true})),
+        ]});
+        let snapshot = decode_snapshot(&body).unwrap();
+        assert_eq!(snapshot["fallback"].is_chat_fallback, Some(true));
+        assert_eq!(snapshot["routed"].auto_discount, Some(0.1));
+        let auto = auto_model("http://x", &snapshot).unwrap();
+        assert_eq!(auto.id, AUTO);
+        assert_eq!(auto.name, "Auto");
+        assert_eq!(auto.package.as_deref(), Some("@opencode/ai/providers/openai-compatible"));
+        assert_eq!(serde_json::to_value(&auto.settings).unwrap(), json!({"baseURL": "http://x"}));
+        assert_eq!(auto.limit, Limit { context: 64000, input: Some(1000), output: 100 });
+        assert!(auto.enabled);
+        // A mistyped Auto field rejects the entry; no pool, no Auto.
+        assert!(decode_model(&pick("bad", json!({"billing": {"auto_discount": "x"}}))).is_none());
+        assert!(decode_model(&pick("bad", json!({"is_chat_fallback": 1}))).is_none());
+        let plain = decode_snapshot(&json!({"data": [remote("a", json!({}))]})).unwrap();
+        assert!(auto_model("http://x", &plain).is_none());
+        // The synced catalog lists it after the derived models.
+        let mut editor = copilot_editor();
+        let state = State { base_url: Some("http://x".into()), token: None, models: Some(Arc::new(snapshot)), connection: None };
+        GithubCopilot { state }.providers(&mut editor);
+        let record = editor.get(PROVIDER_ID).unwrap();
+        assert_eq!(record.models.keys().collect::<Vec<_>>(), vec!["routed", "other", "fallback", "auto"]);
     }
 
     #[test]

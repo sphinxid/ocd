@@ -116,7 +116,7 @@ impl Engine {
     pub async fn session_generate(self: &Arc<Self>, session_id: &str, prompt: &str) -> anyhow::Result<String> {
         let sel = self.select(session_id).await?;
         let (_, update) = crate::instruction_state::preview(&self.app.bus, session_id, &sel.sources)?;
-        let loaded = self.load(sel).await?;
+        let loaded = self.load_for(sel, crate::plugin_request::Kind::Generate).await?;
         let (mut req, _) = self.request(&loaded, false);
         req.generation = None;
         if !update.is_empty() {

@@ -344,3 +344,30 @@ def plugin_tool_repair(ctx):
     ctx.call("messages", "GET", f"/api/session/{sid}/message")
     ctx.record_events()
     ctx.record_llm()
+
+
+@scenario("plugin", hold_for_title=0)
+def plugin_model_resolve(ctx):
+    """`session.experimental.model.resolve` (2.2.7) from a plugin: primary requests on mock/m1 run on mock/m2, the
+    title keeps its model, and the hook sees each resolution's kind, agent and model."""
+    ctx.env_extra["OCD_BUN_PATH"] = BUN
+    ctx.set_script([{"text": "Resolved answer."}])
+    models = {"m1": {"name": "Mock One", "limit": {"context": 100000, "output": 4096}},
+              "m2": {"name": "Mock Two", "limit": {"context": 100000, "output": 4096}}}
+    ctx.make_project(files=plugin_files("resolve-plugin"), config_extra={
+        "plugins": ["./plugins/resolve-plugin"],
+        "providers": {"mock": {"name": "Mock", "package": "@opencode/ai/providers/openai-compatible",
+                               "settings": {"baseURL": f"http://127.0.0.1:{ctx.mock.port}/v1", "apiKey": "test"},
+                               "models": models}}})
+    ctx.start()
+    sid = ctx.create_session()
+    ctx.prompt(sid, "hello")
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    out = []
+    for r in sorted(ctx.mock.requests, key=lambda r: (r["kind"], r["at"])):
+        h = {k.lower(): v for k, v in r["headers"].items()}
+        body = r["body"] if isinstance(r["body"], dict) else {}
+        # The title request may be sent before or after the primary resolution (a timing race in both binaries).
+        resolved = h.get("x-fixture-resolved") if r["kind"] == "main" else (h.get("x-fixture-resolved") or "").split("|")[0]
+        out.append({"kind": r["kind"], "model": body.get("model"), "resolved": resolved})
+    ctx.rec("requests", out)

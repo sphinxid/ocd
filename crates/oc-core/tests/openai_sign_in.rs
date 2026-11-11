@@ -194,6 +194,8 @@ async fn token_sharing_routes_over_http_with_fallback_models_and_session_headers
             "ses_child",
             None,
             Some(&oc_schema::types::ModelRef { id: "gpt-6.1-sol".into(), provider_id: "openai".into(), variant: None }),
+            oc_core::plugin_request::Kind::Primary,
+            "build",
         )
         .await
         .unwrap();

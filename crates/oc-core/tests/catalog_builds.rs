@@ -55,15 +55,16 @@ async fn catalog_is_built_once_per_location_without_copilot() {
 
     let first = models.catalog_at(&config, Some("/loc")).await.unwrap();
     assert!(first.model("mock", "m1").is_some());
-    // Without a loaded `/models` list, Anthropic Messages models stay native and the rest route through the AI
-    // SDK provider.
+    // Without a loaded `/models` list, every model runs on a native package at the default API base: Anthropic
+    // Messages under `/v1`, the rest on the OpenAI-compatible Responses or Chat package (2.2.7).
     let copilot = first.record("github-copilot").expect("models.dev lists GitHub Copilot");
     assert!(!copilot.models.is_empty());
-    assert!(copilot.models.values().any(|m| m.package.as_deref() == Some("aisdk:@ai-sdk/github-copilot")));
+    assert!(copilot.models.values().any(|m| m.package.as_deref() == Some("@opencode/ai/providers/openai-compatible-responses")));
     assert!(copilot.models.values().all(|m| matches!(
         m.package.as_deref(),
-        Some("aisdk:@ai-sdk/github-copilot" | "@opencode/ai/providers/anthropic")
+        Some("@opencode/ai/providers/openai-compatible" | "@opencode/ai/providers/openai-compatible-responses" | "@opencode/ai/providers/anthropic")
     )));
+    assert!(copilot.models.values().all(|m| m.settings.as_ref().and_then(|s| s.get("baseURL")).and_then(|b| b.as_str()).is_some_and(|b| b.starts_with("https://api.githubcopilot.com"))));
     assert_eq!(models.catalog_builds(Some("/loc")), 1, "the Copilot initial load changes nothing, so no rebuild");
     for _ in 0..5 {
         let again = models.catalog_at(&config, Some("/loc")).await.unwrap();

@@ -930,7 +930,9 @@ impl Models {
         Ok(resolved)
     }
 
-    /// `SessionRunnerModel.resolve`: session model → config model → first available text model.
+    /// `SessionRunnerModel.resolve`: session model → config model → first available text model, then the
+    /// `experimental.model.resolve` hook for the request (`kind`, `agent`).
+    #[allow(clippy::too_many_arguments)]
     pub async fn resolve_for_session(
         &self,
         key: Option<&str>,
@@ -938,6 +940,8 @@ impl Models {
         session_id: &str,
         session_model: Option<&ModelRef>,
         config_model: Option<&ModelRef>,
+        kind: crate::plugin_request::Kind,
+        agent: &str,
     ) -> anyhow::Result<ResolvedModel> {
         // Without a session model, `ModelResolver.resolve()` takes `Model.default`: the configured model only when
         // the catalog has it enabled (with a package), else the first available text model. A configured model that
@@ -949,6 +953,32 @@ impl Models {
         });
         let Some(r) = pick else { return Err(ModelError::NotSelected(session_id.into()).into()) };
         if catalog.model(&r.provider_id, &r.id).is_none() {
+            return Err(ModelError::Unavailable(r.provider_id.clone(), r.id.clone()).into());
+        }
+        self.resolve_selected(key, catalog, session_id, &r, kind, agent).await
+    }
+
+    /// The selected model `r` through the `experimental.model.resolve` hook. A hook may switch to another model of
+    /// the same provider, including models hidden from the picker; the credentials stay the selection's. Another
+    /// provider's model is unavailable.
+    pub async fn resolve_selected(
+        &self,
+        key: Option<&str>,
+        catalog: &Catalog,
+        session_id: &str,
+        selected: &ModelRef,
+        kind: crate::plugin_request::Kind,
+        agent: &str,
+    ) -> anyhow::Result<ResolvedModel> {
+        let plugins = self.plugins.read().clone();
+        let r = match (plugins, key) {
+            (Some(plugins), Some(key)) => crate::plugin_request::resolve_model(&plugins, key, session_id, agent, kind, selected)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
+            _ => selected.clone(),
+        };
+        let r = &r;
+        if r != selected && (r.provider_id != selected.provider_id || catalog.model(&r.provider_id, &r.id).is_none()) {
             return Err(ModelError::Unavailable(r.provider_id.clone(), r.id.clone()).into());
         }
         let credential = self.credential(key, catalog, &r.provider_id).await;

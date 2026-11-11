@@ -34,6 +34,16 @@ pub struct ModelIdentity<'a> {
     pub provider_id: &'a str,
 }
 
+impl<'a> ModelIdentity<'a> {
+    /// The request's model as the prompt plugins see it (`OptimizePlugin.resolveModel`): its listed info, or
+    /// `Model.Info.default` (named after its id) for a model hidden from the list, such as the one Copilot Auto
+    /// picked.
+    pub fn of(model: &'a oc_ai::catalog::types::ModelInfo) -> Self {
+        let name = if model.enabled { model.name.as_str() } else { model.id.as_str() };
+        ModelIdentity { id: &model.id, name, provider_id: &model.provider_id }
+    }
+}
+
 /// System parts for primary/compaction/generate requests:
 /// `[base (agent.system || system.txt, then model-family hooks), identity, baseline]`.
 pub fn system_parts(agent_system: Option<&str>, tools: &[&str], model: &ModelIdentity, baseline: &str) -> Vec<String> {

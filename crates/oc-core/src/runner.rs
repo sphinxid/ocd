@@ -49,6 +49,8 @@ pub struct Engine {
     watches: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// OpenCode Console config task per location directory (polling and `credential.switched`).
     consoles: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// The OpenCode Console skill download in flight per location.
+    console_skill_downloads: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// The built-in `opencode.goal` plugin (`/goal`).
     pub goals: crate::goal::Goals,
     /// Background summaries held per session (`experimental.background_compaction`).
@@ -120,6 +122,7 @@ impl Engine {
             titles: Mutex::new(Default::default()),
             watches: Mutex::new(HashMap::new()),
             consoles: Mutex::new(HashMap::new()),
+            console_skill_downloads: Mutex::new(HashMap::new()),
             goals: Default::default(),
             precomputed: Mutex::new(HashMap::new()),
             schedules: {
@@ -206,6 +209,7 @@ impl Engine {
         }
         self.watch(directory, &loc);
         self.console_watch(directory);
+        self.console_skills(directory);
         Ok(loc)
     }
 
@@ -216,8 +220,8 @@ impl Engine {
         let integrations = self.models.prepared_integrations(directory).await;
         let previous = crate::console_config::snapshot(directory);
         let user_agent = format!("opencode/{}/{}/{}", oc_util::version::CHANNEL, self.app.version, oc_util::version::ARTIFACT);
-        let http = crate::usage_limits::ReqwestHttp::default();
-        let next = crate::console_config::load(&integrations, &http, &user_agent, &previous).await;
+        let http: Arc<dyn crate::usage_limits::Http> = Arc::new(crate::usage_limits::ReqwestHttp::default());
+        let next = crate::console_config::load(&integrations, http, &user_agent, &previous).await;
         if let Some(websearch) = self.app.plugins.websearch_for(directory) {
             match (&next.connection, next.offers_websearch()) {
                 (Some(connection), true) => websearch
@@ -226,6 +230,38 @@ impl Engine {
             }
         }
         crate::console_config::publish(directory, next)
+    }
+
+    /// `syncInstructionsAndSkills`: the workspace's skills download in the background, so startup and config
+    /// changes never wait on them; the current ones stay until the download replaces them. A newer download
+    /// replaces one still in flight. Skills apply only while the location holds the Console document unchanged
+    /// (managed `integration.use: deny` withholds them).
+    fn console_skills(&self, directory: &str) {
+        let snapshot = crate::console_config::snapshot(directory);
+        let entries = self.locations.lock().get(directory).map(|l| l.entries.clone());
+        let allowed = entries.is_some_and(|entries| snapshot.allowed(&entries));
+        let me = self.me.clone();
+        let key = directory.to_string();
+        let task = tokio::spawn(async move {
+            let Some(engine) = me.upgrade() else { return };
+            let changed = match (&snapshot.connection, allowed) {
+                (Some(connection), true) => {
+                    let integrations = engine.models.prepared_integrations(&key).await;
+                    match crate::console_config::load_skills(&integrations, connection, &snapshot.skills).await {
+                        Some(items) => crate::console_config::set_skills(&key, snapshot.owner(), items),
+                        // A failed load keeps the skills already shown.
+                        None => false,
+                    }
+                }
+                _ => crate::console_config::clear_skills(&key),
+            };
+            if changed && engine.app.plugins.domain_changed(&key, "skill").await {
+                engine.app.bus.publish("skill.updated", serde_json::json!({}), Some(oc_schema::types::LocationRef { directory: key, workspace_id: None }));
+            }
+        });
+        if let Some(previous) = self.console_skill_downloads.lock().insert(directory.to_string(), task) {
+            previous.abort();
+        }
     }
 
     /// Check the Console config again every minute while signed in, and on every `credential.switched` for
@@ -259,6 +295,7 @@ impl Engine {
                     {
                         tracing::error!(directory = %key, error = %error, "failed to reload config");
                     }
+                    engine.console_skills(&key);
                 }
             }),
         );
@@ -573,6 +610,14 @@ impl Engine {
             .collect();
         let configured = crate::discovery::configured_sources(&location.entries);
         let remote = location.remote_instructions.lock().clone();
+        // The OpenCode Console plugin's workspace instructions (a provider plugin, so its files come before the
+        // instruction config plugin's), while the location holds the Console document unchanged.
+        let console = crate::console_config::snapshot(&location.key);
+        let console = if self.app.plugins.builtin_enabled(&location.key, crate::console_config::PLUGIN_ID) && console.allowed(&location.entries) {
+            console.instruction_files()
+        } else {
+            vec![]
+        };
         let discovery = if self.app.plugins.builtin_enabled(&location.key, "opencode.config.instruction") {
             crate::discovery::discover(&crate::discovery::DiscoveryInput {
                 directory: std::path::Path::new(&session.location.directory),
@@ -587,6 +632,7 @@ impl Engine {
         } else {
             Some(vec![])
         };
+        let discovery = discovery.map(|files| console.into_iter().chain(files).collect());
         let mut list = vec![
             instructions::skill_source(skills),
             instructions::discovery_source(discovery),
@@ -611,6 +657,11 @@ impl Engine {
 
     /// `context.load`
     pub async fn load(&self, sel: Selected) -> anyhow::Result<Loaded> {
+        self.load_for(sel, crate::plugin_request::Kind::Primary).await
+    }
+
+    /// `context.load` with the model resolved for a request of `kind` (`resolveModel(session, {kind, agent})`).
+    pub async fn load_for(&self, sel: Selected, kind: crate::plugin_request::Kind) -> anyhow::Result<Loaded> {
         let catalog = self.models.catalog_at(&sel.location.entries, Some(&sel.location.key)).await?;
         let config_model = oc_config::fold::model(&sel.location.entries).map(|m| ModelRef {
             id: m.model.clone(),
@@ -620,7 +671,7 @@ impl Engine {
         let session_model = sel.session.model.clone().or_else(|| agent_model(&catalog, &sel.agent));
         let resolved = self
             .models
-            .resolve_for_session(Some(&sel.location.key), &catalog, &sel.session.id, session_model.as_ref(), config_model.as_ref())
+            .resolve_for_session(Some(&sel.location.key), &catalog, &sel.session.id, session_model.as_ref(), config_model.as_ref(), kind, &sel.agent.id)
             .await
             .map_err(|e| crate::errors::StepFailed(SessionError::new("provider.no-route", e.to_string())))?;
         let messages = history_for_runner(&self.app.bus, &sel.session.id, &resolved.model_ref())?;
@@ -682,7 +733,7 @@ impl Engine {
         let system = crate::prompt::system_parts(
             loaded.sel.agent.system.as_deref(),
             &name_refs,
-            &crate::prompt::ModelIdentity { id: &model.model.id, name: &model.model.name, provider_id: &model.model.provider_id },
+            &crate::prompt::ModelIdentity::of(&model.model),
             &loaded.initial,
         );
         let key = model.language_model.route.provider_metadata_key.clone().unwrap_or_else(|| model.language_model.provider.clone());
@@ -897,7 +948,7 @@ impl Engine {
                         };
                         let result = async {
                             let sel = self.select(session_id).await?;
-                            let loaded = self.load(sel).await?;
+                            let loaded = self.load_for(sel, crate::plugin_request::Kind::Compaction).await?;
                             self.compact(&loaded, crate::compaction::Trigger::Manual { input_id: input_id.clone() }, cancel.clone()).await
                         }
                         .await;

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use oc_config::schema::{Entry, Info};
 use oc_core::models::Models;
+use oc_core::plugin_request::Kind;
 use oc_schema::types::ModelRef;
 use serde_json::json;
 
@@ -38,12 +39,12 @@ async fn a_missing_configured_model_falls_back_to_the_default() {
     let fallback = catalog.select(None).expect("an available text model");
 
     let configured = model_ref("github-copilot", "gpt-5.4");
-    let resolved = models.resolve_for_session(Some(KEY), &catalog, "ses_1", None, Some(&configured)).await.unwrap();
+    let resolved = models.resolve_for_session(Some(KEY), &catalog, "ses_1", None, Some(&configured), Kind::Primary, "build").await.unwrap();
     assert_eq!(resolved.model_ref().provider_id, fallback.provider_id);
     assert_eq!(resolved.model_ref().id, fallback.id);
 
     // An explicitly selected session model is still required to exist.
-    let error = models.resolve_for_session(Some(KEY), &catalog, "ses_1", Some(&configured), None).await.unwrap_err();
+    let error = models.resolve_for_session(Some(KEY), &catalog, "ses_1", Some(&configured), None, Kind::Primary, "build").await.unwrap_err();
     assert_eq!(error.to_string(), "Model unavailable: github-copilot/gpt-5.4");
 }
 
@@ -55,7 +56,7 @@ async fn an_available_configured_model_keeps_its_variant() {
     let available = catalog.select(None).expect("an available text model");
     let configured =
         ModelRef { id: available.id.clone(), provider_id: available.provider_id.clone(), variant: Some("default".into()) };
-    let resolved = models.resolve_for_session(Some(KEY), &catalog, "ses_1", None, Some(&configured)).await.unwrap();
+    let resolved = models.resolve_for_session(Some(KEY), &catalog, "ses_1", None, Some(&configured), Kind::Primary, "build").await.unwrap();
     assert_eq!(resolved.model_ref().id, available.id);
     assert_eq!(resolved.model_ref().variant.as_deref(), Some("default"));
 }

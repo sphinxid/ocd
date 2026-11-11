@@ -15,6 +15,8 @@ pub mod config_watch;
 pub mod console_config;
 pub mod coordinator;
 pub mod copilot;
+pub mod shared_cache;
+pub mod provider_reload;
 pub mod discovery;
 pub mod errors;
 pub mod form;

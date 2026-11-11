@@ -952,7 +952,7 @@ impl Run<'_> {
             crate::prompt::system_parts(
                 self.loaded.sel.agent.system.as_deref(),
                 &names,
-                &crate::prompt::ModelIdentity { id: &model.model.id, name: &model.model.name, provider_id: &model.model.provider_id },
+                &crate::prompt::ModelIdentity::of(&model.model),
                 &self.loaded.initial,
             ),
             &self.loaded.initial,
@@ -1323,8 +1323,11 @@ impl Engine {
         let agent = loaded.sel.agents.items.get("compaction")?;
         let m = agent.model.as_ref()?;
         let catalog = self.models.catalog_at(&loaded.sel.location.entries, Some(&loaded.sel.location.key)).await.ok()?;
-        let cred = self.models.credential(Some(&loaded.sel.location.key), &catalog, &m.provider_id).await;
-        self.models.resolve_model(Some(&loaded.sel.location.key), &catalog, &m.provider_id, &m.id, m.variant.as_deref(), cred.as_ref()).await.ok()
+        catalog.model(&m.provider_id, &m.id)?;
+        self.models
+            .resolve_selected(Some(&loaded.sel.location.key), &catalog, &loaded.sel.session.id, m, crate::plugin_request::Kind::Compaction, &agent.id)
+            .await
+            .ok()
     }
 
     /// `SessionCompaction.compact(trigger)`.

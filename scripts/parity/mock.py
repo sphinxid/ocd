@@ -110,6 +110,9 @@ class Mock:
         self.stopping = threading.Event()
         # GET path -> (status, JSON body)
         self.routes = {}
+        # POST path -> (status, JSON body) answered as JSON instead of a model turn (recorded as kind "POST"),
+        # or a callable taking the decoded body and returning that pair.
+        self.post_routes = {}
         self.set_script(script or [])
         mock = self
 
@@ -160,13 +163,28 @@ class Mock:
                     body = json.loads(raw)
                 except Exception:
                     body = raw.decode("utf-8", "replace")
+                route = mock.post_routes.get(self.path)
+                if route is not None:
+                    mock._record("POST", self.path, body, dict(self.headers))
+                    status, answer = route(body) if callable(route) else route
+                    payload = json.dumps(answer).encode()
+                    try:
+                        self.send_response(status)
+                        self.send_header("content-type", "application/json")
+                        self.send_header("content-length", str(len(payload)))
+                        self.end_headers()
+                        self.wfile.write(payload)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
                 kind = classify(body)
                 turn = mock._take(kind, body)
                 mock._record(kind, self.path, body, dict(self.headers))
                 try:
-                    if self.path.rstrip("/").endswith("/responses"):
+                    path = self.path.split("?", 1)[0]
+                    if path.rstrip("/").endswith("/responses"):
                         mock._answer_responses(self, kind, turn, body)
-                    elif self.path.endswith("/messages"):
+                    elif path.endswith("/messages"):
                         mock._answer_messages(self, kind, turn, body)
                     elif isinstance(body, dict) and body.get("stream") is False:
                         mock._answer_json(self, kind, turn, body)

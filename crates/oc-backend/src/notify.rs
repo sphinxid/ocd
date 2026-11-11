@@ -10,18 +10,16 @@ use oc_ai::credentials::CredentialEvent;
 use crate::engine::Engine;
 use crate::locations::Loc;
 
-/// The built-in provider plugins whose `credential.switched` subscription reloads providers right after reading
-/// the new connection (`opencode.provider.<id>` and the integration it filters on), in plugin order.
-const SWITCH_RELOADS: [(&str, &str); 8] = [
-    ("opencode.provider.azure", "azure"),
-    ("opencode.provider.chatgpt", "openai"),
-    ("opencode.provider.digitalocean", "digitalocean"),
-    ("opencode.provider.gitlab", "gitlab"),
-    ("opencode.provider.modal", "modal"),
-    ("opencode.provider.snowflake.cortex", "snowflake-cortex"),
-    ("opencode.provider.openai", "openai"),
-    ("opencode.provider.openai-context-caps", "openai"),
-];
+use oc_core::provider_reload::{self, SWITCH_RELOADS};
+
+/// What each provider plugin of [`SWITCH_RELOADS`] derived from its integration's active credential at the last
+/// switch (or at startup).
+type SwitchStates = parking_lot::Mutex<std::collections::HashMap<&'static str, String>>;
+
+fn switch_states(all: &[oc_ai::credentials::Credential]) -> std::collections::HashMap<&'static str, String> {
+    let env = |name: &str| std::env::var(name).ok();
+    SWITCH_RELOADS.iter().map(|(entry, integration)| (*entry, provider_reload::derived(entry, provider_reload::active(all, integration), &env))).collect()
+}
 
 fn pick(value: &Value, keys: &[&str]) -> Value {
     let mut out = serde_json::Map::new();
@@ -153,6 +151,7 @@ impl Engine {
         }));
         let all = oc_core::models::DbCredentials::all_of(&self.app.db).unwrap_or_default();
         let accounts = Arc::new(parking_lot::Mutex::new(oc_core::policy::accounts(&all)));
+        let states: Arc<SwitchStates> = Arc::new(parking_lot::Mutex::new(switch_states(&all)));
         // Every loaded location's Provider State holds the snapshot it announced: one whose catalog was never
         // built builds it now, before the change.
         let preparing = weak.clone();
@@ -173,16 +172,16 @@ impl Engine {
             })
         }));
         self.models().observe_credentials(Arc::new(move |event| {
-            let (weak, accounts) = (weak.clone(), accounts.clone());
+            let (weak, accounts, states) = (weak.clone(), accounts.clone(), states.clone());
             Box::pin(async move {
                 if let Some(engine) = weak.upgrade() {
-                    engine.credential_changed(&event, &accounts).await;
+                    engine.credential_changed(&event, &accounts, &states).await;
                 }
             })
         }));
     }
 
-    async fn credential_changed(&self, event: &CredentialEvent, accounts: &parking_lot::Mutex<oc_core::policy::Accounts>) {
+    async fn credential_changed(&self, event: &CredentialEvent, accounts: &parking_lot::Mutex<oc_core::policy::Accounts>, states: &SwitchStates) {
         let switched = match event {
             CredentialEvent::Switched { integration_id, .. } => Some(integration_id.as_str()),
             CredentialEvent::Updated => None,
@@ -194,6 +193,20 @@ impl Engine {
             let changed = *current != next;
             *current = next;
             changed
+        };
+        // The provider plugins of the switched integration reload only when what they derive from its active
+        // credential changed (`ProviderRefresh.reloadIfChanged`).
+        let reloading: Vec<&'static str> = match switched {
+            None => vec![],
+            Some(integration) => {
+                let next = switch_states(&all);
+                let mut current = states.lock();
+                SWITCH_RELOADS
+                    .iter()
+                    .filter(|(_, of)| *of == integration)
+                    .filter_map(|(entry, _)| (current.insert(entry, next[entry].clone()).as_ref() != Some(&next[entry])).then_some(*entry))
+                    .collect()
+            }
         };
         let bus = &self.app.bus;
         let pair = |at: &Option<oc_schema::types::LocationRef>| {
@@ -216,11 +229,9 @@ impl Engine {
             // The provider plugins reloading on a switch of their integration, in plugin order (`ctx.provider.reload()`
             // after loading the new connection). GitHub Copilot, OpenCode and Claude Agent reload after their own
             // network or process round trip.
-            if let Some(integration) = switched {
-                for (plugin, of) in SWITCH_RELOADS {
-                    if of == integration && self.app.plugins.builtin_enabled(&key, plugin) {
-                        pair(&at);
-                    }
+            for entry in &reloading {
+                if self.app.plugins.builtin_enabled(&key, provider_reload::plugin_id(entry)) {
+                    pair(&at);
                 }
             }
             if reload && self.app.plugins.builtin_enabled(&key, oc_core::policy::PLUGIN_ID) {

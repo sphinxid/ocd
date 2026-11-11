@@ -95,6 +95,10 @@ pub async fn shape(
         crate::claude_agent::hooks::shape(kind, agent_system, req);
     }
     default_text_verbosity(plugins, key, model, req);
+    // The Copilot plugin's `compaction` hook: the request after a compaction routes Auto again.
+    if kind == Kind::Compaction && model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && plugins.copilot_enabled(key) {
+        plugins.copilot.compacted(key, session_id);
+    }
     if plugins.has_hook(key, hook, Some(&model.provider_id)) {
         let mut event = Map::new();
         event.insert("sessionID".into(), json!(session_id));
@@ -445,6 +449,46 @@ impl crate::model_transport::Interceptor for PluginWs {
     }
 }
 
+/// `hooks.trigger("session", "experimental.model.resolve", {sessionID, agent, kind, model})`: runs whenever a
+/// session resolves the model for a request. The built-in Copilot plugin's hook routes Copilot Auto; plugin hooks
+/// run after it. Returns the model the request uses.
+pub async fn resolve_model(plugins: &Arc<Plugins>, key: &str, session_id: &str, agent: &str, kind: Kind, model: &ModelRef) -> Result<ModelRef, HookError> {
+    let mut model = model.clone();
+    if model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && plugins.copilot_enabled(key) {
+        let prompt = || last_prompt(plugins, session_id);
+        if let Some(routed) = plugins.copilot.resolve(key, session_id, kind, &model, prompt).await {
+            model = routed;
+        }
+    }
+    if !plugins.has_hook(key, "session.experimental.model.resolve", Some(&model.provider_id)) {
+        return Ok(model);
+    }
+    let mut reference = Map::new();
+    reference.insert("providerID".into(), json!(model.provider_id));
+    reference.insert("id".into(), json!(model.id));
+    if let Some(variant) = &model.variant {
+        reference.insert("variant".into(), json!(variant));
+    }
+    let event = json!({ "sessionID": session_id, "agent": agent, "kind": kind.as_str(), "model": Value::Object(reference) });
+    let out = plugins.trigger(key, "session.experimental.model.resolve", event).await?;
+    Ok(out.get("model").cloned().and_then(|m| serde_json::from_value::<ModelRef>(m).ok()).unwrap_or(model))
+}
+
+/// The session context's last user message (`ctx.session.context`): its text and whether a file is an image.
+fn last_prompt(plugins: &Arc<Plugins>, session_id: &str) -> (String, bool) {
+    let entries = crate::history::entries(plugins.db(), session_id, crate::history::Boundary::Latest).unwrap_or_default();
+    entries
+        .iter()
+        .rev()
+        .find_map(|(_, message)| match message {
+            oc_schema::message::Message::User { text, files, .. } => {
+                Some((text.clone(), files.iter().flatten().any(|f| f.mime.starts_with("image/"))))
+            }
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 /// `session.model.request`: the hook may change the base URL and the headers.
 pub async fn model_request(
     plugins: &Arc<Plugins>,
@@ -458,7 +502,8 @@ pub async fn model_request(
     if model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && plugins.copilot_enabled(key) {
         let mut http = req.http.clone().unwrap_or_default();
         let mut headers = http.headers.clone().unwrap_or_default();
-        crate::copilot::model_request_headers(&mut headers, kind, session_id);
+        let token = plugins.copilot.session_token(key, session_id, &model.id);
+        crate::copilot::model_request_headers(&mut headers, kind, session_id, token);
         http.headers = Some(headers);
         req.http = Some(http);
     }
