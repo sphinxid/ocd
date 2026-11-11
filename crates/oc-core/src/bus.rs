@@ -188,6 +188,7 @@ impl Bus {
         let mut out = Vec::with_capacity(events.len());
         let mut usage = false;
         let unlocated = unlocated();
+        let moving = events.iter().any(|e| matches!(e.event, SessionEvent::Moved { .. }));
         for ((e, id), seq) in events.into_iter().zip(ids).zip(seqs) {
             usage |= matches!(
                 &e.event,
@@ -195,7 +196,8 @@ impl Bus {
                     | SessionEvent::UsageRecorded { .. }
                     | SessionEvent::StepFailed { cost: Some(_), tokens: Some(_), .. }
             );
-            // session.moved routes to both; session.created/forked use the new row.
+            // session.created/forked use the new row. A move is published from the session's old Location (the drain
+            // runs there), so its batch keeps that location; plugins hear the move at both (see `Plugins`).
             // Execution lifecycle events come from the global coordinator upstream (no Location service in
             // context), so their envelopes carry no location.
             let location = match &e.event {
@@ -212,6 +214,7 @@ impl Bus {
                 // Inbox cancellation and delivery changes come from routes without location middleware
                 // (`session.inbox.cancel`, `session.inbox.update`, `session.move`), so no location either.
                 SessionEvent::InboxCancelled { .. } | SessionEvent::InboxDeliveryChanged { .. } => None,
+                _ if moving => before.clone().or_else(|| after.clone()),
                 _ => after.clone().or_else(|| before.clone()),
             };
             let env = Arc::new(Envelope {
@@ -224,11 +227,6 @@ impl Bus {
                 data: e.event.data(),
             });
             let _ = self.tx.send(env.clone());
-            if let (SessionEvent::Moved { .. }, Some(prev)) = (&e.event, &before) {
-                let mut copy = (*env).clone();
-                copy.location = Some(prev.clone());
-                let _ = self.tx.send(Arc::new(copy));
-            }
             out.push(env);
         }
         if usage {

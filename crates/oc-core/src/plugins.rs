@@ -647,6 +647,13 @@ impl Plugins {
                             .map(|l| LocationRef { directory: l.directory, workspace_id: l.workspace_id });
                         let wire = serde_json::to_value(&*env).unwrap_or(Value::Null);
                         host.publish_event(location.as_ref(), &wire);
+                        // `session.moved` routes to the session's old and new Locations (core/src/bus.ts `prepareRoutes`).
+                        if env.kind == "session.moved"
+                            && let Ok(target) = serde_json::from_value::<LocationRef>(env.data["location"].clone())
+                            && location.as_ref().is_none_or(|l| l.directory != target.directory || l.workspace_id != target.workspace_id)
+                        {
+                            host.publish_event(Some(&target), &wire);
+                        }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,

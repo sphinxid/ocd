@@ -192,6 +192,11 @@ impl Engine {
         // `FileSystem.node` refuses to build a Location for a directory that is gone (a session whose folder was
         // deleted still admits input since 2.2.7, and its execution then fails with this).
         if !std::path::Path::new(directory).is_dir() {
+            // `LocationLifecycle` still builds alongside it and records the project's activity: the Location
+            // resolves the project without persisting it, and an existing row is touched and announced.
+            let project = crate::project::resolve(std::path::Path::new(directory)).await;
+            let at = oc_schema::types::LocationRef { directory: directory.to_string(), workspace_id: None };
+            crate::project::activate(&self.app.bus, &self.app.project_activity, &project.id, Some(at));
             anyhow::bail!("Directory not found: {directory}");
         }
         // The OpenCode Console plugin loads the workspace config before the location's config is first read.

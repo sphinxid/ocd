@@ -256,14 +256,25 @@ Server plugins run in oc-plugin's Bun sidecar, driven by `oc_core::plugins::Plug
   (`Npm::check`: `bun info` for registry specs, `git ls-remote` for Git specs; failures count as
   current), `outdated` set like upstream. **`plugin.update`**: `Npm::update` per target, then the
   location's plugins reload; failures answer upstream's 503.
-* **`rpc.call`**: `Plugin.awaitActivation`, then the built-in goal plugin's `opencode.goal` RPC
+* **`rpc.call`**: a call that boots its location (a first build, not a configuration reload) runs before the
+  built-in plugins activated and registered their RPCs, so `opencode.goal` and `experimental.browser` answer
+  `rpc.unavailable` then (2.2.7 `Rpc.call`: no registration); otherwise the built-in goal plugin's `opencode.goal` RPC
   (`get {sessionID}` → `{"output": Goal.State | null}`, answered natively unless `-opencode.goal`), the
   built-in browser plugin's `experimental.browser` RPC (`oc_core::browser::Browsers::call`, unless
   `-opencode.browser`; inputs checked with `oc_server::validate::schema_issue` against the generated
   `assets/browser/schemas.json`), then the sidecar registry; failures map to upstream's `RpcError` (400) /
   `RpcInternalError` (500, `rpc.internal`/`rpc.invalid_output`); unknown ids answer `rpc.unavailable` /
   `RPC is unavailable: <id>`. The browser's `attach` stays pending while the desktop is attached; the
-  request going away drops the handler future, which detaches the desktop (its session allows removed).
+  request going away drops the handler future, which detaches the desktop. Attachments follow 2.2.7's
+  `BrowserMachine` (`oc_core::browser::machine`): the grant reconciles the session's rules to exactly one set of
+  browser allows (no write when they are already there) and is written before `attached`; detaching, a move, a
+  deletion or the plugin's disposal (eviction, restart, disabling) removes every browser allow. A revoke that woke a
+  tool call waiting on the desktop runs once that session's drain yields (its next provider request, or the end of
+  its execution; `oc_core::yields`), as upstream's forked sync runs behind the resumed drain.
+* **`session.move`** from the `opencode.session_move` tool (`Engine::move_session_from`): a destination location
+  the move boots announces itself (its boot burst) once the moving drain yields, as upstream's plugins activate
+  behind it. `session.moved` is published once, from the session's old location (with its `session.inbox.delivered`);
+  plugins hear it at both locations. A direct (stranded) move carries no location.
 * **browser results**: a desktop result the operation's output schema rejects fails with upstream's protocol
   error, caused by the Effect decode error (`Missing key\n  at ["requests"]`), which is what the model and a
   Code Mode program read (#60109). The exported JSON Schemas carry no schema identifiers, so a value matching

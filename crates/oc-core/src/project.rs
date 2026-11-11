@@ -281,6 +281,33 @@ mod tests {
         assert_eq!(n("file:///tmp/x"), None);
     }
 
+    /// `Project.activate` (also for a Location whose directory is gone): an existing row is touched and announced
+    /// with the Location, at most once a minute.
+    #[tokio::test]
+    async fn activation_touches_an_existing_project_once_a_minute() {
+        let bus = crate::bus::Bus::new(oc_storage::Database::memory().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let root = oc_util::fs::canonicalize(dir.path()).unwrap().join("project");
+        let id = super::resolve(&root).await.id;
+        let mut rx = bus.subscribe();
+        // No row yet: nothing to touch.
+        super::activate(&bus, &super::Activity::default(), &id, None);
+        assert!(rx.try_recv().is_err());
+        std::fs::create_dir(&root).unwrap();
+        super::persist(&bus, &super::resolve(&root).await).unwrap();
+        std::fs::remove_dir(&root).unwrap();
+        while rx.try_recv().is_ok() {}
+        let activity = super::Activity::default();
+        let at = oc_schema::types::LocationRef { directory: root.display().to_string(), workspace_id: None };
+        super::activate(&bus, &activity, &id, Some(at.clone()));
+        let event = rx.try_recv().unwrap();
+        assert_eq!((event.kind.as_str(), event.location.clone()), ("project.updated", Some(at.clone())));
+        assert_eq!(event.data["id"], id.as_str());
+        assert!(event.data["time"]["active"].is_number());
+        super::activate(&bus, &activity, &id, Some(at));
+        assert!(rx.try_recv().is_err());
+    }
+
     // Mercurial cases of `packages/core/test/project.test.ts`.
     mod mercurial {
         use super::super::{GLOBAL, resolve};
@@ -503,6 +530,36 @@ pub fn sweep(bus: &Bus) -> anyhow::Result<()> {
 
 fn contains(parent: &Path, child: &Path) -> bool {
     child.starts_with(parent)
+}
+
+/// `Project.activate`'s throttle: when each project last recorded activity.
+#[derive(Default)]
+pub struct Activity(parking_lot::Mutex<std::collections::HashMap<String, std::time::Instant>>);
+
+/// How often `Project.activate` records activity per project.
+pub const ACTIVATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// `Project.activate`: records the project's activity (`time_active`) at most once per minute and announces the
+/// updated row (`project.updated`, carrying `location` when it runs inside a Location's scope).
+pub fn activate(bus: &Bus, activity: &Activity, project_id: &str, location: Option<oc_schema::types::LocationRef>) {
+    {
+        let mut activated = activity.0.lock();
+        let now = std::time::Instant::now();
+        if activated.get(project_id).is_some_and(|t| now.duration_since(*t) < ACTIVATE_INTERVAL) {
+            return;
+        }
+        activated.insert(project_id.to_string(), now);
+    }
+    let now = oc_schema::id::now_ms() as i64;
+    let updated = bus
+        .db()
+        .with(|c| c.execute("UPDATE project SET time_active = ? WHERE id = ?", params![now, project_id]))
+        .unwrap_or(0);
+    if updated > 0
+        && let Ok(Some(info)) = get(bus, project_id)
+    {
+        bus.publish("project.updated", info, location);
+    }
 }
 
 /// Resolve + persist (`Project.resolve`).

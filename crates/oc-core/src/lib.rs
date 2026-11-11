@@ -67,3 +67,4 @@ pub mod usage_limits;
 pub mod wellknown_config;
 pub mod wildcard;
 pub mod v1_import;
+pub mod yields;

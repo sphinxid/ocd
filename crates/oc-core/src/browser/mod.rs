@@ -2,12 +2,14 @@
 //! attaches to a session over the `experimental.browser` RPC, and the `browser.*` Code Mode tools drive
 //! it through a command/result round trip.
 //!
-//! - `connection.ts` → [`Browsers`]: one attachment per session and location. `attach` stays pending
-//!   for the attachment's lifetime and answers `closed` or `replaced`; while it is attached the session
-//!   carries `allow` rules for the browser tools and the `browser` skill, which every agent denies
-//!   (`location::browser_denies`). `state` stores the desktop's tab inventory, `command` hands out a
-//!   pending request, `result` completes it. Control events (`rpc.experimental.browser.control`) announce
-//!   the attachment, each request ID and cancellations; arguments and results never go on the event feed.
+//! - `connection.ts` → [`Browsers`], the driver of `machine.ts` → [`machine`] (2.2.7): one attachment per
+//!   session and location. `attach` stays pending for the attachment's lifetime and answers `closed` or
+//!   `replaced`; while it is attached the session carries exactly one set of `allow` rules for the browser
+//!   tools and the `browser` skill, which every agent denies (`location::browser_denies`). The grant is
+//!   written before the desktop hears `attached`, and detaching removes every such rule. `state` stores the
+//!   desktop's tab inventory, `command` hands out a pending request, `result` completes it. Control events
+//!   (`rpc.experimental.browser.control`) announce the attachment, each request ID and cancellations;
+//!   arguments and results never go on the event feed.
 //! - `tools.ts` → [`tools`]: the 45 operations of `Browser.Operations` as Code Mode tools, with the
 //!   definitions upstream's tool runtime exports (`assets/browser/schemas.json`, regenerated with
 //!   `scripts/browser-schemas.ts`), URL normalization, result validation and capture export.
@@ -16,6 +18,7 @@
 //! `proxy.ts` is the desktop's own HTTP/CONNECT listener in front of the tunnels; the server never loads it.
 
 pub mod files;
+pub mod machine;
 pub mod schema;
 pub mod tools;
 pub mod tunnel;
@@ -33,6 +36,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::bus::Bus;
 use crate::session::Sessions;
+use machine::{ConnectionState, Effect as MachineEffect, Event, Outcome, SyncResult};
 
 pub const PLUGIN_ID: &str = "opencode.browser";
 pub const RPC_ID: &str = "experimental.browser";
@@ -77,15 +81,6 @@ impl RpcFailure {
     }
 }
 
-/// How an attachment ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum End {
-    Closed,
-    Replaced,
-    /// The location's RPC service closed under the pending `attach` (`rpc.unavailable`).
-    Unavailable,
-}
-
 /// `Browser.Result`: the desktop's JSON value and its files.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowserResult {
@@ -93,78 +88,52 @@ pub struct BrowserResult {
     pub files: Vec<files::File>,
 }
 
-struct Pending {
-    /// The encoded `Browser.Command` the desktop retrieves.
-    command: Value,
-    result: Option<oneshot::Sender<Result<BrowserResult, String>>>,
-}
-
-/// One desktop attachment of a session.
-pub(crate) struct Attachment {
-    connection_id: String,
-    state: Mutex<Value>,
-    end: watch::Sender<Option<End>>,
-    pending: Mutex<HashMap<String, Pending>>,
+/// One `attach` call's handle: its tunnels and how it ended.
+struct Handle {
+    end: watch::Sender<Option<Outcome>>,
     tunnels: tunnel::Tunnels,
-    /// Whether its `allow` rules are on the session and still to be removed.
-    granted: Mutex<bool>,
 }
 
-impl Attachment {
-    fn new(connection_id: &str) -> Self {
-        Attachment {
-            connection_id: connection_id.to_string(),
-            state: Mutex::new(json!({ "tabs": [], "focusedTabID": null })),
-            end: watch::channel(None).0,
-            pending: Mutex::new(HashMap::new()),
-            tunnels: tunnel::Tunnels::new(),
-            granted: Mutex::new(false),
-        }
+impl Handle {
+    fn new() -> Self {
+        Handle { end: watch::channel(None).0, tunnels: tunnel::Tunnels::new() }
     }
 
-    fn finish(&self, end: End) {
+    fn finish(&self, outcome: Outcome) {
         self.tunnels.dispose();
         self.end.send_if_modified(|current| {
             if current.is_some() {
                 return false;
             }
-            *current = Some(end);
+            *current = Some(outcome);
             true
         });
     }
 
-    async fn ended(&self) -> End {
+    async fn ended(&self) -> Outcome {
         let mut rx = self.end.subscribe();
         loop {
-            if let Some(end) = *rx.borrow_and_update() {
-                return end;
+            if let Some(outcome) = *rx.borrow_and_update() {
+                return outcome;
             }
             if rx.changed().await.is_err() {
-                return End::Closed;
+                return Outcome::Closed;
             }
         }
     }
 }
 
-/// The plugin instance of one location (`BrowserConnection.make`).
+/// The plugin instance of one location (`BrowserConnection.make`): the machine's state, the handles of its
+/// `attach` calls by attempt and the waiting requests.
 struct Instance {
     key: String,
     location: LocationRef,
-    /// `active`: false once the instance is finalized (no new attachment).
-    active: Mutex<bool>,
     /// The location's RPC service closed (`Rpc.close`): every call fails `rpc.unavailable`.
     closed: CancellationToken,
-    browsers: Mutex<HashMap<String, Arc<Attachment>>>,
-}
-
-impl Instance {
-    /// `close(sessionID, reason)`.
-    fn close(&self, session_id: &str, end: End) {
-        let removed = self.browsers.lock().remove(session_id);
-        if let Some(browser) = removed {
-            browser.finish(end);
-        }
-    }
+    /// The machine; effects run while it is held, so controls reach the bus in transition order.
+    machine: Mutex<ConnectionState>,
+    attachments: Mutex<HashMap<u64, Arc<Handle>>>,
+    requests: Mutex<HashMap<String, oneshot::Sender<Result<BrowserResult, String>>>>,
 }
 
 /// The browser attachments of every location.
@@ -211,7 +180,10 @@ impl Browsers {
                 let Some(session) = event.data.get("sessionID").and_then(Value::as_str) else { continue };
                 let instances: Vec<Arc<Instance>> = me.instances.lock().values().cloned().collect();
                 for instance in instances {
-                    instance.close(session, End::Closed);
+                    let session = session.to_string();
+                    let event =
+                        if event.kind == "session.deleted" { Event::SessionDeleted { session } } else { Event::SessionMoved { session } };
+                    me.dispatch(&instance, event);
                 }
             }
         });
@@ -226,44 +198,115 @@ impl Browsers {
                 Arc::new(Instance {
                     key: key.to_string(),
                     location: location.clone(),
-                    active: Mutex::new(true),
                     closed: CancellationToken::new(),
-                    browsers: Mutex::new(HashMap::new()),
+                    machine: Mutex::new(ConnectionState::default()),
+                    attachments: Mutex::new(HashMap::new()),
+                    requests: Mutex::new(HashMap::new()),
                 })
             })
             .clone()
     }
 
-    /// The location's RPC service closed (eviction, reload, shutdown): pending calls fail with
-    /// `rpc.unavailable` and its attachments end; a later call starts a fresh instance.
-    pub fn close_location(&self, key: &str) {
+    /// The location's RPC service closed (eviction, shutdown): pending calls fail with `rpc.unavailable`, the
+    /// plugin is disposed (its attachments close and revoke their rules) and a later call starts a fresh instance.
+    pub fn close_location(self: &Arc<Self>, key: &str) {
         let Some(instance) = self.instances.lock().remove(key) else { return };
-        *instance.active.lock() = false;
         instance.closed.cancel();
-        let browsers: Vec<(String, Arc<Attachment>)> = instance.browsers.lock().drain().collect();
-        for (_, browser) in browsers {
-            browser.finish(End::Unavailable);
-        }
+        self.dispatch(&instance, Event::Disposed);
     }
 
-    /// The plugin restarted or was disabled at the location (its activation scope closed): every
-    /// attachment ends with `closed`, and the next call reaches a fresh instance.
-    pub fn restart(&self, key: &str) {
+    /// The plugin restarted or was disabled at the location (its scope closed): every attachment ends with
+    /// `closed` and revokes its rules, and the next call reaches a fresh instance.
+    pub fn restart(self: &Arc<Self>, key: &str) {
         let Some(instance) = self.instances.lock().remove(key) else { return };
-        *instance.active.lock() = false;
-        let browsers: Vec<(String, Arc<Attachment>)> = instance.browsers.lock().drain().collect();
-        for (_, browser) in browsers {
-            browser.finish(End::Closed);
-        }
+        self.dispatch(&instance, Event::Disposed);
     }
 
     /// Whether a session at the location has a desktop attached.
     pub fn attached(&self, key: &str, session_id: &str) -> bool {
-        self.instances.lock().get(key).is_some_and(|i| i.browsers.lock().contains_key(session_id))
+        self.instances
+            .lock()
+            .get(key)
+            .is_some_and(|i| matches!(i.machine.lock().sessions.get(session_id), Some(machine::SessionState::Attached { .. })))
     }
 
-    fn publish(&self, instance: &Instance, data: Value) {
-        self.bus.publish(CONTROL, data, Some(instance.location.clone()));
+    /// Feeds one event to the instance's machine and performs its effects.
+    fn dispatch(self: &Arc<Self>, instance: &Arc<Instance>, event: Event) {
+        let mut state = instance.machine.lock();
+        self.step(instance, &mut state, event);
+    }
+
+    fn step(self: &Arc<Self>, instance: &Arc<Instance>, state: &mut ConnectionState, event: Event) {
+        // Whether a tool call waiting on a request was woken: it resumes before the forked sync runs.
+        let mut woken = false;
+        for effect in machine::transition(state, event) {
+            match effect {
+                MachineEffect::SyncPermissions { session, attempt, allow } => {
+                    self.sync_permissions(instance, session, attempt, allow, woken)
+                }
+                MachineEffect::CloseAttachment { attempt, outcome } => {
+                    let handle = instance.attachments.lock().remove(&attempt);
+                    if let Some(handle) = handle {
+                        handle.finish(outcome);
+                    }
+                }
+                MachineEffect::EmitControl(control) => {
+                    self.bus.publish(CONTROL, control, Some(instance.location.clone()));
+                }
+                MachineEffect::SettleRequest { request, settlement } => {
+                    let sender = instance.requests.lock().remove(&request);
+                    if let Some(sender) = sender {
+                        woken |= sender.send(settlement).is_ok();
+                    }
+                }
+                MachineEffect::Warn { message, error } => tracing::warn!(error = error.unwrap_or_default(), "{message}"),
+                MachineEffect::NotifyDrained => {}
+            }
+        }
+    }
+
+    /// `syncPermissions`: reads the session and, when its browser rules differ, replaces them; the outcome goes back
+    /// to the machine. Runs in the background, like upstream's fork into the plugin's `work` scope.
+    ///
+    /// A forked fiber runs once the running ones yield. When the same transition woke a tool call that waited on a
+    /// request (`woken`), that call's fiber goes first and carries the session's drain on without yielding until it
+    /// waits for the provider again: the sync then runs only once the session's next step sent its request (its
+    /// context already read), or once its execution ended.
+    fn sync_permissions(self: &Arc<Self>, instance: &Arc<Instance>, session: String, attempt: u64, allow: bool, woken: bool) {
+        let gate = woken.then(|| crate::yields::Yield::register(&self.bus, &session));
+        let (me, instance) = (self.clone(), instance.clone());
+        let sync = {
+            let (sessions, session) = (self.sessions.clone(), session.clone());
+            move || -> Result<(), String> {
+                let current = sessions.get(&session).map_err(|e| e.to_string())?;
+                match machine::reconcile(current.permissions.as_deref().unwrap_or(&[]), allow) {
+                    Some(permissions) => sessions.set_permissions(&session, permissions).map_err(|e| e.to_string()),
+                    None => Ok(()),
+                }
+            }
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            std::thread::spawn(move || {
+                let result = match sync() {
+                    Ok(()) => SyncResult::Synced,
+                    Err(error) => SyncResult::Failed(error),
+                };
+                me.dispatch(&instance, Event::Permissions { session, attempt, result });
+            });
+            return;
+        };
+        runtime.spawn(async move {
+            if let Some(gate) = gate {
+                gate.wait().await;
+            }
+            let result = match tokio::time::timeout(machine::PERMISSION_SYNC_TIMEOUT, tokio::task::spawn_blocking(sync)).await {
+                Ok(Ok(Ok(()))) => SyncResult::Synced,
+                Ok(Ok(Err(error))) => SyncResult::Failed(error),
+                Ok(Err(error)) => SyncResult::Failed(error.to_string()),
+                Err(_) => SyncResult::TimedOut,
+            };
+            me.dispatch(&instance, Event::Permissions { session, attempt, result });
+        });
     }
 
     /// `Rpc.call("experimental.browser", method, input)` at a location (`key` is its canonical
@@ -292,9 +335,11 @@ impl Browsers {
         let instance = self.instance(key, location);
         let closed = instance.closed.clone();
         let handler = self.handle(&instance, method, &input);
+        // A long-lived call releases its location when the routing cache invalidates it.
         tokio::select! {
-            result = handler => result,
+            biased;
             _ = closed.cancelled() => Err(RpcFailure::rpc_unavailable()),
+            result = handler => result,
         }
     }
 
@@ -304,23 +349,25 @@ impl Browsers {
         match method {
             "attach" => self.attach(instance, &session, &connection).await,
             "state" => {
-                let browser = current(instance, &session, &connection).ok_or_else(|| RpcFailure::unavailable("Browser is unavailable."))?;
                 let state = schema::decode(&SCHEMAS["rpc"]["state"]["$defs"]["Browser.State"], &input["state"])
                     .unwrap_or(json!({ "tabs": [], "focusedTabID": null }));
-                *browser.state.lock() = state;
+                let mut machine = instance.machine.lock();
+                if !machine::is_attached_connection(&machine, &session, &connection) {
+                    return Err(RpcFailure::unavailable("Browser is unavailable."));
+                }
+                self.step(instance, &mut machine, Event::StateUpdated { session, connection, state });
                 Ok(Value::Null)
             }
             "command" => {
                 let request = input["requestID"].as_str().unwrap_or_default();
-                let command =
-                    current(instance, &session, &connection).and_then(|b| b.pending.lock().get(request).map(|p| p.command.clone()));
-                command.ok_or_else(|| RpcFailure::unavailable("Browser request is no longer available."))
+                machine::select_pending_command(&instance.machine.lock(), &session, &connection, request)
+                    .ok_or_else(|| RpcFailure::unavailable("Browser request is no longer available."))
             }
             "result" => {
-                let browser = current(instance, &session, &connection).ok_or_else(|| RpcFailure::unavailable("Browser is unavailable."))?;
-                let request = input["requestID"].as_str().unwrap_or_default();
+                let request = input["requestID"].as_str().unwrap_or_default().to_string();
                 let outcome = &input["outcome"];
-                let result = if outcome["type"] == "failure" {
+                // The outcome decodes with the input, before the handler runs.
+                let outcome = if outcome["type"] == "failure" {
                     Err(format!(
                         "[browser.{}] {}",
                         outcome["code"].as_str().unwrap_or_default(),
@@ -329,14 +376,16 @@ impl Browsers {
                 } else {
                     Ok(decode_result(&outcome["result"]).map_err(|m| RpcFailure::system("rpc.invalid_input", m))?)
                 };
-                let sender = browser.pending.lock().get_mut(request).and_then(|p| p.result.take());
-                if let Some(sender) = sender {
-                    let _ = sender.send(result);
+                let mut machine = instance.machine.lock();
+                if !machine::is_attached_connection(&machine, &session, &connection) {
+                    return Err(RpcFailure::unavailable("Browser is unavailable."));
                 }
+                self.step(instance, &mut machine, Event::RequestSettled { session, connection, request, outcome });
                 Ok(Value::Null)
             }
             "tunnel.open" | "tunnel.read" | "tunnel.write" | "tunnel.close" => {
-                let browser = current(instance, &session, &connection)
+                let handle = machine::select_attachment(&instance.machine.lock(), &session, &connection)
+                    .and_then(|attempt| instance.attachments.lock().get(&attempt).cloned())
                     .ok_or_else(|| RpcFailure::unavailable("Browser attachment is unavailable; its network connections were closed."))?;
                 let tunnel = input["tunnelID"].as_str().unwrap_or_default();
                 let outcome =
@@ -344,9 +393,9 @@ impl Browsers {
                         "tunnel.open" => {
                             let host = input["target"]["host"].as_str().unwrap_or_default();
                             let port = input["target"]["port"].as_u64().unwrap_or(0) as u16;
-                            browser.tunnels.open(host, port).await.map(Value::String)
+                            handle.tunnels.open(host, port).await.map(Value::String)
                         }
-                        "tunnel.read" => browser.tunnels.read(tunnel).await.map(
+                        "tunnel.read" => handle.tunnels.read(tunnel).await.map(
                             |chunk| json!({ "data": base64::engine::general_purpose::STANDARD.encode(&chunk.data), "eof": chunk.eof }),
                         ),
                         "tunnel.write" => {
@@ -354,10 +403,10 @@ impl Browsers {
                                 .decode(input["data"].as_str().unwrap_or_default())
                                 .unwrap_or_default();
                             let end = input["end"].as_bool().unwrap_or(false);
-                            browser.tunnels.write(tunnel, &data, end).await.map(|_| Value::Null)
+                            handle.tunnels.write(tunnel, &data, end).await.map(|_| Value::Null)
                         }
                         _ => {
-                            browser.tunnels.close(tunnel);
+                            handle.tunnels.close(tunnel);
                             Ok(Value::Null)
                         }
                     };
@@ -367,128 +416,78 @@ impl Browsers {
         }
     }
 
-    /// `attach`: registers the desktop, grants the browser to the session and waits for the end.
+    /// `attach`: registers the desktop's attempt and waits for its end. The machine grants the browser to the
+    /// session and announces `attached` once that write settled.
     async fn attach(self: &Arc<Self>, instance: &Arc<Instance>, session_id: &str, connection: &str) -> Result<Value, RpcFailure> {
         let session = self.sessions.get(session_id).map_err(|_| RpcFailure::unavailable("Session not found."))?;
         if crate::location::canonical_directory(&session.location.directory) != instance.key {
             return Err(RpcFailure::unavailable("Session belongs to another location."));
         }
-        if !*instance.active.lock() {
-            return Err(RpcFailure::unavailable("Browser is unavailable."));
-        }
-        // A replaced attachment ends and removes its own allows before this one adds its own.
-        let previous = instance.browsers.lock().remove(session_id);
-        if let Some(previous) = previous {
-            previous.finish(End::Replaced);
-            self.release(session_id, &previous);
-        }
-        let browser = Arc::new(Attachment::new(connection));
-        instance.browsers.lock().insert(session_id.to_string(), browser.clone());
-        // Interrupted (the desktop went away): remove the allows, then end the attachment if it is current.
-        let guard =
-            AttachGuard { browsers: self.clone(), instance: instance.clone(), session: session_id.to_string(), browser: browser.clone() };
-        self.grant(session_id, &browser);
-        self.publish(instance, json!({ "type": "attached", "connectionID": connection, "version": VERSION }));
-        let end = browser.ended().await;
-        drop(guard);
-        match end {
-            End::Closed => Ok(json!("closed")),
-            End::Replaced => Ok(json!("replaced")),
-            End::Unavailable => Err(RpcFailure::rpc_unavailable()),
-        }
-    }
-
-    fn grant(&self, session_id: &str, browser: &Attachment) {
-        let Ok(session) = self.sessions.get(session_id) else { return };
-        let mut permissions = session.permissions.unwrap_or_default();
-        permissions.extend(access(Effect::Allow));
-        if self.sessions.set_permissions(session_id, permissions).is_ok() {
-            *browser.granted.lock() = true;
-        }
-    }
-
-    /// Removes one of each of the attachment's allows, publishing only when something changed.
-    fn release(&self, session_id: &str, browser: &Attachment) {
-        if !std::mem::replace(&mut *browser.granted.lock(), false) {
-            return;
-        }
-        let Ok(session) = self.sessions.get(session_id) else { return };
-        let current = session.permissions.unwrap_or_default();
-        let mut permissions = current.clone();
-        for allow in access(Effect::Allow) {
-            if let Some(index) =
-                permissions.iter().position(|r| r.action == allow.action && r.resource == allow.resource && r.effect == Effect::Allow)
-            {
-                permissions.remove(index);
+        let (attempt, handle) = {
+            let mut machine = instance.machine.lock();
+            if machine.disposed {
+                return Err(RpcFailure::unavailable("Browser is unavailable."));
             }
-        }
-        if permissions.len() != current.len() {
-            let _ = self.sessions.set_permissions(session_id, permissions);
+            let attempt = machine.next_attempt;
+            let handle = Arc::new(Handle::new());
+            instance.attachments.lock().insert(attempt, handle.clone());
+            let event = Event::AttachStarted { session: session_id.to_string(), attempt, connection: connection.to_string() };
+            self.step(instance, &mut machine, event);
+            (attempt, handle)
+        };
+        // However the call ends (the desktop went away, or the attachment closed), the machine hears of it.
+        let _release = AttachRelease { browsers: self.clone(), instance: instance.clone(), session: session_id.to_string(), attempt };
+        match handle.ended().await {
+            Outcome::Closed => Ok(json!("closed")),
+            Outcome::Replaced => Ok(json!("replaced")),
+            Outcome::Unavailable => Err(RpcFailure::unavailable("Browser permissions could not be granted.")),
         }
     }
 
     /// `connection.target(sessionID, action)`: the session's attachment and the action's tab.
     pub(crate) fn target(&self, key: &str, session_id: &str, action: &Value) -> Result<Target, oc_tools::ToolError> {
         let instance = self.instances.lock().get(key).cloned();
-        let browser = instance.as_ref().and_then(|i| i.browsers.lock().get(session_id).cloned());
-        let (Some(instance), Some(browser)) = (instance, browser) else {
-            return Err(oc_tools::ToolError::new(
-                "[browser.disconnected] No desktop browser is connected to this session. Open this session in the desktop app and wait for it to connect. Then call browser.tabs.list({}). Repeating browser actions while disconnected will not help.",
-            ));
+        let selected = match &instance {
+            Some(instance) => machine::select_target(&instance.machine.lock(), session_id, action),
+            None => machine::select_target(&ConnectionState::default(), session_id, action),
         };
-        let tab = match action.get("tabID").and_then(Value::as_str) {
-            None => None,
-            Some(id) => {
-                let state = browser.state.lock();
-                let tab = state["tabs"].as_array().and_then(|tabs| tabs.iter().find(|t| t["id"] == id).cloned());
-                match tab {
-                    Some(tab) => Some(tab),
-                    None => {
-                        return Err(oc_tools::ToolError::new(
-                            "[browser.tab_unavailable] This tab is closed or does not belong to the connected session. Call browser.tabs.list({}) and use an exact returned tabID. If no tabs exist, use browser.tabs.open({}). Never substitute a request ID, file ID, or element ref for tabID.",
-                        ));
-                    }
-                }
-            }
-        };
-        Ok(Target { instance, browser, tab })
+        let (connection, tab) = selected.map_err(oc_tools::ToolError::new)?;
+        let instance = instance.expect("an attached session has an instance");
+        Ok(Target { instance, session: session_id.to_string(), connection, tab })
     }
 
-    /// `request(...)`: announces the command, waits for its result, the attachment's end or the timeout.
+    /// `request(...)`: announces the command and waits for the machine to settle it (a result, the attachment's
+    /// end, the timeout). Requests go to the attachment the target selected; one that closed meanwhile runs nothing.
     pub(crate) async fn request(
-        &self,
+        self: &Arc<Self>,
         target: &Target,
         action: &Value,
         uploads: Vec<files::File>,
     ) -> Result<BrowserResult, oc_tools::ToolError> {
-        let kind = action["type"].as_str().unwrap_or_default().to_string();
         let request = uuid::Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
+        let (tx, mut rx) = oneshot::channel();
         let command = encode_command(action, target.tab.as_ref(), &uploads);
-        target.browser.pending.lock().insert(request.clone(), Pending { command, result: Some(tx) });
+        target.instance.requests.lock().insert(request.clone(), tx);
         // `Effect.onInterrupt` (cancel) and `Effect.ensuring` (forget the request).
-        let mut guard = RequestGuard { browsers: self, target, request: request.clone(), cancel: true };
-        self.publish(&target.instance, json!({ "type": "command", "connectionID": target.browser.connection_id, "requestID": request }));
+        let mut guard = RequestGuard { browsers: self.clone(), target, request: request.clone(), settled: false };
+        let ids = |request: &str| (target.session.clone(), target.connection.clone(), request.to_string());
+        let (session, connection, id) = ids(&request);
+        self.dispatch(&target.instance, Event::RequestStarted { session, connection, request: id, command });
         let timeout = *self.timeout.lock();
-        let outcome = tokio::select! {
-            result = rx => Some(result.unwrap_or_else(|_| Err(String::new()))),
-            _ = target.browser.ended() => None,
-            _ = tokio::time::sleep(timeout) => {
-                drop(guard);
-                return Err(oc_tools::ToolError::new(format!(
-                    "[browser.timeout] browser.{kind} did not finish within {} seconds; its outcome is unknown. Check the desktop connection, call browser.tabs.list({{}}), and inspect the tab or browser.files.list({{tabID}}) for completed work. Do not blindly repeat a mutating action or start another recording.",
-                    REQUEST_TIMEOUT.as_secs()
-                )));
+        let result = match tokio::time::timeout(timeout, &mut rx).await {
+            Ok(result) => result,
+            Err(_) => {
+                let (session, connection, id) = ids(&request);
+                self.dispatch(&target.instance, Event::RequestTimedOut { session, connection, request: id });
+                rx.await
             }
         };
-        guard.cancel = false;
+        guard.settled = true;
         drop(guard);
-        match outcome {
-            Some(Ok(result)) => Ok(result),
-            Some(Err(message)) => Err(oc_tools::ToolError::new(message)),
-            None => Err(oc_tools::ToolError::new(
-                "[browser.disconnected] Browser connection closed; the action may already have run. Reconnect this session in the desktop app, call browser.tabs.list({}), and inspect the target tab with browser.snapshot({tabID}). Do not repeat clicks, submissions, uploads, or evaluations until their outcome is known.",
-            )),
+        match result {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(message)) => Err(oc_tools::ToolError::new(message)),
+            Err(_) => Err(oc_tools::ToolError::new(machine::disconnected_after_dispatch())),
         }
     }
 }
@@ -496,47 +495,44 @@ impl Browsers {
 /// The attachment and tab a tool call targets.
 pub(crate) struct Target {
     instance: Arc<Instance>,
-    browser: Arc<Attachment>,
+    session: String,
+    connection: String,
     tab: Option<Value>,
 }
 
 struct RequestGuard<'a> {
-    browsers: &'a Browsers,
+    browsers: Arc<Browsers>,
     target: &'a Target,
     request: String,
-    cancel: bool,
+    settled: bool,
 }
 
 impl Drop for RequestGuard<'_> {
     fn drop(&mut self) {
-        if self.cancel {
-            let data = json!({ "type": "cancel", "connectionID": self.target.browser.connection_id, "requestID": self.request });
-            self.browsers.publish(&self.target.instance, data);
+        if !self.settled {
+            let event = Event::RequestCancelled {
+                session: self.target.session.clone(),
+                connection: self.target.connection.clone(),
+                request: self.request.clone(),
+            };
+            self.browsers.dispatch(&self.target.instance, event);
         }
-        self.target.browser.pending.lock().remove(&self.request);
+        self.target.instance.requests.lock().remove(&self.request);
     }
 }
 
-struct AttachGuard {
+struct AttachRelease {
     browsers: Arc<Browsers>,
     instance: Arc<Instance>,
     session: String,
-    browser: Arc<Attachment>,
+    attempt: u64,
 }
 
-impl Drop for AttachGuard {
+impl Drop for AttachRelease {
     fn drop(&mut self) {
-        self.browsers.release(&self.session, &self.browser);
-        let current = self.instance.browsers.lock().get(&self.session).is_some_and(|b| Arc::ptr_eq(b, &self.browser));
-        if current {
-            self.instance.close(&self.session, End::Closed);
-        }
+        let event = Event::AttachClosed { session: self.session.clone(), attempt: self.attempt };
+        self.browsers.dispatch(&self.instance, event);
     }
-}
-
-/// The current attachment of the session when `connection` owns it.
-fn current(instance: &Instance, session: &str, connection: &str) -> Option<Arc<Attachment>> {
-    instance.browsers.lock().get(session).filter(|b| b.connection_id == connection).cloned()
 }
 
 /// The browser tools and their skill, which an attachment allows together.

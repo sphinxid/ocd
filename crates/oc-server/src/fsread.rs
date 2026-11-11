@@ -190,7 +190,9 @@ pub async fn serve(method: &Method, headers: &HeaderMap, file: FsFile, path: &st
         _ => Range::Full,
     };
     if range == Range::Unsatisfiable {
-        let mut res = StatusCode::RANGE_NOT_SATISFIABLE.into_response();
+        // `HttpServerResponse.empty`: Node frames the empty answer chunked, without a content-length.
+        let mut res = (StatusCode::RANGE_NOT_SATISFIABLE, crate::webui::unsized_body(bytes::Bytes::new())).into_response();
+        res.extensions_mut().insert(crate::webui::Bodiless);
         let h = res.headers_mut();
         h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
         if let Ok(v) = HeaderValue::from_str(&format!("bytes */{}", file.size)) {

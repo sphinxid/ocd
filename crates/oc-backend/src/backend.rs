@@ -1235,8 +1235,14 @@ impl Backend for Engine {
     // ---- rpc ----------------------------------------------------------------------------------
 
     async fn rpc_call(&self, ctx: &RequestContext, req: RpcCallRequest) -> Result<RpcOutput, ApiError> {
-        let loc = self.locations.get(&ctx.location.directory).await?;
-        // `Rpc.call` (server/src/handlers/rpc.ts); 2.2.7 no longer waits for the location's plugins.
+        let (loc, booted) = self.locations.get_booting(&ctx.location.directory).await?;
+        // `Rpc.call` (server/src/handlers/rpc.ts); 2.2.7 no longer waits for the location's plugins. A call that
+        // boots the location runs before its built-in plugins activated and registered their RPCs
+        // (core/src/rpc.ts: no registration, `rpc.unavailable`).
+        let builtin = req.rpc_id == oc_core::goal::RPC_ID || req.rpc_id == oc_core::browser::RPC_ID;
+        if booted && builtin {
+            return Err(ApiError::rpc("rpc.unavailable".to_string(), format!("RPC is unavailable: {}", req.rpc_id), None));
+        }
         let location = oc_plugin::LocationRef::new(loc.key.clone());
         let input = req.body.input.clone().map(|v| serde_json::to_value(v).unwrap_or(Value::Null)).unwrap_or(Value::Null);
         // The built-in goal plugin's RPC: its `get` answers `{"output": null}` for a session without a goal.

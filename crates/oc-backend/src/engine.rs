@@ -140,7 +140,18 @@ impl Engine {
             Box::pin(async move {
                 let Some(engine) = engine.upgrade() else { return Err("server is shutting down".to_string()) };
                 let body = oc_server::generated::SessionMoveBody { directory, delivery: Some(oc_server::generated::SessionInboxDelivery::Steer) };
-                engine.move_session(&session_id, body).await.map_err(|error| match &error {
+                let moved = engine.move_session_from(&session_id, body, true).await;
+                // A destination this booted announces itself once the moving drain yields (its plugins activate
+                // behind it); the wait is registered before the tool call returns.
+                if let Ok(Some(destination)) = &moved {
+                    let wait = oc_core::yields::Yield::register(&engine.app.bus, &session_id);
+                    let (engine, destination) = (engine.clone(), destination.clone());
+                    tokio::spawn(oc_util::trace::inherit(async move {
+                        wait.wait().await;
+                        engine.locations.finish_boot(&destination).await;
+                    }));
+                }
+                moved.map(|_| ()).map_err(|error| match &error {
                     ApiError::Typed { body, .. } => {
                         body.get("message").and_then(serde_json::Value::as_str).map(str::to_string).unwrap_or_else(|| error.to_string())
                     }

@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use oc_core::app::App;
@@ -72,14 +71,11 @@ pub type LocProjector = Arc<dyn Fn(Arc<Loc>, &'static str) -> futures::future::B
 /// upstream's in-place State reload instead of a fresh boot. Holds the replaced services, if any.
 type Reloading = Arc<Mutex<HashMap<String, Option<Arc<Loc>>>>>;
 
-const ACTIVATE_INTERVAL: Duration = Duration::from_secs(60);
-
 pub struct Locations {
     app: Arc<App>,
     runner: Option<Arc<oc_core::runner::Engine>>,
     git: Git,
     map: Arc<Mutex<IndexMap<String, Cell>>>,
-    activated: Mutex<HashMap<String, Instant>>,
     /// Runs before a location is built (the models.dev refresh starts when the first location boots).
     on_build: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     reloading: Reloading,
@@ -134,7 +130,6 @@ impl Locations {
             runner,
             git: Git::new(),
             map,
-            activated: Mutex::new(HashMap::new()),
             on_build: Mutex::new(None),
             reloading,
             projector: Mutex::new(None),
@@ -173,17 +168,31 @@ impl Locations {
 
     /// Get or build the services for `directory`.
     pub async fn get(&self, directory: &str) -> Result<Arc<Loc>, ApiError> {
+        self.get_booting(directory).await.map(|(loc, _)| loc)
+    }
+
+    /// [`Locations::get`], also saying whether this call booted the location (a first build, not a configuration
+    /// reload): its plugins then activate in the background, after the call went on.
+    pub async fn get_booting(&self, directory: &str) -> Result<(Arc<Loc>, bool), ApiError> {
         let canonical = oc_core::location::canonical_directory(directory);
         let directory = canonical.as_str();
         let cell = self.map.lock().entry(directory.to_string()).or_default().clone();
-        let result = cell.get_or_try_init(|| self.build(directory)).await.cloned();
+        let booted = std::sync::atomic::AtomicBool::new(false);
+        let result = cell
+            .get_or_try_init(|| {
+                let reload = self.reloading.lock().contains_key(directory);
+                booted.store(!reload, std::sync::atomic::Ordering::Relaxed);
+                self.build(directory)
+            })
+            .await
+            .cloned();
         if result.is_err() {
             let mut map = self.map.lock();
             if map.get(directory).is_some_and(|c| Arc::ptr_eq(c, &cell)) {
                 map.shift_remove(directory);
             }
         }
-        result
+        result.map(|loc| (loc, booted.load(std::sync::atomic::Ordering::Relaxed)))
     }
 
     /// [`Locations::get`] for a request that does not wait for the location's plugins (credential creation at the
@@ -388,24 +397,7 @@ impl Locations {
 
     /// `Project.activate`: records activity at most once per minute per project.
     pub fn activate(&self, project_id: &str, location: Option<oc_schema::types::LocationRef>) {
-        {
-            let mut activated = self.activated.lock();
-            let now = Instant::now();
-            if activated.get(project_id).is_some_and(|t| now.duration_since(*t) < ACTIVATE_INTERVAL) {
-                return;
-            }
-            activated.insert(project_id.to_string(), now);
-        }
-        let now = crate::util::now_ms();
-        let updated = self
-            .app
-            .db
-            .with(|c| c.execute("UPDATE project SET time_active = ? WHERE id = ?", rusqlite::params![now, project_id]))
-            .unwrap_or(0);
-        if updated > 0
-            && let Ok(Some(info)) = oc_core::project::get(&self.app.bus, project_id) {
-                self.app.bus.publish("project.updated", info, location);
-            }
+        oc_core::project::activate(&self.app.bus, &self.app.project_activity, project_id, location);
     }
 
     /// Shut a location down (`LocationLifecycle.shutdown`): announce `location.shutdown`.

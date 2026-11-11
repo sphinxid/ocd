@@ -547,6 +547,13 @@ impl Engine {
 
     /// `Session.move`.
     pub async fn move_session(&self, id: &str, body: api::SessionMoveBody) -> Result<(), ApiError> {
+        self.move_session_from(id, body, false).await.map(|_| ())
+    }
+
+    /// [`Engine::move_session`]; `running` when the session's own drain moves it (the `opencode.session_move` tool).
+    /// The destination's plugins then activate in the background behind that drain: a destination this boots
+    /// announces itself once the drain yields, and its directory is returned to finish that boot.
+    pub async fn move_session_from(&self, id: &str, body: api::SessionMoveBody, running: bool) -> Result<Option<String>, ApiError> {
         let session = self.session(id)?;
         let value = body.directory.trim();
         let home = self.home().to_path_buf();
@@ -566,7 +573,8 @@ impl Engine {
             return Err(ApiError::invalid_request(format!("Not a directory: {dir_s}")));
         }
         let project = oc_core::project::resolve_and_persist(&self.app.bus, &directory).await.map_err(defect)?;
-        if let Err(e) = self.locations.get(&dir_s).await {
+        let destination = if running { self.locations.get_activating(&dir_s).await } else { self.locations.get(&dir_s).await };
+        if let Err(e) = destination {
             tracing::warn!(directory = dir_s, error = %e, "session move destination unavailable");
             return Err(ApiError::invalid_request(format!("Directory is unavailable: {dir_s}")));
         }
@@ -587,7 +595,8 @@ impl Engine {
                 events.push(
                     SessionEvent::Moved { session_id: id.into(), location, project_id: project.id.clone(), subpath: Some(subpath) }.into(),
                 );
-                self.app.bus.commit(events).map_err(|e| defect(format!("{e:#}")))?;
+                // `SessionMove` is a global service and the route has no location middleware: no envelope location.
+                unlocated(|| self.app.bus.commit(events)).map_err(|e| defect(format!("{e:#}")))?;
             } else {
                 let payload = json!({"location": {"directory": dir_s}, "projectID": project.id, "subpath": subpath});
                 self.app
@@ -601,7 +610,7 @@ impl Engine {
             }
         }
         self.wake(id, Scope::Input);
-        Ok(())
+        Ok((running && self.locations.activating(&dir_s)).then_some(dir_s))
     }
 
     // ---- messages -------------------------------------------------------------------------

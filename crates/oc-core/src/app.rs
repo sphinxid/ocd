@@ -39,6 +39,8 @@ pub struct App {
     /// `Session.move(sessionID, directory)` with steer delivery (set by the server, which owns the locations a move
     /// loads); the `opencode.session_move` tool moves sessions through it.
     pub session_mover: OnceLock<SessionMover>,
+    /// `Project.activate`'s once-a-minute throttle, per project.
+    pub project_activity: crate::project::Activity,
 }
 
 /// Moves a session to an absolute directory; the error is the move's failure message.
@@ -162,6 +164,7 @@ impl App {
             version,
             wellknown: OnceLock::new(),
             session_mover: OnceLock::new(),
+            project_activity: Default::default(),
         })
     }
 

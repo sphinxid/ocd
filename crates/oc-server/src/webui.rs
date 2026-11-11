@@ -226,7 +226,7 @@ impl WebUi {
 
 /// A body without a size hint: hyper frames it chunked (or, for `HEAD`, sends no length), as
 /// upstream's Node server does for web UI responses.
-fn unsized_body(bytes: Bytes) -> axum::body::Body {
+pub(crate) fn unsized_body(bytes: Bytes) -> axum::body::Body {
     let chunks = if bytes.is_empty() { Vec::new() } else { vec![Ok::<_, std::convert::Infallible>(bytes)] };
     axum::body::Body::from_stream(futures::stream::iter(chunks))
 }

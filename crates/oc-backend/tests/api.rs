@@ -493,10 +493,52 @@ async fn session_mover_for_tools() {
     let missing = oc_git::paths::resolve(&h.cwd, "/definitely/missing");
     let error = mover(id.clone(), missing.display().to_string()).await.unwrap_err();
     assert_eq!(error, format!("Directory does not exist: {}", missing.display()));
+    let mut rx = h.app.bus.subscribe();
     mover(id.clone(), other.display().to_string()).await.unwrap();
     let inbox = h.get(&format!("/api/session/{id}/inbox")).await.json();
     assert_eq!((inbox["data"][0]["type"].clone(), inbox["data"][0]["delivery"].clone()), (json!("move"), json!("steer")));
     assert_eq!(inbox["data"][0]["payload"]["location"]["directory"], json!(other.display().to_string()));
+
+    // The destination it booted announces itself only once the moving session's drain yields (its next request).
+    let at_other = |event: &oc_core::bus::Event| {
+        event.kind == "plugin.updated" && event.location.as_ref().is_some_and(|l| l.directory == other.display().to_string())
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    while let Ok(event) = rx.try_recv() {
+        assert!(!at_other(&event), "announced before the drain yielded");
+    }
+    oc_core::yields::reached(&id);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !at_other(&rx.recv().await.unwrap()) {}
+    })
+    .await
+    .expect("the destination's boot burst");
+
+    // The move is published once, from the session's old location, with the delivery before it.
+    use oc_schema::event::SessionEvent;
+    let mut rx = h.app.bus.subscribe();
+    let inbox_id = inbox["data"][0]["id"].as_str().unwrap().to_string();
+    h.app
+        .bus
+        .commit(vec![
+            SessionEvent::InboxDelivered { session_id: id.clone(), inbox_id }.into(),
+            SessionEvent::Moved {
+                session_id: id.clone(),
+                location: oc_schema::types::LocationRef { directory: other.display().to_string(), workspace_id: None },
+                project_id: inbox["data"][0]["payload"]["projectID"].as_str().unwrap().into(),
+                subpath: None,
+            }
+            .into(),
+        ])
+        .unwrap();
+    let mut seen = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        if event.kind.starts_with("session.") && event.kind != "session.usage.updated" {
+            seen.push((event.kind.clone(), event.location.as_ref().map(|l| l.directory.clone())));
+        }
+    }
+    let here = Some(h.cwd.display().to_string());
+    assert_eq!(seen, vec![("session.inbox.delivered".to_string(), here.clone()), ("session.moved".to_string(), here)]);
 }
 
 /// `GET /api/experimental/job` (#60698): persisted rows oldest first with the live generation's state, then live

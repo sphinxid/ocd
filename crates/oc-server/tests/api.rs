@@ -521,6 +521,8 @@ async fn fs_read_validators_and_ranges() {
     let r = h.send(send("range", "bytes=20-".into())).await;
     assert_eq!(r.status, StatusCode::RANGE_NOT_SATISFIABLE);
     assert_eq!(r.header("content-range"), Some("bytes */10"));
+    // Upstream's empty 416 goes out chunked, without a content-length.
+    assert_eq!(r.header("content-length"), None);
 
     let r = h.get("/api/fs/read/missing%20file.txt").await;
     assert_eq!(r.status, StatusCode::NOT_FOUND);

@@ -183,6 +183,8 @@ pub async fn attempt(input: Input<'_>) -> Result<Outcome, StepError> {
     let stream_cancel = input.cancel.child_token();
 
     // ---- provider stream ----
+    // The drain now waits for the provider: background work that waited for it to yield runs.
+    crate::yields::reached(&input.session_id);
     let stream_result: Result<(), AIError> = async {
         let options = oc_ai::StreamOptions { http: input.http_hook.clone(), web_socket: input.web_socket.clone() };
         let mut stream = input.client.stream_opts(input.request.clone(), stream_cancel.clone(), options).await?;

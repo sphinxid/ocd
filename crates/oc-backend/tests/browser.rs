@@ -267,6 +267,41 @@ async fn codemode_tools_round_trip_through_the_desktop() {
 }
 
 #[tokio::test]
+async fn the_grant_keeps_one_set_of_allows_and_a_booting_location_has_no_browser_rpc_yet() {
+    let h = harness();
+    let session = h.session().await;
+    // The session already allows the browser: attaching writes nothing, and detaching removes every allow.
+    let patched = h.req("PATCH", &format!("/api/session/{session}"), Some(json!({ "permissions": allows() }))).await;
+    assert_eq!(patched.status, 204);
+    let mut rx = h.app.bus.subscribe();
+    let attached = attach(&h, &session, "c1").await;
+    assert_eq!(permissions(&h, &session).await, allows());
+    attached.abort();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while permissions(&h, &session).await != json!([]) {
+        assert!(tokio::time::Instant::now() < deadline, "allows were not removed");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut writes = 0;
+    while let Ok(event) = rx.try_recv() {
+        writes += usize::from(event.kind == "session.permissions");
+    }
+    assert_eq!(writes, 1, "only the revoke writes");
+
+    // An evicted location boots again on the next call, before the plugin registered its RPC.
+    let evicted = h.req("DELETE", &format!("/api/debug/location?directory={}", enc(&h.dir())), None).await;
+    assert_eq!(evicted.status, 204);
+    let input = json!({ "sessionID": session, "connectionID": "c2", "version": 4 });
+    assert_eq!(
+        rpc(&h.router, &h.dir(), "attach", input).await,
+        (400, json!({ "_tag": "RpcError", "type": "rpc.unavailable", "message": "RPC is unavailable: experimental.browser" }))
+    );
+    let again = attach(&h, &session, "c3").await;
+    assert_eq!(permissions(&h, &session).await, allows());
+    again.abort();
+}
+
+#[tokio::test]
 async fn requests_time_out_with_a_cancel_and_fail_when_the_desktop_leaves() {
     let h = harness();
     h.app.plugins.browsers.set_timeout(Duration::from_millis(300));
