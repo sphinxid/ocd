@@ -994,6 +994,11 @@ async fn location_reload_shuts_down_pty_attachments_and_their_ptys() {
     let id = r.json()["data"]["id"].as_str().unwrap().to_string();
     let ctx = RequestContext::for_test(&h.dir());
     let att = h.engine.pty_connect(&ctx, oc_server::PtyAttachRequest { pty_id: id.clone(), cursor: None }).await.unwrap();
+    // ConPTY waits for the terminal to report its cursor position before it starts the shell; closing a
+    // pseudo-console whose shell never started can block.
+    if cfg!(windows) {
+        att.control.write("\x1b[1;1R");
+    }
     let shutdown = att.shutdown.expect("a shutdown signal");
     assert_eq!(h.req("POST", "/api/location/reload", None).await.status, 204);
     tokio::time::timeout(std::time::Duration::from_secs(5), shutdown).await.expect("the location shut down");

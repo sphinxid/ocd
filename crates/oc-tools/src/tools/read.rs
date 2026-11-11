@@ -1209,7 +1209,9 @@ mod tests {
         std::fs::write(dir.path().join("config.json"), "").unwrap();
         std::fs::write(dir.path().join("other.md"), "").unwrap();
         let err = missing_with("src/config", &dir.path().join("config"), vec![]);
-        assert_eq!(err.message, "File not found: src/config\n\nDid you mean one of these?\nsrc/config.json");
+        // `path.join` normalizes to the platform separator.
+        let suggestion = if cfg!(windows) { "src\\config.json" } else { "src/config.json" };
+        assert_eq!(err.message, format!("File not found: src/config\n\nDid you mean one of these?\n{suggestion}"));
         let err = missing_with("zzz", &dir.path().join("zzz"), vec![]);
         assert_eq!(err.message, "File not found: zzz");
         std::fs::write(dir.path().join("it’s.txt"), "x").unwrap();
