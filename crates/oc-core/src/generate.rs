@@ -111,9 +111,18 @@ pub fn provider_error(model: &ModelRef, error: &AIError) -> GenerateError {
     }
 }
 
+/// `SessionGenerate.Result`: the text and the usage it was recorded with.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionGenerated {
+    pub text: String,
+    pub cost: f64,
+    pub tokens: oc_schema::types::TokenUsage,
+}
+
 impl Engine {
-    /// `SessionGenerate.generate`: text from the session's context without mutating it.
-    pub async fn session_generate(self: &Arc<Self>, session_id: &str, prompt: &str) -> anyhow::Result<String> {
+    /// `SessionGenerate.generate`: text from the session's context without mutating its history. Usage is
+    /// reported like a step's (`session.usage.recorded`, source `generate`) and added to the session's totals.
+    pub async fn session_generate(self: &Arc<Self>, session_id: &str, prompt: &str) -> anyhow::Result<SessionGenerated> {
         let sel = self.select(session_id).await?;
         let (_, update) = crate::instruction_state::preview(&self.app.bus, session_id, &sel.sources)?;
         let loaded = self.load_for(sel, crate::plugin_request::Kind::Generate).await?;
@@ -138,7 +147,14 @@ impl Engine {
         .map_err(|e| anyhow::anyhow!("{e}"))?;
         tracing::info!(sessionID = session_id, providerID = %loaded.resolved.model.provider_id, modelID = %loaded.resolved.model.id, "sending session generation request");
         let response = crate::retry::buffered(|| self.client.generate_with(req.clone(), CancellationToken::new(), shaped.http.clone())).await?;
-        Ok(response.text())
+        let (cost, tokens) = crate::usage::record(response.usage.as_ref(), &crate::usage::costs(&loaded.resolved));
+        self.app.bus.commit_one(oc_schema::event::SessionEvent::UsageRecorded {
+            session_id: session_id.to_string(),
+            source: "generate".into(),
+            cost,
+            tokens: tokens.clone(),
+        })?;
+        Ok(SessionGenerated { text: response.text(), cost, tokens })
     }
 
     /// `Generate.text`: a one-off prompt against `model` or the default model, retried only when the

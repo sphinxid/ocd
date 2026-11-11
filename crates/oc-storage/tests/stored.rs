@@ -397,9 +397,115 @@ fn forks_a_settled_message_whose_parts_are_in_session_part_with_its_content() {
     let v = serde_json::to_value(&msgs[0].1).unwrap();
     assert_eq!(v["type"], "assistant");
     assert_eq!(v["content"], json!([{"type": "text", "text": "split answer"}]));
-    // the parent keeps its part rows, the child has none (its content is inline)
-    let n: i64 = db.with(|c| c.query_row("SELECT count(*) FROM session_part", [], |r| r.get(0))).unwrap();
-    assert_eq!(n, 1);
+    // 2.2.7: the child gets its own part rows and an empty envelope, like the parent
+    let forked = msgs[0].1.id().to_string();
+    assert_eq!(row_data(&db, &forked)["content"], json!([]));
+    let parts: Vec<(String, String, i64, String, i64, i64)> = db
+        .with(|c| {
+            let mut s = c.prepare(
+                "SELECT message_id, session_id, ordinal, type, time_created, time_updated FROM session_part ORDER BY session_id = ?, ordinal",
+            )?;
+            let rows = s.query_map([&child], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    assert_eq!(
+        parts,
+        [
+            (mid.to_string(), sid.clone(), 0, "text".to_string(), 1, 1),
+            (forked, child.clone(), 0, "text".to_string(), 1, 1),
+        ]
+    );
+}
+
+/// `session-projector.test.ts` "reads a split message an older build added inline content to as its parts then
+/// that content" (2.2.7): reads put the parts first, and an update writes the whole content into part rows.
+#[test]
+fn reads_a_split_message_with_inline_content_as_its_parts_then_that_content() {
+    let (db, sid) = setup();
+    let mid = "msg_hybrid_read";
+    let mut row = assistant_row(None);
+    row["content"] = json!([
+        {"type": "text", "text": "inline after"},
+        {"type": "tool", "id": "call_inline", "name": "read", "executed": true,
+         "state": {"status": "running", "input": {"path": "a.ts"}, "metadata": {}}, "time": {"created": 1, "ran": 1}}
+    ]);
+    insert_row(&db, &sid, mid, "assistant", 0, row);
+    insert_part(&db, &sid, mid, 0, None, json!({"type": "text", "text": "split first"}));
+    let content = message_json(&db, &sid, mid)["content"].clone();
+    assert_eq!(content[0]["text"], "split first");
+    assert_eq!(content[1]["text"], "inline after");
+    assert_eq!(content[2]["id"], "call_inline");
+    assert_eq!(content[2]["state"]["status"], "running");
+
+    commit(
+        &db,
+        SessionEvent::ToolFailed {
+            session_id: sid.clone(),
+            assistant_message_id: mid.into(),
+            id: "call_inline".into(),
+            error: serde_json::from_value(json!({"type": "aborted", "message": "Tool execution interrupted: read"})).unwrap(),
+            content: None,
+            metadata: None,
+            executed: true,
+            native: None,
+        },
+        5,
+    );
+    let content = message_json(&db, &sid, mid)["content"].clone();
+    assert_eq!(content[0]["text"], "split first");
+    assert_eq!(content[1]["text"], "inline after");
+    assert_eq!(content[2]["state"]["status"], "error");
+    assert_eq!(row_data(&db, mid)["content"], json!([]));
+    let n: i64 = db.with(|c| c.query_row("SELECT count(*) FROM session_part WHERE message_id = ?", [mid], |r| r.get(0))).unwrap();
+    assert_eq!(n, 3);
+}
+
+/// "forks a split message an older build added inline media to" (2.2.7): the inline media moves to a blob the
+/// forked message refs, and the fork reads like its parent.
+#[test]
+fn forks_a_split_message_with_inline_media() {
+    let (db, sid) = setup();
+    let mid = "msg_hybrid_fork";
+    let shot = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(PNG));
+    let mut row = assistant_row(Some(1));
+    row["content"] = json!([{"type": "tool", "id": "call_inline_shot", "name": "shot", "executed": true,
+        "state": {"status": "completed", "input": {}, "content": [{"type": "file", "uri": shot, "mime": "image/png"}]},
+        "time": {"created": 1, "ran": 1, "completed": 1}}]);
+    insert_row(&db, &sid, mid, "assistant", 0, row);
+    insert_part(&db, &sid, mid, 0, None, json!({"type": "text", "text": "split first"}));
+    let parent = message_json(&db, &sid, mid);
+    assert_eq!(parent["content"][0]["text"], "split first");
+    assert_eq!(parent["content"][1]["id"], "call_inline_shot");
+
+    let child = id::session();
+    commit_media(
+        &db,
+        SessionEvent::Forked {
+            session_id: child.clone(),
+            parent_id: sid.clone(),
+            boundary: ForkBoundary { kind: ForkBoundaryType::Through, message_id: mid.into() },
+            instructions: None,
+            instruction_entries: None,
+        },
+        10,
+    );
+    let msgs = db.session_messages(&child).unwrap();
+    let forked = msgs[0].1.id().to_string();
+    let raw: String = db
+        .with(|c| {
+            c.query_row(
+                "SELECT group_concat(data) FROM (SELECT data FROM session_message WHERE session_id = ?1 UNION ALL SELECT data FROM session_part WHERE session_id = ?1)",
+                [&child],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert!(!raw.contains(&base64::engine::general_purpose::STANDARD.encode(PNG)));
+    assert_eq!(refs(&db).into_iter().filter(|r| r.0 == child).map(|r| (r.1, r.2)).collect::<Vec<_>>(), [(forked.clone(), hash(PNG))]);
+    let mut copy = serde_json::to_value(&msgs[0].1).unwrap();
+    copy["id"] = json!(mid);
+    assert_eq!(copy, parent);
 }
 
 const PNG: &[u8] = b"\x89PNG fake bytes";
@@ -860,4 +966,43 @@ fn split_moves_only_inline_media() {
     assert_eq!(user["files"][0]["uri"], json!(format!("media:{}", hash(PNG))));
     let mut refs_only = json!({"text": "x", "files": [{"mime": "image/png", "source": {"type": "inline"}, "uri": format!("media:{d}")}]});
     assert!(oc_storage::stored::split(&mut refs_only).is_empty());
+}
+
+/// `database-migration.test.ts` "imports legacy credentials when bootstrapping a fresh database" (2.2.7, #62568).
+#[test]
+fn a_fresh_database_imports_legacy_credentials() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("auth.json"),
+        json!({"openai": {"type": "oauth", "refresh": "refresh", "access": "access", "expires": 123}}).to_string(),
+    )
+    .unwrap();
+    let db = Database::open(&dir.path().join("opencode.db"), dir.path()).unwrap();
+    let rows: Vec<(String, String)> = db
+        .with(|c| {
+            let mut stmt = c.prepare("SELECT integration_id, label FROM credential")?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    assert_eq!(rows, [("openai".to_string(), "OAuth".to_string())]);
+    let n: i64 = db.with(|c| c.query_row("SELECT count(*) FROM migration", [], |r| r.get(0))).unwrap();
+    assert_eq!(n, 59);
+}
+
+/// "bootstraps a fresh database when the legacy credential file is malformed": a file that is not a JSON object
+/// is skipped with a warning, on a fresh database and when the import migration runs on an older one.
+#[test]
+fn a_malformed_legacy_credential_file_is_skipped() {
+    for content in ["not json", "[]", "null", "\"text\""] {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("auth.json"), content).unwrap();
+        let db = Database::open(&dir.path().join("opencode.db"), dir.path()).unwrap();
+        let n: i64 = db.with(|c| c.query_row("SELECT count(*) FROM credential", [], |r| r.get(0))).unwrap();
+        assert_eq!(n, 0, "{content}");
+
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch(oc_storage::migrate::SCHEMA).unwrap();
+        oc_storage::migrate::import_legacy_credentials(&c, &dir.path().join("auth.json")).unwrap();
+    }
 }

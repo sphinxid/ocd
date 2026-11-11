@@ -225,7 +225,7 @@ pub fn get(db: &Database, input: Input) -> anyhow::Result<Result<Value, InvalidR
 
     if input.tools != ToolMode::None {
         for (rf, rt) in &ranges {
-            // Tool parts a newer release moved to `session_part`, then the inline content of messages without part rows.
+            // Tool parts in `session_part`, then the inline content of messages that still have some (2.2.7).
             let parts = format!(
                 "FROM session_part AS part JOIN session_message AS message ON message.id = part.message_id JOIN session_v2 AS session ON session.id = message.session_id
                  WHERE message.type = 'assistant' AND message.time_created >= ? AND message.time_created < ? AND {FORK_FILTER} AND part.type = 'tool'{project_sql}"
@@ -233,7 +233,7 @@ pub fn get(db: &Database, input: Input) -> anyhow::Result<Result<Value, InvalidR
             let base = format!(
                 "FROM session_message AS message JOIN session_v2 AS session ON session.id = message.session_id, json_each(message.data, '$.content') AS content
                  WHERE message.type = 'assistant' AND message.time_created >= ? AND message.time_created < ? AND {FORK_FILTER}
-                   AND NOT EXISTS (SELECT 1 FROM session_part AS part WHERE part.message_id = message.id)
+                   AND json_array_length(message.data, '$.content') > 0
                    AND json_extract(content.value, '$.type') = 'tool'{project_sql}"
             );
             let mut args = with_project(vec![Sql::Integer(*rf), Sql::Integer(*rt)]);
@@ -291,7 +291,7 @@ pub fn get(db: &Database, input: Input) -> anyhow::Result<Result<Value, InvalidR
             None => s.query_map([], |r| r.get(0))?.collect(),
         }
     })?;
-    for batch in ids.chunks(500) {
+    for batch in ids.chunks(97) {
         let placeholders = vec!["?"; batch.len()].join(",");
         let sql = format!(
             "SELECT data FROM event WHERE aggregate_id IN ({placeholders}) AND type = 'session.usage.recorded.1' AND json_extract(data, '$.source') = 'compaction' AND created >= ? AND created < ?"
@@ -377,5 +377,51 @@ mod tests {
         assert_eq!(date_key(&chrono_tz::UTC, 1_767_236_400_000), "2026-01-01");
         assert!(parse_timezone("Not/AZone").is_none());
         assert!(parse_timezone("utc").is_some());
+    }
+
+    /// `session-stats.test.ts` "counts tool calls in both session_part rows and inline content an older build
+    /// left on one message" (2.2.7).
+    #[test]
+    fn counts_tool_calls_in_part_rows_and_inline_content_of_one_message() {
+        let db = Database::memory().unwrap();
+        let created: i64 = 1_767_348_000_000; // 2026-01-02T10:00:00Z
+        let time = json!({"created": created, "completed": created + 1_000});
+        let inline = json!({"type": "tool", "id": "call_inline", "name": "edit",
+            "state": {"status": "error", "input": {}, "error": {"type": "tool", "message": "failed"}}, "time": time});
+        let part = json!({"type": "tool", "id": "call_part", "name": "read",
+            "state": {"status": "completed", "input": {}, "content": [{"type": "text", "text": "ok"}]}, "time": time});
+        let data = json!({"agent": "build", "model": {"id": "m", "providerID": "p"}, "content": [inline],
+            "time": {"created": created, "completed": created + 1_000}});
+        db.with(|c| {
+            c.execute_batch(
+                "INSERT INTO project (id, worktree, name, time_created, time_updated, sandboxes) VALUES ('stats-project', '/stats', 'stats', 0, 0, '[]');
+                 INSERT INTO session_v2 (id, project_id, slug, directory, version, time_created, time_updated) VALUES ('ses_stats_root', 'stats-project', 'root', '/stats', 'test', 0, 0);",
+            )?;
+            c.execute(
+                "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES ('msg_stats_hybrid', 'ses_stats_root', 'assistant', 1, ?, ?, ?)",
+                rusqlite::params![created, created, data.to_string()],
+            )?;
+            c.execute(
+                "INSERT INTO session_part (message_id, session_id, ordinal, type, call_id, time_created, time_updated, data) VALUES ('msg_stats_hybrid', 'ses_stats_root', 0, 'tool', 'call_part', ?, ?, ?)",
+                rusqlite::params![created, created, part.to_string()],
+            )
+        })
+        .unwrap();
+        let input = |tools| Input {
+            from: Some(1_767_225_600_000),
+            to: Some(1_769_904_000_000),
+            project: None,
+            timezone: chrono_tz::UTC,
+            tools,
+        };
+        let summary = get(&db, input(ToolMode::Summary)).unwrap().ok().unwrap();
+        assert_eq!(
+            summary["tools"],
+            json!({"mode": "summary", "totals": {"calls": 2, "succeeded": 1, "failed": 1, "unfinished": 0}})
+        );
+        let detail = get(&db, input(ToolMode::Detail)).unwrap().ok().unwrap();
+        let mut names: Vec<&str> = detail["tools"]["usage"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        names.sort();
+        assert_eq!(names, ["edit", "read"]);
     }
 }

@@ -305,7 +305,21 @@ impl Backend for Engine {
             return Err(ApiError::service_unavailable("Session generation is not available", Some("session generation".into())));
         };
         match runner.session_generate(&req.session_id, &req.body.prompt).await {
-            Ok(text) => Ok(SessionGenerateResponse { data: SessionGenerateResponseData { text, tokens: Default::default(), cost: 0.0 } }),
+            Ok(generated) => Ok(SessionGenerateResponse {
+                data: SessionGenerateResponseData {
+                    text: generated.text,
+                    tokens: TokenUsageInfo {
+                        input: generated.tokens.input as f64,
+                        output: generated.tokens.output as f64,
+                        reasoning: generated.tokens.reasoning as f64,
+                        cache: TokenUsageInfoCache {
+                            read: generated.tokens.cache.read as f64,
+                            write: generated.tokens.cache.write as f64,
+                        },
+                    },
+                    cost: generated.cost,
+                },
+            }),
             Err(e) => match self.session(&req.session_id) {
                 Err(nf) => Err(nf),
                 Ok(_) => Err(ApiError::service_unavailable(e.to_string(), Some("session generation".into()))),

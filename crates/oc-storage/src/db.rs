@@ -33,6 +33,11 @@ fn restrict_to_owner(_: &Path) {}
 
 impl Database {
     pub fn open(path: &Path, data_dir: &Path) -> anyhow::Result<Self> {
+        Self::open_in(path, Some(data_dir))
+    }
+
+    /// `data_dir` is where the legacy `auth.json` is imported from; `None` imports nothing.
+    fn open_in(path: &Path, data_dir: Option<&Path>) -> anyhow::Result<Self> {
         let conn = if path == Path::new(":memory:") {
             Connection::open_in_memory()?
         } else {
@@ -59,7 +64,7 @@ impl Database {
     }
 
     pub fn memory() -> anyhow::Result<Self> {
-        Self::open(Path::new(":memory:"), &std::env::temp_dir())
+        Self::open_in(Path::new(":memory:"), None)
     }
 
     /// Run `f` with exclusive access to the connection.

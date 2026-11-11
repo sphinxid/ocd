@@ -788,8 +788,8 @@ impl Engine {
         let prompt = render(JUDGE, &[("objective", &escape(goal.objective())), ("background", &background), ("wait", wait)]);
         for attempt in 0..2 {
             let judged = match self.session_generate(session_id, &prompt).await {
-                Ok(text) => {
-                    let verdict = parse_verdict(&text);
+                Ok(generated) => {
+                    let verdict = parse_verdict(&generated.text);
                     // "wait" is only offered while a shell runs; without one, nothing would wake the session to judge again.
                     Judged::Verdict(verdict.filter(|v| !(v.verdict == "wait" && shells.is_empty())))
                 }

@@ -288,7 +288,7 @@ fn project(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             msg.insert("time".into(), serde_json::json!({ "created": created }));
             let (decodable, refs) = crate::stored::without_refs(Value::Object(msg));
             let message: Message = serde_json::from_value(decodable)?;
-            insert_message_with(c, session_id, seq, &message, &refs, e.media)?;
+            insert_message_with(c, session_id, seq, &message, &refs, e.media, e.created as i64)?;
         }
         E::InboxEnqueued { session_id, inbox_id, item } => {
             let exists = c
@@ -546,12 +546,12 @@ fn project_fork(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<
              ORDER BY seq",
             params![prefix, session_id, parent_id, copied],
         )?;
-        fork_inline_parts(c, session_id, parent_id, &prefix, copied)?;
         fork_keep_ids(c, session_id, parent_id, &prefix)?;
         if e.media {
             fork_externalize(c, session_id)?;
         }
         fork_record_refs(c, session_id)?;
+        fork_parts(c, session_id, parent_id, &prefix, copied, e.media)?;
         reserve_seq(c, session_id, copied)?;
     }
     if let Some(values) = instructions {
@@ -564,28 +564,51 @@ fn project_fork(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<
     Ok(())
 }
 
-/// A parent message whose parts live in `session_part` is copied with them inline, so the fork reads the same.
-fn fork_inline_parts(c: &Connection, session: &str, parent: &str, prefix: &str, copied: i64) -> anyhow::Result<()> {
-    let mut rows: Vec<(i64, String, String, String)> = {
+/// The parent's `session_part` rows of every copied assistant message are copied as part rows of the forked
+/// message (same ordinal, type, call ID and times), their inline media moved to `blob` where the fork stores
+/// media, and the refs they name recorded for the forked message (2.2.7; the envelopes stay empty).
+fn fork_parts(c: &Connection, session: &str, parent: &str, prefix: &str, copied: i64, media: bool) -> anyhow::Result<()> {
+    #[allow(clippy::type_complexity)]
+    let parts: Vec<(i64, i64, String, Option<String>, i64, i64, String)> = {
         let mut s = c.prepare(
-            "SELECT m.seq, m.id, m.type, m.data FROM session_message AS m
-             WHERE m.session_id = ? AND m.seq <= ? AND m.type = 'assistant'
-               AND EXISTS (SELECT 1 FROM session_part AS p WHERE p.message_id = m.id)",
+            "SELECT m.seq, p.ordinal, p.type, p.call_id, p.time_created, p.time_updated, p.data
+             FROM session_part AS p JOIN session_message AS m ON m.id = p.message_id AND m.session_id = p.session_id
+             WHERE p.session_id = ?1 AND m.seq <= ?2 AND m.type = 'assistant'
+               AND json_extract(m.data, '$.time.completed') IS NOT NULL
+             ORDER BY p.message_id ASC, p.ordinal ASC",
         )?;
         let rows = s
-            .query_map(params![parent, copied], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .query_map(params![parent, copied], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+            })?
             .collect::<rusqlite::Result<_>>()?;
         rows
     };
-    if rows.is_empty() {
-        return Ok(());
-    }
-    crate::stored::with_parts(c, &mut rows)?;
-    for (seq, _, _, data) in rows {
+    let mut by_message: Vec<(i64, Vec<Value>)> = Vec::new();
+    for (seq, ordinal, kind, call_id, created, updated, data) in parts {
+        let mut data = data;
+        if media {
+            let part: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+            let mut wrapped = serde_json::json!({ "content": [part] });
+            let taken = crate::stored::split(&mut wrapped);
+            if !taken.is_empty() {
+                crate::stored::save(c, &taken)?;
+                data = wrapped["content"][0].to_string();
+            }
+        }
+        let message = format!("{prefix}_{seq}");
         c.execute(
-            "UPDATE session_message SET data = ? WHERE session_id = ? AND id = ?",
-            params![data, session, format!("{prefix}_{seq}")],
+            "INSERT INTO session_part (message_id, session_id, ordinal, type, call_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            params![message, session, ordinal, kind, call_id, created, updated, data],
         )?;
+        let value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+        match by_message.last_mut() {
+            Some((last, list)) if *last == seq => list.push(value),
+            _ => by_message.push((seq, vec![value])),
+        }
+    }
+    for (seq, content) in by_message {
+        crate::stored::record_refs(c, session, &format!("{prefix}_{seq}"), seq, &serde_json::json!({ "content": content }))?;
     }
     Ok(())
 }
@@ -659,11 +682,13 @@ fn fork_keep_ids(c: &Connection, session: &str, parent: &str, prefix: &str) -> a
 }
 
 fn insert_message(c: &Connection, e: &Committing<'_>, session: &str, seq: i64, m: &Message) -> rusqlite::Result<()> {
-    insert_message_with(c, session, seq, m, &[], e.media)
+    insert_message_with(c, session, seq, m, &[], e.media, e.created as i64)
 }
 
 /// `insertMessage`: the row (with `refs`, the user files a payload kept as refs, put back), its inline media
-/// externalized where the flag is on, then the refs it names recorded.
+/// externalized where the flag is on, then the refs it names recorded. An assistant message's content goes to
+/// `session_part` rows (ordinals from 0) and the row keeps an empty `content` envelope (2.2.7).
+#[allow(clippy::too_many_arguments)]
 fn insert_message_with(
     c: &Connection,
     session: &str,
@@ -671,6 +696,7 @@ fn insert_message_with(
     m: &Message,
     refs: &[(usize, String)],
     media: bool,
+    event_created: i64,
 ) -> rusqlite::Result<()> {
     let mut data = m.to_row_data();
     if !refs.is_empty() || media {
@@ -682,10 +708,23 @@ fn insert_message_with(
         }
         data = value.to_string();
     }
+    let mut row_data = data.clone();
+    let mut parts: Vec<Value> = Vec::new();
+    if matches!(m, Message::Assistant(_)) {
+        let mut row = crate::stored::parse_object(&data);
+        if let Some(Value::Array(content)) = row.get("content")
+            && !content.is_empty()
+        {
+            parts = content.clone();
+            row.insert("content".into(), Value::Array(vec![]));
+            row_data = Value::Object(row).to_string();
+        }
+    }
     c.execute(
         "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        params![m.id(), session, m.kind(), seq, m.created() as i64, now_ms(), data],
+        params![m.id(), session, m.kind(), seq, m.created() as i64, now_ms(), row_data],
     )?;
+    crate::stored::insert_parts(c, session, m.id(), m.created() as i64, event_created, &parts)?;
     if data.contains("\"media:") {
         let value: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
         crate::stored::record_refs(c, session, m.id(), seq, &value)?;
@@ -1207,4 +1246,57 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
         _ => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `insertMessage` (2.2.7): an assistant message inserted with content keeps an empty envelope and writes its
+    /// parts to `session_part` (ordinals from 0, created at the message's time, updated at the event's). No
+    /// event inserts one today (steps start empty), as upstream.
+    #[test]
+    fn inserts_an_assistant_message_with_content_as_part_rows() {
+        let db = crate::Database::memory().unwrap();
+        db.with(|c| {
+            c.execute_batch(
+                "INSERT INTO project (id, worktree, time_created, time_updated, sandboxes) VALUES ('global', '/', 0, 0, '[]');
+                 INSERT INTO session_v2 (id, project_id, slug, directory, version, time_created, time_updated) VALUES ('ses_x', 'global', 's', '/tmp', 'v', 1, 1);",
+            )
+        })
+        .unwrap();
+        let content = serde_json::json!([
+            {"type": "text", "text": "hello"},
+            {"type": "tool", "id": "call_1", "name": "read", "executed": true,
+             "state": {"status": "completed", "input": {}, "content": [{"type": "text", "text": "ok"}]},
+             "time": {"created": 3, "ran": 3, "completed": 4}}
+        ]);
+        let message: Message = serde_json::from_value(serde_json::json!({
+            "id": "msg_a", "type": "assistant", "agent": "build",
+            "model": {"id": "m", "providerID": "p", "variant": "default"},
+            "content": content, "time": {"created": 3, "completed": 5}
+        }))
+        .unwrap();
+        db.with(|c| insert_message_with(c, "ses_x", 7, &message, &[], false, 9)).unwrap();
+        let data: String = db.with(|c| c.query_row("SELECT data FROM session_message WHERE id = 'msg_a'", [], |r| r.get(0))).unwrap();
+        let data: Value = serde_json::from_str(&data).unwrap();
+        assert_eq!(data["content"], serde_json::json!([]));
+        #[allow(clippy::type_complexity)]
+        let parts: Vec<(i64, String, Option<String>, i64, i64, String)> = db
+            .with(|c| {
+                let mut s = c.prepare(
+                    "SELECT ordinal, type, call_id, time_created, time_updated, data FROM session_part WHERE message_id = 'msg_a' ORDER BY ordinal",
+                )?;
+                let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
+                rows.collect()
+            })
+            .unwrap();
+        assert_eq!(parts.iter().map(|p| (p.0, p.1.as_str(), p.2.as_deref(), p.3, p.4)).collect::<Vec<_>>(), [
+            (0, "text", None, 3, 9),
+            (1, "tool", Some("call_1"), 3, 9)
+        ]);
+        let mut rows = [("msg_a".to_string(), "assistant".to_string(), data.to_string())];
+        db.with(|c| crate::stored::with_parts(c, &mut rows)).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&rows[0].2).unwrap()["content"], content);
+    }
 }

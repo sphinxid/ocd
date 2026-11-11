@@ -29,7 +29,7 @@ fn tables(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     rows.collect()
 }
 
-pub fn apply(db: &Database, data_dir: &Path) -> anyhow::Result<()> {
+pub fn apply(db: &Database, data_dir: Option<&Path>) -> anyhow::Result<()> {
     let existing = db.with(|c| tables(c))?;
     if existing.iter().any(|t| t == "session" || t == "session_v2") {
         return apply_only(db, data_dir);
@@ -39,6 +39,10 @@ pub fn apply(db: &Database, data_dir: &Path) -> anyhow::Result<()> {
     }
     db.transaction(|c| {
         c.execute_batch(SCHEMA)?;
+        // 2.2.7 (#62568): a fresh database imports the legacy `auth.json` too.
+        if let Some(dir) = data_dir {
+            import_legacy_credentials(c, &dir.join("auth.json"))?;
+        }
         c.execute_batch("CREATE TABLE \"migration\" (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)")?;
         let now = now_ms();
         for id in ids() {
@@ -54,7 +58,7 @@ fn completed(c: &Connection) -> rusqlite::Result<HashSet<String>> {
     rows.collect()
 }
 
-fn apply_only(db: &Database, data_dir: &Path) -> anyhow::Result<()> {
+fn apply_only(db: &Database, data_dir: Option<&Path>) -> anyhow::Result<()> {
     db.with(|c| c.execute_batch("CREATE TABLE IF NOT EXISTS \"migration\" (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)"))?;
     let mut done = db.with(completed)?;
     if done.is_empty() {
@@ -121,7 +125,7 @@ fn seed_from_drizzle(db: &Database) -> anyhow::Result<()> {
     })
 }
 
-fn run_migration(c: &Connection, id: &str, sql: &str, data_dir: &Path) -> anyhow::Result<()> {
+fn run_migration(c: &Connection, id: &str, sql: &str, data_dir: Option<&Path>) -> anyhow::Result<()> {
     let stmts = statements(sql);
     match id {
         "20260511173437_session-metadata" => {
@@ -161,7 +165,11 @@ fn run_migration(c: &Connection, id: &str, sql: &str, data_dir: &Path) -> anyhow
                 }
             }
         }
-        "20260805200742_import_legacy_credentials" => import_legacy_credentials(c, &data_dir.join("auth.json"))?,
+        "20260805200742_import_legacy_credentials" => {
+            if let Some(dir) = data_dir {
+                import_legacy_credentials(c, &dir.join("auth.json"))?;
+            }
+        }
         _ => {
             for st in stmts {
                 c.execute_batch(st)?;
@@ -184,7 +192,8 @@ pub fn import_legacy_credentials(c: &Connection, file: &Path) -> anyhow::Result<
     let Ok(content) = std::fs::read_to_string(file) else { return Ok(()) };
     let input: Option<Value> = serde_json::from_str(&content).ok();
     let Some(Value::Object(input)) = input else {
-        anyhow::bail!("Legacy credential file must contain an object");
+        tracing::warn!(path = %file.display(), "Skipped legacy credential file that is not a JSON object");
+        return Ok(());
     };
     let mut origins: Vec<String> = Vec::new();
     for (id, raw) in input {

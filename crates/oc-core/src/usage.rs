@@ -37,6 +37,21 @@ pub struct Cost {
     pub cache_write: f64,
 }
 
+/// A resolved model's cost entries (`model.cost`).
+pub fn costs(model: &oc_ai::catalog::ResolvedModel) -> Vec<Cost> {
+    model
+        .cost()
+        .iter()
+        .map(|c| Cost {
+            tier_size: c.tier.as_ref().map(|t| t.size.max(0) as u64),
+            input: c.input,
+            output: c.output,
+            cache_read: c.cache.read,
+            cache_write: c.cache.write,
+        })
+        .collect()
+}
+
 pub fn calculate_cost(costs: &[Cost], t: &TokenUsage) -> f64 {
     let ctx = t.input + t.cache.read + t.cache.write;
     let tier = costs

@@ -2,8 +2,8 @@
 //! `session_part` (`core/src/session/history.ts` `withParts`, `projector.ts` `writeParts`) and media
 //! kept in `blob` behind `media:<sha256>` refs (`core/src/session/blob.ts`).
 //!
-//! ocd never creates part rows itself (upstream 2.2.5 does not either); it reads them and keeps them up to
-//! date. Blobs are written where the session's location sets `experimental.media_blob` (the projector's
+//! Like upstream 2.2.7 with `experimental.part_rows` off, ocd writes part rows only for an assistant message
+//! inserted with content and for the parts a fork copies; it reads them and keeps existing ones up to date. Blobs are written where the session's location sets `experimental.media_blob` (the projector's
 //! `Committing::media`, imports), read back inline or kept as refs for clients that opt in, and released.
 
 use std::collections::{HashMap, HashSet};
@@ -50,7 +50,8 @@ fn any_rows(c: &Connection, table: &str) -> rusqlite::Result<bool> {
 // ---- session_part ---------------------------------------------------------------------------
 
 /// `SessionHistory.withParts`: each assistant row whose message has `session_part` rows reads
-/// them (in ordinal order) as its `data.content`. Rows without parts keep their inline content.
+/// them (in ordinal order) as its `data.content`, followed by any inline content the row still has.
+/// Rows without parts keep their inline content.
 pub fn with_parts<R: MessageRow>(c: &Connection, rows: &mut [R]) -> rusqlite::Result<()> {
     let ids: Vec<String> = rows
         .iter_mut()
@@ -81,11 +82,34 @@ pub fn with_parts<R: MessageRow>(c: &Connection, rows: &mut [R]) -> rusqlite::Re
         let (id, _, data) = r.row();
         let Some(parts) = by_message.get(id) else { continue };
         let Ok(Value::Object(mut obj)) = serde_json::from_str::<Value>(data) else { continue };
-        if !obj.contains_key("content") {
-            continue;
-        }
-        obj.insert("content".into(), Value::Array(parts.clone()));
+        // 2.2.7: inline content written after the parts were split reads after them.
+        let content = match obj.get("content") {
+            Some(Value::Array(inline)) => parts.iter().chain(inline).cloned().collect(),
+            _ => parts.clone(),
+        };
+        obj.insert("content".into(), Value::Array(content));
         *data = Value::Object(obj).to_string();
+    }
+    Ok(())
+}
+
+/// `insertParts`: a new message's assistant parts as `session_part` rows, ordinals from 0, created at the
+/// message's creation and updated at the event's time.
+pub fn insert_parts(
+    c: &Connection,
+    session: &str,
+    message: &str,
+    created: i64,
+    updated: i64,
+    parts: &[Value],
+) -> rusqlite::Result<()> {
+    for (ordinal, part) in parts.iter().enumerate() {
+        let kind = part.get("type").and_then(Value::as_str).unwrap_or_default();
+        let call_id = if kind == "tool" { part.get("id").and_then(Value::as_str) } else { None };
+        c.execute(
+            "INSERT INTO session_part (message_id, session_id, ordinal, type, call_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            params![message, session, ordinal as i64, kind, call_id, created, updated, part.to_string()],
+        )?;
     }
     Ok(())
 }
