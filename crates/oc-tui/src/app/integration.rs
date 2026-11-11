@@ -143,12 +143,18 @@ fn js_number(text: &str) -> Option<f64> {
     text.parse::<f64>().ok()
 }
 
+/// The paste prompt's status line (`OAuthAuto` with `paste: true`).
+pub const PASTE_WAITING: &str =
+    "Waiting for authorization… Press enter to open the link. If the browser can't reach this machine, paste the URL it was redirected to.";
+
 /// Where a finished connection leads.
 #[derive(Clone, Debug, Default)]
 pub struct Ctx {
     pub dir: String,
     /// `onConnected` opens the model list for the new provider.
     pub then_models: bool,
+    /// `onConnected` of an MCP server's sign-in (2.2.7): back to `/mcp` with this server selected.
+    pub mcp_server: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -215,7 +221,10 @@ impl App {
     /// the model list), the prompt's "Connect an integration to send prompts", and an MCP server that
     /// needs a sign-in (`integrationID` with `autoConnect`).
     pub fn open_integrations(&mut self, then_models: bool, only: Option<String>, auto: bool) {
-        let ctx = Ctx { dir: self.location_dir(), then_models };
+        self.open_integrations_ctx(Ctx { dir: self.location_dir(), then_models, mcp_server: None }, only, auto);
+    }
+
+    fn open_integrations_ctx(&mut self, ctx: Ctx, only: Option<String>, auto: bool) {
         let sel = self.integration_list_select(&ctx, only.as_deref());
         self.integration_show(ctx.clone(), Step::List { only: only.clone(), auto }, Dialog::select(PURPOSE, sel, Size::Medium));
         if auto {
@@ -227,7 +236,9 @@ impl App {
     pub fn mcp_sign_in(&mut self, name: &str) -> bool {
         let server = self.loc().and_then(|l| l.mcp.clone()).unwrap_or_default().into_iter().find(|s| s.name == name);
         let Some(id) = server.filter(|s| s.status.status == "needs_auth").and_then(|s| s.integration_id) else { return false };
-        self.open_integrations(false, Some(id), true);
+        // `dialog.replace`: the sign-in takes the MCP dialog's place, and comes back to it once connected.
+        self.dialogs.retain(|d| d.purpose != "mcp");
+        self.open_integrations_ctx(Ctx { dir: self.location_dir(), then_models: false, mcp_server: Some(name.to_string()) }, Some(id), true);
         true
     }
 
@@ -848,6 +859,7 @@ impl App {
         let step = self.live(token).map(|l| l.step.clone());
         let description = match step {
             Some(Step::OAuthCode { attempt, .. }) => self.code_description(&attempt, Some(message)),
+            Some(Step::OAuthAuto { attempt, .. }) => self.paste_description(&attempt, Some(message)),
             _ => self.prewrap(vec![(message.to_string(), t.text.feedback.error.base)]),
         };
         if let Some(Body::Prompt(p)) = self.top_dialog(token).map(|d| &mut d.body) {
@@ -919,9 +931,55 @@ impl App {
     }
 
     fn oauth_auto(&mut self, ctx: Ctx, integration: Value, title: String, attempt: Value) {
-        let d = Dialog::text(PURPOSE, self.oauth_view(&title, Some(&attempt), "Waiting for authorization…"));
+        let d = if attempt.get("paste").and_then(|p| p.as_bool()) == Some(true) {
+            // 2.2.7 (#61706): an attempt that accepts a pasted redirect URL is a prompt; the poll keeps running.
+            let mut p = PromptDialog::new(&title, "Redirect URL", "");
+            p.description = self.paste_description(&attempt, None);
+            p.actions = vec![("copy link".into(), "dialog.integration.copy".into())];
+            Dialog::new(PURPOSE, Body::Prompt(p))
+        } else {
+            Dialog::text(PURPOSE, self.oauth_view(&title, Some(&attempt), "Waiting for authorization…"))
+        };
         let token = self.integration_show(ctx, Step::OAuthAuto { integration, attempt, settled: false }, d);
         self.oauth_poll(token, false);
+    }
+
+    /// The paste prompt's description: the instructions, the link, the waiting note and the error, a row apart.
+    fn paste_description(&self, attempt: &Value, error: Option<&str>) -> Vec<(String, crate::theme::Rgba)> {
+        let t = self.theme().dialog();
+        let mut out = vec![
+            (s(attempt, "instructions").to_string(), t.text.muted),
+            (String::new(), t.text.muted),
+            (s(attempt, "url").to_string(), t.markdown.link),
+            (String::new(), t.text.muted),
+            (PASTE_WAITING.to_string(), t.text.muted),
+        ];
+        if let Some(e) = error {
+            out.push((String::new(), t.text.muted));
+            out.push((e.to_string(), t.text.feedback.error.base));
+        }
+        self.prewrap(out)
+    }
+
+    /// Enter in the paste prompt: an empty value opens the link, anything else is sent as the redirect URL
+    /// (`integration.oauth.complete`); the attempt then settles through its status.
+    fn paste_submit(&mut self, token: u64, value: &str) {
+        let Some(Live { ctx, step: Step::OAuthAuto { integration, attempt, .. }, .. }) = self.live(token).cloned() else { return };
+        if value.trim().is_empty() {
+            self.oauth_key(token, "o");
+            return;
+        }
+        let description = self.paste_description(&attempt, None);
+        if let Some(Body::Prompt(p)) = self.top_dialog(token).map(|d| &mut d.body) {
+            p.description = description;
+        }
+        let c = self.client.clone();
+        let (id, aid, dir, code) = (s(&integration, "id").to_string(), s(&attempt, "attemptID").to_string(), ctx.dir.clone(), value.to_string());
+        self.spawn(async move { c.integration_oauth_complete(&id, &aid, &code, Some(&dir)).await }, move |app, r| {
+            if let Err(e) = r {
+                app.prompt_error(token, &crate::api::error_message(&e));
+            }
+        });
     }
 
     fn oauth_poll(&mut self, token: u64, wait: bool) {
@@ -1160,6 +1218,9 @@ impl App {
                 if ctx.then_models {
                     let provider = app.integration_provider(&ctx.dir, s(&integration, "id"));
                     app.open_model_dialog(provider);
+                } else if let Some(server) = &ctx.mcp_server {
+                    app.dialogs.clear();
+                    app.open_mcp_dialog_at(Some(server));
                 } else {
                     app.dialogs.clear();
                 }
@@ -1208,6 +1269,8 @@ impl App {
             (Outcome::Submit(text), Step::Key { .. }) => self.key_submit(token, text),
             (Outcome::Submit(text), Step::OAuthCode { .. }) => self.code_submit(token, text),
             (Outcome::Key(k), Step::OAuthAuto { .. }) => self.oauth_key(token, k),
+            (Outcome::Submit(text), Step::OAuthAuto { .. }) => self.paste_submit(token, text),
+            (Outcome::Action(a, _), Step::OAuthAuto { .. }) if a == "dialog.integration.copy" => self.oauth_key(token, "c"),
             (Outcome::Close | Outcome::Back, Step::Form(_)) if matches!(self.dialogs.last().map(|d| &d.body), Some(Body::Choice(c)) if c.editing) => {
                 // The header's `esc` while typing goes back to the answers.
                 if let Some(Body::Choice(c)) = self.dialogs.last_mut().map(|d| &mut d.body) {

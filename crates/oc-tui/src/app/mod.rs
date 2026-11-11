@@ -371,6 +371,8 @@ pub struct App {
     pub location: location::LocationState,
     /// The session list dialog's server search.
     pub session_search: session_list::SessionSearch,
+    /// The Open dialog's own session list (`session.list` on open) and the session its filter names by exact ID.
+    pub open_sessions: workspace::OpenSessions,
     /// Project names by ID (`data.project`), from project listings.
     pub project_names: HashMap<String, String>,
     /// The plugin manager dialog's state.
@@ -514,6 +516,7 @@ impl App {
             program_status: Default::default(),
             location: Default::default(),
             session_search: Default::default(),
+            open_sessions: Default::default(),
             project_names: HashMap::new(),
             plugins: Default::default(),
             disabled_builtins: HashSet::new(),
@@ -1403,7 +1406,7 @@ impl App {
             let fork = self.opts.fork;
             self.spawn(
                 async move {
-                    let page = c.session_list(&[("limit", "1".into()), ("order", "desc".into()), ("parentID", "null".into()), ("directory", dir)]).await?;
+                    let page = c.session_list(&[("limit", "1".into()), ("order", "desc".into()), ("parentID", "null".into()), ("archived", "false".into()), ("directory", dir)]).await?;
                     let Some(first) = page.data.into_iter().next() else { return Ok(None) };
                     if fork {
                         return Ok(Some(c.session_fork(&first.id, None).await?));
@@ -1544,6 +1547,8 @@ mod fuzz_tests;
 mod usage_tests;
 #[cfg(test)]
 mod catchup225_tests;
+#[cfg(test)]
+mod catchup227_tests;
 #[cfg(test)]
 mod perf;
 #[cfg(test)]

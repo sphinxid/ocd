@@ -239,6 +239,10 @@ impl Config {
     pub fn session_scrollbar(&self) -> bool {
         self.bool("session.scrollbar").unwrap_or(false)
     }
+    /// `session.submit_scroll` (2.2.7): `keep` leaves the transcript where it is when a prompt is sent.
+    pub fn submit_keeps_scroll(&self) -> bool {
+        self.str("session.submit_scroll") == Some("keep")
+    }
     pub fn thinking(&self) -> &str {
         self.str("session.thinking").unwrap_or("hide")
     }

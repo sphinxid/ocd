@@ -141,12 +141,6 @@ impl App {
     /// New limits arrived: the open dialogs follow them.
     pub(super) fn usage_limits_changed(&mut self) {
         self.refresh_usage_dialog();
-        let hidden = self.usage_info().is_none();
-        if let Some(sel) = self.dialogs.last_mut().filter(|d| d.purpose == "model").and_then(|d| d.sel()) {
-            for a in sel.actions.iter_mut().filter(|a| a.id == "model.dialog.usage") {
-                a.hidden = hidden;
-            }
-        }
     }
 
     /// `session.execution.succeeded` of the routed session: spend moved, so loaded limits reload.

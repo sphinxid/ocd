@@ -332,6 +332,8 @@ pub struct RunAgent {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    /// The agent's configured color (2.2.7), drawn in the footer unless `mono`.
+    pub color: Option<String>,
     /// `subagent` | `primary` | `all`
     pub mode: String,
     pub hidden: bool,

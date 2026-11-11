@@ -362,9 +362,51 @@ pub fn is_default_title(title: &str) -> bool {
     RE.is_match(title)
 }
 
+/// The terminal title of a session: `OC | <title>`, cut at 40 UTF-16 units to 37 + `…` (`title.slice(0, 37)`; a
+/// split surrogate pair becomes U+FFFD, as Node encodes it).
+pub fn session_terminal_title(title: &str) -> String {
+    let units: Vec<u16> = title.encode_utf16().collect();
+    if units.len() <= 40 {
+        return format!("OC | {title}");
+    }
+    let cut: String = char::decode_utf16(units[..37].iter().copied()).map(|c| c.unwrap_or('\u{FFFD}')).collect();
+    format!("OC | {cut}…")
+}
+
+/// `setTerminalTitle` (2.2.7): every run of C0/C1 control characters becomes one space, so a title with a newline
+/// cannot break the OSC sequence.
+pub fn terminal_title_text(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    let mut in_run = false;
+    for c in title.chars() {
+        if matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}') {
+            if !in_run {
+                out.push(' ');
+            }
+            in_run = true;
+        } else {
+            out.push(c);
+            in_run = false;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_titles_strip_control_characters_and_cut_by_utf16() {
+        assert_eq!(terminal_title_text("OC | a\nb\r\n\tc\u{1b}[31m\u{85}d"), "OC | a b c [31m d");
+        assert_eq!(session_terminal_title("short"), "OC | short");
+        let long = "x".repeat(41);
+        assert_eq!(session_terminal_title(&long), format!("OC | {}…", "x".repeat(37)));
+        assert_eq!(session_terminal_title(&"x".repeat(40)), format!("OC | {}", "x".repeat(40)));
+        // 36 ASCII + an emoji (2 UTF-16 units) + more: the cut splits the pair.
+        let t = format!("{}😀{}", "a".repeat(36), "b".repeat(10));
+        assert_eq!(session_terminal_title(&t), format!("OC | {}\u{FFFD}…", "a".repeat(36)));
+    }
 
     #[test]
     fn truncate_middle_narrow_widths() {

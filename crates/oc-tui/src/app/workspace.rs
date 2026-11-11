@@ -71,7 +71,22 @@ impl App {
         s.no_match = Some(format!("No matches · search all sessions with {}", self.keybinds.shortcut("session.list")));
         s.footer_text = Some(("Refreshing sessions and projects…".into(), self.theme().dialog().text.muted));
         self.open_dialog(Dialog::select("open", s, Size::Large));
+        self.open_sessions = OpenSessions::default();
         self.refresh_open_options(vec![]);
+        // `recent`: the newest top-level, unarchived sessions of every location.
+        let c = self.client.clone();
+        self.spawn(
+            async move { c.session_list(&[("limit", "50".into()), ("order", "desc".into()), ("parentID", "null".into()), ("archived", "false".into())]).await },
+            |app, r| {
+                let Ok(page) = r else { return };
+                if !app.dialogs.iter().any(|d| d.purpose == "open") {
+                    return;
+                }
+                app.open_sessions.recent = page.data;
+                app.refresh_open_menu();
+                app.dirty = true;
+            },
+        );
         let c = self.client.clone();
         self.spawn(async move { c.projects().await }, |app, r| {
             match r {
@@ -90,25 +105,80 @@ impl App {
         });
     }
 
+    /// Rebuild the Open dialog's options with the projects it already holds.
+    pub(crate) fn refresh_open_menu(&mut self) {
+        let Some(d) = self.dialogs.last().filter(|d| d.purpose == "open") else { return };
+        let projects = d.data.as_array().cloned().unwrap_or_default();
+        self.refresh_open_options(projects);
+    }
+
+    /// The Open dialog's filter changed: an exact session ID is looked up (`session.get`), so a child or archived
+    /// session can be opened by it.
+    pub(crate) fn open_filter_changed(&mut self, filter: &str) {
+        let value = filter.trim().to_string();
+        self.open_sessions.filter = value.clone();
+        if self.open_sessions.matched.as_ref().is_some_and(|m| m.id != value) {
+            self.open_sessions.matched = None;
+        }
+        self.refresh_open_menu();
+        if !is_session_id(&value) || self.open_sessions.matched.is_some() {
+            return;
+        }
+        let c = self.client.clone();
+        self.spawn(async move { c.session_get(&value).await }, move |app, r| {
+            let Ok(session) = r else { return };
+            if session.id != app.open_sessions.filter || !app.dialogs.iter().any(|d| d.purpose == "open") {
+                return;
+            }
+            app.open_sessions.matched = Some(session);
+            app.refresh_open_menu();
+            app.dirty = true;
+        });
+    }
+
     pub(crate) fn refresh_open_options(&mut self, projects: Vec<Value>) {
         let t = self.theme().dialog().clone();
         let now = locale::now_ms();
         let mut opts = Vec::new();
         let current = self.session_id().map(|s| s.to_string());
+        let matched = self.open_sessions.matched.clone();
+        let match_id = matched.as_ref().map(|m| m.id.clone());
+        let mut seen = std::collections::HashSet::new();
         let mut sessions: Vec<_> = self
             .store
             .session_list()
             .into_iter()
-            .filter(|s| s.parent_id.is_none())
+            .cloned()
+            .chain(self.open_sessions.recent.iter().cloned())
+            .chain(matched)
+            .filter(|s| {
+                let exact = match_id.as_deref() == Some(s.id.as_str());
+                if (s.parent_id.is_some() && !exact) || seen.contains(&s.id) {
+                    return false;
+                }
+                if s.time.archived.is_some() && !exact {
+                    return false;
+                }
+                seen.insert(s.id.clone());
+                true
+            })
             .map(|s| {
                 let attention = self.store.permissions.get(&s.id).is_some_and(|p| !p.is_empty()) || self.store.forms.get(&s.id).is_some_and(|f| !f.is_empty());
-                (attention, s.clone())
+                (attention, s)
             })
-            .filter(|(attention, s)| !self.tabs.contains(&s.id) || (*attention && current.as_deref() != Some(s.id.as_str())))
             .collect();
         sessions.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.time.updated.cmp(&a.1.time.updated)));
-        let attention_count = sessions.iter().filter(|(a, _)| *a).count();
-        for (attention, s) in sessions.into_iter().take(8.max(attention_count)) {
+        // With an empty query the menu shows what is not one keystroke away (open tabs, unless a background session
+        // awaits input); typing widens the pool to every session.
+        let searching = !self.open_sessions.filter.is_empty();
+        let candidates: Vec<_> = if searching {
+            sessions
+        } else {
+            sessions.into_iter().filter(|(attention, s)| !self.tabs.contains(&s.id) || (*attention && current.as_deref() != Some(s.id.as_str()))).collect()
+        };
+        let attention_count = candidates.iter().filter(|(a, _)| *a).count();
+        let limit = if searching { usize::MAX } else { 8.max(attention_count) };
+        for (attention, s) in candidates.into_iter().take(limit) {
             let dir = &s.location.directory;
             let project = self.store.locations.get(dir).and_then(|l| l.info.as_ref()).map(|i| basename(&i.project.canonical).to_string());
             let label = match project {
@@ -503,4 +573,17 @@ mod tests {
         assert!(q.len() > 10);
         assert!(q[0].chars().all(|c| c == '█' || c == '▀'));
     }
+}
+
+/// The Open dialog's session sources besides the store: its own `session.list` and an exact-ID match.
+#[derive(Default)]
+pub struct OpenSessions {
+    pub recent: Vec<crate::api::types::SessionInfo>,
+    pub matched: Option<crate::api::types::SessionInfo>,
+    pub filter: String,
+}
+
+/// `^ses_[0-9A-Za-z]{26}$`
+pub(crate) fn is_session_id(value: &str) -> bool {
+    value.strip_prefix("ses_").is_some_and(|rest| rest.len() == 26 && rest.bytes().all(|b| b.is_ascii_alphanumeric()))
 }

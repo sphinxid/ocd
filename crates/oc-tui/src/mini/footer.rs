@@ -264,8 +264,15 @@ impl Footer {
     fn agent_color(&self) -> Color {
         let colors = &self.theme.footer.categorical;
         let id = self.current_agent_id();
-        let index = self.agents.iter().filter(|a| !a.hidden).position(|a| Some(&a.id) == id.as_ref()).unwrap_or(0);
-        colors[index % colors.len().max(1)]
+        let agents: Vec<&RunAgent> = self.agents.iter().filter(|a| !a.hidden).collect();
+        let index = agents.iter().position(|a| Some(&a.id) == id.as_ref());
+        // 2.2.7: the agent's own color (`RGBA.fromHex`), unless mono.
+        if let Some(color) = index.and_then(|i| agents[i].color.as_deref()).filter(|c| !c.is_empty())
+            && !self.settings.mono
+        {
+            return rgba_from_hex(color);
+        }
+        colors[index.unwrap_or(0) % colors.len().max(1)]
     }
 
     // --- startup -------------------------------------------------------------------------------
@@ -1809,3 +1816,10 @@ impl Host for Footer {
 #[cfg(test)]
 #[path = "footer_golden.rs"]
 mod golden;
+
+/// OpenTUI's `RGBA.fromHex`: `#` optional, 3/4/6/8 hex digits; anything else is magenta.
+pub(crate) fn rgba_from_hex(hex: &str) -> Color {
+    let h = hex.strip_prefix('#').unwrap_or(hex);
+    let valid = matches!(h.len(), 3 | 4 | 6 | 8) && h.bytes().all(|b| b.is_ascii_hexdigit());
+    valid.then(|| Color::from_hex(h)).flatten().unwrap_or(Color::rgb(255, 0, 255))
+}

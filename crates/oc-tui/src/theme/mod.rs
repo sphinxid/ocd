@@ -77,10 +77,12 @@ impl TerminalColors {
     }
 }
 
-/// `terminalMode`: light when the default background is bright.
+/// The terminal's mode from its default background: OpenTUI's `renderer.themeMode`, light when
+/// `(r*299 + g*587 + b*114) / 1000 > 128` on 0-255 channels (2.2.7 takes it before `terminalMode(palette)`).
 pub fn terminal_mode(colors: &TerminalColors) -> Option<Mode> {
     let bg = Rgba::from_hex(colors.default_background.as_deref()?)?;
-    Some(if bg.luminance() > 0.5 { Mode::Light } else { Mode::Dark })
+    let brightness = (bg.r as u32 * 299 + bg.g as u32 * 587 + bg.b as u32 * 114) as f64 / 1000.0;
+    Some(if brightness > 128.0 { Mode::Light } else { Mode::Dark })
 }
 
 fn gray_scale(bg: Rgba, dark: bool) -> [Rgba; 13] {
@@ -627,6 +629,10 @@ mod tests {
             default_background: Some("#101010".into()),
         };
         assert_eq!(terminal_mode(&colors), Some(Mode::Dark));
+        // OpenTUI's brightness on 0-255 channels: #808080 is exactly 128, so dark; #818181 is light.
+        let gray = |bg: &str| terminal_mode(&TerminalColors { default_background: Some(bg.into()), ..colors.clone() });
+        assert_eq!(gray("#808080"), Some(Mode::Dark));
+        assert_eq!(gray("#818181"), Some(Mode::Light));
         let mut m = ThemeManager::new(Some("system"), Mode::Dark, None);
         m.set_system_palette(Some(colors));
         assert_eq!(m.current.background.base.a, 0);

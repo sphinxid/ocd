@@ -13,7 +13,7 @@ fn opt(v: &Value, k: &str) -> Option<String> {
 }
 
 pub fn run_agent(v: &Value) -> RunAgent {
-    RunAgent { id: s(v, "id"), name: s(v, "name"), description: opt(v, "description"), mode: s(v, "mode"), hidden: v.get("hidden").and_then(|h| h.as_bool()).unwrap_or(false) }
+    RunAgent { id: s(v, "id"), name: s(v, "name"), description: opt(v, "description"), color: opt(v, "color"), mode: s(v, "mode"), hidden: v.get("hidden").and_then(|h| h.as_bool()).unwrap_or(false) }
 }
 
 pub fn run_command(v: &Value) -> RunCommand {

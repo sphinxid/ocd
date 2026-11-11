@@ -23,6 +23,8 @@ const GLOBAL: &[&str] = &[
     "session.new",
     "session.list",
     "open.menu",
+    // Global since 2.2.7, so Ctrl+Z also suspends while a dialog or form is open.
+    "terminal.suspend",
     "session.tab.next",
     "session.tab.previous",
     "session.tab.next_unread",
@@ -88,7 +90,6 @@ const BASE: &[&str] = &[
     "app.toggle.file_context",
     "app.toggle.diffwrap",
     "app.toggle.paste_summary",
-    "terminal.suspend",
     "terminal.title.toggle",
     "session.toggle.thinking",
     "session.toggle.scrollbar",
@@ -1099,7 +1100,10 @@ impl App {
         self.history.append(entry);
         self.editor = crate::ui::prompt::Editor::new();
         self.autocomplete = None;
-        if let Some(s) = sid.clone() {
+        // `session.submit_scroll: "keep"` (2.2.7) leaves the transcript where it is.
+        if let Some(s) = sid.clone()
+            && !self.config.submit_keeps_scroll()
+        {
             self.view(&s).scroll_from_bottom = 0;
         }
         let variant = self.current_variant();
@@ -1267,6 +1271,9 @@ impl App {
             Outcome::Filter(f) => {
                 if purpose == "session" {
                     self.session_filter_changed(&f);
+                }
+                if purpose == "open" {
+                    self.open_filter_changed(&f);
                 }
                 if purpose == "palette"
                     && let Some(sel) = self.dialogs.last_mut().and_then(|d| d.sel())
@@ -1621,8 +1628,9 @@ impl App {
                     let fav = self.models.is_favorite(p, m);
                     self.models.set_favorite(p, m, !fav);
                     let provider = self.dialogs.last().and_then(|d| d.data.get("provider").and_then(|p| p.as_str()).map(|p| p.to_string()));
+                    let priority: Vec<String> = self.dialogs.last().and_then(|d| serde_json::from_value(d.data["priority"].clone()).ok()).unwrap_or_default();
                     let (filter, selected) = self.dialogs.last_mut().and_then(|d| d.sel()).map(|s| (s.filter.clone(), s.selected_value())).unwrap_or_default();
-                    self.model_dialog(provider);
+                    self.model_dialog(provider, priority);
                     if let Some(sel) = self.dialogs.last_mut().and_then(|d| d.sel()) {
                         if !filter.is_empty() {
                             sel.set_filter(filter.clone());
@@ -1641,7 +1649,6 @@ impl App {
             ("model", "model.dialog.provider") => {
                 self.run_command("provider.connect", None);
             }
-            ("model", "model.dialog.usage") => self.open_usage(),
             ("session", "session.pin.toggle") => {
                 if let Some(v) = v {
                     self.pins.toggle(&v);
@@ -2076,6 +2083,20 @@ impl App {
         self.call(async move { c.form_reply(&sid, &fid, Value::Object(answer), dir.as_deref()).await }, |_, _| {});
     }
 
+    /// `DialogButtons` `onActive`: the top dialog's button `i` becomes the active one.
+    fn dialog_button_hover(&mut self, i: usize) {
+        match self.dialogs.last_mut().map(|d| &mut d.body) {
+            Some(Body::Confirm { confirm, .. }) => *confirm = i == 1,
+            Some(Body::Text(td)) => {
+                if let Some(b) = td.buttons.as_mut().filter(|b| i < b.labels.len()) {
+                    b.active = i;
+                }
+            }
+            _ => return,
+        }
+        self.dirty = true;
+    }
+
     fn form_cancel(&mut self, form: &FormInfo, loc: Option<&LocationRef>) {
         let c = self.client.clone();
         let sid = form.session_id.clone();
@@ -2096,6 +2117,14 @@ impl App {
             return;
         }
         match m.kind {
+            // `DialogButtons`: hovering a button makes it the active one.
+            MouseEventKind::Moved if !self.dialogs.is_empty() => {
+                let (x, y) = (m.column, m.row);
+                let hit = self.dialog_hits.iter().find(|(r, _)| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height).map(|(_, h)| h.clone());
+                if let Some(DialogHit::Button(i)) = hit {
+                    self.dialog_button_hover(i);
+                }
+            }
             MouseEventKind::Down(MouseButton::Left) => self.selection_down(m.column, m.row),
             MouseEventKind::Drag(MouseButton::Left) => {
                 self.selection_drag(m.column, m.row);
@@ -2154,6 +2183,14 @@ impl App {
                             self.dialog_outcome(Outcome::Action(a, v));
                         }
                         Some(DialogHit::Confirm(_)) => self.close_dialog(),
+                        Some(DialogHit::Button(i)) => {
+                            self.dialog_button_hover(i);
+                            if matches!(self.dialogs.last().map(|d| &d.body), Some(Body::Confirm { .. })) {
+                                self.dialog_outcome(Outcome::Confirm(i == 1));
+                            } else if self.dialogs.last().is_some_and(|d| d.purpose == super::update::PURPOSE) {
+                                self.update_button(i);
+                            }
+                        }
                         None => {
                             if self.dialog_rect.is_some_and(|r| !inside(&r)) {
                                 self.close_dialog();

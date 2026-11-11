@@ -10,7 +10,7 @@
 //! install, the exit epilogue says which version to run.
 
 use super::App;
-use crate::ui::dialog::{Body, Dialog, Footer, FooterItem, Size, TextDialog};
+use crate::ui::dialog::{Body, Buttons, Dialog, Size, TextDialog};
 use crate::ui::text::{SLine, Seg, Wrap, fg, seg, wrap_lines};
 use futures::future::BoxFuture;
 use std::sync::Arc;
@@ -225,13 +225,13 @@ impl App {
         self.update.state.clone().unwrap_or(UpdateState::Current)
     }
 
-    /// The dialog's buttons: "skip", then "update" or "restart" (none while installing).
+    /// The dialog's buttons: `Skip`, then `Update` or `Restart` (none while installing).
     pub fn update_buttons(&self) -> Vec<&'static str> {
         match self.update_display() {
             UpdateState::Installing(_) => vec![],
-            UpdateState::Available(_) => vec!["skip", "update"],
-            UpdateState::Installed(_) => vec!["skip", "restart"],
-            _ => vec!["skip"],
+            UpdateState::Available(_) => vec!["Skip", "Update"],
+            UpdateState::Installed(_) => vec!["Skip", "Restart"],
+            _ => vec!["Skip"],
         }
     }
 
@@ -259,14 +259,10 @@ impl App {
         };
         let width = (Size::Medium.width().min(self.size.0.saturating_sub(2)) as usize).saturating_sub(6).max(10);
         let lines: Vec<SLine> = wrap_lines(&[seg(text, fg(color))], width, Wrap::Word, &[]);
+        // 2.2.7 (#62906): a `DialogButtons` row in both designs, the last button active.
         let buttons = self.update_buttons();
-        let primary = buttons
-            .iter()
-            .enumerate()
-            .map(|(i, b)| FooterItem::new(*b, if i + 1 == buttons.len() { "enter" } else { "" }))
-            .collect();
-        let mut td = TextDialog::new(title, lines).footer(Footer { primary, ..Default::default() });
-        td.empty_footer_gap = true;
+        let mut td = TextDialog::new(title, lines);
+        td.buttons = (!buttons.is_empty()).then(|| Buttons::new(buttons.iter().map(|b| b.to_string()).collect()));
         let mut d = Dialog::text(PURPOSE, td);
         d.centered = true;
         d
@@ -274,26 +270,36 @@ impl App {
 
     /// Redraws an open update dialog after a state change.
     pub fn refresh_update_dialog(&mut self) {
-        let fresh = self.update_dialog();
+        let mut fresh = self.update_dialog();
         if let Some(d) = self.dialogs.iter_mut().find(|d| d.purpose == PURPOSE) {
+            // The active button resets to the last one only when the buttons change.
+            if let (Body::Text(old), Body::Text(new)) = (&d.body, &mut fresh.body)
+                && let (Some(o), Some(n)) = (&old.buttons, &mut new.buttons)
+                && o.labels == n.labels
+            {
+                n.active = o.active;
+            }
             d.body = fresh.body;
         }
         self.dirty = true;
     }
 
-    /// Enter in the dialog: its last button.
+    /// Enter in the dialog runs its active button (`button:<index>`).
     pub fn update_dialog_key(&mut self, key: &str) {
-        if key != "return" {
-            return;
-        }
-        match self.update_buttons().last().copied() {
-            Some("update") => self.update_install(),
-            Some("restart") => {
+        let Some(index) = key.strip_prefix("button:").and_then(|i| i.parse::<usize>().ok()) else { return };
+        self.update_button(index);
+    }
+
+    /// Run a button of the dialog (Enter on the active one, or a click).
+    pub fn update_button(&mut self, index: usize) {
+        match self.update_buttons().get(index).copied() {
+            Some("Update") => self.update_install(),
+            Some("Restart") => {
                 if matches!(self.update.state, Some(UpdateState::Installed(_))) {
                     self.quit = true;
                 }
             }
-            Some("skip") => {
+            Some("Skip") => {
                 self.update_dismiss();
                 self.close_update_dialog();
             }

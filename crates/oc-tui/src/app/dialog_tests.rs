@@ -137,8 +137,8 @@ fn models_open_on_the_current_model_in_server_order() {
     let order: Vec<usize> = ["Big Pickle", "Zeta Free", "Mock One", "Alpha"].iter().map(|n| lines.iter().position(|l| l.contains(n)).unwrap()).collect();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "{joined}");
     assert!(contains(&lines, "● Mock One"), "{joined}");
-    assert!(contains(&lines, "View all integrations ctrl+a"), "{joined}");
-    assert!(!contains(&lines, "Favorite"), "{joined}");
+    // 2.2.7 (#62244): favorites work without a connection too.
+    assert!(contains(&lines, "View all integrations ctrl+a  Favorite ctrl+f"), "{joined}");
     let sel = a.dialogs.last_mut().unwrap().sel().unwrap().selected_value();
     assert_eq!(sel.as_deref(), Some("mock/m1"));
     // A connection groups by provider (opencode first) and offers favorites.

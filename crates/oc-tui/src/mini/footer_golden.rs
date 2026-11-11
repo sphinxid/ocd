@@ -47,6 +47,7 @@ fn agent(v: &Value) -> RunAgent {
         id: v["id"].as_str().unwrap_or_default().into(),
         name: v["name"].as_str().unwrap_or_default().into(),
         description: v["description"].as_str().map(str::to_string),
+        color: v["color"].as_str().map(str::to_string),
         mode: v["mode"].as_str().unwrap_or_default().into(),
         hidden: v["hidden"].as_bool().unwrap_or(false),
     }
@@ -249,4 +250,35 @@ fn matches_upstream_footer_frames() {
         }
     }
     assert!(failed.is_empty(), "{} of {} cases differ: {failed:?}", failed.len(), cases.len());
+}
+
+/// 2.2.7 (#62067): a configured agent color paints the label and prompt rail, unless mono; a color that is not hex
+/// is magenta (`RGBA.fromHex`).
+#[test]
+fn configured_agent_color_paints_the_footer() {
+    let case = |color: &str, mono: bool| {
+        serde_json::json!({
+            "name": "color", "mono": mono,
+            "agents": [{ "id": "build", "name": "Build", "mode": "primary", "hidden": false, "color": color }],
+            "model": { "providerID": "mock", "modelID": "m1" },
+            "steps": [{ "snap": "first" }],
+        })
+    };
+    let painted = |frames: &[Value], hex: &str| {
+        let rows = frames[0]["rows"].as_array().unwrap();
+        let row = rows.iter().position(|r| r.as_str().unwrap().contains("Build")).expect("label row");
+        let label = rows[row].as_str().unwrap().chars().position(|c| c == 'B').unwrap();
+        frames[0]["styles"][row].as_array().unwrap().iter().any(|run| {
+            let (range, style) = run.as_str().unwrap().split_once(':').unwrap();
+            let (a, b) = range.split_once('-').unwrap();
+            let (a, b): (usize, usize) = (a.parse().unwrap(), b.parse().unwrap());
+            a <= label && label < b && style.starts_with(&format!("{hex}/"))
+        })
+    };
+    assert!(painted(&run(&case("#ff79c6", false)), "#ff79c6"));
+    assert!(painted(&run(&case("#f7c", false)), "#ff77cc"));
+    assert!(painted(&run(&case("primary", false)), "#ff00ff"));
+    assert!(!painted(&run(&case("#ff79c6", true)), "#ff79c6"));
+    assert_eq!(rgba_from_hex("ff79c680"), Color::rgba(255, 121, 198, 128));
+    assert_eq!(rgba_from_hex("#+f79c6"), Color::rgb(255, 0, 255));
 }

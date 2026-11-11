@@ -132,6 +132,8 @@ impl App {
             .session_list()
             .into_iter()
             .filter(|s| !s.id.starts_with("dummy"))
+            // Archived sessions stay out of the list (2.2.7).
+            .filter(|s| s.time.archived.is_none())
             .filter(|s| all || info.as_ref().is_some_and(|i| s.project_id == i.project.id && s.location.directory == i.directory))
             .filter(|s| needle.is_empty() || (s.parent_id.is_none() && s.display_title().to_lowercase().contains(&needle)))
             .cloned()
@@ -296,6 +298,7 @@ impl App {
                 params.push(("limit", "50".into()));
                 params.push(("order", "desc".into()));
                 params.push(("parentID", "null".into()));
+                params.push(("archived", "false".into()));
                 Ok(c.session_list(&params).await?.data)
             },
             move |app, r| {

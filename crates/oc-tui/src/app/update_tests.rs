@@ -92,11 +92,11 @@ async fn the_background_notice_shows_under_the_logo_and_skip_remembers_it() {
     assert!(prompt(&lines) > row + 1);
     assert!(prompt(&lines) - prompt(&before) <= 1);
 
-    // Clicking it opens the dialog with the known update; Enter on "skip" is not the last button.
+    // Clicking it opens the dialog with the known update; the active button is the last one, not "Skip".
     a.on_click(crate::ui::text::Click::Custom(super::update::NOTIFICATION_CLICK.into()));
     assert_eq!(top_title(&a), "Update available");
     assert_eq!(top_text(&a), "An update is available. After installing, you'll be prompted to restart ocd.");
-    assert_eq!(a.update_buttons(), vec!["skip", "update"]);
+    assert_eq!(a.update_buttons(), vec!["Skip", "Update"]);
     a.on_key(Stroke::key("escape"));
     assert!(a.dialogs.is_empty());
     assert!(a.update.notification.is_some(), "escape is not skip");
@@ -128,7 +128,9 @@ async fn update_checks_installs_and_offers_a_restart() {
     assert_eq!(top_title(&a), "Update available");
     let screen = render(&mut a, 100, 30);
     assert!(screen.iter().any(|l| l.contains("Update available") && l.contains("esc")), "{}", screen.join("\n"));
-    assert!(screen.iter().any(|l| l.contains("skip  update enter")), "{}", screen.join("\n"));
+    // 2.2.7: a row of buttons, the last one active, without an `enter` hint.
+    assert!(screen.iter().any(|l| l.trim_end().contains(" Skip  Update")), "{}", screen.join("\n"));
+    assert!(!screen.iter().any(|l| l.contains("enter")), "{}", screen.join("\n"));
     a.on_key(Stroke::key("return"));
     assert_eq!(a.update_display(), UpdateState::Installing("0.2.0".into()));
     assert_eq!(top_title(&a), "Updating ocd");
@@ -137,7 +139,7 @@ async fn update_checks_installs_and_offers_a_restart() {
     settle(&mut a, &mut rx, |a| matches!(a.update.state, Some(UpdateState::Installed(_)))).await;
     assert_eq!(*fake.applied.lock().unwrap(), vec!["0.2.0".to_string()]);
     assert_eq!(top_text(&a), "Update successful! Restart closes ocd, then run ocd to use the new version.");
-    assert_eq!(a.update_buttons(), vec!["skip", "restart"]);
+    assert_eq!(a.update_buttons(), vec!["Skip", "Restart"]);
     // The exit epilogue names the new version.
     let epilogue = a.exit_epilogue().unwrap();
     assert!(epilogue.contains("Run \x1b[0m\x1b[1mocd\x1b[0m\x1b[90m to use \x1b[0m\x1b[1m0.2.0"), "{epilogue:?}");
@@ -153,7 +155,7 @@ async fn update_reports_current_unavailable_and_failures() {
     a.open_update(false);
     settle(&mut a, &mut rx, |a| a.update.check.is_none()).await;
     assert_eq!((top_title(&a), top_text(&a)), ("Update".to_string(), "ocd is already up to date.".to_string()));
-    assert_eq!(a.update_buttons(), vec!["skip"]);
+    assert_eq!(a.update_buttons(), vec!["Skip"]);
 
     let (h, _) = hooks(Ok(Some(UpdateCheck::Unavailable("This ocd is a local build.".into()))), true);
     let (mut a, mut rx) = app_with(Some(h));

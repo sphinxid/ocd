@@ -176,6 +176,39 @@ The modules below cover the main session and home screens and all dialogs. They 
   space, all on the line-number background; the box's padding cell shows the block), a user message's skill and
   file chips are two rows, and the autocomplete popup's border cells keep the background underneath and clip a long
   description without an ellipsis.
+- **2.2.7 changes** (`app/catchup227_tests.rs`): Ctrl+Z (`terminal.suspend`) is a global binding, so it suspends
+  with a dialog or form open (#62118); Ctrl+V on a system without a clipboard reader (no `wl-paste`/`xclip`/`xsel`
+  could start) toasts `Clipboard read is not supported on this system` (#61094); the terminal title turns every run
+  of C0/C1 control characters into one space and cuts at 40 UTF-16 units, in the full TUI and mini (#57523); user
+  messages, revert banners, the queued-prompt dock and tool blocks get `paddingRight` 2 (#62104: text wraps two
+  cells earlier, block headers at `width - 6`, shell output at `width - 8`, revert files at `width - 7`; diffs keep
+  `width - 7`); the kitty protocol's keypad keys are `kphome`, `kpend`, `kppageup`, `kppagedown` (plain `home` no
+  longer matches them; prompt inputs treat them as their base keys) and the scroll defaults include them (#59770);
+  mini paints the label, rail and working marker in the agent's configured `color` (OpenTUI `RGBA.fromHex`, magenta
+  when it is not hex; categorical colors under `mono`) (#62067); after an MCP server's sign-in from `/mcp` the list
+  comes back with that server selected (#62245); the model picker has no Usage action and no longer reloads the
+  limits (#62927), and without a connection it offers Favorite (`ctrl+f`), marks favorites `(Favorite)` and lists
+  the favorites of when it opened first (#62244); exports are written to the working directory as
+  `session-<uuid>.md|json` (#62253); `/docs` opens `https://opencode.ai/docs`; the open menu refreshes its own
+  `session.list` (`limit 50`, top level, unarchived) on open, lists every session while filtering, and an exact
+  `ses_…` ID is looked up with `session.get` so a child or archived session can be opened (#62262); archived sessions
+  stay out of the session list (server search `archived=false`, local list), the open menu, `--continue` and mini's
+  `--continue` (#61270); the update and confirm dialogs have a `DialogButtons` row (`Skip` and `Update`/`Restart`,
+  the last one active whenever the buttons change; ←/shift+tab and →/tab move, wrapping; hovering activates and a
+  click runs a button; no `enter` hint) (#62906); a toast hides the prompt's terminal cursor when it covers it
+  (#60249); an OAuth attempt with `paste: true` is a `Redirect URL` prompt (instructions, link, `Waiting for
+  authorization… Press enter to open the link. …`, errors in red; Enter on an empty prompt opens the link,
+  otherwise `integration.oauth.complete` with the pasted URL as `code`; `copy link tab` is
+  `dialog.integration.copy`; the status poll still settles it) (#61706); a fetched transcript drops pending
+  prompts it already contains (#61679); the usage-limit helpers accept `org_` workspaces and retry delays up to 45
+  days (#61244); the system theme's mode uses OpenTUI's `themeMode` brightness (`(r*299+g*587+b*114)/1000 > 128`);
+  the "Scroll on send" setting (`session.submit_scroll`: `bottom`, or `keep` to leave the transcript where it is).
+  Already matching, unchanged: dialog focus when a question arrives (#60365), Home/End in subagent sessions
+  (#60817), older history prepended without a jump (#59236). Not ported (new designs only, off by default): the
+  shell-output copy keys, the search cursor colour, `footerGap`, the OAuth code subtitle. Left: following a live
+  light/dark switch of the terminal (`?2031`), an older gap; output streamed below while scrolled up (or after a
+  `keep` send) still moves ocd's view, where upstream keeps its scroll position; ocd lets every base binding through
+  in a subagent session's composer mode where upstream enables only `session.first`/`session.last`.
 - **Full-screen views:** the diff viewer route (`diff.open`: tree, unified or split, base
   picker) and the stats route.
 - **Embedded terminal pane:** uses the server PTY WebSocket (input protocol 1) and renders
@@ -184,8 +217,8 @@ The modules below cover the main session and home screens and all dialogs. They 
   that does not match its type's schema (`decodePersistentPtyMessage`) is ignored entirely.
 - **Session tools:** message next/previous/first/last navigation, the export options
   dialog, and the subagent/shell composer drawer.
-- **Open dialog** (`ctrl+o`): recent sessions and projects. `→` on a git project shows its
-  worktrees; `ctrl+n` creates a new worktree.
+- **Open dialog** (`ctrl+o`): recent sessions (the store's and its own `session.list`; an exact session ID is
+  looked up) and projects. `→` on a git project shows its worktrees; `ctrl+n` creates a new worktree.
 - **Worktrees dialog** (`/worktrees`): move, new, delete (press twice to confirm,
   force-delete prompt) and refresh.
 - **Pair dialog** (`/pair`): one-time links and a QR code drawn like `@opencode/util/qr`
@@ -199,11 +232,11 @@ The modules below cover the main session and home screens and all dialogs. They 
   `resume r`, `clear x` run the `goal` server command; failures toast "Failed to update the goal"), or toasts how to
   start one. The goal kickoff notice uses `◎`. No hover color.
 - **OpenCode Console usage limits** (2.2, `component/usage.tsx`, `util/usage-limits.ts`; `app/usage.rs`,
-  `util/usage_limits.rs`): `GET /api/experimental/usage/limits` per location, loaded lazily (the first `/usage`, the
-  model picker, or a Console-served model in the prompt) and reloaded only where loaded (budget refusals,
+  `util/usage_limits.rs`): `GET /api/experimental/usage/limits` per location, loaded lazily (the first `/usage` or a
+  Console-served model in the prompt) and reloaded only where loaded (budget refusals,
   `credential.*`, `integration.updated`, a finished turn of the routed session). `/usage` ("View usage") lists the
-  limited models (the amount left only on the selected row) and opens a model's limits; the model picker gets
-  `Usage ctrl+u`; the prompt shows `$X left` / `Limit reached` when the model runs low; the sidebar gets the
+  limited models (the amount left only on the selected row) and opens a model's limits (the model picker lost its
+  `Usage ctrl+u` action in 2.2.7); the prompt shows `$X left` / `Limit reached` when the model runs low; the sidebar gets the
   `opencode.sidebar.limit` block; warnings toast once per model and level; refused turns show the Go / budget /
   model budget / out-of-credits notices (the Go page link opens on click; no OSC 8). Toasts are clickable (dismiss
   and run their action). The new-designs details (`ModelDetail` usage, dialog descriptions) are not ported.
@@ -225,10 +258,10 @@ The modules below cover the main session and home screens and all dialogs. They 
   ` to install vX` (or ` restart to use vX` after an automatic install) in `text.muted`. Clicking it opens the
   dialog, or quits after an install. `/update` (palette "Update ocd", after "View status") opens the dialog:
   "Checking for updates…" while `check` runs, then "Update available", "ocd is already up to date.", the
-  unavailable message or the error. The footer is `skip` plus `update` or `restart`; Enter runs the last one.
-  `update` calls `apply` ("Updating ocd" / "Installing ocd X…"), then offers `restart` (quit). `skip` hides the
-  notice and records `client:<version>` in the `update-notifications` store (last 100), which keeps it hidden.
-  No fade-in animation; the footer items are not clickable.
+  unavailable message or the error. The buttons are `Skip` plus `Update` or `Restart` (2.2.7 `DialogButtons`, see
+  above); Enter runs the active one. `Update` calls `apply` ("Updating ocd" / "Installing ocd X…"), then offers
+  `Restart` (quit). `Skip` hides the notice and records `client:<version>` in the `update-notifications` store
+  (last 100), which keeps it hidden. No fade-in animation, and "Checking for updates…" has no spinner.
 - **Busy status line** (intentional difference from upstream, `app/busy.rs`): upstream only shows the
   KnightRider bar in the prompt footer while a session runs, which stays the same whether the server is still
   setting up, the model has not sent its first token yet, or a tool is running. ocd adds one status line, like

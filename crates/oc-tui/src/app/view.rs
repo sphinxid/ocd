@@ -55,7 +55,13 @@ impl App {
             Route::Plugin(name) => self.draw_plugin(buf, area, &t, &name),
         }
         self.draw_tab_menu(buf, area, &t);
-        self.draw_toast(buf, area, &t);
+        // 2.2.7 (#60249): the host terminal draws its cursor above every cell, so a toast covering the prompt's
+        // cursor hides it (a dialog's cursor, set afterwards, is kept).
+        if let Some(r) = self.draw_toast(buf, area, &t)
+            && cursor.is_some_and(|(x, y)| x >= r.x && x < r.right() && y >= r.y && y < r.bottom())
+        {
+            cursor = None;
+        }
         // The execute detail follows its live tool part; the usage dialogs follow the limits.
         self.refresh_execute_dialog();
         self.refresh_usage_dialog();
@@ -709,7 +715,8 @@ impl App {
             let text = vec![s(format!("{} queued", queued.len()), t.text.base), s(format!(" · {first}"), t.text.muted)];
             dock.push(SLine::new(vec![bar.clone()]).with_bg(Some(bg)).on_click(Some(Click::QueuedDialog)));
             let mut l = vec![bar.clone(), pad(2)];
-            l.extend(clip(&text, width.saturating_sub(4)));
+            // `paddingLeft` 2, `paddingRight` 2 (2.2.7; was 1).
+            l.extend(clip(&text, width.saturating_sub(5)));
             dock.push(SLine::new(l).with_bg(Some(bg)).on_click(Some(Click::QueuedDialog)));
             dock.push(SLine::new(vec![bar]).with_bg(Some(bg)).on_click(Some(Click::QueuedDialog)));
             dock.push(SLine::blank());
@@ -963,8 +970,9 @@ impl App {
 
     // ---- toasts & overlays -------------------------------------------------
 
-    pub(super) fn draw_toast(&mut self, buf: &mut Buffer, area: Rect, t: &Theme) {
-        let Some(toast) = self.toast.clone() else { return };
+    /// Draw the toast; returns its box (side borders included).
+    pub(super) fn draw_toast(&mut self, buf: &mut Buffer, area: Rect, t: &Theme) -> Option<Rect> {
+        let Some(toast) = self.toast.clone() else { return None };
         let max_w = 60.min(area.width.saturating_sub(6)) as usize;
         let border = match toast.variant.as_str() {
             "error" => t.text.feedback.error.base,
@@ -1029,6 +1037,7 @@ impl App {
         draw_lines(buf, Rect::new(x + 3, y + 1, w.saturating_sub(6), h.saturating_sub(2)), &body, 0, "");
         // A click on the toast dismisses it and runs its action (`toast.activate`); it sits above everything else.
         self.hits.insert(0, (rect, Click::Custom(TOAST_CLICK.into())));
+        Some(rect)
     }
 
     pub(super) fn draw_reconnecting(&mut self, buf: &mut Buffer, area: Rect, t: &Theme) {

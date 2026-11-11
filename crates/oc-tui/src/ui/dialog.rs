@@ -526,6 +526,45 @@ pub struct TextDialog {
     pub title_view: Option<Vec<Seg>>,
     /// Renders nothing inside the dialog box (a `<Show>` whose condition went false).
     pub empty: bool,
+    /// A `DialogButtons` row in place of the footer (2.2.7: the update dialog).
+    pub buttons: Option<Buttons>,
+}
+
+/// `DialogButtons`: right-aligned buttons, the active one highlighted; ←/shift+tab and →/tab move, wrapping.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Buttons {
+    pub labels: Vec<String>,
+    pub active: usize,
+}
+
+impl Buttons {
+    /// The active button defaults to the last one.
+    pub fn new(labels: Vec<String>) -> Buttons {
+        let active = labels.len().saturating_sub(1);
+        Buttons { labels, active }
+    }
+    pub fn step(&mut self, d: isize) {
+        let n = self.labels.len() as isize;
+        if n > 0 {
+            self.active = (((self.active as isize + d) % n + n) % n) as usize;
+        }
+    }
+}
+
+/// The `DialogButtons` row: ` label ` boxes without gaps, right-aligned in `inner`; clicks resolve per button.
+pub fn button_row(labels: &[String], active: usize, inset: usize, inner: usize, t: &Theme) -> SLine {
+    let btns: Vec<Seg> = labels
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let text = format!(" {label} ");
+            if i == active { Seg::new(text, fg_bg(t.text.action.primary.focused, t.background.action.primary.focused)) } else { Seg::new(text, fg(t.text.muted)) }
+        })
+        .collect();
+    let used: usize = btns.iter().map(|b| b.width()).sum();
+    let mut segs = vec![pad(inset + inner.saturating_sub(used))];
+    segs.extend(btns);
+    SLine::new(segs).on_click(Some(Click::Custom("buttons".into())))
 }
 
 impl TextDialog {
@@ -701,7 +740,7 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
             Outcome::Handled
         }
         Body::Confirm { confirm, .. } => match name {
-            "left" | "right" => {
+            "left" | "right" | "tab" => {
                 *confirm = !*confirm;
                 Outcome::Handled
             }
@@ -756,11 +795,12 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
                     p.cursor = p.value[p.cursor..].char_indices().nth(1).map(|(i, _)| p.cursor + i).unwrap_or(p.value.len());
                     Outcome::Handled
                 }
-                "home" => {
+                // Text inputs alias keypad keys to their base keys, like OpenTUI's editor.
+                "home" | "kphome" => {
                     p.cursor = 0;
                     Outcome::Handled
                 }
-                "end" => {
+                "end" | "kpend" => {
                     p.cursor = p.value.len();
                     Outcome::Handled
                 }
@@ -821,6 +861,16 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
             super::choice::ChoiceKey::Submit(v) => Outcome::Submit(serde_json::to_string(&v).unwrap_or_default()),
             super::choice::ChoiceKey::None => Outcome::Handled,
         },
+        Body::Text(td) if td.buttons.is_some() && matches!(name, "left" | "right" | "tab" | "return") => {
+            let b = td.buttons.as_mut().unwrap();
+            match name {
+                "return" => return Outcome::Key(format!("button:{}", b.active)),
+                "left" => b.step(-1),
+                "tab" if s.shift => b.step(-1),
+                _ => b.step(1),
+            }
+            Outcome::Handled
+        }
         Body::Text(td) => match name {
             "escape" => Outcome::Close,
             "c" if s.ctrl => Outcome::Close,
@@ -878,6 +928,8 @@ pub enum DialogHit {
     Close,
     Ok,
     Confirm(bool),
+    /// A `DialogButtons` button, by index.
+    Button(usize),
 }
 
 /// Render the dialog host (backdrop + panel). Returns panel rect, hits and cursor position.
@@ -936,17 +988,7 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
                 v.push(ins(SLine::new(l)));
             }
             v.push(SLine::blank());
-            let btn = |label: &str, active: bool| {
-                if active {
-                    Seg::new(format!(" {label} "), fg_bg(t.text.action.primary.focused, t.background.action.primary.focused))
-                } else {
-                    Seg::new(format!(" {label} "), fg(t.text.muted))
-                }
-            };
-            let cancel = btn("Cancel", !*confirm);
-            let ok = btn("Confirm", *confirm);
-            let used = cancel.width() + ok.width();
-            v.push(SLine::new(vec![pad(DIALOG_INSET + inner.saturating_sub(used)), cancel, ok]));
+            v.push(button_row(&["Cancel".to_string(), "Confirm".to_string()], usize::from(*confirm), DIALOG_INSET, inner, t));
             v.push(SLine::blank());
             v
         }
@@ -1059,6 +1101,18 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
     fill(buf, panel, t.background.base.tui());
     let inner_rect = Rect::new(x, y + 1, w, h.saturating_sub(1));
     for (rect, click) in draw_lines(buf, inner_rect, &lines, 0, SPINNER_FRAMES[0]) {
+        if matches!(&click, Click::Custom(c) if c == "buttons")
+            && let Some(line) = lines.get((rect.y - inner_rect.y) as usize)
+        {
+            // The first segment is the alignment padding; each later one is a button.
+            let mut bx = rect.x + line.segs.first().map(|s| s.width()).unwrap_or(0) as u16;
+            for (i, s) in line.segs.iter().skip(1).enumerate() {
+                let bw = s.width() as u16;
+                hits.push((Rect::new(bx, rect.y, bw.min(rect.right().saturating_sub(bx)), 1), DialogHit::Button(i)));
+                bx += bw;
+            }
+            continue;
+        }
         let hit = match click {
             Click::Custom(c) if c == "ok" => DialogHit::Ok,
             Click::Custom(c) if c == "esc" => DialogHit::Close,
@@ -1120,7 +1174,10 @@ fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme
             v.push(l.clone().prefixed(&[pad(ins)]));
         }
     }
-    if let Some(label) = &td.button {
+    if let Some(b) = &td.buttons {
+        v.push(SLine::blank());
+        v.push(button_row(&b.labels, b.active, ins, inner, t));
+    } else if let Some(label) = &td.button {
         v.push(SLine::blank());
         let text = format!("   {label}   ");
         let bw = sw(&text);

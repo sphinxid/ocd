@@ -93,12 +93,12 @@ fn set_title(app: &App, last: &mut String) {
         (Route::Plugin(name), _) => format!("OC | {name}"),
         (_, s) => match s {
         Some(s) if s.title.as_deref().is_some_and(|t| !t.is_empty() && !crate::util::locale::is_default_title(t)) => {
-            let t = s.title.clone().unwrap();
-            if t.chars().count() > 40 { format!("OC | {}…", t.chars().take(37).collect::<String>()) } else { format!("OC | {t}") }
+            crate::util::locale::session_terminal_title(s.title.as_deref().unwrap())
         }
         _ => "OpenCode".to_string(),
         },
     };
+    let title = crate::util::locale::terminal_title_text(&title);
     if *last != title {
         let _ = write!(std::io::stdout(), "\x1b]0;{title}\x07");
         *last = title;

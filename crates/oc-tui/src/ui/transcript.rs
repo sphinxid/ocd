@@ -510,12 +510,12 @@ fn inline_row(
     out
 }
 
-/// `BlockTool`: left bar in `background.base` over a raised panel.
+/// `BlockTool`: left bar in `background.base` over a raised panel, `paddingLeft` and (2.2.7) `paddingRight` 2.
 fn block(ctx: &RCtx, header: Vec<Seg>, body: Vec<SLine>, error: Option<(String, Rgba)>, click: Option<Click>) -> Vec<SLine> {
     let t = ctx.t();
     let bg = t.background.raised.base.tui();
     let bar = vec![Seg::new("┃", Style::default().fg(t.background.base.tui()).bg(bg)), pad(2)];
-    let inner = ctx.width.saturating_sub(3).max(1);
+    let inner = block_inner(ctx);
     let mut out = vec![SLine::new(vec![bar[0].clone()]).with_bg(Some(bg))];
     let mut sections: Vec<Vec<SLine>> = Vec::new();
     if !header.is_empty() {
@@ -556,9 +556,14 @@ fn block(ctx: &RCtx, header: Vec<Seg>, body: Vec<SLine>, error: Option<(String, 
     out
 }
 
+/// The content width of a `BlockTool`: its bar, `paddingLeft` 2 and `paddingRight` 2.
+fn block_inner(ctx: &RCtx) -> usize {
+    ctx.width.saturating_sub(5).max(1)
+}
+
 fn path_header(ctx: &RCtx, label: &str, path: &str, color: Rgba, spinner: bool) -> Vec<Seg> {
     let label = if spinner { format!("{} {}", ctx.spinner(), label.trim_start_matches("# ")) } else { label.to_string() };
-    let max = ctx.width.saturating_sub(4 + sw(&label) + if spinner { 2 } else { 0 }).max(2);
+    let max = ctx.width.saturating_sub(6 + sw(&label) + if spinner { 2 } else { 0 }).max(2);
     vec![s(label, color), s(" ", color), s(locale::truncate_file_path(path, max), color)]
 }
 
@@ -639,7 +644,7 @@ fn diagnostics(ctx: &RCtx, meta: &Value, path: &str) -> Vec<SLine> {
             Some(format!("Error [{}:{}] {msg}", line + 1, ch + 1))
         })
         .take(3)
-        .flat_map(|t| wrap(&[s(t, ctx.t().text.feedback.error.base)], ctx.width.saturating_sub(3), Wrap::Word).into_iter().map(SLine::new).collect::<Vec<_>>())
+        .flat_map(|t| wrap(&[s(t, ctx.t().text.feedback.error.base)], block_inner(ctx), Wrap::Word).into_iter().map(SLine::new).collect::<Vec<_>>())
         .collect()
 }
 
@@ -803,7 +808,7 @@ fn shell_display(ctx: &RCtx, key: &str, part: Option<&ToolPart>, shell_id: Optio
         locale::strip_ansi(output.unwrap_or("").trim())
     };
     let max_lines = 10;
-    let max_chars = max_lines * 20usize.max(ctx.width.saturating_sub(6 + if running { 2 } else { 0 }));
+    let max_chars = max_lines * 20usize.max(ctx.width.saturating_sub(8 + if running { 2 } else { 0 }));
     let wd = workdir.map(|w| ctx.path(w));
     let prefix = match wd.as_deref() {
         Some(w) if !w.is_empty() && w != "." => format!("cd {w} && "),
@@ -812,7 +817,7 @@ fn shell_display(ctx: &RCtx, key: &str, part: Option<&ToolPart>, shell_id: Optio
     let input = command.map(|c| format!("{}{prefix}{c}", if running { "" } else { "$ " })).unwrap_or_default();
     let (ci, co, overflow) = collapse_shell(&input, &out_text, max_lines, max_chars);
     let (li, lo) = if expanded { (input.clone(), out_text.clone()) } else { (ci, co) };
-    let inner = ctx.width.saturating_sub(3).max(1);
+    let inner = block_inner(ctx);
     let mut body: Vec<SLine> = Vec::new();
     match command {
         None => {
@@ -926,7 +931,7 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
                 let hl = highlight(content, &ft, ctx.syntax);
                 let nw = hl.len().to_string().len().max(3);
                 let mut body = Vec::new();
-                let code_w = ctx.width.saturating_sub(3 + nw + 1).max(1);
+                let code_w = ctx.width.saturating_sub(5 + nw + 1).max(1);
                 for (i, l) in hl.into_iter().enumerate() {
                     for (k, wl) in wrap(&l, code_w, Wrap::Word).into_iter().enumerate() {
                         let n = if k == 0 { format!("{:>nw$} ", i + 1) } else { " ".repeat(nw + 1) };
@@ -999,7 +1004,7 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
                         _ => "← Patched",
                     };
                     let c = if kind == "delete" { th.diff.text_removed } else { th.text.muted };
-                    let body = vec![SLine::new(vec![s(locale::truncate_file_path(res, ctx.width.saturating_sub(3).max(2)), c)])];
+                    let body = vec![SLine::new(vec![s(locale::truncate_file_path(res, ctx.width.saturating_sub(5).max(2)), c)])];
                     out.extend(block(ctx, path_header(ctx, label, &ctx.path(res), th.text.muted, false), body, None, None));
                 }
                 return out;
@@ -1080,7 +1085,7 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
             });
             if let Some(ans) = answers {
                 let mut body = Vec::new();
-                let inner = ctx.width.saturating_sub(3).max(1);
+                let inner = block_inner(ctx);
                 for (i, q) in questions.iter().enumerate() {
                     if i > 0 {
                         body.push(SLine::blank());
@@ -1100,7 +1105,7 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
             let todos = crate::util::todo::parse_todos(input.get("todos").unwrap_or(&Value::Null));
             if status == "completed" && !todos.is_empty() {
                 let header = if ctx.permission_tool == Some(t.id.as_str()) { th.text.feedback.warning.base } else { th.text.muted };
-                let inner = ctx.width.saturating_sub(3).max(1);
+                let inner = block_inner(ctx);
                 let body = todos.iter().flat_map(|todo| crate::util::todo::todo_item(th, todo, inner)).collect();
                 block(ctx, vec![s("# Todos", header)], body, None, None)
             } else {
@@ -1500,7 +1505,8 @@ fn render_message(ctx: &RCtx, id: &str, light: bool) -> Vec<SLine> {
             let bar = vec![Seg::new("┃", Style::default().fg(bar_c.tui()).bg(bg)), pad(2)];
             let click = if delivery.map(|d| d.as_str()) == Some("steer") { Click::PendingSteer(id.into()) } else { Click::OpenMessage(id.into()) };
             let mut out = vec![SLine::new(vec![bar[0].clone()])];
-            for l in wrap(&[s(m.text_str(), th.text.base)], w.saturating_sub(3).max(1), Wrap::Word) {
+            // `paddingLeft` 2 and (2.2.7) `paddingRight` 2 beside the bar.
+            for l in wrap(&[s(m.text_str(), th.text.base)], w.saturating_sub(5).max(1), Wrap::Word) {
                 out.push(SLine::new(l).prefixed(&bar));
             }
             let skill_chips: Vec<Vec<Seg>> = skills.iter().map(|sk| chip("skill", sk.name.as_deref().unwrap_or(&sk.id), ctx, light)).collect();
@@ -1520,7 +1526,7 @@ fn render_message(ctx: &RCtx, id: &str, light: bool) -> Vec<SLine> {
                 out.push(SLine::new(vec![bar[0].clone()]));
                 let mut line: Vec<Seg> = Vec::new();
                 let mut used = 0;
-                let avail = w.saturating_sub(3);
+                let avail = w.saturating_sub(5);
                 for c in chips {
                     let cw: usize = c.iter().map(|x| x.width()).sum();
                     if used > 0 && used + 1 + cw > avail {
@@ -2018,7 +2024,7 @@ pub fn revert_banner(ctx: &RCtx, count: usize, files: &[FileDiff]) -> Vec<SLine>
                 _ => "M",
             };
             let extra = if f.additions > 0 { sw(&format!("+{}", f.additions)) + 1 } else { 0 } + if f.deletions > 0 { sw(&format!("-{}", f.deletions)) + 1 } else { 0 };
-            let mut segs = vec![s(label, th.text.muted), pad(1), s(locale::truncate_file_path(&f.file, ctx.width.saturating_sub(5 + extra).max(2)), th.text.base)];
+            let mut segs = vec![s(label, th.text.muted), pad(1), s(locale::truncate_file_path(&f.file, ctx.width.saturating_sub(7 + extra).max(2)), th.text.base)];
             if f.additions > 0 {
                 segs.push(s(format!(" +{}", f.additions), th.diff.text_added));
             }

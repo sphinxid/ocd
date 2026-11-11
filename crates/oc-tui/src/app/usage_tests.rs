@@ -151,15 +151,12 @@ fn usage_dialog_loading_signed_out_and_empty() {
 }
 
 #[test]
-fn model_picker_offers_usage_only_with_limits() {
+fn model_picker_has_no_usage_action() {
+    // 2.2.7 (#62927): `/usage` is the way to the limits; the picker does not offer it.
     let (mut a, _) = console_app(true);
     a.run_command("model.list", None);
     let lines = render(&mut a, 110, 36);
-    assert!(contains(&lines, "Usage ctrl+u"), "{}", lines.join("\n"));
-    a.dialogs.clear();
-    a.store.location_mut("/work/proj").usage_limits = Some(None);
-    a.run_command("model.list", None);
-    let lines = render(&mut a, 110, 36);
+    assert!(contains(&lines, "Favorite ctrl+f"), "{}", lines.join("\n"));
     assert!(!contains(&lines, "Usage ctrl+u"), "{}", lines.join("\n"));
 }
 

@@ -188,10 +188,10 @@ pub fn refusal_reset(error: Option<&SessionError>) -> Option<f64> {
     js_date_parse(&capture(r#""resetsAt"\s*:\s*"([^"]+)""#, body(error))?)
 }
 
-/// When a refused request may retry, from its `retry-after` counted from `base`; nothing past a week.
+/// When a refused request may retry, from its `retry-after` counted from `base`; nothing past 45 days, as a bad header.
 pub fn retry_reset(error: Option<&SessionError>, base: i64) -> Option<f64> {
     let delay = error?.retry_after_ms?;
-    if !delay.is_finite() || !(0.0..=7.0 * 86_400_000.0).contains(&delay) {
+    if !delay.is_finite() || !(0.0..=45.0 * 86_400_000.0).contains(&delay) {
         return None;
     }
     Some(base as f64 + delay)
@@ -204,7 +204,7 @@ pub fn go_limit_name(error: Option<&SessionError>) -> Option<String> {
 
 /// The OpenCode Console Go page for the workspace a Go usage limit names.
 pub fn go_limit_link(error: Option<&SessionError>) -> String {
-    match capture(r#""workspace"\s*:\s*"(wrk_\w+)""#, body(error)) {
+    match capture(r#""workspace"\s*:\s*"((?:org|wrk)_[A-Za-z0-9_-]+)""#, body(error)) {
         Some(w) => format!("https://opencode.ai/console/{w}/go"),
         None => "https://opencode.ai/console".into(),
     }
@@ -406,7 +406,19 @@ mod tests {
         assert_eq!(go_limit_link(None), "https://opencode.ai/console");
         let r = SessionError { retry_after_ms: Some(1000.0), ..Default::default() };
         assert_eq!(retry_reset(Some(&r), 5), Some(1005.0));
-        let r = SessionError { retry_after_ms: Some(8.0 * 86_400_000.0), ..Default::default() };
+        // 2.2.7: a monthly Go limit keeps its reset weeks out (up to 45 days).
+        let r = SessionError { retry_after_ms: Some(25.0 * 86_400_000.0), ..Default::default() };
+        assert_eq!(retry_reset(Some(&r), 5), Some(5.0 + 25.0 * 86_400_000.0));
+        let r = SessionError { retry_after_ms: Some(60.0 * 86_400_000.0), ..Default::default() };
         assert_eq!(retry_reset(Some(&r), 5), None);
+    }
+
+    #[test]
+    fn go_limit_links_name_new_and_migrated_workspaces() {
+        let body = |w: &str| SessionError { response: Some(ErrorResponse { body: serde_json::json!({ "metadata": { "workspace": w } }).to_string() }), ..Default::default() };
+        assert_eq!(go_limit_link(Some(&body("org_01JXYZ7Q2M"))), "https://opencode.ai/console/org_01JXYZ7Q2M/go");
+        assert_eq!(go_limit_link(Some(&body("wrk_legacy"))), "https://opencode.ai/console/wrk_legacy/go");
+        assert_eq!(go_limit_link(Some(&body("org_a-b"))), "https://opencode.ai/console/org_a-b/go");
+        assert_eq!(go_limit_link(Some(&body("acct_other"))), "https://opencode.ai/console");
     }
 }

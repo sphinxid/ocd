@@ -58,6 +58,8 @@ pub fn settings() -> Vec<(&'static str, &'static str, &'static str, Vec<Value>, 
     v.push(("Session", "Sidebar", "session.sidebar", vec![json!("hide"), json!("auto")], vec![], json!("auto")));
     let (a, b) = onoff();
     v.push(("Session", "Scrollbar", "session.scrollbar", a, b, json!(false)));
+    // 2.2.7: whether sending a prompt jumps to the latest message.
+    v.push(("Session", "Scroll on send", "session.submit_scroll", vec![json!("bottom"), json!("keep")], vec!["jump to latest", "keep position"], json!("bottom")));
     v.push(("Session", "Thinking", "session.thinking", vec![json!("hide"), json!("show")], vec![], json!("hide")));
     v.push(("Session", "Markdown", "session.markdown", vec![json!("source"), json!("rendered")], vec![], json!("rendered")));
     v.push(("Session", "Tool grouping", "session.grouping", vec![json!("none"), json!("auto")], vec![], json!("auto")));
@@ -438,7 +440,7 @@ impl App {
             }
             "help.show" => self.open_dialog(Dialog::new("help", Body::Help)),
             "docs.open" => {
-                open_url("https://opencode.ai/v2/docs");
+                open_url("https://opencode.ai/docs");
                 self.dialogs.clear();
             }
             "app.exit" => self.quit = true,
@@ -900,7 +902,7 @@ impl App {
         )
     }
 
-    /// Export flow (`DialogExportOptions` → copy or temp file → `DialogExportResult`).
+    /// Export flow (`DialogExportOptions` → copy or a file in the working directory → `DialogExportResult`).
     pub fn export_session(&mut self, opts: crate::ui::dialog::ExportOptions, copy: bool) {
         let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
         self.dialogs.clear();
@@ -909,8 +911,10 @@ impl App {
                 app.copy(&text, "Copied to clipboard");
                 return;
             }
-            let path = std::env::temp_dir().join(format!("opencode-{}.{ext}", crate::util::id_body(false)));
-            match std::fs::write(&path, text) {
+            // 2.2.7 (#62253): saved in the working directory, `session-<uuid>.<md|json>`.
+            let path = export_path(&std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")), ext);
+            let written = path.parent().map(std::fs::create_dir_all).unwrap_or(Ok(())).and_then(|_| std::fs::write(&path, text));
+            match written {
                 Ok(_) => {
                     let t = app.theme().dialog().clone();
                     let lines = vec![crate::ui::text::SLine::new(vec![crate::ui::text::seg(path.to_string_lossy().to_string(), crate::ui::text::fg(t.text.base))])];
@@ -1001,8 +1005,11 @@ impl App {
             self.editor.insert_chip(&label, crate::ui::prompt::ChipKind::Paste, json!({ "uri": format!("data:image/png;base64,{png}"), "name": "clipboard", "mime": "image/png" }), true);
             return;
         }
-        if let Some(text) = crate::clipboard::read_text() {
-            self.paste(&text);
+        match crate::clipboard::read_text_checked() {
+            Ok(Some(text)) => self.paste(&text),
+            Ok(None) => {}
+            // 2.2.7: a clipboard that cannot be read says so instead of doing nothing.
+            Err(message) => self.toast(Toast::new("error", message)),
         }
     }
 
@@ -1047,16 +1054,16 @@ impl App {
             .is_some_and(|list| list.iter().any(|i| i.get("connections").and_then(|c| c.as_array()).is_some_and(|a| !a.is_empty())))
     }
 
-    /// `DialogModel` (legacy layout): Favorites and Recent sections while not searching, then every
-    /// model in the server's order (grouped by provider when connected, free first).
-    /// Open the model picker (`DialogModel`). Spend moves with every request, so the picker shows fresh
-    /// limits (re-rendering it after a favorite toggle does not reload them).
+    /// Open the model picker (`DialogModel`). Since 2.2.7 it has no usage action and does not reload the limits.
     pub fn open_model_dialog(&mut self, provider: Option<String>) {
-        self.usage_load(true);
-        self.model_dialog(provider);
+        let priority: Vec<String> = self.models.favorite.iter().map(|f| format!("{}/{}", f.provider_id, f.model_id)).collect();
+        self.model_dialog(provider, priority);
     }
 
-    pub(super) fn model_dialog(&mut self, provider: Option<String>) {
+    /// `DialogModel` (legacy layout): Favorites and Recent sections while not searching, then every
+    /// model in the server's order (grouped by provider when connected, free first). Without a connection the flat
+    /// list puts the favorites of `priority` (the snapshot taken when the picker opened) first.
+    pub(super) fn model_dialog(&mut self, provider: Option<String>, priority: Vec<String>) {
         let models: Vec<ModelInfo> = self.model_list().into_iter().filter(|m| m.status != "deprecated" && provider.as_ref().is_none_or(|p| &m.provider_id == p)).collect();
         let providers = self.providers();
         let pname = |id: &str| providers.iter().find(|p| p.id == id).map(|p| p.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string());
@@ -1101,12 +1108,16 @@ impl App {
             };
             grouped.then(b.free().cmp(&a.free()))
         });
+        if !connected {
+            // `prioritizeFavorites`: a stable sort, favorites (as of opening) first.
+            rest.sort_by_key(|m| !priority.contains(&key(m)));
+        }
         for m in rest {
             let mut o = Opt::new(m.name.clone(), key(m));
             if connected {
                 o.category = Some(pname(&m.provider_id));
             }
-            if connected && self.models.is_favorite(&m.provider_id, &m.id) {
+            if self.models.is_favorite(&m.provider_id, &m.id) {
                 o.description = Some("(Favorite)".into());
             }
             if m.free() {
@@ -1122,11 +1133,10 @@ impl App {
         s.current = self.current_model().map(|m| format!("{}/{}", m.provider_id, m.id));
         s.actions = vec![
             Action::new("model.dialog.provider", if connected { "Connect an integration" } else { "View all integrations" }).dialog_level(),
-            Action::new("model.dialog.usage", "Usage").dialog_level().hidden(self.usage_info().is_none()),
-            Action::new("model.dialog.favorite", "Favorite").hidden(!connected),
+            Action::new("model.dialog.favorite", "Favorite"),
         ];
         let mut d = Dialog::select("model", s, Size::Medium);
-        d.data = json!({ "provider": provider });
+        d.data = json!({ "provider": provider, "priority": priority });
         self.open_dialog(d);
     }
 
@@ -1336,6 +1346,11 @@ impl App {
     }
 
     fn open_mcp_dialog(&mut self) {
+        self.open_mcp_dialog_at(None);
+    }
+
+    /// `DialogMcp`, with `initialServer` focused (`focusTarget`).
+    pub(crate) fn open_mcp_dialog_at(&mut self, focus: Option<&str>) {
         let mut servers = self.loc().and_then(|l| l.mcp.clone()).unwrap_or_default();
         servers.sort_by(|a, b| a.name.cmp(&b.name));
         let t = self.theme().clone();
@@ -1356,6 +1371,12 @@ impl App {
             .collect();
         let mut sel = Select::new("MCP servers", opts);
         sel.actions = vec![Action::new("dialog.mcp.toggle", "toggle")];
+        if let Some(name) = focus
+            && let Some(i) = sel.visible().iter().position(|i| sel.options[*i].value == name)
+        {
+            sel.selected = i;
+            sel.center = true;
+        }
         self.open_dialog(Dialog::select("mcp", sel, Size::Medium));
     }
 
@@ -1470,7 +1491,33 @@ pub fn last_assistant_text(messages: &[Message], revert: Option<&str>) -> Option
     )
 }
 
+/// `path.join(cwd, "session-" + crypto.randomUUID() + ".<ext>")`.
+pub(crate) fn export_path(cwd: &std::path::Path, ext: &str) -> std::path::PathBuf {
+    cwd.join(format!("session-{}.{ext}", random_uuid()))
+}
+
+/// `crypto.randomUUID()`: a lowercase, hyphenated version 4 UUID.
+pub(crate) fn random_uuid() -> String {
+    let mut b: [u8; 16] = rand::random();
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests never start a browser; the URLs `open_url` was given are recorded here.
+    pub static TEST_OPENED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 pub fn open_url(url: &str) {
-    let cmd = if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
+    #[cfg(test)]
+    {
+        TEST_OPENED.with(|o| o.borrow_mut().push(url.to_string()));
+        return;
+    }
+    #[cfg_attr(test, allow(unreachable_code))]
+    let cmd =if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
     let _ = std::process::Command::new(cmd).arg(url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
 }

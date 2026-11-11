@@ -427,6 +427,12 @@ impl Store {
             .filter(|m| !ids.contains(&m.id) && (self.outbox.contains(&m.id) || admitted.contains(&m.id)))
             .cloned()
             .collect();
+        // 2.2.7 (#61679): the transcript only holds delivered input, so a pending row it contains missed its
+        // `inbox.delivered` event (and maybe its enqueued echo) while the event stream was down.
+        for id in admitted.iter().filter(|id| ids.contains(*id)) {
+            self.outbox.remove(id);
+            self.remove_pending(sid, id);
+        }
         fetched.extend(local);
         self.messages.insert(sid.to_string(), fetched);
         self.message_cursor.insert(sid.to_string(), next);

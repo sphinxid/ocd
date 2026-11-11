@@ -365,7 +365,7 @@ async fn resolve_target(client: Client, directory: String, session: Option<Strin
         let loc = client.location_get(Some(&directory)).await.map_err(e)?.directory;
         let mut cursor: Option<String> = None;
         loop {
-            let mut q: Vec<(&str, String)> = vec![("directory", loc.clone()), ("parentID", "null".into()), ("limit", "50".into()), ("order", "desc".into())];
+            let mut q: Vec<(&str, String)> = vec![("directory", loc.clone()), ("parentID", "null".into()), ("archived", "false".into()), ("limit", "50".into()), ("order", "desc".into())];
             if let Some(c) = &cursor {
                 q.push(("cursor", c.clone()));
             }
@@ -464,12 +464,10 @@ impl Runtime {
             return;
         }
         let text = match title {
-            Some(t) if !crate::util::locale::is_default_title(t) => {
-                let chars: Vec<char> = t.chars().collect();
-                format!("OC | {}", if chars.len() > 40 { chars[..37].iter().collect::<String>() + "…" } else { t.to_string() })
-            }
+            Some(t) if !crate::util::locale::is_default_title(t) => crate::util::locale::session_terminal_title(t),
             _ => "OpenCode".into(),
         };
+        let text = crate::util::locale::terminal_title_text(&text);
         let _ = write!(std::io::stdout(), "\x1b]0;{text}\x07");
         self.title_set = true;
     }

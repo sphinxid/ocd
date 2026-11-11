@@ -85,21 +85,44 @@ pub fn write(text: &str) -> bool {
 
 /// Read clipboard text via host tools.
 pub fn read_text() -> Option<String> {
+    read_text_checked().ok().flatten()
+}
+
+/// The error of a clipboard read with no reader on this system (2.2.7's `unsupported` read status).
+pub const READ_UNSUPPORTED: &str = "Clipboard read is not supported on this system";
+
+/// Read clipboard text via host tools; `Err` when no reader tool could be started at all (OpenTUI's `unsupported`).
+pub fn read_text_checked() -> Result<Option<String>, &'static str> {
+    #[cfg(test)]
+    if let Some(r) = TEST_READ.with(|c| c.borrow().clone()) {
+        return r;
+    }
+    let mut supported = false;
     for (cmd, args) in host_readers() {
-        if let Ok(out) = Command::new(cmd).args(&args).stderr(Stdio::null()).output()
-            && out.status.success()
-        {
+        let Ok(out) = Command::new(cmd).args(&args).stderr(Stdio::null()).output() else { continue };
+        supported = true;
+        if out.status.success() {
             let s = String::from_utf8_lossy(&out.stdout).to_string();
             if !s.is_empty() {
-                return Some(s);
+                return Ok(Some(s));
             }
         }
     }
-    None
+    if supported { Ok(None) } else { Err(READ_UNSUPPORTED) }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests set the outcome of clipboard reads here instead of running host tools.
+    pub static TEST_READ: std::cell::RefCell<Option<Result<Option<String>, &'static str>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Read a PNG image from the clipboard as base64.
 pub fn read_png() -> Option<String> {
+    #[cfg(test)]
+    if TEST_READ.with(|c| c.borrow().is_some()) {
+        return None;
+    }
     let attempts: Vec<(&str, Vec<&str>)> = if cfg!(target_os = "macos") {
         vec![]
     } else {

@@ -477,6 +477,8 @@ struct MockState {
     /// Statuses handed out by the OAuth status route, in order (the last repeats).
     oauth: Vec<Value>,
     oauth_mode: String,
+    /// The OAuth attempt accepts a pasted redirect URL (`paste: true`, 2.2.7).
+    paste: bool,
     command: Vec<Value>,
     reads: std::collections::HashMap<String, usize>,
 }
@@ -513,10 +515,13 @@ fn route(state: &Shared, method: &str, path: &str, query: &str, body: Value) -> 
             (200, envelope(json!([])))
         }
         ("POST", ["api", "integration", _, "connect", "key"]) => (204, Value::Null),
-        ("POST", ["api", "integration", id, "connect", "oauth"]) => (
-            200,
-            envelope(json!({ "attemptID": "att_1", "url": format!("https://example.test/{id}"), "instructions": "Enter code: ABCD-12345", "mode": s.oauth_mode, "time": { "created": 1, "expires": 2 } })),
-        ),
+        ("POST", ["api", "integration", id, "connect", "oauth"]) => {
+            let mut attempt = json!({ "attemptID": "att_1", "url": format!("https://example.test/{id}"), "instructions": "Enter code: ABCD-12345", "mode": s.oauth_mode, "time": { "created": 1, "expires": 2 } });
+            if s.paste {
+                attempt["paste"] = json!(true);
+            }
+            (200, envelope(attempt))
+        }
         ("GET", ["api", "integration", _, "connect", "oauth", _]) => {
             let next = if s.oauth.len() > 1 { s.oauth.remove(0) } else { s.oauth.first().cloned().unwrap_or(json!({ "status": "pending" })) };
             (200, envelope(next))
@@ -853,4 +858,72 @@ async fn a_login_command_shows_its_output_until_it_finishes() {
     assert_eq!(buf[(6, y as u16 + 2)].bg, t.background.raised.high.tui());
     drive_until(&mut a, &mut rx, 3000, |a| a.dialogs.is_empty()).await;
     assert_eq!(a.toast.as_ref().map(|t| t.message.as_str()), Some("Connected Cmd"));
+}
+
+// ---- 2.2.7 -----------------------------------------------------------------------------------
+
+/// #61706, #62929: an auto attempt with `paste: true` is a prompt for the redirect URL; the status poll still
+/// settles it. Enter on an empty prompt opens the link; a failed completion shows its error and keeps waiting.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_paste_attempt_takes_the_redirect_url() {
+    let state: Shared = Arc::new(Mutex::new(MockState { oauth_mode: "auto".into(), paste: true, ..Default::default() }));
+    let (mut a, mut rx) = flow_app(&state).await;
+    a.open_integrations(false, Some("device".into()), true);
+    drive_until(&mut a, &mut rx, 2000, |a| matches!(a.dialogs.last().map(|d| &d.body), Some(crate::ui::dialog::Body::Prompt(_)))).await;
+    assert_eq!(a.integration_top_step(), Some("auto"));
+    let lines = render(&mut a, 100, 30);
+    let y = lines.iter().position(|l| l.contains("Device login")).unwrap();
+    assert_eq!(inner(&lines[y + 2]), "Enter code: ABCD-12345");
+    assert_eq!(inner(&lines[y + 4]), "https://example.test/device");
+    assert_eq!(inner(&lines[y + 6]), "Waiting for authorization… Press enter to open the");
+    assert_eq!(inner(&lines[y + 7]), "link. If the browser can't reach this machine, paste");
+    assert_eq!(inner(&lines[y + 8]), "the URL it was redirected to.");
+    assert_eq!(inner(&lines[y + 10]), "Redirect URL");
+    assert_eq!(inner(&lines[y + 12]), "submit enter  copy link tab");
+    // `o` and `c` type into the prompt; tab copies the link's code (or the link).
+    crate::clipboard::TEST_CLIPBOARD.with(|c| *c.borrow_mut() = None);
+    a.on_key(Stroke::key("tab"));
+    assert_eq!(crate::clipboard::TEST_CLIPBOARD.with(|c| c.borrow().clone()).as_deref(), Some("ABCD-12345"));
+    // Enter on an empty prompt opens the link (no request).
+    a.on_key(Stroke::key("return"));
+    assert!(!requests(&state).iter().any(|r| r.1.ends_with("/complete")));
+    for c in "bad".chars() {
+        a.on_key(Stroke::key(&c.to_string()));
+    }
+    a.on_key(Stroke::key("return"));
+    drive_until(&mut a, &mut rx, 2000, |a| texts(a).contains("Authentication failed")).await;
+    let lines = render(&mut a, 100, 30);
+    assert_eq!(inner(&lines[y + 10]), "Authentication failed");
+    assert_eq!(inner(&lines[y + 12]), "bad");
+    a.on_key(Stroke::ctrl("u"));
+    for c in "http://127.0.0.1:1/callback?code=x".chars() {
+        a.on_key(Stroke::key(&c.to_string()));
+    }
+    a.on_key(Stroke::key("return"));
+    state.lock().unwrap().oauth = vec![json!({ "status": "complete" })];
+    drive_until(&mut a, &mut rx, 4000, |a| a.toast.as_ref().is_some_and(|t| t.message == "Connected Device")).await;
+    let completes: Vec<Value> = state.lock().unwrap().log.iter().filter(|r| r.path.ends_with("/complete")).map(|r| r.body.clone()).collect();
+    assert_eq!(completes, [json!({ "code": "bad" }), json!({ "code": "http://127.0.0.1:1/callback?code=x" })]);
+    assert!(a.dialogs.is_empty());
+    assert!(!requests(&state).iter().any(|r| r.0 == "DELETE"));
+}
+
+/// #62245: after an MCP server's sign-in the `/mcp` list comes back with that server selected.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_mcp_sign_in_returns_to_the_server_list() {
+    let state: Shared = Arc::new(Mutex::new(MockState { oauth_mode: "auto".into(), oauth: vec![json!({ "status": "complete" })], ..Default::default() }));
+    let (mut a, mut rx) = flow_app(&state).await;
+    a.store.location_mut("/work/proj").mcp = Some(vec![
+        McpServer { name: "alpha".into(), status: McpStatus { status: "connected".into(), error: None }, integration_id: None },
+        McpServer { name: "device".into(), status: McpStatus { status: "needs_auth".into(), error: None }, integration_id: Some("device".into()) },
+        McpServer { name: "zeta".into(), status: McpStatus { status: "connected".into(), error: None }, integration_id: None },
+    ]);
+    a.run_command("mcp.list", None);
+    a.on_key(Stroke::key("down"));
+    a.on_key(Stroke::key("return"));
+    assert_eq!(a.dialogs.len(), 1, "the sign-in takes the list's place");
+    drive_until(&mut a, &mut rx, 4000, |a| a.toast.as_ref().is_some_and(|t| t.message == "Connected Device")).await;
+    let d = a.dialogs.last_mut().unwrap();
+    assert_eq!(d.purpose, "mcp");
+    assert_eq!(d.sel().unwrap().selected_value().as_deref(), Some("device"));
 }

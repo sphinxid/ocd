@@ -3,7 +3,7 @@
 
 pub mod defs;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -66,6 +66,8 @@ const NAMED: &[&str] = &[
     "pagedown", "pageup", "backspace", "linefeed", "backquote", "backslash", "semicolon", "leftbracket",
     "rightbracket", "escape", "return", "insert", "delete", "period", "comma", "equal", "minus", "slash", "quote",
     "space", "clear", "right", "enter", "left", "home", "plus", "down", "end", "tab", "up", "lt", "gt",
+    // Keypad keys under the kitty protocol (OpenTUI names; `home` does not match them).
+    "kppagedown", "kppageup", "kphome", "kpend",
 ];
 
 fn named_alias(name: &str) -> String {
@@ -253,6 +255,11 @@ pub fn stroke_from_event(ev: &KeyEvent) -> Option<Stroke> {
         KeyCode::Backspace => "backspace".into(),
         KeyCode::Delete => "delete".into(),
         KeyCode::Insert => "insert".into(),
+        // The kitty protocol reports keypad keys with their own codes (57421-57424); OpenTUI names them `kp*`.
+        KeyCode::Home if ev.state.contains(KeyEventState::KEYPAD) => "kphome".into(),
+        KeyCode::End if ev.state.contains(KeyEventState::KEYPAD) => "kpend".into(),
+        KeyCode::PageUp if ev.state.contains(KeyEventState::KEYPAD) => "kppageup".into(),
+        KeyCode::PageDown if ev.state.contains(KeyEventState::KEYPAD) => "kppagedown".into(),
         KeyCode::Home => "home".into(),
         KeyCode::End => "end".into(),
         KeyCode::PageUp => "pageup".into(),
@@ -534,6 +541,6 @@ mod tests {
         assert_eq!(kb.match_command("diff.help", &[ev]), Match::Full);
         let ev = stroke_from_event(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)).unwrap();
         assert_eq!(kb.match_command("diff.last", &[ev]), Match::Full);
-        assert_eq!(defs::DEFINITIONS.len(), 244);
+        assert_eq!(defs::DEFINITIONS.len(), 245);
     }
 }
