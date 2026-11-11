@@ -1,8 +1,8 @@
 //! Well-known organization config (`packages/core/src/config.ts` `loadWellknownEntry`/`loadWellknown` and the
 //! reload subscriptions): every registered well-known source contributes the configs its manifest resolves to,
 //! as `ConfigIntegration.WellKnownDocument`s tagged with the source's integration (its origin). The resolution
-//! uses the latest stored credential of that integration when it is a key; a failed resolution (or no usable
-//! credential) keeps the last resolved configs.
+//! uses the latest stored credential of that integration when it is a key; a failed resolution keeps the last
+//! resolved configs, and no usable credential (a logout) drops them (2.2.7).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,6 +52,10 @@ impl WellKnown for ConfigWellKnown {
 
     async fn cached(&self, origin: &str) -> Vec<Value> {
         self.service.cached(origin).await.into_iter().map(Value::Object).collect()
+    }
+
+    async fn clear_cached(&self, origin: &str) {
+        self.service.clear_cached(origin).await;
     }
 }
 

@@ -64,7 +64,7 @@ async fn memory_store_selection_and_events() {
     let a = store.create(CreateCredential::new("openai", key("a"))).await.unwrap();
     assert_eq!(a.label, "default");
     assert!(a.id.starts_with("cred_"));
-    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated);
+    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated { integration_id: "openai".into(), credential_id: a.id.clone() });
     assert_eq!(
         events.try_recv().unwrap(),
         CredentialEvent::Switched { integration_id: "openai".into(), credential_id: Some(a.id.clone()) }
@@ -73,7 +73,7 @@ async fn memory_store_selection_and_events() {
     input.activate = Some(false);
     let b = store.create(input).await.unwrap();
     assert_eq!(b.active, Some(false));
-    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated);
+    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated { integration_id: "openai".into(), credential_id: b.id.clone() });
     assert!(events.try_recv().is_err());
 
     // List order: inactive first.
@@ -96,7 +96,7 @@ async fn memory_store_selection_and_events() {
     let _ = events.try_recv();
     let _ = events.try_recv();
     store.remove(&c.id).await.unwrap();
-    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated);
+    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated { integration_id: "openai".into(), credential_id: c.id.clone() });
     assert_eq!(
         events.try_recv().unwrap(),
         CredentialEvent::Switched { integration_id: "openai".into(), credential_id: Some(b.id.clone()) }
@@ -107,7 +107,7 @@ async fn memory_store_selection_and_events() {
 
     // Removing a non-selected credential does not switch.
     store.remove(&a.id).await.unwrap();
-    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated);
+    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated { integration_id: "openai".into(), credential_id: a.id.clone() });
     assert!(events.try_recv().is_err());
     // Removing the last one switches to null.
     store.remove(&b.id).await.unwrap();
@@ -141,7 +141,7 @@ async fn update_semantics() {
     assert!(events.try_recv().is_err());
     assert_eq!(store.get(&a.id).await.unwrap().unwrap().value, key("b"));
     store.update(&a.id, CredentialUpdate { label: Some("Work".into()), value: None }).await.unwrap();
-    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated);
+    assert_eq!(events.try_recv().unwrap(), CredentialEvent::Updated { integration_id: "x".into(), credential_id: a.id.clone() });
     assert_eq!(store.get(&a.id).await.unwrap().unwrap().label, "Work");
 }
 
@@ -158,4 +158,17 @@ fn credential_value_serde_shape() {
         serde_json::to_string(&value).unwrap(),
         r#"{"type":"oauth","methodID":"device","refresh":"r","access":"a","expires":0}"#
     );
+}
+
+/// `credential.test.ts` (2.2.7): removing a row that has no integration publishes no `credential.updated`.
+#[tokio::test]
+async fn removing_a_row_without_an_integration_publishes_nothing() {
+    let store = MemoryCredentialStore::new();
+    let mut orphan = row("orphan", None, 1);
+    orphan.integration_id = None;
+    store.insert_row(orphan);
+    let mut events = store.subscribe();
+    store.remove("orphan").await.unwrap();
+    assert!(store.rows().is_empty());
+    assert!(events.try_recv().is_err());
 }

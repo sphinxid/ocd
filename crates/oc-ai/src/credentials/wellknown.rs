@@ -331,7 +331,12 @@ impl WellKnown {
         Ok(configs)
     }
 
-    /// Last configuration resolved for an origin.
+    /// Drops the last configuration resolved for an origin while keeping the source registered (2.2.7).
+    pub async fn clear_cached(&self, origin: &str) {
+        let _ = self.kv.remove(&config_key(origin)).await;
+    }
+
+    /// Last configuration resolved for an origin, kept until it is cleared or the source is removed.
     pub async fn cached(&self, origin: &str) -> Vec<Config> {
         match self.kv.get(&config_key(origin)).await.ok().flatten() {
             Some(Value::Array(items)) if items.iter().all(Value::is_object) => {

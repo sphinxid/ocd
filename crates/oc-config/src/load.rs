@@ -69,10 +69,16 @@ pub trait WellKnown: Send + Sync {
     async fn resolve(&self, entry: &WellKnownEntry, variables: &HashMap<String, String>) -> anyhow::Result<Vec<Value>>;
     /// Last successfully resolved configs for an origin.
     async fn cached(&self, origin: &str) -> Vec<Value>;
+    /// Drops the last resolved configs of an origin while keeping the source registered (`clearCached`).
+    async fn clear_cached(&self, origin: &str);
 }
 
 fn warn(source: &str, path: &str, kind: &str, action: &str) {
     tracing::warn!(source = %source, path = %path, kind = %kind, action = %action, "configuration normalization diagnostic");
+}
+
+fn debug(source: &str, path: &str, kind: &str, action: &str) {
+    tracing::debug!(source = %source, path = %path, kind = %kind, action = %action, "configuration normalization diagnostic");
 }
 
 /// `parseInfo(text, source)`: JSONC parse → normalize (logging diagnostics) → final decode.
@@ -82,8 +88,12 @@ pub fn parse_info(text: &str, source: &str) -> Option<Info> {
         return None;
     };
     let result = normalize(&input);
+    // Every reload repeats the routine notes on a config that loads. A rejected config or a dropped malformed
+    // setting is the user's to fix, so those stay warnings (2.2.7).
+    let rejected = !matches!(result, NormalizeResult::Normalized { .. });
     for d in result.diagnostics() {
-        warn(source, &d.log_path(), d.kind.as_str(), d.message);
+        let log = if rejected || d.kind.as_str() == "invalid" { warn } else { debug };
+        log(source, &d.log_path(), d.kind.as_str(), d.message);
     }
     let NormalizeResult::Normalized { encoded, .. } = result else { return None };
     let info = Info::decode(&encoded);
@@ -226,9 +236,11 @@ impl Loader {
                         wellknown.cached(&entry.origin).await
                     }
                 },
+                // Logging out drops the saved remote config, so the source supplies nothing until a fresh fetch
+                // succeeds (2.2.7).
                 None => {
-                    tracing::warn!(source = %entry.origin, error = "No usable wellknown credential", "failed to load wellknown config");
-                    wellknown.cached(&entry.origin).await
+                    wellknown.clear_cached(&entry.origin).await;
+                    Vec::new()
                 }
             };
             for config in configs {

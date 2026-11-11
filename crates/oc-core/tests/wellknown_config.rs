@@ -1,6 +1,6 @@
 //! Well-known organization config (`config.ts` `loadWellknownEntry`): a registered source's inline and remote
-//! configs load as documents tagged with its origin, resolved with the latest stored key credential; without a
-//! usable credential (or when resolution fails) the last resolved configs stay.
+//! configs load as documents tagged with its origin, resolved with the latest stored key credential; when resolution
+//! fails the last resolved configs stay, and without a usable credential they are dropped.
 
 use std::sync::Arc;
 
@@ -92,4 +92,14 @@ async fn wellknown_sources_contribute_tagged_documents() {
     store.remove(&latest.id).await.unwrap();
     let loaded = loader.load_wellknown().await.unwrap();
     assert_eq!(loaded[0].1.len(), 2);
+
+    // Logging out (no usable credential) drops the saved remote config while the source stays registered
+    // (2.2.7, #62760).
+    for credential in store.list(&base).await.unwrap() {
+        store.remove(&credential.id).await.unwrap();
+    }
+    let loaded = loader.load_wellknown().await.unwrap();
+    assert_eq!(loaded, vec![(base.clone(), vec![])]);
+    assert_eq!(kv.get(&oc_ai::credentials::wellknown::config_key(&base)).await.unwrap(), None);
+    assert_eq!(kv.get(SOURCES_KEY).await.unwrap(), Some(json!([base])));
 }

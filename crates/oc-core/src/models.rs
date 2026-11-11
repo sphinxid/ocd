@@ -95,7 +95,9 @@ impl DbCredentials {
 
     fn publish(&self, e: CredentialEvent) {
         let data = match &e {
-            CredentialEvent::Updated => serde_json::json!({}),
+            CredentialEvent::Updated { integration_id, credential_id } => {
+                serde_json::json!({"integrationID": integration_id, "credentialID": credential_id})
+            }
             CredentialEvent::Switched { integration_id, credential_id } => {
                 serde_json::json!({"integrationID": integration_id, "credentialID": credential_id})
             }
@@ -148,7 +150,7 @@ impl CredentialStore for DbCredentials {
             )?;
             Ok(())
         })?;
-        self.emit(CredentialEvent::Updated).await;
+        self.emit(CredentialEvent::Updated { integration_id: input.integration_id.clone(), credential_id: id.clone() }).await;
         if plan.activate {
             self.emit(CredentialEvent::Switched { integration_id: input.integration_id.clone(), credential_id: Some(id.clone()) }).await;
         }
@@ -192,8 +194,8 @@ impl CredentialStore for DbCredentials {
                 params![label, value, oc_schema::id::now_ms() as i64, id],
             )
         })?;
-        if changed {
-            self.emit(CredentialEvent::Updated).await;
+        if changed && let Some(integration_id) = row.integration_id.clone() {
+            self.emit(CredentialEvent::Updated { integration_id, credential_id: id.to_string() }).await;
         }
         Ok(())
     }
@@ -207,6 +209,7 @@ impl CredentialStore for DbCredentials {
         });
         self.before_change().await;
         // One transaction: the replacement is active before anything observes `credential.updated`.
+        let removed_from = integration.clone();
         let switched = self.db.transaction(|c| {
             c.execute("DELETE FROM credential WHERE id = ?", [id])?;
             let (true, Some(integration)) = (was_selected, integration) else { return Ok(None) };
@@ -217,7 +220,10 @@ impl CredentialStore for DbCredentials {
             }
             Ok(Some((integration, next)))
         })?;
-        self.emit(CredentialEvent::Updated).await;
+        // 2.2.7: a removed row without an integration publishes no `credential.updated`.
+        if let Some(integration_id) = removed_from {
+            self.emit(CredentialEvent::Updated { integration_id, credential_id: id.to_string() }).await;
+        }
         if let Some((integration_id, credential_id)) = switched {
             self.emit(CredentialEvent::Switched { integration_id, credential_id }).await;
         }

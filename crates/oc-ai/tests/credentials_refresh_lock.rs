@@ -201,3 +201,45 @@ async fn refreshes_under_the_cross_process_lock_and_rereads_the_stored_credentia
     assert_eq!(value.as_oauth().unwrap().access, "other-access");
     assert_eq!(method.calls.load(Ordering::SeqCst), 0);
 }
+
+/// `credential-refresh.test.ts` "keeps a row that changed while the refresh ran" (2.2.7): the stored row wins and
+/// the refreshed value is discarded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn keeps_a_row_that_changed_while_the_refresh_ran() {
+    let method = Gated::new();
+    let (store, a, _) = locations(&method);
+    let id = expiring(&store).await;
+    let connection = a.active("openai").await.unwrap().unwrap();
+    let running = {
+        let (a, connection) = (a.clone(), connection.clone());
+        tokio::spawn(async move { a.resolve(&connection).await })
+    };
+    method.entered.notified().await;
+    let replaced = OAuthValue { method_id: "oauth".into(), refresh: "other-refresh".into(), access: "other-access".into(), expires: 3, metadata: None };
+    store
+        .update(&id, oc_ai::credentials::store::CredentialUpdate { label: None, value: Some(replaced.clone().into_value()) })
+        .await
+        .unwrap();
+    method.release.notify_one();
+    assert_eq!(running.await.unwrap().unwrap(), Some(replaced.clone().into_value()));
+    assert_eq!(store.get(&id).await.unwrap().unwrap().value, replaced.into_value());
+}
+
+/// `Credential.expiring` (2.2.7): due within five minutes of expiry; `expires: 0` (no lifetime) never is, so such a
+/// credential resolves without a refresh.
+#[tokio::test]
+async fn a_token_without_a_lifetime_is_never_refreshed() {
+    use oc_ai::credentials::integration::expiring as due;
+    let now = 1_000_000_000;
+    let oauth = |expires| OAuthValue { method_id: "oauth".into(), refresh: "old-refresh".into(), access: "old-access".into(), expires, metadata: None };
+    assert!(due(&oauth(now + 4 * 60_000), now));
+    assert!(!due(&oauth(now + 6 * 60_000), now));
+    assert!(!due(&oauth(0), now));
+
+    let method = Gated::new();
+    let (store, a, _) = locations(&method);
+    store.create(CreateCredential::new("openai", oauth(0).into_value())).await.unwrap();
+    let connection = a.active("openai").await.unwrap().unwrap();
+    assert_eq!(a.resolve(&connection).await.unwrap(), Some(oauth(0).into_value()));
+    assert_eq!(method.calls.load(Ordering::SeqCst), 0);
+}

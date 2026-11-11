@@ -25,6 +25,12 @@ pub const SCRUB_INTERVAL_MS: u64 = 30_000;
 /// OAuth credentials are refreshed on resolve when they expire within this window.
 pub const REFRESH_WINDOW_MS: u64 = 5 * 60_000;
 
+/// `Credential.expiring`: whether an access token is due for a refresh. `expires` 0 means the issuer gave no
+/// lifetime, so it never is (2.2.7).
+pub fn expiring(value: &OAuthValue, now: u64) -> bool {
+    value.expires != 0 && value.expires <= now + REFRESH_WINDOW_MS
+}
+
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
 /// Error raised by provider flows (an `Error` with a message).
@@ -541,7 +547,9 @@ fn format_duration(duration: std::time::Duration) -> String {
     }
 }
 
-/// The refresh operation of [`Integrations::refresh_locked`].
+/// The refresh operation of [`Integrations::refresh_locked`] (`Credential.refresh`): the row is read again under the
+/// lock, and if it is no longer stale another caller already refreshed it. If the row changes while the refresh
+/// runs, the stored row wins.
 async fn refresh_stored(
     store: &Arc<dyn CredentialStore>,
     clock: &Clock,
@@ -549,17 +557,23 @@ async fn refresh_stored(
     implementation: Arc<dyn OAuthMethod>,
     timeout: std::time::Duration,
 ) -> Result<Option<CredentialValue>, String> {
-    // Another location or process may have refreshed while this caller waited.
     let Some(current) = store.get(id).await.map_err(|e| e.to_string())? else { return Ok(None) };
     let Some(oauth) = current.value.as_oauth() else { return Ok(None) };
-    if oauth.expires > clock() + REFRESH_WINDOW_MS {
+    if !expiring(&oauth, clock()) {
+        tracing::info!(credentialID = id, reason = "already_refreshed", "credential refresh skipped");
         return Ok(Some(current.value));
     }
-    let value = tokio::time::timeout(timeout, implementation.refresh(oauth))
+    let value = tokio::time::timeout(timeout, implementation.refresh(oauth.clone()))
         .await
         .map_err(|_| format!("Operation timed out after '{}'", format_duration(timeout)))?
         .map_err(|e| e.message)?
         .into_value();
+    let Some(latest) = store.get(id).await.map_err(|e| e.to_string())? else { return Ok(None) };
+    let Some(stored) = latest.value.as_oauth() else { return Ok(None) };
+    if stored.access != oauth.access || stored.refresh != oauth.refresh {
+        tracing::warn!(credentialID = id, reason = "changed_meanwhile", "credential refresh discarded");
+        return Ok(Some(latest.value));
+    }
     store.update(id, CredentialUpdate { label: None, value: Some(value.clone()) }).await.map_err(|e| e.to_string())?;
     Ok(Some(value))
 }
@@ -848,16 +862,16 @@ impl Integrations {
         if !implementation.can_refresh() {
             return Ok(Some(credential.value));
         }
-        if oauth.expires > self.now() + REFRESH_WINDOW_MS {
+        if !expiring(&oauth, self.now()) {
             return Ok(Some(credential.value));
         }
         self.refresh_locked(&credential.id, implementation).await.map_err(IntegrationError::authorization)
     }
 
-    /// `Credential.lock(id, refresh)`: concurrent callers for the same credential share the running refresh and
-    /// its result, including failures. The refresh runs in its own task under the cross-process file lock
-    /// `credential-refresh:<id>`, re-reads the stored credential (another location or process may have refreshed
-    /// it meanwhile) and takes at most 30 s.
+    /// `Credential.refresh(id, {stale: expiring, refresh})`: concurrent callers for the same credential share the
+    /// running refresh and its result, including failures. The refresh runs in its own task under the cross-process
+    /// file lock `credential-refresh:<id>`, re-reads the stored credential (another location or process may have
+    /// refreshed it meanwhile), takes at most 30 s and is discarded if the row changed while it ran.
     async fn refresh_locked(&self, id: &str, implementation: Arc<dyn OAuthMethod>) -> Result<Option<CredentialValue>, String> {
         use futures::FutureExt;
         let pending = {

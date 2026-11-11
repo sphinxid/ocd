@@ -210,7 +210,7 @@ async fn refresh_failure_is_authorization_error() {
     let (store, integrations) = service(&[], clock);
     let (method, _tx) = auto_method(true);
     integrations.register_oauth(method);
-    store.create(CreateCredential::new("acme", oauth("old", 0).into_value())).await.unwrap();
+    store.create(CreateCredential::new("acme", oauth("old", 1).into_value())).await.unwrap();
     let connection = integrations.active("acme").await.unwrap().unwrap();
     let error = integrations.resolve(&connection).await.unwrap_err();
     assert_eq!(error, IntegrationError::Authorization("Authorization failed".into()));

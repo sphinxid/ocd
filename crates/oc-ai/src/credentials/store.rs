@@ -12,7 +12,8 @@
 //!   not activate and the current selection is a legacy row (`active` NULL/false), that row is pinned `active=1`;
 //! * removing the selected credential activates the newest remaining one (`time_created DESC, id DESC`).
 //!
-//! Events: `credential.updated {}` and `credential.switched {integrationID, credentialID|null}`.
+//! Events: `credential.updated {integrationID, credentialID}` (2.2.7: a login was added, renamed or removed; a
+//! removed row without an integration publishes none) and `credential.switched {integrationID, credentialID|null}`.
 
 use super::{Credential, CredentialValue};
 use async_trait::async_trait;
@@ -49,7 +50,7 @@ pub struct CredentialUpdate {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CredentialEvent {
     /// `credential.updated`
-    Updated,
+    Updated { integration_id: String, credential_id: String },
     /// `credential.switched`
     Switched { integration_id: String, credential_id: Option<String> },
 }
@@ -57,7 +58,7 @@ pub enum CredentialEvent {
 impl CredentialEvent {
     pub fn event_type(&self) -> &'static str {
         match self {
-            Self::Updated => "credential.updated",
+            Self::Updated { .. } => "credential.updated",
             Self::Switched { .. } => "credential.switched",
         }
     }
@@ -267,7 +268,10 @@ impl CredentialStore for MemoryCredentialStore {
             });
             plan.activate
         };
-        self.publish(CredentialEvent::Updated);
+        self.publish(CredentialEvent::Updated {
+            integration_id: credential.integration_id.clone(),
+            credential_id: credential.id.clone(),
+        });
         if activated {
             self.publish(CredentialEvent::Switched {
                 integration_id: credential.integration_id.clone(),
@@ -306,9 +310,9 @@ impl CredentialStore for MemoryCredentialStore {
         let label_changed = {
             let mut rows = self.rows.lock();
             let Some(row) = rows.iter_mut().find(|r| r.id == id) else { return Ok(()) };
-            if row.integration_id.is_none() {
+            let Some(integration) = row.integration_id.clone() else {
                 return Ok(());
-            }
+            };
             if update.label.as_deref() == Some(row.label.as_str()) && update.value.is_none() {
                 return Ok(());
             }
@@ -320,19 +324,20 @@ impl CredentialStore for MemoryCredentialStore {
                 row.value = value;
             }
             row.time_updated = super::now_ms() as i64;
-            changed
+            changed.then_some(integration)
         };
-        if label_changed {
-            self.publish(CredentialEvent::Updated);
+        if let Some(integration_id) = label_changed {
+            self.publish(CredentialEvent::Updated { integration_id, credential_id: id.to_string() });
         }
         Ok(())
     }
 
     async fn remove(&self, id: &str) -> anyhow::Result<()> {
-        let switched = {
+        let (removed_from, switched) = {
             let mut rows = self.rows.lock();
             let Some(index) = rows.iter().position(|r| r.id == id) else { return Ok(()) };
             let integration = rows[index].integration_id.clone();
+            let removed_from = integration.clone();
             let was_selected = integration.as_ref().is_some_and(|integration| {
                 selected(rows.iter().filter(|r| r.integration_id.as_ref() == Some(integration)))
                     .is_some_and(|r| r.id == id)
@@ -349,12 +354,14 @@ impl CredentialStore for MemoryCredentialStore {
                             }
                         }
                     }
-                    Some((integration, next))
+                    (removed_from, Some((integration, next)))
                 }
-                _ => None,
+                _ => (removed_from, None),
             }
         };
-        self.publish(CredentialEvent::Updated);
+        if let Some(integration_id) = removed_from {
+            self.publish(CredentialEvent::Updated { integration_id, credential_id: id.to_string() });
+        }
         if let Some((integration_id, credential_id)) = switched {
             self.publish(CredentialEvent::Switched { integration_id, credential_id });
         }
