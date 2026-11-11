@@ -8,6 +8,10 @@ use regex::Regex;
 const TOKEN_SHARING: &[(&str, &str)] = &[
     ("subscription_sharing_user_not_eligible", "ChatGPT token sharing isn't available for this account. Connect with an API key or choose another provider."),
     ("subscription_sharing_usage_limit_exceeded", "ChatGPT usage limit reached. Check ChatGPT Settings → Usage for details."),
+    (
+        "subscription_sharing_workplace_individual_usage_limit_exceeded",
+        "You've reached the usage limit your ChatGPT workspace admin set for you. Ask them to raise it in the OpenAI Admin Console.",
+    ),
     ("subscription_sharing_usage_unavailable", "ChatGPT usage can't be checked right now. Try again later."),
     ("subscription_sharing_unsupported_capability", "This request uses a feature ChatGPT token sharing doesn't support. Remove the unsupported feature and try again."),
     ("subscription_sharing_route_not_supported", "ChatGPT token sharing doesn't support this API route. Check the configured endpoint and HTTP method."),
@@ -56,6 +60,14 @@ pub fn from_ai(e: &AIError) -> SessionError {
     // ChatGPT's usage limit arrives in HTTP and stream errors alike, whatever their reason, so its code decides the type.
     if body.contains("subscription_sharing_usage_limit_exceeded") {
         return SessionError { kind: "provider.chatgpt-limit".into(), ..error };
+    }
+    // Names the network as the problem, so a DNS outage doesn't read like a broken model or provider.
+    if let ErrorKind::Transport { url, .. } = &e.kind
+        && crate::retry::is_unreachable(e)
+    {
+        let host = url.as_deref().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.host_str().map(String::from)).filter(|h| !h.is_empty());
+        let host = host.as_deref().unwrap_or("the provider");
+        return SessionError { message: format!("Can't reach {host}. Check the network connection. ({})", e.message), ..error };
     }
     if !matches!(e.kind, ErrorKind::QuotaExceeded { .. }) {
         return error;
@@ -283,5 +295,16 @@ mod tests {
                 })
             );
         }
+    }
+
+    // "explains ChatGPT token-sharing failures": 2.2.7's workspace limit.
+    #[test]
+    fn workspace_individual_limit() {
+        let mut error = AIError::new(ErrorKind::RateLimit { retry_after_ms: None, rate_limit: None }, "Request failed");
+        error.body = Some(json!({"error": {"code": "subscription_sharing_workplace_individual_usage_limit_exceeded"}}).to_string());
+        let e = from_ai(&error);
+        assert_eq!(e.kind, "provider.rate-limit");
+        assert_eq!(e.message, "You've reached the usage limit your ChatGPT workspace admin set for you. Ask them to raise it in the OpenAI Admin Console.");
+        assert!(oc_ai::catalog::openai::token_sharing_forbids_retry(error.body.as_deref()));
     }
 }

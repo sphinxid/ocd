@@ -24,13 +24,15 @@ pub const IDLE: Duration = Duration::from_millis(5 * 60_000);
 const START: Duration = Duration::from_secs(30);
 
 /// Claude Code features that duplicate opencode's. opencode's version wins.
-pub const ISOLATION_ENV: [(&str, &str); 7] = [
+pub const ISOLATION_ENV: [(&str, &str); 9] = [
     ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
     ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
     ("DISABLE_AUTO_COMPACT", "1"),
     ("CLAUDE_CODE_ENABLE_AWAY_SUMMARY", "0"),
     ("ENABLE_TOOL_SEARCH", "false"),
     ("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", "1"),
+    ("CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK", "1"),
+    ("CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK", "1"),
     // Raised so opencode's own truncation applies instead
     ("MAX_MCP_OUTPUT_TOKENS", "200000"),
 ];
@@ -104,7 +106,6 @@ pub struct Request {
     pub session_id: Option<String>,
     /// Native OpenCode fork lineage, or the session supplying a compaction/generate snapshot.
     pub source_id: Option<String>,
-    pub compaction: bool,
     pub model: String,
     pub effort: Option<String>,
     pub max_output_tokens: Option<f64>,
@@ -341,12 +342,6 @@ impl Registry {
         let Some(source_id) = request.source_id.clone() else { return Ok(0) };
         let source = self.entries.lock().get(&source_id).cloned();
         let copy = async {
-            // Compaction ends the old primary context. Generate only takes a read-only snapshot.
-            if request.compaction
-                && let Some(source) = &source
-            {
-                stop(source).await;
-            }
             let live = source.as_ref().and_then(|s| s.data.lock().record.clone());
             let record = match live {
                 Some(record) => Some(record),
@@ -366,10 +361,13 @@ impl Registry {
 
     async fn prepare(&self, ctx: &Context, entry: &Arc<Entry>, request: &Request) -> Result<(usize, Option<Continuation>), String> {
         // Retire an exited or incompatible process first: once we continue its parked turn, open() must not replace it.
-        if let Some(process) = entry.process()
-            && (process.session.ended() || process.launch != request.launch())
-        {
-            stop(entry).await;
+        // A launch change waits for a parked turn to end: stopping it makes Claude Code record the waiting tool calls as
+        // refused by the user. A step without tools (the step limit) still stops it, since the old process offers them.
+        if let Some(process) = entry.process() {
+            let parked = process.waiting.lock().is_some() && process.session.running() && !request.tools.is_empty();
+            if process.session.ended() || (process.launch != request.launch() && !parked) {
+                stop(entry).await;
+            }
         }
         let Some(session_id) = request.session_id.clone() else {
             let start = self.snapshot(ctx, entry, request).await?;
@@ -422,7 +420,12 @@ impl Registry {
         }
         if collected.aborted {
             // A stopped OpenCode turn needs a fresh Claude turn; addUser would only steer the old one.
-            interrupt(entry).await?;
+            // After a launch change it also needs a new process.
+            if live.launch == request.launch() {
+                interrupt(entry).await?;
+            } else {
+                stop(entry).await;
+            }
             return Ok((start, None));
         }
         Ok((start, Some(continuation)))
@@ -611,7 +614,16 @@ async fn turn(
                         Some("text") => log.reply.push(json!({ "type": "text", "text": part.get("text").cloned().unwrap_or(Value::Null) })),
                         Some("tool_use") => {
                             let full = part.get("name").and_then(Value::as_str).unwrap_or_default();
-                            let Some(name) = convert::original(full, &tools) else { continue };
+                            let original = convert::original(full, &tools);
+                            if original.is_none() && full.starts_with(convert::PREFIX) {
+                                // A tool removed after this process started is still on its tool server; answer here so
+                                // the turn goes on.
+                                let id = part.get("id").and_then(Value::as_str).unwrap_or_default();
+                                pending.expect(id, full)?;
+                                let removed = json!({ "isError": true, "content": [{ "type": "text", "text": "This tool is no longer available." }] });
+                                pending.resolve(id, convert::ToolResult { mcp: removed, replacement: None })?;
+                            }
+                            let Some(name) = original else { continue };
                             let id = part.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
                             pending.expect(&id, full)?;
                             log.waiting.push(id.clone());

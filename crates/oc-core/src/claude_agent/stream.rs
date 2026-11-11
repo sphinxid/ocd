@@ -206,6 +206,9 @@ pub struct Converter {
     message_id: String,
     called_tools: bool,
     metadata: Option<Value>,
+    /// The latest `rate_limit_event`'s info: plugins read plan usage from step metadata instead of polling
+    /// Anthropic for it.
+    rate_limit: Option<Value>,
 }
 
 impl Converter {
@@ -219,7 +222,20 @@ impl Converter {
             message_id: String::new(),
             called_tools: false,
             metadata: None,
+            rate_limit: None,
         }
+    }
+
+    /// A finish part with the rate limit as `providerMetadata["claude-agent"].rateLimit`, when one was reported.
+    fn finish(&self, reason: Value) -> Value {
+        let mut part = Map::new();
+        part.insert("type".into(), json!("finish"));
+        part.insert("finishReason".into(), reason);
+        part.insert("usage".into(), self.usage.snapshot());
+        if let Some(info) = self.rate_limit.as_ref().filter(|i| js_truthy(i)) {
+            part.insert("providerMetadata".into(), json!({ super::PROVIDER_ID: { "rateLimit": info } }));
+        }
+        Value::Object(part)
     }
 
     fn with_metadata(&self, mut part: Map<String, Value>) -> Value {
@@ -235,6 +251,9 @@ impl Converter {
             return vec![json!({ "type": "error", "error": error_shape(&error) })];
         }
         let kind = s(message, "type").unwrap_or_default();
+        if kind == "rate_limit_event" {
+            self.rate_limit = message.get("rate_limit_info").cloned();
+        }
         if kind == "stream_event" && top_level(message) {
             let event = message.get("event").cloned().unwrap_or(Value::Null);
             let index = event.get("index").and_then(Value::as_i64).unwrap_or(0);
@@ -299,11 +318,7 @@ impl Converter {
                 }
                 "message_delta" => self.usage.update(&self.message_id.clone(), event.get("usage").unwrap_or(&Value::Null)),
                 // Must match the session's tool boundary, or OpenCode's step ends without a finish event.
-                "message_stop" if self.called_tools => parts.push(json!({
-                    "type": "finish",
-                    "finishReason": { "unified": "tool-calls", "raw": "tool_use" },
-                    "usage": self.usage.snapshot(),
-                })),
+                "message_stop" if self.called_tools => parts.push(self.finish(json!({ "unified": "tool-calls", "raw": "tool_use" }))),
                 _ => {}
             }
         }
@@ -368,7 +383,7 @@ impl Converter {
             if let Some(raw) = message.get("stop_reason").filter(|v| !v.is_null()) {
                 reason.insert("raw".into(), raw.clone());
             }
-            parts.push(json!({ "type": "finish", "finishReason": reason, "usage": self.usage.snapshot() }));
+            parts.push(self.finish(Value::Object(reason)));
         }
         parts
     }

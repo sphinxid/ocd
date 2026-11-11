@@ -81,7 +81,9 @@ impl Engine {
                 return None;
             }
         };
-        let mut out = String::new();
+        let metadata_key = req.metadata_key();
+        let mut chunks: Vec<(String, String)> = vec![];
+        let mut commentary: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut failed = false;
         let mut tokens = TokenUsage::default();
         let mut cost = 0.0;
@@ -101,7 +103,14 @@ impl Engine {
                             break;
                         }
                         Ok(LLMEvent::ProviderError { .. }) => failed = true,
-                        Ok(LLMEvent::TextDelta { text, .. }) => out.push_str(&text),
+                        // Responses can classify a text block only when it ends; filter after the stream completes.
+                        Ok(LLMEvent::TextStart { id, provider_metadata } | LLMEvent::TextEnd { id, provider_metadata, .. }) => {
+                            phase(&mut commentary, &id, provider_metadata.as_ref(), &metadata_key);
+                        }
+                        Ok(LLMEvent::TextDelta { id, text, provider_metadata }) => {
+                            phase(&mut commentary, &id, provider_metadata.as_ref(), &metadata_key);
+                            chunks.push((id, text));
+                        }
                         Ok(LLMEvent::StepFinish { usage, .. }) => {
                             let (c, t) = crate::usage::record(usage.as_ref(), &costs);
                             cost += c;
@@ -124,6 +133,7 @@ impl Engine {
         if failed {
             return None;
         }
+        let out: String = chunks.into_iter().filter(|(id, _)| !commentary.contains(id)).map(|(_, text)| text).collect();
         out.split('\n').map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
     }
 
@@ -162,7 +172,15 @@ impl Engine {
             .or_else(|| agents.select(session.agent.as_deref()).and_then(|a| crate::runner::agent_model(&catalog, a)));
         let primary = self
             .models
-            .resolve_for_session(Some(&location.key), &catalog, session_id, session_model.as_ref(), config_model.as_ref())
+            .resolve_for_session(
+                Some(&location.key),
+                &catalog,
+                session_id,
+                session_model.as_ref(),
+                config_model.as_ref(),
+                crate::plugin_request::Kind::Title,
+                &agent.id,
+            )
             .await
             .ok();
         // The title model at its lowest reasoning variant: the agent's model, the provider's small model, or the
@@ -181,8 +199,11 @@ impl Engine {
         };
         let preferred = match candidate {
             Some((provider, id, variant)) => {
-                let cred = self.models.credential(Some(&location.key), &catalog, &provider).await;
-                self.models.resolve_model(Some(&location.key), &catalog, &provider, &id, variant.as_deref(), cred.as_ref()).await.ok()
+                let candidate = oc_schema::types::ModelRef { id, provider_id: provider, variant };
+                self.models
+                    .resolve_selected(Some(&location.key), &catalog, session_id, &candidate, crate::plugin_request::Kind::Title, &agent.id)
+                    .await
+                    .ok()
             }
             None => None,
         };
@@ -204,6 +225,22 @@ impl Engine {
         }
         self.app.sessions.rename(session_id, &title)?;
         Ok(())
+    }
+}
+
+/// Tracks the text blocks a Responses model marked as commentary (`phase`), which a title leaves out.
+fn phase(commentary: &mut std::collections::HashSet<String>, id: &str, metadata: Option<&oc_ai::ProviderMetadata>, key: &str) {
+    match metadata.and_then(|m| m.get(key)).and_then(|m| m.get("phase")) {
+        Some(serde_json::Value::String(p)) if p == "commentary" => {
+            commentary.insert(id.to_string());
+        }
+        Some(serde_json::Value::String(p)) if p == "final_answer" => {
+            commentary.remove(id);
+        }
+        Some(serde_json::Value::Null) => {
+            commentary.remove(id);
+        }
+        _ => {}
     }
 }
 
@@ -304,6 +341,22 @@ pub fn conversation_text(first_id: &str, first: &str, messages: &[Message]) -> S
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // session-title.test.ts (#62267): Responses mark commentary text blocks by `phase`, which a title leaves out.
+    #[test]
+    fn commentary_phases() {
+        let meta = |phase: serde_json::Value| -> oc_ai::ProviderMetadata { json!({"openai": {"phase": phase}}).as_object().unwrap().clone() };
+        let mut commentary = std::collections::HashSet::new();
+        phase(&mut commentary, "a", Some(&meta(json!("commentary"))), "openai");
+        phase(&mut commentary, "b", Some(&meta(json!("final_answer"))), "openai");
+        phase(&mut commentary, "c", Some(&meta(json!("commentary"))), "other");
+        assert_eq!(commentary.iter().collect::<Vec<_>>(), [&"a".to_string()]);
+        // A later `final_answer` or `null` phase clears it; a missing one keeps it.
+        phase(&mut commentary, "a", None, "openai");
+        assert!(commentary.contains("a"));
+        phase(&mut commentary, "a", Some(&meta(serde_json::Value::Null)), "openai");
+        assert!(commentary.is_empty());
+    }
 
     // session-title.test.ts: which variant of the primary model titles a session without a small model.
     #[test]

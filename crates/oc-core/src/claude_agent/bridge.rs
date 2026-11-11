@@ -149,7 +149,6 @@ fn do_stream(claude: Arc<ClaudeAgent>, key: String, call: StreamCall) -> Result<
     let request = Request {
         session_id,
         source_id,
-        compaction: kind.as_deref() == Some("compaction"),
         model: model_id,
         effort,
         max_output_tokens: options.get("maxOutputTokens").and_then(Value::as_f64),

@@ -25,15 +25,31 @@ pub struct Policy {
     attempt: u32,
     timeouts: u32,
     recurrences: u32,
+    /// The unreachable schedule's own state: when its first step ran and how many steps it took.
+    unreachable: Option<(tokio::time::Instant, u32)>,
 }
 
 fn is_timeout(e: &AIError) -> bool {
     matches!(&e.kind, ErrorKind::Transport { code: Some(c), .. } if c == "Timeout")
 }
 
+// This machine has no network path to the provider: the host name didn't resolve, or there is no route or
+// interface. While that lasts every attempt fails before reaching the provider, and the outage behind it (a router
+// restart, a dropped VPN, a laptop between networks) usually outlasts the general allowance, so these retry on their
+// own budget: exponential from 2s capped at 30s per gap, for up to an hour after the first one. A refused connection
+// is left out: something answered, so it is the server's state.
+const UNREACHABLE_CODES: &[&str] = &["ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "ENETDOWN"];
+const UNREACHABLE_WINDOW: Duration = Duration::from_secs(60 * 60);
+const UNREACHABLE_GAP_MAX: f64 = 30_000.0;
+
+/// `ModelRetry.isUnreachable`: whether the failure says this machine has no network path to the provider's host.
+pub fn is_unreachable(error: &AIError) -> bool {
+    matches!(&error.kind, ErrorKind::Transport { code: Some(c), .. } if UNREACHABLE_CODES.contains(&c.as_str()))
+}
+
 impl Default for Policy {
     fn default() -> Self {
-        Policy { attempt: 1, timeouts: 0, recurrences: 0 }
+        Policy { attempt: 1, timeouts: 0, recurrences: 0, unreachable: None }
     }
 }
 
@@ -47,6 +63,17 @@ impl Policy {
     /// error is not retryable (`retry == false`), for the `session.retry` hook to override.
     /// `None` when the schedule is exhausted.
     pub fn decide_raw(&mut self, cause: &AIError, retryable: bool) -> Option<(Decision, bool)> {
+        // Unreachable failures don't spend the general allowance, so a flaky link that also drops streams keeps it.
+        let delay = if retryable && is_unreachable(cause) { self.unreachable_step()? } else { self.general_step(cause)? };
+        self.attempt += 1;
+        if is_timeout(cause) {
+            self.timeouts += 1;
+        }
+        Some((Decision { attempt: self.attempt, delay }, retryable && self.timeouts <= MAX_TIMEOUT_RETRIES))
+    }
+
+    /// Exponential from 2s capped at 10s per gap, for 10 retries, jittered, raised to the retry-after.
+    fn general_step(&mut self, cause: &AIError) -> Option<u64> {
         if self.recurrences >= MAX_RETRIES {
             return None;
         }
@@ -57,12 +84,21 @@ impl Policy {
         if let Some(after) = cause.retry_after_ms() {
             delay = delay.max(after.min(RETRY_AFTER_MAX));
         }
-        let delay = delay.ceil() as u64;
-        self.attempt += 1;
-        if is_timeout(cause) {
-            self.timeouts += 1;
+        Some(delay.ceil() as u64)
+    }
+
+    /// Exponential from 2s capped at 30s per gap, during an hour from its first step, jittered and capped again
+    /// (jitter scales the capped gap by up to 1.2).
+    fn unreachable_step(&mut self) -> Option<u64> {
+        let now = tokio::time::Instant::now();
+        let (start, steps) = self.unreachable.get_or_insert((now, 0));
+        if now.duration_since(*start) > UNREACHABLE_WINDOW {
+            return None;
         }
-        Some((Decision { attempt: self.attempt, delay }, retryable && self.timeouts <= MAX_TIMEOUT_RETRIES))
+        let base = (2000.0 * 2f64.powi(*steps as i32)).min(UNREACHABLE_GAP_MAX);
+        *steps += 1;
+        let jitter: f64 = rand::random_range(0.8..=1.2);
+        Some((base * jitter).ceil().min(UNREACHABLE_GAP_MAX) as u64)
     }
 }
 
@@ -104,21 +140,12 @@ pub fn not_run(error: &AIError) -> bool {
         ErrorKind::RateLimit { .. } => true,
         ErrorKind::ProviderInternal { .. } => matches!(error.http.as_ref().map(|h| h.status), Some(503 | 529)),
         ErrorKind::Transport { delivery, code, .. } => {
-            delivery.as_deref() == Some("not-sent")
-                || code.as_deref().is_some_and(|c| NOT_SENT_CODES.contains(&c))
-                || (code.as_deref() == Some("ConnectionError") && unreachable_host(error))
+            // Only codes that fail before a connection exists (oc-ai reports Bun's codes for reqwest's connect
+            // errors): a dropped interface or route can also fail a response already being read.
+            delivery.as_deref() == Some("not-sent") || code.as_deref().is_some_and(|c| NOT_SENT_CODES.contains(&c))
         }
         _ => false,
     }
-}
-
-/// Bun reports a refused connection or a failed lookup as `ECONNREFUSED` / `ENOTFOUND` / `EAI_AGAIN`; reqwest
-/// folds them into its connect errors, told apart by the underlying cause.
-fn unreachable_host(error: &AIError) -> bool {
-    let text = format!("{} {}", error.message, error.cause.as_deref().unwrap_or_default()).to_ascii_lowercase();
-    ["connection refused", "dns error", "failed to lookup address", "name or service not known", "temporary failure in name resolution"]
-        .iter()
-        .any(|needle| text.contains(needle))
 }
 
 /// `ModelRetry.retryOneShot`: retries a one-shot call (stateless text, images, decisions) only when the provider
@@ -242,10 +269,9 @@ mod tests {
         assert!(not_run(&transport(None, Some("ECONNREFUSED"))));
         assert!(not_run(&transport(None, Some("EAI_AGAIN"))));
         assert!(!not_run(&transport(Some("accepted"), Some("ECONNRESET"))));
-        // reqwest's connect errors: a refused connection or failed lookup was never sent; a TLS failure may have been.
-        let mut refused = transport(None, Some("ConnectionError"));
-        refused.message = "error sending request for url (http://127.0.0.1:9/v1): tcp connect error: Connection refused (os error 111)".into();
-        assert!(not_run(&refused));
+        // A dropped interface or route can also fail a response already being read, so it may have run.
+        assert!(!not_run(&transport(None, Some("ENETDOWN"))));
+        assert!(!not_run(&transport(None, Some("ENETUNREACH"))));
         let mut tls = transport(None, Some("ConnectionError"));
         tls.message = "error sending request: invalid peer certificate: UnknownIssuer".into();
         assert!(!not_run(&tls));
@@ -302,3 +328,83 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod unreachable_tests {
+    use super::*;
+
+    fn dns_failure() -> AIError {
+        AIError::transport(
+            oc_ai::error::TransportOperation::Request,
+            "getaddrinfo ENOTFOUND opencode.ai",
+            Some("ENOTFOUND"),
+            Some("https://opencode.ai/zen/v1/responses"),
+        )
+    }
+
+    fn refused() -> AIError {
+        AIError::transport(oc_ai::error::TransportOperation::Request, "Unable to connect", Some("ECONNREFUSED"), None)
+    }
+
+    fn internal() -> AIError {
+        AIError::new(ErrorKind::ProviderInternal { retry_after_ms: None }, "busy")
+    }
+
+    // session-runner-retry.test.ts "keeps retrying an unreachable host for an hour with gaps of at most 30 seconds".
+    #[tokio::test(start_paused = true)]
+    async fn unreachable_hosts_retry_for_an_hour() {
+        let mut policy = Policy::default();
+        let started = tokio::time::Instant::now();
+        let mut delays = vec![];
+        while let Some(decision) = policy.decide(&dns_failure(), true) {
+            delays.push(decision.delay);
+            tokio::time::advance(Duration::from_millis(decision.delay)).await;
+        }
+        let waited = started.elapsed();
+        assert!(delays.len() > 100, "{}", delays.len());
+        assert!(delays.iter().all(|d| *d <= 30_000));
+        assert!(waited >= UNREACHABLE_WINDOW && waited <= UNREACHABLE_WINDOW + Duration::from_secs(30), "{waited:?}");
+    }
+
+    // "keeps a refused connection on the general allowance" and "doesn't spend the general allowance on an
+    // unreachable host".
+    #[test]
+    fn unreachable_failures_keep_the_general_allowance() {
+        assert!(!is_unreachable(&refused()));
+        let mut policy = Policy::default();
+        let refusals: Vec<bool> = (0..11).map(|_| policy.decide(&refused(), true).is_some()).collect();
+        assert_eq!(refusals, [vec![true; 10], vec![false]].concat());
+        let mut policy = Policy::default();
+        for _ in 0..20 {
+            assert!(policy.decide(&dns_failure(), true).is_some());
+        }
+        let internal: Vec<bool> = (0..11).map(|_| policy.decide(&internal(), true).is_some()).collect();
+        assert_eq!(internal, [vec![true; 10], vec![false]].concat());
+    }
+
+    // "doesn't replay a call whose response was cut off by the network going down".
+    #[tokio::test(start_paused = true)]
+    async fn one_shot_calls_cut_off_by_the_network_are_not_replayed() {
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let cut_off = AIError::transport(oc_ai::error::TransportOperation::Read, "Network is down", Some("ENETDOWN"), None);
+        let out: Result<(), AIError> = one_shot(|| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let cut_off = cut_off.clone();
+            async move { Err(cut_off) }
+        })
+        .await;
+        assert!(out.is_err());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    // toSessionError "names the network when the provider's host can't be reached".
+    #[test]
+    fn unreachable_session_errors_name_the_network() {
+        let error = crate::errors::from_ai(&dns_failure());
+        assert_eq!((error.kind.as_str(), error.message.as_str()), ("provider.transport", "Can't reach opencode.ai. Check the network connection. (getaddrinfo ENOTFOUND opencode.ai)"));
+        let error = crate::errors::from_ai(&refused());
+        assert_eq!((error.kind.as_str(), error.message.as_str()), ("provider.transport", "Unable to connect"));
+        // Without a URL, "the provider".
+        let bare = AIError::transport(oc_ai::error::TransportOperation::Request, "x", Some("EAI_AGAIN"), None);
+        assert_eq!(crate::errors::from_ai(&bare).message, "Can't reach the provider. Check the network connection. (x)");
+    }
+}

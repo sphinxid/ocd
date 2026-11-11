@@ -196,7 +196,6 @@ fn request(session: Option<&str>, prompt: Vec<Value>, tools: Vec<Value>) -> (Req
     let request = Request {
         session_id: session.map(String::from),
         source_id: None,
-        compaction: false,
         model: "haiku".into(),
         effort: None,
         max_output_tokens: Some(4096.0),
