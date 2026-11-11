@@ -628,6 +628,10 @@ fn corpus_package(dir: &str, path: &str) -> Option<&'static str> {
     })
 }
 
+/// Recordings added from upstream 2.2.7's corpus.
+const ADDED_2_2_7: [&str; 3] =
+    ["azure/chat-streams-text-from-a-foundry-models-url.json", "azure/messages-calls-a-tool.json", "azure/messages-streams-text.json"];
+
 /// Decodes every recorded success response of the corpus (`tests/fixtures/recorded`, upstream's recordings) with
 /// upstream's own route (Bun on the 2.2.2 checkout, `packages/ai`) and with ocd, and compares the events. Needs
 /// `OCD_SCRATCH` and `OCD_BUN_PATH`; skipped otherwise.
@@ -652,7 +656,11 @@ fn recordings_decode_like_upstream() {
             (entry_name.split('-').next().unwrap_or_default().to_string(), vec![dir.path()])
         };
         // Freeform (custom) tools are library-only (core never declares them), so their recordings are left out.
-        let mut files: Vec<_> = files.into_iter().filter(|p| !p.to_string_lossy().contains("freeform")).collect();
+        // Recordings taken from 2.2.7's corpus decode by 2.2.7's rules (`wire_2_2_7` checks them against it).
+        let mut files: Vec<_> = files
+            .into_iter()
+            .filter(|p| !p.to_string_lossy().contains("freeform") && !ADDED_2_2_7.iter().any(|a| p.ends_with(a)))
+            .collect();
         files.sort();
         for file in files {
             let rec = oc_ai::testing::recording(&std::fs::read_to_string(&file).unwrap());
