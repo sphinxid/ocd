@@ -189,6 +189,11 @@ impl Engine {
         if let Some(l) = self.locations.lock().get(directory).cloned() {
             return Ok(l);
         }
+        // `FileSystem.node` refuses to build a Location for a directory that is gone (a session whose folder was
+        // deleted still admits input since 2.2.7, and its execution then fails with this).
+        if !std::path::Path::new(directory).is_dir() {
+            anyhow::bail!("Directory not found: {directory}");
+        }
         // The OpenCode Console plugin loads the workspace config before the location's config is first read.
         self.console_refresh(directory).await;
         let loc = Arc::new(Location::load_with(&self.app.global, &self.app.bus, std::path::Path::new(directory), self.app.wellknown.get().cloned()).await?);
@@ -901,6 +906,11 @@ impl Engine {
             if promotable == Scope::Steer && pending.delivery == oc_schema::event::Delivery::Queue && !pending.is_control() {
                 return Ok(());
             }
+        }
+        // The execution runs inside the session's Location (`instances.provide(session)`): one whose directory is
+        // gone fails before anything is delivered.
+        if let Ok(session) = self.app.sessions.get(session_id) {
+            self.location(&session.location.directory).await.map_err(DrainError::Failed)?;
         }
         settle_stale(bus, session_id)?;
         loop {
