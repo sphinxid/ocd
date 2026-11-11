@@ -754,6 +754,10 @@ for info in op_infos:
             if len(nn) < len(schema["anyOf"]):
                 nullable = True
                 inner = nn[0]
+            elif len(nn) == 1:
+                # v2.2.7 drops the `null` member of optional query parameters but keeps the
+                # single-member `anyOf` wrapper.
+                inner = nn[0]
         # resolve pattern / enums
         resolved = inner
         if "$ref" in inner:

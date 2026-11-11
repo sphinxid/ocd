@@ -19,6 +19,7 @@ crate::lit_str!(LitDocument, "document");
 crate::lit_bool!(LitTrue, true);
 crate::lit_bool!(LitFalse, false);
 crate::lit_str!(LitContext, "context");
+crate::lit_str!(LitAuto, "auto");
 crate::lit_str!(LitRandom, "random");
 crate::lit_str!(LitConflictError, "ConflictError");
 crate::lit_str!(LitCredential, "credential");
@@ -27,6 +28,9 @@ crate::lit_str!(LitNeedsAuth, "needs_auth");
 crate::lit_str!(LitExternal, "external");
 crate::lit_str!(LitKey, "key");
 crate::lit_str!(LitOauth, "oauth");
+crate::lit_int!(Lit2, 2);
+crate::lit_int!(Lit1, 1);
+crate::lit_str!(LitLogSynced, "log.synced");
 crate::lit_str!(LitFileNotFoundError, "FileNotFoundError");
 crate::lit_str!(LitForbiddenError, "ForbiddenError");
 crate::lit_str!(LitBoolean, "boolean");
@@ -58,6 +62,8 @@ crate::lit_str!(LitIntegrationMethodNotFoundError, "IntegrationMethodNotFoundErr
 crate::lit_str!(LitIntegrationNotFoundError, "IntegrationNotFoundError");
 crate::lit_str!(LitInvalidCursorError, "InvalidCursorError");
 crate::lit_str!(LitInvalidRequestError, "InvalidRequestError");
+crate::lit_str!(LitShell, "shell");
+crate::lit_str!(LitSubagent, "subagent");
 crate::lit_str!(LitLocationNotFoundError, "LocationNotFoundError");
 crate::lit_str!(LitLocal, "local");
 crate::lit_str!(LitRemote, "remote");
@@ -88,7 +94,6 @@ crate::lit_str!(LitRpcError, "RpcError");
 crate::lit_str!(LitRpcInternalError, "RpcInternalError");
 crate::lit_str!(LitPrompt, "prompt");
 crate::lit_str!(LitCode, "code");
-crate::lit_str!(LitShell, "shell");
 crate::lit_str!(LitAt, "at");
 crate::lit_str!(LitCron, "cron");
 crate::lit_str!(LitEvery, "every");
@@ -98,9 +103,9 @@ crate::lit_str!(LitServiceUnavailableError, "ServiceUnavailableError");
 crate::lit_str!(LitBefore, "before");
 crate::lit_str!(LitThrough, "through");
 crate::lit_str!(LitCompaction, "compaction");
-crate::lit_str!(LitMove, "move");
-crate::lit_str!(LitSynthetic, "synthetic");
 crate::lit_str!(LitUser, "user");
+crate::lit_str!(LitSynthetic, "synthetic");
+crate::lit_str!(LitMove, "move");
 crate::lit_str!(LitAgentSwitched, "agent-switched");
 crate::lit_str!(LitAssistant, "assistant");
 crate::lit_str!(LitReasoning, "reasoning");
@@ -116,15 +121,118 @@ crate::lit_str!(LitSessionBusyError, "SessionBusyError");
 crate::lit_str!(LitSessionNotFoundError, "SessionNotFoundError");
 crate::lit_str!(LitNone, "none");
 crate::lit_str!(LitDetail, "detail");
+crate::lit_str!(LitRetry, "retry");
+crate::lit_str!(LitBusy, "busy");
+crate::lit_str!(LitSessionStatus, "session.status");
 crate::lit_str!(LitShellNotFoundError, "ShellNotFoundError");
 crate::lit_str!(LitSkillNotFoundError, "SkillNotFoundError");
 crate::lit_str!(LitUnauthorizedError, "UnauthorizedError");
 crate::lit_str!(LitUnknownError, "UnknownError");
 crate::lit_str!(LitUnsupportedModelError, "UnsupportedModelError");
+crate::lit_str!(LitServerConnected, "server.connected");
 crate::lit_str!(LitVcsInitNotSupportedError, "VcsInitNotSupportedError");
 crate::lit_str!(LitWebrtc, "webrtc");
 crate::lit_str!(LitWebsocket, "websocket");
 crate::lit_str!(LitWorktreeError, "WorktreeError");
+crate::lit_str!(LitAgentUpdated, "agent.updated");
+crate::lit_str!(LitArtifactUpdated, "artifact.updated");
+crate::lit_str!(LitCommandUpdated, "command.updated");
+crate::lit_str!(LitConfigUpdated, "config.updated");
+crate::lit_str!(LitCredentialSwitched, "credential.switched");
+crate::lit_str!(LitCredentialUpdated, "credential.updated");
+crate::lit_str!(LitFilesystemChanged, "filesystem.changed");
+crate::lit_str!(LitFormCancelled, "form.cancelled");
+crate::lit_str!(LitFormCreated, "form.created");
+crate::lit_str!(LitFormReplied, "form.replied");
+crate::lit_str!(LitInstallationUpdateAvailable, "installation.update-available");
+crate::lit_str!(LitInstallationUpdated, "installation.updated");
+crate::lit_str!(LitIntegrationUpdated, "integration.updated");
+crate::lit_str!(LitLocationShutdown, "location.shutdown");
+crate::lit_str!(LitMcpResourcesChanged, "mcp.resources.changed");
+crate::lit_str!(LitMcpStatusChanged, "mcp.status.changed");
+crate::lit_str!(LitModelUpdated, "model.updated");
+crate::lit_str!(LitModelsDevRefreshed, "models-dev.refreshed");
+crate::lit_str!(LitPermissionAsked, "permission.asked");
+crate::lit_str!(LitPermissionReplied, "permission.replied");
+crate::lit_str!(LitPersistentPtyAdded, "persistent-pty.added");
+crate::lit_str!(LitPersistentPtyRemoved, "persistent-pty.removed");
+crate::lit_str!(LitPersistentPtyUpdated, "persistent-pty.updated");
+crate::lit_str!(LitPluginUpdated, "plugin.updated");
+crate::lit_str!(LitProjectUpdated, "project.updated");
+crate::lit_str!(LitProviderUpdated, "provider.updated");
+crate::lit_str!(LitPtyCreated, "pty.created");
+crate::lit_str!(LitPtyDeleted, "pty.deleted");
+crate::lit_str!(LitPtyExited, "pty.exited");
+crate::lit_str!(LitPtyUpdated, "pty.updated");
+crate::lit_str!(LitReferenceUpdated, "reference.updated");
+crate::lit_str!(LitSessionAgentSelected, "session.agent.selected");
+crate::lit_str!(LitSessionArchived, "session.archived");
+crate::lit_str!(LitSessionCompactionDelta, "session.compaction.delta");
+crate::lit_str!(LitSessionCompactionEnded, "session.compaction.ended");
+crate::lit_str!(LitSessionCompactionFailed, "session.compaction.failed");
+crate::lit_str!(LitSessionCompactionStarted, "session.compaction.started");
+crate::lit_str!(LitSessionCreated, "session.created");
+crate::lit_str!(LitSessionDeleted, "session.deleted");
+crate::lit_str!(LitSessionExecutionFailed, "session.execution.failed");
+crate::lit_str!(LitSessionExecutionInterrupted, "session.execution.interrupted");
+crate::lit_str!(LitSessionExecutionStarted, "session.execution.started");
+crate::lit_str!(LitSessionExecutionSucceeded, "session.execution.succeeded");
+crate::lit_str!(LitSessionForked, "session.forked");
+crate::lit_str!(LitSessionIdle, "session.idle");
+crate::lit_str!(LitSessionInboxCancelled, "session.inbox.cancelled");
+crate::lit_str!(LitSessionInboxDelivered, "session.inbox.delivered");
+crate::lit_str!(LitSessionInboxDeliveryChanged, "session.inbox.delivery.changed");
+crate::lit_str!(LitSessionInboxEnqueued, "session.inbox.enqueued");
+crate::lit_str!(LitSessionInstructionsUpdated, "session.instructions.updated");
+crate::lit_str!(LitRemoved, "removed");
+crate::lit_str!(LitSessionMessageContentUpdated, "session.message.content.updated");
+crate::lit_str!(LitSessionMetadataUpdated, "session.metadata.updated");
+crate::lit_str!(LitSessionModelSelected, "session.model.selected");
+crate::lit_str!(LitSessionMoved, "session.moved");
+crate::lit_str!(LitSessionPermissions, "session.permissions");
+crate::lit_str!(LitSessionReasoningDelta, "session.reasoning.delta");
+crate::lit_str!(LitSessionReasoningEnded, "session.reasoning.ended");
+crate::lit_str!(LitSessionReasoningStarted, "session.reasoning.started");
+crate::lit_str!(LitSessionRenamed, "session.renamed");
+crate::lit_str!(LitSessionRetryScheduled, "session.retry.scheduled");
+crate::lit_str!(LitSessionRevertCleared, "session.revert.cleared");
+crate::lit_str!(LitSessionRevertCommitted, "session.revert.committed");
+crate::lit_str!(LitSessionRevertStaged, "session.revert.staged");
+crate::lit_str!(LitSessionShellEnded, "session.shell.ended");
+crate::lit_str!(LitSessionShellStarted, "session.shell.started");
+crate::lit_str!(LitSessionSkillActivated, "session.skill.activated");
+crate::lit_str!(LitSessionStepEnded, "session.step.ended");
+crate::lit_str!(LitSessionStepFailed, "session.step.failed");
+crate::lit_str!(LitContentFilter, "content-filter");
+crate::lit_str!(LitSessionStepStarted, "session.step.started");
+crate::lit_str!(LitSessionStepStreamed, "session.step.streamed");
+crate::lit_str!(LitSessionSynthetic, "session.synthetic");
+crate::lit_str!(LitSessionTextDelta, "session.text.delta");
+crate::lit_str!(LitSessionTextEnded, "session.text.ended");
+crate::lit_str!(LitSessionTextStarted, "session.text.started");
+crate::lit_str!(LitSessionToolCalled, "session.tool.called");
+crate::lit_str!(LitSessionToolFailed, "session.tool.failed");
+crate::lit_str!(LitSessionToolInputDelta, "session.tool.input.delta");
+crate::lit_str!(LitSessionToolInputEnded, "session.tool.input.ended");
+crate::lit_str!(LitSessionToolInputStarted, "session.tool.input.started");
+crate::lit_str!(LitSessionToolProgress, "session.tool.progress");
+crate::lit_str!(LitSessionToolSuccess, "session.tool.success");
+crate::lit_str!(LitSessionUnarchived, "session.unarchived");
+crate::lit_str!(LitSessionUsageRecorded, "session.usage.recorded");
+crate::lit_str!(LitSessionUsageUpdated, "session.usage.updated");
+crate::lit_str!(LitSessionViewed, "session.viewed");
+crate::lit_str!(LitShellCreated, "shell.created");
+crate::lit_str!(LitShellDeleted, "shell.deleted");
+crate::lit_str!(LitShellExited, "shell.exited");
+crate::lit_str!(LitSkillUpdated, "skill.updated");
+crate::lit_str!(LitTuiCommandExecute, "tui.command.execute");
+crate::lit_str!(LitTuiPromptAppend, "tui.prompt.append");
+crate::lit_str!(LitTuiSessionSelect, "tui.session.select");
+crate::lit_str!(LitTuiToastShow, "tui.toast.show");
+crate::lit_str!(LitVcsBranchUpdated, "vcs.branch.updated");
+crate::lit_str!(LitWebsearchUpdated, "websearch.updated");
+crate::lit_str!(LitWorktreeResolved, "worktree.resolved");
+crate::lit_str!(LitWorktreeUpdated, "worktree.updated");
 crate::lit_str!(LitNull, "null");
 
 // ---- component schemas --------------------------------------------------------------------
@@ -645,6 +753,8 @@ pub enum ConfigInfoEncodedPoliciesItemAction {
     SkillUse,
     #[serde(rename = "plugin.use")]
     PluginUse,
+    #[serde(rename = "websearch.use")]
+    WebsearchUse,
 }
 
 impl ConfigInfoEncodedPoliciesItemAction {
@@ -658,6 +768,7 @@ impl ConfigInfoEncodedPoliciesItemAction {
             Self::McpUse => "mcp.use",
             Self::SkillUse => "skill.use",
             Self::PluginUse => "plugin.use",
+            Self::WebsearchUse => "websearch.use",
         }
     }
 }
@@ -886,17 +997,25 @@ pub struct ConfigInfoEncodedExperimental {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub portable_shell_scanner: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_flags: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub todo: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_compaction: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_blob: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_generate: Option<ConfigInfoEncodedExperimentalImageGenerate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifacts: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codemode_vm: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console_watches: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_rows: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_generate: Option<ConfigInfoEncodedExperimentalImageGenerate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_depth: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -982,6 +1101,8 @@ pub enum ConfigInfoEncodedExperimentalPoliciesItemAction {
     SkillUse,
     #[serde(rename = "plugin.use")]
     PluginUse,
+    #[serde(rename = "websearch.use")]
+    WebsearchUse,
 }
 
 impl ConfigInfoEncodedExperimentalPoliciesItemAction {
@@ -995,6 +1116,7 @@ impl ConfigInfoEncodedExperimentalPoliciesItemAction {
             Self::McpUse => "mcp.use",
             Self::SkillUse => "skill.use",
             Self::PluginUse => "plugin.use",
+            Self::WebsearchUse => "websearch.use",
         }
     }
 }
@@ -1340,9 +1462,22 @@ pub struct ConfigWarmingEncoded {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interval: Option<String>,
+    pub interval: Option<ConfigWarmingEncodedInterval>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigWarmingEncodedInterval {
+    Literal(LitAuto),
+    String(String),
+}
+
+impl From<LitAuto> for ConfigWarmingEncodedInterval {
+    fn from(value: LitAuto) -> Self {
+        Self::Literal(value)
+    }
 }
 
 /// Component schema `Config.Worktree`.
@@ -1551,8 +1686,28 @@ impl From<CredentialExternal> for CredentialValue {
     }
 }
 
-/// Component schema `Event.SeqEncoded`.
-pub type EventSeqEncoded = String;
+/// Component schema `Event.ID`. Pattern: `^evt_`.
+pub type EventID = String;
+
+/// Component schema `Event.Seq`.
+pub type EventSeq = i64;
+
+/// Component schema `Event.VersionEncoded_c3ea984aceae`.
+pub type EventVersionEncodedC3ea984aceae = Lit2;
+
+/// Component schema `Event.VersionEncoded_c77c5abcb68d`.
+pub type EventVersionEncodedC77c5abcb68d = Lit1;
+
+/// Component schema `EventLog.Synced`.
+/// Marker emitted once when a log read reaches its captured watermark. The reader holds every event committed at or below seq.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct EventLogSynced {
+    pub r#type: LitLogSynced,
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<EventSeq>,
+}
 
 /// Component schema `FileDiff.Info`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1638,6 +1793,9 @@ pub struct ForbiddenErrorEncoded {
 /// Component schema `Form.Answer`.
 pub type FormAnswer = indexmap::IndexMap<String, FormValue>;
 
+/// Component schema `Form.Answer_1`.
+pub type FormAnswer1 = indexmap::IndexMap<String, FormValue1>;
+
 /// Component schema `Form.BooleanField`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FormBooleanField {
@@ -1652,6 +1810,25 @@ pub struct FormBooleanField {
     pub hidden: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when: Option<Vec<FormWhen>>,
+    pub r#type: LitBoolean,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<bool>,
+}
+
+/// Component schema `Form.BooleanField_1`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormBooleanField1 {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<Vec<FormWhen1>>,
     pub r#type: LitBoolean,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<bool>,
@@ -1741,8 +1918,59 @@ impl From<FormExternalField> for FormField {
     }
 }
 
+/// Component schema `Form.Field_1`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormField1 {
+    StringField1(FormStringField1),
+    NumberField1(FormNumberField1),
+    IntegerField1(FormIntegerField1),
+    BooleanField1(FormBooleanField1),
+    MultiselectField1(FormMultiselectField1),
+    ExternalField(FormExternalField),
+}
+
+impl From<FormStringField1> for FormField1 {
+    fn from(value: FormStringField1) -> Self {
+        Self::StringField1(value)
+    }
+}
+
+impl From<FormNumberField1> for FormField1 {
+    fn from(value: FormNumberField1) -> Self {
+        Self::NumberField1(value)
+    }
+}
+
+impl From<FormIntegerField1> for FormField1 {
+    fn from(value: FormIntegerField1) -> Self {
+        Self::IntegerField1(value)
+    }
+}
+
+impl From<FormBooleanField1> for FormField1 {
+    fn from(value: FormBooleanField1) -> Self {
+        Self::BooleanField1(value)
+    }
+}
+
+impl From<FormMultiselectField1> for FormField1 {
+    fn from(value: FormMultiselectField1) -> Self {
+        Self::MultiselectField1(value)
+    }
+}
+
+impl From<FormExternalField> for FormField1 {
+    fn from(value: FormExternalField) -> Self {
+        Self::ExternalField(value)
+    }
+}
+
 /// Component schema `Form.Fields`.
 pub type FormFields = Vec<FormField>;
+
+/// Component schema `Form.Fields_1`.
+pub type FormFields1 = Vec<FormField1>;
 
 /// Component schema `Form.ID`. Pattern: `^frm_`.
 pub type FormID = String;
@@ -1757,6 +1985,18 @@ pub struct FormInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<FormMetadata>,
     pub fields: FormFields,
+}
+
+/// Component schema `Form.Info_1`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormInfo1 {
+    pub id: FormID,
+    #[serde(rename = "sessionID")]
+    pub session_id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<FormMetadata>,
+    pub fields: FormFields1,
 }
 
 /// Component schema `Form.IntegerField`.
@@ -1782,6 +2022,131 @@ pub struct FormIntegerField {
     pub default: Option<JsNumber>,
 }
 
+/// Component schema `Form.IntegerField_1`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormIntegerField1 {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<Vec<FormWhen1>>,
+    pub r#type: LitInteger,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<FormIntegerField1Minimum>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum: Option<FormIntegerField1Maximum>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<FormIntegerField1Default>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormIntegerField1Minimum {
+    Number(JsNumber),
+    Enum(FormIntegerField1MinimumEnum),
+}
+
+impl From<FormIntegerField1MinimumEnum> for FormIntegerField1Minimum {
+    fn from(value: FormIntegerField1MinimumEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormIntegerField1MinimumEnum {
+    #[serde(rename = "NaN")]
+    NaN,
+    #[serde(rename = "Infinity")]
+    Infinity,
+    #[serde(rename = "-Infinity")]
+    NegInfinity,
+}
+
+impl FormIntegerField1MinimumEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NaN => "NaN",
+            Self::Infinity => "Infinity",
+            Self::NegInfinity => "-Infinity",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormIntegerField1Maximum {
+    Number(JsNumber),
+    Enum(FormIntegerField1MaximumEnum),
+}
+
+impl From<FormIntegerField1MaximumEnum> for FormIntegerField1Maximum {
+    fn from(value: FormIntegerField1MaximumEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormIntegerField1MaximumEnum {
+    #[serde(rename = "NaN")]
+    NaN,
+    #[serde(rename = "Infinity")]
+    Infinity,
+    #[serde(rename = "-Infinity")]
+    NegInfinity,
+}
+
+impl FormIntegerField1MaximumEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NaN => "NaN",
+            Self::Infinity => "Infinity",
+            Self::NegInfinity => "-Infinity",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormIntegerField1Default {
+    Number(JsNumber),
+    Enum(FormIntegerField1DefaultEnum),
+}
+
+impl From<FormIntegerField1DefaultEnum> for FormIntegerField1Default {
+    fn from(value: FormIntegerField1DefaultEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormIntegerField1DefaultEnum {
+    #[serde(rename = "NaN")]
+    NaN,
+    #[serde(rename = "Infinity")]
+    Infinity,
+    #[serde(rename = "-Infinity")]
+    NegInfinity,
+}
+
+impl FormIntegerField1DefaultEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NaN => "NaN",
+            Self::Infinity => "Infinity",
+            Self::NegInfinity => "-Infinity",
+        }
+    }
+}
+
 /// Component schema `Form.Metadata`.
 pub type FormMetadata = JsonObject;
 
@@ -1799,6 +2164,32 @@ pub struct FormMultiselectField {
     pub hidden: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when: Option<Vec<FormWhen>>,
+    pub r#type: LitMultiselect,
+    pub options: Vec<FormOption>,
+    #[serde(rename = "minItems", default, skip_serializing_if = "Option::is_none")]
+    pub min_items: Option<i64>,
+    #[serde(rename = "maxItems", default, skip_serializing_if = "Option::is_none")]
+    pub max_items: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<Vec<String>>,
+}
+
+/// Component schema `Form.MultiselectField_1`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormMultiselectField1 {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<Vec<FormWhen1>>,
     pub r#type: LitMultiselect,
     pub options: Vec<FormOption>,
     #[serde(rename = "minItems", default, skip_serializing_if = "Option::is_none")]
@@ -1832,6 +2223,131 @@ pub struct FormNumberField {
     pub maximum: Option<JsNumber>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<JsNumber>,
+}
+
+/// Component schema `Form.NumberField_1`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormNumberField1 {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<Vec<FormWhen1>>,
+    pub r#type: LitNumber,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<FormNumberField1Minimum>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum: Option<FormNumberField1Maximum>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<FormNumberField1Default>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormNumberField1Minimum {
+    Number(JsNumber),
+    Enum(FormNumberField1MinimumEnum),
+}
+
+impl From<FormNumberField1MinimumEnum> for FormNumberField1Minimum {
+    fn from(value: FormNumberField1MinimumEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormNumberField1MinimumEnum {
+    #[serde(rename = "NaN")]
+    NaN,
+    #[serde(rename = "Infinity")]
+    Infinity,
+    #[serde(rename = "-Infinity")]
+    NegInfinity,
+}
+
+impl FormNumberField1MinimumEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NaN => "NaN",
+            Self::Infinity => "Infinity",
+            Self::NegInfinity => "-Infinity",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormNumberField1Maximum {
+    Number(JsNumber),
+    Enum(FormNumberField1MaximumEnum),
+}
+
+impl From<FormNumberField1MaximumEnum> for FormNumberField1Maximum {
+    fn from(value: FormNumberField1MaximumEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormNumberField1MaximumEnum {
+    #[serde(rename = "NaN")]
+    NaN,
+    #[serde(rename = "Infinity")]
+    Infinity,
+    #[serde(rename = "-Infinity")]
+    NegInfinity,
+}
+
+impl FormNumberField1MaximumEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NaN => "NaN",
+            Self::Infinity => "Infinity",
+            Self::NegInfinity => "-Infinity",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormNumberField1Default {
+    Number(JsNumber),
+    Enum(FormNumberField1DefaultEnum),
+}
+
+impl From<FormNumberField1DefaultEnum> for FormNumberField1Default {
+    fn from(value: FormNumberField1DefaultEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormNumberField1DefaultEnum {
+    #[serde(rename = "NaN")]
+    NaN,
+    #[serde(rename = "Infinity")]
+    Infinity,
+    #[serde(rename = "-Infinity")]
+    NegInfinity,
+}
+
+impl FormNumberField1DefaultEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NaN => "NaN",
+            Self::Infinity => "Infinity",
+            Self::NegInfinity => "-Infinity",
+        }
+    }
 }
 
 /// Component schema `Form.Option`.
@@ -1951,6 +2467,63 @@ impl FormStringFieldFormat {
     }
 }
 
+/// Component schema `Form.StringField_1`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormStringField1 {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<Vec<FormWhen1>>,
+    pub r#type: LitString,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<FormStringField1Format>,
+    #[serde(rename = "minLength", default, skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<i64>,
+    #[serde(rename = "maxLength", default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<FormOption>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormStringField1Format {
+    #[serde(rename = "email")]
+    Email,
+    #[serde(rename = "uri")]
+    Uri,
+    #[serde(rename = "date")]
+    Date,
+    #[serde(rename = "date-time")]
+    DateTime,
+}
+
+impl FormStringField1Format {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Email => "email",
+            Self::Uri => "uri",
+            Self::Date => "date",
+            Self::DateTime => "date-time",
+        }
+    }
+}
+
 /// Component schema `Form.Value`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -1959,6 +2532,44 @@ pub enum FormValue {
     Number(JsNumber),
     Bool(bool),
     Array(Vec<String>),
+}
+
+/// Component schema `Form.Value_1`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormValue1 {
+    String(String),
+    Number(JsNumber),
+    Enum(FormValue1Enum),
+    Bool(bool),
+    Array(Vec<String>),
+}
+
+impl From<FormValue1Enum> for FormValue1 {
+    fn from(value: FormValue1Enum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormValue1Enum {
+    #[serde(rename = "NaN")]
+    NaN,
+    #[serde(rename = "Infinity")]
+    Infinity,
+    #[serde(rename = "-Infinity")]
+    NegInfinity,
+}
+
+impl FormValue1Enum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NaN => "NaN",
+            Self::Infinity => "Infinity",
+            Self::NegInfinity => "-Infinity",
+        }
+    }
 }
 
 /// Component schema `Form.When`.
@@ -1993,6 +2604,68 @@ pub enum FormWhenValue {
     String(String),
     Number(JsNumber),
     Bool(bool),
+}
+
+/// Component schema `Form.When_1`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FormWhen1 {
+    pub key: String,
+    pub op: FormWhen1Op,
+    pub value: FormWhen1Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormWhen1Op {
+    #[serde(rename = "eq")]
+    Eq,
+    #[serde(rename = "neq")]
+    Neq,
+}
+
+impl FormWhen1Op {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Eq => "eq",
+            Self::Neq => "neq",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FormWhen1Value {
+    String(String),
+    Number(JsNumber),
+    Enum(FormWhen1ValueEnum),
+    Bool(bool),
+}
+
+impl From<FormWhen1ValueEnum> for FormWhen1Value {
+    fn from(value: FormWhen1ValueEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FormWhen1ValueEnum {
+    #[serde(rename = "NaN")]
+    NaN,
+    #[serde(rename = "Infinity")]
+    Infinity,
+    #[serde(rename = "-Infinity")]
+    NegInfinity,
+}
+
+impl FormWhen1ValueEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NaN => "NaN",
+            Self::Infinity => "Infinity",
+            Self::NegInfinity => "-Infinity",
+        }
+    }
 }
 
 /// Component schema `FormAlreadySettledErrorEncoded`.
@@ -2321,6 +2994,16 @@ pub struct GeneratePredicateQuestion {
     /// Unique within the request; echoed on the matching answer
     pub name: String,
     pub instructions: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub criteria: Option<GeneratePredicateQuestionCriteria>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GeneratePredicateQuestionCriteria {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#true: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#false: Option<String>,
 }
 
 /// Component schema `Generate.ScoreAnswer`.
@@ -2395,6 +3078,12 @@ pub struct GenerateTextResponseData {
     pub text: String,
 }
 
+/// Component schema `Instruction.Hash`. Pattern: `^[a-f0-9]{64}$`.
+pub type InstructionHash = String;
+
+/// Component schema `Instruction.Key`. Pattern: `^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._/-]*$`.
+pub type InstructionKey = String;
+
 /// Component schema `InstructionEntry.Info`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct InstructionEntryInfo {
@@ -2407,6 +3096,17 @@ pub struct InstructionEntryInfo {
 ///
 /// Instruction entry key (lowercase alphanumerics plus . _ -)
 pub type InstructionEntryKey = String;
+
+/// Component schema `InstructionEntry.Snapshot`.
+pub type InstructionEntrySnapshot = Vec<InstructionEntrySnapshotInnerItem>;
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InstructionEntrySnapshotInnerItem {
+    pub key: InstructionEntryKey,
+    /// JSON value attached to the session's instructions
+    pub value: serde_json::Value,
+    pub removed: bool,
+}
 
 /// Component schema `InstructionEntryValueTooLargeErrorEncoded`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -2428,6 +3128,8 @@ pub struct IntegrationAttemptEncoded {
     pub url: String,
     pub instructions: String,
     pub mode: IntegrationAttemptEncodedMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paste: Option<LitTrue>,
     pub time: IntegrationAttemptEncodedTime,
 }
 
@@ -2798,6 +3500,138 @@ pub struct InvalidRequestErrorEncoded {
     pub field: Option<String>,
 }
 
+/// Component schema `Job.Image`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobImage {
+    pub kind: LitImage,
+    pub id: String,
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub status: JobStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub time: JobTime,
+    pub path: String,
+    pub model: String,
+}
+
+/// Component schema `Job.Info`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum JobInfo {
+    Shell(JobShell),
+    Subagent(JobSubagent),
+    Image(JobImage),
+}
+
+impl From<JobShell> for JobInfo {
+    fn from(value: JobShell) -> Self {
+        Self::Shell(value)
+    }
+}
+
+impl From<JobSubagent> for JobInfo {
+    fn from(value: JobSubagent) -> Self {
+        Self::Subagent(value)
+    }
+}
+
+impl From<JobImage> for JobInfo {
+    fn from(value: JobImage) -> Self {
+        Self::Image(value)
+    }
+}
+
+/// Component schema `Job.Kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum JobKind {
+    #[serde(rename = "shell")]
+    Shell,
+    #[serde(rename = "subagent")]
+    Subagent,
+    #[serde(rename = "image")]
+    Image,
+}
+
+impl JobKind {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Shell => "shell",
+            Self::Subagent => "subagent",
+            Self::Image => "image",
+        }
+    }
+}
+
+/// Component schema `Job.Shell`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobShell {
+    pub kind: LitShell,
+    pub id: String,
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub status: JobStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub time: JobTime,
+    #[serde(rename = "shellID")]
+    pub shell_id: String,
+    pub command: String,
+}
+
+/// Component schema `Job.Status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum JobStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "completed")]
+    Completed,
+    #[serde(rename = "error")]
+    Error,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+}
+
+impl JobStatus {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Error => "error",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+/// Component schema `Job.Subagent`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobSubagent {
+    pub kind: LitSubagent,
+    pub id: String,
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub status: JobStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub time: JobTime,
+    #[serde(rename = "childSessionID")]
+    pub child_session_id: SessionID,
+    pub agent: String,
+    pub description: String,
+}
+
+/// Component schema `Job.Time`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct JobTime {
+    /// Start time in milliseconds since the Unix epoch
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub started: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub completed: Option<f64>,
+}
+
 /// Component schema `Location.PublicInfo`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct LocationPublicInfo {
@@ -2816,6 +3650,14 @@ pub struct LocationPublicInfoProject {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct LocationPublicRef {
     pub directory: AbsolutePath,
+}
+
+/// Component schema `Location.Ref`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct LocationRef {
+    pub directory: AbsolutePath,
+    #[serde(rename = "workspaceID", default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<WorkspaceID>,
 }
 
 /// Component schema `LocationNotFoundErrorEncoded`.
@@ -2844,6 +3686,8 @@ pub struct McpLocalConfigEncoded {
     pub timeout: Option<McpLocalConfigEncodedTimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<McpProtocol>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -2912,6 +3756,8 @@ pub struct McpRemoteConfigEncoded {
     pub timeout: Option<McpRemoteConfigEncodedTimeout>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<McpProtocol>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3637,9 +4483,6 @@ pub struct PersistentPtyInfoOutput {
     pub tail: i64,
 }
 
-/// Component schema `PersistentPty.ReadLinesEncoded`.
-pub type PersistentPtyReadLinesEncoded = String;
-
 /// Component schema `PersistentPty.ReadResult`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PersistentPtyReadResult {
@@ -4003,10 +4846,47 @@ pub struct PromptInputSkillAttachment {
 pub struct ProviderCache {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ttl: Option<ProviderCacheTTL>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warming: Option<ProviderCacheWarming>,
 }
 
 /// Component schema `Provider.CacheTTL`. Pattern: `^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[Ee][+-]?\d+)?(?:ms|s|m|h|d)$`.
 pub type ProviderCacheTTL = String;
+
+/// Component schema `Provider.CacheWarming`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ProviderCacheWarming {
+    Bool(bool),
+    Object(ProviderCacheWarmingObject),
+}
+
+impl From<ProviderCacheWarmingObject> for ProviderCacheWarming {
+    fn from(value: ProviderCacheWarmingObject) -> Self {
+        Self::Object(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProviderCacheWarmingObject {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval: Option<ProviderCacheWarmingObjectInterval>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ProviderCacheWarmingObjectInterval {
+    Literal(LitAuto),
+    String(String),
+}
+
+impl From<LitAuto> for ProviderCacheWarmingObjectInterval {
+    fn from(value: LitAuto) -> Self {
+        Self::Literal(value)
+    }
+}
 
 /// Component schema `Provider.Compaction`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4870,6 +5750,341 @@ pub struct ServiceUnavailableErrorEncoded {
     pub service: Option<String>,
 }
 
+/// Component schema `Session.Event.Durable`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SessionEventDurable {
+    SessionCreated(SessionCreated),
+    SessionAgentSelected(SessionAgentSelected),
+    SessionModelSelected(SessionModelSelected),
+    SessionMoved(SessionMoved),
+    SessionRenamed(SessionRenamed),
+    SessionMetadataUpdated(SessionMetadataUpdated),
+    SessionPermissions(SessionPermissions),
+    SessionViewed(SessionViewed),
+    SessionArchived(SessionArchived),
+    SessionUnarchived(SessionUnarchived),
+    SessionDeleted(SessionDeleted),
+    SessionForked(SessionForked),
+    SessionInboxDelivered(SessionInboxDelivered),
+    SessionInboxEnqueued(SessionInboxEnqueued),
+    SessionInboxCancelled(SessionInboxCancelled),
+    SessionInboxDeliveryChanged(SessionInboxDeliveryChanged),
+    SessionExecutionStarted(SessionExecutionStarted),
+    SessionExecutionSucceeded(SessionExecutionSucceeded),
+    SessionExecutionFailed(SessionExecutionFailed),
+    SessionExecutionInterrupted(SessionExecutionInterrupted),
+    SessionInstructionsUpdated(SessionInstructionsUpdated),
+    SessionSynthetic(SessionSynthetic),
+    SessionSkillActivated(SessionSkillActivated),
+    SessionShellStarted(SessionShellStarted),
+    SessionShellEnded(SessionShellEnded),
+    SessionStepStarted(SessionStepStarted),
+    SessionStepStreamed(SessionStepStreamed),
+    SessionStepEnded(SessionStepEnded),
+    SessionStepFailed(SessionStepFailed),
+    SessionTextStarted(SessionTextStarted),
+    SessionTextEnded(SessionTextEnded),
+    SessionReasoningStarted(SessionReasoningStarted),
+    SessionReasoningEnded(SessionReasoningEnded),
+    SessionToolInputStarted(SessionToolInputStarted),
+    SessionToolInputEnded(SessionToolInputEnded),
+    SessionToolCalled(SessionToolCalled),
+    SessionToolSuccess(SessionToolSuccess),
+    SessionToolFailed(SessionToolFailed),
+    SessionRetryScheduled(SessionRetryScheduled),
+    SessionCompactionStarted(SessionCompactionStarted),
+    SessionCompactionEnded(SessionCompactionEnded),
+    SessionCompactionFailed(SessionCompactionFailed),
+    SessionRevertStaged(SessionRevertStaged),
+    SessionRevertCleared(SessionRevertCleared),
+    SessionRevertCommitted(SessionRevertCommitted),
+    SessionUsageRecorded(SessionUsageRecorded),
+    SessionMessageContentUpdated(SessionMessageContentUpdated),
+}
+
+impl From<SessionCreated> for SessionEventDurable {
+    fn from(value: SessionCreated) -> Self {
+        Self::SessionCreated(value)
+    }
+}
+
+impl From<SessionAgentSelected> for SessionEventDurable {
+    fn from(value: SessionAgentSelected) -> Self {
+        Self::SessionAgentSelected(value)
+    }
+}
+
+impl From<SessionModelSelected> for SessionEventDurable {
+    fn from(value: SessionModelSelected) -> Self {
+        Self::SessionModelSelected(value)
+    }
+}
+
+impl From<SessionMoved> for SessionEventDurable {
+    fn from(value: SessionMoved) -> Self {
+        Self::SessionMoved(value)
+    }
+}
+
+impl From<SessionRenamed> for SessionEventDurable {
+    fn from(value: SessionRenamed) -> Self {
+        Self::SessionRenamed(value)
+    }
+}
+
+impl From<SessionMetadataUpdated> for SessionEventDurable {
+    fn from(value: SessionMetadataUpdated) -> Self {
+        Self::SessionMetadataUpdated(value)
+    }
+}
+
+impl From<SessionPermissions> for SessionEventDurable {
+    fn from(value: SessionPermissions) -> Self {
+        Self::SessionPermissions(value)
+    }
+}
+
+impl From<SessionViewed> for SessionEventDurable {
+    fn from(value: SessionViewed) -> Self {
+        Self::SessionViewed(value)
+    }
+}
+
+impl From<SessionArchived> for SessionEventDurable {
+    fn from(value: SessionArchived) -> Self {
+        Self::SessionArchived(value)
+    }
+}
+
+impl From<SessionUnarchived> for SessionEventDurable {
+    fn from(value: SessionUnarchived) -> Self {
+        Self::SessionUnarchived(value)
+    }
+}
+
+impl From<SessionDeleted> for SessionEventDurable {
+    fn from(value: SessionDeleted) -> Self {
+        Self::SessionDeleted(value)
+    }
+}
+
+impl From<SessionForked> for SessionEventDurable {
+    fn from(value: SessionForked) -> Self {
+        Self::SessionForked(value)
+    }
+}
+
+impl From<SessionInboxDelivered> for SessionEventDurable {
+    fn from(value: SessionInboxDelivered) -> Self {
+        Self::SessionInboxDelivered(value)
+    }
+}
+
+impl From<SessionInboxEnqueued> for SessionEventDurable {
+    fn from(value: SessionInboxEnqueued) -> Self {
+        Self::SessionInboxEnqueued(value)
+    }
+}
+
+impl From<SessionInboxCancelled> for SessionEventDurable {
+    fn from(value: SessionInboxCancelled) -> Self {
+        Self::SessionInboxCancelled(value)
+    }
+}
+
+impl From<SessionInboxDeliveryChanged> for SessionEventDurable {
+    fn from(value: SessionInboxDeliveryChanged) -> Self {
+        Self::SessionInboxDeliveryChanged(value)
+    }
+}
+
+impl From<SessionExecutionStarted> for SessionEventDurable {
+    fn from(value: SessionExecutionStarted) -> Self {
+        Self::SessionExecutionStarted(value)
+    }
+}
+
+impl From<SessionExecutionSucceeded> for SessionEventDurable {
+    fn from(value: SessionExecutionSucceeded) -> Self {
+        Self::SessionExecutionSucceeded(value)
+    }
+}
+
+impl From<SessionExecutionFailed> for SessionEventDurable {
+    fn from(value: SessionExecutionFailed) -> Self {
+        Self::SessionExecutionFailed(value)
+    }
+}
+
+impl From<SessionExecutionInterrupted> for SessionEventDurable {
+    fn from(value: SessionExecutionInterrupted) -> Self {
+        Self::SessionExecutionInterrupted(value)
+    }
+}
+
+impl From<SessionInstructionsUpdated> for SessionEventDurable {
+    fn from(value: SessionInstructionsUpdated) -> Self {
+        Self::SessionInstructionsUpdated(value)
+    }
+}
+
+impl From<SessionSynthetic> for SessionEventDurable {
+    fn from(value: SessionSynthetic) -> Self {
+        Self::SessionSynthetic(value)
+    }
+}
+
+impl From<SessionSkillActivated> for SessionEventDurable {
+    fn from(value: SessionSkillActivated) -> Self {
+        Self::SessionSkillActivated(value)
+    }
+}
+
+impl From<SessionShellStarted> for SessionEventDurable {
+    fn from(value: SessionShellStarted) -> Self {
+        Self::SessionShellStarted(value)
+    }
+}
+
+impl From<SessionShellEnded> for SessionEventDurable {
+    fn from(value: SessionShellEnded) -> Self {
+        Self::SessionShellEnded(value)
+    }
+}
+
+impl From<SessionStepStarted> for SessionEventDurable {
+    fn from(value: SessionStepStarted) -> Self {
+        Self::SessionStepStarted(value)
+    }
+}
+
+impl From<SessionStepStreamed> for SessionEventDurable {
+    fn from(value: SessionStepStreamed) -> Self {
+        Self::SessionStepStreamed(value)
+    }
+}
+
+impl From<SessionStepEnded> for SessionEventDurable {
+    fn from(value: SessionStepEnded) -> Self {
+        Self::SessionStepEnded(value)
+    }
+}
+
+impl From<SessionStepFailed> for SessionEventDurable {
+    fn from(value: SessionStepFailed) -> Self {
+        Self::SessionStepFailed(value)
+    }
+}
+
+impl From<SessionTextStarted> for SessionEventDurable {
+    fn from(value: SessionTextStarted) -> Self {
+        Self::SessionTextStarted(value)
+    }
+}
+
+impl From<SessionTextEnded> for SessionEventDurable {
+    fn from(value: SessionTextEnded) -> Self {
+        Self::SessionTextEnded(value)
+    }
+}
+
+impl From<SessionReasoningStarted> for SessionEventDurable {
+    fn from(value: SessionReasoningStarted) -> Self {
+        Self::SessionReasoningStarted(value)
+    }
+}
+
+impl From<SessionReasoningEnded> for SessionEventDurable {
+    fn from(value: SessionReasoningEnded) -> Self {
+        Self::SessionReasoningEnded(value)
+    }
+}
+
+impl From<SessionToolInputStarted> for SessionEventDurable {
+    fn from(value: SessionToolInputStarted) -> Self {
+        Self::SessionToolInputStarted(value)
+    }
+}
+
+impl From<SessionToolInputEnded> for SessionEventDurable {
+    fn from(value: SessionToolInputEnded) -> Self {
+        Self::SessionToolInputEnded(value)
+    }
+}
+
+impl From<SessionToolCalled> for SessionEventDurable {
+    fn from(value: SessionToolCalled) -> Self {
+        Self::SessionToolCalled(value)
+    }
+}
+
+impl From<SessionToolSuccess> for SessionEventDurable {
+    fn from(value: SessionToolSuccess) -> Self {
+        Self::SessionToolSuccess(value)
+    }
+}
+
+impl From<SessionToolFailed> for SessionEventDurable {
+    fn from(value: SessionToolFailed) -> Self {
+        Self::SessionToolFailed(value)
+    }
+}
+
+impl From<SessionRetryScheduled> for SessionEventDurable {
+    fn from(value: SessionRetryScheduled) -> Self {
+        Self::SessionRetryScheduled(value)
+    }
+}
+
+impl From<SessionCompactionStarted> for SessionEventDurable {
+    fn from(value: SessionCompactionStarted) -> Self {
+        Self::SessionCompactionStarted(value)
+    }
+}
+
+impl From<SessionCompactionEnded> for SessionEventDurable {
+    fn from(value: SessionCompactionEnded) -> Self {
+        Self::SessionCompactionEnded(value)
+    }
+}
+
+impl From<SessionCompactionFailed> for SessionEventDurable {
+    fn from(value: SessionCompactionFailed) -> Self {
+        Self::SessionCompactionFailed(value)
+    }
+}
+
+impl From<SessionRevertStaged> for SessionEventDurable {
+    fn from(value: SessionRevertStaged) -> Self {
+        Self::SessionRevertStaged(value)
+    }
+}
+
+impl From<SessionRevertCleared> for SessionEventDurable {
+    fn from(value: SessionRevertCleared) -> Self {
+        Self::SessionRevertCleared(value)
+    }
+}
+
+impl From<SessionRevertCommitted> for SessionEventDurable {
+    fn from(value: SessionRevertCommitted) -> Self {
+        Self::SessionRevertCommitted(value)
+    }
+}
+
+impl From<SessionUsageRecorded> for SessionEventDurable {
+    fn from(value: SessionUsageRecorded) -> Self {
+        Self::SessionUsageRecorded(value)
+    }
+}
+
+impl From<SessionMessageContentUpdated> for SessionEventDurable {
+    fn from(value: SessionMessageContentUpdated) -> Self {
+        Self::SessionMessageContentUpdated(value)
+    }
+}
+
 /// Component schema `Session.ForkBoundary`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -4981,6 +6196,68 @@ impl From<SessionInboxMove> for SessionInboxInfo {
     }
 }
 
+/// Component schema `Session.Inbox.Item`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SessionInboxItem {
+    User(SessionInboxItemUser),
+    Synthetic(SessionInboxItemSynthetic),
+    Compaction(SessionInboxItemCompaction),
+    Move(SessionInboxItemMove),
+}
+
+impl From<SessionInboxItemUser> for SessionInboxItem {
+    fn from(value: SessionInboxItemUser) -> Self {
+        Self::User(value)
+    }
+}
+
+impl From<SessionInboxItemSynthetic> for SessionInboxItem {
+    fn from(value: SessionInboxItemSynthetic) -> Self {
+        Self::Synthetic(value)
+    }
+}
+
+impl From<SessionInboxItemCompaction> for SessionInboxItem {
+    fn from(value: SessionInboxItemCompaction) -> Self {
+        Self::Compaction(value)
+    }
+}
+
+impl From<SessionInboxItemMove> for SessionInboxItem {
+    fn from(value: SessionInboxItemMove) -> Self {
+        Self::Move(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInboxItemUser {
+    pub r#type: LitUser,
+    pub payload: SessionInboxUserPayload,
+    pub delivery: SessionInboxDelivery,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInboxItemSynthetic {
+    pub r#type: LitSynthetic,
+    pub payload: SessionInboxSyntheticPayload,
+    pub delivery: SessionInboxDelivery,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInboxItemCompaction {
+    pub r#type: LitCompaction,
+    pub payload: SessionInboxCompactionPayload,
+    pub delivery: SessionInboxDelivery,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInboxItemMove {
+    pub r#type: LitMove,
+    pub payload: SessionInboxMovePayload1,
+    pub delivery: SessionInboxDelivery,
+}
+
 /// Component schema `Session.Inbox.Move`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionInboxMove {
@@ -5007,6 +6284,16 @@ pub struct SessionInboxMovePayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subpath: Option<RelativePath>,
     pub location: LocationPublicRef,
+}
+
+/// Component schema `Session.Inbox.MovePayload_1`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxMovePayload1 {
+    pub location: LocationRef,
+    #[serde(rename = "projectID")]
+    pub project_id: ProjectID,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subpath: Option<RelativePath>,
 }
 
 /// Component schema `Session.Inbox.Synthetic`.
@@ -5362,6 +6649,33 @@ pub struct SessionMessageAssistantToolTime {
     pub ran: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
     pub completed: Option<f64>,
+}
+
+/// Component schema `Session.Message.AssistantContent.Encoded`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SessionMessageAssistantContentEncoded {
+    AssistantText(SessionMessageAssistantText),
+    AssistantReasoning(SessionMessageAssistantReasoning),
+    AssistantTool(SessionMessageAssistantTool),
+}
+
+impl From<SessionMessageAssistantText> for SessionMessageAssistantContentEncoded {
+    fn from(value: SessionMessageAssistantText) -> Self {
+        Self::AssistantText(value)
+    }
+}
+
+impl From<SessionMessageAssistantReasoning> for SessionMessageAssistantContentEncoded {
+    fn from(value: SessionMessageAssistantReasoning) -> Self {
+        Self::AssistantReasoning(value)
+    }
+}
+
+impl From<SessionMessageAssistantTool> for SessionMessageAssistantContentEncoded {
+    fn from(value: SessionMessageAssistantTool) -> Self {
+        Self::AssistantTool(value)
+    }
 }
 
 /// Component schema `Session.Message.Compaction`.
@@ -5928,6 +7242,9 @@ pub struct SessionGenerateResponse {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct SessionGenerateResponseData {
     pub text: String,
+    pub tokens: TokenUsageInfo,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub cost: MoneyUSD,
 }
 
 /// Component schema `SessionInterruptResponse`.
@@ -5935,6 +7252,26 @@ pub struct SessionGenerateResponseData {
 pub struct SessionInterruptResponse {
     /// Whether an active execution owned by this OpenCode process was interrupted.
     pub interrupted: bool,
+}
+
+/// Component schema `SessionLogItem`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SessionLogItem {
+    SessionEventDurable(SessionEventDurable),
+    EventLogSynced(EventLogSynced),
+}
+
+impl From<SessionEventDurable> for SessionLogItem {
+    fn from(value: SessionEventDurable) -> Self {
+        Self::SessionEventDurable(value)
+    }
+}
+
+impl From<EventLogSynced> for SessionLogItem {
+    fn from(value: EventLogSynced) -> Self {
+        Self::EventLogSynced(value)
+    }
 }
 
 /// Component schema `SessionLogItemEncoded`.
@@ -6073,6 +7410,85 @@ pub struct SessionStatsToolsDetail {
     pub mode: LitDetail,
     pub totals: SessionStatsToolTotals,
     pub usage: Vec<SessionStatsToolUsage>,
+}
+
+/// Component schema `SessionStatus`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SessionStatus {
+    Idle(SessionStatusIdle),
+    Retry(SessionStatusRetry),
+    Busy(SessionStatusBusy),
+}
+
+impl From<SessionStatusIdle> for SessionStatus {
+    fn from(value: SessionStatusIdle) -> Self {
+        Self::Idle(value)
+    }
+}
+
+impl From<SessionStatusRetry> for SessionStatus {
+    fn from(value: SessionStatusRetry) -> Self {
+        Self::Retry(value)
+    }
+}
+
+impl From<SessionStatusBusy> for SessionStatus {
+    fn from(value: SessionStatusBusy) -> Self {
+        Self::Busy(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStatusIdle {
+    pub r#type: LitIdle,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStatusRetry {
+    pub r#type: LitRetry,
+    pub attempt: i64,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<SessionStatusRetryAction>,
+    pub next: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStatusRetryAction {
+    pub reason: String,
+    pub provider: String,
+    pub title: String,
+    pub message: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStatusBusy {
+    pub r#type: LitBusy,
+}
+
+/// Component schema `SessionStatusUpdated`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionStatusUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionStatusUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionStatusUpdatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub status: SessionStatus,
 }
 
 /// Component schema `SessionTransfer.Data`.
@@ -6410,6 +7826,723 @@ pub struct UsageLimitsMeter {
     pub resets_at: f64,
 }
 
+/// Component schema `V2Event`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum V2Event {
+    LocationShutdown(LocationShutdown),
+    ModelsDevRefreshed(ModelsDevRefreshed),
+    CredentialUpdated(CredentialUpdated),
+    CredentialSwitched(CredentialSwitched),
+    IntegrationUpdated(IntegrationUpdated),
+    ProviderUpdated(ProviderUpdated),
+    ModelUpdated(ModelUpdated),
+    AgentUpdated(AgentUpdated),
+    SessionCreated(SessionCreated),
+    SessionAgentSelected(SessionAgentSelected),
+    SessionModelSelected(SessionModelSelected),
+    SessionMoved(SessionMoved),
+    SessionRenamed(SessionRenamed),
+    SessionMetadataUpdated(SessionMetadataUpdated),
+    SessionPermissions(SessionPermissions),
+    SessionViewed(SessionViewed),
+    SessionArchived(SessionArchived),
+    SessionUnarchived(SessionUnarchived),
+    SessionUsageUpdated(SessionUsageUpdated),
+    SessionDeleted(SessionDeleted),
+    SessionForked(SessionForked),
+    SessionInboxDelivered(SessionInboxDelivered),
+    SessionInboxEnqueued(SessionInboxEnqueued),
+    SessionInboxCancelled(SessionInboxCancelled),
+    SessionInboxDeliveryChanged(SessionInboxDeliveryChanged),
+    SessionExecutionStarted(SessionExecutionStarted),
+    SessionExecutionSucceeded(SessionExecutionSucceeded),
+    SessionExecutionFailed(SessionExecutionFailed),
+    SessionExecutionInterrupted(SessionExecutionInterrupted),
+    SessionInstructionsUpdated(SessionInstructionsUpdated),
+    SessionSynthetic(SessionSynthetic),
+    SessionSkillActivated(SessionSkillActivated),
+    SessionShellStarted(SessionShellStarted),
+    SessionShellEnded(SessionShellEnded),
+    SessionStepStarted(SessionStepStarted),
+    SessionStepStreamed(SessionStepStreamed),
+    SessionStepEnded(SessionStepEnded),
+    SessionStepFailed(SessionStepFailed),
+    SessionTextStarted(SessionTextStarted),
+    SessionTextDelta(SessionTextDelta),
+    SessionTextEnded(SessionTextEnded),
+    SessionReasoningStarted(SessionReasoningStarted),
+    SessionReasoningDelta(SessionReasoningDelta),
+    SessionReasoningEnded(SessionReasoningEnded),
+    SessionToolInputStarted(SessionToolInputStarted),
+    SessionToolInputDelta(SessionToolInputDelta),
+    SessionToolInputEnded(SessionToolInputEnded),
+    SessionToolCalled(SessionToolCalled),
+    SessionToolProgress(SessionToolProgress),
+    SessionToolSuccess(SessionToolSuccess),
+    SessionToolFailed(SessionToolFailed),
+    SessionRetryScheduled(SessionRetryScheduled),
+    SessionCompactionStarted(SessionCompactionStarted),
+    SessionCompactionDelta(SessionCompactionDelta),
+    SessionCompactionEnded(SessionCompactionEnded),
+    SessionCompactionFailed(SessionCompactionFailed),
+    SessionRevertStaged(SessionRevertStaged),
+    SessionRevertCleared(SessionRevertCleared),
+    SessionRevertCommitted(SessionRevertCommitted),
+    FilesystemChanged(FilesystemChanged),
+    ReferenceUpdated(ReferenceUpdated),
+    PermissionAsked(PermissionAsked),
+    PermissionReplied(PermissionReplied),
+    PluginUpdated(PluginUpdated),
+    ProjectUpdated(ProjectUpdated),
+    WorktreeUpdated(WorktreeUpdated),
+    WorktreeResolved(WorktreeResolved),
+    CommandUpdated(CommandUpdated),
+    ConfigUpdated(ConfigUpdated),
+    SkillUpdated(SkillUpdated),
+    PtyCreated(PtyCreated),
+    PtyUpdated(PtyUpdated),
+    PtyExited(PtyExited),
+    PtyDeleted(PtyDeleted),
+    PersistentPtyAdded(PersistentPtyAdded),
+    PersistentPtyRemoved(PersistentPtyRemoved),
+    PersistentPtyUpdated(PersistentPtyUpdated),
+    ShellCreated(ShellCreated),
+    ShellExited(ShellExited),
+    ShellDeleted(ShellDeleted),
+    FormCreated(FormCreated),
+    FormReplied(FormReplied),
+    FormCancelled(FormCancelled),
+    WebsearchUpdated(WebsearchUpdated),
+    ArtifactUpdated(ArtifactUpdated),
+    SessionStatusUpdated(SessionStatusUpdated),
+    SessionIdle(SessionIdle),
+    TuiPromptAppend(TuiPromptAppend),
+    TuiCommandExecute(TuiCommandExecute),
+    TuiToastShow(TuiToastShow),
+    TuiSessionSelect(TuiSessionSelect),
+    InstallationUpdated(InstallationUpdated),
+    InstallationUpdateAvailable(InstallationUpdateAvailable),
+    VcsBranchUpdated(VcsBranchUpdated),
+    McpStatusChanged(McpStatusChanged),
+    McpResourcesChanged(McpResourcesChanged),
+    Rpc(V2EventRpc),
+    ServerConnected(V2EventServerConnected),
+}
+
+impl From<LocationShutdown> for V2Event {
+    fn from(value: LocationShutdown) -> Self {
+        Self::LocationShutdown(value)
+    }
+}
+
+impl From<ModelsDevRefreshed> for V2Event {
+    fn from(value: ModelsDevRefreshed) -> Self {
+        Self::ModelsDevRefreshed(value)
+    }
+}
+
+impl From<CredentialUpdated> for V2Event {
+    fn from(value: CredentialUpdated) -> Self {
+        Self::CredentialUpdated(value)
+    }
+}
+
+impl From<CredentialSwitched> for V2Event {
+    fn from(value: CredentialSwitched) -> Self {
+        Self::CredentialSwitched(value)
+    }
+}
+
+impl From<IntegrationUpdated> for V2Event {
+    fn from(value: IntegrationUpdated) -> Self {
+        Self::IntegrationUpdated(value)
+    }
+}
+
+impl From<ProviderUpdated> for V2Event {
+    fn from(value: ProviderUpdated) -> Self {
+        Self::ProviderUpdated(value)
+    }
+}
+
+impl From<ModelUpdated> for V2Event {
+    fn from(value: ModelUpdated) -> Self {
+        Self::ModelUpdated(value)
+    }
+}
+
+impl From<AgentUpdated> for V2Event {
+    fn from(value: AgentUpdated) -> Self {
+        Self::AgentUpdated(value)
+    }
+}
+
+impl From<SessionCreated> for V2Event {
+    fn from(value: SessionCreated) -> Self {
+        Self::SessionCreated(value)
+    }
+}
+
+impl From<SessionAgentSelected> for V2Event {
+    fn from(value: SessionAgentSelected) -> Self {
+        Self::SessionAgentSelected(value)
+    }
+}
+
+impl From<SessionModelSelected> for V2Event {
+    fn from(value: SessionModelSelected) -> Self {
+        Self::SessionModelSelected(value)
+    }
+}
+
+impl From<SessionMoved> for V2Event {
+    fn from(value: SessionMoved) -> Self {
+        Self::SessionMoved(value)
+    }
+}
+
+impl From<SessionRenamed> for V2Event {
+    fn from(value: SessionRenamed) -> Self {
+        Self::SessionRenamed(value)
+    }
+}
+
+impl From<SessionMetadataUpdated> for V2Event {
+    fn from(value: SessionMetadataUpdated) -> Self {
+        Self::SessionMetadataUpdated(value)
+    }
+}
+
+impl From<SessionPermissions> for V2Event {
+    fn from(value: SessionPermissions) -> Self {
+        Self::SessionPermissions(value)
+    }
+}
+
+impl From<SessionViewed> for V2Event {
+    fn from(value: SessionViewed) -> Self {
+        Self::SessionViewed(value)
+    }
+}
+
+impl From<SessionArchived> for V2Event {
+    fn from(value: SessionArchived) -> Self {
+        Self::SessionArchived(value)
+    }
+}
+
+impl From<SessionUnarchived> for V2Event {
+    fn from(value: SessionUnarchived) -> Self {
+        Self::SessionUnarchived(value)
+    }
+}
+
+impl From<SessionUsageUpdated> for V2Event {
+    fn from(value: SessionUsageUpdated) -> Self {
+        Self::SessionUsageUpdated(value)
+    }
+}
+
+impl From<SessionDeleted> for V2Event {
+    fn from(value: SessionDeleted) -> Self {
+        Self::SessionDeleted(value)
+    }
+}
+
+impl From<SessionForked> for V2Event {
+    fn from(value: SessionForked) -> Self {
+        Self::SessionForked(value)
+    }
+}
+
+impl From<SessionInboxDelivered> for V2Event {
+    fn from(value: SessionInboxDelivered) -> Self {
+        Self::SessionInboxDelivered(value)
+    }
+}
+
+impl From<SessionInboxEnqueued> for V2Event {
+    fn from(value: SessionInboxEnqueued) -> Self {
+        Self::SessionInboxEnqueued(value)
+    }
+}
+
+impl From<SessionInboxCancelled> for V2Event {
+    fn from(value: SessionInboxCancelled) -> Self {
+        Self::SessionInboxCancelled(value)
+    }
+}
+
+impl From<SessionInboxDeliveryChanged> for V2Event {
+    fn from(value: SessionInboxDeliveryChanged) -> Self {
+        Self::SessionInboxDeliveryChanged(value)
+    }
+}
+
+impl From<SessionExecutionStarted> for V2Event {
+    fn from(value: SessionExecutionStarted) -> Self {
+        Self::SessionExecutionStarted(value)
+    }
+}
+
+impl From<SessionExecutionSucceeded> for V2Event {
+    fn from(value: SessionExecutionSucceeded) -> Self {
+        Self::SessionExecutionSucceeded(value)
+    }
+}
+
+impl From<SessionExecutionFailed> for V2Event {
+    fn from(value: SessionExecutionFailed) -> Self {
+        Self::SessionExecutionFailed(value)
+    }
+}
+
+impl From<SessionExecutionInterrupted> for V2Event {
+    fn from(value: SessionExecutionInterrupted) -> Self {
+        Self::SessionExecutionInterrupted(value)
+    }
+}
+
+impl From<SessionInstructionsUpdated> for V2Event {
+    fn from(value: SessionInstructionsUpdated) -> Self {
+        Self::SessionInstructionsUpdated(value)
+    }
+}
+
+impl From<SessionSynthetic> for V2Event {
+    fn from(value: SessionSynthetic) -> Self {
+        Self::SessionSynthetic(value)
+    }
+}
+
+impl From<SessionSkillActivated> for V2Event {
+    fn from(value: SessionSkillActivated) -> Self {
+        Self::SessionSkillActivated(value)
+    }
+}
+
+impl From<SessionShellStarted> for V2Event {
+    fn from(value: SessionShellStarted) -> Self {
+        Self::SessionShellStarted(value)
+    }
+}
+
+impl From<SessionShellEnded> for V2Event {
+    fn from(value: SessionShellEnded) -> Self {
+        Self::SessionShellEnded(value)
+    }
+}
+
+impl From<SessionStepStarted> for V2Event {
+    fn from(value: SessionStepStarted) -> Self {
+        Self::SessionStepStarted(value)
+    }
+}
+
+impl From<SessionStepStreamed> for V2Event {
+    fn from(value: SessionStepStreamed) -> Self {
+        Self::SessionStepStreamed(value)
+    }
+}
+
+impl From<SessionStepEnded> for V2Event {
+    fn from(value: SessionStepEnded) -> Self {
+        Self::SessionStepEnded(value)
+    }
+}
+
+impl From<SessionStepFailed> for V2Event {
+    fn from(value: SessionStepFailed) -> Self {
+        Self::SessionStepFailed(value)
+    }
+}
+
+impl From<SessionTextStarted> for V2Event {
+    fn from(value: SessionTextStarted) -> Self {
+        Self::SessionTextStarted(value)
+    }
+}
+
+impl From<SessionTextDelta> for V2Event {
+    fn from(value: SessionTextDelta) -> Self {
+        Self::SessionTextDelta(value)
+    }
+}
+
+impl From<SessionTextEnded> for V2Event {
+    fn from(value: SessionTextEnded) -> Self {
+        Self::SessionTextEnded(value)
+    }
+}
+
+impl From<SessionReasoningStarted> for V2Event {
+    fn from(value: SessionReasoningStarted) -> Self {
+        Self::SessionReasoningStarted(value)
+    }
+}
+
+impl From<SessionReasoningDelta> for V2Event {
+    fn from(value: SessionReasoningDelta) -> Self {
+        Self::SessionReasoningDelta(value)
+    }
+}
+
+impl From<SessionReasoningEnded> for V2Event {
+    fn from(value: SessionReasoningEnded) -> Self {
+        Self::SessionReasoningEnded(value)
+    }
+}
+
+impl From<SessionToolInputStarted> for V2Event {
+    fn from(value: SessionToolInputStarted) -> Self {
+        Self::SessionToolInputStarted(value)
+    }
+}
+
+impl From<SessionToolInputDelta> for V2Event {
+    fn from(value: SessionToolInputDelta) -> Self {
+        Self::SessionToolInputDelta(value)
+    }
+}
+
+impl From<SessionToolInputEnded> for V2Event {
+    fn from(value: SessionToolInputEnded) -> Self {
+        Self::SessionToolInputEnded(value)
+    }
+}
+
+impl From<SessionToolCalled> for V2Event {
+    fn from(value: SessionToolCalled) -> Self {
+        Self::SessionToolCalled(value)
+    }
+}
+
+impl From<SessionToolProgress> for V2Event {
+    fn from(value: SessionToolProgress) -> Self {
+        Self::SessionToolProgress(value)
+    }
+}
+
+impl From<SessionToolSuccess> for V2Event {
+    fn from(value: SessionToolSuccess) -> Self {
+        Self::SessionToolSuccess(value)
+    }
+}
+
+impl From<SessionToolFailed> for V2Event {
+    fn from(value: SessionToolFailed) -> Self {
+        Self::SessionToolFailed(value)
+    }
+}
+
+impl From<SessionRetryScheduled> for V2Event {
+    fn from(value: SessionRetryScheduled) -> Self {
+        Self::SessionRetryScheduled(value)
+    }
+}
+
+impl From<SessionCompactionStarted> for V2Event {
+    fn from(value: SessionCompactionStarted) -> Self {
+        Self::SessionCompactionStarted(value)
+    }
+}
+
+impl From<SessionCompactionDelta> for V2Event {
+    fn from(value: SessionCompactionDelta) -> Self {
+        Self::SessionCompactionDelta(value)
+    }
+}
+
+impl From<SessionCompactionEnded> for V2Event {
+    fn from(value: SessionCompactionEnded) -> Self {
+        Self::SessionCompactionEnded(value)
+    }
+}
+
+impl From<SessionCompactionFailed> for V2Event {
+    fn from(value: SessionCompactionFailed) -> Self {
+        Self::SessionCompactionFailed(value)
+    }
+}
+
+impl From<SessionRevertStaged> for V2Event {
+    fn from(value: SessionRevertStaged) -> Self {
+        Self::SessionRevertStaged(value)
+    }
+}
+
+impl From<SessionRevertCleared> for V2Event {
+    fn from(value: SessionRevertCleared) -> Self {
+        Self::SessionRevertCleared(value)
+    }
+}
+
+impl From<SessionRevertCommitted> for V2Event {
+    fn from(value: SessionRevertCommitted) -> Self {
+        Self::SessionRevertCommitted(value)
+    }
+}
+
+impl From<FilesystemChanged> for V2Event {
+    fn from(value: FilesystemChanged) -> Self {
+        Self::FilesystemChanged(value)
+    }
+}
+
+impl From<ReferenceUpdated> for V2Event {
+    fn from(value: ReferenceUpdated) -> Self {
+        Self::ReferenceUpdated(value)
+    }
+}
+
+impl From<PermissionAsked> for V2Event {
+    fn from(value: PermissionAsked) -> Self {
+        Self::PermissionAsked(value)
+    }
+}
+
+impl From<PermissionReplied> for V2Event {
+    fn from(value: PermissionReplied) -> Self {
+        Self::PermissionReplied(value)
+    }
+}
+
+impl From<PluginUpdated> for V2Event {
+    fn from(value: PluginUpdated) -> Self {
+        Self::PluginUpdated(value)
+    }
+}
+
+impl From<ProjectUpdated> for V2Event {
+    fn from(value: ProjectUpdated) -> Self {
+        Self::ProjectUpdated(value)
+    }
+}
+
+impl From<WorktreeUpdated> for V2Event {
+    fn from(value: WorktreeUpdated) -> Self {
+        Self::WorktreeUpdated(value)
+    }
+}
+
+impl From<WorktreeResolved> for V2Event {
+    fn from(value: WorktreeResolved) -> Self {
+        Self::WorktreeResolved(value)
+    }
+}
+
+impl From<CommandUpdated> for V2Event {
+    fn from(value: CommandUpdated) -> Self {
+        Self::CommandUpdated(value)
+    }
+}
+
+impl From<ConfigUpdated> for V2Event {
+    fn from(value: ConfigUpdated) -> Self {
+        Self::ConfigUpdated(value)
+    }
+}
+
+impl From<SkillUpdated> for V2Event {
+    fn from(value: SkillUpdated) -> Self {
+        Self::SkillUpdated(value)
+    }
+}
+
+impl From<PtyCreated> for V2Event {
+    fn from(value: PtyCreated) -> Self {
+        Self::PtyCreated(value)
+    }
+}
+
+impl From<PtyUpdated> for V2Event {
+    fn from(value: PtyUpdated) -> Self {
+        Self::PtyUpdated(value)
+    }
+}
+
+impl From<PtyExited> for V2Event {
+    fn from(value: PtyExited) -> Self {
+        Self::PtyExited(value)
+    }
+}
+
+impl From<PtyDeleted> for V2Event {
+    fn from(value: PtyDeleted) -> Self {
+        Self::PtyDeleted(value)
+    }
+}
+
+impl From<PersistentPtyAdded> for V2Event {
+    fn from(value: PersistentPtyAdded) -> Self {
+        Self::PersistentPtyAdded(value)
+    }
+}
+
+impl From<PersistentPtyRemoved> for V2Event {
+    fn from(value: PersistentPtyRemoved) -> Self {
+        Self::PersistentPtyRemoved(value)
+    }
+}
+
+impl From<PersistentPtyUpdated> for V2Event {
+    fn from(value: PersistentPtyUpdated) -> Self {
+        Self::PersistentPtyUpdated(value)
+    }
+}
+
+impl From<ShellCreated> for V2Event {
+    fn from(value: ShellCreated) -> Self {
+        Self::ShellCreated(value)
+    }
+}
+
+impl From<ShellExited> for V2Event {
+    fn from(value: ShellExited) -> Self {
+        Self::ShellExited(value)
+    }
+}
+
+impl From<ShellDeleted> for V2Event {
+    fn from(value: ShellDeleted) -> Self {
+        Self::ShellDeleted(value)
+    }
+}
+
+impl From<FormCreated> for V2Event {
+    fn from(value: FormCreated) -> Self {
+        Self::FormCreated(value)
+    }
+}
+
+impl From<FormReplied> for V2Event {
+    fn from(value: FormReplied) -> Self {
+        Self::FormReplied(value)
+    }
+}
+
+impl From<FormCancelled> for V2Event {
+    fn from(value: FormCancelled) -> Self {
+        Self::FormCancelled(value)
+    }
+}
+
+impl From<WebsearchUpdated> for V2Event {
+    fn from(value: WebsearchUpdated) -> Self {
+        Self::WebsearchUpdated(value)
+    }
+}
+
+impl From<ArtifactUpdated> for V2Event {
+    fn from(value: ArtifactUpdated) -> Self {
+        Self::ArtifactUpdated(value)
+    }
+}
+
+impl From<SessionStatusUpdated> for V2Event {
+    fn from(value: SessionStatusUpdated) -> Self {
+        Self::SessionStatusUpdated(value)
+    }
+}
+
+impl From<SessionIdle> for V2Event {
+    fn from(value: SessionIdle) -> Self {
+        Self::SessionIdle(value)
+    }
+}
+
+impl From<TuiPromptAppend> for V2Event {
+    fn from(value: TuiPromptAppend) -> Self {
+        Self::TuiPromptAppend(value)
+    }
+}
+
+impl From<TuiCommandExecute> for V2Event {
+    fn from(value: TuiCommandExecute) -> Self {
+        Self::TuiCommandExecute(value)
+    }
+}
+
+impl From<TuiToastShow> for V2Event {
+    fn from(value: TuiToastShow) -> Self {
+        Self::TuiToastShow(value)
+    }
+}
+
+impl From<TuiSessionSelect> for V2Event {
+    fn from(value: TuiSessionSelect) -> Self {
+        Self::TuiSessionSelect(value)
+    }
+}
+
+impl From<InstallationUpdated> for V2Event {
+    fn from(value: InstallationUpdated) -> Self {
+        Self::InstallationUpdated(value)
+    }
+}
+
+impl From<InstallationUpdateAvailable> for V2Event {
+    fn from(value: InstallationUpdateAvailable) -> Self {
+        Self::InstallationUpdateAvailable(value)
+    }
+}
+
+impl From<VcsBranchUpdated> for V2Event {
+    fn from(value: VcsBranchUpdated) -> Self {
+        Self::VcsBranchUpdated(value)
+    }
+}
+
+impl From<McpStatusChanged> for V2Event {
+    fn from(value: McpStatusChanged) -> Self {
+        Self::McpStatusChanged(value)
+    }
+}
+
+impl From<McpResourcesChanged> for V2Event {
+    fn from(value: McpResourcesChanged) -> Self {
+        Self::McpResourcesChanged(value)
+    }
+}
+
+impl From<V2EventRpc> for V2Event {
+    fn from(value: V2EventRpc) -> Self {
+        Self::Rpc(value)
+    }
+}
+
+impl From<V2EventServerConnected> for V2Event {
+    fn from(value: V2EventServerConnected) -> Self {
+        Self::ServerConnected(value)
+    }
+}
+
+/// Component schema `V2Event.rpc`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct V2EventRpc {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: String,
+    pub location: LocationPublicRef,
+    pub data: JsonObject,
+}
+
+/// Component schema `V2Event.server.connected`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct V2EventServerConnected {
+    pub id: EventID,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationPublicRef>,
+    pub r#type: LitServerConnected,
+    pub data: serde_json::Value,
+}
+
 /// Component schema `V2EventEncoded`.
 pub type V2EventEncoded = String;
 
@@ -6699,6 +8832,9 @@ pub struct WebSearchResultTime {
     pub published: Option<f64>,
 }
 
+/// Component schema `Workspace.ID`. Pattern: `^wrk`.
+pub type WorkspaceID = String;
+
 /// Component schema `Worktree.CreateInput`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct WorktreeCreateInput {
@@ -6754,6 +8890,2850 @@ pub struct WorktreeErrorEncodedData {
     pub message: String,
     #[serde(rename = "forceRequired", default, skip_serializing_if = "Option::is_none")]
     pub force_required: Option<bool>,
+}
+
+/// Component schema `agent.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AgentUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitAgentUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `artifact.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ArtifactUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitArtifactUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `command.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CommandUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitCommandUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `config.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ConfigUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitConfigUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `credential.switched`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CredentialSwitched {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitCredentialSwitched,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: CredentialSwitchedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CredentialSwitchedData {
+    #[serde(rename = "integrationID")]
+    pub integration_id: IntegrationID,
+    #[serde(rename = "credentialID", default)]
+    pub credential_id: Option<CredentialID>,
+}
+
+/// Component schema `credential.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CredentialUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitCredentialUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: CredentialUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CredentialUpdatedData {
+    #[serde(rename = "integrationID")]
+    pub integration_id: IntegrationID,
+    #[serde(rename = "credentialID")]
+    pub credential_id: CredentialID,
+}
+
+/// Component schema `filesystem.changed`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FilesystemChanged {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitFilesystemChanged,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: FilesystemChangedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FilesystemChangedData {
+    pub file: String,
+    pub event: FilesystemChangedDataEvent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FilesystemChangedDataEvent {
+    #[serde(rename = "add")]
+    Add,
+    #[serde(rename = "change")]
+    Change,
+    #[serde(rename = "unlink")]
+    Unlink,
+}
+
+impl FilesystemChangedDataEvent {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Add => "add",
+            Self::Change => "change",
+            Self::Unlink => "unlink",
+        }
+    }
+}
+
+/// Component schema `form.cancelled`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormCancelled {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitFormCancelled,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: FormCancelledData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormCancelledData {
+    pub id: FormID,
+    #[serde(rename = "sessionID")]
+    pub session_id: String,
+}
+
+/// Component schema `form.created`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormCreated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitFormCreated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: FormCreatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormCreatedData {
+    pub form: FormInfo1,
+}
+
+/// Component schema `form.replied`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormReplied {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitFormReplied,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: FormRepliedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct FormRepliedData {
+    pub id: FormID,
+    #[serde(rename = "sessionID")]
+    pub session_id: String,
+    pub answer: FormAnswer1,
+}
+
+/// Component schema `installation.update-available`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InstallationUpdateAvailable {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitInstallationUpdateAvailable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: InstallationUpdateAvailableData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InstallationUpdateAvailableData {
+    pub version: String,
+}
+
+/// Component schema `installation.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InstallationUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitInstallationUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: InstallationUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InstallationUpdatedData {
+    pub version: String,
+}
+
+/// Component schema `integration.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct IntegrationUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitIntegrationUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `location.shutdown`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct LocationShutdown {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitLocationShutdown,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `mcp.resources.changed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct McpResourcesChanged {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitMcpResourcesChanged,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: McpResourcesChangedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct McpResourcesChangedData {
+    pub server: String,
+}
+
+/// Component schema `mcp.status.changed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct McpStatusChanged {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitMcpStatusChanged,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: McpStatusChangedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct McpStatusChangedData {
+    pub server: String,
+}
+
+/// Component schema `model.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ModelUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitModelUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `models-dev.refreshed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ModelsDevRefreshed {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitModelsDevRefreshed,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `permission.asked`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PermissionAsked {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPermissionAsked,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PermissionAskedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PermissionAskedData {
+    pub id: PermissionID,
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub action: String,
+    pub resources: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<PermissionSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Component schema `permission.replied`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PermissionReplied {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPermissionReplied,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PermissionRepliedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PermissionRepliedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "requestID")]
+    pub request_id: PermissionID,
+    pub reply: PermissionReply,
+}
+
+/// Component schema `persistent-pty.added`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistentPtyAdded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPersistentPtyAdded,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PersistentPtyAddedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistentPtyAddedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub terminal: PersistentPtyInfo,
+}
+
+/// Component schema `persistent-pty.removed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PersistentPtyRemoved {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPersistentPtyRemoved,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PersistentPtyRemovedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PersistentPtyRemovedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "ptyID")]
+    pub pty_id: PtyID,
+}
+
+/// Component schema `persistent-pty.updated`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistentPtyUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPersistentPtyUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PersistentPtyUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistentPtyUpdatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub terminal: PersistentPtyInfo,
+}
+
+/// Component schema `plugin.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PluginUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPluginUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `project.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProjectUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitProjectUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: ProjectUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProjectUpdatedData {
+    pub id: ProjectID,
+    pub canonical: AbsolutePath,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vcs: Option<ProjectVcs>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<ProjectIcon>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commands: Option<ProjectCommands>,
+    pub time: ProjectTime,
+    pub sandboxes: Vec<String>,
+}
+
+/// Component schema `provider.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ProviderUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitProviderUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `pty.created`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PtyCreated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPtyCreated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PtyCreatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PtyCreatedData {
+    pub info: Pty,
+}
+
+/// Component schema `pty.deleted`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PtyDeleted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPtyDeleted,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PtyDeletedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PtyDeletedData {
+    pub id: PtyID,
+}
+
+/// Component schema `pty.exited`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PtyExited {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPtyExited,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PtyExitedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PtyExitedData {
+    pub id: PtyID,
+    #[serde(rename = "exitCode")]
+    pub exit_code: i64,
+}
+
+/// Component schema `pty.updated`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PtyUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitPtyUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: PtyUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PtyUpdatedData {
+    pub info: Pty,
+}
+
+/// Component schema `reference.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ReferenceUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitReferenceUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `session.agent.selected`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionAgentSelected {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionAgentSelected,
+    pub durable: SessionAgentSelectedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionAgentSelectedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionAgentSelectedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionAgentSelectedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub agent: AgentID,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous: Option<AgentID>,
+}
+
+/// Component schema `session.archived`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionArchived {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionArchived,
+    pub durable: SessionArchivedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionArchivedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionArchivedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionArchivedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+}
+
+/// Component schema `session.compaction.delta`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionCompactionDelta {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionCompactionDelta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionCompactionDeltaData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionCompactionDeltaData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub text: String,
+}
+
+/// Component schema `session.compaction.ended`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionCompactionEnded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionCompactionEnded,
+    pub durable: SessionCompactionEndedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionCompactionEndedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionCompactionEndedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionCompactionEndedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub reason: SessionCompactionEndedDataReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub cost: Option<MoneyUSD>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<TokenUsageInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SessionCompactionEndedDataReason {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "manual")]
+    Manual,
+}
+
+impl SessionCompactionEndedDataReason {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+/// Component schema `session.compaction.failed`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionCompactionFailed {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionCompactionFailed,
+    pub durable: SessionCompactionFailedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionCompactionFailedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionCompactionFailedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionCompactionFailedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub reason: SessionCompactionFailedDataReason,
+    pub error: SessionStructuredError,
+    #[serde(rename = "inputID", default, skip_serializing_if = "Option::is_none")]
+    pub input_id: Option<SessionMessageID>,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub cost: Option<MoneyUSD>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<TokenUsageInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SessionCompactionFailedDataReason {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "manual")]
+    Manual,
+}
+
+impl SessionCompactionFailedDataReason {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+/// Component schema `session.compaction.started`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionCompactionStarted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionCompactionStarted,
+    pub durable: SessionCompactionStartedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionCompactionStartedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionCompactionStartedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionCompactionStartedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub reason: SessionCompactionStartedDataReason,
+    #[serde(rename = "inputID", default, skip_serializing_if = "Option::is_none")]
+    pub input_id: Option<SessionMessageID>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SessionCompactionStartedDataReason {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "manual")]
+    Manual,
+}
+
+impl SessionCompactionStartedDataReason {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+/// Component schema `session.created`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionCreated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionCreated,
+    pub durable: SessionCreatedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionCreatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionCreatedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionCreatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "projectID")]
+    pub project_id: ProjectID,
+    pub location: LocationRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subpath: Option<RelativePath>,
+    #[serde(rename = "parentID", default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<SessionID>,
+    pub slug: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentID>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<SessionMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<PermissionRuleset>,
+    pub version: String,
+}
+
+/// Component schema `session.deleted`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionDeleted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionDeleted,
+    pub durable: SessionDeletedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionDeletedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionDeletedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC3ea984aceae,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionDeletedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+}
+
+/// Component schema `session.execution.failed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionFailed {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionExecutionFailed,
+    pub durable: SessionExecutionFailedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionExecutionFailedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionFailedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionFailedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub error: SessionStructuredError,
+}
+
+/// Component schema `session.execution.interrupted`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionExecutionInterrupted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionExecutionInterrupted,
+    pub durable: SessionExecutionInterruptedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionExecutionInterruptedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionInterruptedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionExecutionInterruptedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub reason: SessionExecutionInterruptedDataReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SessionExecutionInterruptedDataReason {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "shutdown")]
+    Shutdown,
+    #[serde(rename = "superseded")]
+    Superseded,
+    #[serde(rename = "inactivity")]
+    Inactivity,
+}
+
+impl SessionExecutionInterruptedDataReason {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Shutdown => "shutdown",
+            Self::Superseded => "superseded",
+            Self::Inactivity => "inactivity",
+        }
+    }
+}
+
+/// Component schema `session.execution.started`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionStarted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionExecutionStarted,
+    pub durable: SessionExecutionStartedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionExecutionStartedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionStartedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionStartedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+}
+
+/// Component schema `session.execution.succeeded`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionSucceeded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionExecutionSucceeded,
+    pub durable: SessionExecutionSucceededDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionExecutionSucceededData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionSucceededDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionExecutionSucceededData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+}
+
+/// Component schema `session.forked`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionForked {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionForked,
+    pub durable: SessionForkedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionForkedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionForkedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC3ea984aceae,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionForkedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "parentID")]
+    pub parent_id: SessionID,
+    pub boundary: SessionForkBoundary,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<JsonObject>,
+    #[serde(rename = "instructionEntries", default, skip_serializing_if = "Option::is_none")]
+    pub instruction_entries: Option<InstructionEntrySnapshot>,
+}
+
+/// Component schema `session.idle`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionIdle {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionIdle,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionIdleData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionIdleData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+}
+
+/// Component schema `session.inbox.cancelled`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxCancelled {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionInboxCancelled,
+    pub durable: SessionInboxCancelledDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionInboxCancelledData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxCancelledDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxCancelledData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "inboxID")]
+    pub inbox_id: SessionMessageID,
+}
+
+/// Component schema `session.inbox.delivered`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxDelivered {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionInboxDelivered,
+    pub durable: SessionInboxDeliveredDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionInboxDeliveredData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxDeliveredDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxDeliveredData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "inboxID")]
+    pub inbox_id: SessionMessageID,
+}
+
+/// Component schema `session.inbox.delivery.changed`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInboxDeliveryChanged {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionInboxDeliveryChanged,
+    pub durable: SessionInboxDeliveryChangedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionInboxDeliveryChangedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxDeliveryChangedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInboxDeliveryChangedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "inboxID")]
+    pub inbox_id: SessionMessageID,
+    pub delivery: SessionInboxDelivery,
+}
+
+/// Component schema `session.inbox.enqueued`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInboxEnqueued {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionInboxEnqueued,
+    pub durable: SessionInboxEnqueuedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionInboxEnqueuedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInboxEnqueuedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInboxEnqueuedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "inboxID")]
+    pub inbox_id: SessionMessageID,
+    pub item: SessionInboxItem,
+}
+
+/// Component schema `session.instructions.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInstructionsUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionInstructionsUpdated,
+    pub durable: SessionInstructionsUpdatedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionInstructionsUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInstructionsUpdatedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC3ea984aceae,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionInstructionsUpdatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub delta: indexmap::IndexMap<String, SessionInstructionsUpdatedDataDeltaValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SessionInstructionsUpdatedDataDeltaValue {
+    InstructionHash(InstructionHash),
+    Literal(LitRemoved),
+}
+
+impl From<InstructionHash> for SessionInstructionsUpdatedDataDeltaValue {
+    fn from(value: InstructionHash) -> Self {
+        Self::InstructionHash(value)
+    }
+}
+
+impl From<LitRemoved> for SessionInstructionsUpdatedDataDeltaValue {
+    fn from(value: LitRemoved) -> Self {
+        Self::Literal(value)
+    }
+}
+
+/// Component schema `session.message.content.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMessageContentUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionMessageContentUpdated,
+    pub durable: SessionMessageContentUpdatedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionMessageContentUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMessageContentUpdatedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMessageContentUpdatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "messageID")]
+    pub message_id: SessionMessageID,
+    pub content: Vec<SessionMessageAssistantContentEncoded>,
+}
+
+/// Component schema `session.metadata.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMetadataUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionMetadataUpdated,
+    pub durable: SessionMetadataUpdatedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionMetadataUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMetadataUpdatedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMetadataUpdatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub metadata: SessionMetadata,
+}
+
+/// Component schema `session.model.selected`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionModelSelected {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionModelSelected,
+    pub durable: SessionModelSelectedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionModelSelectedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionModelSelectedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionModelSelectedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub model: ModelRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous: Option<ModelRef>,
+}
+
+/// Component schema `session.moved`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMoved {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionMoved,
+    pub durable: SessionMovedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionMovedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMovedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionMovedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub location: LocationRef,
+    #[serde(rename = "projectID")]
+    pub project_id: ProjectID,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subpath: Option<RelativePath>,
+}
+
+/// Component schema `session.permissions`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionPermissions {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionPermissions,
+    pub durable: SessionPermissionsDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionPermissionsData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionPermissionsDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionPermissionsData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub permissions: PermissionRuleset,
+}
+
+/// Component schema `session.reasoning.delta`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionReasoningDelta {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionReasoningDelta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionReasoningDeltaData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionReasoningDeltaData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub ordinal: i64,
+    pub delta: String,
+}
+
+/// Component schema `session.reasoning.ended`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionReasoningEnded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionReasoningEnded,
+    pub durable: SessionReasoningEndedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionReasoningEndedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionReasoningEndedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionReasoningEndedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub ordinal: i64,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+}
+
+/// Component schema `session.reasoning.started`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionReasoningStarted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionReasoningStarted,
+    pub durable: SessionReasoningStartedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionReasoningStartedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionReasoningStartedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionReasoningStartedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub ordinal: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+}
+
+/// Component schema `session.renamed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRenamed {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionRenamed,
+    pub durable: SessionRenamedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionRenamedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRenamedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRenamedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub title: String,
+}
+
+/// Component schema `session.retry.scheduled`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRetryScheduled {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionRetryScheduled,
+    pub durable: SessionRetryScheduledDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionRetryScheduledData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRetryScheduledDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRetryScheduledData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub attempt: i64,
+    pub at: i64,
+    pub error: SessionStructuredError,
+}
+
+/// Component schema `session.revert.cleared`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertCleared {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionRevertCleared,
+    pub durable: SessionRevertClearedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionRevertClearedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertClearedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertClearedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+}
+
+/// Component schema `session.revert.committed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertCommitted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionRevertCommitted,
+    pub durable: SessionRevertCommittedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionRevertCommittedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertCommittedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertCommittedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub to: SessionMessageID,
+}
+
+/// Component schema `session.revert.staged`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertStaged {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionRevertStaged,
+    pub durable: SessionRevertStagedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionRevertStagedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertStagedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionRevertStagedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub revert: SessionRevert,
+}
+
+/// Component schema `session.shell.ended`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionShellEnded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionShellEnded,
+    pub durable: SessionShellEndedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionShellEndedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionShellEndedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionShellEndedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub shell: ShellInfo,
+    pub output: SessionShellEndedDataOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionShellEndedDataOutput {
+    pub output: String,
+    pub cursor: i64,
+    pub size: i64,
+    pub truncated: bool,
+}
+
+/// Component schema `session.shell.started`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionShellStarted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionShellStarted,
+    pub durable: SessionShellStartedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionShellStartedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionShellStartedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionShellStartedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub shell: ShellInfo,
+}
+
+/// Component schema `session.skill.activated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionSkillActivated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionSkillActivated,
+    pub durable: SessionSkillActivatedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionSkillActivatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionSkillActivatedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionSkillActivatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub id: SkillID,
+    pub name: SkillName,
+    pub text: String,
+}
+
+/// Component schema `session.step.ended`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionStepEnded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionStepEnded,
+    pub durable: SessionStepEndedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionStepEndedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepEndedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionStepEndedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub finish: SessionStepEndedDataFinish,
+    #[serde(rename = "rawFinish", default, skip_serializing_if = "Option::is_none")]
+    pub raw_finish: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub cost: MoneyUSD,
+    pub tokens: TokenUsageInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SnapshotID>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<RelativePath>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SessionStepEndedDataFinish {
+    #[serde(rename = "stop")]
+    Stop,
+    #[serde(rename = "length")]
+    Length,
+    #[serde(rename = "tool-calls")]
+    ToolCalls,
+    #[serde(rename = "content-filter")]
+    ContentFilter,
+    #[serde(rename = "error")]
+    Error,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+impl SessionStepEndedDataFinish {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Length => "length",
+            Self::ToolCalls => "tool-calls",
+            Self::ContentFilter => "content-filter",
+            Self::Error => "error",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Component schema `session.step.failed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepFailed {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionStepFailed,
+    pub durable: SessionStepFailedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionStepFailedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepFailedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepFailedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub error: SessionStructuredError,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish: Option<LitContentFilter>,
+    #[serde(rename = "rawFinish", default, skip_serializing_if = "Option::is_none")]
+    pub raw_finish: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub cost: Option<MoneyUSD>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<TokenUsageInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SnapshotID>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<RelativePath>>,
+}
+
+/// Component schema `session.step.started`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepStarted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionStepStarted,
+    pub durable: SessionStepStartedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionStepStartedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepStartedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepStartedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub agent: AgentID,
+    pub model: ModelRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SnapshotID>,
+    pub started: i64,
+}
+
+/// Component schema `session.step.streamed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepStreamed {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionStepStreamed,
+    pub durable: SessionStepStreamedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionStepStreamedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepStreamedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionStepStreamedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+}
+
+/// Component schema `session.synthetic`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionSynthetic {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionSynthetic,
+    pub durable: SessionSyntheticDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionSyntheticData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionSyntheticDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionSyntheticData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+}
+
+/// Component schema `session.text.delta`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionTextDelta {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionTextDelta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionTextDeltaData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionTextDeltaData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub ordinal: i64,
+    pub delta: String,
+}
+
+/// Component schema `session.text.ended`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionTextEnded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionTextEnded,
+    pub durable: SessionTextEndedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionTextEndedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionTextEndedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionTextEndedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub ordinal: i64,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+}
+
+/// Component schema `session.text.started`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionTextStarted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionTextStarted,
+    pub durable: SessionTextStartedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionTextStartedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionTextStartedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionTextStartedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub ordinal: i64,
+}
+
+/// Component schema `session.tool.called`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolCalled {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionToolCalled,
+    pub durable: SessionToolCalledDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionToolCalledData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolCalledDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolCalledData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub id: String,
+    pub input: JsonObject,
+    pub executed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+}
+
+/// Component schema `session.tool.failed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolFailed {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionToolFailed,
+    pub durable: SessionToolFailedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionToolFailedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolFailedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC3ea984aceae,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolFailedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub id: String,
+    pub error: SessionStructuredError,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<ToolContent>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub executed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+}
+
+/// Component schema `session.tool.input.delta`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolInputDelta {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionToolInputDelta,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionToolInputDeltaData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolInputDeltaData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub id: String,
+    pub delta: String,
+}
+
+/// Component schema `session.tool.input.ended`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolInputEnded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionToolInputEnded,
+    pub durable: SessionToolInputEndedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionToolInputEndedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolInputEndedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolInputEndedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub id: String,
+    pub text: String,
+}
+
+/// Component schema `session.tool.input.started`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolInputStarted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionToolInputStarted,
+    pub durable: SessionToolInputStartedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionToolInputStartedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolInputStartedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolInputStartedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub id: String,
+    pub name: String,
+}
+
+/// Component schema `session.tool.progress`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolProgress {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionToolProgress,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionToolProgressData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolProgressData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub id: String,
+    pub metadata: JsonObject,
+}
+
+/// Component schema `session.tool.success`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolSuccess {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionToolSuccess,
+    pub durable: SessionToolSuccessDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionToolSuccessData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolSuccessDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC3ea984aceae,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionToolSuccessData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(rename = "assistantMessageID")]
+    pub assistant_message_id: SessionMessageID,
+    pub id: String,
+    pub content: Vec<ToolContent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub executed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<SessionMessageNative>,
+}
+
+/// Component schema `session.unarchived`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionUnarchived {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionUnarchived,
+    pub durable: SessionUnarchivedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionUnarchivedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionUnarchivedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionUnarchivedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+}
+
+/// Component schema `session.usage.recorded`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionUsageRecorded {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionUsageRecorded,
+    pub durable: SessionUsageRecordedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionUsageRecordedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionUsageRecordedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionUsageRecordedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    pub source: SessionUsageRecordedDataSource,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub cost: MoneyUSD,
+    pub tokens: TokenUsageInfo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SessionUsageRecordedDataSource {
+    #[serde(rename = "title")]
+    Title,
+    #[serde(rename = "compaction")]
+    Compaction,
+    #[serde(rename = "generate")]
+    Generate,
+}
+
+impl SessionUsageRecordedDataSource {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::Compaction => "compaction",
+            Self::Generate => "generate",
+        }
+    }
+}
+
+/// Component schema `session.usage.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionUsageUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionUsageUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionUsageUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionUsageUpdatedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub cost: MoneyUSD,
+    pub tokens: TokenUsageInfo,
+}
+
+/// Component schema `session.viewed`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionViewed {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSessionViewed,
+    pub durable: SessionViewedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: SessionViewedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionViewedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SessionViewedData {
+    #[serde(rename = "sessionID")]
+    pub session_id: SessionID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub idle: f64,
+}
+
+/// Component schema `shell.created`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellCreated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitShellCreated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: ShellCreatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellCreatedData {
+    pub info: ShellInfo,
+}
+
+/// Component schema `shell.deleted`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ShellDeleted {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitShellDeleted,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: ShellDeletedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ShellDeletedData {
+    pub id: ShellID,
+}
+
+/// Component schema `shell.exited`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellExited {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitShellExited,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: ShellExitedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellExitedData {
+    pub id: ShellID,
+    #[serde(default, skip_serializing_if = "Option::is_none", serialize_with = "crate::support::ser_opt_f64")]
+    pub exit: Option<f64>,
+    pub status: ShellExitedDataStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ShellExitedDataStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "exited")]
+    Exited,
+    #[serde(rename = "timeout")]
+    Timeout,
+    #[serde(rename = "killed")]
+    Killed,
+}
+
+impl ShellExitedDataStatus {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Exited => "exited",
+            Self::Timeout => "timeout",
+            Self::Killed => "killed",
+        }
+    }
+}
+
+/// Component schema `skill.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SkillUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitSkillUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `tui.command.execute`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TuiCommandExecute {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitTuiCommandExecute,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: TuiCommandExecuteData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TuiCommandExecuteData {
+    pub command: TuiCommandExecuteDataCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TuiCommandExecuteDataCommand {
+    Enum(TuiCommandExecuteDataCommandEnum),
+    String(String),
+}
+
+impl From<TuiCommandExecuteDataCommandEnum> for TuiCommandExecuteDataCommand {
+    fn from(value: TuiCommandExecuteDataCommandEnum) -> Self {
+        Self::Enum(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TuiCommandExecuteDataCommandEnum {
+    #[serde(rename = "session.list")]
+    SessionList,
+    #[serde(rename = "session.new")]
+    SessionNew,
+    #[serde(rename = "session.interrupt")]
+    SessionInterrupt,
+    #[serde(rename = "session.background")]
+    SessionBackground,
+    #[serde(rename = "session.compact")]
+    SessionCompact,
+    #[serde(rename = "session.page.up")]
+    SessionPageUp,
+    #[serde(rename = "session.page.down")]
+    SessionPageDown,
+    #[serde(rename = "session.line.up")]
+    SessionLineUp,
+    #[serde(rename = "session.line.down")]
+    SessionLineDown,
+    #[serde(rename = "session.half.page.up")]
+    SessionHalfPageUp,
+    #[serde(rename = "session.half.page.down")]
+    SessionHalfPageDown,
+    #[serde(rename = "session.first")]
+    SessionFirst,
+    #[serde(rename = "session.last")]
+    SessionLast,
+    #[serde(rename = "prompt.clear")]
+    PromptClear,
+    #[serde(rename = "prompt.submit")]
+    PromptSubmit,
+    #[serde(rename = "agent.cycle")]
+    AgentCycle,
+}
+
+impl TuiCommandExecuteDataCommandEnum {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SessionList => "session.list",
+            Self::SessionNew => "session.new",
+            Self::SessionInterrupt => "session.interrupt",
+            Self::SessionBackground => "session.background",
+            Self::SessionCompact => "session.compact",
+            Self::SessionPageUp => "session.page.up",
+            Self::SessionPageDown => "session.page.down",
+            Self::SessionLineUp => "session.line.up",
+            Self::SessionLineDown => "session.line.down",
+            Self::SessionHalfPageUp => "session.half.page.up",
+            Self::SessionHalfPageDown => "session.half.page.down",
+            Self::SessionFirst => "session.first",
+            Self::SessionLast => "session.last",
+            Self::PromptClear => "prompt.clear",
+            Self::PromptSubmit => "prompt.submit",
+            Self::AgentCycle => "agent.cycle",
+        }
+    }
+}
+
+/// Component schema `tui.prompt.append`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct TuiPromptAppend {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitTuiPromptAppend,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: TuiPromptAppendData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct TuiPromptAppendData {
+    pub text: String,
+}
+
+/// Component schema `tui.session.select`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct TuiSessionSelect {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitTuiSessionSelect,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: TuiSessionSelectData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct TuiSessionSelectData {
+    #[serde(rename = "sessionID")]
+    pub session_id: serde_json::Value,
+}
+
+/// Component schema `tui.toast.show`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TuiToastShow {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitTuiToastShow,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: TuiToastShowData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TuiToastShowData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub message: String,
+    pub variant: TuiToastShowDataVariant,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TuiToastShowDataVariant {
+    #[serde(rename = "info")]
+    Info,
+    #[serde(rename = "success")]
+    Success,
+    #[serde(rename = "warning")]
+    Warning,
+    #[serde(rename = "error")]
+    Error,
+}
+
+impl TuiToastShowDataVariant {
+    /// Wire value of this variant.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Success => "success",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// Component schema `vcs.branch.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VcsBranchUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitVcsBranchUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: VcsBranchUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct VcsBranchUpdatedData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+/// Component schema `websearch.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WebsearchUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitWebsearchUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: serde_json::Value,
+}
+
+/// Component schema `worktree.resolved`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WorktreeResolved {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitWorktreeResolved,
+    pub durable: WorktreeResolvedDurable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: WorktreeResolvedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WorktreeResolvedDurable {
+    #[serde(rename = "aggregateID")]
+    pub aggregate_id: String,
+    pub seq: EventSeq,
+    pub version: EventVersionEncodedC77c5abcb68d,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WorktreeResolvedData {
+    #[serde(rename = "projectID")]
+    pub project_id: ProjectID,
+    pub directory: AbsolutePath,
+    pub previous: ProjectID,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopted: Option<Vec<ProjectID>>,
+}
+
+/// Component schema `worktree.updated`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WorktreeUpdated {
+    pub id: EventID,
+    #[serde(serialize_with = "crate::support::ser_f64")]
+    pub created: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JsonObject>,
+    pub r#type: LitWorktreeUpdated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationRef>,
+    pub data: WorktreeUpdatedData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WorktreeUpdatedData {
+    #[serde(rename = "projectID")]
+    pub project_id: ProjectID,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -8953,7 +13933,7 @@ pub struct ExperimentalArtifactsListRequest {
     /// query parameter `sessionID`.
     pub session_id: Option<SessionID>,
     /// query parameter `provider`.
-    pub provider: Option<ArtifactProviderIDEncoded>,
+    pub provider: Option<String>,
 }
 
 /// Request for `experimental.artifacts.create` (`POST /api/experimental/artifacts`).
@@ -8991,6 +13971,19 @@ pub struct ExperimentalArtifactsDeleteRequest {
 pub struct ExperimentalArtifactsViewRequest {
     /// path parameter `artifactID`.
     pub artifact_id: ArtifactID,
+}
+
+/// Request for `experimental.job.list` (`GET /api/experimental/job`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExperimentalJobListRequest {
+    /// query parameter `sessionID`. Filter to background jobs owned by this session.
+    pub session_id: Option<SessionID>,
+    /// query parameter `kind`. Filter by background job kind (shell, subagent, or image).
+    pub kind: Option<JobKind>,
+    /// query parameter `status`. Filter by job status (running, completed, error, or cancelled).
+    pub status: Option<JobStatus>,
+    /// query parameter `descendants`. When sessionID is set, also include background jobs owned by child and nested subagent sessions.
+    pub descendants: Option<bool>,
 }
 
 /// Request for `shell.list` (`GET /api/shell`).
@@ -9484,6 +14477,8 @@ pub enum Op {
     ExperimentalArtifactsDelete,
     /// `experimental.artifacts.view`
     ExperimentalArtifactsView,
+    /// `experimental.job.list`
+    ExperimentalJobList,
     /// `shell.list`
     ShellList,
     /// `shell.create`
@@ -9701,6 +14696,7 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::ExperimentalArtifactsUpdate, id: "experimental.artifacts.update", method: "PATCH", path: "/api/experimental/artifacts/{artifactID}", route: "/api/experimental/artifacts/{artifactID}", scope: Scope::H, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ExperimentalArtifactsDelete, id: "experimental.artifacts.delete", method: "DELETE", path: "/api/experimental/artifacts/{artifactID}", route: "/api/experimental/artifacts/{artifactID}", scope: Scope::H, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::ExperimentalArtifactsView, id: "experimental.artifacts.view", method: "GET", path: "/api/experimental/artifacts/{artifactID}/view/*", route: "/api/experimental/artifacts/{artifactID}/view/{*path}", scope: Scope::H, envelope: Envelope::Raw, special: true },
+    OpMeta { op: Op::ExperimentalJobList, id: "experimental.job.list", method: "GET", path: "/api/experimental/job", route: "/api/experimental/job", scope: Scope::G, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::ShellList, id: "shell.list", method: "GET", path: "/api/shell", route: "/api/shell", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ShellCreate, id: "shell.create", method: "POST", path: "/api/shell", route: "/api/shell", scope: Scope::L, envelope: Envelope::Location, special: false },
     OpMeta { op: Op::ShellGet, id: "shell.get", method: "GET", path: "/api/shell/{id}", route: "/api/shell/{id}", scope: Scope::L, envelope: Envelope::Location, special: false },
@@ -10100,7 +15096,7 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// `POST /api/session/{sessionID}/generate` — `session.generate`: Generate text from session context.
     ///
-    /// Generate transient text from the current session context without mutating session history.
+    /// Generate transient text from the current session context without mutating session history. Its tokens and cost count toward the session's totals.
     ///
     /// Scope `S`, envelope `Bare`.
     async fn session_generate(&self, ctx: &RequestContext, req: SessionGenerateRequest) -> Result<SessionGenerateResponse, ApiError> {
@@ -10379,7 +15375,7 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// `POST /api/integration/{integrationID}/connect/oauth/{attemptID}/complete` — `integration.oauth.complete`: Complete OAuth connection.
     ///
-    /// Complete a code-based OAuth attempt and store the resulting credential.
+    /// Complete a code-based OAuth attempt and store the resulting credential. For an automatic attempt with `paste`, `code` is the redirect URL copied from the browser, and the result arrives through the attempt status.
     ///
     /// Scope `L`, envelope `NoContent`.
     async fn integration_oauth_complete(&self, ctx: &RequestContext, req: IntegrationOauthCompleteRequest) -> Result<(), ApiError> {
@@ -10974,6 +15970,15 @@ pub trait Backend: Send + Sync + 'static {
     async fn experimental_artifacts_view(&self, ctx: &RequestContext, req: crate::backend::ArtifactViewRequest) -> Result<crate::backend::ArtifactView, ApiError> {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("experimental.artifacts.view"))
+    }
+    /// `GET /api/experimental/job` — `experimental.job.list`: List background jobs.
+    ///
+    /// List active and unconsumed background jobs, optionally filtered by owning session, descendants, or kind. Experimental: may change without compatibility guarantees.
+    ///
+    /// Scope `G`, envelope `Data`.
+    async fn experimental_job_list(&self, ctx: &RequestContext, req: ExperimentalJobListRequest) -> Result<Vec<JobInfo>, ApiError> {
+        let _ = (ctx, req);
+        Err(ApiError::not_implemented("experimental.job.list"))
     }
     /// `GET /api/shell` — `shell.list`: List running shell commands.
     ///
@@ -12224,6 +17229,16 @@ pub(crate) async fn dispatch(
             let out = backend.experimental_artifacts_delete(&call.ctx, req).await?;
             let () = out;
             Ok(respond::no_content())
+        }
+        Op::ExperimentalJobList => {
+            let req = ExperimentalJobListRequest {
+                session_id: call.query_str("sessionID", Some("^ses"))?,
+                kind: call.query_enum::<JobKind>("kind", "Job.Kind")?,
+                status: call.query_enum::<JobStatus>("status", "Job.Status")?,
+                descendants: call.query_bool("descendants")?,
+            };
+            let out = backend.experimental_job_list(&call.ctx, req).await?;
+            Ok(respond::data(&out))
         }
         Op::ShellList => {
             let req = ShellListRequest {};
