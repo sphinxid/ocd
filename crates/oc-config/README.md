@@ -21,11 +21,17 @@ agent/provider registries. It uses the functions below to do that work.
   `schedules` (scheduled prompts, `oc_core::schedule`) and 2.2.5's `artifacts`, accepted and normalized; `image_generate`
   drives the image tool, see `fold::image_generate`)/`Policy`, `UpdatePolicy`,
   `Share`, `Patch`; `Info.timezone`.
+- 2.2.7 keys, accepted, normalized and echoed in upstream's key order: `experimental.all_flags`, `codemode_vm`
+  (also from the `codemodeVm` alias), `console_watches`, `part_rows`; MCP `pool` on local and remote servers;
+  `warming.interval: "auto"` (`WarmingInterval`); provider and model `cache.warming` (`CacheWarming`:
+  `boolean | {interval?, duration?}` with raw strings). The features behind `codemode_vm`, `console_watches`,
+  `part_rows`, `pool` and warming are opt-in upstream and not ported: ocd keeps its interpreter, has no Console
+  watches, writes whole messages, connects MCP servers per location and sends no keep-alive requests.
 - `Compaction.buffer` is a `CompactionBuffer`: `Tokens(u64)` or `Percent(String)` (`Config.Compaction.Percent`,
   `^([1-9]\d?(\.\d+)?)%$`, kept as written); `tokens(window)` is `Math.round(window * pct / 100)`. The legacy
   `reserved` key stays a token count.
 - `PolicyAction` (2.2.5): `provider.use`, `tool.use`, `integration.connect`, `integration.use`, `mcp.use`,
-  `skill.use`, `plugin.use`. `Policy::decode` rewrites a legacy `integration.use` statement on `mcp:`, `skill:` or
+  `skill.use`, `plugin.use`, and (2.2.7) `websearch.use` (`policy::websearch_allowed`). `Policy::decode` rewrites a legacy `integration.use` statement on `mcp:`, `skill:` or
   `plugin:` resources to the new action without the prefix, so every source (files, `experimental.policies`,
   integration and well-known documents) and `GET /api/config` show the new form.
 - `Entry::{Document { path?, info, integration?, wellknown? }, Directory { path }}`. Serialization matches the HTTP
@@ -99,12 +105,22 @@ agent/provider registries. It uses the functions below to do that work.
 - `update_shell(dir, Option<&str>)` implements `PATCH /api/experimental/config`. It edits the
   JSONC text while preserving comments.
 
+### `flag`: the 2.2.7 flag registry (`core/src/flag.ts`)
+- `REGISTRY` (`todo`, `background_compaction`, `media_blob`, `schedules`, `artifacts`, `codemode_vm`,
+  `console_watches`), `resolve(entries, channel, overrides)` → per key `{enabled, source}`: `OPENCODE_FLAGS`
+  (`key`, `-key`, `all`), then `experimental.<key>` of the latest `experimental` document, then `all_flags: true`
+  of the latest document that sets it, then on only for the `local` and `dev` channels.
+- `enabled(entries, key)` with this build's channel and the process's `OPENCODE_FLAGS`; every gate in oc-core reads
+  it.
+
 ### `fold`: per-key merge semantics (spec table §6.6)
 - Single values:
   - `latest`, `shell`, `model`, `default_agent`, `snapshots` and `tool_output`
     (defaults `TOOL_OUTPUT_MAX_*`);
   - `websearch`;
-  - `warming` (defaults, the validity check and the verbatim warning);
+  - `warming` (defaults with `interval: "auto"`; a set interval must be positive and shorter than a finite
+    duration, else the verbatim warning; resolving `"auto"` from a model's `cache.ttl` belongs to the unported
+    warming runtime);
   - `experimental` and `subagent_depth` (`portable_shell_scanner` is accepted but nothing reads it).
 - Field-wise or accumulated values:
   - `compaction` and `media_image` (overlays);
@@ -127,8 +143,10 @@ agent/provider registries. It uses the functions below to do that work.
 
 ### `sources`: directory-based configuration
 - Agents:
-  - `decode_agent_file` reads `{agent,agents}/**/*.md` and `{mode,modes}/*.md`, detects v1
-    frontmatter and migrates it, and joins `model#variant`;
+  - `decode_agent_file` reads `{agent,agents}/**/*.md` (skipping `node_modules`, `.git`, `.venv`, `venv` and
+    `__pycache__` at any depth) and `{mode,modes}/*.md`, detects v1 frontmatter and migrates it, and joins
+    `model#variant`; a file that fails logs `agent file skipped` with `{filepath, reason, issue}` (the issue text is
+    not Effect's formatter output). Commands log `command file skipped` the same way;
   - `markdown_agents(dir)` and `agent_documents(entries)`.
 - Commands: `decode_command_file`, `markdown_commands` and `commands(entries)`. The latter lets a
   later definition replace an earlier one and puts Markdown commands in their Directory's slot.
@@ -152,7 +170,8 @@ agent/provider registries. It uses the functions below to do that work.
   `Shell interpolation failed for "<src>": <msg>`.
 
 ### `markdown`: gray-matter-compatible frontmatter
-- `matter`, `parse` (retries with `sanitize`), `parse_option` and `sanitize`.
+- `matter`, `parse` (retries with `sanitize`), `parse_option` and `sanitize` (block-scalars unquoted values with a
+  `:` or, since 2.2.7, a leading bracketed tag like `[Team] text`).
 
 ### `policy`: managed policy and update policy
 - `wildcard_match`, `statements(entries)` (documents reversed so the earliest-loaded wins: managed policy, then

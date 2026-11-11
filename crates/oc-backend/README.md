@@ -52,11 +52,15 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   server is ready (`start_v1_import`, upstream `V1Migration.layer`, `server/src/routes.ts:188`). Nothing is
   gated while it runs (one DB transaction per session, resumable via the `migration.v1-v2` kv cursor); the
   upstream TUI only shows a corner progress badge. `router()` (tests) does not start it.
-* **agent**: `agent.list` (default first), `agent.get` (per-location config fold).
+* **agent**: `agent.list` (default first; since 2.2.7 without waiting for the location's plugins), `agent.get`
+  (per-location config fold). `rpc.call`, `vcs.init`, `usage.limits` and the artifact routes no longer wait for
+  plugins either; `model.*`, `provider.list`, `websearch.query` and `experimental.generate.*` still wait up to 5 s.
 * **session**: `list` (directory/project+subpath/search/parentID/anchor paging), `create`, `get`,
   `remove`, `update` (title/metadata/permissions; empty title → `runner.generate_title`), `fork`,
   `switchAgent`, `switchModel`, `move` (destination checks, move inbox item / direct move when the
-  source is gone), `prompt`, `command`, `experimental.session.skill`, `synthetic`, `compact`,
+  source is gone), `prompt`, `command`, `experimental.session.skill`, `synthetic`, `compact` (both without
+  booting the session's location since 2.2.7: their admission events carry no location, and the execution of a
+  session whose directory is gone fails with `Directory not found: <dir>`),
   `experimental.session.wait`, `revert.stage/clear/commit`, `context`, `diff`, `inbox.list/cancel/
   update`, instruction entries `list/put/remove` (413 over 256 KiB), `log` (replay + `log.synced`
   + follow), `interrupt`, `background` (no jobs → no-op), `message.get`, `message.list`,
@@ -68,7 +72,8 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
 * **job**: `experimental.job.list` (`GET /api/experimental/job`, 2.2.7): `app.jobs.background_jobs()` filtered by
   `oc_core::job::list_background` (kind, status, owning session, `descendants` through the parent chain); an unknown
   `sessionID` is a 404 `SessionNotFoundError`.
-* **generate**: `session.generate` (`runner.session_generate`; NotFound → 404, else 503
+* **generate**: `session.generate` (`runner.session_generate`: `{text, tokens, cost}`, the usage recorded as
+  `session.usage.recorded` with source `generate`; NotFound → 404, else 503
   `{service:"session generation"}`), `experimental.generate.text` and its deprecated alias
   `experimental.generate.textLegacy` (`runner.generate_text` at the global config directory after
   its plugins activate; `Generate.Error` → 404 `ModelNotFoundError`, 422 `UnsupportedModelError`, 400
@@ -88,7 +93,8 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
 * **disabled features**: `plugin.gui` is always 404 `PluginNotFoundError`.
 * **artifacts** (`server/src/handlers/artifact.ts` over `oc_core::artifact`, `experimental.artifacts`): after
   param/body validation the location resolves from an explicit directory, else the session (404), else the stored
-  `artifact:item:<id>` record, else the request (404 `LocationNotFoundError`), boots and waits for its plugins; a
+  `artifact:item:<id>` record, else the request (404 `LocationNotFoundError`), and boots it (2.2.7: without waiting
+  for its plugins); a
   location without the flag answers 403 `Artifacts are disabled; set experimental.artifacts in config`. Errors map
   like `mapCommon`: `ArtifactNotFoundError`, `ProviderNotFoundError{providerID, message:"Artifact provider not
   found: <id>"}`, 400 `{kind:"artifact_invalid", field?}`, 503 `ServiceUnavailableError{service:<provider>}`; the
@@ -117,7 +123,9 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `McpServerNotFoundError`); MCP prompts are slash commands `<server>:<prompt>` (arguments parsed
   like upstream, `MCP prompt not found: …` → 500 `CommandExecutionError`). Without a runner the
   lists are empty and server operations 404.
-* **pty** (`app.ptys`): `pty.list/create/get/update/remove/connect`, default shell
+* **pty** (`app.ptys`): a socket's attachment closes with `1012 "location shut down"` when its location shuts down
+  (reload, `vcs.init`, debug eviction), and the location's PTYs end then (2.2.7);
+  `pty.list/create/get/update/remove/connect`, default shell
   `ShellSelect.resolve(Config, config shell, bin)`, PTYs owned by the location that created them;
   connect queues live output until the replay is sent, `Exited` → close 4404 "session exited".
 * **stats** (`stats` module, `SessionStats.get` port): `experimental.session.stats` — 31-day query

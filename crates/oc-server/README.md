@@ -115,9 +115,9 @@ pub trait Backend: Send + Sync + 'static {
 | `session.message.list` | `(ctx, SessionMessageListRequest{session_id, limit, order, type, cursor}) -> Vec<SessionMessageInfo>` | cursor `{id,order,direction}`; `cursor` + `order` → `400 "Cursor cannot be combined with order"`. With `X-OpenCode-Capabilities` listing `experimental-media-uri` (one comma-separated token, any case) the server first asks `session_message_list_media` (raw JSON, `None` falls back); `session.message.get` and `session.inbox.list` do the same through `session_message_get_media` / `session_inbox_list_media` (generated dispatcher) |
 | `experimental.session.log` | `(ctx, ExperimentalSessionLogRequest{session_id, after, follow}) -> SessionLogStream` | `BoxStream<Result<Value, StreamFailure>>`; frames `data: <json>`; an `Err` emits `event: effect/http-api/stream/failure` + `data: <cause array>` and ends; errors before streaming are JSON |
 | `event.subscribe` | `(ctx, EventSubscribeRequest{location: None}) -> EventSubscription` | `Broadcast(broadcast::Receiver<Value>)` or `Stream(BoxStream<Value>)` of bus payloads; the server decodes `?types=` (repeated or single; public types or `rpc.*`, else `400` `kind: Query`) and filters per subscriber |
-| `experimental.media.get` | `(ctx, ExperimentalMediaGetRequest{hash}) -> MediaBlob{mime, data}` | hash `^[0-9a-f]{64}$`; the server adds `cache-control: private, max-age=31536000, immutable`, `etag: "<hash>"`, `x-content-type-options: nosniff`, `content-security-policy: default-src 'none'; sandbox`, the mime for png/jpeg/gif/webp else `application/octet-stream` + `content-disposition: attachment`, and answers a matching `If-None-Match` (`*`, `W/`, lists) with 304 |
+| `experimental.media.get` | `(ctx, ExperimentalMediaGetRequest{hash}) -> MediaBlob{mime, data}` | hash `^[0-9a-f]{64}$`; the server adds `cache-control: private, max-age=31536000, immutable`, `etag: "<hash>"`, `content-disposition: attachment`, `content-security-policy: default-src 'none'; img-src 'self'; media-src 'self'; sandbox`, `x-content-type-options: nosniff` (2.2.7: always a download), the mime for png/jpeg/gif/webp else `application/octet-stream`, and answers a matching `If-None-Match` (`*`, `W/`, lists) with 304 |
 | `experimental.artifacts.view` | `(ctx, ArtifactViewRequest{artifact_id, path, bare, search}) -> ArtifactView::{Redirect(location), File{mime, data}}` | also routed at `/view` and `/view/`; a redirect is a `308`; files get `access-control-allow-origin: *`, `cache-control: private, no-cache`, `content-security-policy: sandbox allow-scripts`, `x-content-type-options: nosniff`. The 7 `experimental.artifacts.*` operations have scope `H`: the backend resolves the location after param and body validation |
-| `fs.read` | `(ctx, FsReadRequest{path}) -> FsFile{size, mtime_ms, mime, source: Path|Bytes}` | server does ETag / Last-Modified / If-None-Match / If-Modified-Since / single Range / If-Range (200/206/304/416) |
+| `fs.read` | `(ctx, FsReadRequest{path}) -> FsFile{size, mtime_ms, mime, source: Path|Bytes}` | server does ETag / Last-Modified / If-None-Match / If-Modified-Since / single Range / If-Range (200/206/304/416); 200/206/304 are sandboxed downloads (2.2.7 `ContentHeaders.download`): `text/plain; charset=utf-8` for HTML, scripts and XML (SVG too), `content-disposition: attachment; filename="<ascii>"; filename*=UTF-8''<encoded>` of the requested path's basename, the CSP above and `nosniff`. The 416 also sends `content-length: 0`, which upstream's does not |
 | `pty.connect` | `(ctx, PtyAttachRequest{pty_id, cursor}) -> PtyAttachment{replay, cursor, output, control}` | `Err(ApiError::pty_not_found)` → close 4404 "session not found"; `Err(ApiError::pty_exited())` → 4404 "session exited" |
 | `experimental.persistentPty.connect` | `(ctx, PersistentPtyAttachRequest{pty_id, cursor, attachment_id, role, takeover}) -> PersistentPtyAttachment{info, role, generation, replay, events, control}` | any `Err` → close 4404 "terminal unavailable" |
 | `rpc.call` | generated | a `Defect` maps to `500 RpcInternalError{type:"rpc.internal",message:"RPC call failed"}` |
@@ -191,13 +191,17 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
   `http://localhost:*`, `http://127.0.0.1:*`, `oc://renderer*`, tauri origins,
   `https://*.opencode.ai`, `opts.cors`. Disallowed origins are not blocked, except PTY
   token/connect routes (403 unless allowed or same host).
+* **Cross-site requests** (`request_site.rs`, 2.2.7 `RequestSite`): inside compression and CORS, before the web UI,
+  auth and readiness: with `Sec-Fetch-Site: cross-site|same-site` on `/api` or `/api/*` (not an artifact `view`
+  page), a navigation or an Origin that is neither allowed nor the same host gets `403
+  {"_tag":"ForbiddenError","message":"Cross-site requests to the API are not allowed"}`.
 * **PTY tickets**: `POST …/connect-token` needs `x-opencode-ticket: 1` and an allowed/same-host
   Origin (else `403 ForbiddenError`), checks the PTY exists via `pty_get` /
   `experimental_persistent_pty_get`, issues a UUID v4 (60 s, single use, scope
   `{ptyID, directory}` / `{ptyID}`).
 * **PTY WebSockets**: location PTY — replay as text frames of ≤ 65 536 UTF-16 units, then a
   binary `0x00{"cursor":n}` meta frame, live text frames, close `1000` at end; inbound text
-  verbatim, binary strict-UTF-8. Persistent PTY — `attached` JSON, replay binary,
+  verbatim, binary strict-UTF-8; `PtyAttachment.shutdown` resolving closes it with `1012 "location shut down"`. Persistent PTY — `attached` JSON, replay binary,
   `replay_complete`, live binary output / JSON events (`resized` with base64 checkpoint);
   `input_protocol=1` framed input `[type][cols BE][rows BE][payload]`.
 * **SSE `/api/event`**: `content-type: text/event-stream`, `cache-control: no-cache,
