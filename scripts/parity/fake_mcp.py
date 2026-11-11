@@ -33,6 +33,15 @@ FRAMING_TOOLS = [
 ]
 
 ECHO = "--echo" in sys.argv[1:]
+# `--discover-exit`: dies on the 2026-07-28 `server/discover` probe like servers that terminate on any request before
+# `initialize`; `--discover-ignore`: never answers it.
+DISCOVER_EXIT = "--discover-exit" in sys.argv[1:]
+DISCOVER_IGNORE = "--discover-ignore" in sys.argv[1:]
+# `--start-delay=<seconds>`: a server that takes a while before it reads its first message.
+for arg in sys.argv[1:]:
+    if arg.startswith("--start-delay="):
+        import time
+        time.sleep(float(arg.split("=", 1)[1]))
 FRAMING = "--framing" in sys.argv[1:]
 
 
@@ -48,6 +57,10 @@ for line in sys.stdin:
     msg = json.loads(line)
     method, mid = msg.get("method"), msg.get("id")
     if mid is None:
+        continue
+    if method == "server/discover" and DISCOVER_EXIT:
+        sys.exit(0)
+    if method == "server/discover" and DISCOVER_IGNORE:
         continue
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": mid, "result": {

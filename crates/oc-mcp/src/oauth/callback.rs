@@ -45,6 +45,7 @@ pub struct AuthorizeHandle {
     pub mode: &'static str,
     result: oneshot::Receiver<Result<Value, String>>,
     cancel: CancellationToken,
+    callback: Arc<CallbackState>,
 }
 
 impl AuthorizeHandle {
@@ -67,12 +68,51 @@ impl AuthorizeHandle {
     pub fn canceller(&self) -> CancellationToken {
         self.cancel.clone()
     }
+
+    /// Hands the attempt a redirect URL pasted from the browser, for when the browser cannot reach this machine.
+    pub fn submitter(&self) -> Submitter {
+        Submitter(self.callback.clone())
+    }
+}
+
+/// `submit` of an authorization: a pasted URL is held to the same checks as the browser's redirect, but a wrong
+/// paste keeps the login waiting.
+#[derive(Clone)]
+pub struct Submitter(Arc<CallbackState>);
+
+impl Submitter {
+    /// `Err` keeps the attempt waiting; an `error`/`error_description` in the URL ends it with that message.
+    pub fn submit(&self, pasted: &str) -> Result<(), String> {
+        let state = &self.0;
+        let Ok(url) = Url::parse(pasted.trim()) else {
+            return Err("Paste the full URL from the browser's address bar".into());
+        };
+        let param = |key: &str| url.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.into_owned());
+        if param("state").as_deref() != Some(state.state.as_str()) {
+            return Err("This URL belongs to a different sign-in".into());
+        }
+        if let Some(error) = param("error_description").or_else(|| param("error")) {
+            if let Some(sender) = state.code.lock().take() {
+                let _ = sender.send(Err(error));
+            }
+            return Ok(());
+        }
+        let Some(code) = param("code").filter(|c| !c.is_empty()) else {
+            return Err("The URL does not contain an authorization code".into());
+        };
+        tracing::info!(fields = %state.fields, "mcp oauth redirect pasted");
+        if let Some(sender) = state.code.lock().take() {
+            let _ = sender.send(Ok(CodeMessage { code, iss: param("iss"), respond: None }));
+        }
+        Ok(())
+    }
 }
 
 struct CodeMessage {
     code: String,
     iss: Option<String>,
-    respond: oneshot::Sender<(u16, String)>,
+    /// The browser's held callback response; absent for a pasted URL.
+    respond: Option<oneshot::Sender<(u16, String)>>,
 }
 
 struct CallbackState {
@@ -128,7 +168,7 @@ async fn handle_callback(State(state): State<Arc<CallbackState>>, uri: Uri) -> R
     };
     // The page waits for the token exchange so the browser never reports success for a rejected code.
     let (respond, response) = oneshot::channel();
-    if sender.send(Ok(CodeMessage { code, iss: param("iss"), respond })).is_err() {
+    if sender.send(Ok(CodeMessage { code, iss: param("iss"), respond: Some(respond) })).is_err() {
         return Response::builder()
             .status(StatusCode::CONFLICT)
             .body(AxumBody::from("OAuth callback already received"))
@@ -201,14 +241,14 @@ async fn authorize_inner(input: AuthorizeOptions, fields: String) -> Result<Auth
     let (listener, port, redirect_path) = bind_callback(&input.config).await?;
     let cancel = CancellationToken::new();
     let (code_tx, code_rx) = oneshot::channel();
-    let callback_state = Arc::new(CallbackState {
+    let callback = Arc::new(CallbackState {
         path: redirect_path.clone(),
         state: state.clone(),
         provider_name: input.name.clone(),
         code: Mutex::new(Some(code_tx)),
         fields: fields.clone(),
     });
-    let router = axum::Router::new().fallback(handle_callback).with_state(callback_state);
+    let router = axum::Router::new().fallback(handle_callback).with_state(callback.clone());
     let shutdown = cancel.clone();
     tokio::spawn(async move {
         let _ = axum::serve(listener, router).with_graceful_shutdown(async move { shutdown.cancelled().await }).await;
@@ -312,13 +352,11 @@ async fn authorize_inner(input: AuthorizeOptions, fields: String) -> Result<Auth
                 }
                 .await;
                 let options = CallbackPageOptions::provider(name.clone());
-                match &exchange {
-                    Ok(_) => {
-                        let _ = message.respond.send((200, page::success(&options)));
-                    }
-                    Err(error) => {
-                        let _ = message.respond.send((400, page::error(&error.to_string(), &options)));
-                    }
+                if let Some(respond) = message.respond {
+                    let _ = match &exchange {
+                        Ok(_) => respond.send((200, page::success(&options))),
+                        Err(error) => respond.send((400, page::error(&error.to_string(), &options))),
+                    };
                 }
                 exchange.map_err(|e| e.to_string())
             }
@@ -337,6 +375,7 @@ async fn authorize_inner(input: AuthorizeOptions, fields: String) -> Result<Auth
         mode: "auto",
         result: result_rx,
         cancel,
+        callback,
     })
 }
 

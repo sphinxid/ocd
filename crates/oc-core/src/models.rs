@@ -409,6 +409,11 @@ impl Models {
         self.credentials.observe(observer);
     }
 
+    /// The credential store (`Credential.Service`): writes through it publish the credential events.
+    pub fn credential_store(&self) -> Arc<dyn CredentialStore> {
+        self.credentials.clone()
+    }
+
     /// Runs `preparer` before a credential operation changes the stored rows ([`DbCredentials::prepare`]).
     pub fn prepare_credentials(&self, preparer: CredentialPreparer) {
         self.credentials.prepare(preparer);

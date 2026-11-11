@@ -96,6 +96,7 @@ impl OAuthMethod for CodeMethod {
                     }
                 })
             })),
+            submit: None,
         })
     }
 }
@@ -272,6 +273,7 @@ async fn auto_attempt_lifecycle_success() {
     let json = serde_json::to_value(&attempt).unwrap();
     assert_eq!(json["attemptID"], json!(attempt.attempt_id));
     assert_eq!(json["mode"], json!("auto"));
+    assert!(json.get("paste").is_none());
     assert!(matches!(integrations.oauth_status("acme", &attempt.attempt_id).unwrap(), AttemptStatus::Pending { .. }));
     // Completing an auto attempt is a defect.
     let error = integrations.complete_oauth("acme", &attempt.attempt_id, None).await.unwrap_err();
@@ -289,6 +291,61 @@ async fn auto_attempt_lifecycle_success() {
     assert_eq!(saved[0].label, "From method");
     // Scope is closed once settled.
     assert!(method.scope.lock().as_ref().unwrap().is_cancelled());
+}
+
+/// An `auto` method that also accepts the redirect URL pasted from the browser (MCP sign-in, #61706).
+struct PasteMethod;
+
+#[async_trait]
+impl OAuthMethod for PasteMethod {
+    fn integration_id(&self) -> String {
+        "acme".into()
+    }
+    fn info(&self) -> OAuthMethodInfo {
+        OAuthMethodInfo::new("m", "Acme login")
+    }
+    async fn authorize(&self, _answer: FormAnswer, _scope: CancellationToken) -> FlowResult<AuthorizeResult> {
+        let (tx, rx) = oneshot::channel::<String>();
+        let tx = Arc::new(Mutex::new(Some(tx)));
+        let submit: oc_ai::credentials::integration::SubmitFn = Arc::new(move |pasted: String| {
+            let result = if !pasted.starts_with("http") {
+                Err("Paste the full URL from the browser's address bar".to_string())
+            } else {
+                tx.lock().take().map(|tx| tx.send(pasted)).map(|_| ()).ok_or_else(|| "done".to_string())
+            };
+            Box::pin(async move { result })
+        });
+        Ok(AuthorizeResult::auto("https://acme.test/authorize", "Go", async move {
+            let pasted = rx.await.map_err(|_| FlowError::new("dropped"))?;
+            Ok(oauth(&pasted, 0))
+        })
+        .with_submit(submit))
+    }
+}
+
+#[tokio::test]
+async fn auto_attempt_accepts_a_pasted_redirect() {
+    let (_, clock) = Manual::new(5_000);
+    let (store, integrations) = service(&[], clock);
+    integrations.register_oauth(Arc::new(PasteMethod));
+    let attempt = integrations
+        .connect_oauth(OAuthConnect { integration_id: "acme".into(), method_id: "m".into(), ..Default::default() })
+        .await
+        .unwrap();
+    let json = serde_json::to_value(&attempt).unwrap();
+    assert_eq!(json.as_object().unwrap().keys().collect::<Vec<_>>(), ["attemptID", "url", "instructions", "mode", "paste", "time"]);
+    assert_eq!(json["paste"], json!(true));
+    // Without a code an auto attempt still cannot be completed.
+    let error = integrations.complete_oauth("acme", &attempt.attempt_id, None).await.unwrap_err();
+    assert!(matches!(error, IntegrationError::Defect(_)));
+    // A wrong paste keeps the attempt waiting and reports why.
+    let error = integrations.complete_oauth("acme", &attempt.attempt_id, Some("nope".into())).await.unwrap_err();
+    assert_eq!(error, IntegrationError::Authorization("Paste the full URL from the browser's address bar".into()));
+    assert!(matches!(integrations.oauth_status("acme", &attempt.attempt_id).unwrap(), AttemptStatus::Pending { .. }));
+    // The attempt settles through its callback.
+    integrations.complete_oauth("acme", &attempt.attempt_id, Some("http://127.0.0.1/cb?code=x".into())).await.unwrap();
+    assert!(matches!(wait_status(&integrations, &attempt.attempt_id).await, AttemptStatus::Complete { .. }));
+    assert_eq!(store.list("acme").await.unwrap()[0].value.as_oauth().unwrap().access, "http://127.0.0.1/cb?code=x");
 }
 
 #[tokio::test]

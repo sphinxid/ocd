@@ -160,7 +160,8 @@ impl McpError {
         let message = self.to_string();
         let detail = match self {
             Self::Http { status, .. } => Some(format!("HTTP {status}")),
-            Self::Network { code: Some(code), .. } => Some(code.clone()),
+            // A network `TypeError` and an `OAuthError` carry a string `code`.
+            Self::Network { code: Some(code), .. } | Self::OAuth { code, .. } => Some(code.clone()),
             _ => None,
         };
         match detail {

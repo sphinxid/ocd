@@ -30,7 +30,6 @@ hex.workspace = true
 bytes.workspace = true
 sha1 = "0.10"
 uuid = { version = "1", features = ["v4"] }
-jsonschema = { version = "0.58", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -16,11 +16,12 @@ behaviour match the TS SDK exactly.
 | `types` | `schema/src/mcp.ts`, `mcp-event.ts` | `Status` (`connected`/`pending`/`disabled`/`failed{error}`/`needs_auth{error}`), `ServerInfo`, `Resource*`, `Tool`, `Prompt`, `PromptResult`, `CallToolContent`, `ToolResult`, `ClientInfo`, `McpEvent` |
 | `manager` | `mcp/index.ts` | `McpManager` registry/lifecycle |
 | `connection` | `mcp/client.ts` | one connection: transport choice, `?codemode=false`, transient retry, session expiry, teardown |
-| `protocol` | SDK `Protocol`/`Client` | request correlation, timeouts, cancellation, legacy handshake, `2026-07-28` negotiation, server requests, pagination, output-schema validation |
-| `tool_check` | `mcp/client.ts` `ToolCheckingClient`, SDK 2.3.1 era codecs | per-tool `tools/list` validation: tools the negotiated era's `ToolSchema` rejects are dropped with the warning "skipping invalid MCP tool", the rest stay (only when the page without its tools is valid) |
+| `protocol` | SDK `Protocol`/`Client` | request correlation, timeouts, cancellation, legacy handshake, `2026-07-28` negotiation (an unanswered or closed probe on stdio means a legacy server or the SDK's "probed in place" failure), server requests, pagination; results are not checked against a tool's `outputSchema` (2.2.7) |
+| `tool_check` | `mcp/client.ts` `tools()` (2.2.7) | per-tool checks of `tools/list`: a tool that is not an object, has no non-empty name, no object `inputSchema` or an `inputSchema.type` other than `"object"` is skipped with the warning "skipping invalid MCP tool" `{server, tool, reason}`; the rest are copied keeping only fields of the right type (`inputSchema` with `type:"object"`, `properties` if a record, `required` if all strings; `icons` dropped) |
 | `transport::stdio` | `mcp/stdio.ts` | process-group spawn, newline framing (no overall buffer cap; a line over 16 MiB reports `MCP server {server} wrote more than 16 MiB to stdout without a message boundary` and closes the transport; blank lines are skipped and invalid ones reported as `Invalid MCP stdio message from {server}: {cause}`), stderr tail, kill sequence |
 | `transport::http` | SDK `StreamableHTTPClientTransport` | POST JSON/SSE, `Mcp-Session-Id`, GET stream, SSE resumption/reconnect, 401/403 OAuth, DELETE |
-| `oauth` | `mcp/oauth.ts`, SDK `auth.ts` | provider, discovery (RFC 9728/8414/OIDC), DCR, CIMD, PKCE, refresh (de-duplicated), credential mapping, `McpCredentialStore` |
+| `oauth` | `mcp/oauth.ts`, SDK `auth.ts` | provider, discovery (RFC 9728/8414/OIDC), DCR (with `logo_uri`), CIMD, PKCE, refresh, credential mapping, `McpCredentialStore`, pasted redirect URLs (`Submitter`) |
+| `oauth::refresh` | `credential.ts` `Credential.refresh`, `mcp/oauth.ts` `lockedRefreshes` | a stored credential's refresh runs under the in-process share plus the file lock `credential-refresh:<id>`, re-reads the row (a refresh token the row no longer holds gets the stored tokens), has a 30 s limit including the body, discards its result when the row changed meanwhile; 429/5xx/network failures answer `503 temporarily_unavailable` so the login stays |
 | `oauth::callback`, `oauth::page` | `mcp/oauth.ts` `authorize`, `oauth/page.ts` | loopback callback server and HTML pages |
 | `naming` | `tool/mcp.ts`, `plugin/command.ts`, `tool/plugin/mcp-resource.ts`, `mcp/instructions.ts` | `<server>_<tool>` naming, tool output mapping, prompt slash commands, resource-tool strings, `<mcp_instructions>` rendering |
 | `cli` | `cli/.../handlers/mcp/*.ts` | `mcp list/add/auth/logout` strings and `format_list` |
@@ -54,6 +55,7 @@ notification returns; core publishes them on the bus through the sink.
 |---|---|
 | `servers() -> Vec<ServerInfo>` | sorted by name; `title` = the connected server's trimmed `serverInfo.title` (absent when empty or disconnected); `integrationID` set for OAuth-capable remotes |
 | `status(name)`, `integration_id(name)`, `wait_ready(name)` | current status / OAuth integration id (`mcp_` + sha1(name\0url)[..16]) / await first connect attempt |
+| `await_startup()`, `flush()` | `awaitStartup` / `mcpTools.flush`: wait for servers still connecting, each until it settles or 2 s after its attempt began; `flush` then brings `registered_tools()` up to date |
 | `add(name, config)` | runtime add/replace, connects immediately (not persisted) |
 | `connect(name)` / `disconnect(name)` / `remove(name)` | stop+start (overrides `disabled`) / stop + `disabled` / remove until restart |
 | `tools() -> Vec<Tool>` | connected tools sorted by server, name; `Tool::prefixed_name()` = `namespace(server)_sanitize(tool)`; `registry_input()`/`registry_output()` give the registry schemas |
@@ -102,7 +104,9 @@ pub struct StoredCredential { pub id: String, pub integration_id: String, pub la
 ```
 
 `expires` is epoch ms (`now + expires_in*1000`), `0` = non-expiring; `scope`, `issuer` and
-`client` are optional. Connect-time refreshes rewrite the row (`update`) keeping `client`;
+`client` are optional. Connect-time refreshes go through `oauth::refresh` (the file lock lives in
+`McpCredentialStore::lock_root()`, core's `<state>/locks`) and rewrite the row keeping `client` and `issuer`; saving tokens
+is skipped when the row's refresh token is neither the presented one nor the new one;
 `invalid_grant` deletes the row only while it still holds the refresh token this connection
 presented. `MemoryCredentialStore` is an in-memory implementation.
 
@@ -126,11 +130,13 @@ applied to accepted content. Core maps these to `"global"`-session forms titled
 - Modern era (`protocol: "auto"` / `"2026-07-28"`): probe, envelope, `resultType` decoding,
   `input_required` auto-fulfilment and the auto `subscriptions/listen` are implemented; the SDK
   response cache, `Mcp-Param-*` header mirroring and the stdio "disposable sibling" probe are not
-  (upstream's custom stdio transport does not use the sibling probe either).
+  (upstream's custom stdio transport does not use the sibling probe either). A tool call that a modern server
+  rejects with `-32020` (HeaderMismatch) is relisted and retried once, as upstream, though without the mirroring
+  ocd never causes one.
+- The opt-in connection pool (`pool: true`, 2.2.7) is not implemented: each Location connects on its own.
 - Sampling (`sampling/createMessage`) is not supported (upstream does not declare it).
-- JSON-Schema output validation uses the `jsonschema` crate; its error texts differ from Ajv's.
 - `tools/list` pages are not validated as a whole (a page that fails for another reason than its tools is accepted,
-  where the SDK fails it); per-tool issues are logged in zod's JSON layout but with simplified messages.
+  where the SDK fails it, e.g. a modern page without `ttlMs`).
 - Network error messages approximate Bun's fetch errors (`Unable to connect. Is the computer able to access the url? (ConnectionRefused)`).
 - Workspace-backed (remote environment) stdio spawning is core's concern; this crate spawns locally.
 - Legacy v1 config normalization diagnostics live in core; `migrate_v1_server` covers the server mapping.

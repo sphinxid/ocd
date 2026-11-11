@@ -2689,7 +2689,7 @@ impl oc_ai::credentials::OAuthMethod for PluginOAuth {
                 oauth_value(host.invoke(&location, &callback, vec![], Some(&attempt)).await.map_err(flow_error)?)
             }))
         };
-        Ok(oc_ai::credentials::AuthorizeResult { url, instructions, expires_at, callback })
+        Ok(oc_ai::credentials::AuthorizeResult { url, instructions, expires_at, callback, submit: None })
     }
 
     fn can_refresh(&self) -> bool {

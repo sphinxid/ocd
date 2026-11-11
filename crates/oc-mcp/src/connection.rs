@@ -22,6 +22,8 @@ use crate::transport::{Transport, TransportKind};
 use crate::types::{CallToolResult, ClientInfo, to_call_tool_result};
 
 const TERMINATE_TIMEOUT: Duration = Duration::from_millis(1_000);
+/// SEP-2243 HeaderMismatch; the SDK does not export the constant.
+const HEADER_MISMATCH: i64 = -32020;
 
 /// Why a connect failed (`MCP.NeedsAuthError` / `MCP.ConnectError`).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -54,6 +56,31 @@ pub struct Connection {
 /// `file://` URL for a directory (`pathToFileURL(directory).href`).
 pub fn file_url(directory: &Path) -> String {
     Url::from_file_path(directory).map(|u| u.to_string()).unwrap_or_else(|_| format!("file://{}", directory.display()))
+}
+
+/// The opencode host's home (`Global.Path.home`): `OPENCODE_TEST_HOME`, else `os.homedir()`.
+fn host_home() -> PathBuf {
+    std::env::var_os("OPENCODE_TEST_HOME").map(PathBuf::from).unwrap_or_else(oc_util::global::os_home)
+}
+
+/// `McpStdio.resolveCwd` (`FileAccess.resolvePath`): a local server's configured `cwd` against the workspace
+/// directory, expanding `~` to the opencode host's home (environments do not expose their own home).
+pub fn resolve_cwd(directory: &Path, cwd: Option<&str>) -> PathBuf {
+    match cwd {
+        None | Some("") => directory.to_path_buf(),
+        Some(cwd) => resolve_with_home(directory, cwd, &host_home()),
+    }
+}
+
+fn resolve_with_home(directory: &Path, cwd: &str, home: &Path) -> PathBuf {
+    if cwd == "~" {
+        return resolve(directory, &home.to_string_lossy());
+    }
+    let rest = cwd.strip_prefix("~/").or_else(|| if cfg!(windows) { cwd.strip_prefix("~\\") } else { None });
+    match rest {
+        Some(rest) => resolve(directory, &home.join(rest).to_string_lossy()),
+        None => resolve(directory, cwd),
+    }
 }
 
 fn resolve(directory: &Path, cwd: &str) -> PathBuf {
@@ -176,10 +203,7 @@ impl Connection {
                 for (k, v) in local.environment.iter().flatten() {
                     environment.insert(k.clone(), v.clone());
                 }
-                let cwd = match &local.cwd {
-                    Some(cwd) => resolve(directory, cwd),
-                    None => directory.to_path_buf(),
-                };
+                let cwd = resolve_cwd(directory, local.cwd.as_deref());
                 let (tx, rx) = mpsc::unbounded_channel();
                 let transport: Arc<dyn Transport> = StdioTransport::new(
                     StdioOptions { server: server.to_string(), command, args, cwd, environment },
@@ -191,10 +215,11 @@ impl Connection {
                 let Ok(configured) = Url::parse(&remote.url) else {
                     return Err(ConnectError::Connect {
                         server: server.to_string(),
-                        message: format!("Invalid MCP URL for \"{server}\""),
+                        message: format!("Invalid MCP server URL: {}", remote.url),
                     });
                 };
-                let fetch = Fetcher::new(server.to_string());
+                let fetch = Fetcher::new(server.to_string())
+                    .with_refresh(auth_provider.as_ref().and_then(|provider| provider.locked_refresh()));
                 // Servers that bundle their own Code Mode expose raw tools with ?codemode=false.
                 let mut url = configured.clone();
                 let added_codemode = remote.codemode != Some(false)
@@ -288,6 +313,10 @@ impl Connection {
 
     /// Maps a request failure, detecting legacy session expiry.
     fn failure(&self, error: McpError) -> McpError {
+        // A tool call that relists first can fail with the list's already mapped expiry.
+        if matches!(error, McpError::SessionExpired { .. }) {
+            return error;
+        }
         let status = error.http_status();
         let Some(status) = status else { return McpError::other(explain(&error, &self.last_error)) };
         if self.client.transport().session_id().is_none() || self.client.transport().kind() != TransportKind::Http {
@@ -335,7 +364,7 @@ impl Connection {
     pub async fn tools(&self) -> Result<Vec<Map<String, Value>>, McpError> {
         let options = self.catalog_options();
         let items = self.list("list MCP tools", || self.client.list_tools(&options)).await?;
-        Ok(items.into_iter().filter_map(|v| v.as_object().cloned()).collect())
+        Ok(crate::tool_check::check_tools(&self.server, items))
     }
 
     pub async fn prompts(&self) -> Result<Vec<Map<String, Value>>, McpError> {
@@ -361,7 +390,16 @@ impl Connection {
     async fn request(&self, what: &str, method: &str, params: Value, progress: bool) -> Result<Value, McpError> {
         let options = RequestOptions { timeout: Some(self.execution), progress, ..Default::default() };
         let result = if method == "tools/call" {
-            self.client.call_tool(params, &options).await
+            let result = self.client.call_tool(params.clone(), &options).await;
+            match result {
+                // A modern server rejects headers mirrored from a stale definition before running the tool, so
+                // relist and retry once with the fresh definition.
+                Err(McpError::Protocol { code: HEADER_MISMATCH, .. }) if self.modern() => match self.tools().await {
+                    Ok(_) => self.client.call_tool(params, &options).await,
+                    Err(error) => Err(error),
+                },
+                other => other,
+            }
         } else {
             self.client.request(method, Some(params), &options).await
         };
@@ -480,6 +518,19 @@ pub fn rejects_unknown_query(url: &Url) -> bool {
 #[cfg(test)]
 mod query_tests {
     use super::*;
+
+    #[test]
+    fn stdio_cwd_expands_the_host_home() {
+        let (dir, home) = (Path::new("/work/project"), Path::new("/home/me"));
+        assert_eq!(resolve_with_home(dir, "~", home), PathBuf::from("/home/me"));
+        assert_eq!(resolve_with_home(dir, "~/tools/../bin", home), PathBuf::from("/home/me/bin"));
+        assert_eq!(resolve_with_home(dir, "sub/./x", home), PathBuf::from("/work/project/sub/x"));
+        assert_eq!(resolve_with_home(dir, "../other", home), PathBuf::from("/work/other"));
+        assert_eq!(resolve_with_home(dir, "/abs", home), PathBuf::from("/abs"));
+        assert_eq!(resolve_with_home(dir, "~user/x", home), PathBuf::from("/work/project/~user/x"));
+        assert_eq!(resolve_cwd(dir, None), PathBuf::from("/work/project"));
+        assert_eq!(resolve_cwd(dir, Some("")), PathBuf::from("/work/project"));
+    }
 
     #[test]
     fn hosts_that_reject_unknown_query_parameters() {

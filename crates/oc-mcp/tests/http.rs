@@ -29,6 +29,12 @@ struct Fake {
     registrations: Vec<Value>,
     token_requests: Vec<Vec<(String, String)>>,
     issue_token: String,
+    /// Refresh tokens already spent: the server rotates them and revokes the grant on reuse.
+    spent: Vec<String>,
+    /// Answer refresh requests with this status (a temporary or permanent failure).
+    refresh_status: Option<u16>,
+    /// Delay refresh answers, so concurrent refreshes overlap.
+    refresh_delay_ms: u64,
 }
 
 type Shared = Arc<Mutex<Fake>>;
@@ -151,15 +157,29 @@ async fn register(State(fake): State<Shared>, body: String) -> Response<Body> {
     json_response(201, Value::Object(out), &[])
 }
 
-async fn token(State(fake): State<Shared>, Form(form): Form<Vec<(String, String)>>) -> Response<Body> {
-    let mut fake = fake.lock();
-    fake.token_requests.push(form.clone());
+async fn token(State(shared): State<Shared>, Form(form): Form<Vec<(String, String)>>) -> Response<Body> {
     let grant = form.iter().find(|(k, _)| k == "grant_type").map(|(_, v)| v.clone()).unwrap_or_default();
+    let delay = shared.lock().refresh_delay_ms;
+    if grant == "refresh_token" && delay > 0 {
+        tokio::time::sleep(Duration::from_millis(delay)).await;
+    }
+    let mut fake = shared.lock();
+    fake.token_requests.push(form.clone());
+    if let (Some(status), "refresh_token") = (fake.refresh_status, grant.as_str()) {
+        return match status {
+            400 => json_response(400, json!({"error": "invalid_grant", "error_description": "Refresh token revoked"}), &[]),
+            status => Response::builder().status(status).body(Body::from("try later")).unwrap(),
+        };
+    }
+    let presented = form.iter().find(|(k, _)| k == "refresh_token").map(|(_, v)| v.clone()).unwrap_or_default();
     let ok = match grant.as_str() {
         "authorization_code" => form.iter().any(|(k, v)| k == "code" && v == "abc"),
-        "refresh_token" => form.iter().any(|(k, v)| k == "refresh_token" && v == "ref-1"),
+        "refresh_token" => presented == "ref-1" && !fake.spent.contains(&presented),
         _ => false,
     };
+    if grant == "refresh_token" {
+        fake.spent.push(presented);
+    }
     if !ok {
         return json_response(400, json!({"error": "invalid_grant", "error_description": "bad grant"}), &[]);
     }
@@ -297,7 +317,7 @@ async fn http_unreachable_and_invalid_url() {
     );
     manager.set_servers(servers).await;
     manager.wait_ready("bad").await.unwrap();
-    assert_eq!(manager.status("bad"), Some(Status::failed("Invalid MCP URL for \"bad\"")));
+    assert_eq!(manager.status("bad"), Some(Status::failed("Invalid MCP server URL: not a url")));
 
     // 401 without OAuth integration → failed with the HTTP status appended.
     let (_fake, port) = start_fake(|f| f.require_token = Some("x".into())).await;
@@ -493,5 +513,278 @@ async fn http_protocol_negotiation_falls_back_or_fails() {
             "Version negotiation failed: the server did not offer pinned protocol version 2026-07-28 via server/discover (no fallback in pin mode)"
         ))
     );
+    manager.shutdown().await;
+}
+
+/// A credential store whose refreshes also take the cross-process `credential-refresh:<id>` file lock.
+struct LockedStore {
+    rows: MemoryCredentialStore,
+    root: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl McpCredentialStore for LockedStore {
+    async fn list(&self, integration_id: &str) -> anyhow::Result<Vec<oc_mcp::StoredCredential>> {
+        self.rows.list(integration_id).await
+    }
+    async fn get(&self, id: &str) -> anyhow::Result<Option<oc_mcp::StoredCredential>> {
+        self.rows.get(id).await
+    }
+    async fn create(&self, integration_id: &str, label: &str, value: Value) -> anyhow::Result<String> {
+        self.rows.create(integration_id, label, value).await
+    }
+    async fn update(&self, id: &str, value: Value) -> anyhow::Result<()> {
+        self.rows.update(id, value).await
+    }
+    async fn remove(&self, id: &str) -> anyhow::Result<()> {
+        self.rows.remove(id).await
+    }
+    fn lock_root(&self) -> Option<std::path::PathBuf> {
+        Some(self.root.clone())
+    }
+}
+
+/// Stores an expired OAuth credential for server `secure` and returns `(integration, credential id)`.
+async fn seed(store: &dyn McpCredentialStore, port: u16, access: &str, refresh: &str) -> (String, String) {
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    let integration = oc_mcp::oauth::integration_id("secure", &url);
+    let id = store
+        .create(
+            &integration,
+            "secure",
+            json!({"type": "oauth", "methodID": integration, "access": access, "refresh": refresh, "expires": 1,
+                   "metadata": {"serverUrl": url, "tokenType": "Bearer", "issuer": format!("http://127.0.0.1:{port}"),
+                                "client": {"client_id": "dyn-client"}}}),
+        )
+        .await
+        .unwrap();
+    (integration, id)
+}
+
+fn refreshes(fake: &Shared) -> usize {
+    fake.lock().token_requests.iter().filter(|form| form.iter().any(|(k, v)| k == "grant_type" && v == "refresh_token")).count()
+}
+
+#[tokio::test]
+async fn http_oauth_refresh_rotates_once_across_locations() {
+    let (fake, port) = start_fake(|f| {
+        f.require_token = Some("tok-2".into());
+        f.issue_token = "tok-2".into();
+        f.refresh_delay_ms = 300;
+    })
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn McpCredentialStore> =
+        Arc::new(LockedStore { rows: MemoryCredentialStore::default(), root: dir.path().join("locks") });
+    let (_, id) = seed(&*store, port, "old", "ref-1").await;
+    // Two Locations connect at once with the same expired credential; the server revokes the grant when a
+    // refresh token is spent twice, so only one of them may refresh.
+    let (a, b) = (manager(Some(store.clone())), manager(Some(store.clone())));
+    tokio::join!(load(&a, "secure", remote(port, None)), load(&b, "secure", remote(port, None)));
+    assert_eq!(a.status("secure"), Some(Status::Connected), "{:?}", a.servers());
+    assert_eq!(b.status("secure"), Some(Status::Connected), "{:?}", b.servers());
+    assert_eq!(refreshes(&fake), 1);
+    let row = store.get(&id).await.unwrap().unwrap().value;
+    assert_eq!((row["access"].as_str(), row["refresh"].as_str()), (Some("tok-2"), Some("ref-2")));
+    assert_eq!(row["metadata"]["issuer"], format!("http://127.0.0.1:{port}"));
+    assert_eq!(row["metadata"]["client"]["client_id"], "dyn-client");
+    a.shutdown().await;
+    b.shutdown().await;
+}
+
+fn refresh_request(port: u16, token: &str) -> oc_mcp::oauth::fetch::HttpRequest {
+    oc_mcp::oauth::fetch::HttpRequest {
+        method: reqwest::Method::POST,
+        url: url::Url::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
+        headers: vec![("Content-Type".into(), "application/x-www-form-urlencoded".into())],
+        body: Some(oc_mcp::oauth::fetch::Body::Form(vec![
+            ("grant_type".into(), "refresh_token".into()),
+            ("refresh_token".into(), token.into()),
+            ("client_id".into(), "dyn-client".into()),
+        ])),
+    }
+}
+
+fn locked(store: &Arc<dyn McpCredentialStore>, id: &str, integration: &str, port: u16) -> oc_mcp::oauth::refresh::LockedRefresh {
+    oc_mcp::oauth::refresh::LockedRefresh {
+        credentials: store.clone(),
+        id: id.into(),
+        method_id: integration.into(),
+        server_url: format!("http://127.0.0.1:{port}/mcp"),
+    }
+}
+
+#[tokio::test]
+async fn locked_refresh_hands_out_tokens_another_process_rotated() {
+    let (fake, port) = start_fake(|_| {}).await;
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn McpCredentialStore> =
+        Arc::new(LockedStore { rows: MemoryCredentialStore::default(), root: dir.path().to_path_buf() });
+    // Another process already spent ref-1 and stored its successor.
+    let (integration, id) = seed(&*store, port, "tok-9", "ref-9").await;
+    let response = locked(&store, &id, &integration, port).send(refresh_request(port, "ref-1"), "ref-1".into()).await.unwrap();
+    assert_eq!(response.status, 200);
+    let body = response.json().unwrap();
+    assert_eq!(body["access_token"], "tok-9");
+    assert_eq!(body["refresh_token"], "ref-9");
+    assert_eq!(body["token_type"], "Bearer");
+    assert_eq!(refreshes(&fake), 0, "the stale refresh token was not spent");
+
+    // The credential was signed out meanwhile: the SDK drops it and reports needs_auth.
+    store.remove(&id).await.unwrap();
+    let response = locked(&store, &id, &integration, port).send(refresh_request(port, "ref-9"), "ref-9".into()).await.unwrap();
+    assert_eq!((response.status, response.json().unwrap()), (400, json!({"error": "invalid_grant"})));
+}
+
+#[tokio::test]
+async fn locked_refresh_keeps_the_login_on_temporary_failures() {
+    let (fake, port) = start_fake(|f| f.refresh_status = Some(503)).await;
+    let store: Arc<dyn McpCredentialStore> = Arc::new(MemoryCredentialStore::default());
+    let (integration, id) = seed(&*store, port, "old", "ref-1").await;
+    let unavailable = |reason: &str| {
+        json!({"error": "temporarily_unavailable", "error_description": format!("Could not refresh the OAuth token: {reason}")})
+    };
+    let response = locked(&store, &id, &integration, port).send(refresh_request(port, "ref-1"), "ref-1".into()).await.unwrap();
+    assert_eq!((response.status, response.json().unwrap()), (503, unavailable("HTTP 503")));
+    fake.lock().refresh_status = Some(429);
+    let response = locked(&store, &id, &integration, port).send(refresh_request(port, "ref-1"), "ref-1".into()).await.unwrap();
+    assert_eq!((response.status, response.json().unwrap()), (503, unavailable("HTTP 429")));
+    // A network failure.
+    let closed = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let response =
+        locked(&store, &id, &integration, port).send(refresh_request(closed, "ref-1"), "ref-1".into()).await.unwrap();
+    assert_eq!(response.status, 503);
+    let description = response.json().unwrap()["error_description"].as_str().unwrap().to_string();
+    assert!(description.starts_with("Could not refresh the OAuth token: "), "{description}");
+    // Any other rejection is passed through as the server sent it.
+    fake.lock().refresh_status = Some(400);
+    let response = locked(&store, &id, &integration, port).send(refresh_request(port, "ref-1"), "ref-1".into()).await.unwrap();
+    assert_eq!(
+        (response.status, response.json().unwrap()),
+        (400, json!({"error": "invalid_grant", "error_description": "Refresh token revoked"}))
+    );
+    let row = store.get(&id).await.unwrap().unwrap().value;
+    assert_eq!((row["access"].as_str(), row["refresh"].as_str()), (Some("old"), Some("ref-1")));
+}
+
+#[tokio::test]
+async fn http_oauth_temporary_refresh_failure_keeps_the_login() {
+    let (fake, port) = start_fake(|f| {
+        f.require_token = Some("tok-2".into());
+        f.issue_token = "tok-2".into();
+        f.refresh_status = Some(503);
+    })
+    .await;
+    let store: Arc<dyn McpCredentialStore> = Arc::new(MemoryCredentialStore::default());
+    let (_, id) = seed(&*store, port, "old", "ref-1").await;
+    let manager = manager(Some(store.clone()));
+    load(&manager, "secure", remote(port, None)).await;
+    assert_eq!(
+        manager.status("secure"),
+        Some(Status::failed("Could not refresh the OAuth token: HTTP 503 (temporarily_unavailable)"))
+    );
+    assert_eq!(store.get(&id).await.unwrap().unwrap().value["refresh"], "ref-1");
+
+    // The next attempt refreshes with the same login.
+    fake.lock().refresh_status = None;
+    manager.connect("secure").await.unwrap();
+    assert_eq!(manager.status("secure"), Some(Status::Connected), "{:?}", manager.servers());
+    assert_eq!(store.get(&id).await.unwrap().unwrap().value["refresh"], "ref-2");
+
+    // A rejected refresh token still signs out.
+    store
+        .update(
+            &id,
+            json!({"type": "oauth", "methodID": "m", "access": "old", "refresh": "ref-2", "expires": 1,
+                   "metadata": {"tokenType": "Bearer", "client": {"client_id": "dyn-client"}}}),
+        )
+        .await
+        .unwrap();
+    fake.lock().refresh_status = Some(400);
+    manager.connect("secure").await.unwrap();
+    assert!(matches!(manager.status("secure"), Some(Status::NeedsAuth { .. })), "{:?}", manager.servers());
+    assert!(store.get(&id).await.unwrap().is_none());
+    manager.shutdown().await;
+}
+
+#[tokio::test]
+async fn refresh_result_is_discarded_when_the_row_changed_meanwhile() {
+    use futures::FutureExt;
+    let store: Arc<dyn McpCredentialStore> = Arc::new(MemoryCredentialStore::default());
+    let id = store.create("mcp_x", "x", json!({"type": "oauth", "access": "a1", "refresh": "r1", "expires": 1})).await.unwrap();
+    let writer = store.clone();
+    let key = id.clone();
+    let result = oc_mcp::oauth::refresh::refresh_credential(
+        store.clone(),
+        &id,
+        |current| current["refresh"] == "r1",
+        move |_| {
+            async move {
+                // Another writer stores a newer login while this refresh runs.
+                writer.update(&key, json!({"type": "oauth", "access": "a3", "refresh": "r3", "expires": 1})).await.unwrap();
+                Ok(json!({"type": "oauth", "access": "a2", "refresh": "r2", "expires": 1}))
+            }
+            .boxed()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result["access"], "a3");
+    assert_eq!(store.get(&id).await.unwrap().unwrap().value["refresh"], "r3");
+
+    // Not stale any more: the stored row is returned without refreshing.
+    let result = oc_mcp::oauth::refresh::refresh_credential(
+        store.clone(),
+        &id,
+        |current| current["refresh"] == "r1",
+        |_| async { Err(oc_mcp::oauth::refresh::RefreshError::Failed("refreshed a fresh credential".into())) }.boxed(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result["refresh"], "r3");
+}
+
+#[tokio::test]
+async fn oauth_pasted_redirect_url() {
+    let (fake, port) = start_fake(|f| f.require_token = Some("tok-1".into())).await;
+    let manager = manager(Some(Arc::new(MemoryCredentialStore::default())));
+    load(&manager, "secure", remote(port, None)).await;
+    // `logo_uri` follows `client_uri` in dynamic registration (#59031).
+    let handle = manager.auth_start("secure").await.unwrap();
+    let registration = fake.lock().registrations[0].clone();
+    let keys: Vec<&String> = registration.as_object().unwrap().keys().collect();
+    assert_eq!(&keys[..4], ["redirect_uris", "client_name", "client_uri", "logo_uri"]);
+    assert_eq!(registration["logo_uri"], "https://opencode.ai/web-app-manifest-512x512.png");
+    let auth_url = url::Url::parse(&handle.url).unwrap();
+    let param = |k: &str| auth_url.query_pairs().find(|(key, _)| key == k).map(|(_, v)| v.into_owned()).unwrap();
+    let (redirect, state) = (param("redirect_uri"), param("state"));
+    let submit = handle.submitter();
+    // Mistakes keep the login waiting.
+    assert_eq!(submit.submit("abc").unwrap_err(), "Paste the full URL from the browser's address bar");
+    assert_eq!(
+        submit.submit(&format!("{redirect}?code=abc&state=other")).unwrap_err(),
+        "This URL belongs to a different sign-in"
+    );
+    assert_eq!(submit.submit(&format!("{redirect}?code=abc")).unwrap_err(), "This URL belongs to a different sign-in");
+    assert_eq!(
+        submit.submit(&format!("{redirect}?state={state}")).unwrap_err(),
+        "The URL does not contain an authorization code"
+    );
+    // The pasted URL finishes the login like the browser's redirect.
+    submit.submit(&format!("  {redirect}?code=abc&state={state}\n")).unwrap();
+    let credential = handle.wait().await.unwrap();
+    assert_eq!(credential["access"], "tok-1");
+
+    // An authorization error in the pasted URL ends the login with its description.
+    let handle = manager.auth_start("secure").await.unwrap();
+    let auth_url = url::Url::parse(&handle.url).unwrap();
+    let state = auth_url.query_pairs().find(|(k, _)| k == "state").unwrap().1.into_owned();
+    handle.submitter().submit(&format!("http://localhost:1/callback?error=access_denied&state={state}")).unwrap();
+    assert_eq!(handle.wait().await.unwrap_err(), "access_denied");
     manager.shutdown().await;
 }

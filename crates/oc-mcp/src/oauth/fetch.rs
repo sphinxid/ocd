@@ -16,6 +16,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+use super::refresh::LockedRefresh;
 use crate::error::McpError;
 
 /// Request body.
@@ -148,7 +149,7 @@ fn build(client: &reqwest::Client, request: &HttpRequest) -> reqwest::RequestBui
     builder.headers(headers)
 }
 
-async fn send_buffered(request: HttpRequest) -> Result<HttpResponse, McpError> {
+pub(crate) async fn send_buffered(request: HttpRequest) -> Result<HttpResponse, McpError> {
     let response = build(&CLIENT, &request).send().await.map_err(|e| McpError::from_reqwest(&e))?;
     let status = response.status();
     let headers = response.headers().clone();
@@ -161,9 +162,14 @@ async fn send_buffered(request: HttpRequest) -> Result<HttpResponse, McpError> {
     })
 }
 
-/// `send`: refresh requests are de-duplicated process-wide by `url \0 client_id \0 refresh_token`.
-async fn send(request: HttpRequest) -> Result<HttpResponse, McpError> {
+/// `send`: refresh requests of a provider backed by a stored credential go through its locked refresh; the rest are
+/// de-duplicated process-wide by `url \0 client_id \0 refresh_token`.
+async fn send(request: HttpRequest, refresh: Option<&LockedRefresh>) -> Result<HttpResponse, McpError> {
     let Some(key) = refresh_key(&request) else { return send_buffered(request).await };
+    if let Some(refresh) = refresh {
+        let token = request.body.as_ref().and_then(|b| b.form_value("refresh_token")).unwrap_or("").to_string();
+        return refresh.send(request, token).await;
+    }
     let shared = {
         let mut map = REFRESHES.lock();
         if let Some(current) = map.get(&key) {
@@ -192,11 +198,19 @@ pub struct Fetcher {
     pub base_headers: Option<IndexMap<String, String>>,
     /// Extra structured fields for logs (e.g. the OAuth attempt id).
     pub fields: Vec<(String, String)>,
+    /// Set for a connection whose provider holds a stored credential: its refreshes run under the credential lock.
+    pub refresh: Option<LockedRefresh>,
 }
 
 impl Fetcher {
     pub fn new(server: impl Into<String>) -> Self {
-        Self { server: server.into(), directory: None, base_headers: None, fields: vec![] }
+        Self { server: server.into(), directory: None, base_headers: None, fields: vec![], refresh: None }
+    }
+
+    /// Pass the connection's provider's locked refresh so a stored credential's refresh runs under the credential lock.
+    pub fn with_refresh(mut self, refresh: Option<LockedRefresh>) -> Self {
+        self.refresh = refresh;
+        self
     }
 
     pub fn with_base_headers(mut self, headers: Option<IndexMap<String, String>>) -> Self {
@@ -247,7 +261,7 @@ impl Fetcher {
             tracing::info!("mcp oauth request started");
         }
         drop(_guard);
-        let result = send(request).await;
+        let result = send(request, self.refresh.as_ref()).await;
         let _guard = span.enter();
         let duration_ms = started.elapsed().as_millis() as u64;
         match &result {

@@ -4,13 +4,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 
 use oc_mcp::manager::{ManagerOptions, McpManager};
 use oc_mcp::oauth::{McpCredentialStore, StoredCredential};
 use oc_mcp::types::ClientInfo;
-use oc_storage::Database;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use tokio_util::sync::CancellationToken;
@@ -19,58 +17,42 @@ use crate::form::{Forms, State};
 
 use crate::location::Location;
 
-pub struct McpCreds(pub Database);
+/// MCP OAuth credentials over core's credential store (`Credential.Service`), so a login an MCP connection drops
+/// publishes `credential.updated`/`credential.switched` like any other removal, plus the `<state>/locks` directory
+/// its `credential-refresh:<id>` locks live in.
+pub struct McpCreds(pub Arc<dyn oc_ai::credentials::store::CredentialStore>, pub Option<std::path::PathBuf>);
+
+fn stored(credential: oc_ai::credentials::Credential) -> StoredCredential {
+    StoredCredential {
+        id: credential.id,
+        integration_id: credential.integration_id,
+        label: credential.label,
+        value: serde_json::to_value(&credential.value).unwrap_or(Value::Null),
+    }
+}
 
 #[async_trait]
 impl McpCredentialStore for McpCreds {
     async fn list(&self, integration_id: &str) -> anyhow::Result<Vec<StoredCredential>> {
-        self.0.with(|c| {
-            let mut s = c.prepare(
-                "SELECT id, integration_id, label, value FROM credential WHERE integration_id = ? ORDER BY active ASC, time_created ASC, id ASC",
-            )?;
-            let r = s
-                .query_map([integration_id], |r| {
-                    let v: String = r.get(3)?;
-                    Ok(StoredCredential { id: r.get(0)?, integration_id: r.get(1)?, label: r.get(2)?, value: serde_json::from_str(&v).unwrap_or(Value::Null) })
-                })?
-                .collect();
-            r
-        })
+        Ok(self.0.list(integration_id).await?.into_iter().map(stored).collect())
     }
     async fn get(&self, id: &str) -> anyhow::Result<Option<StoredCredential>> {
-        self.0.with(|c| {
-            c.query_row("SELECT id, integration_id, label, value FROM credential WHERE id = ?", [id], |r| {
-                let v: String = r.get(3)?;
-                Ok(StoredCredential { id: r.get(0)?, integration_id: r.get(1)?, label: r.get(2)?, value: serde_json::from_str(&v).unwrap_or(Value::Null) })
-            })
-            .optional()
-        })
+        Ok(self.0.get(id).await?.map(stored))
     }
     async fn create(&self, integration_id: &str, label: &str, value: Value) -> anyhow::Result<String> {
-        let id = oc_schema::id::credential();
-        let now = oc_schema::id::now_ms() as i64;
-        self.0.transaction(|c| {
-            c.execute("UPDATE credential SET active = 0 WHERE integration_id = ?", [integration_id])?;
-            c.execute(
-                "INSERT INTO credential (id, integration_id, label, value, active, time_created, time_updated) VALUES (?, ?, ?, ?, 1, ?, ?)",
-                params![id, integration_id, label, value.to_string(), now, now],
-            )?;
-            Ok(())
-        })?;
-        Ok(id)
+        let mut input = oc_ai::credentials::store::CreateCredential::new(integration_id, serde_json::from_value(value)?);
+        input.label = Some(label.to_string());
+        Ok(self.0.create(input).await?.id)
     }
     async fn update(&self, id: &str, value: Value) -> anyhow::Result<()> {
-        self.0.with(|c| {
-            c.execute(
-                "UPDATE credential SET value = ?, time_updated = ? WHERE id = ?",
-                params![value.to_string(), oc_schema::id::now_ms() as i64, id],
-            )
-        })?;
-        Ok(())
+        let update = oc_ai::credentials::store::CredentialUpdate { label: None, value: Some(serde_json::from_value(value)?) };
+        self.0.update(id, update).await
     }
     async fn remove(&self, id: &str) -> anyhow::Result<()> {
-        self.0.with(|c| c.execute("DELETE FROM credential WHERE id = ?", [id]))?;
-        Ok(())
+        self.0.remove(id).await
+    }
+    fn lock_root(&self) -> Option<std::path::PathBuf> {
+        self.1.clone()
     }
 }
 
@@ -97,7 +79,8 @@ pub async fn servers(plugins: &crate::plugins::Plugins, location: &Location) -> 
 /// The location's MCP manager. `sink` receives its events from the first one on (the startup statuses
 /// included), before the servers are set.
 pub async fn manager(
-    db: &Database,
+    credentials: Arc<dyn oc_ai::credentials::store::CredentialStore>,
+    locks: std::path::PathBuf,
     forms: &Forms,
     location: &Location,
     version: &str,
@@ -107,7 +90,7 @@ pub async fn manager(
     let manager = Arc::new(McpManager::new(ManagerOptions {
         directory: location.directory.clone(),
         client_info: ClientInfo { name: "opencode".into(), version: version.into() },
-        credentials: Some(Arc::new(McpCreds(db.clone()))),
+        credentials: Some(Arc::new(McpCreds(credentials, Some(locks)))),
         elicitation: Some(Arc::new(Elicitation::new(
             forms.clone(),
             Some(oc_schema::types::LocationRef { directory: location.key.clone(), workspace_id: None }),
@@ -152,6 +135,11 @@ impl oc_ai::credentials::integration::OAuthMethod for McpOAuthMethod {
             }
         });
         let (url, instructions) = (handle.url.clone(), handle.instructions.clone());
+        let submitter = handle.submitter();
+        let submit: oc_ai::credentials::integration::SubmitFn = Arc::new(move |pasted: String| {
+            let result = submitter.submit(&pasted);
+            Box::pin(async move { result })
+        });
         Ok(AuthorizeResult::auto(url, instructions, async move {
             let value = handle.wait().await.map_err(FlowError::new)?;
             let text = |k: &str| value.get(k).and_then(Value::as_str).unwrap_or("").to_string();
@@ -162,7 +150,8 @@ impl oc_ai::credentials::integration::OAuthMethod for McpOAuthMethod {
                 expires: value.get("expires").and_then(Value::as_u64).unwrap_or(0),
                 metadata: value.get("metadata").and_then(Value::as_object).cloned(),
             })
-        }))
+        })
+        .with_submit(submit))
     }
 }
 

@@ -24,6 +24,13 @@ fn write(out: &mut impl Write, value: Value) {
 
 fn run_fake_server() {
     eprintln!("fake server starting");
+    // A server that takes a while to start.
+    if let Some(delay) = std::env::var("FAKE_START_DELAY_MS").ok().and_then(|d| d.parse().ok()) {
+        std::thread::sleep(Duration::from_millis(delay));
+    }
+    // `exit`: dies on the `server/discover` probe like servers built on SDKs that terminate on any pre-`initialize`
+    // request; `ignore`: never answers it.
+    let discover = std::env::var("FAKE_DISCOVER").unwrap_or_default();
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     // libtest printed "test <name> ... " without a newline; terminate that line.
@@ -31,16 +38,23 @@ fn run_fake_server() {
     stdout.flush().unwrap();
     let mut lines = stdin.lock().lines();
     let mut changed = false;
+    let mut prompts_broken = false;
     let mut next_server_id = 1000;
     while let Some(Ok(line)) = lines.next() {
         let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(method) = msg.get("method").and_then(Value::as_str) else { continue };
         let Some(id) = msg.get("id").cloned() else { continue };
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
+        if method == "server/discover" && discover == "exit" {
+            std::process::exit(0);
+        }
+        if method == "server/discover" && discover == "ignore" {
+            continue;
+        }
         let result: Result<Value, (i64, String)> = match method {
             "initialize" => Ok(json!({
                 "protocolVersion": params["protocolVersion"],
-                "capabilities": {"tools": {"listChanged": true}, "prompts": {}, "resources": {}},
+                "capabilities": {"tools": {"listChanged": true}, "prompts": {"listChanged": true}, "resources": {}},
                 "serverInfo": {"name": "fake", "version": "1.0.0", "title": "  Fake Server  "},
                 "instructions": "  Use the fake server.  \n",
                 "echoClient": {"clientInfo": params["clientInfo"], "capabilities": params["capabilities"]}
@@ -60,7 +74,8 @@ fn run_fake_server() {
                         {"name": "notify", "inputSchema": {"type": "object"}},
                         {"name": "crash", "inputSchema": {"type": "object"}},
                         {"name": "rpc_error", "inputSchema": {"type": "object"}},
-                        {"name": "slow", "inputSchema": {"type": "object"}}
+                        {"name": "slow", "inputSchema": {"type": "object"}},
+                        {"name": "break_prompts", "inputSchema": {"type": "object"}}
                     ]}))
                 }
             }
@@ -96,6 +111,11 @@ fn run_fake_server() {
                         std::process::exit(3);
                     }
                     "rpc_error" => Err((-32000, "kaboom".to_string())),
+                    "break_prompts" => {
+                        prompts_broken = true;
+                        write(&mut stdout, json!({"jsonrpc": "2.0", "method": "notifications/prompts/list_changed"}));
+                        Ok(json!({"content": []}))
+                    }
                     "slow" => {
                         std::thread::sleep(Duration::from_millis(1500));
                         Ok(json!({"content": []}))
@@ -103,6 +123,7 @@ fn run_fake_server() {
                     _ => Err((-32602, format!("Unknown tool: {name}"))),
                 }
             }
+            "prompts/list" if prompts_broken => Err((-32603, "prompts unavailable".to_string())),
             "prompts/list" => Ok(json!({"prompts": [{"name": "greet", "description": "Greets", "arguments": [{"name": "who", "required": true}]}]})),
             "prompts/get" => Ok(json!({"messages": [{"role": "user", "content": {"type": "text", "text": format!("Hello {}", params["arguments"]["who"].as_str().unwrap_or(""))}}]})),
             "resources/list" => Ok(json!({"resources": [
@@ -207,9 +228,9 @@ async fn stdio_lifecycle_tools_and_calls() {
     // Pagination joined both pages; names sorted; prefixed ids sanitized.
     let tools = manager.tools();
     let names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(names, vec!["crash", "echo", "env", "fail", "image", "notify", "roots", "rpc_error", "slow", "structured"]);
-    assert_eq!(tools[1].prefixed_name(), "my_fake_echo");
-    assert_eq!(tools[1].description.as_deref(), Some("Echo"));
+    assert_eq!(names, vec!["break_prompts", "crash", "echo", "env", "fail", "image", "notify", "roots", "rpc_error", "slow", "structured"]);
+    assert_eq!(tools[2].prefixed_name(), "my_fake_echo");
+    assert_eq!(tools[2].description.as_deref(), Some("Echo"));
 
     // Instructions are trimmed.
     assert_eq!(manager.instructions(), vec![("my.fake".to_string(), "Use the fake server.".to_string())]);
@@ -219,9 +240,22 @@ async fn stdio_lifecycle_tools_and_calls() {
     while let Ok(Ok(event)) = tokio::time::timeout(Duration::from_millis(200), events.recv()).await {
         seen.push(event);
     }
-    assert!(seen.contains(&McpEvent::ToolsChanged { server: "my.fake".into() }));
-    assert!(seen.contains(&McpEvent::StatusChanged { server: "my.fake".into() }));
     assert!(seen.contains(&McpEvent::StatusChanged { server: "off".into() }));
+    // On connect: tools, resources and prompts changed, then the status; the prompts announce themselves again once
+    // they loaded in the background.
+    let fake: Vec<&McpEvent> = seen.iter().filter(|e| e.server() == "my.fake").collect();
+    let server = || "my.fake".to_string();
+    assert_eq!(
+        fake,
+        [
+            &McpEvent::StatusChanged { server: server() },
+            &McpEvent::ToolsChanged { server: server() },
+            &McpEvent::ResourcesChanged { server: server() },
+            &McpEvent::PromptsChanged { server: server() },
+            &McpEvent::StatusChanged { server: server() },
+            &McpEvent::PromptsChanged { server: server() },
+        ]
+    );
 
     // Echo carries arguments and the session id meta + progress token.
     let result = manager.call_tool("my.fake", "echo", Some(json!({"x": 1})), Some("ses_1")).await.unwrap();
@@ -248,16 +282,27 @@ async fn stdio_lifecycle_tools_and_calls() {
         ]
     );
 
-    // Structured content validated against the output schema.
+    // Structured content is not checked against the output schema (#61254): a result that breaks the tool's own
+    // schema still completes.
     let result = manager.call_tool("my.fake", "structured", Some(json!({"n": 5})), None).await.unwrap();
     assert_eq!(result.structured, Some(json!({"n": 5})));
-    let error = manager.call_tool("my.fake", "structured", Some(json!({"n": "x"})), None).await.unwrap_err();
-    assert!(
-        error.to_string().starts_with(
-            "MCP tool \"structured\" on server \"my.fake\" failed: Structured content does not match the tool's output schema:"
-        ),
-        "{error}"
+    let result = manager.call_tool("my.fake", "structured", Some(json!({"n": "x"})), None).await.unwrap();
+    assert_eq!(result.structured, Some(json!({"n": "x"})));
+    assert_eq!(
+        manager.tools()[10].output_schema,
+        Some(json!({"type": "object", "properties": {"n": {"type": "number"}}, "required": ["n"]}))
     );
+
+    // A failed prompt refresh keeps the previous prompts and publishes nothing (#62266).
+    let prompt_names = |m: &McpManager| m.prompts().iter().map(|p| p.name.clone()).collect::<Vec<_>>();
+    assert_eq!(prompt_names(&manager), ["greet"]);
+    let mut events = manager.subscribe();
+    manager.call_tool("my.fake", "break_prompts", None, None).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(event, McpEvent::PromptsChanged { .. }), "{event:?}");
+    }
+    assert_eq!(prompt_names(&manager), ["greet"]);
 
     // Environment and resolved cwd.
     let result = manager.call_tool("my.fake", "env", None, None).await.unwrap();
@@ -402,6 +447,110 @@ async fn stdio_spawn_failure_and_reload() {
     // Runtime add.
     manager.add("added", server_config(&[], None)).await;
     connected(&manager, "added").await;
+    manager.shutdown().await;
+}
+
+/// `awaitStartup` (#60490): a model call waits up to 2 s for servers that are still connecting, counted from when
+/// each began; slow servers miss that step's tools and join once they connect.
+#[tokio::test]
+async fn model_calls_wait_two_seconds_for_servers_still_connecting() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(dir.path().to_path_buf());
+    let mut servers = IndexMap::new();
+    servers.insert("quick".to_string(), server_config(&[], None));
+    servers.insert("slow".to_string(), server_config(&[("FAKE_START_DELAY_MS", "4000")], None));
+    manager.set_servers(servers).await;
+    let started = std::time::Instant::now();
+    manager.flush().await;
+    let waited = started.elapsed();
+    assert!(waited >= Duration::from_millis(1_900) && waited < Duration::from_millis(3_500), "{waited:?}");
+    assert_eq!(manager.status("quick"), Some(Status::Connected));
+    assert_eq!(manager.status("slow"), Some(Status::Pending));
+    let servers_of = |tools: Vec<oc_mcp::Tool>| {
+        let mut servers: Vec<String> = tools.into_iter().map(|t| t.server).collect();
+        servers.dedup();
+        servers
+    };
+    assert_eq!(servers_of(manager.registered_tools()), ["quick"]);
+    // A server past its window never waits.
+    let started = std::time::Instant::now();
+    manager.await_startup().await;
+    assert!(started.elapsed() < Duration::from_millis(200));
+    // Once it connected, the next model call lists its tools without waiting for the debounced reload.
+    connected(&manager, "slow").await;
+    manager.flush().await;
+    assert_eq!(servers_of(manager.registered_tools()), ["quick", "slow"]);
+    manager.shutdown().await;
+}
+
+/// Legacy stdio servers (#61496): the SDK classifies upstream's stdio transport as stdio, where an unanswered probe
+/// means a legacy server and a closed one fails with the in-place probe text.
+#[tokio::test]
+async fn stdio_probe_that_closes_or_goes_unanswered() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(dir.path().to_path_buf());
+    let config = |discover: &str, protocol: oc_mcp::Protocol| {
+        let mut config = server_config(&[("FAKE_DISCOVER", discover)], None);
+        if let ServerConfig::Local(local) = &mut config {
+            local.protocol = Some(protocol);
+            local.timeout = Some(TimeoutConfig { startup: Some(1_500), catalog: Some(10_000), execution: Some(1_000) });
+        }
+        config
+    };
+    let mut servers = IndexMap::new();
+    servers.insert("auto-ignore".to_string(), config("ignore", oc_mcp::Protocol::Auto));
+    servers.insert("auto-exit".to_string(), config("exit", oc_mcp::Protocol::Auto));
+    servers.insert("pin-ignore".to_string(), config("ignore", oc_mcp::Protocol::V2026_07_28));
+    servers.insert("pin-exit".to_string(), config("exit", oc_mcp::Protocol::V2026_07_28));
+    manager.set_servers(servers).await;
+    for name in ["auto-ignore", "auto-exit", "pin-ignore", "pin-exit"] {
+        manager.wait_ready(name).await.unwrap();
+    }
+    assert_eq!(manager.status("auto-ignore"), Some(Status::Connected), "{:?}", manager.servers());
+    assert_eq!(
+        manager.status("auto-exit"),
+        Some(Status::failed(
+            "Version negotiation failed: the connection closed during the server/discover probe (this transport probed in place — the disposable sibling probe requires the SDK's base StdioClientTransport)"
+        ))
+    );
+    assert_eq!(
+        manager.status("pin-ignore"),
+        Some(Status::failed(
+            "Version negotiation failed: the server did not offer pinned protocol version 2026-07-28 via server/discover (no fallback in pin mode)"
+        ))
+    );
+    assert_eq!(
+        manager.status("pin-exit"),
+        Some(Status::failed(
+            "Version negotiation failed: the connection closed during the server/discover probe before the server offered pinned protocol version 2026-07-28 (no fallback in pin mode)"
+        ))
+    );
+    manager.shutdown().await;
+}
+
+/// `connect` finishes even when its caller goes away (an HTTP client dropping the request), instead of leaving the
+/// server `pending`.
+#[tokio::test]
+async fn connect_finishes_when_the_caller_goes_away() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(dir.path().to_path_buf());
+    let mut servers = IndexMap::new();
+    servers.insert("s".to_string(), server_config(&[("FAKE_START_DELAY_MS", "500")], None));
+    manager.set_servers(servers).await;
+    connected(&manager, "s").await;
+    assert!(tokio::time::timeout(Duration::from_millis(100), manager.connect("s")).await.is_err());
+    assert_eq!(manager.status("s"), Some(Status::Pending));
+    let status = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            match manager.status("s") {
+                Some(Status::Pending) => tokio::time::sleep(Duration::from_millis(50)).await,
+                other => return other,
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(status, Some(Status::Connected));
     manager.shutdown().await;
 }
 

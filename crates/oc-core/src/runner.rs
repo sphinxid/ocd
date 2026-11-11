@@ -425,7 +425,7 @@ impl Engine {
             let (E::ToolsChanged { server } | E::ResourcesChanged { server } | E::StatusChanged { server } | E::PromptsChanged { server }) = ev;
             bus.publish(ev.event_type(), serde_json::json!({"server": server}), Some(loc.clone()));
         });
-        let m = crate::mcp::manager(&self.app.db, &self.app.forms, location, &self.app.version, &self.app.plugins, sink).await;
+        let m = crate::mcp::manager(self.models.credential_store(), self.app.global.locks(), &self.app.forms, location, &self.app.version, &self.app.plugins, sink).await;
         // `Credential.Event.Switched` for a server's integration (an OAuth login through the
         // integration API) brings that server back online with the new credential.
         let mut events = self.app.bus.subscribe();
@@ -496,12 +496,8 @@ impl Engine {
         let agent = agents.select(agent_id.as_deref()).cloned().ok_or_else(|| agent_not_found(agent_id.as_deref().unwrap_or("build")))?;
         let permissions = crate::permission::merge(&[&agent.permissions, session.permissions.as_deref().unwrap_or(&[])]);
         let mcp = self.mcp(&location).await;
-        // `mcpTools.flush`: let pending servers finish their first connection attempt.
-        for server in mcp.servers() {
-            if matches!(server.status, oc_mcp::types::Status::Pending) {
-                let _ = mcp.wait_ready(&server.name).await;
-            }
-        }
+        // `mcpTools.flush`: give servers still connecting up to 2 s from when they began, then list what is connected.
+        mcp.flush().await;
         let registry = self.artifact_registry(&location, self.base_registry(&location, &mcp).await).await;
         let registry = self.post_registry(&location.key, self.app.plugins.tools(&location.key, registry).await);
         let snapshot = registry.snapshot(&permissions);
@@ -1328,13 +1324,9 @@ pub struct CheckEnv {
 }
 
 impl CheckEnv {
-    /// `mcpTools.flush`: let pending servers finish their first connection attempt.
+    /// `mcpTools.flush`: give servers still connecting up to 2 s from when they began, then list what is connected.
     pub async fn flush_mcp(&self) {
-        for server in self.mcp.servers() {
-            if matches!(server.status, oc_mcp::types::Status::Pending) {
-                let _ = self.mcp.wait_ready(&server.name).await;
-            }
-        }
+        self.mcp.flush().await;
     }
 }
 

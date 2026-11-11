@@ -10,6 +10,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, watch};
+use url::Url;
 
 use crate::config::{ServerConfig, apply_codemode_defaults};
 use crate::connection::{ConnectError, Connection};
@@ -86,12 +87,29 @@ impl KeyedMutex {
 // Concurrent startups to the same remote URL are serialized across all Locations.
 static ENDPOINT_LOADS: Lazy<KeyedMutex> = Lazy::new(KeyedMutex::default);
 
+/// How long a model call may wait for a server that is still connecting, counted from when it began
+/// (`STARTUP_GRACE_MS`).
+pub const STARTUP_GRACE: std::time::Duration = std::time::Duration::from_millis(2_000);
+
+/// The connection attempt in flight: when it began and a latch that opens once it settles.
+struct Attempt {
+    started: tokio::time::Instant,
+    settled: watch::Sender<bool>,
+}
+
+impl Attempt {
+    fn new(started: tokio::time::Instant) -> Self {
+        Self { started, settled: watch::channel(false).0 }
+    }
+}
+
 #[derive(Default)]
 struct EntryState {
     status: Option<Status>,
     connection: Option<Arc<Connection>>,
     tools: Option<Vec<Tool>>,
     prompts: Option<Vec<Prompt>>,
+    attempt: Option<Attempt>,
 }
 
 struct Entry {
@@ -102,7 +120,7 @@ struct Entry {
 }
 
 impl Entry {
-    fn new(name: &str, config: ServerConfig) -> Arc<Self> {
+    fn new(name: &str, config: ServerConfig, started: tokio::time::Instant) -> Arc<Self> {
         let integration_id = match &config {
             ServerConfig::Remote(remote) if !remote.oauth_disabled() => Some(oauth::integration_id(name, &remote.url)),
             _ => None,
@@ -110,9 +128,30 @@ impl Entry {
         Arc::new(Self {
             config,
             integration_id,
-            state: Mutex::new(EntryState { status: Some(Status::Pending), ..Default::default() }),
+            state: Mutex::new(EntryState {
+                status: Some(Status::Pending),
+                attempt: Some(Attempt::new(started)),
+                ..Default::default()
+            }),
             startup: watch::channel(false).0,
         })
+    }
+
+    /// `connecting`: a server still pending from creation keeps the window that started with its entry.
+    fn connecting(&self) {
+        let mut state = self.state.lock();
+        if state.attempt.is_none() || state.status != Some(Status::Pending) {
+            state.attempt = Some(Attempt::new(tokio::time::Instant::now()));
+        }
+        state.status = Some(Status::Pending);
+    }
+
+    /// `settled`: the attempt ended, however it ended.
+    fn settled(&self) {
+        if let Some(attempt) = self.state.lock().attempt.take() {
+            attempt.settled.send_replace(true);
+        }
+        self.open_startup();
     }
 
     fn status(&self) -> Status {
@@ -285,8 +324,9 @@ impl McpManager {
         let servers = self.effective();
         let initial = self.inner.applied.lock().is_none() && self.inner.entries.lock().is_empty();
         if initial {
+            let started = tokio::time::Instant::now();
             let entries: Vec<(String, Arc<Entry>)> =
-                servers.iter().map(|(name, config)| (name.clone(), Entry::new(name, config.clone()))).collect();
+                servers.iter().map(|(name, config)| (name.clone(), Entry::new(name, config.clone(), started))).collect();
             {
                 let mut map = self.inner.entries.lock();
                 for (name, entry) in &entries {
@@ -351,7 +391,7 @@ impl McpManager {
         if let Some(previous) = self.entry(name) {
             self.stop_server(name, &previous).await;
         }
-        let entry = Entry::new(name, config);
+        let entry = Entry::new(name, config, tokio::time::Instant::now());
         self.inner.entries.lock().insert(name.to_string(), entry.clone());
         if entry.config.disabled() {
             entry.set_status(Status::Disabled);
@@ -374,7 +414,7 @@ impl McpManager {
         Box::pin(async move {
             // Announce the handshake so connect() and credential reconnects don't show a stale
             // disabled/failed status for the duration of the connection attempt.
-            entry.set_status(Status::Pending);
+            entry.connecting();
             self.publish(McpEvent::StatusChanged { server: name.to_string() });
             self.connect_server(name, entry).await;
         })
@@ -385,6 +425,17 @@ impl McpManager {
         Box::pin(async move {
             let connection_id = uuid::Uuid::new_v4().to_string();
             let directory = self.inner.options.directory.display().to_string();
+            // Checked before the OAuth provider is built, which parses the URL too.
+            if let ServerConfig::Remote(remote) = &entry.config {
+                if Url::parse(&remote.url).is_err() {
+                    let status = Status::Failed { error: format!("Invalid MCP server URL: {}", remote.url) };
+                    tracing::warn!(server = %name, directory = %directory, connectionID = %connection_id, status = ?status, "mcp connect failed");
+                    entry.set_status(status);
+                    self.publish(McpEvent::StatusChanged { server: name.to_string() });
+                    entry.settled();
+                    return;
+                }
+            }
             let result = async {
                 let provider = match (&entry.config, &entry.integration_id) {
                     (ServerConfig::Remote(remote), Some(integration_id)) => Some(Arc::new(
@@ -437,8 +488,11 @@ impl McpManager {
                     }
                     self.watch(name, entry, &connection);
                     tracing::info!(server = %name, directory = %directory, connectionID = %connection_id, tools = count, "mcp connected");
+                    // Announce every list a consumer may read, since each reads them only on these events; prompts
+                    // still loading read empty now and announce themselves later.
                     self.publish(McpEvent::ToolsChanged { server: name.to_string() });
                     self.publish(McpEvent::ResourcesChanged { server: name.to_string() });
+                    self.publish(McpEvent::PromptsChanged { server: name.to_string() });
                     self.publish(McpEvent::StatusChanged { server: name.to_string() });
                     let this = self.clone();
                     let name = name.to_string();
@@ -460,7 +514,7 @@ impl McpManager {
                     self.publish(McpEvent::StatusChanged { server: name.to_string() });
                 }
             }
-            entry.open_startup();
+            entry.settled();
         })
     }
 
@@ -481,8 +535,9 @@ impl McpManager {
         self.publish(McpEvent::PromptsChanged { server: name.to_string() });
     }
 
+    /// A failed refresh keeps the previous prompts and publishes nothing.
     async fn refresh_prompts(&self, name: &str, entry: &Arc<Entry>, connection: &Arc<Connection>) {
-        let prompts = connection.prompts().await.unwrap_or_default();
+        let Ok(prompts) = connection.prompts().await else { return };
         entry.state.lock().prompts = Some(prompts.into_iter().filter_map(|p| Prompt::from_raw(name, p)).collect());
         self.publish(McpEvent::PromptsChanged { server: name.to_string() });
     }
@@ -621,29 +676,85 @@ impl McpManager {
         Ok(())
     }
 
+    /// `awaitStartup`: waits for servers that are still connecting, each until it settles or until its startup grace
+    /// window ([`STARTUP_GRACE`] from when its attempt began) ends. Servers past their window never wait.
+    pub async fn await_startup(&self) {
+        let now = tokio::time::Instant::now();
+        let waits: Vec<_> = self
+            .inner
+            .entries
+            .lock()
+            .values()
+            .filter_map(|entry| {
+                let state = entry.state.lock();
+                if state.status != Some(Status::Pending) {
+                    return None;
+                }
+                let attempt = state.attempt.as_ref()?;
+                let deadline = attempt.started + STARTUP_GRACE;
+                (deadline > now).then(|| (attempt.settled.subscribe(), deadline))
+            })
+            .collect();
+        futures::future::join_all(waits.into_iter().map(|(mut settled, deadline)| async move {
+            let _ = tokio::time::timeout_at(deadline, settled.wait_for(|done| *done)).await;
+        }))
+        .await;
+    }
+
+    /// `mcpTools.flush` (`tool/mcp.ts`): gives servers still connecting a bounded chance to finish
+    /// ([`McpManager::await_startup`]), then brings the registered tools up to date without waiting for the debounced
+    /// reload. Slow servers miss this step's tools and join once they publish a change.
+    pub async fn flush(&self) {
+        self.await_startup().await;
+        let current = self.tools();
+        let mut registered = self.inner.registered.lock();
+        if registered.as_ref() != Some(&current) {
+            *registered = Some(current);
+        }
+    }
+
     /// Runtime add/replace (not persisted); connects immediately.
     pub async fn add(&self, server: &str, config: ServerConfig) {
         self.inner.overrides.lock().insert(server.to_string(), Some(config));
         self.reconcile().await;
     }
 
+    /// Runs a requested lifecycle operation to the end even if its caller goes away, such as a client dropping the
+    /// HTTP request (`transition`). Stopped halfway, a server stays `pending` after a cancelled connect, or
+    /// `connected` with no connection after a cancelled disconnect.
+    async fn transition<F, Fut>(&self, run: F) -> Result<(), ManagerError>
+    where
+        F: FnOnce(McpManager) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<(), ManagerError>> + Send + 'static,
+    {
+        tokio::spawn(run(self.clone())).await.unwrap_or_else(|error| Err(ManagerError::Other(error.to_string())))
+    }
+
     /// Stop + start; overrides `disabled` until restart.
     pub async fn connect(&self, server: &str) -> Result<(), ManagerError> {
-        let _guard = self.inner.locks.lock(server).await;
-        let entry = self.require(server)?;
-        self.stop_server(server, &entry).await;
-        self.start_server(server, &entry).await;
-        Ok(())
+        let server = server.to_string();
+        self.transition(move |this| async move {
+            let _guard = this.inner.locks.lock(&server).await;
+            let entry = this.require(&server)?;
+            this.stop_server(&server, &entry).await;
+            this.start_server(&server, &entry).await;
+            Ok(())
+        })
+        .await
     }
 
     /// Stop and mark `disabled` until reconnect.
     pub async fn disconnect(&self, server: &str) -> Result<(), ManagerError> {
-        let _guard = self.inner.locks.lock(server).await;
-        let entry = self.require(server)?;
-        self.stop_server(server, &entry).await;
-        entry.set_status(Status::Disabled);
-        self.publish(McpEvent::StatusChanged { server: server.to_string() });
-        Ok(())
+        let server = server.to_string();
+        self.transition(move |this| async move {
+            let _guard = this.inner.locks.lock(&server).await;
+            let entry = this.require(&server)?;
+            this.stop_server(&server, &entry).await;
+            entry.set_status(Status::Disabled);
+            this.publish(McpEvent::StatusChanged { server });
+            Ok(())
+        })
+        .await
     }
 
     /// Removes the server until restart (credentials survive).

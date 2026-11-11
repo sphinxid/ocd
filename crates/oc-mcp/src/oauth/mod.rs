@@ -5,6 +5,7 @@ pub mod callback;
 pub mod discovery;
 pub mod fetch;
 pub mod page;
+pub mod refresh;
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -19,7 +20,7 @@ use url::Url;
 
 use crate::config::RemoteConfig;
 use crate::error::McpError;
-pub use callback::{AuthorizeHandle, AuthorizeOptions, authorize};
+pub use callback::{AuthorizeHandle, AuthorizeOptions, Submitter, authorize};
 use discovery::{AuthServerMetadata, DiscoveryState, ResourceMetadata};
 use fetch::{Body, Fetcher, HttpRequest};
 
@@ -62,6 +63,11 @@ pub trait McpCredentialStore: Send + Sync {
     async fn create(&self, integration_id: &str, label: &str, value: Value) -> anyhow::Result<String>;
     async fn update(&self, id: &str, value: Value) -> anyhow::Result<()>;
     async fn remove(&self, id: &str) -> anyhow::Result<()>;
+    /// Where the cross-process `credential-refresh:<id>` locks live (`<state>/locks`), shared with every process
+    /// using the same database. `None` refreshes under the in-process share only.
+    fn lock_root(&self) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 /// In-memory [`McpCredentialStore`] (tests and embedders without a database).
@@ -278,6 +284,13 @@ impl TokenStore for CredentialStore {
     }
     async fn save_tokens(&self, tokens: Tokens) -> Result<(), McpError> {
         let previous = self.read().await?;
+        // Another connection rotated past the token this one presented; its tokens win.
+        if let Some(previous) = &previous {
+            let stored = previous.get("refresh").and_then(Value::as_str).unwrap_or("");
+            if stored != *self.presented.lock() && stored != tokens.refresh_token.as_deref().unwrap_or("") {
+                return Ok(());
+            }
+        }
         let client = previous.as_ref().and_then(client_from_credential);
         let value = to_credential(&self.method_id, &self.server_url, &tokens, client.as_ref());
         *self.presented.lock() = value["refresh"].as_str().unwrap_or("").to_string();
@@ -388,6 +401,11 @@ impl Provider {
         &self.store
     }
 
+    /// The locked refresh of a provider over a stored credential, for the connection's fetch (`lockedRefreshes`).
+    pub fn locked_refresh(&self) -> Option<refresh::LockedRefresh> {
+        self.fetch.refresh.clone()
+    }
+
     fn refuse(&self, what: &str) -> McpError {
         McpError::Unauthorized(format!("MCP server \"{}\" requires {}", self.config.url, what))
     }
@@ -424,6 +442,7 @@ impl Provider {
         m.insert("redirect_uris".into(), json!([self.redirect_url]));
         m.insert("client_name".into(), json!("opencode"));
         m.insert("client_uri".into(), json!("https://opencode.ai"));
+        m.insert("logo_uri".into(), json!("https://opencode.ai/web-app-manifest-512x512.png"));
         m.insert("grant_types".into(), json!(["authorization_code", "refresh_token"]));
         m.insert("response_types".into(), json!(["code"]));
         let has_secret = self.static_client.as_ref().is_some_and(|c| c.contains_key("client_secret"));
@@ -1034,7 +1053,10 @@ async fn register_client(
 }
 
 /// `connectProvider`: the provider used when connecting. With no stored OAuth credential it is a
-/// provider over an empty memory store without a redirect, so a 401 ends in `needs_auth`.
+/// provider over an empty memory store without a redirect, so a 401 ends in `needs_auth`. With one, its
+/// refreshes run under the credential lock ([`refresh::LockedRefresh`]): every process and Location sharing the
+/// database refreshes the row one at a time, and a caller holding a refresh token the row no longer has gets the
+/// stored tokens instead of spending it (servers that rotate refresh tokens revoke the grant on reuse).
 pub async fn connect_provider(
     config: &RemoteConfig,
     integration_id: &str,
@@ -1048,14 +1070,22 @@ pub async fn connect_provider(
     let Some(found) = found.filter(|f| f.value.get("type").and_then(Value::as_str) == Some("oauth")) else {
         return Provider::new(config.clone(), Arc::new(MemoryStore::default()), None, None, None, fetch);
     };
-    let store = CredentialStore {
-        credentials: credentials.unwrap().clone(),
+    let credentials = credentials.unwrap().clone();
+    let method_id = found.value.get("methodID").and_then(Value::as_str).unwrap_or("").to_string();
+    let locked = refresh::LockedRefresh {
+        credentials: credentials.clone(),
         id: found.id.clone(),
-        method_id: found.value.get("methodID").and_then(Value::as_str).unwrap_or("").to_string(),
+        method_id: method_id.clone(),
+        server_url: config.url.clone(),
+    };
+    let store = CredentialStore {
+        credentials,
+        id: found.id.clone(),
+        method_id,
         server_url: config.url.clone(),
         presented: Mutex::new(found.value.get("refresh").and_then(Value::as_str).unwrap_or("").to_string()),
     };
-    Provider::new(config.clone(), Arc::new(store), None, None, None, fetch)
+    Provider::new(config.clone(), Arc::new(store), None, None, None, fetch.with_refresh(Some(locked)))
 }
 
 #[cfg(test)]
@@ -1099,6 +1129,40 @@ mod tests {
         assert_eq!(non_expiring["refresh"], "");
         let t = to_tokens(&non_expiring);
         assert!(t.expires_in.is_none() && t.refresh_token.is_none());
+    }
+
+    /// `saveTokens` (#62827): another connection rotated past the refresh token this one presented, so its tokens win.
+    #[tokio::test]
+    async fn saving_tokens_skips_a_login_another_connection_rotated() {
+        let rows: Arc<dyn McpCredentialStore> = Arc::new(MemoryCredentialStore::default());
+        let id = rows
+            .create("mcp_x", "x", json!({"type": "oauth", "methodID": "mcp_x", "access": "a1", "refresh": "r1", "expires": 0, "metadata": {"client": {"client_id": "c"}}}))
+            .await
+            .unwrap();
+        let store = CredentialStore {
+            credentials: rows.clone(),
+            id: id.clone(),
+            method_id: "mcp_x".into(),
+            server_url: "https://x.test/mcp".into(),
+            presented: Mutex::new("r1".into()),
+        };
+        let tokens = |access: &str, refresh: &str| Tokens {
+            access_token: access.into(),
+            token_type: "Bearer".into(),
+            refresh_token: Some(refresh.into()),
+            ..Default::default()
+        };
+        // Another connection stores r2.
+        rows.update(&id, json!({"type": "oauth", "methodID": "mcp_x", "access": "a2", "refresh": "r2", "expires": 0})).await.unwrap();
+        store.save_tokens(tokens("a3", "r3")).await.unwrap();
+        assert_eq!(rows.get(&id).await.unwrap().unwrap().value["access"], "a2");
+        // Saving the stored refresh token's own tokens (a refresh another holder ran) goes through.
+        store.save_tokens(tokens("a2b", "r2")).await.unwrap();
+        assert_eq!(rows.get(&id).await.unwrap().unwrap().value["access"], "a2b");
+        // So does a save while the row still holds the token this connection presented.
+        store.save_tokens(tokens("a4", "r4")).await.unwrap();
+        let row = rows.get(&id).await.unwrap().unwrap().value;
+        assert_eq!((row["access"].as_str(), row["refresh"].as_str()), (Some("a4"), Some("r4")));
     }
 
     #[test]

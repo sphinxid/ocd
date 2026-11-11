@@ -120,5 +120,12 @@ def wire22_mcp_malformed_tools(ctx):
     server = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_mcp.py")
     extra = provider(ctx.mock.port)
     extra["mcp"] = {"servers": {"fake": {"type": "local", "command": [sys.executable, server]}}}
-    run_prompt(ctx, [{"text": "Hello"}], llm_full=True, config_extra=extra,
-               before=lambda ctx, sid: ctx.call("mcp.list", "GET", "/api/mcp?" + "directory=" + ctx.project))
+    def before(ctx, sid):
+        # Whether the server is still `pending` right after the session exists is a spawn-time race in both
+        # binaries, so the list is recorded once its first connection attempt settled.
+        import time
+        deadline = time.time() + 20
+        while time.time() < deadline and '"pending"' in str(ctx.call("mcp.list", "GET", "/api/mcp?directory=" + ctx.project, record=False)[1]).replace("'", '"'):
+            time.sleep(0.2)
+        ctx.call("mcp.list", "GET", "/api/mcp?" + "directory=" + ctx.project)
+    run_prompt(ctx, [{"text": "Hello"}], llm_full=True, config_extra=extra, before=before)

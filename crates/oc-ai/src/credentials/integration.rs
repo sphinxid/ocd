@@ -306,6 +306,10 @@ pub enum OAuthCallback {
     Code(Box<dyn FnOnce(String) -> BoxFuture<FlowResult<OAuthValue>> + Send>),
 }
 
+/// Hands an `auto` callback the redirect URL a user pasted, for when the browser cannot reach this machine. `Err`
+/// carries the message; the attempt still settles through its callback.
+pub type SubmitFn = Arc<dyn Fn(String) -> BoxFuture<Result<(), String>> + Send + Sync>;
+
 /// Result of `authorize(answer)` (`OAuthAuthorization`).
 pub struct AuthorizeResult {
     pub url: String,
@@ -313,6 +317,8 @@ pub struct AuthorizeResult {
     /// Epoch ms; the attempt expires at `expires_at ?? created + 10 min`.
     pub expires_at: Option<u64>,
     pub callback: OAuthCallback,
+    /// `auto` only: the attempt also accepts the pasted redirect URL as its `code` (`paste: true`).
+    pub submit: Option<SubmitFn>,
 }
 
 impl AuthorizeResult {
@@ -325,7 +331,14 @@ impl AuthorizeResult {
             instructions: instructions.into(),
             expires_at: None,
             callback: OAuthCallback::Auto(Box::pin(callback)),
+            submit: None,
         }
+    }
+
+    /// An `auto` authorization that also accepts the redirect URL pasted from the browser.
+    pub fn with_submit(mut self, submit: SubmitFn) -> Self {
+        self.submit = Some(submit);
+        self
     }
 
     pub fn mode(&self) -> AttemptMode {
@@ -393,6 +406,9 @@ pub struct Attempt {
     pub url: String,
     pub instructions: String,
     pub mode: AttemptMode,
+    /// An `auto` attempt also accepts the redirect URL pasted from the browser as its `code`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paste: Option<bool>,
     pub time: AttemptTime,
 }
 
@@ -479,6 +495,7 @@ enum OAuthAttempt {
         persisting: bool,
         mode: AttemptMode,
         code_callback: Option<Box<dyn FnOnce(String) -> BoxFuture<FlowResult<OAuthValue>> + Send>>,
+        submit: Option<SubmitFn>,
         integration_id: String,
         method_id: String,
         label: Option<String>,
@@ -1040,6 +1057,8 @@ impl Integrations {
         let created = self.now();
         let time = AttemptTime { created, expires: authorization.expires_at.unwrap_or(created + ATTEMPT_LIFETIME_MS) };
         let mode = authorization.mode();
+        let submit = authorization.submit.filter(|_| mode == AttemptMode::Auto);
+        let paste = submit.is_some().then_some(true);
         let (auto, code_callback) = match authorization.callback {
             OAuthCallback::Auto(future) => (Some(future), None),
             OAuthCallback::Code(callback) => (None, Some(callback)),
@@ -1051,6 +1070,7 @@ impl Integrations {
                 persisting: false,
                 mode,
                 code_callback,
+                submit,
                 integration_id: input.integration_id.clone(),
                 method_id: input.method_id.clone(),
                 label: input.label,
@@ -1069,7 +1089,7 @@ impl Integrations {
                 let _ = this.settle(&attempt_id, result).await;
             });
         }
-        Ok(Attempt { attempt_id: id, url: authorization.url, instructions: authorization.instructions, mode, time })
+        Ok(Attempt { attempt_id: id, url: authorization.url, instructions: authorization.instructions, mode, paste, time })
     }
 
     /// Settles a pending attempt with the callback's result; on success persists the credential.
@@ -1154,7 +1174,9 @@ impl Integrations {
         }
     }
 
-    /// `oauth.complete`: runs a `code`-mode callback and stores its credential.
+    /// `oauth.complete`: runs a `code`-mode callback and stores its credential. A `code` for an `auto` attempt that
+    /// accepts a pasted redirect URL is handed to it; the attempt still settles through its callback, and clients keep
+    /// polling its status for the result.
     pub async fn complete_oauth(
         &self,
         integration_id: &str,
@@ -1175,22 +1197,30 @@ impl Integrations {
                     }
                     return Ok(());
                 }
-                Some(OAuthAttempt::Pending { integration_id: owner, mode, completing, code_callback, .. }) => {
+                Some(OAuthAttempt::Pending { integration_id: owner, mode, completing, code_callback, submit, .. }) => {
                     if owner != integration_id {
                         return Err(not_found());
                     }
-                    if *mode == AttemptMode::Code && code.is_none() {
-                        return Err(IntegrationError::CodeRequired { attempt_id: attempt_id.into() });
+                    if let (AttemptMode::Auto, Some(submit), Some(code)) = (*mode, submit.as_ref(), code.as_ref()) {
+                        Err(submit(code.clone()))
+                    } else {
+                        if *mode == AttemptMode::Code && code.is_none() {
+                            return Err(IntegrationError::CodeRequired { attempt_id: attempt_id.into() });
+                        }
+                        if *completing {
+                            return Err(IntegrationError::Defect(format!(
+                                "OAuth attempt already completing: {attempt_id}"
+                            )));
+                        }
+                        *completing = true;
+                        Ok(code_callback.take())
                     }
-                    if *completing {
-                        return Err(IntegrationError::Defect(format!(
-                            "OAuth attempt already completing: {attempt_id}"
-                        )));
-                    }
-                    *completing = true;
-                    code_callback.take()
                 }
             }
+        };
+        let callback = match callback {
+            Ok(callback) => callback,
+            Err(pasted) => return pasted.await.map_err(IntegrationError::Authorization),
         };
         let Some(callback) = callback else {
             return Err(IntegrationError::Defect(format!("OAuth attempt already completing: {attempt_id}")));

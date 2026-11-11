@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::config::Protocol as ProtocolSetting;
 use crate::error::{McpError, SdkErrorCode, codes};
 use crate::jsonrpc;
-use crate::transport::{SendOptions, Transport, TransportEvent};
+use crate::transport::{SendOptions, Transport, TransportEvent, TransportKind};
 use crate::types::ClientInfo;
 
 /// `LATEST_PROTOCOL_VERSION` — what the legacy handshake offers.
@@ -103,7 +103,6 @@ pub struct Client {
     negotiated: RwLock<Option<String>>,
     callbacks: RwLock<Callbacks>,
     list_changed: RwLock<(bool, bool, bool)>,
-    tool_cache: Mutex<Option<Vec<Value>>>,
     listen: Mutex<Option<(String, Option<oneshot::Sender<()>>)>>,
 }
 
@@ -136,7 +135,6 @@ impl Client {
             negotiated: RwLock::new(None),
             callbacks: RwLock::new(Callbacks::default()),
             list_changed: RwLock::new((false, false, false)),
-            tool_cache: Mutex::new(None),
             listen: Mutex::new(None),
         });
         let weak = Arc::downgrade(&client);
@@ -295,7 +293,6 @@ impl Client {
                 }
             }
             "notifications/tools/list_changed" => {
-                *self.tool_cache.lock() = None;
                 if self.list_changed.read().0 {
                     if let Some(cb) = self.callbacks.read().tools.clone() {
                         cb();
@@ -756,8 +753,12 @@ impl Client {
                 _ = tokio::time::sleep(timeout) => Outcome::Timeout,
             };
             self.pending.lock().remove(&key);
-            // Upstream's custom stdio transport is classified as "http" by the SDK (no stderr/pid).
+            // Upstream's stdio transport exposes `pid` and `stderr`, so the SDK classifies it as stdio: an unanswered
+            // or closed probe there means a legacy server.
+            let stdio = self.transport.kind() == TransportKind::Stdio;
+            let closed = matches!(outcome, Outcome::Closed);
             let verdict: Result<Verdict, McpError> = match outcome {
+                Outcome::Closed | Outcome::Timeout if stdio => Ok(Verdict::Legacy),
                 Outcome::Result(result) => Ok(classify_result(&result, &modern_versions, &requested, fallback_available)?),
                 Outcome::Rpc(code, message, data) => classify_rpc(code, message, data, &modern_versions, &requested, fallback_available),
                 Outcome::Http(status, body, status_text) => {
@@ -822,7 +823,17 @@ impl Client {
                     if pin {
                         return Err(McpError::sdk(
                             SdkErrorCode::EraNegotiationFailed,
-                            format!("Version negotiation failed: the server did not offer pinned protocol version {MODERN_PROTOCOL_VERSION} via server/discover (no fallback in pin mode)"),
+                            if closed {
+                                format!("Version negotiation failed: the connection closed during the server/discover probe before the server offered pinned protocol version {MODERN_PROTOCOL_VERSION} (no fallback in pin mode)")
+                            } else {
+                                format!("Version negotiation failed: the server did not offer pinned protocol version {MODERN_PROTOCOL_VERSION} via server/discover (no fallback in pin mode)")
+                            },
+                        ));
+                    }
+                    if closed {
+                        return Err(McpError::sdk(
+                            SdkErrorCode::EraNegotiationFailed,
+                            "Version negotiation failed: the connection closed during the server/discover probe (this transport probed in place — the disposable sibling probe requires the SDK's base StdioClientTransport)",
                         ));
                     }
                     return Ok(None);
@@ -881,10 +892,7 @@ impl Client {
 
     /// `_listAllPages`: follows `nextCursor` (stopping on a repeated cursor) up to 64 pages.
     pub async fn list_all(&self, method: &str, key: &str, options: &RequestOptions) -> Result<Vec<Value>, McpError> {
-        let mut first = self.request(method, None, options).await?;
-        if method == "tools/list" {
-            crate::tool_check::filter_page(&self.config.server, &mut first, self.is_modern());
-        }
+        let first = self.request(method, None, options).await?;
         let mut items: Vec<Value> = first.get(key).and_then(Value::as_array).cloned().ok_or_else(|| {
             McpError::sdk(SdkErrorCode::InvalidResult, format!("Invalid result for {method}: {key} must be an array"))
         })?;
@@ -902,10 +910,7 @@ impl Client {
                 ));
             }
             seen.insert(c.clone());
-            let mut page = self.request(method, Some(json!({"cursor": c})), options).await?;
-            if method == "tools/list" {
-                crate::tool_check::filter_page(&self.config.server, &mut page, self.is_modern());
-            }
+            let page = self.request(method, Some(json!({"cursor": c})), options).await?;
             if let Some(more) = page.get(key).and_then(Value::as_array) {
                 items.extend(more.iter().cloned());
             }
@@ -923,9 +928,9 @@ impl Client {
         if !self.has_capability("tools") {
             return Ok(vec![]);
         }
-        let tools = self.list_all("tools/list", "tools", options).await?;
-        *self.tool_cache.lock() = Some(tools.clone());
-        Ok(tools)
+        // The listed tools are left unchecked here, so one malformed tool doesn't fail the whole list; the
+        // connection checks and copies each one (`crate::tool_check`).
+        self.list_all("tools/list", "tools", options).await
     }
 
     pub async fn list_prompts(&self, options: &RequestOptions) -> Result<Vec<Value>, McpError> {
@@ -953,54 +958,10 @@ impl Client {
         self.has_capability("resources")
     }
 
-    /// `Client.callTool`, including output-schema validation against the last `tools/list`.
+    /// `Client.callTool`. The result is not checked against the tool's `outputSchema`: servers return results that
+    /// miss or break their own schema, and failing the call would report a completed action as failed.
     pub async fn call_tool(&self, params: Value, options: &RequestOptions) -> Result<Value, McpError> {
-        let name = params.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-        let schema = self
-            .tool_cache
-            .lock()
-            .as_ref()
-            .and_then(|tools| tools.iter().find(|t| t.get("name").and_then(Value::as_str) == Some(name.as_str())).cloned())
-            .and_then(|t| t.get("outputSchema").cloned());
-        let validator = match &schema {
-            Some(schema) => match jsonschema::validator_for(schema) {
-                Ok(v) => Some(v),
-                Err(error) => {
-                    let message: String = error.to_string().chars().take(200).collect();
-                    return Err(McpError::Protocol {
-                        code: codes::INVALID_PARAMS,
-                        message: format!("Tool '{name}' has an invalid outputSchema: {message}"),
-                        data: None,
-                    });
-                }
-            },
-            None => None,
-        };
-        let result = self.request("tools/call", Some(params), options).await?;
-        if let Some(validator) = validator {
-            let is_error = result.get("isError") == Some(&Value::Bool(true));
-            match result.get("structuredContent") {
-                None if !is_error => {
-                    return Err(McpError::Protocol {
-                        code: codes::INVALID_REQUEST,
-                        message: format!("Tool {name} has an output schema but did not return structured content"),
-                        data: None,
-                    });
-                }
-                Some(structured) if !is_error => {
-                    let errors: Vec<String> = validator.iter_errors(structured).map(|e| e.to_string()).collect();
-                    if !errors.is_empty() {
-                        return Err(McpError::Protocol {
-                            code: codes::INVALID_PARAMS,
-                            message: format!("Structured content does not match the tool's output schema: {}", errors.join(", ")),
-                            data: None,
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(result)
+        self.request("tools/call", Some(params), options).await
     }
 
     /// `Client.close()`.

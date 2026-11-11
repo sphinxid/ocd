@@ -894,7 +894,8 @@ impl Backend for Engine {
                 oc_ai::credentials::integration::IntegrationError::CodeRequired { .. } => {
                     ApiError::invalid_request("Authorization code is required").with_kind("integration_code_required")
                 }
-                _ => ApiError::invalid_request("Authentication failed").with_kind("integration_authorization"),
+                // A failure shows its cause's message, such as a rejected pasted redirect URL.
+                other => authorization_error(other),
             })
     }
 
