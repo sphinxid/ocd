@@ -18,7 +18,7 @@ What is out of scope:
 Upstream references used throughout: `packages/plugin/src/*` (public API, adapter, host, runtime)
 and `packages/core/src/plugin/{host,hooks,module,supervisor}.ts`, `packages/core/src/plugin.ts`,
 `packages/core/src/rpc.ts` and `packages/util/src/npm.ts` at commit `4617210822bd`. The bundled
-plugin-facing packages (`@opencode/plugin`, schema, protocol, `effect`) are upstream's v2.2.5, so
+plugin-facing packages (`@opencode/plugin`, schema, protocol, `effect`) are upstream's v2.2.7, so
 Promise plugins get 2.2's adapter: `ctx.permission.assert`, `ctx.credential.activate`,
 `ctx.session.list`, thrown tool errors and rejected `tool.execute.before` hooks failing only that
 call, and (2.2) `ctx.session.instructions.entry.{list,put,remove}`, `ctx.experimental.generate.{text,
@@ -549,9 +549,9 @@ Without an override, Bun 1.4.4 is downloaded from the release for this platform:
 BUN=/path/to/bun-1.4.4 scripts/build-plugin-host.sh /path/to/opencode-checkout
 ```
 
-The checkout must be at upstream's `v2.2.5` tag, with `bun install` run at its root (the committed
+The checkout must be at upstream's `v2.2.7` tag, with `bun install` run at its root (the committed
 bundle was built that way with Bun 1.4.4, the version the sidecar runs on).
-`host/build.ts` bundles `host/src/main.ts` with `Bun.build` into `host/dist/host.js` (about 2.6 MiB):
+`host/build.ts` bundles `host/src/main.ts` with `Bun.build` into `host/dist/host.js` (about 2.8 MiB):
 
 - target bun, ESM, minified;
 - bare imports from `host/src` resolve from the checkout's `packages/plugin`, and
