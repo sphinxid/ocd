@@ -89,6 +89,18 @@ impl From<String> for FetchError {
     }
 }
 
+/// `assertHttpUrl`: only http(s), and no credentials, since rules match the URL and `https://user@evil.com` would
+/// slip past a rule for `https://evil.com/*`.
+fn assert_http_url(url: &url::Url) -> Result<(), String> {
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return Err("URL must use http:// or https://".into());
+    }
+    if !url.username().is_empty() || url.password().is_some_and(|p| !p.is_empty()) {
+        return Err("URL must not include credentials".into());
+    }
+    Ok(())
+}
+
 /// Checks a redirect target against the permission rules (`assertNotDenied`).
 type RedirectCheck<'a> = &'a (dyn Fn(String) -> BoxFuture<'static, Result<(), PermissionError>> + Send + Sync);
 
@@ -145,8 +157,11 @@ impl WebFetchTool {
                 return Err((format!("Too many redirects (more than {MAX_REDIRECTS})").into(), false));
             }
             let next = match url::Url::parse(&current).and_then(|base| base.join(&location)) {
-                Ok(next) if next.scheme() == "http" || next.scheme() == "https" => next.to_string(),
-                Ok(_) => return Err(("URL must use http:// or https://".to_string().into(), false)),
+                Ok(mut next) => {
+                    assert_http_url(&next).map_err(|m| (m.into(), false))?;
+                    next.set_fragment(None);
+                    next.to_string()
+                }
                 Err(_) => {
                     let message = format!("{} cannot be parsed as a URL.", crate::util::js::quote(&location));
                     return Err((message.into(), false));
@@ -210,16 +225,18 @@ impl Tool for WebFetchTool {
         let format = input.format.clone().unwrap_or_else(|| "markdown".into());
         let leaf = format!("Unable to fetch {}", input.url);
         let fail = |m: String| ToolError::with_cause(leaf.clone(), ErrorCause::Error(m));
-        match url::Url::parse(&input.url) {
-            Ok(u) if u.scheme() == "http" || u.scheme() == "https" => {}
-            Ok(_) => return Err(fail("URL must use http:// or https://".into())),
-            Err(_) => return Err(fail(format!("{} cannot be parsed as a URL.", crate::util::js::quote(&input.url)))),
+        // Rules match the URL as written. The fragment is never sent, and would keep a rule for the exact URL from
+        // matching.
+        let url = input.url.split('#').next().unwrap_or_default().to_string();
+        match url::Url::parse(&url) {
+            Ok(u) => assert_http_url(&u).map_err(fail)?,
+            Err(_) => return Err(fail(format!("{} cannot be parsed as a URL.", crate::util::js::quote(&url)))),
         }
         let mut metadata = meta(vec![("url", json!(input.url)), ("format", json!(format))]);
         if let Some(t) = input.timeout {
             metadata.insert("timeout".into(), json!(t));
         }
-        super::assert(&ctx, "webfetch", vec![input.url.clone()], Some(vec!["*".into()]), Some(metadata.clone()))
+        super::assert(&ctx, "webfetch", vec![url.clone()], Some(vec!["*".into()]), Some(metadata.clone()))
             .await
             .map_err(super::perm(leaf.clone()))?;
         // Redirect targets only fail on a deny; they never ask.
@@ -231,7 +248,7 @@ impl Tool for WebFetchTool {
             Box::pin(async move { host.check_permission(request).await })
         };
         let seconds = input.timeout.unwrap_or(DEFAULT_TIMEOUT_SECONDS);
-        let fetched = tokio::time::timeout(Duration::from_secs_f64(seconds), self.fetch(&check, &input.url, &format)).await;
+        let fetched = tokio::time::timeout(Duration::from_secs_f64(seconds), self.fetch(&check, &url, &format)).await;
         let (body, content_type) = match fetched {
             Err(_) => return Err(fail("Request timed out".into())),
             Ok(Err(FetchError::Message(message))) => return Err(fail(message)),

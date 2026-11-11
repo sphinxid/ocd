@@ -460,7 +460,7 @@ async fn effect_plugin_agents_skills_and_rejecting_hook() {
     assert_eq!(ids, ["opencode", "report", "fixture-skill", "browser"], "{skills}");
     let browser = &skills["data"][3];
     assert_eq!(browser["name"], "Browser");
-    assert_eq!(browser["path"], "/builtin/browser.md");
+    assert_eq!(browser["path"], "skill://browser/SKILL.md");
     assert!(browser["content"].as_str().unwrap().starts_with("# In-app browser\n\nThe browser tools drive"));
 
     // `tool.execute.before` failing with a Tool.Error rejects the call before it runs.

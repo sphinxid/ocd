@@ -248,7 +248,7 @@ async fn skills_and_commands() {
     assert_eq!(ids.last(), Some(&"browser"));
     let browser = skills["data"].as_array().unwrap().last().unwrap();
     assert_eq!(browser["name"], "Browser");
-    assert_eq!(browser["path"], "/builtin/browser.md");
+    assert_eq!(browser["path"], "skill://browser/SKILL.md");
     let content = browser["content"].as_str().unwrap();
     assert!(content.starts_with("# In-app browser\n"), "{content}");
     assert!(content.ends_with("- `tools.browser.lighthouse`: Audit the current tab with Lighthouse for accessibility, SEO and best practices. Does not emulate a device or run a performance benchmark. Returns scores and server-local reports."));

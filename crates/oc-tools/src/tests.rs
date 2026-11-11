@@ -22,10 +22,24 @@ struct MockHost {
     form: Mutex<Option<FormResponse>>,
     /// `(type, model)` of every enabled model.
     models: Mutex<Vec<(&'static str, crate::host::ModelSummary)>>,
+    skills: Mutex<Vec<crate::host::SkillInfo>>,
+    /// A resource whose requests are denied.
+    denied_resource: Mutex<Option<String>>,
+    /// Whether `permission_allows` answers true (for resources other than the denied one).
+    allows: Mutex<bool>,
 }
 
 #[async_trait]
 impl ToolHost for MockHost {
+    async fn get_skill(&self, id: &str) -> Result<Option<crate::host::SkillInfo>, String> {
+        Ok(self.skills.lock().iter().find(|s| s.id == id).cloned())
+    }
+
+    async fn permission_allows(&self, request: PermissionRequest) -> bool {
+        let denied = self.denied_resource.lock().clone();
+        *self.allows.lock() && !request.resources.iter().any(|r| Some(r) == denied.as_ref())
+    }
+
     async fn models_available(&self) -> Result<Vec<crate::host::ModelSummary>, String> {
         self.models_list(&[]).await
     }
@@ -41,6 +55,12 @@ impl ToolHost for MockHost {
     }
 
     async fn ask_permission(&self, request: PermissionRequest) -> Result<(), PermissionError> {
+        let denied = self.denied_resource.lock().clone();
+        if request.resources.iter().any(|r| Some(r) == denied.as_ref()) {
+            let message = format!("Permission denied: {}", request.action);
+            self.requests.lock().push(request);
+            return Err(PermissionError::Blocked { message });
+        }
         self.requests.lock().push(request);
         match self.deny.lock().clone() {
             Some(error) => Err(error),
@@ -306,6 +326,148 @@ async fn external_directory_request() {
     assert_eq!(ok.metadata.as_ref().unwrap()["truncated"], json!(false));
 }
 
+// tool-read.test.ts "reads virtual skill:// files and directories from Skill.Service without external_directory
+// approval" (#60921).
+#[tokio::test]
+async fn read_skill_uris() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let skill = |id: &str, path: &str, content: &str, files: Vec<(String, String)>| crate::host::SkillInfo {
+        id: id.into(),
+        name: id.into(),
+        description: None,
+        path: path.into(),
+        content: content.into(),
+        files,
+    };
+    host.skills.lock().push(skill(
+        "guide",
+        "skill://guide/SKILL.md",
+        "# Guide\nRead references/style.md",
+        vec![("references/style.md".into(), "Line 1\nLine 2".into())],
+    ));
+    host.skills.lock().push(skill("disk", "/somewhere/disk/SKILL.md", "Disk", vec![]));
+    let ctx = context(dir.path(), host.clone());
+    let read = |input: Value| run(&tools::read::ReadTool, input, ctx.clone());
+
+    let file = read(json!({"path": "skill://guide/references/style.md", "offset": 2, "limit": 1})).await.unwrap();
+    assert_eq!(text(&file), "Read file skill://guide/references/style.md, lines 2-2\n2: Line 2");
+    let root = read(json!({"path": "skill://guide/"})).await.unwrap();
+    assert_eq!(text(&root), "Read directory skill://guide/, entries 1-2\nreferences/\nSKILL.md");
+    for bad in ["skill://", "skill://guide/../SKILL.md", "skill://guide/missing.md", "skill://unknown", "skill://disk/SKILL.md"] {
+        let error = read(json!({"path": bad})).await.unwrap_err();
+        assert_eq!(error.model_message(), format!("File not found: {bad}"), "{bad}");
+    }
+    let requests: Vec<(String, Vec<String>, Option<Vec<String>>)> =
+        host.requests.lock().iter().map(|r| (r.action.clone(), r.resources.clone(), r.save.clone())).collect();
+    let pair = |uri: &str| {
+        [
+            ("skill".to_string(), vec!["guide".to_string()], Some(vec!["guide".to_string()])),
+            ("read".to_string(), vec![uri.to_string()], Some(vec!["*".to_string()])),
+        ]
+    };
+    assert_eq!(requests, [pair("skill://guide/references/style.md"), pair("skill://guide"), pair("skill://guide/missing.md")].concat());
+
+    *host.denied_resource.lock() = Some("guide".into());
+    let error = read(json!({"path": "skill://guide/SKILL.md"})).await.unwrap_err();
+    assert_eq!((error.to_session_error().kind.as_str(), error.model_message().as_str()), ("permission.rejected", "Permission denied: skill"));
+    *host.denied_resource.lock() = Some("skill://guide/SKILL.md".into());
+    for path in ["skill://guide/SKILL.md", "skill://guide/SKILL.md/"] {
+        let error = read(json!({"path": path})).await.unwrap_err();
+        assert_eq!((error.to_session_error().kind.as_str(), error.model_message().as_str()), ("permission.rejected", "Permission denied: read"));
+    }
+}
+
+// tool-webfetch.test.ts "matches rules against the URL as written without the fragment and rejects credentials"
+// (#60502, #61701).
+#[tokio::test]
+async fn webfetch_drops_the_fragment_and_rejects_credentials() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let requests: Arc<Mutex<Vec<String>>> = Arc::default();
+    let seen = requests.clone();
+    tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = socket.read(&mut buf).await.unwrap();
+            let request = String::from_utf8_lossy(&buf[..n]).to_string();
+            seen.lock().push(request.lines().next().unwrap_or_default().to_string());
+            let response = if request.starts_with("GET /hop ") {
+                format!("HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1:{port}/page#frag\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+            } else if request.starts_with("GET /creds ") {
+                "HTTP/1.1 302 Found\r\nlocation: http://user:pw@127.0.0.1/x\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_string()
+            } else {
+                "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok".to_string()
+            };
+            socket.write_all(response.as_bytes()).await.unwrap();
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let ctx = context(dir.path(), host.clone());
+    let tool = tools::webfetch::WebFetchTool::new();
+    let url = format!("http://127.0.0.1:{port}/#top");
+    let ok = run(&tool, json!({"url": url, "format": "text"}), ctx.clone()).await.unwrap();
+    assert_eq!(text(&ok), "ok");
+    // The rule resource is the URL as written, without the fragment; the metadata keeps the input.
+    let request = host.requests.lock()[0].clone();
+    assert_eq!(request.resources, vec![format!("http://127.0.0.1:{port}/")]);
+    assert_eq!(request.metadata.as_ref().unwrap()["url"], json!(url));
+    assert_eq!(ok.output.as_ref().unwrap()["url"], json!(url));
+
+    // A redirect target is checked without its fragment.
+    run(&tool, json!({"url": format!("http://127.0.0.1:{port}/hop"), "format": "text"}), ctx.clone()).await.unwrap();
+    assert_eq!(requests.lock().last().unwrap(), "GET /page HTTP/1.1");
+
+    let sent = requests.lock().len();
+    let error = run(&tool, json!({"url": "https://user@example.com/", "format": "text"}), ctx.clone()).await.unwrap_err();
+    assert_eq!((error.message.as_str(), error.model_message().as_str()), ("Unable to fetch https://user@example.com/", "URL must not include credentials"));
+    let error = run(&tool, json!({"url": format!("http://127.0.0.1:{port}/creds"), "format": "text"}), ctx).await.unwrap_err();
+    assert_eq!(error.model_message(), "URL must not include credentials");
+    assert_eq!(requests.lock().len(), sent + 1);
+}
+
+// tool-read.test.ts "suggests a path written from the parent of the location first" (#62147).
+#[tokio::test]
+async fn read_suggests_the_rerooted_path_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let tmp = dir.path();
+    let repo = tmp.join("repo");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src").join("a.ts"), "x\n").unwrap();
+    let host = Arc::new(MockHost::default());
+    *host.allows.lock() = true;
+    let ctx = context(&repo, host.clone());
+    let requested = tmp.join("src").join("a.ts").to_string_lossy().into_owned();
+    let error = run(&tools::read::ReadTool, json!({"path": requested}), ctx.clone()).await.unwrap_err();
+    assert_eq!(
+        error.model_message(),
+        format!(
+            "File not found: {requested}\n\nThe folder {} does not exist. The nearest folder that does is {}.\n\nDid you mean one of these?\n{}",
+            tmp.join("src").display(),
+            tmp.display(),
+            repo.join("src").join("a.ts").display()
+        )
+    );
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+    std::fs::write(tmp.join("src").join("a.tsx"), "x\n").unwrap();
+    let error = run(&tools::read::ReadTool, json!({"path": requested}), ctx.clone()).await.unwrap_err();
+    assert_eq!(
+        error.model_message(),
+        format!(
+            "File not found: {requested}\n\nDid you mean one of these?\n{}\n{}",
+            repo.join("src").join("a.ts").display(),
+            tmp.join("src").join("a.tsx").display()
+        )
+    );
+    // Without read approval for the rerooted path, it is not suggested.
+    *host.allows.lock() = false;
+    let error = run(&tools::read::ReadTool, json!({"path": requested}), ctx).await.unwrap_err();
+    assert_eq!(error.model_message(), format!("File not found: {requested}\n\nDid you mean one of these?\n{}", tmp.join("src").join("a.tsx").display()));
+}
+
 // tool-patch.test.ts "preserves files across self-moves and multi-hunk moves in one patch"
 #[tokio::test]
 async fn patch_self_moves_and_multi_hunk_moves() {
@@ -454,7 +616,7 @@ async fn shell_tool_flow() {
     let service = crate::shell::service::ShellService::new(dir.path().join(".data"), None);
     let tool = tools::shell::ShellTool::new(service);
     let ok = run(&tool, json!({"command": "echo hello && exit 2"}), ctx.clone()).await.unwrap();
-    assert_eq!(ok.content, vec![ToolContent::Text { text: "hello\n".into() }, ToolContent::Text { text: "Exited with code 2".into() }]);
+    assert_eq!(ok.content, vec![ToolContent::Text { text: "hello\n".into() }, ToolContent::Text { text: "Exit code: 2".into() }]);
     let request = host.requests.lock()[0].clone();
     assert_eq!(request.action, "shell");
     assert_eq!(request.resources, vec!["echo hello", "exit 2"]);
@@ -463,12 +625,14 @@ async fn shell_tool_flow() {
     assert_eq!(
         ok.content,
         vec![
+            ToolContent::Text { text: "(no output)".into() },
+            // #62141: how long it waited, and the exit code of the killed process.
             ToolContent::Text {
-                text: "(no output)\n\nCommand exceeded timeout of 100 ms. Retry with a larger timeout if the command is expected to take longer.".into()
+                text: "Command timed out after 0.1 seconds. If it needs longer and isn't waiting for input, rerun with a larger timeout.\nExit code: 143 (SIGTERM)".into()
             },
-            ToolContent::Text { text: "Timed out before completion".into() },
         ]
     );
+    assert_eq!(ok.metadata.as_ref().unwrap()["signal"], json!("SIGTERM"));
     let err = run(&tool, json!({"command": "ls", "workdir": "nope"}), ctx.clone()).await.unwrap_err();
     assert_eq!(err.message, "Unable to execute command: ls");
     assert_eq!(err.model_message(), format!("Working directory does not exist: {}", dir.path().join("nope").to_string_lossy()));

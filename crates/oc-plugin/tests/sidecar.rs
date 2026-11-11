@@ -180,6 +180,24 @@ fn context(call: &str) -> Value {
     json!({ "sessionID": "ses_test", "agent": "build", "messageID": "msg_test", "id": call })
 }
 
+/// core/src/tool.ts `commit` (2.2.7): a plugin tool without `input` (or with `null`) takes `{}`, and an `input` that is
+/// not a schema is rejected with `Invalid tool definition <id>: input must be a schema`.
+#[tokio::test]
+async fn plugin_tools_without_an_input_schema() {
+    require_bun!();
+    let s = setup();
+    s.host.load(request(&s, vec![add(fixture("inputless-plugin"), json!({}))])).await;
+    let tools = s.host.transform(&s.location, "tool", json!({ "tools": [], "namespaces": [] })).await.unwrap();
+    let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert_eq!(names, ["ping", "nil"]);
+    assert_eq!(tools["tools"][0]["input"], json!({}));
+    assert_eq!(tools["tools"][1]["input"], json!({}));
+    assert_eq!(tools["errors"], json!([{ "kind": "tool", "name": "bad", "message": "Invalid tool definition bad: input must be a schema" }]));
+    let handle = oc_plugin::protocol::function_handle(&tools["tools"][0]["execute"]).unwrap().to_string();
+    let result = s.host.execute_tool(&s.location, &handle, json!({ "any": 1 }), context("call_1"), None).await.unwrap();
+    assert_eq!(result["content"], json!([{ "type": "text", "text": "pong {\"any\":1}" }]));
+}
+
 #[tokio::test]
 async fn promise_plugin_tool_command_and_hook() {
     require_bun!();

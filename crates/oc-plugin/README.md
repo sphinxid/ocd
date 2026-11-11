@@ -210,8 +210,11 @@ Behavior that matches upstream verbatim:
 - `Duplicate plugin ID: <id>`.
 - `Plugin disabled after <domain>.transform failed. Check server logs for details.`
 - Tool input errors: `Invalid arguments for tool "<name>": ...`.
-- Tool registration errors: `Invalid tool name`, the reserved name `execute`, and invalid namespace.
-  These are returned in `errors` and logged as `Skipping invalid tool registration`.
+- Tool registration errors: `Invalid tool name`, the reserved name `execute`, invalid namespace, and (2.2.7)
+  `Invalid tool definition <id>: input must be a schema` for an `input` that is neither an object nor a function.
+  A tool registered without `input` (or with `null`) takes `{}` (core/src/tool.ts `commit`). These are returned in
+  `errors` and logged as `Skipping invalid tool registration`. The committed `host/dist/host.js` must be rebuilt
+  (`scripts/build-plugin-host.sh`) for source changes in `host/src` to take effect.
 
 ## Hooks: where the core must call `trigger_hook`
 

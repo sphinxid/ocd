@@ -348,11 +348,19 @@ function registrationError(tool: Tool.Info): { name: string; message: string } |
   const id = effectiveName(tool)
   if (tool.options?.codemode === false && id === "execute")
     return { name: id, message: 'Tool name "execute" is reserved for CodeMode' }
+  // Standard Schema libraries such as ArkType make schemas that are functions.
+  if (typeof tool.input !== "object" && typeof tool.input !== "function")
+    return { name: id, message: `Invalid tool definition ${id}: input must be a schema` }
   const result = Result.try({
     try: () => ToolDefinition.make(definition(tool) as any),
     catch: (error) => ({ name: id, message: `Invalid tool definition ${id}: ${schemaMakeError(error)}` }),
   })
   return Result.isFailure(result) ? result.failure : undefined
+}
+
+/** JavaScript plugins may leave out `input` for a tool that takes none (core/src/tool.ts `commit`). */
+function withInput<T extends { input?: unknown }>(tool: T): T {
+  return tool.input === undefined || tool.input === null ? { ...tool, input: {} } : tool
 }
 
 /** Hydrates one tool from the wire: a sidecar tool handle yields the original Tool.Info. */
@@ -417,7 +425,8 @@ const tool: Spec<ToolState, unknown> = {
       }
       editor.namespaces.set(namespace.name, { ...namespace })
     },
-    add: (tool: Tool.Info) => {
+    add: (input: Tool.Info) => {
+      const tool = withInput(input)
       const error = registrationError(tool)
       if (error) {
         editor.errors.push({ kind: "tool", name: tool.name, namespace: tool.options?.namespace, message: error.message })
@@ -429,12 +438,13 @@ const tool: Spec<ToolState, unknown> = {
     update: (id: string, update: (tool: any) => void) => {
       const current = editor.tools.get(id)
       if (!current) return
-      const next: any = { ...current, options: current.options && { ...current.options } }
-      update(next)
-      next.name = current.name
-      next.id = id
-      if (next.options?.namespace !== current.options?.namespace)
-        next.options = { ...next.options, namespace: current.options?.namespace }
+      const draft: any = { ...current, options: current.options && { ...current.options } }
+      update(draft)
+      draft.name = current.name
+      draft.id = id
+      if (draft.options?.namespace !== current.options?.namespace)
+        draft.options = { ...draft.options, namespace: current.options?.namespace }
+      const next: any = withInput(draft)
       const error = registrationError(next)
       if (error) {
         editor.errors.push({ kind: "tool", name: next.name, namespace: next.options?.namespace, message: error.message })

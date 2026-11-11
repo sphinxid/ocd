@@ -340,7 +340,19 @@ pub fn nested_synthetic(files: &[File], project_root: &Path) -> (String, String,
 }
 
 /// Skill content block (`Skill.toModelOutput` + `prepare`).
-pub fn skill_block(name: &str, skill_path: &Path, content: &str) -> String {
+pub fn skill_block(id: &str, name: &str, skill_path: &Path, content: &str) -> String {
+    // A skill that lives in memory (`skill://<id>/SKILL.md`) has its URI as base directory and no files on disk.
+    if skill_path.to_string_lossy().starts_with("skill://") {
+        let skill = oc_tools::host::SkillInfo {
+            id: id.into(),
+            name: name.into(),
+            description: None,
+            path: skill_path.to_path_buf(),
+            content: content.into(),
+            files: Vec::new(),
+        };
+        return oc_tools::tools::skill::prepare(&skill).1;
+    }
     let directory = skill_path.parent().unwrap_or(Path::new("/"));
     let files: Vec<String> = if skill_path.file_name().is_some_and(|n| n == "SKILL.md") {
         let mut all: Vec<String> = walk_files(directory)

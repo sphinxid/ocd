@@ -96,6 +96,7 @@ impl Engine {
         engine.install_pty_cleanup();
         engine.install_credential_observer();
         engine.install_wellknown();
+        engine.install_session_mover();
         engine
     }
 
@@ -127,7 +128,28 @@ impl Engine {
         engine.install_pty_cleanup();
         engine.install_credential_observer();
         engine.install_wellknown();
+        engine.install_session_mover();
         engine
+    }
+
+    /// The `opencode.session_move` tool moves sessions like `POST /api/session/{id}/move` with steer delivery.
+    fn install_session_mover(self: &Arc<Self>) {
+        let engine = Arc::downgrade(self);
+        let mover: oc_core::app::SessionMover = Arc::new(move |session_id: String, directory: String| {
+            let engine = engine.clone();
+            Box::pin(async move {
+                let Some(engine) = engine.upgrade() else { return Err("server is shutting down".to_string()) };
+                let body = oc_server::generated::SessionMoveBody { directory, delivery: Some(oc_server::generated::SessionInboxDelivery::Steer) };
+                engine.move_session(&session_id, body).await.map_err(|error| match &error {
+                    ApiError::Typed { body, .. } => {
+                        body.get("message").and_then(serde_json::Value::as_str).map(str::to_string).unwrap_or_else(|| error.to_string())
+                    }
+                    ApiError::Defect(message) => message.clone(),
+                    other => other.to_string(),
+                })
+            })
+        });
+        let _ = self.app.session_mover.set(mover);
     }
 
     /// Config loading reads the well-known organization sources (`Config` depends on `WellKnown`), and the

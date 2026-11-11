@@ -97,8 +97,8 @@ pub fn configured_plugins(location: &Location) -> Vec<String> {
 pub fn builtin_with(version: &str, plugins: &[String]) -> Vec<Skill> {
     let mut out: Vec<Skill> = Vec::new();
     for (id, name, description, path, content) in [
-        ("opencode", "OpenCode", OPENCODE_DESCRIPTION, "/builtin/opencode.md", OPENCODE_CONTENT.to_string()),
-        ("report", "Report", REPORT_DESCRIPTION, "/builtin/report.md", report_content(version, oc_util::version::CHANNEL, plugins)),
+        ("opencode", "OpenCode", OPENCODE_DESCRIPTION, "skill://opencode/SKILL.md", OPENCODE_CONTENT.to_string()),
+        ("report", "Report", REPORT_DESCRIPTION, "skill://report/SKILL.md", report_content(version, oc_util::version::CHANNEL, plugins)),
     ] {
         out.push(Skill { id: id.into(), name: name.into(), description: Some(description.into()), autoinvoke: None, path: PathBuf::from(path), content });
     }
@@ -113,7 +113,7 @@ pub fn browser() -> Skill {
         name: "Browser".into(),
         description: Some(BROWSER_DESCRIPTION.into()),
         autoinvoke: None,
-        path: PathBuf::from("/builtin/browser.md"),
+        path: PathBuf::from("skill://browser/SKILL.md"),
         content: BROWSER_CONTENT.trim_end_matches('\n').to_string(),
     }
 }

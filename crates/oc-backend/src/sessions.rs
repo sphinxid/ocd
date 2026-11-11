@@ -355,8 +355,8 @@ impl Engine {
                         return Err(ApiError::invalid_request(format!("Skill not found: {}", attachment.id)).with_field("skills"));
                     };
                     prepared.insert(skill.id.clone(), skill.name.clone());
-                    let (name, path, content) = (skill.name.clone(), skill.path.clone(), skill.content.clone());
-                    let text = tokio::task::spawn_blocking(move || oc_core::discovery::skill_block(&name, &path, &content))
+                    let (id, name, path, content) = (skill.id.clone(), skill.name.clone(), skill.path.clone(), skill.content.clone());
+                    let text = tokio::task::spawn_blocking(move || oc_core::discovery::skill_block(&id, &name, &path, &content))
                         .await
                         .map_err(defect)?;
                     out.push(SkillAttachment { id: skill.id.clone(), name: skill.name.clone(), text: Some(text), mention });

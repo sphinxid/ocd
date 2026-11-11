@@ -55,6 +55,10 @@ pub fn args(file: &str, command: &str) -> Vec<String> {
     if ps(file) {
         return vec!["-NoLogo".into(), "-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), command.into()];
     }
+    // zsh aborts the whole line on an unmatched glob; pass it through literally as bash does.
+    if n == "zsh" {
+        return vec!["+o".into(), "nomatch".into(), "-c".into(), command.into()];
+    }
     vec!["-c".into(), command.into()]
 }
 
@@ -92,6 +96,10 @@ fn full(file: &str, bin: Option<&Path>) -> String {
 fn executable(file: &str, bin: Option<&Path>) -> Option<String> {
     let shell = full(file, bin);
     if Path::new(&crate::file_access::windows_path(&shell)).is_absolute() {
+        // Check the alias first: stat fails with EACCES for it.
+        if crate::util::is_app_execution_alias(Path::new(&shell)) {
+            return Some(shell);
+        }
         return std::fs::metadata(&shell).ok().filter(|m| m.is_file()).map(|_| shell);
     }
     find(&shell, bin)
@@ -178,6 +186,8 @@ mod tests {
         assert!(ps("/usr/bin/pwsh"));
         assert!(login("/bin/zsh"));
         assert_eq!(args("/bin/bash", "ls"), vec!["-c", "ls"]);
+        assert_eq!(args("/usr/bin/fish", "ls"), vec!["-c", "ls"]);
+        assert_eq!(args("/bin/zsh", "echo hi"), vec!["+o", "nomatch", "-c", "echo hi"]);
         assert_eq!(args("pwsh", "ls"), vec!["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "ls"]);
         assert_eq!(args("cmd", "dir"), vec!["/c", "dir"]);
     }

@@ -250,8 +250,26 @@ impl Tool for OpenCodeTool {
             }
             Kind2::SessionMove => {
                 let session = args.session_id.unwrap_or_else(|| ctx.session_id.clone());
-                let directory = args.directory.unwrap_or_default();
-                host.session_move(&session, &directory).await.map_err(|m| err(format!("Unable to move session to {directory}"), m))?;
+                let input = args.directory.unwrap_or_default();
+                let leaf = format!("Unable to move session to {input}");
+                let summary = host.session_get(&session).await.map_err(|m| err(leaf.clone(), m))?;
+                // `~` and relative paths resolve against the moved session's own location.
+                let resolved = file_access::resolve_path(std::path::Path::new(&summary.directory), js::trim(&input), &ctx.global.home);
+                let directory = resolved.to_string_lossy().into_owned();
+                // The destination becomes the session's internal directory, so leaving the project needs the same
+                // approval as reaching outside it. The project's own worktrees don't.
+                let target = file_access::resolve(&ctx, &directory, Some(Kind::Directory));
+                let worktrees = match target.external_directory {
+                    Some(_) => host.worktree_list(&ctx.project_id).await.map_err(|m| err(leaf.clone(), m))?,
+                    None => json!([]),
+                };
+                let in_worktree = worktrees.as_array().into_iter().flatten().any(|worktree| {
+                    worktree.get("directory").and_then(Value::as_str).is_some_and(|dir| crate::util::contains(std::path::Path::new(dir), &resolved))
+                });
+                if !in_worktree {
+                    file_access::authorize_external(&ctx, &[&target], None).await.map_err(super::perm(leaf.clone()))?;
+                }
+                host.session_move(&session, &directory).await.map_err(|m| err(leaf, m))?;
                 Ok(ToolResult::text(format!("Moved session {session} to {directory}.")).with_output(json!({"sessionID": session, "directory": directory})))
             }
             Kind2::WorktreeCreate => {

@@ -309,7 +309,7 @@ regex!(
 regex!(NOFORK_OPEN_RE, sticky r"\$\{(?:\\\n)*(?:[ \t\n]|\|)");
 regex!(
     ZSH_SAFE_FLAGS_RE,
-    sticky r"\$\{\((?:[@AaBbCcDEfFikLMmNnOopPqStUuVvWwXZz0-]|q[-+]?|[js]([^({\[<\\])(?:(?!\1)[^)])*\1)*\)"
+    sticky r"\$\{\((?:[@AaBbCcDEfFikLMmNnOopPqStUuVvWwXZz0-]|q[+]|[js]([^({\[<\\])(?:(?!\1)[^)])*\1)*\)"
 );
 regex!(ZSH_QUOTED_FLAG_ARG_RE, r"[js]([^({\[<\\])(?:(?!\1)[^)])*\1");
 regex!(ZSH_GLOB_MODIFIER_RE, sticky r"(?:[\^=~#+]|\\\n)*~");
@@ -3870,6 +3870,19 @@ mod tests {
             eprintln!("DIFF {line}");
         }
         assert!(failed.is_empty());
+    }
+
+    /// adversarial.test.ts "scans repeated zsh q flags in bounded time" (#60791): outcomes captured from 2.2.7.
+    #[test]
+    fn repeated_zsh_q_flags_scan_in_bounded_time() {
+        let start = std::time::Instant::now();
+        assert_eq!(opaque(&format!("echo ${{({}!x}}", "q".repeat(40)), Dialect::Zsh), "dynamic-execution");
+        assert_eq!(opaque(&format!("echo ${{({}!x}}", "q-".repeat(40)), Dialect::Zsh), "dynamic-execution");
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+        for source in ["echo ${(q-)x}", "echo ${(q+)x}", "echo ${(qq)x}", "echo ${(q)x}"] {
+            let commands = scanned(source, Dialect::Zsh);
+            assert_eq!(commands[0].words, ["echo", &source[5..]], "{source}");
+        }
     }
 
     #[test]

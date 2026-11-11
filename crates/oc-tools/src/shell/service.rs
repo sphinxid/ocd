@@ -16,7 +16,12 @@ use parking_lot::Mutex;
 use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
 
-use super::result::{Capture, ShellResult, capture_tail};
+use super::result::{ShellResult, Written, capture_start, capture_tail};
+
+/// `Signal number → name`, as a process killed by it reports it.
+pub fn signal_name(signal: i32) -> String {
+    super::result::signal_name(signal)
+}
 use crate::host::ShellInvocation;
 
 pub const EXITED_LIMIT: usize = 25;
@@ -45,6 +50,9 @@ struct Active {
     file: PathBuf,
     size: AtomicU64,
     newlines: AtomicU64,
+    /// Byte offsets where the last two lines start, so a truncation notice can size a cut-off line. Updated with
+    /// `size` and `newlines` while the output file's lock is held.
+    line_starts: Mutex<[u64; 2]>,
     done: watch::Sender<Done>,
     deadline: watch::Sender<Option<tokio::time::Instant>>,
     pid: Option<u32>,
@@ -55,29 +63,6 @@ pub struct ShellService {
     commands: Mutex<HashMap<String, Arc<Active>>>,
     exit_order: Mutex<Vec<String>>,
     events: Option<EventSink>,
-}
-
-/// Signal number → name.
-pub fn signal_name(signal: i32) -> String {
-    let name = match signal {
-        1 => "SIGHUP",
-        2 => "SIGINT",
-        3 => "SIGQUIT",
-        4 => "SIGILL",
-        5 => "SIGTRAP",
-        6 => "SIGABRT",
-        7 => "SIGBUS",
-        8 => "SIGFPE",
-        9 => "SIGKILL",
-        10 => "SIGUSR1",
-        11 => "SIGSEGV",
-        12 => "SIGUSR2",
-        13 => "SIGPIPE",
-        14 => "SIGALRM",
-        15 => "SIGTERM",
-        _ => return format!("SIG{signal}"),
-    };
-    name.to_string()
 }
 
 #[cfg(unix)]
@@ -221,13 +206,17 @@ impl ShellService {
             }
         };
         let capture = self.require(&info.id).ok().map(|command| {
-            let size = command.size.load(Ordering::SeqCst);
-            let start = size.saturating_sub(max_bytes as u64);
-            let bytes = read_range(&command.file, start, (size - start).min(max_bytes as u64)).unwrap_or_default();
-            let page = String::from_utf8_lossy(&bytes).into_owned();
-            capture_tail(&page, size, command.newlines.load(Ordering::SeqCst), max_lines, max_bytes, &info.file)
+            let written = Written {
+                size: command.size.load(Ordering::SeqCst),
+                newlines: command.newlines.load(Ordering::SeqCst),
+                line_starts: *command.line_starts.lock(),
+            };
+            // Read the byte before the window too, to tell whether the window starts on a line boundary.
+            let before = capture_start(written.size, max_bytes).saturating_sub(1);
+            let window = read_range(&command.file, before, written.size - before).unwrap_or_default();
+            capture_tail(&window, written, max_lines, max_bytes, &info.file)
         });
-        ShellResult { info, capture: capture.map(|c: Capture| c) }
+        ShellResult { info, capture }
     }
 
     /// Spawn a prepared invocation. Returns once the process is registered.
@@ -270,6 +259,7 @@ impl ShellService {
             file: file.clone(),
             size: AtomicU64::new(0),
             newlines: AtomicU64::new(0),
+            line_starts: Mutex::new([0, 0]),
             done,
             deadline,
             pid,
@@ -288,9 +278,16 @@ impl ShellService {
                     Ok(n) => {
                         use std::io::Write;
                         let chunk = &buffer[..n];
-                        let _ = out.lock().write_all(chunk);
-                        active.size.fetch_add(n as u64, Ordering::SeqCst);
-                        active.newlines.fetch_add(chunk.iter().filter(|&&b| b == b'\n').count() as u64, Ordering::SeqCst);
+                        // stdout and stderr share the file: count under its lock, so offsets follow the bytes.
+                        let mut file = out.lock();
+                        let _ = file.write_all(chunk);
+                        let size = active.size.load(Ordering::SeqCst);
+                        let mut line_starts = active.line_starts.lock();
+                        for (index, _) in chunk.iter().enumerate().filter(|(_, b)| **b == b'\n') {
+                            active.newlines.fetch_add(1, Ordering::SeqCst);
+                            *line_starts = [line_starts[1], size + index as u64 + 1];
+                        }
+                        active.size.store(size + n as u64, Ordering::SeqCst);
                     }
                 }
             }
@@ -349,11 +346,12 @@ impl ShellService {
             let _ = output_task.await;
             let snapshot = {
                 let mut info = active.info.lock();
-                if let Some(completed) = timed_out.filter(|_| info.status == ShellStatus::Running) {
-                    info.status = ShellStatus::Timeout;
-                    info.time.completed = Some(completed);
-                } else if info.status == ShellStatus::Running {
-                    info.status = ShellStatus::Exited;
+                if info.status == ShellStatus::Running {
+                    // A timeout keeps its status and time but still records how the killed process exited.
+                    (info.status, info.time.completed) = match timed_out {
+                        Some(completed) => (ShellStatus::Timeout, Some(completed)),
+                        None => (ShellStatus::Exited, Some(exited_at)),
+                    };
                     if let Some(status) = status {
                         match status.code() {
                             Some(code) => info.exit = Some(code as i64),
@@ -366,7 +364,6 @@ impl ShellService {
                             }
                         }
                     }
-                    info.time.completed = Some(exited_at);
                 }
                 info.clone()
             };
@@ -465,6 +462,39 @@ mod tests {
         let result = service.result(&info, 2000, 51200).await;
         assert_eq!(result.info.status, ShellStatus::Timeout);
         assert_eq!(result.capture.unwrap().output, "start\n");
+        // #62141: a timeout still records how the killed process exited.
+        assert_eq!((result.info.exit, result.info.signal.as_deref()), (None, Some("SIGTERM")));
+    }
+
+    /// tool-shell.test.ts truncation cases (#62141) through the real output file, stdout and stderr together.
+    #[tokio::test]
+    async fn truncated_capture_counts_whole_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ShellService::new(dir.path().to_path_buf(), None);
+        let lines: Vec<String> = (1..=10).map(|i| format!("{i}{}", "x".repeat(10 * 1024 - i.to_string().len()))).collect();
+        std::fs::write(dir.path().join("long.txt"), lines.join("\n") + "\n").unwrap();
+        std::fs::write(dir.path().join("line.txt"), format!("head\n{}", "x".repeat(200 * 1024))).unwrap();
+        let info = service.spawn(&invocation("cat long.txt", dir.path(), 0), Metadata::new(), "p").await.unwrap();
+        let capture = service.result(&info, 2000, 51200).await.capture.unwrap();
+        assert!(capture.output.starts_with("7xxx"));
+        assert!(capture.output.contains(&format!("{}\n\n[showing lines 7-10 of 10; full output saved to ", lines[9])));
+        let info = service.spawn(&invocation("cat line.txt 1>&2", dir.path(), 0), Metadata::new(), "p").await.unwrap();
+        let capture = service.result(&info, 2000, 51200).await.capture.unwrap();
+        assert!(capture.output.starts_with(&format!("{}\n\n", "x".repeat(51200))));
+        assert!(capture.output.contains("[showing the last 50 KB of line 2 (200 KB); full output saved to "));
+    }
+
+    /// shell.test.ts "passes an unmatched zsh glob through to the command" (#62141).
+    #[tokio::test]
+    async fn zsh_passes_unmatched_globs_through() {
+        let Some(zsh) = crate::util::which("zsh", None) else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let service = ShellService::new(dir.path().to_path_buf(), None);
+        let mut run = invocation("echo opencode-missing-*.nope; echo after", dir.path(), 0);
+        run.shell = zsh.to_string_lossy().into_owned();
+        let info = service.spawn(&run, Metadata::new(), "p").await.unwrap();
+        let result = service.result(&info, 2000, 51200).await;
+        assert_eq!((result.capture.unwrap().output.as_str(), result.info.exit), ("opencode-missing-*.nope\nafter\n", Some(0)));
     }
 
     #[tokio::test]

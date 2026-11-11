@@ -508,7 +508,7 @@ mod tests {
         }
         async fn session_get(&self, session_id: &str) -> Result<SessionSummary, String> {
             let model = self.session_provider.lock().clone().map(|p| oc_schema::ModelRef { id: "m".into(), provider_id: p, variant: None });
-            Ok(SessionSummary { id: session_id.into(), parent_id: None, agent: None, model })
+            Ok(SessionSummary { id: session_id.into(), parent_id: None, agent: None, model, directory: String::new() })
         }
         async fn generate_image(&self, request: Value) -> Result<Value, String> {
             self.requests.lock().push(request);

@@ -36,7 +36,14 @@ pub struct App {
     pub version: String,
     /// Well-known organization sources for config loading (set by the server, which owns the service).
     pub wellknown: OnceLock<Arc<dyn oc_config::load::WellKnown>>,
+    /// `Session.move(sessionID, directory)` with steer delivery (set by the server, which owns the locations a move
+    /// loads); the `opencode.session_move` tool moves sessions through it.
+    pub session_mover: OnceLock<SessionMover>,
 }
+
+/// Moves a session to an absolute directory; the error is the move's failure message.
+pub type SessionMover =
+    Arc<dyn Fn(String, String) -> futures::future::BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
 struct PermCtx {
     db: Database,
@@ -154,6 +161,7 @@ impl App {
             model_transport: Arc::default(),
             version,
             wellknown: OnceLock::new(),
+            session_mover: OnceLock::new(),
         })
     }
 

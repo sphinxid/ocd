@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use oc_schema::ToolContent;
@@ -55,8 +56,8 @@ struct ShellOutput {
     running: bool,
 }
 
-fn result_messages(output: &ShellOutput) -> Vec<String> {
-    let notice = if output.running { Some(BACKGROUND_INSTRUCTION.to_string()) } else { shell_result::notice(&output.base) };
+fn result_messages(output: &ShellOutput, timeout: Option<u64>) -> Vec<String> {
+    let notice = if output.running { Some(BACKGROUND_INSTRUCTION.to_string()) } else { shell_result::notice(&output.base, timeout) };
     let mut out = Vec::new();
     if !output.base.output.is_empty() {
         out.push(output.base.output.clone());
@@ -67,7 +68,7 @@ fn result_messages(output: &ShellOutput) -> Vec<String> {
     out
 }
 
-fn tool_result(output: ShellOutput) -> ToolResult {
+fn tool_result(output: ShellOutput, timeout: Option<u64>) -> ToolResult {
     let mut metadata = meta(vec![("status", json!(if output.running { "running" } else { "completed" }))]);
     for (k, v) in shell_result::metadata(&output.base) {
         metadata.insert(k, v);
@@ -81,7 +82,7 @@ fn tool_result(output: ShellOutput) -> ToolResult {
     }
     value["status"] = json!(if output.running { "running" } else { "completed" });
     ToolResult {
-        content: result_messages(&output).into_iter().map(|text| ToolContent::Text { text }).collect(),
+        content: result_messages(&output, timeout).into_iter().map(|text| ToolContent::Text { text }).collect(),
         output: Some(value),
         metadata: Some(metadata),
     }
@@ -183,7 +184,8 @@ fn spawn_notifier(ctx: &ToolContext, job_id: String, shell_id: String, command: 
             None
         };
         let text = match (&output, info.status) {
-            (Some(out), _) => result_messages(out).join("\n\n"),
+            // The job's own output: the result text as the job rendered it (`info.output`).
+            (Some(_), _) => info.output.clone().unwrap_or_default(),
             (None, JobStatus::Error) => info.error.clone().unwrap_or_else(|| "Command failed".into()),
             _ => "Cancelled".into(),
         };
@@ -262,20 +264,17 @@ impl Tool for ShellTool {
         let started = info.clone();
         let max_lines = ctx.config.max_lines();
         let max_bytes = ctx.config.max_bytes();
+        // `finalTimeout`: the limit the invocation ended up with, cleared once the command moves to the background,
+        // so the notices say how long it waited.
+        let final_timeout = Arc::new(AtomicU64::new(final_timeout));
+        let job_timeout = final_timeout.clone();
         let run = async move {
             let result = service.result(&started, max_lines, max_bytes).await;
             if result.capture.is_none() {
                 return Err("Command failed".to_string());
             }
-            let mut base = shell_result::output(&result);
-            if base.timeout == Some(true) {
-                base.output = format!(
-                    "{}\n\nCommand exceeded timeout of {final_timeout} ms. Retry with a larger timeout if the command is expected to take longer.",
-                    base.output
-                );
-            }
-            let output = ShellOutput { base, shell_id: None, running: false };
-            let text = result_messages(&output).join("\n\n");
+            let output = ShellOutput { base: shell_result::output(&result), shell_id: None, running: false };
+            let text = result_messages(&output, Some(job_timeout.load(Ordering::SeqCst))).join("\n\n");
             let _ = settled_tx.send(Some(output));
             Ok(text)
         };
@@ -295,7 +294,7 @@ impl Tool for ShellTool {
         if background {
             let _ = ctx.host.job_background(&job.id).await;
             spawn_notifier(&ctx, job.id.clone(), info.id.clone(), info.command.clone(), settled_rx);
-            return Ok(tool_result(background_result(&info.id, &info.file)));
+            return Ok(tool_result(background_result(&info.id, &info.file), None));
         }
 
         let blocked = tokio::select! {
@@ -309,8 +308,9 @@ impl Tool for ShellTool {
         match blocked {
             Ok(Some(JobBlockResult::Backgrounded(_))) => {
                 let _ = self.service.timeout(&info.id, 0);
+                final_timeout.store(0, Ordering::SeqCst);
                 spawn_notifier(&ctx, job.id.clone(), info.id.clone(), info.command.clone(), settled_rx);
-                return Ok(tool_result(background_result(&info.id, &info.file)));
+                return Ok(tool_result(background_result(&info.id, &info.file), None));
             }
             Ok(Some(JobBlockResult::Finished(job_info))) if job_info.status == JobStatus::Error => {
                 return Err(ToolError::with_cause(leaf, ErrorCause::Error(job_info.error.unwrap_or_else(|| "Command failed".into()))));
@@ -338,7 +338,7 @@ impl Tool for ShellTool {
                 }
             }
         };
-        Ok(tool_result(output))
+        Ok(tool_result(output, Some(final_timeout.load(Ordering::SeqCst))))
     }
 }
 
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn background_content() {
-        let result = tool_result(background_result("sh_1", "/d/sh_1.out"));
+        let result = tool_result(background_result("sh_1", "/d/sh_1.out"), None);
         assert_eq!(
             result.content,
             vec![
@@ -367,8 +367,8 @@ mod tests {
 
     #[test]
     fn completed_content() {
-        let result = tool_result(ShellOutput { base: Output { output: "x".into(), exit: Some(1), ..Default::default() }, shell_id: None, running: false });
-        assert_eq!(result.content, vec![ToolContent::Text { text: "x".into() }, ToolContent::Text { text: "Exited with code 1".into() }]);
+        let result = tool_result(ShellOutput { base: Output { output: "x".into(), exit: Some(1), ..Default::default() }, shell_id: None, running: false }, Some(120_000));
+        assert_eq!(result.content, vec![ToolContent::Text { text: "x".into() }, ToolContent::Text { text: "Exit code: 1".into() }]);
         assert_eq!(serde_json::to_string(&result.metadata).unwrap(), r#"{"status":"completed","truncated":false,"exit":1}"#);
     }
 }

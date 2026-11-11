@@ -113,9 +113,11 @@ pub struct SkillInfo {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    /// Absolute path of the skill file.
+    /// Absolute path of the skill file, or a `skill://<id>/SKILL.md` URI for a skill that lives in memory.
     pub path: PathBuf,
     pub content: String,
+    /// The in-memory files of a `skill://` skill besides `SKILL.md` (`Skill.files`), by path from its root.
+    pub files: Vec<(String, String)>,
 }
 
 /// Session summary for subagent/opencode tools.
@@ -125,6 +127,8 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     pub agent: Option<String>,
     pub model: Option<ModelRef>,
+    /// The session's location directory (`session.location.directory`).
+    pub directory: String,
 }
 
 /// `Agent.Info` subset.

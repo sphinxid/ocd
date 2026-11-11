@@ -14,7 +14,71 @@ pub fn which(name: &str, bin: Option<&Path>) -> Option<PathBuf> {
     }
     let joined = std::env::join_paths(paths).ok()?;
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-    which::which_in(name, Some(joined), cwd).ok()
+    which::which_in(name, Some(&joined), cwd)
+        .ok()
+        .or_else(|| alias_candidates(name, &joined.to_string_lossy()).into_iter().find(|file| is_app_execution_alias(file)))
+}
+
+/// Microsoft Store apps, such as PowerShell 7, put app execution aliases in WindowsApps on PATH. They launch like any
+/// executable, but stat rejects them with EACCES, so `which` skips them (`appExecutionAlias`): the `<cmd>.exe` files of
+/// a bare command name in each folder of the search path, on Windows.
+fn alias_candidates(cmd: &str, search: &str) -> Vec<PathBuf> {
+    if cfg!(windows) { win32_alias_candidates(cmd, search) } else { Vec::new() }
+}
+
+/// [`alias_candidates`] with `path.win32` rules: `dirname(cmd)` must be `.`, and quoted folders are unquoted.
+fn win32_alias_candidates(cmd: &str, search: &str) -> Vec<PathBuf> {
+    let bare = !cmd.contains(['/', '\\']) && !(cmd.len() >= 2 && cmd.as_bytes()[1] == b':' && cmd.as_bytes()[0].is_ascii_alphabetic());
+    if search.is_empty() || !bare {
+        return Vec::new();
+    }
+    let name = if cmd.to_lowercase().ends_with(".exe") && cmd.len() > 4 { cmd.to_string() } else { format!("{cmd}.exe") };
+    search
+        .split(';')
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| {
+            let dir = dir.strip_prefix('"').and_then(|d| d.strip_suffix('"')).unwrap_or(dir).replace('/', "\\");
+            let dir = if dir.len() > 3 { dir.trim_end_matches('\\').to_string() } else { dir };
+            PathBuf::from(if dir.ends_with('\\') { format!("{dir}{name}") } else { format!("{dir}\\{name}") })
+        })
+        .collect()
+}
+
+/// `isAppExecutionAlias(file)`: on Windows, a path whose `lstat` is a link — as libuv reads it, which includes the
+/// `IO_REPARSE_TAG_APPEXECLINK` reparse points of Microsoft Store apps that `std` reports as plain files.
+pub fn is_app_execution_alias(file: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        windows_link(file)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = file;
+        false
+    }
+}
+
+#[cfg(windows)]
+fn windows_link(file: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_REPARSE_POINT, FindClose, FindFirstFileW, WIN32_FIND_DATAW};
+    // The reparse tags libuv's lstat reports as links: symlinks, junctions and app execution aliases.
+    const LINK_TAGS: [u32; 3] = [0xA000_000C, 0xA000_0003, 0x8000_001B];
+    if std::fs::symlink_metadata(file).is_ok_and(|m| m.file_type().is_symlink()) {
+        return true;
+    }
+    let wide: Vec<u16> = file.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    // SAFETY: `wide` is NUL-terminated and `data` is a plain struct the call fills in.
+    unsafe {
+        let mut data: WIN32_FIND_DATAW = std::mem::zeroed();
+        let handle = FindFirstFileW(wide.as_ptr(), &mut data);
+        if handle == INVALID_HANDLE_VALUE {
+            return false;
+        }
+        FindClose(handle);
+        data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 && LINK_TAGS.contains(&data.dwReserved0)
+    }
 }
 
 /// Node's `path.resolve(base, input)`: lexical, no symlink resolution.
@@ -158,5 +222,23 @@ mod tests {
         assert_eq!(dirname_str("a.txt"), ".");
         assert_eq!(dirname_str("src/a.txt"), "src");
         assert_eq!(basename("src/a.txt"), "a.txt");
+    }
+
+    /// util/which.ts `appExecutionAlias` (#61952): the WindowsApps candidates of a bare command name.
+    #[test]
+    fn app_execution_alias_candidates() {
+        let search = r#"C:\Windows;"C:\Users\me\AppData\Local\Microsoft\WindowsApps";;D:\tools\"#;
+        let found: Vec<String> = win32_alias_candidates("pwsh", search).iter().map(|p| p.to_string_lossy().into_owned()).collect();
+        assert_eq!(found, [r"C:\Windows\pwsh.exe", r"C:\Users\me\AppData\Local\Microsoft\WindowsApps\pwsh.exe", r"D:\tools\pwsh.exe"]);
+        assert_eq!(win32_alias_candidates("pwsh.EXE", "C:\\a")[0], PathBuf::from(r"C:\a\pwsh.EXE"));
+        assert_eq!(win32_alias_candidates("x", "C:\\")[0], PathBuf::from(r"C:\x.exe"));
+        assert!(win32_alias_candidates("bin\\pwsh", search).is_empty());
+        assert!(win32_alias_candidates("C:pwsh", search).is_empty());
+        assert!(win32_alias_candidates("pwsh", "").is_empty());
+        // Outside Windows nothing is an alias, and `which` never looks for one.
+        if !cfg!(windows) {
+            assert!(alias_candidates("pwsh", search).is_empty());
+            assert!(!is_app_execution_alias(Path::new("/bin/sh")));
+        }
     }
 }

@@ -192,7 +192,7 @@ impl ToolHost for CoreHost {
 
     async fn session_get(&self, session_id: &str) -> Result<SessionSummary, String> {
         let s = self.app.sessions.get(session_id).map_err(|e| e.to_string())?;
-        Ok(SessionSummary { id: s.id, parent_id: s.parent_id, agent: s.agent, model: s.model })
+        Ok(SessionSummary { id: s.id, parent_id: s.parent_id, agent: s.agent, model: s.model, directory: s.location.directory })
     }
 
     async fn session_create(
@@ -214,7 +214,7 @@ impl ToolHost for CoreHost {
             })
             .await
             .map_err(|e| e.to_string())?;
-        Ok(SessionSummary { id: s.id, parent_id: s.parent_id, agent: s.agent, model: s.model })
+        Ok(SessionSummary { id: s.id, parent_id: s.parent_id, agent: s.agent, model: s.model, directory: s.location.directory })
     }
 
     async fn session_switch_agent(&self, session_id: &str, agent: &str) -> Result<(), String> {
@@ -248,6 +248,11 @@ impl ToolHost for CoreHost {
 
     async fn session_rename(&self, session_id: &str, title: &str) -> Result<(), String> {
         self.app.sessions.rename(session_id, title).map_err(|e| e.to_string())
+    }
+
+    async fn session_move(&self, session_id: &str, directory: &str) -> Result<(), String> {
+        let Some(mover) = self.app.session_mover.get() else { return Err("Session moves are not available".into()) };
+        mover(session_id.to_string(), directory.to_string()).await
     }
 
     async fn session_synthetic(&self, m: SyntheticMessage) -> Result<(), String> {
