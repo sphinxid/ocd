@@ -139,8 +139,12 @@ impl Snapshots {
         future.await
     }
 
+    /// The worktree is a real path, so the Location must be one too: a symlinked or junctioned path would fall
+    /// outside it, and a path in another letter case would become a pathspec that matches nothing (2.2.7).
     fn scope(&self, worktree: &Path) -> Result<String, SnapshotError> {
-        let directory = &self.inner.location.directory;
+        let directory = oc_util::fs::canonicalize(&self.inner.location.directory)
+            .map_err(|cause| SnapshotError::new(SnapshotOperation::Capture, cause.to_string()))?;
+        let directory = directory.as_path();
         if !paths::contains(worktree, directory) {
             return Err(SnapshotError::new(SnapshotOperation::Capture, "Location is outside the project"));
         }

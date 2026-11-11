@@ -274,7 +274,8 @@ pub fn discovery_source(files: Option<Vec<File>>) -> Source {
                 let replacement = format!("The instructions changed:\n{}", render_files(&[(*a).clone()]));
                 if diff.encode_utf16().count() < replacement.encode_utf16().count() { diff } else { replacement }
             }));
-            Some(parts.join("\n\n"))
+            // An update that renders nothing is no update (2.2.7).
+            (!parts.is_empty()).then(|| parts.join("\n\n"))
         }),
         removed: Box::new(|_| Some("Previously loaded instructions no longer apply.".into())),
     }
@@ -403,6 +404,17 @@ mod tests {
         let v = serde_json::json!({"b": 1, "a": [true, null, "x"], "B": 2.5});
         assert_eq!(canonical(&v), r#"{"B":2.5,"a":[true,null,"x"],"b":1}"#);
     }
+    /// 2.2.7 `renderUpdate`: an AGENTS.md update that renders nothing (same files and contents) is no update.
+    #[test]
+    fn an_instruction_update_that_renders_nothing_is_none() {
+        let files = vec![File { path: "/p/AGENTS.md".into(), content: "Be nice.".into() }];
+        let source = discovery_source(Some(files.clone()));
+        let value = serde_json::to_value(&files).unwrap();
+        assert_eq!((source.changed)(&value, &value), None);
+        let changed = serde_json::to_value(vec![File { path: "/p/AGENTS.md".into(), content: "Be kind.".into() }]).unwrap();
+        assert!((source.changed)(&value, &changed).is_some());
+    }
+
     // skill/instructions.test.ts "renders only the changed skill when a description changes"
     #[test]
     fn renders_only_the_changed_skill_when_a_description_changes() {

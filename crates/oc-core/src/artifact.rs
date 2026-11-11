@@ -351,9 +351,9 @@ pub fn root(app: &App) -> PathBuf {
     app.global.data.join("artifacts")
 }
 
-/// Whether the location's config sets `experimental.artifacts: true`.
+/// `Flag.enabled("artifacts")` for the location's config (2.2.7 flag registry).
 pub fn enabled(location: &Location) -> bool {
-    oc_config::fold::experimental(&location.entries).and_then(|e| e.artifacts) == Some(true)
+    oc_config::flag::enabled(&location.entries, "artifacts")
 }
 
 /// `Artifact.locate`: the directory an artifact was created in, for routes without an explicit location.

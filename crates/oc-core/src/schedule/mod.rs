@@ -1284,10 +1284,10 @@ impl Schedules {
     }
 }
 
-/// The location settings from its config entries: `experimental.schedules` and `timezone`.
+/// The location settings from its config entries: the `schedules` flag and `timezone`.
 pub fn settings_of(entries: &[oc_config::Entry]) -> Settings {
     Settings {
-        enabled: oc_config::fold::experimental(entries).and_then(|e| e.schedules) == Some(true),
+        enabled: oc_config::flag::enabled(entries, "schedules"),
         timezone: oc_config::fold::latest(entries, |i| i.timezone.as_ref()).cloned(),
     }
 }

@@ -701,7 +701,13 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                 for key in UNSUPPORTED_EXPERIMENTAL {
                     unsupported_if_present(e, key, p(&["experimental", key]), d);
                 }
-                for key in ["portable_shell_scanner", "todo", "background_compaction", "media_blob"] {
+                // 2.2.7: every `ConfigExperimental.Info` field in schema order (`policies` merges into top-level
+                // `policies` in normalize_policies).
+                let booleans = ["portable_shell_scanner", "all_flags"]
+                    .into_iter()
+                    .chain(crate::flag::REGISTRY.iter().map(|(key, _)| *key))
+                    .chain(["part_rows"]);
+                for key in booleans {
                     if let Some(v) = e.get(key)
                         && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", key]), d)
                     {
@@ -712,16 +718,6 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                     && let Some(value) = decode_encoded::<crate::schema::ImageGenerate>(v, p(&["experimental", "image_generate"]), d)
                 {
                     result.insert("image_generate".into(), value);
-                }
-                if let Some(v) = e.get("schedules")
-                    && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", "schedules"]), d)
-                {
-                    result.insert("schedules".into(), value);
-                }
-                if let Some(v) = e.get("artifacts")
-                    && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", "artifacts"]), d)
-                {
-                    result.insert("artifacts".into(), value);
                 }
                 if let Some(v) = e.get("subagent_depth")
                     && let Some(value) =
@@ -734,6 +730,12 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                         decode_encoded::<IdleTimeout>(v, p(&["experimental", "location_idle_timeout"]), d)
                 {
                     result.insert("location_idle_timeout".into(), value);
+                }
+                if !e.contains_key("codemode_vm")
+                    && let Some(v) = e.get("codemodeVm")
+                    && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", "codemodeVm"]), d)
+                {
+                    result.insert("codemode_vm".into(), value);
                 }
             }
         }
@@ -931,7 +933,7 @@ fn diagnose_selection_map(value: Option<&Value>, path: &[String], d: &mut Diags)
 
 fn diagnose_selection(value: &Obj, path: &[String], d: &mut Diags) {
     let model = value.get("model").and_then(Value::as_str);
-    let model_valid = model.is_some_and(legacy::is_legacy_model_ref);
+    let model_valid = model.is_some_and(|m| legacy::model_selection(Some(m), None).is_some());
     if model.is_some() && !model_valid {
         d.push(Diagnostic {
             kind: DiagnosticKind::Unsupported,

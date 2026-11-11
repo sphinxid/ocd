@@ -82,7 +82,7 @@ impl Location {
             loader = loader.with_wellknown(wellknown);
         }
         let (sources, entries) = loader.entries().await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        let media = oc_config::fold::experimental(&entries).and_then(|e| e.media_blob) == Some(true);
+        let media = oc_config::flag::enabled(&entries, "media_blob");
         bus.set_media_blob(&[&key, &directory.display().to_string()], media);
         Ok(Location { key, directory, project, entries, sources, remote_instructions: Default::default(), closed: Default::default() })
     }

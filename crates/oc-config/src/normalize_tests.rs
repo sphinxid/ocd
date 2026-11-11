@@ -78,8 +78,35 @@ fn canonicalizes_warming_durations() {
     assert_eq!(encoded["warming"], json!({ "interval": "240000 millis", "duration": "1800000 millis" }));
     let info = Info::decode(&encoded).unwrap();
     let Some(crate::schema::Warming::Settings(w)) = info.warming else { panic!() };
-    assert_eq!(w.interval.unwrap().to_millis(), 240_000.0);
+    let Some(crate::schema::WarmingInterval::Duration(interval)) = w.interval else { panic!() };
+    assert_eq!(interval.to_millis(), 240_000.0);
     assert_eq!(w.duration.unwrap().to_millis(), 1_800_000.0);
+}
+
+/// 2.2.7: `warming.interval: "auto"` and provider/model `cache.warming` (`boolean | {interval?, duration?}` with
+/// raw strings) decode and round-trip; an invalid `cache.warming` is an error.
+#[test]
+fn accepts_auto_warming_and_cache_warming() {
+    let (encoded, d) = normalized(json!({
+        "warming": { "interval": "auto", "duration": "30 minutes" },
+        "providers": { "p": {
+            "settings": { "cache": { "warming": { "interval": "auto", "duration": "1 hour" }, "ttl": "1h" } },
+            "models": { "m": { "settings": { "cache": { "warming": false } } } },
+        } },
+    }));
+    assert!(d.is_empty(), "{d:?}");
+    assert_eq!(encoded["warming"], json!({ "interval": "auto", "duration": "1800000 millis" }));
+    let info = Info::decode(&encoded).unwrap();
+    let value = serde_json::to_value(&info).unwrap();
+    assert_eq!(value["warming"], json!({ "interval": "auto", "duration": "1800000 millis" }));
+    assert_eq!(
+        serde_json::to_string(&value["providers"]["p"]["settings"]["cache"]).unwrap(),
+        r#"{"ttl":"1h","warming":{"interval":"auto","duration":"1 hour"}}"#
+    );
+    assert_eq!(value["providers"]["p"]["models"]["m"]["settings"]["cache"], json!({ "warming": false }));
+    let (encoded, d) = normalized(json!({ "providers": { "p": { "settings": { "cache": { "warming": "yes" } } } } }));
+    assert_eq!(encoded["providers"], json!({}));
+    assert_eq!(d.iter().map(|x| (x.kind.as_str(), x.log_path())).collect::<Vec<_>>(), [("invalid", "$.providers.p".to_string())]);
 }
 
 #[test]
@@ -668,13 +695,15 @@ fn standard_provider_migration() {
     assert_eq!(p["custom"]["package"], json!("aisdk:@ai-sdk/openai-compatible"));
     assert_eq!(
         serde_json::to_string(&p["custom"]["settings"]).unwrap(),
-        r#"{"apiKey":"k","baseURL":"https://api.example.com","extra":1}"#
+        // 2.2.7: `options.baseURL || api`.
+        r#"{"apiKey":"k","baseURL":"x","extra":1}"#
     );
     let m = &p["custom"]["models"]["m"];
     assert_eq!(m["modelID"], json!("real"));
     assert_eq!(m["compatibility"], json!({ "reasoningField": "reasoning_content" }));
     assert_eq!(m["package"], json!("aisdk:@ai-sdk/anthropic"));
-    assert_eq!(m["capabilities"], json!({ "tools": false, "input": ["text", "image"], "output": ["text"] }));
+    // 2.2.7: only the given capabilities; the rest fall back to the base model's.
+    assert_eq!(m["capabilities"], json!({ "tools": false }));
     assert_eq!(m["variants"], json!([{ "id": "high", "settings": { "effort": "high" } }]));
     assert_eq!(
         m["cost"],
@@ -692,6 +721,41 @@ fn standard_provider_migration() {
     );
     assert!(p["google-vertex"].get("package").is_none());
     assert_eq!(p["google-vertex"]["models"]["claude"]["package"], json!("aisdk:@ai-sdk/google-vertex/anthropic"));
+}
+
+/// 2.2.7 v1 fixes: an `api` without `options.baseURL` still sets it, a partial `limit` keeps only what it has,
+/// and an inline variant in a legacy model reference wins (`normalization.test.ts` "keeps an inline variant in
+/// legacy model references").
+#[test]
+fn v1_partial_limits_api_and_inline_variants() {
+    let (encoded, d) = normalized(json!({
+        "provider": { "custom": {
+            "api": "https://api.example.com", "options": { "apiKey": "k", "baseURL": "" },
+            "models": { "m": { "limit": { "output": 10 }, "modalities": { "input": ["text"] } }, "n": { "limit": {} } },
+        } },
+        "small_model": "anthropic/claude-haiku-4-5#low",
+        "agent": { "reviewer": { "model": "anthropic/claude#high", "variant": "low" } },
+        "command": { "review": { "template": "review", "model": "anthropic/claude#high" } },
+    }));
+    assert!(d.is_empty(), "{d:?}");
+    let p = &encoded["providers"]["custom"];
+    assert_eq!(p["settings"]["baseURL"], json!("https://api.example.com"));
+    assert_eq!(p["models"]["m"]["limit"], json!({ "output": 10 }));
+    assert_eq!(p["models"]["m"]["capabilities"], json!({ "input": ["text"] }));
+    assert_eq!(p["models"]["n"]["limit"], json!({}));
+    assert_eq!(
+        encoded["agents"],
+        json!({
+            "reviewer": { "model": { "providerID": "anthropic", "model": "claude", "variant": "high" } },
+            "title": { "model": { "providerID": "anthropic", "model": "claude-haiku-4-5", "variant": "low" } },
+        })
+    );
+    assert_eq!(
+        encoded["commands"],
+        json!({ "review": { "template": "review", "model": { "providerID": "anthropic", "model": "claude", "variant": "high" } } })
+    );
+    let info = Info::decode(&encoded).expect("decodes");
+    assert!(info.providers.is_some());
 }
 
 #[test]
@@ -1050,6 +1114,38 @@ fn accepts_the_2_1_provider_and_model_fields() {
     }
 }
 
+/// 2.2.7 `experimental` keys (`normalization.test.ts`): every registered flag as a boolean, `all_flags`,
+/// `part_rows`, the `codemodeVm` alias, in the schema's key order.
+#[test]
+fn v2_2_7_experimental_keys() {
+    let (encoded, d) = normalized(json!({ "experimental": {
+        "subagent_depth": 0, "image_generate": { "model": "openai/gpt-image-2" }, "part_rows": true, "codemodeVm": true,
+        "console_watches": false, "artifacts": true, "media_blob": true, "all_flags": true, "portable_shell_scanner": true,
+    } }));
+    assert!(d.is_empty(), "{d:?}");
+    assert_eq!(
+        serde_json::to_string(&encoded["experimental"]).unwrap(),
+        r#"{"portable_shell_scanner":true,"all_flags":true,"media_blob":true,"artifacts":true,"console_watches":false,"part_rows":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-2"}},"subagent_depth":0,"codemode_vm":true}"#
+    );
+    let info = Info::decode(&encoded).unwrap();
+    assert_eq!(
+        serde_json::to_string(&info.experimental).unwrap(),
+        r#"{"portable_shell_scanner":true,"all_flags":true,"media_blob":true,"artifacts":true,"codemode_vm":true,"console_watches":false,"part_rows":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-2"}},"subagent_depth":0}"#
+    );
+    // `codemode_vm` wins over the alias.
+    let (encoded, _) = normalized(json!({ "experimental": { "codemodeVm": true, "codemode_vm": false } }));
+    assert_eq!(encoded["experimental"], json!({ "codemode_vm": false }));
+
+    let (encoded, d) = normalized(json!({ "experimental": { "todo": true, "media_blob": false, "schedules": "yes" } }));
+    assert_eq!(encoded["experimental"], json!({ "todo": true, "media_blob": false }));
+    assert_eq!(d.iter().map(|x| (x.kind.as_str(), x.log_path())).collect::<Vec<_>>(), [("invalid", "$.experimental.schedules".to_string())]);
+
+    assert_eq!(normalized(json!({ "experimental": { "all_flags": false } })).0["experimental"], json!({ "all_flags": false }));
+    let (encoded, d) = normalized(json!({ "experimental": { "all_flags": "yes" } }));
+    assert!(encoded.get("experimental").is_none());
+    assert_eq!(d.iter().map(|x| (x.kind.as_str(), x.log_path())).collect::<Vec<_>>(), [("invalid", "$.experimental.all_flags".to_string())]);
+}
+
 /// 2.2.2 config keys: `timezone`, `experimental.{media_blob,image_generate,schedules}`, prompt-cache settings,
 /// variant settings without `cache`, `models.<m>.type`, and v1 MCP `codemode`.
 #[test]
@@ -1076,7 +1172,7 @@ fn v2_2_config_keys() {
     assert_eq!(encoded["timezone"], "America/Los_Angeles");
     assert_eq!(
         serde_json::to_string(&encoded["experimental"]).unwrap(),
-        r#"{"background_compaction":true,"media_blob":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-1"}},"schedules":true,"subagent_depth":2}"#
+        r#"{"background_compaction":true,"media_blob":true,"schedules":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-1"}},"subagent_depth":2}"#
     );
     let custom = &encoded["providers"]["custom"];
     assert_eq!(serde_json::to_string(&custom["settings"]).unwrap(), r#"{"cache":{"ttl":"1h"},"transport":"http","baseURL":"https://x"}"#);

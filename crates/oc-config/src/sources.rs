@@ -20,8 +20,19 @@ use crate::schema::{AGENT_FIELDS, Agent, Command, Entry, Info, Plugin};
 // File scanning
 // ---------------------------------------------------------------------------------------------
 
-/// Files (following symlinks) ending in `suffix` directly in `dir` or, when `recursive`, below it.
-fn scan(dir: &Path, recursive: bool, accept: &dyn Fn(&Path) -> bool, out: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) {
+/// `FSUtil.ignoredDirectories`: skipped at any depth by scans that pass `ignore: FSUtil.ignoreGlobs`.
+pub const IGNORED_DIRECTORIES: [&str; 5] = ["node_modules", ".git", ".venv", "venv", "__pycache__"];
+
+/// Files (following symlinks) ending in `suffix` directly in `dir` or, when `recursive`, below it, skipping
+/// directories named in `ignore`.
+fn scan(
+    dir: &Path,
+    recursive: bool,
+    accept: &dyn Fn(&Path) -> bool,
+    ignore: &[&str],
+    out: &mut Vec<PathBuf>,
+    seen: &mut HashSet<PathBuf>,
+) {
     let Ok(canonical) = oc_util::fs::canonicalize(dir) else { return };
     if !seen.insert(canonical) {
         return;
@@ -31,8 +42,8 @@ fn scan(dir: &Path, recursive: bool, accept: &dyn Fn(&Path) -> bool, out: &mut V
         let path = entry.path();
         let Ok(meta) = std::fs::metadata(&path) else { continue };
         if meta.is_dir() {
-            if recursive {
-                scan(&path, true, accept, out, seen);
+            if recursive && !ignore.iter().any(|name| entry.file_name() == *name) {
+                scan(&path, true, accept, ignore, out, seen);
             }
         } else if meta.is_file() && accept(&path) {
             out.push(path);
@@ -46,9 +57,14 @@ fn md(path: &Path) -> bool {
 
 /// `{<names>}/**/*.md` (or `/*.md` when not recursive) under `root`, sorted.
 pub fn scan_markdown(root: &Path, names: &[&str], recursive: bool) -> Vec<PathBuf> {
+    scan_markdown_ignoring(root, names, recursive, &[])
+}
+
+/// [`scan_markdown`] skipping directories named in `ignore` at any depth.
+pub fn scan_markdown_ignoring(root: &Path, names: &[&str], recursive: bool, ignore: &[&str]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for name in names {
-        scan(&root.join(name), recursive, &md, &mut out, &mut HashSet::new());
+        scan(&root.join(name), recursive, &md, ignore, &mut out, &mut HashSet::new());
     }
     out.sort();
     out.dedup();
@@ -99,9 +115,21 @@ fn is_source(entries: &[Entry], file: &Path, names: &[&str]) -> bool {
 /// Agent fields only V2 understands (`nativeKeys` in `config/plugin/agent.ts`).
 const NATIVE_AGENT_KEYS: [&str; 4] = ["permissions", "request", "system", "disabled"];
 
-/// Decode one Markdown agent file into a `Document` (`decode` in `config/plugin/agent.ts`).
+/// Decode one Markdown agent file into a `Document` (`decode` in `config/plugin/agent.ts`); a file that fails logs
+/// `agent file skipped` with its path and reason (2.2.7).
 pub fn decode_agent_file(directory: &Path, file: &Path, primary: bool, content: &str) -> Option<Entry> {
-    let markdown = markdown::parse_option(content)?;
+    let Some(markdown) = markdown::parse_option(content) else {
+        tracing::warn!(filepath = %file.display(), reason = "markdown", "agent file skipped");
+        return None;
+    };
+    let decoded = decode_agent_markdown(directory, file, primary, markdown);
+    if decoded.is_none() {
+        tracing::warn!(filepath = %file.display(), reason = "frontmatter", issue = "invalid agent frontmatter", "agent file skipped");
+    }
+    decoded
+}
+
+fn decode_agent_markdown(directory: &Path, file: &Path, primary: bool, markdown: markdown::Markdown) -> Option<Entry> {
     let name = relative_name(directory, file, &AGENT_SOURCE_DIRECTORIES);
     let body = crate::schema::js_trim(&markdown.content).to_string();
     let data = markdown.data;
@@ -145,7 +173,8 @@ pub fn decode_agent_file(directory: &Path, file: &Path, primary: bool, content: 
 pub fn markdown_agents(directory: &Path) -> Vec<Entry> {
     let mut out = Vec::new();
     for (names, recursive, primary) in [(&["agent", "agents"], true, false), (&["mode", "modes"], false, true)] {
-        for file in scan_markdown(directory, names, recursive) {
+        // `ignore: FSUtil.ignoreGlobs` (2.2.7): dependency and VCS directories under an agent folder are not agents.
+        for file in scan_markdown_ignoring(directory, names, recursive, &IGNORED_DIRECTORIES) {
             let Ok(Some(content)) = crate::load::read_safe(&file) else { continue };
             if content.is_empty() {
                 continue;
@@ -176,12 +205,19 @@ pub fn agent_documents(entries: &[Entry]) -> Vec<Entry> {
 
 pub const COMMAND_SOURCE_DIRECTORIES: [&str; 2] = ["command", "commands"];
 
-/// Decode one Markdown command file (`template = content.trim()`).
+/// Decode one Markdown command file (`template = content.trim()`); a file that fails logs `command file skipped`
+/// with its path and reason (2.2.7).
 pub fn decode_command_file(directory: &Path, file: &Path, content: &str) -> Option<(String, Command)> {
-    let markdown = markdown::parse_option(content)?;
+    let Some(markdown) = markdown::parse_option(content) else {
+        tracing::warn!(filepath = %file.display(), reason = "markdown", "command file skipped");
+        return None;
+    };
     let mut input = markdown.data;
     input.insert("template".into(), Value::String(crate::schema::js_trim(&markdown.content).to_string()));
-    let command = Command::decode(&Value::Object(input))?;
+    let Some(command) = Command::decode(&Value::Object(input)) else {
+        tracing::warn!(filepath = %file.display(), reason = "frontmatter", issue = "invalid command frontmatter", "command file skipped");
+        return None;
+    };
     Some((relative_name(directory, file, &COMMAND_SOURCE_DIRECTORIES), command))
 }
 

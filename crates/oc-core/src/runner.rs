@@ -84,6 +84,9 @@ pub struct Loaded {
     pub initial: String,
     /// `initial` per instruction source (key, text).
     pub rendered: Vec<(String, String)>,
+    /// The web search tool's context/compaction/generate hook: no tool while web search is disabled or policy
+    /// removed every provider (2.2.7).
+    pub websearch_disabled: bool,
 }
 
 /// `SessionRunnerModel.resolve` for a session without a model: the selected agent's configured model (and
@@ -533,8 +536,8 @@ impl Engine {
     pub async fn base_registry(&self, location: &Location, mcp: &oc_mcp::manager::McpManager) -> Registry {
         let key = location.key.as_str();
         let mut registry = self.registry.clone();
-        // `opencode.tool.todo` adds `todowrite` only while the latest `experimental` config entry sets `todo: true`.
-        if oc_config::fold::experimental(&location.entries).and_then(|e| e.todo) != Some(true) {
+        // `opencode.tool.todo` adds `todowrite` only while the `todo` flag is on (`Flag.enabled("todo")`).
+        if !oc_config::flag::enabled(&location.entries, "todo") {
             registry.remove(oc_tools::tools::todo::NAME);
         }
         // `opencode.tool.image-generate` registers its tool only while an image model is available. It is on by
@@ -677,7 +680,19 @@ impl Engine {
         let messages = history_for_runner(&self.app.bus, &sel.session.id, &resolved.model_ref())?;
         let rendered = crate::instruction_state::initial_keyed(&self.app.bus, &sel.session.id, &sel.sources)?;
         let initial = crate::instructions::join(&rendered);
-        Ok(Loaded { sel, resolved, messages, initial, rendered })
+        let websearch_disabled = self.websearch_disabled(&sel).await;
+        Ok(Loaded { sel, resolved, messages, initial, rendered, websearch_disabled })
+    }
+
+    /// `opencode.tool.websearch`'s hook: `websearch.default()` fails with `WebSearch.Disabled`, or there are no
+    /// providers (policy can remove every one, and the model shouldn't be offered a tool that can't search).
+    async fn websearch_disabled(&self, sel: &Selected) -> bool {
+        let Some(websearch) = self.app.plugins.websearch_for(&sel.location.key) else { return false };
+        if let Some(selection) = crate::plugins::config_websearch_selection(&sel.location.entries) {
+            websearch.set_config_selection(Some(selection));
+        }
+        matches!(websearch.default_provider().await, Err(oc_tools::websearch::WebSearchError::Disabled))
+            || websearch.providers().await.is_empty()
     }
 
     async fn prepare_context(&self, session_id: &str) -> anyhow::Result<Selected> {
@@ -706,7 +721,7 @@ impl Engine {
                 Some(&self.app.global.bin),
             )),
             subagents: Some(subagents),
-            websearch_disabled: false,
+            websearch_disabled: loaded.websearch_disabled,
         }
     }
 

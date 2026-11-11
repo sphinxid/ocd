@@ -114,7 +114,8 @@ pub fn parse_option(content: &str) -> Option<Markdown> {
     parse(content).ok()
 }
 
-/// Rewrite unquoted values containing `:` as YAML block scalars.
+/// Rewrite unquoted values containing `:`, or starting with a bracketed tag like `[Tag] text` (2.2.7), as YAML
+/// block scalars: other coding agents accept them in frontmatter.
 pub fn sanitize(content: &str) -> String {
     static FRONT: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"^---\r?\n((?s:.*?))\r?\n---").unwrap());
@@ -134,7 +135,9 @@ pub fn sanitize(content: &str) -> String {
             if value.is_empty() || value == ">" || value == "|" || value.starts_with('"') || value.starts_with('\'') {
                 return vec![line.to_string()];
             }
-            if !value.contains(':') {
+            static TAGGED: std::sync::LazyLock<regex::Regex> =
+                std::sync::LazyLock::new(|| regex::Regex::new(r"^[\[{].*[\]}]\s*\S").unwrap());
+            if !value.contains(':') && !TAGGED.is_match(value) {
                 return vec![line.to_string()];
             }
             vec![format!("{}: |-", &entry[1]), format!("  {value}")]
@@ -173,6 +176,15 @@ mod tests {
         assert_eq!(md.data["description"], json!("Use this: carefully"));
         assert_eq!(md.data["model"], json!("anthropic/claude"));
         assert_eq!(md.content, "Body");
+    }
+
+    /// `markdown.test.ts` "recovers a frontmatter value that starts with a bracketed tag" (2.2.7).
+    #[test]
+    fn recovers_a_value_that_starts_with_a_bracketed_tag() {
+        let md = parse("---\ndescription: [Team] Does a thing\ntools: [read, edit]\n---\nbody").unwrap();
+        assert_eq!(md.data["description"], json!("[Team] Does a thing"));
+        assert_eq!(md.data["tools"], json!(["read", "edit"]));
+        assert_eq!(sanitize("---\nd: {a} b\nt: [x]\n---\n"), "---\nd: |-\n  {a} b\nt: [x]\n---\n");
     }
 
     #[test]

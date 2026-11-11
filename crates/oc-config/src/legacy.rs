@@ -29,25 +29,27 @@ pub fn normalize_action(action: &str) -> String {
     }
 }
 
-/// `/^[^/#]+\/[^#]+$/`
-pub fn is_legacy_model_ref(input: &str) -> bool {
-    let Some(slash) = input.find('/') else { return false };
-    let provider = &input[..slash];
-    let model = &input[slash + 1..];
-    !provider.is_empty() && !provider.contains('#') && !model.is_empty() && !model.contains('#')
+/// JavaScript truthiness of a JSON value.
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
 }
 
-/// `ConfigMigrateV1.modelSelection` → encoded `{ providerID, model, variant? }`.
+/// `ConfigMigrateV1.modelSelection` → encoded `{ providerID, model, variant? }`. The reference is a
+/// `Config.ModelSelection` short form, so `provider/model#variant` keeps its inline variant, which wins over the
+/// separate one (2.2.7).
 pub fn model_selection(input: Option<&str>, variant: Option<&str>) -> Option<Value> {
-    let input = input?;
-    if !is_legacy_model_ref(input) {
-        return None;
-    }
-    let slash = input.find('/')?;
+    let selection = crate::schema::ModelSelection::parse(input?)?;
+    let selected = selection.variant.as_deref().or(variant);
     let mut out = Map::new();
-    out.insert("providerID".into(), Value::String(provider_id(&input[..slash])));
-    out.insert("model".into(), Value::String(input[slash + 1..].to_string()));
-    if let Some(v) = variant
+    out.insert("providerID".into(), Value::String(provider_id(&selection.provider_id)));
+    out.insert("model".into(), Value::String(selection.model));
+    if let Some(v) = selected
         && !v.is_empty()
         && !v.contains('#')
     {
@@ -469,7 +471,8 @@ pub struct ModelV1 {
     pub tool_call: Option<bool>,
     pub interleaved: Option<Value>,
     pub cost: Option<(CostV1, Option<CostV1>)>,
-    pub limit: Option<(Number, Option<Number>, Number)>,
+    /// `{context?, input?, output?}` (each optional since 2.2.7).
+    pub limit: Option<(Option<Number>, Option<Number>, Option<Number>)>,
     pub modalities_input: Option<Vec<String>>,
     pub modalities_output: Option<Vec<String>>,
     pub status: Option<String>,
@@ -535,11 +538,7 @@ pub fn decode_model_v1(value: &Value) -> Option<ModelV1> {
     })?;
     let limit = opt_with(o, "limit", |v| {
         let l = record(v)?;
-        Some((
-            crate::decode::req_with(l, "context", finite)?,
-            opt_with(l, "input", finite)?,
-            crate::decode::req_with(l, "output", finite)?,
-        ))
+        Some((opt_with(l, "context", finite)?, opt_with(l, "input", finite)?, opt_with(l, "output", finite)?))
     })?;
     let (modalities_input, modalities_output) = match o.get("modalities") {
         None => (None, None),
@@ -747,13 +746,14 @@ fn migrate_model(info: &ModelV1, npm: Option<&str>) -> Map<String, Value> {
         }
         Value::Array(list)
     });
+    // Only the given capabilities (2.2.7): unset ones fall back to the base model's, then the defaults.
     let capabilities =
         if info.tool_call.is_some() || info.modalities_input.is_some() || info.modalities_output.is_some() {
-            Some(json!({
-                "tools": info.tool_call.unwrap_or(true),
-                "input": info.modalities_input.clone().unwrap_or_else(|| vec!["text".into(), "image".into()]),
-                "output": info.modalities_output.clone().unwrap_or_else(|| vec!["text".into()]),
-            }))
+            let mut c = Map::new();
+            insert_opt(&mut c, "tools", info.tool_call.map(Value::Bool));
+            insert_opt(&mut c, "input", info.modalities_input.as_ref().map(|v| json!(v)));
+            insert_opt(&mut c, "output", info.modalities_output.as_ref().map(|v| json!(v)));
+            Some(Value::Object(c))
         } else {
             None
         };
@@ -803,9 +803,9 @@ fn migrate_model(info: &ModelV1, npm: Option<&str>) -> Map<String, Value> {
     }
     if let Some((context, input, output)) = &info.limit {
         let mut limit = Map::new();
-        limit.insert("context".into(), json!(trunc_int(context)));
+        insert_opt(&mut limit, "context", context.as_ref().map(|c| json!(trunc_int(c))));
         insert_opt(&mut limit, "input", input.as_ref().map(|i| json!(trunc_int(i))));
-        limit.insert("output".into(), json!(trunc_int(output)));
+        insert_opt(&mut limit, "output", output.as_ref().map(|o| json!(trunc_int(o))));
         out.insert("limit".into(), Value::Object(limit));
     }
     out
@@ -833,8 +833,11 @@ fn migrate_standard_provider(info: &ProviderV1) -> Map<String, Value> {
     insert_opt(&mut out, "compatibility", set_cache_key.map(|v| json!({ "supportsPromptCacheKey": v })));
     let settings = match (&info.api, &info.options) {
         (Some(api), _) if !api.is_empty() => {
+            // `options.baseURL || api` (2.2.7): an explicit base URL wins over the provider's `api`.
             let mut s = settings;
-            s.insert("baseURL".into(), Value::String(api.clone()));
+            if !s.get("baseURL").is_some_and(truthy) {
+                s.insert("baseURL".into(), Value::String(api.clone()));
+            }
             Some(Value::Object(s))
         }
         (_, Some(_)) => Some(Value::Object(settings)),

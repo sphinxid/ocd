@@ -89,7 +89,8 @@ literal_enum!(
     /// `ConfigPolicy.Action`: `provider.use` (a provider ID), `tool.use` (`<tool>:<input>`), `integration.connect`
     /// (an integration ID: which integrations are listed and connectable), `integration.use`
     /// (`<integration>#<account>`, or the bare integration ID for connectionless use), and `mcp.use`, `skill.use`,
-    /// `plugin.use` (an MCP server name, skill ID or plugin target).
+    /// `plugin.use` (an MCP server name, skill ID or plugin target), and `websearch.use` (a web search provider ID,
+    /// 2.2.7).
     PolicyAction {
         ProviderUse = "provider.use",
         ToolUse = "tool.use",
@@ -98,6 +99,7 @@ literal_enum!(
         McpUse = "mcp.use",
         SkillUse = "skill.use",
         PluginUse = "plugin.use",
+        WebsearchUse = "websearch.use",
     }
 );
 literal_enum!(PolicyEffect { Allow = "allow", Deny = "deny" });
@@ -619,12 +621,35 @@ impl Decode for Duration {
     }
 }
 
+/// `Config.Warming.interval`: `"auto"` (the default: 90% of the model's `cache.ttl`, or 4 minutes when it has none)
+/// or a duration (2.2.7).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum WarmingInterval {
+    #[serde(serialize_with = "serialize_auto")]
+    Auto,
+    Duration(Duration),
+}
+
+fn serialize_auto<S: serde::Serializer>(s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str("auto")
+}
+
+impl Decode for WarmingInterval {
+    fn decode(value: &Value) -> Option<Self> {
+        if value.as_str() == Some("auto") {
+            return Some(WarmingInterval::Auto);
+        }
+        Duration::decode(value).map(WarmingInterval::Duration)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize)]
 pub struct WarmingInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub interval: Option<Duration>,
+    pub interval: Option<WarmingInterval>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<Duration>,
 }
@@ -769,6 +794,10 @@ pub struct McpLocal {
     pub timeout: Option<McpTimeout>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<McpProtocol>,
+    /// Share one connection between locations with the same server settings (2.2.7 opt-in; accepted, ocd connects
+    /// per location).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pool: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -786,6 +815,10 @@ pub struct McpRemote {
     pub timeout: Option<McpTimeout>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<McpProtocol>,
+    /// Share one connection between locations with the same server settings (2.2.7 opt-in; accepted, ocd connects
+    /// per location).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pool: Option<bool>,
 }
 
 /// `Mcp.ServerConfig`, discriminated by `type`.
@@ -829,6 +862,7 @@ impl Decode for McpServer {
                 codemode: opt(o, "codemode")?,
                 timeout: opt(o, "timeout")?,
                 protocol: opt(o, "protocol")?,
+                pool: opt(o, "pool")?,
             })),
             "remote" => Some(McpServer::Remote(McpRemote {
                 url: req(o, "url")?,
@@ -838,6 +872,7 @@ impl Decode for McpServer {
                 codemode: opt(o, "codemode")?,
                 timeout: opt(o, "timeout")?,
                 protocol: opt(o, "protocol")?,
+                pool: opt(o, "pool")?,
             })),
             _ => None,
         }
@@ -1114,6 +1149,34 @@ pub struct Cache {
     /// Prompt-cache lifetime such as "5m", "30m", "1h" or "24h" (`Provider.CacheTTL`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ttl: Option<String>,
+    /// Keep-alive requests for this provider's or model's sessions; overrides the top-level `warming` (2.2.7;
+    /// accepted, ocd has no warming runtime).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warming: Option<CacheWarming>,
+}
+
+/// `Provider.CacheWarming`: `boolean | {interval?: "auto" | string, duration?: string}`; settings hold JSON, so the
+/// durations stay strings.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum CacheWarming {
+    Enabled(bool),
+    Settings {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        interval: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        duration: Option<String>,
+    },
+}
+
+impl Decode for CacheWarming {
+    fn decode(value: &Value) -> Option<Self> {
+        if let Some(b) = value.as_bool() {
+            return Some(CacheWarming::Enabled(b));
+        }
+        let o = record(value)?;
+        Some(CacheWarming::Settings { interval: opt(o, "interval")?, duration: opt(o, "duration")? })
+    }
 }
 
 /// `Provider.CacheTTL`: `^\d+(ms|s|m|h|d)$`.
@@ -1126,7 +1189,7 @@ fn cache_ttl(value: &Value) -> Option<String> {
 impl Decode for Cache {
     fn decode(value: &Value) -> Option<Self> {
         let o = record(value)?;
-        Some(Cache { ttl: opt_with(o, "ttl", cache_ttl)? })
+        Some(Cache { ttl: opt_with(o, "ttl", cache_ttl)?, warming: opt(o, "warming")? })
     }
 }
 
@@ -1635,25 +1698,37 @@ pub struct Experimental {
     /// Deprecated: the built-in shell permission scanner is now always enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portable_shell_scanner: Option<bool>,
-    /// Enable the experimental todowrite tool. Defaults to false.
+    /// Turn every feature flag on regardless of the build channel, like `OPENCODE_FLAGS=all` (see [`crate::flag`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub all_flags: Option<bool>,
+    /// Flag: enable the experimental todowrite tool.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub todo: Option<bool>,
-    /// Enable experimental background compaction (accepted; not implemented by ocd).
+    /// Flag: experimental background compaction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_compaction: Option<bool>,
-    /// Store new session media once in a deduplicated blob table.
+    /// Flag: store new session media once in a deduplicated blob table.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_blob: Option<bool>,
+    /// Flag: experimental scheduled tasks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedules: Option<bool>,
+    /// Flag: experimental artifacts backed by pluggable providers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<bool>,
+    /// Flag: Code Mode on the bytecode VM (accepted; ocd runs its interpreter either way).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codemode_vm: Option<bool>,
+    /// Flag: OpenCode Console watches (accepted; not ported).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub console_watches: Option<bool>,
+    /// Each assistant part as its own `session_part` row (accepted; not ported, ocd writes whole messages).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part_rows: Option<bool>,
     /// Settings for the experimental_image_generate tool: `false` turns the tool off, `{model}` sets its preferred
     /// model.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_generate: Option<ImageGenerate>,
-    /// Enable experimental scheduled tasks (accepted; schedules are not ported, so their routes answer as if off).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schedules: Option<bool>,
-    /// Enable experimental artifacts backed by pluggable providers. Defaults to false.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub artifacts: Option<bool>,
     /// Maximum subagent nesting depth. Defaults to 1.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_depth: Option<u64>,
@@ -1666,17 +1741,37 @@ pub struct Experimental {
     pub policies: Option<Vec<Policy>>,
 }
 
+impl Experimental {
+    /// The value of a flag of the registry (`experimental.<key>`).
+    pub fn flag(&self, key: &str) -> Option<bool> {
+        match key {
+            "todo" => self.todo,
+            "background_compaction" => self.background_compaction,
+            "media_blob" => self.media_blob,
+            "schedules" => self.schedules,
+            "artifacts" => self.artifacts,
+            "codemode_vm" => self.codemode_vm,
+            "console_watches" => self.console_watches,
+            _ => None,
+        }
+    }
+}
+
 impl Decode for Experimental {
     fn decode(value: &Value) -> Option<Self> {
         let o = record(value)?;
         Some(Experimental {
             portable_shell_scanner: opt(o, "portable_shell_scanner")?,
+            all_flags: opt(o, "all_flags")?,
             todo: opt(o, "todo")?,
             background_compaction: opt(o, "background_compaction")?,
             media_blob: opt(o, "media_blob")?,
-            image_generate: opt(o, "image_generate")?,
             schedules: opt(o, "schedules")?,
             artifacts: opt(o, "artifacts")?,
+            codemode_vm: opt(o, "codemode_vm")?,
+            console_watches: opt(o, "console_watches")?,
+            part_rows: opt(o, "part_rows")?,
+            image_generate: opt(o, "image_generate")?,
             subagent_depth: opt_with(o, "subagent_depth", non_negative_int)?,
             location_idle_timeout: opt(o, "location_idle_timeout")?,
             policies: opt(o, "policies")?,

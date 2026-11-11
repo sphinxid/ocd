@@ -99,6 +99,11 @@ pub fn mcp_allowed(policies: &[Statement], name: &str) -> bool {
     decision(policies, PolicyAction::McpUse, name) != PolicyEffect::Deny
 }
 
+/// `websearch.use` against a web search provider id (2.2.7).
+pub fn websearch_allowed(policies: &[Statement], id: &str) -> bool {
+    decision(policies, PolicyAction::WebsearchUse, id) != PolicyEffect::Deny
+}
+
 /// `skill.use` against the skill id.
 pub fn skill_allowed(policies: &[Statement], id: &str) -> bool {
     decision(policies, PolicyAction::SkillUse, id) != PolicyEffect::Deny

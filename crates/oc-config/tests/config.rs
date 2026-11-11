@@ -550,6 +550,8 @@ fn loads_legacy_and_native_file_based_agents() {
     tmp.write("agents/disabled.md", "---\ndisabled: true\n---\nDisabled");
     tmp.write("agents/empty.md", "");
     tmp.write("modes/plan.md", "Make a plan.");
+    // 2.2.7: dependency and VCS directories under an agent folder are skipped.
+    tmp.write("agents/.opencode/node_modules/probe/README.md", "# Dependency README");
     let json_doc = Entry::Document {
         integration: None,
         path: None,
@@ -576,6 +578,7 @@ fn loads_legacy_and_native_file_based_agents() {
     assert!(native.model.is_none());
     assert!(!folded.agents.contains_key("disabled"));
     assert!(!folded.agents.contains_key("empty"));
+    assert!(!folded.agents.contains_key(".opencode/node_modules/probe/README"));
     assert_eq!(folded.agents["plan"].mode, Some(oc_config::schema::AgentMode::Primary));
     assert!(folded.agents.contains_key("build"));
 }
@@ -880,11 +883,16 @@ fn per_key_folds() {
         "repo": { "type": "git", "repository": "github.com/a/b" },
     }));
     let w = fold::warming(&entries).unwrap();
-    assert_eq!(w.interval.to_millis(), 60_000.0);
+    let oc_config::schema::WarmingInterval::Duration(interval) = &w.interval else { panic!("{w:?}") };
+    assert_eq!(interval.to_millis(), 60_000.0);
     assert_eq!(w.duration.to_millis(), 1_800_000.0);
     assert_eq!(w.prompt, fold::WARMING_PROMPT);
     assert!(fold::warming(&[doc(json!({ "warming": { "interval": "0 millis" } }))]).is_none());
     assert!(fold::warming(&[doc(json!({ "warming": false }))]).is_none());
+    // 2.2.7: `"auto"` is the default interval; a set one must be shorter than the duration.
+    assert_eq!(fold::warming(&[doc(json!({ "warming": true }))]).unwrap().interval, oc_config::schema::WarmingInterval::Auto);
+    assert_eq!(fold::warming(&[doc(json!({ "warming": { "interval": "auto" } }))]).unwrap().interval, oc_config::schema::WarmingInterval::Auto);
+    assert!(fold::warming(&[doc(json!({ "warming": { "interval": "40 minutes" } }))]).is_none());
     assert_eq!(fold::subagent_depth(&entries), 1);
 }
 

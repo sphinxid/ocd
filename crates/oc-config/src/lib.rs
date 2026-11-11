@@ -5,6 +5,7 @@
 pub mod cli;
 pub mod decode;
 pub mod discovery;
+pub mod flag;
 pub mod fold;
 pub mod integration;
 pub mod jsonc_edit;

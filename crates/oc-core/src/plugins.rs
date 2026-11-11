@@ -572,8 +572,8 @@ impl Plugins {
     }
 
     /// The policy plugin's `websearch.transform` (a `post` plugin, so it applies after every other one): a web
-    /// search provider shares its integration's id, and is withheld when `integration.use` denies that integration
-    /// with its active account.
+    /// search provider is withheld when `websearch.use` denies its id (2.2.7), or, as it shares its integration's
+    /// id, when `integration.use` denies that integration with its active account.
     fn websearch_policy(&self, key: &str) -> oc_tools::websearch::DenyFn {
         let (me, key, db) = (self.me.clone(), key.to_string(), self.db.clone());
         Arc::new(move |id: &str| {
@@ -581,6 +581,9 @@ impl Plugins {
             let statements = plugins.policies_at(&key);
             if statements.is_empty() {
                 return false;
+            }
+            if !oc_config::policy::websearch_allowed(&statements, id) {
+                return true;
             }
             let accounts = crate::policy::accounts(&crate::models::DbCredentials::all_of(&db).unwrap_or_default());
             crate::policy::integration_denied(&statements, &accounts, id)
@@ -992,6 +995,11 @@ impl Plugins {
             && let Some(state) = self.locations.lock().get_mut(&key)
         {
             state.announced = Some(inventory);
+        }
+        // Upstream's State shows each registration as soon as it is made: plugin web search providers are listed
+        // once activation settles, now that `websearch.providers` callers no longer wait behind other routes.
+        if first {
+            self.search_providers(&key).await;
         }
         pending.settle();
         if !first {

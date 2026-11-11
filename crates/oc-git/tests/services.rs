@@ -56,6 +56,24 @@ async fn captures_and_restores_location_scoped_changes() {
     assert!(store.join("opencode.gitconfig").exists());
 }
 
+/// 2.2.7 `snapshot.ts` `scope`: a Location reached through a symlink is the real path inside the worktree.
+#[cfg(unix)]
+#[tokio::test]
+async fn captures_a_location_reached_through_a_symlink() {
+    let root = tmp();
+    let base = real(root.path());
+    let project = base.join("project");
+    write(project.join("scope").join("tracked.txt"), "one\n");
+    init_git(&project, false);
+    let linked = base.join("linked");
+    std::os::unix::fs::symlink(project.join("scope"), &linked).unwrap();
+    let snapshot = snapshots(&base, &project, &linked);
+    let before = snapshot.capture().await.expect("capture");
+    write(linked.join("tracked.txt"), "two\n");
+    let after = snapshot.capture().await.expect("capture");
+    assert_eq!(snapshot.files(&before, &after).await.unwrap(), strings(&["scope/tracked.txt"]));
+}
+
 #[tokio::test]
 async fn hides_paths_the_source_ignores() {
     let root = tmp();

@@ -237,9 +237,8 @@ impl Settings {
             auto: c.auto.unwrap_or(true),
             buffer: c.buffer,
             keep: c.keep.unwrap_or(DEFAULT_KEEP),
-            // `Config.latest(entries, "experimental")?.background_compaction === true`: the latest entry that has an
-            // `experimental` object decides.
-            precompute: oc_config::fold::experimental(entries).and_then(|e| e.background_compaction) == Some(true),
+            // `Flag.enabled("background_compaction")` (2.2.7 flag registry).
+            precompute: oc_config::flag::enabled(entries, "background_compaction"),
         }
     }
 }
