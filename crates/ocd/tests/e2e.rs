@@ -40,6 +40,11 @@ fn start_mock() -> (u16, Arc<Mutex<Vec<&'static str>>>) {
                     json!({"id":"t","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
                 ]);
             }
+            if text.contains("HANG_NOW") {
+                // Headers, then nothing: the request stays pending until the client gives up on it.
+                let body = Body::from_stream(futures::stream::pending::<Result<Vec<u8>, std::io::Error>>());
+                return Response::builder().header("content-type", "text/event-stream").body(body).unwrap();
+            }
             if text.contains("REFUSE") {
                 return Response::builder()
                     .status(400)
@@ -48,6 +53,18 @@ fn start_mock() -> (u16, Arc<Mutex<Vec<&'static str>>>) {
                     .unwrap();
             }
             let has_tool_result = body.0["messages"].as_array().is_some_and(|m| m.iter().any(|m| m["role"] == "tool"));
+            if text.contains("BG_SHELL") {
+                if has_tool_result {
+                    return sse(&[
+                        json!({"id":"c","choices":[{"index":0,"delta":{"role":"assistant","content":"Waiting for the command."}}]}),
+                        json!({"id":"c","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+                    ]);
+                }
+                return sse(&[
+                    json!({"id":"c","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"shell","arguments":"{\"command\":\"sleep 30\",\"background\":true}"}}]}}]}),
+                    json!({"id":"c","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}),
+                ]);
+            }
             if text.contains("USE_TOOL") && !has_tool_result {
                 return sse(&[
                     json!({"id":"c","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read","arguments":"{\"path\":\"hello.txt\"}"}}]}}]}),
@@ -369,4 +386,48 @@ fn run_sends_the_title_request_before_the_first_step() {
     let out = env.run(&["session", "list", "--standalone"]);
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
     assert_eq!(common::text(&out.stdout).matches("Mock title").count(), 3, "{}", common::text(&out.stdout));
+}
+
+/// A stop signal while the model request is pending, or while the run waits for the background shell its prompt
+/// started: the run cancels its Session (removing the shell), and exits 130 or 143 at once. Its event stream is
+/// closed when the run is over, so the private server does not wait out its grace for open connections, and the
+/// notice the removed shell queues is delivered before its execution is interrupted, so the cancel does not wait for
+/// the shutdown deadline.
+#[cfg(unix)]
+#[test]
+fn run_stopped_by_a_signal_cancels_and_exits_at_once() {
+    use std::time::{Duration, Instant};
+    let env = common::Env::new();
+    let (provider, requests) = start_mock();
+    write_config(&env, provider);
+    let steps = || requests.lock().unwrap().iter().filter(|kind| **kind == "step").count();
+    let cases: [(&[&str], i32, i32, usize); 3] = [
+        (&["run", "--standalone", "HANG_NOW"], libc::SIGINT, 130, 1),
+        (&["run", "--standalone", "--format", "json", "HANG_NOW"], libc::SIGTERM, 143, 1),
+        (&["run", "--standalone", "BG_SHELL", "now"], libc::SIGTERM, 143, 2),
+    ];
+    for (args, signal, code, ready) in cases {
+        requests.lock().unwrap().clear();
+        let child = env.command(args).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while steps() < ready {
+            assert!(Instant::now() < deadline, "no model request for {args:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // Let the run reach its wait (the pending request, or the background job).
+        std::thread::sleep(Duration::from_secs(1));
+        let sent = Instant::now();
+        // SAFETY: signals the child this test spawned and still owns.
+        unsafe { libc::kill(child.id() as i32, signal) };
+        let out = child.wait_with_output().unwrap();
+        let elapsed = sent.elapsed();
+        let stderr = common::text(&out.stderr);
+        assert_eq!(out.status.code(), Some(code), "{args:?}: {stderr}");
+        assert!(!stderr.contains("shutdown did not finish"), "{stderr}");
+        assert!(elapsed < Duration::from_millis(1900), "{args:?} took {elapsed:?}");
+        if ready == 2 {
+            assert_eq!(common::text(&out.stdout), "Waiting for the command.\n");
+            assert!(stderr.ends_with("\x1b[90mwaiting for 1 background job\x1b[0m\n"), "{stderr}");
+        }
+    }
 }

@@ -721,6 +721,14 @@ async fn latest_session(client: &Client, location: &Value) -> anyhow::Result<Opt
     }
 }
 
+/// The cancelling run's `session.interrupt` (failures ignored), with `resume`: a wake recorded before the interrupt
+/// belongs to the interrupted intent and is claimed by it, which would leave a job's notice queued with no
+/// execution to deliver it and the cancel waiting for good; resumed, the notice is delivered and that execution
+/// interrupted in turn (upstream sends no `resume`, see `consume`).
+async fn interrupt(client: Client, session_id: String) {
+    let _ = client.call("session.interrupt", Req::new().path("sessionID", &session_id).query("resume", json!(true))).await;
+}
+
 async fn fork(client: &Client, id: &str) -> anyhow::Result<Value> {
     Ok(client.call("session.fork", Req::new().path("sessionID", id).body(json!({}))).await.map_err(mutation)?.get("data").cloned().unwrap_or(Value::Null))
 }
@@ -907,6 +915,9 @@ struct Shared {
     admission: Mutex<Option<Admission>>,
     /// Set once the run is over (`controller.abort()`): the stream ending is no failure then.
     closed: AtomicBool,
+    /// The event consumer and the lifecycle, stopped once the run is over: the consumer's event stream (and a
+    /// cancelled lifecycle's pending request) would otherwise hold the private server's shutdown open.
+    tasks: Mutex<Vec<(tokio::task::AbortHandle, futures::future::BoxFuture<'static, ()>)>>,
 }
 
 fn part_id(event_id: &str) -> String {
@@ -1135,6 +1146,22 @@ impl Shared {
         self.ended.send_modify(|e| e.generation += 1);
     }
 
+    /// A task stopped once the run is over (see `tasks`).
+    fn track<T: Send + 'static>(&self, task: tokio::task::JoinHandle<T>) {
+        self.tasks.lock().push((task.abort_handle(), task.map(|_| ()).boxed()));
+    }
+
+    /// `controller.abort()`: stop reading events, and drop whatever request a cancelled lifecycle still has open.
+    async fn stop_tasks(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        let tasks = std::mem::take(&mut *self.tasks.lock());
+        for (abort, _) in &tasks {
+            abort.abort();
+        }
+        // The aborted tasks have dropped their connections once they are joined.
+        futures::future::join_all(tasks.into_iter().map(|(_, joined)| joined)).await;
+    }
+
     /// Wait until the deferred captured at `generation` settles.
     async fn ended(&self, generation: u64) -> Result<(), String> {
         let mut rx = self.ended.subscribe();
@@ -1198,12 +1225,15 @@ impl Shared {
                 (st.job_sessions.contains(&session_id), st.phase)
             };
             if jobs {
-                if ty == "session.execution.started" && phase == Phase::Cancelling {
-                    let client = self.p.client.clone();
-                    let sid = session_id.clone();
-                    tokio::spawn(async move {
-                        let _ = client.call("session.interrupt", Req::new().path("sessionID", &sid)).await;
-                    });
+                // Upstream interrupts on `session.execution.started`. An interrupt that lands before the wake has
+                // delivered the notice that rang it claims that wake and parks the notice in the inbox with nothing
+                // left to deliver it, so the cancel would wait for an end that never comes (until the shutdown
+                // deadline). On upstream's single-threaded server the interrupt rarely gets in before delivery; here
+                // the request is handled in parallel with the wake and often does, so the execution is interrupted
+                // once it delivered its input or started a step, and input queued meanwhile is resumed (see
+                // `interrupt`).
+                if phase == Phase::Cancelling && (ty == "session.inbox.delivered" || ty == "session.step.started") {
+                    tokio::spawn(interrupt(self.p.client.clone(), session_id.clone()));
                 }
                 if terminal.is_some() {
                     self.bump();
@@ -1337,11 +1367,11 @@ impl Shared {
         // A failed stream rejects whatever wait is pending, since no further end could be seen.
         {
             let me = self.clone();
-            tokio::spawn(async move {
+            self.track(tokio::spawn(async move {
                 if let Err(e) = me.clone().consume(stream).await {
                     me.ended.send_modify(|s| s.error = Some(e));
                 }
-            });
+            }));
         }
         let body = json!({"id": self.message_id, "text": self.p.message, "files": self.p.files, "delivery": "steer"});
         let admission: Admission = {
@@ -1417,7 +1447,7 @@ impl Shared {
     }
 
     /// cancelling: a wake can still start after the interrupt (the notice each cancelled job queues), so the
-    /// consumer interrupts every execution that starts until the tree is quiet.
+    /// consumer interrupts every execution that delivers input until the tree is quiet.
     async fn cancel(&self) -> Result<(), String> {
         self.state.lock().phase = Phase::Cancelling;
         let admission = self.admission.lock().clone();
@@ -1444,12 +1474,7 @@ impl Shared {
                 _ => {}
             }
         });
-        tokio::join!(
-            async {
-                let _ = client.call("session.interrupt", Req::new().path("sessionID", sid)).await;
-            },
-            futures::future::join_all(jobs),
-        );
+        tokio::join!(interrupt(client.clone(), sid.clone()), futures::future::join_all(jobs));
         loop {
             let generation = self.generation();
             client.call("experimental.session.wait", Req::new().path("sessionID", sid)).await.map_err(|e| e.to_string())?;
@@ -1833,10 +1858,11 @@ impl Prompt {
             ended: tokio::sync::watch::channel(Ended::default()).0,
             admission: Mutex::new(None),
             closed: AtomicBool::new(false),
+            tasks: Mutex::new(vec![]),
         });
         let result = shared.clone().settle(stream).await;
-        // `finally`: the consumer stops reading.
-        shared.closed.store(true, Ordering::SeqCst);
+        // `finally`: the consumer stops reading and its event stream is closed.
+        shared.stop_tasks().await;
         result.map_err(|e| anyhow::anyhow!(e))
     }
 }
@@ -1852,6 +1878,8 @@ impl Shared {
             _ = crate::signals::stopped() => None,
         };
         let Some(settled) = settled else {
+            // The lifecycle is left to itself (`running.catch(() => {})`) until the run is over.
+            self.track(running);
             // Requests failing during or after cancellation (e.g. the private server shutting down) are ignored.
             let _ = self.cancel().await;
             return Ok(());

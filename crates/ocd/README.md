@@ -195,6 +195,15 @@ following of child sessions after the root turn ends.
   (oc-server binds only once the backend exists) and then retries on `EADDRINUSE` as upstream.
 * `run` (2.2.7) renders live events until it settles and then the rest from the projected messages; ocd's
   server delivers events at once, which no longer needs the 150 ms hold 2.2.5's skip-finalizing rule required.
+  Once the run is over its event stream is closed (and a cancelled lifecycle's pending request dropped), like
+  upstream's `controller.abort()`, so the private server stops at once instead of after its 2 s grace for open
+  connections.
+* `run` cancelling on a stop signal interrupts a job session's execution once it has delivered input or started a
+  step, where upstream interrupts it as it starts, and sends its interrupts with `resume=true`. An interrupt that
+  lands before the wake delivered the notice that rang it claims that wake and parks the notice in the inbox, so
+  upstream's cancel loop would wait for an end that never comes (until the shutdown deadline, exit 1). Upstream's
+  single-threaded server rarely lets the interrupt in that early; ocd's handles it in parallel with the wake and
+  often did.
 * `OPENCODE_PTY_HANDOFF` is validated at boot and left in the environment for the backend
   (`oc_persistent_pty::handoff::take_from_env()`); the client side publishes/consumes the
   `<registration>.pty-handoff` sidecar via `POST /api/experimental/persistent-pty/handoff`.
