@@ -833,6 +833,9 @@ struct Agent {
     mcp: Mutex<HashMap<String, HashMap<String, Value>>>,
     turns: Mutex<HashMap<String, Arc<TurnCtl>>>,
     prompt_requests: Mutex<HashMap<String, String>>,
+    /// Sessions `session/new` created that were not prompted yet: clients often open a session and close it
+    /// without prompting, and closing removes those instead of keeping an empty session.
+    unprompted: Mutex<HashSet<String>>,
 }
 
 impl Agent {
@@ -1084,6 +1087,7 @@ impl Agent {
                         "_meta": {"opencode/child-session-updates": true},
                     },
                     "authMethods": [auth],
+                    "_meta": {"steering": {"supported": true}},
                     "agentInfo": {"name": "OpenCode", "version": oc_util::version::VERSION},
                 }))
             }
@@ -1105,6 +1109,7 @@ impl Agent {
                 }
                 let created = self.client.call("session.create", Req::new().body(body)).await.map_err(classify)?.get("data").cloned().unwrap_or(Value::Null);
                 let (id, options, catalog) = self.attach(&created, &cwd, &servers).await?;
+                self.unprompted.lock().insert(id.clone());
                 self.pending_after(request_id, id.clone(), catalog);
                 Ok(json!({"sessionId": id, "configOptions": options}))
             }
@@ -1130,7 +1135,7 @@ impl Agent {
                 let (cwd, dirs) = parse_directories(params.get("cwd").unwrap_or(&Value::Null), params.get("additionalDirectories"))?;
                 let servers = Self::check_mcp(params.get("mcpServers"))?;
                 let session = self.get_session(s(&params, "sessionId"), &cwd).await?;
-                let forked = self.client.call("session.fork", Req::new().path("sessionID", s(&session, "id"))).await.map_err(classify)?.get("data").cloned().unwrap_or(Value::Null);
+                let forked = self.client.call("session.fork", Req::new().path("sessionID", s(&session, "id")).body(json!({}))).await.map_err(classify)?.get("data").cloned().unwrap_or(Value::Null);
                 self.activate(&forked, &dirs).await?;
                 let dir = s(forked.get("location").unwrap_or(&Value::Null), "directory").to_string();
                 let (id, options, catalog) = self.attach(&forked, &dir, &servers).await?;
@@ -1182,6 +1187,7 @@ impl Agent {
             }
             "session/delete" => {
                 let id = s(&params, "sessionId").to_string();
+                self.unprompted.lock().remove(&id);
                 self.cancel_turn(&id, true).await;
                 if id.starts_with("ses") {
                     match self.client.call("session.remove", Req::new().path("sessionID", &id)).await {
@@ -1203,6 +1209,7 @@ impl Agent {
                     }
                 }
                 self.detach(&id);
+                self.discard_unprompted(&id).await;
                 Ok(json!({}))
             }
             "session/set_config_option" => {
@@ -1221,13 +1228,72 @@ impl Agent {
             }
             "session/prompt" => {
                 let id = s(&params, "sessionId").to_string();
+                self.unprompted.lock().remove(&id);
                 self.prompt_requests.lock().insert(request_id.to_string(), id.clone());
                 let r = self.clone().prompt(&id, params.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default()).await;
                 self.prompt_requests.lock().remove(&request_id.to_string());
                 r
             }
+            // Interim extension until ACP has native mid-turn steering.
+            "_session/steering" => {
+                let (id, blocks) = parse_steering(&params)?;
+                self.steer(&id, blocks).await
+            }
             other => Err(AcpError::method_not_found(other)),
         }
+    }
+
+    /// `discardUnprompted`: a session `session/new` created and nobody prompted is removed on close, unless another
+    /// client of the same server used it.
+    async fn discard_unprompted(&self, id: &str) {
+        if !self.unprompted.lock().remove(id) {
+            return;
+        }
+        let result: Result<(), String> = async {
+            if !id.starts_with("ses") {
+                return Err(format!("Invalid session ID: {id}"));
+            }
+            let messages = self
+                .client
+                .call("session.message.list", Req::new().path("sessionID", id).query("limit", json!(1)))
+                .await
+                .map_err(|e| e.to_string())?;
+            if messages.get("data").and_then(Value::as_array).is_none_or(|a| a.is_empty()) {
+                self.client.call("session.remove", Req::new().path("sessionID", id)).await.map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            tracing::warn!(%error, "ACP could not remove an unused session");
+        }
+    }
+
+    /// `turn.steer`: redirects a running turn; an idle session is left alone so a steer never starts a turn.
+    async fn steer(&self, id: &str, blocks: Vec<Value>) -> R<Value> {
+        let (cwd, _) = self.selection(id)?;
+        let active = self.client.call("session.active", Req::new()).await.map_err(classify)?;
+        if !active.get("data").and_then(Value::as_object).is_some_and(|o| o.contains_key(id)) {
+            return Ok(json!({"outcome": "promptRequired", "reason": "noRunningTurn"}));
+        }
+        let catalog = self.catalog(&cwd).await?;
+        let prepared = prepare(&catalog, &blocks)?;
+        let c = &self.client;
+        if !prepared.synthetic.is_empty() {
+            c.call("session.synthetic", Req::new().path("sessionID", id).body(json!({"text": prepared.synthetic.join("\n\n"), "description": "ACP embedded context", "delivery": "steer", "resume": false})))
+                .await
+                .map_err(classify)?;
+        }
+        // Without resume, a session that went idle after the check keeps the steer queued instead of starting a turn.
+        c.call(
+            "session.prompt",
+            Req::new()
+                .path("sessionID", id)
+                .body(json!({"id": prepared.start_id, "text": prepared.text, "files": prepared.files, "delivery": "steer", "resume": false})),
+        )
+        .await
+        .map_err(classify)?;
+        Ok(json!({"outcome": "injected"}))
     }
 
     /// Updates sent after the response of new/load/resume/fork has been written.
@@ -1483,6 +1549,23 @@ fn child_status(ctx: &Ctx, c: &Child, status: &str, error: Option<&Value>) -> Ve
         e["error"] = err.clone();
     }
     vec![Out::Child(child_update(ctx, c, e))]
+}
+
+/// `parseSteering`: `{sessionId: string, prompt: unknown[]}` (Effect Schema's messages in `details`).
+fn parse_steering(params: &Value) -> R<(String, Vec<Value>)> {
+    let invalid = |details: &str| AcpError { code: -32602, message: "Invalid params".into(), data: json!({"details": details}) };
+    let Some(o) = params.as_object() else { return Err(invalid("Expected object")) };
+    let id = match o.get("sessionId") {
+        None => return Err(invalid("Missing key\n  at [\"sessionId\"]")),
+        Some(Value::String(id)) => id.clone(),
+        Some(_) => return Err(invalid("Expected string\n  at [\"sessionId\"]")),
+    };
+    let prompt = match o.get("prompt") {
+        None => return Err(invalid("Missing key\n  at [\"prompt\"]")),
+        Some(Value::Array(p)) => p.clone(),
+        Some(_) => return Err(invalid("Expected array\n  at [\"prompt\"]")),
+    };
+    Ok((id, prompt))
 }
 
 fn event_session(event: &Value) -> Option<String> {
@@ -2317,6 +2400,7 @@ pub async fn run(global: &Global, input: &Input) -> anyhow::Result<i32> {
         mcp: Mutex::new(HashMap::new()),
         turns: Mutex::new(HashMap::new()),
         prompt_requests: Mutex::new(HashMap::new()),
+        unprompted: Mutex::new(HashSet::new()),
     });
     tokio::spawn(watch_events(agent.clone()));
 

@@ -1,4 +1,4 @@
-//! `--wizard`: effect 4.0.6 `cli/internal/wizard.ts` and the wizard branch of `Command.runWith`. The
+//! `--wizard`: effect 4.1.0 `cli/internal/wizard.ts` and the wizard branch of `Command.runWith`. The
 //! wizard walks the command tree from the command the line names: a `Command` select for each level
 //! with subcommands, then the leaf's flags and arguments (`Set <label>?` for optional ones, a count for
 //! repeated ones, then one prompt per value by type: confirm for booleans, select for choices, an
@@ -193,11 +193,12 @@ impl Wizard<'_> {
         parsed.map_err(Stop::Failed)?;
         self.term.log("");
         let Single::Flag(f) = single else { return Ok(values) };
-        // Option-looking values are inlined so the lexer cannot take them for flags or `--`.
+        // Option-looking values are inlined so the lexer cannot take them for flags or `--`. Flags with an
+        // optional value only accept an inline value.
         Ok(values
             .into_iter()
             .flat_map(|v| {
-                if v.value.starts_with('-') && js_len(&v.value) > 1 {
+                if f.optional_value.is_some() || (v.value.starts_with('-') && js_len(&v.value) > 1) {
                     vec![Word { value: format!("--{}={}", f.name, v.value), display: format!("--{}={}", f.name, v.display) }]
                 } else {
                     vec![word(&format!("--{}", f.name)), v]
@@ -400,11 +401,13 @@ mod tests {
                 "Continue the last session (--continue)",
                 "Session (--session)",
                 "Fork (--fork)",
+                "Worktree (--worktree)",
                 "Model (--model)",
                 "Agent to use (--agent)",
                 "Output format (--format)",
                 "File to attach to the message (--file)",
                 "Session title (--title)",
+                "Archived (--archived)",
                 "Show thinking blocks (--thinking)",
                 "Auto (--auto)",
                 "Yolo (--yolo)",

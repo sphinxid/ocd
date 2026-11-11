@@ -24,19 +24,24 @@ pub struct Args<'a> {
     pub server: Option<String>,
     pub standalone: bool,
     pub mismatch: Option<Mismatch>,
+    /// Start the background service when none is running (default). When false, use a standalone server instead.
+    pub autostart: Option<bool>,
     pub on_start: OnStart<'a>,
 }
 
 /// A private `serve --stdio` child owned by this process.
 pub struct Standalone {
     child: Child,
+    /// `Teardown.track` of the child (the spawner's `child <pid> running: <command>`).
+    _tracked: crate::shutdown::Tracked,
 }
 
 impl Standalone {
     /// `Standalone.start()`
     pub fn start(global_cwd: &std::path::Path) -> anyhow::Result<(Standalone, Endpoint)> {
         let password = oc_server::service::generate_password();
-        let mut cmd = std::process::Command::new(service::self_exe());
+        let exe = service::self_exe();
+        let mut cmd = std::process::Command::new(&exe);
         cmd.args(["serve", "--stdio", "--port", "0"])
             .current_dir(global_cwd)
             .env("OPENCODE_PASSWORD", &password)
@@ -44,6 +49,9 @@ impl Standalone {
             .stdout(Stdio::piped())
             .stderr(if std::env::var("OPENCODE_PRINT_LOGS").as_deref() == Ok("1") { Stdio::inherit() } else { Stdio::null() });
         let mut child = cmd.spawn()?;
+        let label: Vec<u16> = format!("child {} running: {exe} serve --stdio --port 0", child.id()).encode_utf16().take(200).collect();
+        let label = String::from_utf16_lossy(&label);
+        let tracked = crate::shutdown::track(label);
         let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Standalone server exited before reporting readiness"))?;
         let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
         std::thread::spawn(move || {
@@ -73,7 +81,7 @@ impl Standalone {
         };
         let ready: serde_json::Value = serde_json::from_str(&line)?;
         let url = ready.get("url").and_then(|u| u.as_str()).ok_or_else(|| anyhow::anyhow!("Invalid standalone readiness line"))?;
-        Ok((Standalone { child }, Endpoint { url: url.to_string(), password: Some(password) }))
+        Ok((Standalone { child, _tracked: tracked }, Endpoint { url: url.to_string(), password: Some(password) }))
     }
 
     /// Wait for the child to exit (blocking); `(code, signal)`.
@@ -193,6 +201,17 @@ pub async fn resolve(global: &Global, args: Args<'_>) -> anyhow::Result<Resolved
     }
     let mismatch = args.mismatch.unwrap_or(Mismatch::Ignore);
     let options = config.options(mismatch != Mismatch::Ignore);
+    // A one-off command that must not leave a new service running (`run`): the running service when there is one
+    // (any version), else a private standalone server.
+    if args.autostart == Some(false) {
+        return match service::discover(&options.file, None).await {
+            Some(endpoint) => Ok(Resolved { endpoint, service: Some(options), standalone: None }),
+            None => {
+                let (child, endpoint) = Standalone::start(&startup_dir())?;
+                Ok(Resolved { endpoint, service: None, standalone: Some(child) })
+            }
+        };
+    }
     let endpoint = match mismatch {
         Mismatch::Replace => service::ensure(&options, args.on_start).await?,
         Mismatch::Ignore => {

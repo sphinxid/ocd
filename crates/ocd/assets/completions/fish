@@ -206,11 +206,14 @@ complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt
 complete -c ocd -n '__fish_seen_subcommand_from run; and begin; not __fish_contains_opt -s s session; or contains -- (commandline -poc)[-1] --session -s; end' -l session -s s -d 'Session ID to continue, or to create if it does not exist' -r -f
 complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt fork no-fork' -l fork -d 'Fork the session before continuing'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt fork no-fork' -l no-fork -d 'Disable fork'
+complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt -s w worktree' -l worktree -s w -d 'Start a new session in a new git worktree, optionally with this name'
 complete -c ocd -n '__fish_seen_subcommand_from run; and begin; not __fish_contains_opt -s m model; or contains -- (commandline -poc)[-1] --model -m; end' -l model -s m -d 'Model to use in the format provider/model#variant' -r -f
 complete -c ocd -n '__fish_seen_subcommand_from run; and begin; not __fish_contains_opt agent; or contains -- (commandline -poc)[-1] --agent; end' -l agent -d 'Agent to use' -r -f
 complete -c ocd -n '__fish_seen_subcommand_from run; and begin; not __fish_contains_opt format; or contains -- (commandline -poc)[-1] --format; end' -l format -d 'Output format' -r -f -a 'default json'
 complete -c ocd -n '__fish_seen_subcommand_from run; and begin; not __fish_contains_opt -s f file; or contains -- (commandline -poc)[-1] --file -f; end' -l file -s f -d 'File to attach to the message' -r -f
 complete -c ocd -n '__fish_seen_subcommand_from run; and begin; not __fish_contains_opt title; or contains -- (commandline -poc)[-1] --title; end' -l title -d 'Session title' -r -f
+complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt archived no-archived' -l archived -d 'Create the session archived so it stays out of session lists (useful for scripted or CI runs)'
+complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt archived no-archived' -l no-archived -d 'Disable archived'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt thinking no-thinking' -l thinking -d 'Show thinking blocks'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt thinking no-thinking' -l no-thinking -d 'Disable thinking'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not __fish_contains_opt auto no-auto' -l auto -d 'Auto-approve permissions that are not explicitly denied'
@@ -220,11 +223,14 @@ complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- 
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s s session' -f -a '--session' -d 'Session ID to continue, or to create if it does not exist'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt fork no-fork' -f -a '--fork' -d 'Fork the session before continuing'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt fork no-fork' -f -a '--no-fork' -d 'Disable fork'
+complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s w worktree' -f -a '--worktree' -d 'Start a new session in a new git worktree, optionally with this name'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s m model' -f -a '--model' -d 'Model to use in the format provider/model#variant'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt agent' -f -a '--agent' -d 'Agent to use'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt format' -f -a '--format' -d 'Output format'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt -s f file' -f -a '--file' -d 'File to attach to the message'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt title' -f -a '--title' -d 'Session title'
+complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt archived no-archived' -f -a '--archived' -d 'Create the session archived so it stays out of session lists (useful for scripted or CI runs)'
+complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt archived no-archived' -f -a '--no-archived' -d 'Disable archived'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt thinking no-thinking' -f -a '--thinking' -d 'Show thinking blocks'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt thinking no-thinking' -f -a '--no-thinking' -d 'Disable thinking'
 complete -c ocd -n '__fish_seen_subcommand_from run; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt auto no-auto' -f -a '--auto' -d 'Auto-approve permissions that are not explicitly denied'

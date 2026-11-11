@@ -29,18 +29,19 @@ files, the HTTP API and `x-opencode-*` headers, Basic-auth username `opencode`, 
 | module | upstream | contents |
 |---|---|---|
 | `cli/spec.rs` | `commands/commands.ts` | `CLI_NAME = "ocd"` and the command tree as data: every command, alias, flag, argument, default, hidden flag and verbatim description |
-| `cli/parse.rs` | `effect/cli` 4.0.6 `internal/lexer.ts`, `internal/parser.ts`, `Primitive.ts`, `CliError.ts` | Effect-compatible lexer (4.0.6: `--=x` is a value, `-abc=v` is `-a -b -c=v`), global-flag extraction, per-level scanning (subcommands, parent-flag errors, `--no-` negation, boolean literal consumption, `-abc` splitting, `--` operands), suggestions (Levenshtein ≤ 2), typed decoding (int/choice/key=value/non-empty/pair URL), exact error messages |
+| `cli/parse.rs` | `effect/cli` 4.1.0 `internal/lexer.ts`, `internal/parser.ts`, `Primitive.ts`, `CliError.ts` | Effect-compatible lexer (4.0.6: `--=x` is a value, `-abc=v` is `-a -b -c=v`), global-flag extraction, per-level scanning (subcommands, parent-flag errors, `--no-` negation, boolean literal consumption, `-abc` splitting, `--` operands), suggestions (Levenshtein ≤ 2), typed decoding (int/choice/key=value/non-empty/pair URL), optional-value flags (`run --worktree[=name]`, upstream's `CliFlag.optionalValue`: never takes the next argument, help shows `[=name]`), a single-value flag given twice fails (`"2 occurrences". Expected: at most 1 value`, 4.1.0), exact error messages |
 | `cli/help.rs` | `CliOutput.ts`, `internal/help.ts` | help renderer (DESCRIPTION/USAGE/ARGUMENTS/FLAGS/GLOBAL FLAGS/SUBCOMMANDS, column rules; colors as `TerminalCapabilities.canColor`: never with `TERM=dumb` or a non-empty `NO_COLOR`, else when `FORCE_COLOR` is set to anything but `0`/`false` or stdout is a TTY), `ERROR`/`ERRORS` blocks (grouped by tag), `--version` |
-| `cli/prompt.rs` | `effect/cli` 4.0.6 `Prompt.ts`, `internal/ansi.ts`; `@effect/platform-node-shared` 4.0.6 `NodeTerminal.ts` | effect's prompts as render/process/clear state machines run like `runLoop`: `Confirm`, `Toggle`, `Select` (10 per page, `↑`/`↓` paging marks), `String`/`Password`/`Hidden` (UTF-16 cursor, ctrl+a/e/u, home/end, tab for the default), `Int`/`Number` (JS `parseInt`/`parseFloat`, `k`/`j`/up/down steps, bounds messages), `Date` (mask parts, JS `Date` setter overflow); every key redraws the whole frame after erasing the previous one measured at the current width (no resize handler, like effect); the terminal reads keypresses like node's `readline` (50 ms escape timeout) in raw mode, a key queue per prompt (keys of the same read after a submission are dropped), escape/ctrl+c/ctrl+d and the end of input quit |
-| `cli/wizard.rs` | `effect/cli` 4.0.6 `internal/wizard.ts`, the wizard branch of `Command.runWith` | `--wizard` (below) |
-| `cli/mod.rs` | `Command.runWith` | control flow: the tree-wide global flags (built-ins, `--print-logs`, and every command's `withGlobalFlags` declarations), globals outside the active command's scope as `Unrecognized flag` errors, action flags (help > version > wizard > completions; `run_wizard` runs the wizard and resolves the line it builds), parse errors → help + stderr + exit 1, settings (`--log-level`, `--print-logs`, and the `--standalone`/`--server` server settings read by `connection::resolve`) |
+| `cli/prompt.rs` | `effect/cli` 4.1.0 `Prompt.ts`, `internal/ansi.ts`; `@effect/platform-node-shared` 4.1.0 `NodeTerminal.ts` | effect's prompts as render/process/clear state machines run like `runLoop`: `Confirm`, `Toggle`, `Select` (10 per page, `↑`/`↓` paging marks), `String`/`Password`/`Hidden` (UTF-16 cursor, ctrl+a/e/u, home/end, tab for the default), `Int`/`Number` (JS `parseInt`/`parseFloat`, `k`/`j`/up/down steps, bounds messages), `Date` (mask parts, JS `Date` setter overflow); every key redraws the whole frame after erasing the previous one measured at the current width (no resize handler, like effect); the terminal reads keypresses like node's `readline` (50 ms escape timeout) in raw mode, a key queue per prompt (keys of the same read after a submission are dropped), escape/ctrl+c/ctrl+d and the end of input quit |
+| `cli/wizard.rs` | `effect/cli` 4.1.0 `internal/wizard.ts`, the wizard branch of `Command.runWith` | `--wizard` (below) |
+| `cli/mod.rs` | `Command.runWith` | control flow: the tree-wide global flags (built-ins, `--print-logs`, and every command's `withGlobalFlags` declarations), globals outside the active command's scope as `Unrecognized flag` errors, action flags (help > version > wizard > completions; `run_wizard` runs the wizard and resolves the line it builds), parse errors → help + stderr + exit 1 (since 4.1.0 also a global flag's own error: `--completions <bad>`, `--log-level`, `--print-logs`, `--standalone`, `--server`, `-h --help`), settings (`--log-level`, `--print-logs`, and the `--standalone`/`--server` server settings read by `connection::resolve`) |
 | `main.rs` | `src/index.ts` | SSH askpass mode, `Global.acquire`, logging (`role=cli`/`server`), `cli starting`, dispatch, `Error: <msg>` + exit 1 for handler failures |
 | `client.rs` | `client/src/promise/generated/client.ts` | HTTP client keyed by operationId (from `assets/openapi.json`): declared vs `UnexpectedStatus`/`Transport` errors, `appendQuery` encoding, SSE decoding of `/api/event` |
 | `service.rs` | `service-config.ts`, `client/src/effect/service.ts`, `service-probe.ts`, `service-contender.ts`, `pty-handoff.ts` | service config file (schema order, legacy repair/migration), probe, `discover`, `incumbent`, `ensure` (contender pool, 25 ms poll, 5→30 s spawn backoff, 120 s limit, 3× timeout recovery, version replacement), `stop`/terminate (SIGTERM, 5 s, SIGKILL), PTY handoff sidecar; on Windows a contender starts detached in its own process group without a console (`detached: true, windowsHide: true`), and the command's own standard handles are kept out of it so a caller reading the command's output to its end does not wait for the service |
 | `connection.rs` | `server-connection.ts`, `standalone.ts`, `env.ts` | `ServerConnection.resolve` (the command's own values, else the global server settings; `--server` probing + messages with the fetch error's text, e.g. `Could not reach server at <url>: ECONNREFUSED: Unable to connect. Is the computer able to access the url?`, `--standalone`/`disabled`, mismatch policies), standalone `serve --stdio --port 0` child with stdin lease |
 | `web_ui.rs`, `build.rs` | `app-assets.ts`, `app-archive.ts`, `script/app-assets.ts` | locating the web UI that `serve` serves (see "Web UI") |
+| `signals.rs`, `shutdown.rs` | `index.ts` (runMain teardown), `shutdown-deadline.ts`, `@opencode/util/teardown` | stop signals for every command (see Notes) |
 | `serve.rs`, `runtime.rs` | `server-process.ts` | `serve` default/stdio/service modes; service election by binding the fixed port, incumbent check, password persistence, registration + 5 s watchdog; runtime = `oc_storage::Database` → `oc_core::app::App` → `oc_core::runner::Engine` (`oc_core::services::default_services`) → `oc_backend::run_server` |
-| `run.rs` | `run/run.ts`, `run/noninteractive.ts`, `session-target.ts`, `run/ui.ts`, `tui/src/mini/tool.ts` | `ocd run`: message/stdin merge, `--file` preparation, session selection (`--continue`/`--session`/`--fork`), title, prompt + SSE consumption, permission auto-reject/`--auto`, form cancellation, reconcile, default and JSON output, tool inline rendering, exit codes 0/1/130 |
+| `run.rs` | `run/run.ts`, `run/noninteractive.ts`, `session-target.ts`, `util/io.ts`, `run/ui.ts`, `tui/src/mini/tool.ts` | `ocd run` (2.2.7's state machine: admitting → running → settling → waiting for the prompt's background jobs, or cancelling on a stop signal): message arguments joined with spaces, piped stdin (`readStdinIfReady`: a pipe or file in full, any other stdin only when readable within 1 s), `--file`, session selection (`--continue` skips archived sessions, `--session`, `--fork`), `--worktree[=name]`, `--title`/`--archived`, the server without starting the service (`autostart: false`), permission and form answers (global MCP forms of a private server's location too), live rendering until the run settles and then what it missed from the projected messages, `retry` and `background_wait`, the final error from the stored idle markers, exit codes 0/1 (130/143 from `main`) |
 | `acp.rs` | `acp/*.ts` | ACP JSON-RPC over stdio (see below) |
 | `commands/*.rs` | `commands/handlers/**` | all other handlers |
 | `ui.rs`, `clack.rs` | `@clack/core` + `@clack/prompts` 1.0.0-alpha.1, `wrap-ansi` 8.1.0, picocolors 1.1.1 | intro/outro/log/spinner with clack glyphs; `confirm`, `select`, `multiselect`, `text`, `password`, `autocomplete` and upstream's integration picker (`cli/src/ui/integration-picker.ts`, on `AutocompletePrompt`) on a port of clack's `Prompt`: keypresses as node `readline` parses them (50 ms escape timeout) and its line editing, frames NFC-normalised, hard-wrapped to the terminal and redrawn from the first changed line, re-rendered on `SIGWINCH` like `output.on("resize")`, `limitOptions` scrolling, validation errors; ctrl+d on an empty readline line leaves raw mode and stops reading until ctrl+c, as upstream's closed readline does |
@@ -53,28 +54,32 @@ so the parser is a direct port and is verified against the real framework.
 
 ## Verification against the real Effect CLI
 
-`tests/golden/*.json` were captured by running upstream's `commands.ts` + `framework/spec.ts`
-(v2.2.2) under `effect@4.0.6` (bun, `--define OPENCODE_CLI_NAME='"ocd"'`) for ~250 command lines, with ocd's
+`tests/golden/*.json` were captured by running upstream's `commands.ts` + `framework/spec.ts` + `framework/flag.ts`
+(v2.2.7) under `effect@4.1.0` (bun, `--define OPENCODE_CLI_NAME='"ocd"'`) for ~300 command lines, with ocd's
 root and `upgrade` descriptions, ocd's `upgrade --yes` flag and `--method` description patched into the
 harness's copy of `commands.ts`. Apart from the version and those `upgrade` texts, the help, completions and
-parse errors match the upstream 2.2.2 binary with `opencode` read as `ocd` (all 142 non-handler cases checked):
+parse errors match the upstream binary with `opencode` read as `ocd` (side-by-side `cli_help`):
 
 * `cli.json`: `--help` of every command, `--version`, `--completions bash|zsh|fish|powershell|sh|pwsh`, group
   commands without subcommand, ~70 parse-error cases (stdout, stderr, exit code), and the `--server`/`--standalone`
-  scope matrix of `cli/test/server-connection.test.ts`.
+  scope matrix of `cli/test/server-connection.test.ts`; since 4.1.0 also repeated flags and global flags' own parse
+  errors (help, then `ERROR`, exit 1). A defect's stack trace is cut to its first line (it names the capturing
+  machine's paths).
 * `parse.json`: the decoded handler input (`JSON.stringify(input)` incl. Effect `Option` encoding) and the
   server settings the handler sees (`{"server", "standalone"}`, `null` outside their scope) for ~110 valid
-  command lines. The binary prints the same with the internal `OPENCODE_CLI_PARSE_DUMP=1`.
+  command lines, including the `--worktree` matrix of upstream's `cli/test/flag.test.ts`. The binary prints the same
+  with the internal `OPENCODE_CLI_PARSE_DUMP=1`.
 * `assets/completions/{bash,zsh,fish,powershell}` are the framework's generated scripts, embedded verbatim
   (`sh` prints bash, `pwsh` powershell).
-* `wizard.json`: 25 `--wizard` transcripts of the upstream 2.2.2 binary (raw terminal output on a pty, or with
+* `wizard.json`: 27 `--wizard` transcripts of the upstream 2.2.2 binary, those for `run` recaptured from 2.2.7 and two
+  more for its optional-value `--worktree` (raw terminal output on a pty, or with
   piped stdin and stdout) for the key chunks they list, normalized (`opencode` read as `ocd`, version, ocd's
   `upgrade` description); the command's own output after `Run this command?` and Bun's stack trace after an
   error's first line are cut. `cli::wizard::tests::upstream_transcripts` replays them byte for byte.
 
 Observed oracle behaviours reproduced: a group without subcommand prints help and exits **0**
-(the spec says 1; Effect's `ShowHelp` without errors exits 0); `run ... -- x` passes `x`
-twice (parsed operands + upstream's own `process.argv` re-read), exactly like upstream.
+(the spec says 1; Effect's `ShowHelp` without errors exits 0). `run a -- b` sends `a b` (2.2.7 dropped the
+`process.argv` re-read that sent `a b b`).
 
 ## Commands
 
@@ -82,7 +87,7 @@ twice (parsed operands + upstream's own `process.argv` re-read), exactly like up
 |---|---|
 | `$` (TUI) | `ServerConnection.resolve(mismatch: replace)` with the `Starting/Restarting background server...` notices, then `oc_tui::run`; exits with its code |
 | `mini` | TTY check before resolution, `oc_tui::run_mini` with `--replay/--no-replay/--replay-limit` |
-| `run` | complete (native path; the unused V1 bridge is not ported) |
+| `run` | complete (upstream removed its V1 bridge in 2.2.7) |
 | `serve` | default / `--stdio` / `--service` complete; remote tunnel (OpenTunnel) not supported |
 | `service start/stop/restart/status/get/set/unset` | complete; `set remote true` and `pair --remote` report that OpenTunnel is unsupported (so `pair --yes`, upstream's consent to expose the server, is parsed but has nothing to accept) |
 | `debug paths/config/agents` | complete |
@@ -137,6 +142,9 @@ with `OCD_WEB_UI=<path>: ...`) → the embedded archive → `app-archive.bin` ne
 Newline-delimited JSON-RPC 2.0 on stdio; a private standalone server (`OPENCODE_CLIENT=acp`).
 Implemented: `initialize`, `authenticate`, `session/new|load|list|delete|resume|close|fork|
 set_config_option|set_mode|prompt`, `session/cancel`, inbound `$/cancel_request` for prompts,
+`_session/steering` (2.2.7: injects into a running turn with `delivery: steer, resume: false`, else
+`promptRequired`/`noRunningTurn`; advertised as `_meta.steering`), closing a session `session/new` created and
+nobody prompted removes it when it has no messages (`ACP could not remove an unused session` on failure),
 outbound `session/request_permission` / `elicitation/create` with `$/cancel_request` withdrawal,
 `opencode/session/child_update`, catalog (models/modes/commands, reload on `*.updated`), config
 options (model/effort/mode), the event fold (text, reasoning, tools, retries, compaction standard and
@@ -158,11 +166,24 @@ following of child sessions after the root turn ends.
   registration write); `XDG_STATE_HOME` is dropped from the saved environment the service is started with. A
   service port held by another process names it (`PortOwner`: `lsof -nP -iTCP:<port> -sTCP:LISTEN -Fpn`, then
   `ps -o command=`, 1 s each), e.g. `... already in use by PID 123 (node server.js)`.
-* Shutdown deadline (`shutdown-deadline.ts`): once `serve` gets a stop signal its teardown has 10 s, then
-  `shutdown did not finish within 10s; exiting. Still pending:` and exit 1; a second SIGINT/SIGTERM exits at once
-  with `received <SIG> again during shutdown; ...`. ocd tracks no teardown labels, so the list is always
-  upstream's "nothing tracked" line. Other commands keep the default signal handling (they have no teardown that
-  can hang), and SIGHUP is not turned into SIGTERM.
+* Stop signals (`signals.rs`, `index.ts` 2.2.7): SIGINT or SIGTERM (and SIGHUP when stdin or stdout is a terminal,
+  sent on as SIGTERM; without one SIGHUP keeps its default action) stop every command, which then exits 130 (SIGINT)
+  or 143 (SIGTERM) after flushing stdout and stderr, whatever it reported. `run` and `serve` cancel their own work
+  first (`run` cancels its Session and the jobs its prompt started); any other command is dropped where it is (its
+  finalizers run: an OAuth attempt is cancelled, a clack prompt is cancelled like ctrl+c and `Cancelled` printed,
+  a private standalone server is stopped), and if it is stuck in a blocking call the process ends 3.5 s later. The
+  TUI and mini restore the terminal and exit 130/143 themselves (`oc-tui` `restore.rs`).
+* Shutdown deadline (`shutdown-deadline.ts`): once a stop signal starts the teardown it has 10 s, then
+  `shutdown did not finish within 10s; exiting. Still pending:` and exit 1; a second signal exits at once with
+  `received <SIG> again during shutdown; ...`. The list names the private standalone server (`<secs>s  child <pid>
+  running: <exe> serve --stdio --port 0`, like upstream's spawner); other pending work (upstream's `LayerNode`
+  layers) is not tracked, so without a child it is upstream's "nothing tracked" line.
+* `auth login`, `models` and `debug agents` wait up to 5 s for the location's first plugin generation
+  (`waitForPlugins`: `plugin.list` every 25 ms until it lists any). `auth login` with an OAuth attempt the server marks
+  `paste: true` (MCP OAuth) asks for the redirect URL while it waits, on a terminal (`If the browser can't
+  reach this machine, paste the URL it was redirected to`, sent with `integration.oauth.complete`; an error is logged
+  and asked again; the attempt still settles through its status, and the prompt is cancelled when it does). It needs
+  the server's `paste` support to run end to end.
 * `plugin list` shows server plugins only; upstream also lists configured and discovered TUI plugins (and 2.2
   only hides a local one whose path a server plugin reports exactly). ocd's TUI does not load TUI plugins.
 
@@ -172,18 +193,8 @@ following of child sessions after the root turn ends.
   ICU-root approximation (`term::locale_cmp`).
 * The background service election probes the port with a plain bind before building the runtime
   (oc-server binds only once the backend exists) and then retries on `EADDRINUSE` as upstream.
-* `run` and the last events of a run: upstream's server writes events to the event stream only when its
-  runner waits for I/O, after the HTTP answers settled before that, so `session.wait` answers before the
-  events published since the runner's last I/O wait and `run` skips them as finalizing (no `> agent · model`
-  header for a step that fails at once, the last step's text from the projected message). Since 2.2.5
-  (#60475) `--format json` then reports the `step_start` (at the message's creation) and the `step_finish`
-  (reason, end snapshot, cost and usage, when the message has a finish and tokens) that the live stream missed,
-  from the projected messages. ocd's server delivers events at once, so `run.rs` (`Shared::consume`) emulates
-  this: it holds each live event for 150 ms and handles the held ones as finalizing when the execution ends
-  meanwhile, releasing them at once where upstream's runner always waits for I/O (a new step's provider
-  request, the end snapshot of a step that started with one, permission and form requests). Upstream's own
-  output there depends on timing (e.g. a provider whose whole answer arrives in one read); the emulation
-  matches it for providers that answer at once and for streams slower than the hold.
+* `run` (2.2.7) renders live events until it settles and then the rest from the projected messages; ocd's
+  server delivers events at once, which no longer needs the 150 ms hold 2.2.5's skip-finalizing rule required.
 * `OPENCODE_PTY_HANDOFF` is validated at boot and left in the environment for the backend
   (`oc_persistent_pty::handoff::take_from_env()`); the client side publishes/consumes the
   `<registration>.pty-handoff` sidecar via `POST /api/experimental/persistent-pty/handoff`.
@@ -204,7 +215,8 @@ following of child sessions after the root turn ends.
 * `tests/web_ui.rs`: `serve` answers non-API paths with the web UI from `OCD_WEB_UI` (SPA
   fallback, headers, 404 `no-store`, API still 401) and rejects an unreadable override;
   `web_ui::tests` cover the lookup order;
-* `tests/acp.rs`: ACP initialize/authenticate/new/prompt/list/unknown-method and EOF exit over stdio.
+* `tests/acp.rs`: ACP initialize/authenticate/new/prompt/list/unknown-method, `_session/steering` on an idle session
+  and with bad params, closing an unprompted and a prompted session, and EOF exit over stdio.
 * `tests/upgrade.rs` (Unix): `ocd upgrade` of a copy of the binary against a local GitHub stand-in
   (`tests/common/releases.rs`, `OCD_TEST_RELEASES_API` and `OCD_TEST_BUILD_VERSION`, both test only): same,
   newer, older and explicit versions, local builds, checksum and missing-asset failures, a binary that does not

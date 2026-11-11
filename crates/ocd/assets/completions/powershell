@@ -310,11 +310,13 @@ $global:_ocd_Completions['run'] = @{
     @{ name = 'continue'; forms = @('--continue', '-c'); takesValue = $false; negation = '--no-continue'; values = @(); pathType = $null; description = 'Continue the last session' }
     @{ name = 'session'; forms = @('--session', '-s'); takesValue = $true; values = @(); pathType = $null; description = 'Session ID to continue, or to create if it does not exist' }
     @{ name = 'fork'; forms = @('--fork'); takesValue = $false; negation = '--no-fork'; values = @(); pathType = $null; description = 'Fork the session before continuing' }
+    @{ name = 'worktree'; forms = @('--worktree', '-w'); takesValue = $true; optionalValue = $true; values = @(); pathType = $null; description = 'Start a new session in a new git worktree, optionally with this name' }
     @{ name = 'model'; forms = @('--model', '-m'); takesValue = $true; values = @(); pathType = $null; description = 'Model to use in the format provider/model#variant' }
     @{ name = 'agent'; forms = @('--agent'); takesValue = $true; values = @(); pathType = $null; description = 'Agent to use' }
     @{ name = 'format'; forms = @('--format'); takesValue = $true; values = @('default', 'json'); pathType = $null; description = 'Output format' }
     @{ name = 'file'; forms = @('--file', '-f'); takesValue = $true; values = @(); pathType = $null; description = 'File to attach to the message' }
     @{ name = 'title'; forms = @('--title'); takesValue = $true; values = @(); pathType = $null; description = 'Session title' }
+    @{ name = 'archived'; forms = @('--archived'); takesValue = $false; negation = '--no-archived'; values = @(); pathType = $null; description = 'Create the session archived so it stays out of session lists (useful for scripted or CI runs)' }
     @{ name = 'thinking'; forms = @('--thinking'); takesValue = $false; negation = '--no-thinking'; values = @(); pathType = $null; description = 'Show thinking blocks' }
     @{ name = 'auto'; forms = @('--auto'); takesValue = $false; negation = '--no-auto'; values = @(); pathType = $null; description = 'Auto-approve permissions that are not explicitly denied' }
   )

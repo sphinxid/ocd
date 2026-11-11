@@ -156,6 +156,7 @@ pub static INFO: LazyLock<Spec> = LazyLock::new(|| {
             s(vec![
                 ("sidebar", Spec::Lit(&["auto", "hide"])),
                 ("scrollbar", Spec::Bool),
+                ("submit_scroll", Spec::Lit(&["bottom", "keep"])),
                 ("thinking", Spec::Lit(SHOW_HIDE)),
                 ("grouping", Spec::Lit(&["auto", "none"])),
                 ("verbosity", Spec::Lit(&["low", "medium", "high"])),

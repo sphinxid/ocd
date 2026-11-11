@@ -1,5 +1,5 @@
 //! Golden tests: help, version, completions and parse errors captured from the real Effect CLI
-//! (`effect@4.0.1`) running upstream's `commands.ts` (see tests/golden/README in the crate README).
+//! (`effect@4.1.0`) running upstream's `commands.ts` (see "Verification against the real Effect CLI" in the crate README).
 
 mod common;
 

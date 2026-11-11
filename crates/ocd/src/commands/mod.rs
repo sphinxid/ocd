@@ -19,7 +19,7 @@ use crate::term::{EOL, write_stderr, write_stdout};
 
 /// Server params (`--server`, `--standalone`) of an input.
 pub fn server_args<'a>(input: &Input) -> Args<'a> {
-    Args { server: input.str("server"), standalone: input.flag("standalone"), mismatch: None, on_start: None }
+    Args { server: input.str("server"), standalone: input.flag("standalone"), mismatch: None, autostart: None, on_start: None }
 }
 
 pub fn cwd() -> String {
@@ -172,7 +172,7 @@ async fn default_command(global: &Global, input: &Input) -> anyhow::Result<i32> 
     let cb = on_start;
     let server = connection::resolve(
         global,
-        Args { server: requested.clone(), standalone: input.flag("standalone"), mismatch: Some(Mismatch::Replace), on_start: Some(&cb) },
+        Args { server: requested.clone(), standalone: input.flag("standalone"), mismatch: Some(Mismatch::Replace), autostart: None, on_start: Some(&cb) },
     )
     .await?;
     let mut opts = tui_options(input, &server, requested.is_some());
@@ -245,7 +245,7 @@ async fn mini(global: &Global, input: &Input) -> anyhow::Result<i32> {
     let requested = input.str("server");
     let server = connection::resolve(
         global,
-        Args { server: requested.clone(), standalone: input.flag("standalone"), mismatch: Some(Mismatch::Replace), on_start: None },
+        Args { server: requested.clone(), standalone: input.flag("standalone"), mismatch: Some(Mismatch::Replace), autostart: None, on_start: None },
     )
     .await?;
     if let Some(m) = input.str("model")
@@ -295,7 +295,7 @@ fn debug_paths(global: &Global, input: &Input) -> anyhow::Result<i32> {
 async fn debug_heap_dump(global: &Global, input: &Input) -> anyhow::Result<i32> {
     let endpoint = match crate::cli::settings().server {
         Some(server) => {
-            let args = Args { server: Some(server), standalone: false, mismatch: None, on_start: None };
+            let args = Args { server: Some(server), standalone: false, mismatch: None, autostart: None, on_start: None };
             connection::resolve(global, args).await?.endpoint
         }
         None => {
@@ -440,8 +440,28 @@ async fn debug_config(global: &Global) -> anyhow::Result<i32> {
     Ok(0)
 }
 
+/// `waitForPlugins` (`services/plugin-startup.ts`): catalog reads return whatever is loaded, and a cold location
+/// lists no plugins until its first activation. One-shot commands read once and exit, so they give that activation
+/// a moment: `plugin.list` every 25 ms until it lists any, for up to 5 seconds; errors are ignored.
+pub async fn wait_for_plugins(client: &crate::client::Client, directory: &str) {
+    let start = std::time::Instant::now();
+    loop {
+        match client.call("plugin.list", Req::new().location(directory)).await {
+            Ok(v) if v.get("data").and_then(Value::as_array).is_some_and(|a| !a.is_empty()) => return,
+            Err(_) => return,
+            _ => {}
+        }
+        let next = std::time::Duration::from_millis(25);
+        if start.elapsed() + next > std::time::Duration::from_secs(5) {
+            return;
+        }
+        tokio::time::sleep(next).await;
+    }
+}
+
 async fn debug_agents(global: &Global) -> anyhow::Result<i32> {
     let server = connection::resolve(global, Args::default()).await?;
+    wait_for_plugins(&server.client(), &cwd()).await;
     let response = server.client().call("agent.list", Req::new().location(&cwd())).await?;
     let mut agents = response.get("data").and_then(Value::as_array).cloned().unwrap_or_default();
     agents.sort_by(|a, b| {
@@ -456,6 +476,7 @@ async fn debug_agents(global: &Global) -> anyhow::Result<i32> {
 
 async fn models(global: &Global, input: &Input) -> anyhow::Result<i32> {
     let server = connection::resolve(global, server_args(input)).await?;
+    wait_for_plugins(&server.client(), &cwd()).await;
     let response = server.client().call("model.list", Req::new().location(&cwd())).await?;
     let mut models: Vec<String> = response
         .get("data")

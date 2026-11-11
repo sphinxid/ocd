@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use oc_util::Global;
 use serde_json::Value;
 
-use super::auth::{Flow, handle};
+use super::auth::{Flow, handle_prompt_errors};
 use crate::cli::parse::Input;
 use crate::release;
 use crate::service;
@@ -148,7 +148,7 @@ fn detail_of(o: &std::process::Output) -> String {
 /// download, checksum, `--version` check and the swap of the executable. A running background service is
 /// restarted on the new binary; a stopped one stays stopped.
 pub async fn upgrade(global: &Global, input: &Input) -> anyhow::Result<i32> {
-    Ok(handle(
+    Ok(handle_prompt_errors(
         async {
             ui::intro("Upgrade");
             if let Some(method) = input.str("method") {
@@ -211,8 +211,8 @@ pub async fn upgrade(global: &Global, input: &Input) -> anyhow::Result<i32> {
             ui::outro("Done");
             Ok::<(), Flow>(())
         }
-        .await,
-    ))
+        
+    ).await)
 }
 
 /// Restarts the background service of this channel on the new executable if it is running (the code path of
@@ -293,7 +293,7 @@ pub fn clean_shell_config(text: &str) -> String {
 }
 
 pub async fn uninstall(global: &Global, input: &Input) -> anyhow::Result<i32> {
-    Ok(handle(
+    Ok(handle_prompt_errors(
         async {
             ui::intro("Uninstall OpenCode");
             let method = detect_method();
@@ -399,8 +399,8 @@ pub async fn uninstall(global: &Global, input: &Input) -> anyhow::Result<i32> {
             ui::outro("Done");
             Ok(())
         }
-        .await,
-    ))
+        
+    ).await)
 }
 
 #[cfg(test)]

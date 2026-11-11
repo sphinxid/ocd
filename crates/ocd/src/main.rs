@@ -15,6 +15,7 @@ mod runtime;
 mod serve;
 mod service;
 mod shutdown;
+mod signals;
 mod term;
 mod ui;
 mod web_ui;
@@ -110,8 +111,20 @@ fn main() {
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("tokio runtime");
+    // `run` and `serve` cancel their own work on a stop signal and return; any other command is interrupted.
+    let graceful = matches!(inv.name.as_str(), "run" | "serve");
     let code = rt.block_on(async move {
-        match commands::dispatch(&global, &inv).await {
+        signals::install(!graceful);
+        let dispatched = if graceful {
+            commands::dispatch(&global, &inv).await
+        } else {
+            tokio::select! {
+                r = commands::dispatch(&global, &inv) => r,
+                name = signals::stopped() => Ok(signals::exit_code(name)),
+            }
+        };
+        signals::finish_deferred().await;
+        match dispatched {
             Ok(code) => code,
             Err(e) => {
                 tracing::error!(cause = %e, args = %serde_json::to_string(&argv).unwrap_or_default(), "cli process failed");
@@ -125,5 +138,13 @@ fn main() {
         }
     });
     rt.shutdown_timeout(std::time::Duration::from_millis(100));
+    // `defaultTeardown`: an interrupted process exits 130, or 143 after a SIGTERM, whatever the command reported.
+    let code = signals::received().map(signals::exit_code).unwrap_or(code);
+    // process.exit drops output still queued for a pipe; ending the streams waits for it.
+    {
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let _ = std::io::stderr().flush();
+    }
     std::process::exit(code);
 }

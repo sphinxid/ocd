@@ -1928,7 +1928,18 @@ impl Engine {
     /// Shell commands are per location upstream: one created elsewhere is not found here.
     async fn owned_shell(&self, ctx: &RequestContext, id: &str) -> Result<(), ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        if self.shell_owner.lock().get(id) != Some(&loc.key) || self.shell().get(id).is_err() {
+        let Ok(info) = self.shell().get(id) else { return Err(ApiError::shell_not_found(id)) };
+        let owner = self.shell_owner.lock().get(id).cloned();
+        let owner = match owner {
+            Some(owner) => Some(owner),
+            // A background shell the shell tool started belongs to its session's location (upstream's
+            // location-scoped Shell service), so `run` can remove it when it cancels.
+            None => match info.metadata.get("sessionID").and_then(Value::as_str) {
+                Some(session) => self.session_scope(session).await.ok().map(|(_, l)| l.key.clone()),
+                None => None,
+            },
+        };
+        if owner.as_ref() != Some(&loc.key) {
             return Err(ApiError::shell_not_found(id));
         }
         Ok(())

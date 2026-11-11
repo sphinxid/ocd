@@ -206,6 +206,18 @@ impl Drop for RawMode {
 }
 
 static SIGNALLED_WINCH: AtomicBool = AtomicBool::new(false);
+/// Set by [`abort_prompt`]: the running prompt is aborted (its `signal` fires) and cancels like ctrl+c.
+static ABORT: AtomicBool = AtomicBool::new(false);
+
+/// Abort the prompt running on another thread (`prompt(signal)` when the racing work finished first), and any
+/// prompt started after this until [`clear_abort`].
+pub fn abort_prompt() {
+    ABORT.store(true, Ordering::SeqCst);
+}
+
+pub fn clear_abort() {
+    ABORT.store(false, Ordering::SeqCst);
+}
 static SIGNALLED_INT: AtomicBool = AtomicBool::new(false);
 
 #[cfg(unix)]
@@ -284,12 +296,13 @@ pub(crate) fn input_within(ms: i32) -> bool {
     }
 }
 
-/// Waits for input on stdin; false when a signal interrupted the wait.
+/// Waits for input on stdin; false when a signal interrupted the wait, or after a while without input so the
+/// caller can look for a stop signal (`signals.rs`).
 pub(crate) fn wait_input() -> bool {
     #[cfg(unix)]
     unsafe {
         let mut fd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
-        libc::poll(&mut fd, 1, -1) > 0
+        libc::poll(&mut fd, 1, 100) > 0
     }
     #[cfg(not(unix))]
     true
@@ -302,10 +315,8 @@ fn wait_for_interrupt() {
     {
         let _int = Handler::install(libc::SIGINT, on_int);
         SIGNALLED_INT.store(false, Ordering::SeqCst);
-        while !SIGNALLED_INT.load(Ordering::SeqCst) {
-            unsafe {
-                libc::pause();
-            }
+        while !SIGNALLED_INT.load(Ordering::SeqCst) && crate::signals::received().is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
 }
@@ -329,6 +340,13 @@ fn run_prompt<K: crate::clack::Kind>(kind: K, initial_user_input: Option<&str>, 
         let ready = wait_input();
         if SIGNALLED_WINCH.swap(false, Ordering::SeqCst) {
             write(out, &prompt.resize(crate::term::columns(), tty_rows(out)));
+        }
+        // A stop signal aborts the prompt (`prompt(signal)`), which cancels it like ctrl+c.
+        if crate::signals::received().is_some() || ABORT.load(Ordering::SeqCst) {
+            for key in crate::clack::parse_keys(&mut vec![3], true) {
+                write(out, &prompt.press(&key));
+            }
+            return Err(Cancelled);
         }
         if !ready {
             continue;

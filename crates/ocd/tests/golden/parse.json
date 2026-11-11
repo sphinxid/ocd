@@ -488,7 +488,7 @@
    "hello",
    "world"
   ],
-  "stdout": "HANDLER run {\"message\":[\"hello\",\"world\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"hello\",\"world\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -515,7 +515,7 @@
    "--auto",
    "msg"
   ],
-  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses\"},\"fork\":true,\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"p/m#v\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"a\"},\"format\":\"json\",\"file\":[\"a\",\"b\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"t\"},\"thinking\":true,\"auto\":true,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses\"},\"fork\":true,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"p/m#v\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"a\"},\"format\":\"json\",\"file\":[\"a\",\"b\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"t\"},\"archived\":false,\"thinking\":true,\"auto\":true,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -526,7 +526,7 @@
    "--foo",
    "bar"
   ],
-  "stdout": "HANDLER run {\"message\":[\"--foo\",\"bar\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"--foo\",\"bar\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -537,7 +537,7 @@
    "--",
    "b"
   ],
-  "stdout": "HANDLER run {\"message\":[\"a\",\"b\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"a\",\"b\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -547,7 +547,7 @@
    "--yolo",
    "x"
   ],
-  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":true,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":true,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -557,7 +557,7 @@
    "--title=",
    "x"
   ],
-  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -783,7 +783,7 @@
    "run",
    "x"
   ],
-  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -794,7 +794,7 @@
    "--log-level",
    "debug"
   ],
-  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -815,7 +815,7 @@
    "yes",
    "msg"
   ],
-  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -825,7 +825,7 @@
    "--thinking",
    "msg"
   ],
-  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"msg\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":true,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -836,7 +836,7 @@
    "a",
    "x"
   ],
-  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[\"a\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[\"a\"],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -846,7 +846,7 @@
    "-c=false",
    "x"
   ],
-  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"x\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -855,7 +855,7 @@
    "run",
    "-5"
   ],
-  "stdout": "HANDLER run {\"message\":[\"-5\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"-5\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -947,7 +947,7 @@
    "--server",
    "http://127.0.0.1:1"
   ],
-  "stdout": "HANDLER run {\"message\":[\"hello\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"hello\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":\"http://127.0.0.1:1\",\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  },
@@ -989,7 +989,7 @@
    "run",
    "hi"
   ],
-  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":true}\n",
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":true}\n",
   "stderr": "",
   "code": 0
  },
@@ -1159,7 +1159,211 @@
    "-cs=ses",
    "hi"
   ],
-  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses\"},\"fork\":false,\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"ses\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run"
+  ],
+  "stdout": "HANDLER run {\"message\":[],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--worktree"
+  ],
+  "stdout": "HANDLER run {\"message\":[],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-w"
+  ],
+  "stdout": "HANDLER run {\"message\":[],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--worktree="
+  ],
+  "stdout": "HANDLER run {\"message\":[],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--worktree=feature"
+  ],
+  "stdout": "HANDLER run {\"message\":[],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"feature\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-w=feature"
+  ],
+  "stdout": "HANDLER run {\"message\":[],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"feature\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-w",
+   "fix it"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"fix it\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--worktree",
+   "fix",
+   "it"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"fix\",\"it\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "fix",
+   "-w",
+   "it"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"fix\",\"it\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--worktree=feature",
+   "fix",
+   "it"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"fix\",\"it\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"feature\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-w",
+   "--",
+   "-w",
+   "fix"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"-w\",\"fix\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--",
+   "--worktree=feature"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"--worktree=feature\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-w",
+   "--model",
+   "openai/gpt",
+   "--fork",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":true,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"openai/gpt\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--archived",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":true,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--archived=false",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--no-archived",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "--archived",
+   "--title",
+   "t",
+   "--worktree=wt",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"wt\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":\"t\"},\"archived\":true,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-cw",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "-wc",
+   "hi"
+  ],
+  "stdout": "HANDLER run {\"message\":[\"hi\"],\"continue\":true,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"Some\",\"value\":true},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
+  "stderr": "",
+  "code": 0
+ },
+ {
+  "args": [
+   "run",
+   "say hello world",
+   "it's \"quoted\""
+  ],
+  "stdout": "HANDLER run {\"message\":[\"say hello world\",\"it's \\\"quoted\\\"\"],\"continue\":false,\"session\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"fork\":false,\"worktree\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"model\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"agent\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"format\":\"default\",\"file\":[],\"title\":{\"_id\":\"Option\",\"_tag\":\"None\"},\"archived\":false,\"thinking\":false,\"auto\":false,\"yolo\":false,\"dangerouslySkipPermissions\":false} {\"server\":null,\"standalone\":false}\n",
   "stderr": "",
   "code": 0
  }

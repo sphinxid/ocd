@@ -6,7 +6,7 @@ use oc_config::jsonc_edit::{ModifyOptions, Segment, apply_modify};
 use oc_util::Global;
 use serde_json::{Value, json};
 
-use super::auth::{Flow, answer_form, handle, load_integrations, oauth_login, require_interactive};
+use super::auth::{Flow, answer_form, handle_prompt_errors, load_integrations, oauth_login, require_interactive};
 use super::cwd;
 use crate::cli::parse::Input;
 use crate::client::{Client, Req};
@@ -147,7 +147,7 @@ pub async fn logout(global: &Global, input: &Input) -> anyhow::Result<i32> {
 }
 
 pub async fn auth(global: &Global, input: &Input) -> anyhow::Result<i32> {
-    Ok(handle(auth_flow(global, input.str("name")).await))
+    Ok(handle_prompt_errors(auth_flow(global, input.str("name"))).await)
 }
 
 async fn auth_flow(global: &Global, name: Option<String>) -> Result<(), Flow> {

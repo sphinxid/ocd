@@ -1,4 +1,4 @@
-//! Effect CLI (`effect/cli` 4.0.6) compatible lexer and parser: `internal/lexer.ts`,
+//! Effect CLI (`effect/cli` 4.1.0) compatible lexer and parser: `internal/lexer.ts`,
 //! `internal/parser.ts`, `internal/command.ts` (`makeParser`), `Primitive.ts`, `CliError.ts`.
 //! The observable behaviour (which tokens bind where, error texts and their order) matches the
 //! TypeScript CLI; verified against golden captures of the real framework (`tests/golden`).
@@ -359,7 +359,8 @@ fn consume_value(cursor: &mut Cursor, token: &Tok, spec: &FlagDef, negated: bool
         if let Some(v) = token.inline() {
             return (Err(invalid(v)), vec![]);
         }
-        if let Some(Tok::Value(v)) = cursor.peek()
+        if spec.optional_value.is_none()
+            && let Some(Tok::Value(v)) = cursor.peek()
             && is_bool_literal(v)
         {
             let t = cursor.take().unwrap().clone();
@@ -369,6 +370,10 @@ fn consume_value(cursor: &mut Cursor, token: &Tok, spec: &FlagDef, negated: bool
     }
     if let Some(v) = token.inline() {
         return (Ok(Some(v.clone())), vec![]);
+    }
+    // `Flag.withOptionalValue`: a bare flag takes its optional value, never the next argument.
+    if let Some(v) = spec.optional_value {
+        return (Ok(Some(v.to_string())), vec![]);
     }
     if spec.prim == Prim::Bool {
         if let Some(Tok::Value(v)) = cursor.peek()
@@ -669,6 +674,17 @@ impl Input {
             _ => None,
         }
     }
+    /// A `CliFlag.optionalValue` flag: `None` when absent, `Some(None)` for a bare flag (`true`), `Some(Some(v))`
+    /// for `--flag=v`.
+    pub fn optional_value(&self, key: &str) -> Option<Option<String>> {
+        match self.get(key) {
+            V::Some(v) => match &**v {
+                V::Str(s) => Some(Some(s.clone())),
+                _ => Some(None),
+            },
+            _ => None,
+        }
+    }
     pub fn int(&self, key: &str) -> Option<i64> {
         match self.get(key) {
             V::Int(n) => Some(*n),
@@ -748,6 +764,23 @@ pub(crate) fn parse_flag(f: &FlagDef, values: &[String]) -> Result<V, CliError> 
             }
         }
         return Ok(V::Some(Box::new(V::Map(merged))));
+    }
+    // effect 4.1.0 `parseFlag`: a single-value flag given more than once fails.
+    if matches!(f.arity, Arity::Default(_) | Arity::Optional) && values.len() > 1 {
+        return Err(CliError::InvalidValue {
+            option: f.name.into(),
+            value: format!("{} occurrences", values.len()),
+            expected: "at most 1 value".into(),
+            argument: false,
+        });
+    }
+    // `CliFlag.optionalValue`: `Flag.map((value) => value || true)`.
+    if f.optional_value.is_some() {
+        return Ok(match values.first() {
+            Some(raw) if raw.is_empty() => V::Some(Box::new(V::Bool(true))),
+            Some(raw) => V::Some(Box::new(one(raw)?)),
+            None => V::None,
+        });
     }
     match f.arity {
         Arity::Default(default) => match values.first() {

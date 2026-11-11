@@ -255,18 +255,15 @@ fn run_streams_text_and_tools_from_a_mock_provider() {
     let (provider, _) = start_mock();
     write_config(&env, provider);
 
-    // default format, stdout not a TTY: assistant text on stdout. Like upstream's, `run` handles the events of
-    // a step that a fast provider answers at once only after `session.wait` answered (outside a git repository
-    // the runner never waits for I/O between them and the session going idle), so there is no step header and
-    // the text comes from the projected message.
+    // default format, stdout not a TTY: assistant text on stdout, the step header on stderr. Since 2.2.7 the run
+    // renders live events until it settles (after `session.wait`, the projected messages and the job check), then
+    // prints what they missed from the projected messages.
     let out = env.run(&["run", "--standalone", "say", "hi"]);
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
     assert_eq!(common::text(&out.stdout), "Hello from mock.\n");
-    assert_eq!(common::text(&out.stderr), "");
+    assert_eq!(common::text(&out.stderr), "\x1b[0m\n> build · m1\n");
 
-    // JSON format with a tool call: the first step live (its tool ran and the next step's request went out
-    // before the session went idle), the last one projected. Since 2.2.5 (#60475) the projection also reports the
-    // `step_start` and `step_finish` (with its usage) the live stream missed.
+    // JSON format with a tool call: both steps live.
     let out = env.run(&["run", "--standalone", "--format", "json", "USE_TOOL", "now"]);
     assert_eq!(out.status.code(), Some(0), "{}", common::text(&out.stderr));
     let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
@@ -279,31 +276,32 @@ fn run_streams_text_and_tools_from_a_mock_provider() {
     let text = &lines[4]["part"];
     assert_eq!(text["text"], "Hello from mock.");
     let message = text["messageID"].as_str().unwrap();
-    let body = message.strip_prefix("msg_").unwrap();
-    assert_eq!(text["id"], format!("prt_{body}_text-0"));
+    assert!(text["id"].as_str().unwrap().starts_with("prt_"), "{text}");
     let keys: Vec<&String> = lines[4].as_object().unwrap().keys().collect();
     assert_eq!(keys, vec!["type", "timestamp", "sessionID", "part"]);
-    assert_eq!(lines[3]["part"], json!({"id": format!("prt_{body}_step-start"), "sessionID": lines[3]["sessionID"], "messageID": message, "type": "step-start"}));
+    let start = lines[3]["part"].as_object().unwrap();
+    assert_eq!(start.keys().collect::<Vec<_>>(), ["id", "sessionID", "messageID", "type"]);
+    assert_eq!((start["messageID"].as_str(), start["type"].as_str()), (Some(message), Some("step-start")));
     let finish = &lines[5]["part"];
-    assert_eq!(finish["id"], format!("prt_{body}_step-finish"));
+    assert_eq!(finish["messageID"], message);
     assert_eq!(finish["reason"], "stop");
     assert_eq!(finish["cost"], 0);
     assert!(finish["tokens"]["output"].is_number(), "{finish}");
 
-    // A non-retryable 400 at once: only the error, no step header; JSON reports the live error, then the missed
-    // `step_start` from the projection (no `step_finish`: the failed step has no finish reason or usage).
+    // A non-retryable 400 at once: the step header, then the final error, rendered once after the run settled
+    // (no `step_finish`: the failed step has no finish reason or usage).
     let out = env.run(&["run", "--standalone", "REFUSE", "now"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(common::text(&out.stdout), "");
-    assert_eq!(common::text(&out.stderr), "\x1b[91m\x1b[1mError: \x1b[0mmock refuses\n");
+    assert_eq!(common::text(&out.stderr), "\x1b[0m\n> build · m1\n\x1b[91m\x1b[1mError: \x1b[0mmock refuses\n");
     let out = env.run(&["run", "--standalone", "--format", "json", "REFUSE", "now"]);
     assert_eq!(out.status.code(), Some(1));
     let lines: Vec<Value> = common::text(&out.stdout).lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), 2, "{}", common::text(&out.stdout));
-    assert_eq!(lines[0]["type"], "error");
-    assert_eq!(lines[0]["error"]["message"], "mock refuses");
-    assert_eq!(lines[0]["error"]["status"], 400);
-    assert_eq!(lines[1]["type"], "step_start");
+    assert_eq!(lines[0]["type"], "step_start");
+    assert_eq!(lines[1]["type"], "error");
+    assert_eq!(lines[1]["error"]["message"], "mock refuses");
+    assert_eq!(lines[1]["error"]["status"], 400);
 
     // missing message
     let out = env.run(&["run", "--standalone"]);
@@ -321,11 +319,9 @@ fn run_streams_text_and_tools_from_a_mock_provider() {
     assert!(common::text(&out.stderr).contains("--server and --standalone cannot be combined"));
 }
 
-/// In a git repository the step's end snapshot is the runner's last I/O wait before the session goes idle, so
-/// upstream's `run` prints the step header (and the text) live and skips only what follows that snapshot (the
-/// `step_finish`; for a failed step its `session.step.failed`, the error then coming from the execution's end).
+/// In a git repository the steps carry snapshots; the run prints them live like anywhere else.
 #[test]
-fn run_in_a_git_repository_prints_the_last_step_live_up_to_its_end_snapshot() {
+fn run_in_a_git_repository_prints_its_steps_with_snapshots() {
     let env = common::Env::new();
     let (provider, _) = start_mock();
     write_config(&env, provider);
@@ -344,7 +340,6 @@ fn run_in_a_git_repository_prints_the_last_step_live_up_to_its_end_snapshot() {
     let types: Vec<&str> = lines.iter().map(|l| l["type"].as_str().unwrap()).collect();
     assert_eq!(types, vec!["step_start", "text", "step_finish"]);
     assert!(lines[0]["part"]["snapshot"].is_string());
-    // The skipped `step.ended` comes back from the projection, with the end snapshot.
     assert_eq!(lines[2]["part"]["snapshot"], lines[0]["part"]["snapshot"]);
 
     let out = env.run(&["run", "--standalone", "REFUSE", "now"]);

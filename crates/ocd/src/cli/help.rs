@@ -58,7 +58,9 @@ fn flag_row(f: &FlagDef, c: Colors) -> (String, String) {
         names.push(c.green(&if a.chars().count() == 1 { format!("-{a}") } else { format!("--{a}") }));
     }
     let ty = f.metavar.unwrap_or(type_name(f.prim));
-    let type_part = if ty != "boolean" { format!(" {}", c.dim(ty)) } else { String::new() };
+    // `toFlagDoc`: an optional value reads `[=<type>]`.
+    let ty = if f.optional_value.is_some() { format!("[={ty}]") } else { ty.to_string() };
+    let type_part = if ty != "boolean" { format!(" {}", c.dim(&ty)) } else { String::new() };
     let description = match (f.description, choice_keys(f.prim)) {
         (d, Some(keys)) if !keys.is_empty() => {
             let suffix = format!("(choices: {})", keys.join(", "));

@@ -147,13 +147,21 @@ fn install() {
     }
 }
 
-/// Restore, then die of the same signal.
+/// Restore, then end like the CLI's teardown does after an interrupt (`defaultTeardown`, opencode 2.2.7): 130
+/// after SIGINT, 143 after SIGTERM, and after SIGHUP too (with a terminal the CLI sends it on as SIGTERM). Any
+/// other signal kills the process as before.
 #[cfg(unix)]
 extern "C" fn on_signal(sig: libc::c_int) {
     restore_now();
     unsafe {
-        libc::signal(sig, libc::SIG_DFL);
-        libc::raise(sig);
+        match sig {
+            libc::SIGINT => libc::_exit(130),
+            libc::SIGTERM | libc::SIGHUP => libc::_exit(143),
+            _ => {
+                libc::signal(sig, libc::SIG_DFL);
+                libc::raise(sig);
+            }
+        }
     }
 }
 

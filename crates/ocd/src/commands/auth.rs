@@ -26,6 +26,23 @@ impl<E: Into<anyhow::Error>> From<E> for Flow {
     }
 }
 
+/// `handlePromptErrors` around a whole flow: an interrupted flow (`Effect.onInterrupt`, the command dropped on a stop
+/// signal) also ends with `Cancelled`.
+pub async fn handle_prompt_errors(flow: impl std::future::Future<Output = Result<(), Flow>>) -> i32 {
+    struct Interrupted(bool);
+    impl Drop for Interrupted {
+        fn drop(&mut self) {
+            if self.0 {
+                ui::cancel("Cancelled");
+            }
+        }
+    }
+    let mut guard = Interrupted(true);
+    let result = flow.await;
+    guard.0 = false;
+    handle(result)
+}
+
 /// `handlePromptErrors`
 pub fn handle(result: Result<(), Flow>) -> i32 {
     match result {
@@ -54,10 +71,10 @@ fn arr(v: &Value, k: &str) -> Vec<Value> {
     v.get(k).and_then(Value::as_array).cloned().unwrap_or_default()
 }
 
-/// `loadIntegrations`: model readiness barrier, then integrations with `opencode-go` first.
+/// `loadIntegrations`: the first plugin generation (`waitForPlugins`), then integrations with `opencode-go` first.
 pub async fn load_integrations(client: &Client) -> anyhow::Result<Vec<Value>> {
     let dir = cwd();
-    client.call("model.default", Req::new().location(&dir)).await?;
+    super::wait_for_plugins(client, &dir).await;
     let mut list = arr(&client.call("integration.list", Req::new().location(&dir)).await?, "data");
     list.sort_by_key(|i| if s(i, "id") == "opencode-go" { 0 } else { 1 });
     Ok(list)
@@ -357,11 +374,11 @@ async fn account(global: &Global, input: &Input, switch: bool) -> Result<(), Flo
 }
 
 pub async fn logout(global: &Global, input: &Input) -> anyhow::Result<i32> {
-    Ok(handle(account(global, input, false).await))
+    Ok(handle_prompt_errors(account(global, input, false)).await)
 }
 
 pub async fn switch(global: &Global, input: &Input) -> anyhow::Result<i32> {
-    Ok(handle(account(global, input, true).await))
+    Ok(handle_prompt_errors(account(global, input, true)).await)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -653,9 +670,9 @@ pub fn answer_form(fields: Option<&Value>, input: &[String]) -> Result<Option<Va
 }
 
 pub async fn login(global: &Global, input: &Input) -> anyhow::Result<i32> {
-    Ok(handle(
-        login_flow(global, input.str("target"), input.str("method"), input.list("answer"), server_args(input)).await,
-    ))
+    Ok(handle_prompt_errors(
+        login_flow(global, input.str("target"), input.str("method"), input.list("answer"), server_args(input))
+    ).await)
 }
 
 /// `auth login` with explicit arguments (also used by `acp --login`).
@@ -842,6 +859,8 @@ pub async fn oauth_login(client: &Client, integration: &Value, method: &Value, a
         }
     };
     let attempt = s(&started, "attemptID").to_string();
+    // The finalizer that cancels the attempt also runs when the command is interrupted.
+    let cancel = CancelAttempt { client: client.clone(), integration: id.clone(), attempt: attempt.clone(), directory: dir.clone(), armed: true };
     sp.stop("Authorization started", 0);
     ui::log::info(s(&started, "instructions"));
     ui::log::info(s(&started, "url"));
@@ -871,30 +890,106 @@ pub async fn oauth_login(client: &Client, integration: &Value, method: &Value, a
             };
         }
         ui::log::step("Waiting for authorization...");
-        loop {
-            let status = client
-                .call("integration.oauth.status", Req::new().path("integrationID", &id).path("attemptID", &attempt).location(&dir))
-                .await?;
-            let status = status.get("data").cloned().unwrap_or(Value::Null);
-            match s(&status, "status") {
-                "pending" => tokio::time::sleep(Duration::from_millis(500)).await,
-                "complete" => {
-                    ui::log::success(&format!("Connected to {name}"));
-                    return Ok(());
+        // `waitForOAuth`: the attempt's status once it is no longer pending.
+        let wait = async {
+            loop {
+                let status = client
+                    .call("integration.oauth.status", Req::new().path("integrationID", &id).path("attemptID", &attempt).location(&dir))
+                    .await?;
+                let status = status.get("data").cloned().unwrap_or(Value::Null);
+                if s(&status, "status") != "pending" {
+                    return Ok::<Value, Flow>(status);
                 }
-                "failed" => return Err(Flow::Error(anyhow::anyhow!("{}", s(&status, "message")))),
-                _ => return Err(Flow::Error(anyhow::anyhow!("Authorization expired"))),
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
+        };
+        let status = if started.get("paste") == Some(&Value::Bool(true)) && ui::interactive() {
+            // The pasted redirect URL races the wait; the attempt still settles through its status.
+            ui::clear_abort();
+            let paste = tokio::task::spawn_blocking({
+                let (client, id, attempt, dir) = (client.clone(), id.clone(), attempt.clone(), dir.clone());
+                let handle = tokio::runtime::Handle::current();
+                move || paste_redirect(&handle, &client, &id, &attempt, &dir)
+            });
+            let status = wait.await;
+            ui::abort_prompt();
+            let _ = paste.await;
+            ui::clear_abort();
+            status?
+        } else {
+            wait.await?
+        };
+        match s(&status, "status") {
+            "complete" => {
+                ui::log::success(&format!("Connected to {name}"));
+                Ok(())
+            }
+            "failed" => Err(Flow::Error(anyhow::anyhow!("{}", s(&status, "message")))),
+            _ => Err(Flow::Error(anyhow::anyhow!("Authorization expired"))),
         }
     }
     .await;
-    let _ = client
-        .call(
-            "integration.oauth.cancel",
-            Req::new().path("integrationID", &id).path("attemptID", &attempt).location(&dir).timeout(Duration::from_secs(5)),
-        )
-        .await;
+    cancel.run().await;
     result
+}
+
+/// `pasteRedirect`: hands the redirect URL to the attempt; a rejected paste asks again. Ends when the prompt is
+/// aborted (the wait finished first) or cancelled.
+fn paste_redirect(handle: &tokio::runtime::Handle, client: &Client, id: &str, attempt: &str, dir: &str) {
+    paste_loop(
+        || ui::text("If the browser can't reach this machine, paste the URL it was redirected to", ui::TextOptions::default(), &ui::required).ok(),
+        |code| {
+            let req = Req::new().path("integrationID", id).path("attemptID", attempt).body(json!({"code": code, "location": {"directory": dir}}));
+            handle.block_on(client.call("integration.oauth.complete", req)).map(|_| ()).map_err(|e| e.to_string())
+        },
+        |message| ui::log::error(message),
+    )
+}
+
+/// The loop of `pasteRedirect`: ask, hand the answer over, and on an error log it and ask again; ends once a paste
+/// is accepted or the prompt ends without an answer.
+fn paste_loop(mut ask: impl FnMut() -> Option<String>, mut complete: impl FnMut(&str) -> Result<(), String>, mut log: impl FnMut(&str)) {
+    while let Some(code) = ask() {
+        match complete(&code) {
+            Ok(()) => return,
+            Err(e) => log(&e),
+        }
+    }
+}
+
+/// The finalizer of an OAuth attempt: `integration.oauth.cancel` (5 s), also when the command is interrupted.
+struct CancelAttempt {
+    client: Client,
+    integration: String,
+    attempt: String,
+    directory: String,
+    armed: bool,
+}
+
+impl CancelAttempt {
+    fn request(client: Client, integration: String, attempt: String, directory: String) -> impl std::future::Future<Output = ()> + Send + 'static {
+        async move {
+            let req = Req::new()
+                .path("integrationID", &integration)
+                .path("attemptID", &attempt)
+                .location(&directory)
+                .timeout(Duration::from_secs(5));
+            let _ = client.call("integration.oauth.cancel", req).await;
+        }
+    }
+
+    async fn run(mut self) {
+        self.armed = false;
+        Self::request(self.client.clone(), self.integration.clone(), self.attempt.clone(), self.directory.clone()).await;
+    }
+}
+
+impl Drop for CancelAttempt {
+    fn drop(&mut self) {
+        if self.armed {
+            crate::signals::defer(Self::request(self.client.clone(), self.integration.clone(), self.attempt.clone(), self.directory.clone()));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -911,6 +1006,26 @@ mod tests {
         let methods = vec![json!({"type": "oauth", "id": "o", "label": "Browser"}), json!({"type": "key"})];
         assert_eq!(s(&resolve_method(&methods, "KEY").unwrap(), "type"), "key");
         assert_eq!(resolve_method(&methods, "zz").unwrap_err().to_string(), "Authentication method not found: zz. Available: o, key");
+    }
+
+    #[test]
+    fn pasted_redirects_are_asked_again_after_an_error() {
+        let mut answers = vec![Some("http://localhost/cb?code=a".to_string()), Some("http://localhost/cb?code=b".to_string())].into_iter();
+        let (mut sent, mut logged) = (vec![], vec![]);
+        paste_loop(
+            || answers.next().flatten(),
+            |code| {
+                sent.push(code.to_string());
+                if sent.len() == 1 { Err("Invalid redirect".into()) } else { Ok(()) }
+            },
+            |m| logged.push(m.to_string()),
+        );
+        assert_eq!(sent, ["http://localhost/cb?code=a", "http://localhost/cb?code=b"]);
+        assert_eq!(logged, ["Invalid redirect"]);
+        // An aborted prompt (the wait settled first) ends the loop without a request.
+        let mut calls = 0;
+        paste_loop(|| None, |_| { calls += 1; Ok(()) }, |_| {});
+        assert_eq!(calls, 0);
     }
 
     #[test]

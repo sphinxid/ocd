@@ -1,7 +1,8 @@
-//! `opencode run` (`handlers/run.ts`, `run/run.ts`, `run/noninteractive.ts`, `session-target.ts`):
-//! a non-interactive prompt against the server, streaming SSE events to stdout/stderr.
+//! `opencode run` (`handlers/run.ts`, `run/run.ts`, `run/noninteractive.ts`, `session-target.ts`, `util/io.ts`):
+//! a non-interactive prompt against the server, streaming SSE events to stdout/stderr, waiting for the background
+//! jobs it started, and cancelling its Session and jobs on SIGINT/SIGTERM.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
@@ -21,10 +22,6 @@ const QUESTION_CANCELLED_FEEDBACK: &str = "This non-interactive run cannot ask t
 const PERMISSION_REJECTED_FEEDBACK: &str =
     "This non-interactive run cannot ask the user for permission, so the request was rejected. Continue without this action.";
 const ATTACH_FILE_MAX_BYTES: u64 = 10 * 1024 * 1024;
-/// How long `run` holds a live event before handling it (see `Shared::consume`): within the delay with which
-/// upstream's event stream trails its HTTP answers (15 to 200+ ms measured), and long enough that a busy machine
-/// doesn't split ocd's burst from a fast provider's answer to the session going idle (50 ms did under load).
-const HOLD: std::time::Duration = std::time::Duration::from_millis(150);
 
 // ---------------------------------------------------------------------------------------------
 // UI (`run/ui.ts`) — everything on stderr
@@ -87,16 +84,6 @@ pub fn parse_model(input: &str) -> anyhow::Result<ModelRef> {
 
 // ---------------------------------------------------------------------------------------------
 // input preparation
-
-/// `formatMessage(args)`
-pub fn format_message(message: &[String]) -> Option<String> {
-    let v = message
-        .iter()
-        .map(|p| if p.contains(' ') { format!("\"{}\"", p.replace('"', "\\\"")) } else { p.clone() })
-        .collect::<Vec<_>>()
-        .join(" ");
-    (!v.is_empty()).then_some(v)
-}
 
 /// `mergeInput(message, piped)`
 pub fn merge_input(message: Option<String>, piped: Option<String>) -> Option<String> {
@@ -401,7 +388,7 @@ fn render_tool_error(tool: &Value, directory: &str) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// entry
+// entry (`handlers/run.ts`, `run/run.ts`)
 
 #[derive(Clone, Copy, PartialEq)]
 enum Format {
@@ -425,16 +412,20 @@ fn report_run_error(format: Format, exit: &AtomicI32, message: &str, session: Op
     ui::error(message);
 }
 
+/// `opencode run`. A stop signal (SIGINT/SIGTERM) cancels the run's Session and background jobs; the run then
+/// returns and `main` exits 130 or 143.
 pub async fn run(global: &Global, input: &Input) -> anyhow::Result<i32> {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-    let mut message = input.list("message");
-    if let Some(sep) = argv.iter().position(|a| a == "--") {
-        message.extend(argv[sep + 1..].iter().cloned());
-    }
     let format = if input.str("format").as_deref() == Some("json") { Format::Json } else { Format::Default };
     let exit = Arc::new(AtomicI32::new(-1));
-    // A server that cannot be reached is reported like any other run error (JSON with `--format json`).
-    let server = match connection::resolve(global, Args { server: input.str("server"), standalone: input.flag("standalone"), mismatch: None, on_start: None }).await {
+    // A one-off run uses the background service when it is already up, but never leaves a new one running.
+    let args = Args {
+        server: input.str("server"),
+        standalone: input.flag("standalone"),
+        mismatch: None,
+        autostart: Some(false),
+        on_start: None,
+    };
+    let server = match connection::resolve(global, args).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!(cause = %e, "run could not resolve its server");
@@ -443,18 +434,21 @@ pub async fn run(global: &Global, input: &Input) -> anyhow::Result<i32> {
         }
     };
     let opts = RunInput {
-        message,
+        message: input.list("message"),
         continue_last: input.flag("continue"),
         session: input.str("session"),
         fork: input.flag("fork"),
+        worktree: input.optional_value("worktree"),
         model: input.str("model"),
         agent: input.str("agent"),
         format,
         files: input.list("file"),
         title: input.str("title"),
+        archived: input.flag("archived"),
         thinking: input.flag("thinking"),
         auto: input.flag("auto") || input.flag("yolo") || input.flag("dangerouslySkipPermissions"),
     };
+    // `runNonInteractive`: any failure is reported as a run error.
     if let Err(e) = execute(&server, &opts, exit.clone()).await {
         report_run_error(format, &exit, &e.to_string(), None);
     }
@@ -468,11 +462,14 @@ struct RunInput {
     continue_last: bool,
     session: Option<String>,
     fork: bool,
+    /// `--worktree` (`Some(None)`) or `--worktree=<name>`.
+    worktree: Option<Option<String>>,
     model: Option<String>,
     agent: Option<String>,
     format: Format,
     files: Vec<String>,
     title: Option<String>,
+    archived: bool,
     thinking: bool,
     auto: bool,
 }
@@ -489,37 +486,85 @@ impl std::fmt::Display for TargetError {
 
 impl std::error::Error for TargetError {}
 
+/// How long a message argument waits for other stdin (`PIPED_INPUT_GRACE_MS`).
+const PIPED_INPUT_GRACE: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// `readStdin()`: all of stdin.
+async fn read_stdin() -> String {
+    tokio::task::spawn_blocking(|| {
+        let mut buf = vec![];
+        let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut buf);
+        String::from_utf8_lossy(&buf).into_owned()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// `readStdinIfReady(grace)` (`util/io.ts`): a shell pipe or redirected file is read in full, however slow its
+/// producer; any other stdin (the socket spawn's default stdio gives a child) only if it has data or ends within
+/// `grace`, otherwise it is left unread.
+async fn read_stdin_if_ready(grace: std::time::Duration) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        use std::os::fd::AsFd;
+        let stat = std::io::stdin().as_fd().try_clone_to_owned().ok().map(std::fs::File::from).and_then(|f| f.metadata().ok());
+        if stat.as_ref().is_some_and(|m| m.file_type().is_fifo() || m.is_file()) {
+            return Some(read_stdin().await);
+        }
+        let ready = tokio::task::spawn_blocking(move || {
+            let mut fds = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+            // SAFETY: one valid pollfd for the duration of the call.
+            unsafe { libc::poll(&mut fds, 1, grace.as_millis() as i32) > 0 }
+        })
+        .await
+        .unwrap_or(false);
+        if ready { Some(read_stdin().await) } else { None }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = grace;
+        Some(read_stdin().await)
+    }
+}
+
 async fn execute(server: &connection::Resolved, input: &RunInput, exit: Arc<AtomicI32>) -> anyhow::Result<()> {
     if input.fork && !input.continue_last && input.session.is_none() {
         anyhow::bail!("--fork requires --continue or --session");
+    }
+    if input.worktree.is_some() && (input.continue_last || input.session.is_some()) {
+        anyhow::bail!("--worktree starts a new session and cannot be combined with --continue or --session");
     }
     let root = std::env::var("PWD").ok().filter(|p| !p.is_empty()).map(std::path::PathBuf::from).unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     if std::env::set_current_dir(&root).is_err() {
         anyhow::bail!("Failed to change directory to {}", root.display());
     }
     let local = std::env::current_dir()?.display().to_string();
+    let argument = Some(input.message.join(" ")).filter(|m| !m.is_empty());
+    // With a message argument, stdin is extra context: a shell pipe is read in full, but the open, silent stdin
+    // that spawn's default stdio gives a child must not hold the run.
     let piped = if crate::term::stdin_is_tty() {
         None
+    } else if argument.is_some() {
+        read_stdin_if_ready(PIPED_INPUT_GRACE).await
     } else {
-        let mut s = String::new();
-        let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut s);
-        Some(s)
+        Some(read_stdin().await)
     };
-    let message = merge_input(format_message(&input.message), piped);
+    let message = merge_input(argument, piped);
     let Some(message) = message.filter(|m| !m.trim().is_empty()) else { anyhow::bail!("You must provide a message") };
     let files = input.files.iter().map(|f| prepare_file(f, &root)).collect::<anyhow::Result<Vec<_>>>()?;
 
     let client = server.client();
     let explicit = input.model.as_deref().map(parse_model).transpose()?;
-    let target = match resolve_target(
-        &client,
-        &local,
-        input,
-        explicit.as_ref(),
-        server.service.is_some().then(connection::session_env),
-    )
-    .await
-    {
+    let worktree = match &input.worktree {
+        None => None,
+        Some(name) => Some(create_worktree_location(&client, &local, name.as_deref()).await?),
+    };
+    if let Some((root, _)) = &worktree {
+        ui::println(&[&format!("{}worktree {root}{}", ui::TEXT_DIM, ui::TEXT_NORMAL)]);
+    }
+    let directory = worktree.as_ref().map(|(_, d)| d.clone()).unwrap_or(local);
+    let target = match resolve_target(&client, &directory, input, explicit.as_ref(), server.service.is_some().then(connection::session_env)).await {
         Ok(t) => t,
         Err(e) => match e.downcast::<TargetError>() {
             Ok(t) => {
@@ -529,29 +574,51 @@ async fn execute(server: &connection::Resolved, input: &RunInput, exit: Arc<Atom
             Err(e) => return Err(e),
         },
     };
-    if !target.resume
-        && let Some(title) = &input.title
-    {
-        let title = if title.is_empty() {
+    let title = match &input.title {
+        Some(title) if !target.resume => Some(if title.is_empty() {
             let units: Vec<u16> = message.encode_utf16().collect();
             let head = String::from_utf16_lossy(&units[..units.len().min(50)]);
             format!("{head}{}", if units.len() > 50 { "..." } else { "" })
         } else {
             title.clone()
-        };
-        client.call("session.update", Req::new().path("sessionID", &target.session_id).body(json!({"title": title}))).await?;
+        }),
+        _ => None,
+    };
+    // Archive before the first prompt is admitted, so the run never reaches an inbox as working or finished.
+    let archived = input.archived && (!target.resume || input.fork);
+    if title.is_some() || archived {
+        let mut body = Map::new();
+        if let Some(title) = title {
+            body.insert("title".into(), json!(title));
+        }
+        if archived {
+            body.insert("archived".into(), json!(true));
+        }
+        client.call("session.update", Req::new().path("sessionID", &target.session_id).body(Value::Object(body))).await?;
+    }
+    let mut texts = vec![message];
+    let mut attachments = vec![];
+    for f in &files {
+        if f.mime == "text/plain" {
+            let b64 = &f.url[f.url.find(',').map(|i| i + 1).unwrap_or(0)..];
+            let content = base64::engine::general_purpose::STANDARD.decode(b64).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+            texts.push(format!("<file name=\"{}\">\n{content}\n</file>", f.filename));
+        } else {
+            attachments.push(json!({"uri": f.url, "name": f.filename}));
+        }
     }
     let prompt = Prompt {
         client: client.clone(),
         session_id: target.session_id.clone(),
         directory: target.directory.clone(),
-        message,
-        files,
+        message: texts.join("\n\n"),
+        files: attachments,
         agent: target.agent.clone(),
         model: target.model.clone(),
         thinking: input.thinking,
         format: input.format,
         auto: input.auto,
+        standalone: server.standalone.is_some(),
         exit: exit.clone(),
     };
     if let Err(e) = prompt.run().await {
@@ -568,6 +635,7 @@ struct Target {
     resume: bool,
 }
 
+/// `SessionTargetMutationError`: the request's own message.
 fn mutation(e: ClientError) -> anyhow::Error {
     anyhow::anyhow!("{e}")
 }
@@ -580,12 +648,52 @@ async fn find_session(client: &Client, id: &str) -> anyhow::Result<Option<Value>
     }
 }
 
-async fn location_get(client: &Client, directory: Option<&str>) -> anyhow::Result<Value> {
+async fn location_get(client: &Client, directory: Option<&str>) -> Result<Value, ClientError> {
     let req = match directory {
         Some(d) => Req::new().location(d),
         None => Req::new(),
     };
-    Ok(client.call("location.get", req).await?)
+    client.call("location.get", req).await
+}
+
+/// `createWorktreeLocation`: a new worktree of the location's project, keeping the caller's subfolder when the
+/// worktree has it. `(root, directory)`.
+async fn create_worktree_location(client: &Client, directory: &str, name: Option<&str>) -> anyhow::Result<(String, String)> {
+    let base = location_get(client, Some(directory)).await?;
+    let project_dir = base.pointer("/project/directory").and_then(Value::as_str).unwrap_or("").to_string();
+    let mut body = Map::new();
+    body.insert("projectID".into(), base.pointer("/project/id").cloned().unwrap_or(Value::Null));
+    body.insert("from".into(), json!(project_dir));
+    if let Some(name) = name {
+        body.insert("name".into(), json!(name));
+    }
+    let created = client.call("worktree.create", Req::new().body(Value::Object(body))).await.map_err(mutation)?;
+    let created = created.get("directory").and_then(Value::as_str).unwrap_or("").to_string();
+    let base_dir = base.get("directory").and_then(Value::as_str).unwrap_or("");
+    let subfolder = relative(&project_dir, base_dir);
+    if subfolder.is_empty() || subfolder.starts_with("..") || std::path::Path::new(&subfolder).is_absolute() {
+        return Ok((created.clone(), created));
+    }
+    let joined = normalize(&std::path::Path::new(&created).join(&subfolder)).display().to_string();
+    Ok(match location_get(client, Some(&joined)).await {
+        Ok(_) => (created, joined),
+        Err(_) => (created.clone(), created),
+    })
+}
+
+/// `path.relative(from, to)` for absolute POSIX paths.
+fn relative(from: &str, to: &str) -> String {
+    let parts = |p: &str| -> Vec<String> {
+        normalize(std::path::Path::new(p)).components().filter_map(|c| match c {
+            std::path::Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+            _ => None,
+        }).collect()
+    };
+    let (a, b) = (parts(from), parts(to));
+    let common = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let mut out: Vec<String> = std::iter::repeat_n("..".to_string(), a.len() - common).collect();
+    out.extend(b[common..].iter().cloned());
+    out.join(std::path::MAIN_SEPARATOR_STR)
 }
 
 async fn latest_session(client: &Client, location: &Value) -> anyhow::Result<Option<Value>> {
@@ -595,6 +703,7 @@ async fn latest_session(client: &Client, location: &Value) -> anyhow::Result<Opt
         let mut req = Req::new()
             .query("directory", dir.clone())
             .query("parentID", Value::Null)
+            .query("archived", json!(false))
             .query("limit", json!(50))
             .query("order", json!("desc"));
         if let Some(c) = &cursor {
@@ -613,7 +722,7 @@ async fn latest_session(client: &Client, location: &Value) -> anyhow::Result<Opt
 }
 
 async fn fork(client: &Client, id: &str) -> anyhow::Result<Value> {
-    Ok(client.call("session.fork", Req::new().path("sessionID", id)).await.map_err(mutation)?.get("data").cloned().unwrap_or(Value::Null))
+    Ok(client.call("session.fork", Req::new().path("sessionID", id).body(json!({}))).await.map_err(mutation)?.get("data").cloned().unwrap_or(Value::Null))
 }
 
 /// `resolveSessionTarget`
@@ -711,58 +820,93 @@ async fn resolve_target(
 }
 
 // ---------------------------------------------------------------------------------------------
-// prompt execution (`runNonInteractivePrompt`)
+// prompt execution (`run/noninteractive.ts` `runNonInteractivePrompt`): one prompt to completion,
+//
+//   admitting → running → settling → waiting for this prompt's jobs → done(exit code)
+//   any state + stop signal → cancelling → done
 
 struct Prompt {
     client: Client,
     session_id: String,
     directory: String,
     message: String,
-    files: Vec<FilePart>,
+    files: Vec<Value>,
     agent: Option<String>,
     model: Option<Value>,
     thinking: bool,
     format: Format,
     auto: bool,
+    /// The server is private to this run, so MCP input requests in its location are this run's too.
+    standalone: bool,
     exit: Arc<AtomicI32>,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Phase {
+    Running,
+    Settled,
+    Cancelling,
+}
+
+/// A terminal execution outcome (`Pick<SessionMessageIdle, "id" | "outcome" | "error">`).
+#[derive(Clone, Debug)]
+struct Outcome {
+    id: String,
+    outcome: &'static str,
+    error: Option<Value>,
 }
 
 #[derive(Default, Clone)]
 struct ToolState {
     id: String,
     timestamp: i64,
-    tool: String,
+    name: String,
     input: Value,
     raw: Option<String>,
-    provider: Option<Value>,
+    call: Option<Value>,
     metadata: Value,
 }
 
+/// The renderer's own state (`renderer(input)`).
 #[derive(Default)]
-struct State {
+struct Render {
     starts: HashMap<String, (String, i64)>,
     tools: HashMap<String, ToolState>,
-    rendered_text: HashMap<String, String>,
-    rendered_reasoning: HashMap<String, String>,
-    rendered_tools: std::collections::HashSet<String>,
-    /// Live step events stop being read once the session goes idle, and the last step usually ends after
-    /// that. `reconcile` uses this to emit only the `step_start`/`step_finish` lines the live stream missed
-    /// (`true` once the step ended).
+    /// `true` once the step ended.
     steps: HashMap<String, bool>,
-    owned: HashMap<String, bool>,
-    submitted: bool,
-    promoted: bool,
-    emitted_error: bool,
-    form_cancelled: bool,
-    pre_promotion_error: Option<Value>,
+    /// The session can go idle before the last live events arrive; reconcile prints what they missed.
+    printed: HashMap<String, String>,
 }
+
+struct State {
+    phase: Phase,
+    promoted: bool,
+    failure: Option<Value>,
+    outcomes: Vec<Outcome>,
+    /// Sessions in this run's tree that own jobs; an execution ending in one can change background state.
+    job_sessions: indexmap::IndexSet<String>,
+    owned: HashMap<String, bool>,
+}
+
+/// `state.ended`: a deferred replaced each time it resolves (a terminal execution event of a job session), or
+/// rejected when the event stream fails.
+#[derive(Clone, Default)]
+struct Ended {
+    generation: u64,
+    error: Option<String>,
+}
+
+type Admission = futures::future::Shared<futures::future::BoxFuture<'static, Result<Value, String>>>;
 
 struct Shared {
     p: Prompt,
     message_id: String,
     state: Mutex<State>,
-    interrupted: AtomicBool,
-    finalizing: AtomicBool,
+    render: tokio::sync::Mutex<Render>,
+    ended: tokio::sync::watch::Sender<Ended>,
+    admission: Mutex<Option<Admission>>,
+    /// Set once the run is over (`controller.abort()`): the stream ending is no failure then.
+    closed: AtomicBool,
 }
 
 fn part_id(event_id: &str) -> String {
@@ -802,6 +946,74 @@ fn put(m: &mut Map<String, Value>, k: &str, v: Option<&Value>) {
     }
 }
 
+/// `terminalOutcome(event)`
+fn terminal_outcome(event: &Value) -> Option<Outcome> {
+    let id = oc_schema::id::message_from_event(event.get("id").and_then(Value::as_str).unwrap_or(""));
+    let data = event.get("data").unwrap_or(&Value::Null);
+    match event.get("type").and_then(Value::as_str)? {
+        "session.execution.succeeded" => Some(Outcome { id, outcome: "succeeded", error: None }),
+        "session.execution.failed" => Some(Outcome { id, outcome: "failed", error: data.get("error").cloned() }),
+        "session.execution.interrupted" => {
+            let reason = match data.get("reason") {
+                Some(Value::String(s)) => s.clone(),
+                Some(v) => v.to_string(),
+                None => "undefined".into(),
+            };
+            Some(Outcome {
+                id,
+                outcome: "interrupted",
+                error: Some(json!({"type": "aborted", "message": format!("Session interrupted: {reason}")})),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The projected messages after this run's prompt (`projectedMessages`): `(found, messages)`.
+struct Projected {
+    found: bool,
+    messages: Vec<Value>,
+    background: bool,
+}
+
+/// `finalError(run, state)`: the run's exit code comes from here alone.
+fn final_error(run: &Projected, failure: Option<&Value>, outcomes: &[Outcome]) -> Option<Value> {
+    if let Some(f) = failure {
+        return Some(f.clone());
+    }
+    if !run.found {
+        return Some(json!({"type": "unknown", "message": "Prompt was not promoted"}));
+    }
+    let idles: Vec<Outcome> = run
+        .messages
+        .iter()
+        .filter(|m| m.get("type").and_then(Value::as_str) == Some("idle"))
+        .map(|m| Outcome {
+            id: m.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
+            outcome: match m.get("outcome").and_then(Value::as_str) {
+                Some("succeeded") => "succeeded",
+                Some("failed") => "failed",
+                Some("interrupted") => "interrupted",
+                _ => "unknown",
+            },
+            error: m.get("error").filter(|e| !e.is_null()).cloned(),
+        })
+        .collect();
+    let recorded: &[Outcome] = if idles.is_empty() { outcomes } else { &idles };
+    // The first marker closes this prompt's turn. Later ones count only as replies woken by this prompt's
+    // background jobs; otherwise they belong to other prompts, possibly from another client.
+    let turns = if run.background { recorded } else { &recorded[..recorded.len().min(1)] };
+    let Some(last) = turns.iter().find(|t| t.outcome != "succeeded").or_else(|| turns.first()) else {
+        return Some(json!({"type": "unknown", "message": "Session ended without a recorded outcome"}));
+    };
+    if last.outcome == "succeeded" {
+        return None;
+    }
+    let fallback =
+        json!({"type": if last.outcome == "failed" { "unknown" } else { "aborted" }, "message": format!("Session {}", last.outcome)});
+    Some(last.error.clone().or_else(|| outcomes.iter().find(|t| t.id == last.id).and_then(|t| t.error.clone())).unwrap_or(fallback))
+}
+
 impl Shared {
     fn emit(&self, ty: &str, timestamp: i64, data: Vec<(&str, Value)>) -> bool {
         if self.p.format != Format::Json {
@@ -818,66 +1030,24 @@ impl Shared {
         true
     }
 
-    fn set_exit(&self, code: i32) {
-        self.p.exit.store(code, Ordering::SeqCst);
-    }
-
-    fn write_text(&self, part: Value, timestamp: i64) {
-        if self.emit("text", timestamp, vec![("part", part.clone())]) {
-            return;
-        }
-        let text = part.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string();
-        if text.is_empty() {
-            return;
-        }
-        if !crate::term::stdout_is_tty() {
-            write_stdout(&format!("{text}{EOL}"));
-            return;
-        }
+    fn block(line: &str) {
         ui::empty();
-        ui::println(&[&text]);
+        ui::println(&[line]);
         ui::empty();
     }
 
-    fn write_reasoning(&self, part: Value, timestamp: i64) {
-        if self.emit("reasoning", timestamp, vec![("part", part.clone())]) {
-            return;
-        }
-        let text = part.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string();
-        if text.is_empty() {
-            return;
-        }
-        let line = format!("Thinking: {text}");
-        if !crate::term::stdout_is_tty() {
-            write_stdout(&format!("{line}{EOL}"));
-            return;
-        }
-        ui::empty();
-        ui::println(&[&format!("{}\x1b[3m{line}\x1b[0m{}", ui::TEXT_DIM, ui::TEXT_NORMAL)]);
-        ui::empty();
-    }
+    // ---- ownership, permissions and forms ---------------------------------------------------------------
 
-    fn error(&self, timestamp: i64, error: Value) {
-        if !self.emit("error", timestamp, vec![("error", error.clone())]) {
-            ui::error(error.get("message").and_then(Value::as_str).unwrap_or(""));
-        }
-    }
-
+    /// `ownsSession`: this run's session and its descendants (subagents' asks belong to the run too).
     async fn owns(&self, session_id: &str) -> bool {
-        if session_id == self.p.session_id {
-            return true;
-        }
         let mut chain = vec![];
         let mut current = session_id.to_string();
         let result = loop {
-            if let Some(v) = self.state.lock().owned.get(&current).copied() {
-                break v;
-            }
             if current == self.p.session_id {
                 break true;
             }
-            if current == GLOBAL_FORM_SESSION_ID {
-                break false;
+            if let Some(v) = self.state.lock().owned.get(&current).copied() {
+                break v;
             }
             chain.push(current.clone());
             match self.p.client.call("session.get", Req::new().path("sessionID", &current)).await {
@@ -893,6 +1063,16 @@ impl Shared {
             st.owned.insert(c, result);
         }
         result
+    }
+
+    /// `ownsForm`: MCP elicitations belong to the "global" sentinel rather than a session; on a shared server they
+    /// may belong to another client.
+    async fn owns_form(&self, form: &Value, location: Option<&Value>) -> bool {
+        let session = form.get("sessionID").and_then(Value::as_str).unwrap_or("");
+        if session == GLOBAL_FORM_SESSION_ID {
+            return self.p.standalone && location.and_then(|l| l.get("directory")).and_then(Value::as_str) == Some(self.p.directory.as_str());
+        }
+        self.owns(session).await
     }
 
     async fn reply_permission(&self, request: &Value) {
@@ -918,414 +1098,204 @@ impl Shared {
             .await;
     }
 
-    async fn cancel_form(&self, form: &Value) -> anyhow::Result<()> {
-        let continuing = form.pointer("/metadata/kind").and_then(Value::as_str) == Some("question");
+    /// `cancelForm`: a cancelled question lets the model continue; any other input request fails the run.
+    async fn cancel_form(&self, form: &Value) -> Result<(), String> {
+        let question = form.pointer("/metadata/kind").and_then(Value::as_str) == Some("question");
         let session = form.get("sessionID").and_then(Value::as_str).unwrap_or("");
         let mut req = Req::new().path("sessionID", session).path("formID", form.get("id").and_then(Value::as_str).unwrap_or(""));
-        if continuing {
+        if question {
             req = req.query("message", json!(QUESTION_CANCELLED_FEEDBACK));
         }
+        // A global form is found through its location.
         if session == GLOBAL_FORM_SESSION_ID {
             req = req.header("x-opencode-directory", crate::client::encode_component(&self.p.directory));
         }
         if let Err(e) = self.p.client.call("session.form.cancel", req).await
             && e.tag() != Some("FormAlreadySettledError")
         {
-            return Err(e.into());
+            return Err(e.to_string());
         }
-        if continuing {
-            return Ok(());
+        if !question {
+            let title = match form.get("title") {
+                Some(Value::String(s)) => s.clone(),
+                Some(v) => v.to_string(),
+                None => "undefined".into(),
+            };
+            let mut st = self.state.lock();
+            if st.failure.is_none() {
+                st.failure = Some(json!({"type": "unknown", "message": format!("Cancelled a request for input this run cannot answer: {title}")}));
+            }
         }
-        self.state.lock().form_cancelled = true;
-        self.set_exit(1);
         Ok(())
     }
 
-    /// Upstream's server writes events to the event stream only when its runner waits for I/O, after the
-    /// answers to the requests it settled before that. So the `session.wait` answer released by the session
-    /// going idle overtakes the events published since the runner's last I/O wait, and `run` handles those as
-    /// finalizing: it skips them and prints their content from the projected messages (no `> agent · model`
-    /// header for a step that fails at once, or for the last step of a fast provider; since 2.2.5 the JSON
-    /// format reports the `step_start`/`step_finish` the live stream missed from the projection). ocd delivers events at once, so the consumer holds each event of the session for `HOLD` and
-    /// handles the held ones as finalizing when the execution ends meanwhile. Where upstream's runner always
-    /// waits for I/O, the held events are released at once and handled as upstream's stream delivers them
-    /// before that wait, whether or not `session.wait` has answered here by then: before a new step (its
-    /// provider request), before the end of a step that started with a snapshot (the end snapshot), and before
-    /// permission and form requests (the reply).
-    async fn consume(&self, stream: &mut EventStream) -> Result<(), String> {
-        let mut held: VecDeque<(tokio::time::Instant, Value)> = VecDeque::new();
-        let mut snapshot_step = false;
+    // ---- the event consumer ------------------------------------------------------------------------------
+
+    fn bump(&self) {
+        self.ended.send_modify(|e| e.generation += 1);
+    }
+
+    /// Wait until the deferred captured at `generation` settles.
+    async fn ended(&self, generation: u64) -> Result<(), String> {
+        let mut rx = self.ended.subscribe();
         loop {
-            let next = match held.front() {
-                None => stream.next().await,
-                Some((at, _)) => {
-                    let due = *at + HOLD;
-                    tokio::select! {
-                        biased;
-                        _ = tokio::time::sleep_until(due) => {
-                            while held.front().is_some_and(|(at, _)| *at + HOLD <= tokio::time::Instant::now()) {
-                                let (_, event) = held.pop_front().expect("held event");
-                                if let Some(r) = self.handle(event, None).await {
-                                    return r;
-                                }
-                            }
-                            continue;
-                        }
-                        next = stream.next() => next,
-                    }
+            {
+                let e = rx.borrow_and_update();
+                if e.generation > generation {
+                    return Ok(());
                 }
-            };
-            let event = match next {
+                if let Some(err) = &e.error {
+                    return Err(err.clone());
+                }
+            }
+            if rx.changed().await.is_err() {
+                return std::future::pending().await;
+            }
+        }
+    }
+
+    fn generation(&self) -> u64 {
+        self.ended.borrow().generation
+    }
+
+    async fn consume(self: Arc<Self>, mut stream: EventStream) -> Result<(), String> {
+        loop {
+            let event = match stream.next().await {
                 Some(Ok(e)) => e,
-                end => {
-                    if let Some(r) = self.release(&mut held, None).await {
-                        return r;
-                    }
-                    if self.state.lock().emitted_error {
+                Some(Err(e)) => {
+                    if self.closed.load(Ordering::SeqCst) {
                         return Ok(());
                     }
-                    return Err(match end {
-                        Some(Err(e)) => e.to_string(),
-                        _ => "Event stream disconnected during prompt execution".into(),
-                    });
+                    return Err(e.to_string());
+                }
+                None => {
+                    if self.closed.load(Ordering::SeqCst) {
+                        return Ok(());
+                    }
+                    return Err("Event stream disconnected during prompt execution".into());
                 }
             };
             let ty = event.get("type").and_then(Value::as_str).unwrap_or("").to_string();
-            let data = event.get("data").unwrap_or(&Value::Null);
-            let ours = data.get("sessionID").and_then(Value::as_str) == Some(self.p.session_id.as_str());
-            let request = ty == "permission.asked" || ty == "form.created";
-            let step_end = ty == "session.step.ended" || ty == "session.step.failed";
-            if (request || (ours && (ty == "session.step.started" || (snapshot_step && step_end))))
-                && let Some(r) = self.release(&mut held, Some(false)).await
-            {
-                return r;
-            }
-            if ours && ty == "session.step.started" {
-                snapshot_step = data.get("snapshot").is_some_and(|s| !s.is_null());
-            }
-            if request || !ours {
-                if let Some(r) = self.handle(event, None).await {
-                    return r;
+            let data = event.get("data").cloned().unwrap_or(Value::Null);
+            if ty == "permission.asked" {
+                if self.owns(data.get("sessionID").and_then(Value::as_str).unwrap_or("")).await {
+                    self.reply_permission(&data).await;
                 }
                 continue;
             }
-            if matches!(ty.as_str(), "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted") {
-                if let Some(r) = self.release(&mut held, Some(true)).await {
-                    return r;
-                }
-                // An execution that ends before this prompt was promoted is not this run's last burst.
-                let late = self.state.lock().promoted.then_some(true);
-                if let Some(r) = self.handle(event, late).await {
-                    return r;
+            if ty == "form.created" {
+                let form = data.get("form").cloned().unwrap_or(Value::Null);
+                if self.owns_form(&form, event.get("location")).await {
+                    self.cancel_form(&form).await?;
                 }
                 continue;
             }
-            held.push_back((tokio::time::Instant::now(), event));
-        }
-    }
-
-    /// Handles all held events (see `consume`), in order.
-    async fn release(&self, held: &mut VecDeque<(tokio::time::Instant, Value)>, finalizing: Option<bool>) -> Option<Result<(), String>> {
-        while let Some((_, event)) = held.pop_front() {
-            if let Some(r) = self.handle(event, finalizing).await {
-                return Some(r);
-            }
-        }
-        None
-    }
-
-    /// Handles one event like upstream's `consume` loop body; `Some` ends the consumer with that result.
-    /// `finalizing` overrides whether it is handled as upstream does once `session.wait` has answered (see
-    /// `consume`); `None` follows this run's own `session.wait`.
-    async fn handle(&self, event: Value, finalizing: Option<bool>) -> Option<Result<(), String>> {
-        let ty = event.get("type").and_then(Value::as_str).unwrap_or("").to_string();
-        let data = event.get("data").cloned().unwrap_or(Value::Null);
-        let submitted = self.state.lock().submitted;
-        if ty == "permission.asked" && submitted && self.owns(data.get("sessionID").and_then(Value::as_str).unwrap_or("")).await {
-            self.reply_permission(&data).await;
-            return None;
-        }
-        if ty == "form.created" && submitted {
-            let form = data.get("form").cloned().unwrap_or(Value::Null);
-            if self.owns(form.get("sessionID").and_then(Value::as_str).unwrap_or("")).await {
-                if let Err(e) = self.cancel_form(&form).await {
-                    return Some(Err(e.to_string()));
-                }
-                return None;
-            }
-        }
-        if data.get("sessionID").and_then(Value::as_str) != Some(self.p.session_id.as_str()) {
-            return None;
-        }
-        let time = to_millis(event.get("created"));
-        let event_id = event.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-        let interrupted = self.interrupted.load(Ordering::SeqCst);
-        let finalizing = finalizing.unwrap_or_else(|| self.finalizing.load(Ordering::SeqCst));
-        {
-            let mut st = self.state.lock();
-            if ty == "session.inbox.delivered" && data.get("inboxID").and_then(Value::as_str) == Some(self.message_id.as_str()) {
-                st.promoted = true;
-                st.pre_promotion_error = None;
-                return None;
-            }
-            if ty == "session.execution.interrupted"
-                && data.get("reason").and_then(Value::as_str) == Some("user")
-                && (interrupted || st.form_cancelled)
-            {
-                return Some(Ok(()));
-            }
-            if !st.promoted && ty == "session.execution.failed" {
-                st.pre_promotion_error = data.get("error").cloned();
-                if finalizing {
-                    return Some(Ok(()));
-                }
-                return None;
-            }
-            if !st.promoted && finalizing && (ty == "session.execution.succeeded" || ty == "session.execution.interrupted") {
-                return Some(Ok(()));
-            }
-            if !st.promoted {
-                return None;
-            }
-            if finalizing && !ty.starts_with("session.execution.") {
-                return None;
-            }
-        }
-        let amid = data.get("assistantMessageID").and_then(Value::as_str).unwrap_or("").to_string();
-        match ty.as_str() {
-            "session.step.started" => {
-                let mut part = Map::new();
-                part.insert("id".into(), json!(part_id(&event_id)));
-                part.insert("sessionID".into(), json!(self.p.session_id));
-                part.insert("messageID".into(), json!(amid));
-                part.insert("type".into(), json!("step-start"));
-                put(&mut part, "snapshot", data.get("snapshot"));
-                self.state.lock().steps.insert(amid.clone(), false);
-                if !self.emit("step_start", time, vec![("part", Value::Object(part))]) && self.p.format != Format::Json {
-                    ui::empty();
-                    ui::println(&[&format!(
-                        "> {} · {}",
-                        data.get("agent").and_then(Value::as_str).unwrap_or(""),
-                        data.pointer("/model/id").and_then(Value::as_str).unwrap_or("")
-                    )]);
-                    ui::empty();
-                }
-            }
-            "session.text.started" | "session.reasoning.started" => {
-                let kind = if ty == "session.text.started" { "text" } else { "reasoning" };
-                let k = key(kind, key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null)));
-                self.state.lock().starts.insert(k, (part_id(&event_id), time));
-            }
-            "session.text.ended" => {
-                let ck = key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null));
-                let started = self.state.lock().starts.remove(&key("text", &ck));
-                let text = data.get("text").and_then(Value::as_str).unwrap_or("").to_string();
-                let part = json!({
-                    "id": started.as_ref().map(|s| s.0.clone()).unwrap_or_else(|| part_id(&event_id)),
-                    "sessionID": self.p.session_id, "messageID": amid, "type": "text", "text": text,
-                    "time": {"start": started.as_ref().map(|s| s.1).unwrap_or(time), "end": time},
-                });
-                self.state.lock().rendered_text.insert(ck, text);
-                self.write_text(part, time);
-            }
-            "session.reasoning.ended" if self.p.thinking => {
-                let ck = key(&amid, data.get("ordinal").cloned().unwrap_or(Value::Null));
-                let started = self.state.lock().starts.remove(&key("reasoning", &ck));
-                let text = data.get("text").and_then(Value::as_str).unwrap_or("").to_string();
-                let mut part = Map::new();
-                part.insert("id".into(), json!(started.as_ref().map(|s| s.0.clone()).unwrap_or_else(|| part_id(&event_id))));
-                part.insert("sessionID".into(), json!(self.p.session_id));
-                part.insert("messageID".into(), json!(amid));
-                part.insert("type".into(), json!("reasoning"));
-                part.insert("text".into(), json!(text));
-                put(&mut part, "metadata", data.get("native"));
-                part.insert("time".into(), json!({"start": started.as_ref().map(|s| s.1).unwrap_or(time), "end": time}));
-                self.state.lock().rendered_reasoning.insert(ck, text);
-                self.write_reasoning(Value::Object(part), time);
-            }
-            "session.tool.input.started" => {
-                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
-                self.state.lock().tools.insert(
-                    k,
-                    ToolState {
-                        id: part_id(&event_id),
-                        timestamp: time,
-                        tool: data.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-                        input: json!({}),
-                        metadata: json!({}),
-                        ..Default::default()
-                    },
-                );
-            }
-            "session.tool.input.ended" | "session.tool.input.delta" => {
-                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
-                let mut st = self.state.lock();
-                if let Some(t) = st.tools.get_mut(&k) {
-                    if ty == "session.tool.input.ended" {
-                        t.raw = data.get("text").and_then(Value::as_str).map(String::from);
-                    } else {
-                        t.raw = Some(format!("{}{}", t.raw.clone().unwrap_or_default(), data.get("delta").and_then(Value::as_str).unwrap_or("")));
-                    }
-                }
-            }
-            "session.tool.called" => {
-                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
-                let mut st = self.state.lock();
-                let current = st.tools.get(&k).cloned();
-                let mut provider = Map::new();
-                put(&mut provider, "executed", data.get("executed"));
-                put(&mut provider, "state", data.get("native"));
-                st.tools.insert(
-                    k,
-                    ToolState {
-                        id: current.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| part_id(&event_id)),
-                        timestamp: current.as_ref().map(|c| c.timestamp).unwrap_or(time),
-                        tool: current.as_ref().map(|c| c.tool.clone()).unwrap_or_else(|| "tool".into()),
-                        input: data.get("input").cloned().unwrap_or(json!({})),
-                        raw: current.and_then(|c| c.raw),
-                        provider: Some(Value::Object(provider)),
-                        metadata: json!({}),
-                    },
-                );
-            }
-            "session.tool.progress" => {
-                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
-                if let Some(t) = self.state.lock().tools.get_mut(&k) {
-                    t.metadata = data.get("metadata").cloned().unwrap_or(json!({}));
-                }
-            }
-            "session.tool.success" | "session.tool.failed" => {
-                let success = ty == "session.tool.success";
-                let tid = data.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                let k = key(&amid, &tid);
-                let current = {
-                    let mut st = self.state.lock();
-                    let c = st.tools.remove(&k).unwrap_or_else(|| ToolState {
-                        id: part_id(&event_id),
-                        timestamp: time,
-                        tool: "tool".into(),
-                        input: json!({}),
-                        metadata: json!({}),
-                        ..Default::default()
+            let Some(session_id) = data.get("sessionID") else { continue };
+            let session_id = session_id.as_str().unwrap_or("").to_string();
+            let terminal = terminal_outcome(&event);
+            let (jobs, phase) = {
+                let st = self.state.lock();
+                (st.job_sessions.contains(&session_id), st.phase)
+            };
+            if jobs {
+                if ty == "session.execution.started" && phase == Phase::Cancelling {
+                    let client = self.p.client.clone();
+                    let sid = session_id.clone();
+                    tokio::spawn(async move {
+                        let _ = client.call("session.interrupt", Req::new().path("sessionID", &sid)).await;
                     });
-                    st.rendered_tools.insert(k.clone());
-                    c
-                };
-                let mut provider_result = Map::new();
-                put(&mut provider_result, "executed", data.get("executed"));
-                put(&mut provider_result, "state", data.get("native"));
-                let mut meta = Map::new();
-                let content = if success {
-                    data.get("content").cloned()
-                } else {
-                    data.get("content").cloned().filter(|c| !c.is_null())
-                };
-                let metadata = if success {
-                    data.get("metadata").cloned()
-                } else {
-                    Some(data.get("metadata").cloned().filter(|m| !m.is_null()).unwrap_or_else(|| current.metadata.clone()))
-                };
-                if success {
-                    put(&mut meta, "metadata", metadata.as_ref());
-                    put(&mut meta, "content", content.as_ref());
                 }
-                put(&mut meta, "providerCall", current.provider.as_ref());
-                meta.insert("providerResult".into(), Value::Object(provider_result));
-                put(&mut meta, "rawInput", current.raw.as_ref().map(|r| json!(r)).as_ref());
-                let error = data.pointer("/error/message").and_then(Value::as_str).unwrap_or("").to_string();
-                let state = if success {
-                    json!({"status": "completed", "input": current.input, "output": tool_output_text(&current.tool, content.as_ref()), "title": current.tool, "metadata": meta, "time": {"start": current.timestamp, "end": time}})
-                } else {
-                    json!({"status": "error", "input": current.input, "error": error, "metadata": meta, "time": {"start": current.timestamp, "end": time}})
-                };
-                let part = json!({
-                    "partID": current.id, "sessionID": self.p.session_id, "messageID": amid, "type": "tool",
-                    "id": tid, "tool": current.tool, "state": state,
-                });
-                if !self.emit("tool_use", time, vec![("part", part)]) {
-                    let mut tool_state = json!({"status": if success { "completed" } else { "error" }, "input": current.input});
-                    if let Some(m) = &metadata {
-                        tool_state["metadata"] = m.clone();
-                    }
-                    if let Some(c) = &content {
-                        tool_state["content"] = c.clone();
-                    }
-                    let tool = json!({"type": "tool", "id": tid, "name": current.tool, "state": tool_state, "time": {"created": current.timestamp, "ran": current.timestamp, "completed": time}});
-                    if success {
-                        render_tool(&tool, &self.p.directory);
-                    } else {
-                        if content.is_some() && !tool_output_text(&current.tool, content.as_ref()).trim().is_empty() {
-                            let mut completed = tool.clone();
-                            completed["state"]["status"] = json!("completed");
-                            render_tool(&completed, &self.p.directory);
-                        }
-                        render_tool_error(&tool, &self.p.directory);
-                        ui::error(&error);
-                    }
+                if terminal.is_some() {
+                    self.bump();
                 }
             }
-            "session.step.ended" => {
-                self.state.lock().steps.insert(amid.clone(), true);
-                let mut part = Map::new();
-                part.insert("id".into(), json!(part_id(&event_id)));
-                part.insert("sessionID".into(), json!(self.p.session_id));
-                part.insert("messageID".into(), json!(amid));
-                part.insert("type".into(), json!("step-finish"));
-                put(&mut part, "reason", data.get("finish"));
-                put(&mut part, "snapshot", data.get("snapshot"));
-                put(&mut part, "cost", data.get("cost"));
-                put(&mut part, "tokens", data.get("tokens"));
-                self.emit("step_finish", time, vec![("part", Value::Object(part))]);
+            if session_id != self.p.session_id {
+                continue;
             }
-            "session.step.failed" => {
-                if self.interrupted.load(Ordering::SeqCst) || self.state.lock().form_cancelled {
-                    return None;
+            let render = {
+                let mut st = self.state.lock();
+                if ty == "session.inbox.delivered" && data.get("inboxID").and_then(Value::as_str) == Some(self.message_id.as_str()) {
+                    st.promoted = true;
                 }
-                self.state.lock().emitted_error = true;
-                self.set_exit(1);
-                self.error(time, data.get("error").cloned().unwrap_or(Value::Null));
-            }
-            "session.execution.failed" => {
-                let emit = {
-                    let mut st = self.state.lock();
-                    let e = !st.emitted_error && !st.form_cancelled;
-                    if e {
-                        st.emitted_error = true;
+                // A busy period that ends before this prompt is delivered leaves the prompt queued for good.
+                if let Some(t) = &terminal {
+                    if !st.promoted && t.error.is_some() && st.failure.is_none() {
+                        st.failure = t.error.clone();
                     }
-                    e
-                };
-                if emit {
-                    self.set_exit(1);
-                    self.error(time, data.get("error").cloned().unwrap_or(Value::Null));
-                }
-                return Some(Ok(()));
-            }
-            "session.execution.interrupted" => {
-                let reason = data.get("reason").and_then(Value::as_str).unwrap_or("");
-                if reason == "user" && self.interrupted.load(Ordering::SeqCst) {
-                    self.set_exit(130);
-                }
-                let emit = {
-                    let mut st = self.state.lock();
-                    let e = reason != "user" && !st.emitted_error && !st.form_cancelled;
-                    if e {
-                        st.emitted_error = true;
+                    if st.promoted {
+                        st.outcomes.push(t.clone());
                     }
-                    e
-                };
-                if emit {
-                    self.set_exit(1);
-                    self.error(time, json!({"type": "aborted", "message": format!("Session interrupted: {reason}")}));
                 }
-                return Some(Ok(()));
+                st.promoted && st.phase == Phase::Running
+            };
+            if render {
+                self.event(&event).await;
             }
-            "session.execution.succeeded" => return Some(Ok(())),
-            _ => {}
         }
-        None
     }
 
-    async fn projected(&self) -> anyhow::Result<(bool, Vec<Value>)> {
+    // ---- background jobs ---------------------------------------------------------------------------------
+
+    /// The jobs this prompt started (older ones belong to someone else), or `[]` while one of their wakes is
+    /// queued or running; `None` once nothing is left. Work moves job → inbox → active, so reading in that order
+    /// can't miss it.
+    async fn background(&self) -> Result<Option<Vec<Value>>, String> {
+        let admission = self.admission.lock().clone();
+        let Some(admission) = admission else { return Ok(None) };
+        let admitted = admission.await?;
+        let Some(since) = admitted.pointer("/time/created").and_then(Value::as_f64) else { return Ok(None) };
+        let client = &self.p.client;
+        let jobs = match client
+            .call("experimental.job.list", Req::new().query("sessionID", json!(self.p.session_id)).query("descendants", json!(true)))
+            .await
+        {
+            Ok(v) => v.get("data").and_then(Value::as_array).cloned().unwrap_or_default(),
+            // Servers older than the job list endpoint answer 404 with no JSON body; they have no jobs to report.
+            Err(ClientError::Client { reason: "UnsupportedContentType", .. }) => vec![],
+            Err(ClientError::Client { reason: "UnexpectedStatus", status: Some(404), .. }) => vec![],
+            Err(e) => return Err(e.to_string()),
+        };
+        let running: Vec<Value> =
+            jobs.into_iter().filter(|j| j.pointer("/time/started").and_then(Value::as_f64).is_some_and(|t| t >= since)).collect();
+        let sessions = {
+            let mut st = self.state.lock();
+            for job in &running {
+                if let Some(s) = job.get("sessionID").and_then(Value::as_str) {
+                    st.job_sessions.insert(s.to_string());
+                }
+                if job.get("kind").and_then(Value::as_str) == Some("subagent")
+                    && let Some(s) = job.get("childSessionID").and_then(Value::as_str)
+                {
+                    st.job_sessions.insert(s.to_string());
+                }
+            }
+            st.job_sessions.iter().cloned().collect::<Vec<_>>()
+        };
+        if !running.is_empty() {
+            return Ok(Some(running));
+        }
+        let inboxes = futures::future::join_all(
+            sessions.iter().map(|sid| client.call("session.inbox.list", Req::new().path("sessionID", sid))),
+        )
+        .await;
+        let mut busy = false;
+        for inbox in inboxes {
+            let inbox = inbox.map_err(|e| e.to_string())?;
+            busy |= inbox.get("data").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+        }
+        if busy {
+            return Ok(Some(running));
+        }
+        let active = client.call("session.active", Req::new()).await.map_err(|e| e.to_string())?;
+        for sid in active.get("data").and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default() {
+            if self.owns(&sid).await {
+                return Ok(Some(running));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn projected(&self) -> Result<(bool, Vec<Value>), String> {
         let mut messages = vec![];
         let mut cursor: Option<String> = None;
         loop {
@@ -1334,7 +1304,7 @@ impl Shared {
                 Some(c) => req.query("cursor", json!(c)),
                 None => req.query("order", json!("desc")),
             };
-            let page = self.p.client.call("session.message.list", req).await?;
+            let page = self.p.client.call("session.message.list", req).await.map_err(|e| e.to_string())?;
             for m in page.get("data").and_then(Value::as_array).cloned().unwrap_or_default() {
                 if m.get("id").and_then(Value::as_str) == Some(self.message_id.as_str()) {
                     messages.reverse();
@@ -1349,137 +1319,494 @@ impl Shared {
         }
     }
 
-    async fn reconcile(&self) -> anyhow::Result<(bool, bool)> {
-        let (found, messages) = self.projected().await?;
-        for message in &messages {
+    // ---- the lifecycle -----------------------------------------------------------------------------------
+
+    /// admitting → running → settling → waiting for this prompt's jobs. `None` when the run was stopped first.
+    async fn lifecycle(self: Arc<Self>, stream: EventStream) -> Result<Option<Projected>, String> {
+        let client = self.p.client.clone();
+        let sid = self.p.session_id.clone();
+        if let Some(agent) = &self.p.agent {
+            client.call("session.switchAgent", Req::new().path("sessionID", &sid).body(json!({"agent": agent}))).await.map_err(|e| e.to_string())?;
+        }
+        if let Some(model) = &self.p.model {
+            client.call("session.switchModel", Req::new().path("sessionID", &sid).body(json!({"model": model}))).await.map_err(|e| e.to_string())?;
+        }
+        if crate::signals::received().is_some() {
+            return Ok(None);
+        }
+        // A failed stream rejects whatever wait is pending, since no further end could be seen.
+        {
+            let me = self.clone();
+            tokio::spawn(async move {
+                if let Err(e) = me.clone().consume(stream).await {
+                    me.ended.send_modify(|s| s.error = Some(e));
+                }
+            });
+        }
+        let body = json!({"id": self.message_id, "text": self.p.message, "files": self.p.files, "delivery": "steer"});
+        let admission: Admission = {
+            let client = client.clone();
+            let sid = sid.clone();
+            async move {
+                client
+                    .call("session.prompt", Req::new().path("sessionID", &sid).body(body))
+                    .await
+                    .map(|v| v.get("data").cloned().unwrap_or(Value::Null))
+                    .map_err(|e| e.to_string())
+            }
+            .boxed()
+            .shared()
+        };
+        *self.admission.lock() = Some(admission.clone());
+        admission.await?;
+        let (permissions, forms, globals) = tokio::join!(
+            client.call("session.permission.list", Req::new().path("sessionID", &sid)),
+            client.call("session.form.list", Req::new().path("sessionID", &sid)),
+            async {
+                if self.p.standalone {
+                    client.call("form.list", Req::new().location(&self.p.directory)).await.ok()
+                } else {
+                    None
+                }
+            },
+        );
+        let list = |v: Result<Value, ClientError>| v.ok().and_then(|v| v.get("data").and_then(Value::as_array).cloned()).unwrap_or_default();
+        let mut cancels = list(forms);
+        if let Some(globals) = &globals {
+            let location = globals.get("location");
+            for form in globals.get("data").and_then(Value::as_array).cloned().unwrap_or_default() {
+                // Only the global forms of this run's location (`ownsForm(...) === true`).
+                if form.get("sessionID").and_then(Value::as_str) == Some(GLOBAL_FORM_SESSION_ID) && self.owns_form(&form, location).await {
+                    cancels.push(form);
+                }
+            }
+        }
+        let permissions = list(permissions);
+        let (_, cancelled) = tokio::join!(
+            futures::future::join_all(permissions.iter().map(|p| self.reply_permission(p))),
+            futures::future::join_all(cancels.iter().map(|f| self.cancel_form(f))),
+        );
+        cancelled.into_iter().collect::<Result<Vec<_>, _>>()?;
+
+        let mut waited = false;
+        let mut shown = 0usize;
+        loop {
+            let generation = self.generation();
+            client.call("experimental.session.wait", Req::new().path("sessionID", &sid)).await.map_err(|e| e.to_string())?;
+            if crate::signals::received().is_some() {
+                return Ok(None);
+            }
+            let (found, messages) = self.projected().await?;
+            let (failure, outcomes) = {
+                let st = self.state.lock();
+                (st.failure.is_some(), !st.outcomes.is_empty())
+            };
+            if failure || outcomes || messages.iter().any(|m| m.get("type").and_then(Value::as_str) == Some("idle")) {
+                let pending = if failure { None } else { self.background().await? };
+                let Some(pending) = pending else { return Ok(Some(Projected { found, messages, background: waited })) };
+                if !pending.is_empty() && pending.len() != shown {
+                    self.waiting(&pending);
+                }
+                if !pending.is_empty() {
+                    shown = pending.len();
+                }
+                waited = true;
+            }
+            self.ended(generation).await?;
+        }
+    }
+
+    /// cancelling: a wake can still start after the interrupt (the notice each cancelled job queues), so the
+    /// consumer interrupts every execution that starts until the tree is quiet.
+    async fn cancel(&self) -> Result<(), String> {
+        self.state.lock().phase = Phase::Cancelling;
+        let admission = self.admission.lock().clone();
+        let Some(admission) = admission else { return Ok(()) };
+        if admission.await.is_err() {
+            return Ok(());
+        }
+        let client = &self.p.client;
+        let sid = &self.p.session_id;
+        if !self.state.lock().promoted {
+            let _ = client.call("session.inbox.cancel", Req::new().path("sessionID", sid).path("inboxID", &self.message_id)).await;
+        }
+        let running = self.background().await.ok().flatten().unwrap_or_default();
+        let jobs = running.iter().map(|job| async move {
+            match job.get("kind").and_then(Value::as_str) {
+                Some("shell") => {
+                    let id = job.get("shellID").and_then(Value::as_str).unwrap_or("");
+                    let _ = client.call("shell.remove", Req::new().path("id", id).location(&self.p.directory)).await;
+                }
+                Some("subagent") => {
+                    let child = job.get("childSessionID").and_then(Value::as_str).unwrap_or("");
+                    let _ = client.call("session.interrupt", Req::new().path("sessionID", child)).await;
+                }
+                _ => {}
+            }
+        });
+        tokio::join!(
+            async {
+                let _ = client.call("session.interrupt", Req::new().path("sessionID", sid)).await;
+            },
+            futures::future::join_all(jobs),
+        );
+        loop {
+            let generation = self.generation();
+            client.call("experimental.session.wait", Req::new().path("sessionID", sid)).await.map_err(|e| e.to_string())?;
+            let pending = self.background().await?;
+            // Image jobs can't be cancelled through the API, so waiting on them would only hold the exit.
+            match pending {
+                None => return Ok(()),
+                Some(p) if !p.is_empty() && p.iter().all(|j| j.get("kind").and_then(Value::as_str) == Some("image")) => return Ok(()),
+                _ => {}
+            }
+            self.ended(generation).await?;
+        }
+    }
+
+    // ---- the renderer ------------------------------------------------------------------------------------
+
+    fn error(&self, error: &Value) {
+        if !self.emit("error", chrono::Utc::now().timestamp_millis(), vec![("error", error.clone())]) {
+            ui::error(error.get("message").and_then(Value::as_str).unwrap_or(""));
+        }
+    }
+
+    fn waiting(&self, jobs: &[Value]) {
+        let list: Vec<Value> = jobs
+            .iter()
+            .map(|j| {
+                let mut o = Map::new();
+                o.insert("id".into(), j.get("id").cloned().unwrap_or(Value::Null));
+                o.insert("kind".into(), j.get("kind").cloned().unwrap_or(Value::Null));
+                put(&mut o, "title", j.get("title"));
+                Value::Object(o)
+            })
+            .collect();
+        if self.emit("background_wait", chrono::Utc::now().timestamp_millis(), vec![("jobs", Value::Array(list))]) {
+            return;
+        }
+        ui::println(&[&format!(
+            "{}waiting for {} background job{}{}",
+            ui::TEXT_DIM,
+            jobs.len(),
+            if jobs.len() == 1 { "" } else { "s" },
+            ui::TEXT_NORMAL
+        )]);
+    }
+
+    /// `text(part, start, end)`: prints the part's text beyond what was printed for it, once.
+    fn text(&self, r: &mut Render, kind: &str, id: String, message_id: &str, ordinal: i64, text: &str, metadata: Option<&Value>, start: i64, end: i64) {
+        if kind == "reasoning" && !self.p.thinking {
+            return;
+        }
+        let k = key(kind, key(message_id, ordinal));
+        let previous = r.printed.get(&k).cloned();
+        if let Some(prev) = &previous
+            && (prev == text || !text.starts_with(prev.as_str()))
+        {
+            return;
+        }
+        r.printed.insert(k, text.to_string());
+        let value = &text[previous.as_deref().unwrap_or("").len()..];
+        let mut part = Map::new();
+        part.insert("id".into(), json!(id));
+        part.insert("sessionID".into(), json!(self.p.session_id));
+        part.insert("messageID".into(), json!(message_id));
+        part.insert("type".into(), json!(kind));
+        part.insert("text".into(), json!(value));
+        if kind == "reasoning" {
+            put(&mut part, "metadata", metadata);
+        }
+        part.insert("time".into(), json!({"start": start, "end": end}));
+        if self.emit(kind, end, vec![("part", Value::Object(part))]) {
+            return;
+        }
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let line = if kind == "text" { trimmed.to_string() } else { format!("Thinking: {trimmed}") };
+        if !crate::term::stdout_is_tty() {
+            write_stdout(&format!("{line}{EOL}"));
+            return;
+        }
+        Self::block(&if kind == "text" { line } else { format!("{}\x1b[3m{line}\x1b[0m{}", ui::TEXT_DIM, ui::TEXT_NORMAL) });
+    }
+
+    /// `tool(partID, messageID, item, metadata, timestamp)` for a completed or failed tool.
+    fn tool(&self, r: &mut Render, part_id: String, message_id: &str, item: &Value, metadata: Value, timestamp: i64) {
+        let tid = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        let k = key(message_id, &tid);
+        if r.printed.contains_key(&k) {
+            return;
+        }
+        r.printed.insert(k, String::new());
+        let name = item.get("name").and_then(Value::as_str).unwrap_or("tool").to_string();
+        let state = item.get("state").cloned().unwrap_or(Value::Null);
+        let start = item.pointer("/time/ran").filter(|v| !v.is_null()).or_else(|| item.pointer("/time/created")).cloned();
+        let end = item.pointer("/time/completed").filter(|v| !v.is_null()).cloned().unwrap_or(json!(timestamp));
+        let completed = state.get("status").and_then(Value::as_str) == Some("completed");
+        let pstate = if completed {
+            json!({"status": "completed", "input": state.get("input"), "output": tool_output_text(&name, state.get("content")), "title": name, "metadata": metadata, "time": {"start": start, "end": end}})
+        } else {
+            json!({"status": "error", "input": state.get("input"), "error": state.pointer("/error/message"), "metadata": metadata, "time": {"start": start, "end": end}})
+        };
+        let part = json!({"partID": part_id, "sessionID": self.p.session_id, "messageID": message_id, "type": "tool", "id": tid, "tool": name, "state": pstate});
+        if self.emit("tool_use", timestamp, vec![("part", part)]) {
+            return;
+        }
+        if completed {
+            render_tool(item, &self.p.directory);
+            return;
+        }
+        if state.get("content").is_some_and(|c| !c.is_null()) && !tool_output_text(&name, state.get("content")).trim().is_empty() {
+            let mut shown = item.clone();
+            let mut s = Map::new();
+            s.insert("status".into(), json!("completed"));
+            put(&mut s, "input", state.get("input"));
+            put(&mut s, "metadata", state.get("metadata"));
+            put(&mut s, "content", state.get("content"));
+            shown["state"] = Value::Object(s);
+            render_tool(&shown, &self.p.directory);
+        }
+        render_tool_error(item, &self.p.directory);
+        ui::error(state.pointer("/error/message").and_then(Value::as_str).unwrap_or(""));
+    }
+
+    fn step(&self, r: &mut Render, start: bool, timestamp: i64, id: String, message_id: &str, rest: Vec<(&str, Option<&Value>)>) -> bool {
+        r.steps.insert(message_id.to_string(), !start);
+        let mut part = Map::new();
+        part.insert("id".into(), json!(id));
+        part.insert("sessionID".into(), json!(self.p.session_id));
+        part.insert("messageID".into(), json!(message_id));
+        part.insert("type".into(), json!(if start { "step-start" } else { "step-finish" }));
+        for (k, v) in rest {
+            put(&mut part, k, v);
+        }
+        self.emit(if start { "step_start" } else { "step_finish" }, timestamp, vec![("part", Value::Object(part))])
+    }
+
+    /// `render.event(event)`: a live event of this run's session while it runs.
+    async fn event(&self, event: &Value) {
+        let mut r = self.render.lock().await;
+        let r = &mut *r;
+        let ty = event.get("type").and_then(Value::as_str).unwrap_or("");
+        let data = event.get("data").cloned().unwrap_or(Value::Null);
+        let time = to_millis(event.get("created"));
+        let event_id = event.get("id").and_then(Value::as_str).unwrap_or("");
+        let amid = data.get("assistantMessageID").and_then(Value::as_str).unwrap_or("").to_string();
+        match ty {
+            "session.retry.scheduled" => {
+                let mut retry = Map::new();
+                put(&mut retry, "messageID", data.get("assistantMessageID"));
+                put(&mut retry, "attempt", data.get("attempt"));
+                put(&mut retry, "nextRetryAt", data.get("at"));
+                put(&mut retry, "error", data.get("error"));
+                let fields: Vec<(&str, Value)> = retry.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+                if self.emit("retry", time, fields) {
+                    return;
+                }
+                let attempt = match data.get("attempt") {
+                    Some(Value::Number(n)) => n.to_string(),
+                    Some(v) => v.to_string(),
+                    None => "undefined".into(),
+                };
+                ui::println(&[
+                    &format!("{}!", ui::TEXT_WARNING_BOLD),
+                    &format!(
+                        "{}retrying (attempt {attempt}): {}",
+                        ui::TEXT_NORMAL,
+                        data.pointer("/error/message").and_then(Value::as_str).unwrap_or("undefined")
+                    ),
+                ]);
+            }
+            // Each retried attempt of a step starts it again.
+            "session.step.started" if !r.steps.contains_key(&amid) => {
+                if !self.step(r, true, time, part_id(event_id), &amid, vec![("snapshot", data.get("snapshot"))]) {
+                    Self::block(&format!(
+                        "> {} · {}",
+                        data.get("agent").and_then(Value::as_str).unwrap_or(""),
+                        data.pointer("/model/id").and_then(Value::as_str).unwrap_or("")
+                    ));
+                }
+            }
+            "session.step.ended" => {
+                self.step(
+                    r,
+                    false,
+                    time,
+                    part_id(event_id),
+                    &amid,
+                    vec![("reason", data.get("finish")), ("snapshot", data.get("snapshot")), ("cost", data.get("cost")), ("tokens", data.get("tokens"))],
+                );
+            }
+            "session.text.started" | "session.reasoning.started" => {
+                let kind = if ty == "session.text.started" { "text" } else { "reasoning" };
+                let ordinal = data.get("ordinal").cloned().unwrap_or(Value::Null);
+                r.starts.insert(key(kind, key(&amid, ordinal)), (part_id(event_id), time));
+            }
+            "session.text.ended" | "session.reasoning.ended" => {
+                let kind = if ty == "session.text.ended" { "text" } else { "reasoning" };
+                let ordinal = data.get("ordinal").cloned().unwrap_or(Value::Null);
+                let started = r.starts.get(&key(kind, key(&amid, &ordinal))).cloned();
+                let metadata = if kind == "reasoning" { data.get("native").cloned() } else { None };
+                let text = data.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+                let (id, start) = started.unwrap_or_else(|| (part_id(event_id), time));
+                self.text(r, kind, id, &amid, ordinal.as_i64().unwrap_or(0), &text, metadata.as_ref(), start, time);
+            }
+            "session.tool.input.started" | "session.tool.called" => {
+                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
+                let current = r.tools.get(&k).cloned();
+                let called = ty == "session.tool.called";
+                let mut call = Map::new();
+                put(&mut call, "executed", data.get("executed"));
+                put(&mut call, "state", data.get("native"));
+                r.tools.insert(
+                    k,
+                    ToolState {
+                        id: current.as_ref().map(|c| c.id.clone()).unwrap_or_else(|| part_id(event_id)),
+                        timestamp: current.as_ref().map(|c| c.timestamp).unwrap_or(time),
+                        name: if called {
+                            current.as_ref().map(|c| c.name.clone()).unwrap_or_else(|| "tool".into())
+                        } else {
+                            data.get("name").and_then(Value::as_str).unwrap_or("").to_string()
+                        },
+                        input: if called { data.get("input").cloned().unwrap_or(json!({})) } else { json!({}) },
+                        raw: current.and_then(|c| c.raw),
+                        call: called.then_some(Value::Object(call)),
+                        metadata: json!({}),
+                    },
+                );
+            }
+            "session.tool.input.delta" | "session.tool.input.ended" | "session.tool.progress" => {
+                let k = key(&amid, data.get("id").and_then(Value::as_str).unwrap_or(""));
+                if let Some(t) = r.tools.get_mut(&k) {
+                    match ty {
+                        "session.tool.input.delta" => {
+                            t.raw = Some(format!("{}{}", t.raw.clone().unwrap_or_default(), data.get("delta").and_then(Value::as_str).unwrap_or("")))
+                        }
+                        "session.tool.input.ended" => t.raw = data.get("text").and_then(Value::as_str).map(String::from),
+                        _ => t.metadata = data.get("metadata").cloned().unwrap_or(Value::Null),
+                    }
+                }
+            }
+            "session.tool.success" | "session.tool.failed" => {
+                let success = ty == "session.tool.success";
+                let tid = data.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                let current = r.tools.get(&key(&amid, &tid)).cloned().unwrap_or_else(|| ToolState {
+                    id: part_id(event_id),
+                    timestamp: time,
+                    name: "tool".into(),
+                    input: json!({}),
+                    metadata: json!({}),
+                    ..Default::default()
+                });
+                let mut result = Map::new();
+                put(&mut result, "executed", data.get("executed"));
+                put(&mut result, "state", data.get("native"));
+                let native = match (data.get("native").filter(|n| truthy(n)), current.call.as_ref().and_then(|c| c.get("state"))) {
+                    (Some(n), Some(Value::Object(prev))) => {
+                        let mut merged = prev.clone();
+                        if let Some(o) = n.as_object() {
+                            merged.extend(o.clone());
+                        }
+                        Some(Value::Object(merged))
+                    }
+                    (Some(n), _) => Some(n.as_object().map(|o| Value::Object(o.clone())).unwrap_or(json!({}))),
+                    (None, prev) => prev.cloned(),
+                };
+                let mut item = Map::new();
+                item.insert("type".into(), json!("tool"));
+                item.insert("id".into(), json!(tid));
+                item.insert("name".into(), json!(current.name));
+                put(&mut item, "executed", data.get("executed"));
+                put(&mut item, "native", native.as_ref());
+                item.insert("time".into(), json!({"created": current.timestamp, "ran": current.timestamp, "completed": time}));
+                let mut metadata = Map::new();
+                if success {
+                    put(&mut metadata, "metadata", data.get("metadata"));
+                    put(&mut metadata, "content", data.get("content"));
+                }
+                put(&mut metadata, "providerCall", current.call.as_ref());
+                metadata.insert("providerResult".into(), Value::Object(result));
+                put(&mut metadata, "rawInput", current.raw.as_ref().map(|r| json!(r)).as_ref());
+                let mut state = Map::new();
+                state.insert("status".into(), json!(if success { "completed" } else { "error" }));
+                state.insert("input".into(), current.input.clone());
+                if success {
+                    put(&mut state, "metadata", data.get("metadata"));
+                    put(&mut state, "content", data.get("content"));
+                } else {
+                    let meta = data.get("metadata").filter(|m| !m.is_null()).cloned().unwrap_or(current.metadata.clone());
+                    state.insert("metadata".into(), meta);
+                    put(&mut state, "content", data.get("content"));
+                    put(&mut state, "error", data.get("error"));
+                }
+                item.insert("state".into(), Value::Object(state));
+                self.tool(r, current.id.clone(), &amid, &Value::Object(item), Value::Object(metadata), time);
+            }
+            _ => {}
+        }
+    }
+
+    /// `render.reconcile(messages)`: what the live events missed, from the projected messages.
+    async fn reconcile(&self, messages: &[Value]) {
+        let mut r = self.render.lock().await;
+        let r = &mut *r;
+        for message in messages {
             if message.get("type").and_then(Value::as_str) != Some("assistant") {
                 continue;
             }
             let mid = message.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-            let created = message.pointer("/time/created").cloned().unwrap_or(Value::Null);
-            let timestamp = message.pointer("/time/completed").filter(|v| !v.is_null()).cloned().unwrap_or(created.clone());
-            let ts = timestamp.as_i64().unwrap_or(0);
-            let step = self.state.lock().steps.get(&mid).copied();
-            if step.is_none() {
-                let mut part = Map::new();
-                part.insert("id".into(), json!(projected_part_id(&mid, "step-start")));
-                part.insert("sessionID".into(), json!(self.p.session_id));
-                part.insert("messageID".into(), json!(mid));
-                part.insert("type".into(), json!("step-start"));
-                put(&mut part, "snapshot", message.pointer("/snapshot/start").filter(|v| !v.is_null()));
-                self.emit("step_start", created.as_i64().unwrap_or(0), vec![("part", Value::Object(part))]);
+            let created = to_millis(message.pointer("/time/created"));
+            let timestamp = message.pointer("/time/completed").filter(|v| !v.is_null()).map(|v| to_millis(Some(v))).unwrap_or(created);
+            let seen = r.steps.get(&mid).copied();
+            if seen.is_none() {
+                self.step(r, true, created, projected_part_id(&mid, "step-start"), &mid, vec![("snapshot", message.pointer("/snapshot/start"))]);
             }
-            let (mut text_ordinal, mut reasoning_ordinal) = (0, 0);
+            let (mut text_ordinal, mut reasoning_ordinal) = (0i64, 0i64);
             for item in message.get("content").and_then(Value::as_array).cloned().unwrap_or_default() {
                 let ty = item.get("type").and_then(Value::as_str).unwrap_or("");
-                if ty == "text" || ty == "reasoning" {
-                    let text_kind = ty == "text";
-                    let ordinal = if text_kind { &mut text_ordinal } else { &mut reasoning_ordinal };
-                    let n = *ordinal;
-                    *ordinal += 1;
-                    if !text_kind && !self.p.thinking {
+                if ty == "tool" {
+                    let status = item.pointer("/state/status").and_then(Value::as_str).unwrap_or("");
+                    if status == "streaming" || status == "running" {
                         continue;
                     }
-                    let k = key(&mid, n);
-                    let full = item.get("text").and_then(Value::as_str).unwrap_or("").to_string();
-                    let rendered = {
-                        let st = self.state.lock();
-                        if text_kind { st.rendered_text.get(&k).cloned() } else { st.rendered_reasoning.get(&k).cloned() }.unwrap_or_default()
-                    };
-                    if rendered == full || !full.starts_with(&rendered) {
-                        continue;
-                    }
-                    let text = full[rendered.len()..].to_string();
-                    let mut part = Map::new();
-                    part.insert("id".into(), json!(projected_part_id(&mid, &format!("{ty}-{n}"))));
-                    part.insert("sessionID".into(), json!(self.p.session_id));
-                    part.insert("messageID".into(), json!(mid));
-                    part.insert("type".into(), json!(ty));
-                    part.insert("text".into(), json!(text));
-                    if !text_kind {
-                        put(&mut part, "metadata", item.get("native"));
-                    }
-                    part.insert("time".into(), json!({"start": created, "end": timestamp}));
-                    if text_kind {
-                        self.state.lock().rendered_text.insert(k, full);
-                        self.write_text(Value::Object(part), ts);
-                    } else {
-                        self.state.lock().rendered_reasoning.insert(k, full);
-                        self.write_reasoning(Value::Object(part), ts);
-                    }
+                    let mut metadata = Map::new();
+                    put(&mut metadata, "metadata", item.pointer("/state/metadata"));
+                    put(&mut metadata, "content", item.pointer("/state/content"));
+                    let tid = item.get("id").and_then(Value::as_str).unwrap_or("");
+                    self.tool(r, projected_part_id(&mid, &format!("tool-{tid}")), &mid, &item, Value::Object(metadata), timestamp);
                     continue;
                 }
-                let tid = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                let k = key(&mid, &tid);
-                let status = item.pointer("/state/status").and_then(Value::as_str).unwrap_or("");
-                if self.state.lock().rendered_tools.contains(&k) || status == "streaming" || status == "running" {
+                let ordinal = if ty == "text" { &mut text_ordinal } else { &mut reasoning_ordinal };
+                let n = *ordinal;
+                *ordinal += 1;
+                let text = item.get("text").and_then(Value::as_str).unwrap_or("");
+                // A part never printed live and still empty has nothing to show.
+                if text.is_empty() && !r.printed.contains_key(&key(ty, key(&mid, n))) {
                     continue;
                 }
-                let name = item.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-                let state = item.get("state").cloned().unwrap_or(Value::Null);
-                let start = item.pointer("/time/ran").filter(|v| !v.is_null()).or_else(|| item.pointer("/time/created")).cloned();
-                let end = item.pointer("/time/completed").filter(|v| !v.is_null()).cloned().unwrap_or(timestamp.clone());
-                let mut meta = Map::new();
-                put(&mut meta, "metadata", state.get("metadata"));
-                put(&mut meta, "content", state.get("content"));
-                let pstate = if status == "completed" {
-                    json!({"status": "completed", "input": state.get("input"), "output": tool_output_text(&name, state.get("content")), "title": name, "metadata": meta, "time": {"start": start, "end": end}})
-                } else {
-                    json!({"status": "error", "input": state.get("input"), "error": state.pointer("/error/message"), "metadata": meta, "time": {"start": start, "end": end}})
-                };
-                let part = json!({
-                    "partID": projected_part_id(&mid, &format!("tool-{tid}")), "sessionID": self.p.session_id, "messageID": mid,
-                    "type": "tool", "id": tid, "tool": name, "state": pstate,
-                });
-                self.state.lock().rendered_tools.insert(k);
-                if self.emit("tool_use", ts, vec![("part", part)]) {
-                    continue;
-                }
-                if status == "completed" {
-                    render_tool(&item, &self.p.directory);
-                    continue;
-                }
-                if state.get("content").is_some() && !tool_output_text(&name, state.get("content")).trim().is_empty() {
-                    let mut completed = item.clone();
-                    completed["state"]["status"] = json!("completed");
-                    render_tool(&completed, &self.p.directory);
-                }
-                render_tool_error(&item, &self.p.directory);
-                ui::error(state.pointer("/error/message").and_then(Value::as_str).unwrap_or(""));
+                let metadata = if ty == "reasoning" { item.get("native").cloned() } else { None };
+                self.text(r, ty, projected_part_id(&mid, &format!("{ty}-{n}")), &mid, n, text, metadata.as_ref(), created, timestamp);
             }
             let finish = message.get("finish").filter(|f| truthy(f));
-            let tokens = message.get("tokens").filter(|t| !t.is_null());
-            if step != Some(true)
+            let tokens = message.get("tokens").filter(|t| truthy(t));
+            if seen != Some(true)
                 && let (Some(finish), Some(tokens)) = (finish, tokens)
             {
-                let mut part = Map::new();
-                part.insert("id".into(), json!(projected_part_id(&mid, "step-finish")));
-                part.insert("sessionID".into(), json!(self.p.session_id));
-                part.insert("messageID".into(), json!(mid));
-                part.insert("type".into(), json!("step-finish"));
-                part.insert("reason".into(), finish.clone());
-                put(&mut part, "snapshot", message.pointer("/snapshot/end").filter(|v| !v.is_null()));
-                part.insert("cost".into(), message.get("cost").filter(|c| !c.is_null()).cloned().unwrap_or(json!(0)));
-                part.insert("tokens".into(), tokens.clone());
-                self.emit("step_finish", ts, vec![("part", Value::Object(part))]);
-            }
-            if let Some(err) = message.get("error").filter(|e| !e.is_null()) {
-                let emit = {
-                    let mut st = self.state.lock();
-                    let e = !st.emitted_error && !st.form_cancelled;
-                    if e {
-                        st.emitted_error = true;
-                    }
-                    e
-                };
-                if emit {
-                    self.set_exit(1);
-                    self.error(ts, err.clone());
-                }
+                let cost = message.get("cost").filter(|c| !c.is_null()).cloned().unwrap_or(json!(0));
+                self.step(
+                    r,
+                    false,
+                    timestamp,
+                    projected_part_id(&mid, "step-finish"),
+                    &mid,
+                    vec![("reason", Some(finish)), ("snapshot", message.pointer("/snapshot/end")), ("cost", Some(&cost)), ("tokens", Some(tokens))],
+                );
             }
         }
-        let responded = messages.iter().any(|m| m.get("type").and_then(Value::as_str) == Some("assistant"));
-        Ok((found, responded))
     }
 }
 
@@ -1493,118 +1820,51 @@ impl Prompt {
         }
         let shared = Arc::new(Shared {
             message_id: oc_schema::id::message(),
+            state: Mutex::new(State {
+                phase: Phase::Running,
+                promoted: false,
+                failure: None,
+                outcomes: vec![],
+                job_sessions: [self.session_id.clone()].into_iter().collect(),
+                owned: HashMap::new(),
+            }),
             p: self,
-            state: Mutex::new(State::default()),
-            interrupted: AtomicBool::new(false),
-            finalizing: AtomicBool::new(false),
+            render: tokio::sync::Mutex::new(Render::default()),
+            ended: tokio::sync::watch::channel(Ended::default()).0,
+            admission: Mutex::new(None),
+            closed: AtomicBool::new(false),
         });
-        let admission = Arc::new(tokio::sync::Notify::new());
-        // SIGINT: first interrupts the session, second exits immediately with 130.
-        let sigint = {
-            let shared = shared.clone();
-            let admission = admission.clone();
-            tokio::spawn(async move {
-                loop {
-                    if tokio::signal::ctrl_c().await.is_err() {
-                        return;
-                    }
-                    if shared.interrupted.swap(true, Ordering::SeqCst) {
-                        std::process::exit(130);
-                    }
-                    shared.set_exit(130);
-                    admission.notify_waiters();
-                    let _ = shared.p.client.call("session.interrupt", Req::new().path("sessionID", &shared.p.session_id)).await;
-                }
-            })
-        };
-        let result = shared.clone().execute(stream, admission).await;
-        sigint.abort();
-        result
+        let result = shared.clone().settle(stream).await;
+        // `finally`: the consumer stops reading.
+        shared.closed.store(true, Ordering::SeqCst);
+        result.map_err(|e| anyhow::anyhow!(e))
     }
 }
 
 impl Shared {
-    async fn execute(self: Arc<Self>, stream: EventStream, admission: Arc<tokio::sync::Notify>) -> anyhow::Result<()> {
-        let client = self.p.client.clone();
-        let sid = self.p.session_id.clone();
-        if let Some(agent) = &self.p.agent {
-            client.call("session.switchAgent", Req::new().path("sessionID", &sid).body(json!({"agent": agent}))).await?;
-        }
-        if let Some(model) = &self.p.model {
-            client.call("session.switchModel", Req::new().path("sessionID", &sid).body(json!({"model": model}))).await?;
-        }
-        let mut texts = vec![self.p.message.clone()];
-        let mut attachments = vec![];
-        for f in &self.p.files {
-            if f.mime != "text/plain" {
-                attachments.push(json!({"uri": f.url, "name": f.filename}));
-            } else {
-                let b64 = &f.url[f.url.find(',').map(|i| i + 1).unwrap_or(0)..];
-                let content = base64::engine::general_purpose::STANDARD.decode(b64).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
-                texts.push(format!("<file name=\"{}\">\n{content}\n</file>", f.filename));
-            }
-        }
-        if self.interrupted.load(Ordering::SeqCst) {
+    async fn settle(self: Arc<Self>, stream: EventStream) -> Result<(), String> {
+        let mut running = tokio::spawn(self.clone().lifecycle(stream));
+        let settled = tokio::select! {
+            r = &mut running => match r {
+                Ok(r) => r?,
+                Err(e) => return Err(e.to_string()),
+            },
+            _ = crate::signals::stopped() => None,
+        };
+        let Some(settled) = settled else {
+            // Requests failing during or after cancellation (e.g. the private server shutting down) are ignored.
+            let _ = self.cancel().await;
             return Ok(());
-        }
-        self.state.lock().submitted = true;
-        let consumer = {
-            let me = self.clone();
-            let mut stream = stream;
-            tokio::spawn(async move { me.consume(&mut stream).await }).map(|r| r.unwrap_or_else(|e| Err(e.to_string()))).boxed().shared()
         };
-        let body = json!({"id": self.message_id, "text": texts.join("\n\n"), "files": attachments, "delivery": "steer"});
-        let prompt = client.call("session.prompt", Req::new().path("sessionID", &sid).body(body));
-        let response = tokio::select! {
-            r = prompt => r.map_err(anyhow::Error::from),
-            _ = admission.notified() => Err(anyhow::anyhow!("aborted")),
-        };
-        if let Err(e) = response {
-            if self.interrupted.load(Ordering::SeqCst) {
-                let _ = client.call("session.interrupt", Req::new().path("sessionID", &sid)).await;
-            }
-            let _ = tokio::time::timeout(std::time::Duration::from_millis(500), consumer.clone()).await;
-            if self.interrupted.load(Ordering::SeqCst) || self.state.lock().emitted_error {
-                return Ok(());
-            }
-            return Err(e);
-        }
-        if self.interrupted.load(Ordering::SeqCst) {
-            let _ = client.call("session.interrupt", Req::new().path("sessionID", &sid)).await;
-        }
-        let (permissions, forms) = tokio::join!(
-            client.call("session.permission.list", Req::new().path("sessionID", &sid)),
-            client.call("session.form.list", Req::new().path("sessionID", &sid)),
-        );
-        for p in permissions.ok().and_then(|v| v.get("data").and_then(Value::as_array).cloned()).unwrap_or_default() {
-            self.reply_permission(&p).await;
-        }
-        for f in forms.ok().and_then(|v| v.get("data").and_then(Value::as_array).cloned()).unwrap_or_default() {
-            self.cancel_form(&f).await?;
-        }
-        let waiting = client.call("experimental.session.wait", Req::new().path("sessionID", &sid)).boxed().shared();
-        tokio::select! {
-            w = waiting.clone() => { w?; }
-            c = consumer.clone() => { c.map_err(|e| anyhow::anyhow!(e))?; waiting.await?; }
-        }
-        self.finalizing.store(true, Ordering::SeqCst);
-        let (found, responded) = self.reconcile().await?;
-        let (interrupted, form_cancelled, emitted, pre) = {
+        self.state.lock().phase = Phase::Settled;
+        self.reconcile(&settled.messages).await;
+        let error = {
             let st = self.state.lock();
-            (self.interrupted.load(Ordering::SeqCst), st.form_cancelled, st.emitted_error, st.pre_promotion_error.clone())
+            final_error(&settled, st.failure.as_ref(), &st.outcomes)
         };
-        if !responded && !interrupted && !form_cancelled && !emitted && pre.is_none() {
-            consumer.clone().await.map_err(|e| anyhow::anyhow!(e))?;
-        }
-        let (form_cancelled, emitted, pre) = {
-            let st = self.state.lock();
-            (st.form_cancelled, st.emitted_error, st.pre_promotion_error.clone())
-        };
-        if !found && !self.interrupted.load(Ordering::SeqCst) && !form_cancelled && !emitted {
-            let error = pre.unwrap_or_else(|| json!({"type": "unknown", "message": "Prompt was not promoted"}));
-            self.state.lock().emitted_error = true;
-            self.set_exit(1);
-            self.error(chrono::Utc::now().timestamp_millis(), error);
+        if let Some(error) = error {
+            self.p.exit.store(1, Ordering::SeqCst);
+            self.error(&error);
         }
         Ok(())
     }
@@ -1625,11 +1885,58 @@ mod tests {
 
     #[test]
     fn message_merging() {
-        assert_eq!(format_message(&["hello world".into(), "a\"b c".into(), "x".into()]).unwrap(), "\"hello world\" \"a\\\"b c\" x");
         assert_eq!(merge_input(Some("from args".into()), Some("from stdin".into())).unwrap(), "from args\nfrom stdin");
         assert_eq!(merge_input(None, Some(String::new())), None);
         assert!(is_binary(&[0, 1]));
         assert!(!is_binary(b"hello\n"));
+    }
+
+    #[test]
+    fn worktree_subfolders() {
+        assert_eq!(relative("/p", "/p"), "");
+        assert_eq!(relative("/p", "/p/a/b"), "a/b");
+        assert_eq!(relative("/p/a", "/p/b"), "../b");
+        assert_eq!(relative("/p", "/q"), "../q");
+    }
+
+    fn outcome(id: &str, outcome: &'static str, error: Option<Value>) -> Outcome {
+        Outcome { id: id.into(), outcome, error }
+    }
+
+    #[test]
+    fn final_errors() {
+        let idle = |id: &str, outcome: &str| json!({"type": "idle", "id": id, "outcome": outcome});
+        let run = |messages: Vec<Value>, background: bool| Projected { found: true, messages, background };
+        let failure = json!({"type": "unknown", "message": "Cancelled a request for input this run cannot answer: X"});
+        assert_eq!(final_error(&run(vec![], false), Some(&failure), &[]), Some(failure));
+        assert_eq!(
+            final_error(&Projected { found: false, messages: vec![], background: false }, None, &[]),
+            Some(json!({"type": "unknown", "message": "Prompt was not promoted"}))
+        );
+        assert_eq!(final_error(&run(vec![], false), None, &[]), Some(json!({"type": "unknown", "message": "Session ended without a recorded outcome"})));
+        assert_eq!(final_error(&run(vec![idle("msg_1", "succeeded"), idle("msg_2", "failed")], false), None, &[]), None);
+        // With a background wait, every idle marker counts.
+        assert_eq!(
+            final_error(&run(vec![idle("msg_1", "succeeded"), idle("msg_2", "failed")], true), None, &[]),
+            Some(json!({"type": "unknown", "message": "Session failed"}))
+        );
+        let err = json!({"type": "provider", "message": "boom"});
+        assert_eq!(final_error(&run(vec![idle("msg_1", "failed")], false), None, &[outcome("msg_1", "failed", Some(err.clone()))]), Some(err));
+        assert_eq!(
+            final_error(&run(vec![idle("msg_1", "interrupted")], false), None, &[]),
+            Some(json!({"type": "aborted", "message": "Session interrupted"}))
+        );
+        // Without stored markers, the live outcomes decide.
+        assert_eq!(final_error(&run(vec![], false), None, &[outcome("msg_1", "succeeded", None)]), None);
+    }
+
+    #[test]
+    fn terminal_outcomes() {
+        let e = json!({"id": "evt_1", "type": "session.execution.interrupted", "data": {"sessionID": "ses_1", "reason": "user"}});
+        let o = terminal_outcome(&e).unwrap();
+        assert_eq!((o.id.as_str(), o.outcome), ("msg_1", "interrupted"));
+        assert_eq!(o.error, Some(json!({"type": "aborted", "message": "Session interrupted: user"})));
+        assert!(terminal_outcome(&json!({"id": "evt_2", "type": "session.step.ended", "data": {}})).is_none());
     }
 
     #[test]

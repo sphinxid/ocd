@@ -107,6 +107,27 @@ fn acp_initialize_new_session_prompt_and_eof() {
     let list = read_until_id(6, &mut seen);
     assert_eq!(list["result"]["sessions"][0]["sessionId"], sid);
 
+    // `_session/steering` (opencode 2.2.7): advertised, refused for an idle session, params checked.
+    assert_eq!(init["result"]["_meta"], json!({"steering": {"supported": true}}));
+    send(json!({"jsonrpc": "2.0", "id": 7, "method": "_session/steering", "params": {"sessionId": sid, "prompt": [{"type": "text", "text": "redirect"}]}}));
+    let steer = read_until_id(7, &mut seen);
+    assert_eq!(steer["result"], json!({"outcome": "promptRequired", "reason": "noRunningTurn"}), "{steer}");
+    send(json!({"jsonrpc": "2.0", "id": 8, "method": "_session/steering", "params": {"sessionId": sid}}));
+    let bad = read_until_id(8, &mut seen);
+    assert_eq!(bad["error"], json!({"code": -32602, "message": "Invalid params", "data": {"details": "Missing key\n  at [\"prompt\"]"}}));
+
+    // Closing a session nobody prompted removes it; a prompted one stays.
+    send(json!({"jsonrpc": "2.0", "id": 9, "method": "session/new", "params": {"cwd": cwd, "mcpServers": []}}));
+    let unused = read_until_id(9, &mut seen)["result"]["sessionId"].as_str().unwrap().to_string();
+    for (id, session) in [(10, &unused), (11, &sid)] {
+        send(json!({"jsonrpc": "2.0", "id": id, "method": "session/close", "params": {"sessionId": session}}));
+        assert_eq!(read_until_id(id, &mut seen)["result"], json!({}));
+    }
+    send(json!({"jsonrpc": "2.0", "id": 12, "method": "session/list", "params": {"cwd": cwd}}));
+    let list = read_until_id(12, &mut seen);
+    let ids: Vec<&str> = list["result"]["sessions"].as_array().unwrap().iter().filter_map(|s| s["sessionId"].as_str()).collect();
+    assert_eq!(ids, [sid.as_str()]);
+
     drop(send);
     drop(stdin); // EOF ends the connection
     let status = child.wait().unwrap();

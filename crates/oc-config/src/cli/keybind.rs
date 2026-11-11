@@ -165,14 +165,14 @@ pub static DEFINITIONS: &[Definition] = &[
     Definition { name: "agent.cycle.reverse", default: DefaultBinding::Str("none"), description: "Previous agent" },
     Definition { name: "variant.cycle", default: DefaultBinding::Str("ctrl+t"), description: "Cycle model variants" },
     Definition { name: "variant.list", default: DefaultBinding::Str("none"), description: "List model variants" },
-    Definition { name: "session.page.up", default: DefaultBinding::Str("pageup,ctrl+alt+b"), description: "Scroll messages up by one page" },
-    Definition { name: "session.page.down", default: DefaultBinding::Str("pagedown,ctrl+alt+f"), description: "Scroll messages down by one page" },
+    Definition { name: "session.page.up", default: DefaultBinding::Str("pageup,ctrl+alt+b,kppageup"), description: "Scroll messages up by one page" },
+    Definition { name: "session.page.down", default: DefaultBinding::Str("pagedown,ctrl+alt+f,kppagedown"), description: "Scroll messages down by one page" },
     Definition { name: "session.line.up", default: DefaultBinding::Str("ctrl+alt+y"), description: "Scroll messages up by one line" },
     Definition { name: "session.line.down", default: DefaultBinding::Str("ctrl+alt+e"), description: "Scroll messages down by one line" },
     Definition { name: "session.half.page.up", default: DefaultBinding::Str("ctrl+alt+u"), description: "Scroll messages up by half page" },
     Definition { name: "session.half.page.down", default: DefaultBinding::Str("ctrl+alt+d"), description: "Scroll messages down by half page" },
-    Definition { name: "session.first", default: DefaultBinding::Str("ctrl+g,home,alt+home"), description: "Navigate to first message" },
-    Definition { name: "session.last", default: DefaultBinding::Str("ctrl+alt+g,end"), description: "Navigate to last message" },
+    Definition { name: "session.first", default: DefaultBinding::Str("ctrl+g,home,alt+home,kphome"), description: "Navigate to first message" },
+    Definition { name: "session.last", default: DefaultBinding::Str("ctrl+alt+g,end,kpend"), description: "Navigate to last message" },
     Definition { name: "session.message.next", default: DefaultBinding::Str("none"), description: "Navigate to next message" },
     Definition { name: "session.message.previous", default: DefaultBinding::Str("none"), description: "Navigate to previous message" },
     Definition { name: "session.message.user.next", default: DefaultBinding::Str("none"), description: "Navigate to next user message" },
@@ -251,6 +251,7 @@ pub static DEFINITIONS: &[Definition] = &[
     Definition { name: "dialog.prompt.submit", default: DefaultBinding::Str("return"), description: "Submit dialog prompt" },
     Definition { name: "dialog.integration.rename", default: DefaultBinding::Str("ctrl+r"), description: "Rename integration account" },
     Definition { name: "dialog.integration.delete", default: DefaultBinding::Str("ctrl+d"), description: "Delete integration account" },
+    Definition { name: "dialog.integration.copy", default: DefaultBinding::Str("tab"), description: "Copy authorization link" },
     Definition { name: "dialog.worktree.generate", default: DefaultBinding::Str("tab"), description: "Generate worktree name" },
     Definition { name: "dialog.move_session.new", default: DefaultBinding::Str("ctrl+a"), description: "New worktree" },
     Definition { name: "dialog.move_session.move", default: DefaultBinding::Str("ctrl+m"), description: "Move session to worktree" },
@@ -435,7 +436,7 @@ mod tests {
 
     #[test]
     fn table_shape() {
-        assert_eq!(DEFINITIONS.len(), 242);
+        assert_eq!(DEFINITIONS.len(), 243);
         assert_eq!(DEFINITIONS[0].name, "leader");
         assert_eq!(default_value("leader"), Some(json!("ctrl+x")));
         assert_eq!(default_value("input.undo"), Some(json!("ctrl+-,super+z")));

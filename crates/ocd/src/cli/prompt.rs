@@ -1,5 +1,5 @@
-//! `effect/cli` 4.0.6 prompts (`Prompt.ts`, `internal/ansi.ts`) as the command wizard runs them through
-//! `@effect/platform-node-shared` 4.0.6 `NodeTerminal`: `Confirm`, `Toggle`, `Select`, `String`,
+//! `effect/cli` 4.1.0 prompts (`Prompt.ts`, `internal/ansi.ts`) as the command wizard runs them through
+//! `@effect/platform-node-shared` 4.1.0 `NodeTerminal`: `Confirm`, `Toggle`, `Select`, `String`,
 //! `Password`, `Hidden`, `Int`, `Number` and `Date`, each a render/process/clear state machine driven by
 //! [`run`] exactly like `runLoop` (render, read a key, beep / next frame / submit, clear the previous
 //! frame by its plain text measured at the current width). Not clack: effect's prompts redraw the whole

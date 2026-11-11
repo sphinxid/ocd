@@ -140,30 +140,37 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
     }
 
     let present = |name: &str| scan.flags.get(name).is_some_and(|v| !v.is_empty());
+    // effect 4.1.0: a global flag's own parse error (a bad value, a repeated flag) is shown with the help
+    // (`toShowHelp`), like any other parse error.
+    let decode = |name: &str| -> Result<V, CliError> {
+        let def: &FlagDef = globals.iter().find(|f| f.name == name).unwrap();
+        parse::decode_global(def, scan.flags.get(name).map(Vec::as_slice).unwrap_or(&[]))
+    };
     // action flags, first present wins: help, version, wizard, completions
-    if present("help") {
-        return Outcome::Help { path, errors: vec![] };
-    }
-    if present("version") {
-        return Outcome::Version;
-    }
-    if present("wizard") {
-        return Outcome::Wizard { path };
-    }
-    if present("completions") {
-        let def = globals.iter().find(|f| f.name == "completions").unwrap();
-        return match parse::decode_global(def, &scan.flags["completions"]) {
-            Err(e) => Outcome::Fatal(pretty_cli(&e)),
-            Ok(V::Some(v)) => match *v {
-                V::Str(s) => Outcome::Completions(match s.as_str() {
-                    "zsh" => COMPLETIONS_ZSH,
-                    "fish" => COMPLETIONS_FISH,
-                    "powershell" | "pwsh" => COMPLETIONS_POWERSHELL,
-                    _ => COMPLETIONS_BASH,
-                }),
+    for action in ["help", "version", "wizard", "completions"] {
+        if !present(action) {
+            continue;
+        }
+        let value = match decode(action) {
+            Ok(v) => v,
+            Err(e) => return Outcome::Help { path, errors: vec![e] },
+        };
+        return match action {
+            "help" => Outcome::Help { path, errors: vec![] },
+            "version" => Outcome::Version,
+            "wizard" => Outcome::Wizard { path },
+            _ => match value {
+                V::Some(v) => match *v {
+                    V::Str(s) => Outcome::Completions(match s.as_str() {
+                        "zsh" => COMPLETIONS_ZSH,
+                        "fish" => COMPLETIONS_FISH,
+                        "powershell" | "pwsh" => COMPLETIONS_POWERSHELL,
+                        _ => COMPLETIONS_BASH,
+                    }),
+                    _ => Outcome::Fatal("Error: invalid completions value".into()),
+                },
                 _ => Outcome::Fatal("Error: invalid completions value".into()),
             },
-            Ok(_) => Outcome::Fatal("Error: invalid completions value".into()),
         };
     }
 
@@ -184,25 +191,30 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
         return Outcome::Help { path, errors: vec![] };
     }
 
-    let setting = |name: &str| -> Result<V, String> {
-        let def: &FlagDef = globals.iter().find(|f| f.name == name).unwrap();
-        parse::decode_global(def, scan.flags.get(name).map(Vec::as_slice).unwrap_or(&[])).map_err(|e| pretty_cli(&e))
-    };
+    let setting = decode;
     let log_level = match setting("log-level") {
         Ok(V::Some(v)) => match *v {
             V::Str(s) => Some(s),
             _ => None,
         },
         Ok(_) => None,
-        Err(e) => return Outcome::Fatal(e),
+        Err(e) => return Outcome::Help { path, errors: vec![e] },
     };
     let print_logs = match setting("print-logs") {
         Ok(V::Bool(b)) => b,
         Ok(_) => false,
-        Err(e) => return Outcome::Fatal(e),
+        Err(e) => return Outcome::Help { path, errors: vec![e] },
     };
     // The server settings the command declares (`Effect.serviceOption(Server|Standalone)`).
     let mut settings = Settings::default();
+    // In declaration order (`withGlobalFlags([Standalone, Server])`): the first failing one is reported.
+    if active.iter().any(|f| f.name == "standalone") {
+        match setting("standalone") {
+            Ok(V::Bool(b)) => settings.standalone = Some(b),
+            Ok(_) => {}
+            Err(e) => return Outcome::Help { path, errors: vec![e] },
+        }
+    }
     if active.iter().any(|f| f.name == "server") {
         match setting("server") {
             Ok(V::Some(v)) => {
@@ -211,14 +223,7 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
                 }
             }
             Ok(_) => {}
-            Err(e) => return Outcome::Fatal(e),
-        }
-    }
-    if active.iter().any(|f| f.name == "standalone") {
-        match setting("standalone") {
-            Ok(V::Bool(b)) => settings.standalone = Some(b),
-            Ok(_) => {}
-            Err(e) => return Outcome::Fatal(e),
+            Err(e) => return Outcome::Help { path, errors: vec![e] },
         }
     }
     let name = path[1..].join(" ");
@@ -254,7 +259,7 @@ fn pretty_cli(e: &CliError) -> String {
     format!("~effect/cli/CliError/{}: {}", e.tag(), e.message())
 }
 
-/// Help colors (`TerminalCapabilities.canColor`, effect 4.0.6): never with `TERM=dumb` or a non-empty
+/// Help colors (`TerminalCapabilities.canColor`, effect 4.1.0): never with `TERM=dumb` or a non-empty
 /// `NO_COLOR`; otherwise when `FORCE_COLOR` is set to anything but `0`/`false`, or stdout is a TTY.
 pub fn colors() -> help::Colors {
     let var = |k: &str| std::env::var(k).ok();

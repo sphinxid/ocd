@@ -46,6 +46,9 @@ pub struct FlagDef {
     pub hidden: bool,
     /// Help metavar overriding the type name (`Flag.withMetavar`).
     pub metavar: Option<&'static str>,
+    /// The raw value of a bare flag (`Flag.withOptionalValue`): the flag never takes the next argument, only an
+    /// attached `=value`, and help shows its type as `[=metavar]`.
+    pub optional_value: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -109,7 +112,7 @@ impl Cmd {
 // builders
 
 fn flag(key: &'static str, name: &'static str, prim: Prim, arity: Arity) -> FlagDef {
-    FlagDef { key, name, alias: None, description: None, prim, arity, hidden: false, metavar: None }
+    FlagDef { key, name, alias: None, description: None, prim, arity, hidden: false, metavar: None, optional_value: None }
 }
 
 impl FlagDef {
@@ -132,6 +135,14 @@ impl FlagDef {
     fn p(self) -> Param {
         Param::Flag(self)
     }
+}
+
+/// `CliFlag.optionalValue(name, metavar)` (`cli/src/framework/flag.ts`): `--name` and `--name=` give `true`,
+/// `--name=value` the value; like git's `--color[=when]`, the next argument is never consumed.
+fn optional_value(key: &'static str, name: &'static str, metavar: &'static str) -> FlagDef {
+    let mut f = flag(key, name, Prim::Str, Arity::Optional).metavar(metavar);
+    f.optional_value = Some("");
+    f
 }
 
 fn boolean(key: &'static str, name: &'static str) -> FlagDef {
@@ -509,11 +520,18 @@ pub fn root() -> Cmd {
                         continue_flag(),
                         session_flag(),
                         boolean("fork", "fork").desc("Fork the session before continuing").p(),
+                        optional_value("worktree", "worktree", "name")
+                            .alias("w")
+                            .desc("Start a new session in a new git worktree, optionally with this name")
+                            .p(),
                         string("model", "model").alias("m").desc("Model to use in the format provider/model#variant").p(),
                         string("agent", "agent").desc("Agent to use").p(),
                         format(&["default", "json"], "default"),
                         flag("file", "file", Prim::Str, Arity::Many { max: Some(100) }).alias("f").desc("File to attach to the message").p(),
                         string("title", "title").desc("Session title").p(),
+                        boolean("archived", "archived")
+                            .desc("Create the session archived so it stays out of session lists (useful for scripted or CI runs)")
+                            .p(),
                         boolean("thinking", "thinking").desc("Show thinking blocks").p(),
                     ],
                 ),
