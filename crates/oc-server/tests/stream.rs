@@ -198,6 +198,33 @@ async fn pty_websocket_protocol() {
     server.shutdown().await;
 }
 
+/// `pty-transport.test.ts` "PTY websocket closes with 1012 when its location reloads" (2.2.7), transport side.
+#[tokio::test]
+async fn pty_websocket_closes_with_1012_when_its_location_shuts_down() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path().to_str().unwrap().to_string();
+    let mock = Mock::new();
+    let (_out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel();
+    *mock.pty_output.lock() = Some(out_rx);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    *mock.pty_shutdown.lock() = Some(shutdown_rx);
+    let server = start(mock.clone(), &d).await;
+    let base = server.url().replacen("http://", "ws://", 1);
+    let t = ticket(server.url(), "/api/pty/pty_1/connect-token").await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("{base}/api/pty/pty_1/connect?ticket={t}")).await.unwrap();
+    assert_eq!(ws.next().await.unwrap().unwrap(), Message::Text("hello".into()));
+    assert!(matches!(ws.next().await.unwrap().unwrap(), Message::Binary(_)));
+    shutdown_tx.send(()).unwrap();
+    match ws.next().await.unwrap().unwrap() {
+        Message::Close(Some(f)) => {
+            assert_eq!(u16::from(f.code), 1012);
+            assert_eq!(f.reason.as_str(), "location shut down");
+        }
+        other => panic!("{other:?}"),
+    }
+    server.shutdown().await;
+}
+
 #[tokio::test]
 async fn persistent_pty_websocket_protocol() {
     let dir = tempfile::tempdir().unwrap();

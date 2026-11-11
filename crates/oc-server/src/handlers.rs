@@ -95,8 +95,8 @@ pub(crate) async fn special(
         Op::FsRead => {
             let raw = uri.path().get("/api/fs/read/".len()..).unwrap_or("").to_string();
             let path = decode_uri_component(&raw).ok_or_else(|| ApiError::file_not_found(raw.clone()))?;
-            let file = app.backend.fs_read(&call.ctx, FsReadRequest { path }).await?;
-            Ok(crate::fsread::serve(&call.method, &call.headers, file).await)
+            let file = app.backend.fs_read(&call.ctx, FsReadRequest { path: path.clone() }).await?;
+            Ok(crate::fsread::serve(&call.method, &call.headers, file, &path).await)
         }
         Op::PtyConnectToken => {
             let pty_id = call.path_str("ptyID", Some("^pty"))?;
@@ -160,8 +160,8 @@ fn matches_if_none_match(value: Option<&str>, etag: &str) -> bool {
     })
 }
 
-/// `makeMediaGet`: immutable caching, a strong ETag, `nosniff` + a sandboxing CSP, and inline only
-/// for the image types browsers render safely.
+/// `makeMediaGet`: immutable caching, a strong ETag, always a download (2.2.7) with `nosniff` and the sandboxing
+/// CSP, and the real type only for the image types browsers render safely.
 fn media_response(hash: &str, blob: crate::backend::MediaBlob, headers: &axum::http::HeaderMap) -> Response {
     let etag = format!("\"{hash}\"");
     let inline = MEDIA_INLINE_MIMES.contains(&blob.mime.as_str());
@@ -181,11 +181,9 @@ fn media_response(hash: &str, blob: crate::backend::MediaBlob, headers: &axum::h
     if let Ok(v) = HeaderValue::from_str(&etag) {
         h.insert(header::ETAG, v);
     }
+    h.insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment"));
+    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(crate::fsread::CONTENT_SECURITY_POLICY));
     h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'none'; sandbox"));
-    if !inline {
-        h.insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment"));
-    }
     res
 }
 

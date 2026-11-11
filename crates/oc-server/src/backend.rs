@@ -271,6 +271,9 @@ pub struct PtyAttachment {
     /// Live output chunks; the socket closes with `1000` when the stream ends.
     pub output: BoxStream<'static, String>,
     pub control: Arc<dyn PtyControl>,
+    /// Resolves when the PTY's location shuts down (reload, `vcs.init`, debug eviction); the socket then closes
+    /// with `1012 "location shut down"` (2.2.7 `holdLocation`). `None`: never.
+    pub shutdown: Option<futures::future::BoxFuture<'static, ()>>,
 }
 
 // ---- persistentPty.connect ---------------------------------------------------------------------

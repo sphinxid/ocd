@@ -56,6 +56,8 @@ pub struct Mock {
     pub sessions: Mutex<Vec<Value>>,
     pub pty_input: Arc<Mutex<Vec<String>>>,
     pub pty_output: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
+    /// Fires the PTY attachment's location shutdown.
+    pub pty_shutdown: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     pub persistent_input: Arc<Mutex<Vec<(u8, u16, u16, Vec<u8>)>>>,
 }
 
@@ -68,6 +70,7 @@ impl Mock {
             sessions: Mutex::new(vec![session("ses_b", 2), session("ses_a", 1)]),
             pty_input: Arc::new(Mutex::new(Vec::new())),
             pty_output: Mutex::new(None),
+            pty_shutdown: Mutex::new(None),
             persistent_input: Arc::new(Mutex::new(Vec::new())),
         })
     }
@@ -258,7 +261,8 @@ impl Backend for Mock {
         self.record(ctx, &req);
         let rx = self.pty_output.lock().take().ok_or_else(ApiError::pty_exited)?;
         let output = futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|s| (s, rx)) }).boxed();
-        Ok(PtyAttachment { replay: "hello".into(), cursor: 5, output, control: Arc::new(PtyCtl(self.pty_input.clone())) })
+        let shutdown = self.pty_shutdown.lock().take().map(|rx| futures::FutureExt::boxed(async move { let _ = rx.await; }));
+        Ok(PtyAttachment { replay: "hello".into(), cursor: 5, output, control: Arc::new(PtyCtl(self.pty_input.clone())), shutdown })
     }
 
     async fn experimental_persistent_pty_get(

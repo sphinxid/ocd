@@ -297,7 +297,7 @@ pub(crate) fn is_api_path(path: &str) -> bool {
 }
 
 /// `new URL(request.url, "http://localhost").pathname`: dot segments resolved, `\\` read as `/`.
-fn pathname(path_and_query: &str) -> String {
+pub(crate) fn pathname(path_and_query: &str) -> String {
     static BASE: LazyLock<url::Url> = LazyLock::new(|| url::Url::parse("http://localhost").expect("base url"));
     BASE.join(path_and_query).map(|u| u.path().to_string()).unwrap_or_else(|_| path_and_query.to_string())
 }

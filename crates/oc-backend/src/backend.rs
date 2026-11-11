@@ -45,8 +45,7 @@ impl Backend for Engine {
 
     async fn agent_list(&self, ctx: &RequestContext, _req: AgentListRequest) -> Result<Vec<AgentInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        // Plugin agents are part of the list, so wait for the location's plugins first.
-        self.await_plugins(&loc).await?;
+        // 2.2.7 (#62796): the agents loaded so far; plugin agents announce themselves with `agent.updated`.
         self.agents(&loc).await.list().into_iter().map(conv).collect()
     }
 
@@ -1236,8 +1235,7 @@ impl Backend for Engine {
 
     async fn rpc_call(&self, ctx: &RequestContext, req: RpcCallRequest) -> Result<RpcOutput, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        // `Plugin.awaitActivation`, then `Rpc.call` (server/src/handlers/rpc.ts).
-        self.app.plugins.await_activation(&loc.key).await;
+        // `Rpc.call` (server/src/handlers/rpc.ts); 2.2.7 no longer waits for the location's plugins.
         let location = oc_plugin::LocationRef::new(loc.key.clone());
         let input = req.body.input.clone().map(|v| serde_json::to_value(v).unwrap_or(Value::Null)).unwrap_or(Value::Null);
         // The built-in goal plugin's RPC: its `get` answers `{"output": null}` for a session without a goal.
@@ -1360,7 +1358,19 @@ impl Backend for Engine {
             }
         })
         .boxed();
-        Ok(oc_server::PtyAttachment { replay, cursor, output, control: Arc::new(PtyHandle(attachment)) })
+        // `holdLocation`: the socket closes with 1012 when the PTY's location shuts down.
+        let owner = self.pty_owner.lock().get(&req.pty_id).cloned().unwrap_or_default();
+        let mut events = self.app.bus.subscribe();
+        let shutdown = futures::FutureExt::boxed(async move {
+            loop {
+                match events.recv().await {
+                    Ok(e) if e.kind == "location.shutdown" && e.location.as_ref().is_some_and(|l| l.directory == owner) => return,
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => futures::future::pending::<()>().await,
+                }
+            }
+        });
+        Ok(oc_server::PtyAttachment { replay, cursor, output, control: Arc::new(PtyHandle(attachment)), shutdown: Some(shutdown) })
     }
 
     async fn server_info(&self, ctx: &RequestContext, _req: ServerInfoRequest) -> Result<ServerInfo, ApiError> {
@@ -1617,7 +1627,6 @@ impl Backend for Engine {
         let loc = self.locations.get(&ctx.location.directory).await?;
         let provider = req.provider.unwrap_or_else(|| "git".into());
         let directory = loc.project_directory().to_path_buf();
-        self.app.plugins.await_activation(&loc.key).await;
         if !directory.is_dir() {
             return Err(ApiError::invalid_request("Project directory does not exist").with_field("location"));
         }
@@ -1830,7 +1839,10 @@ fn worktree_error(e: oc_core::worktree::WorktreeError) -> ApiError {
     use oc_core::worktree::WorktreeError as W;
     match e {
         W::ProjectNotFound(id) => ApiError::project_not_found(id),
-        W::SourceDirectoryNotFound(d) => ApiError::worktree(format!("Worktree source not found: {d}"), None),
+        W::SourceDirectoryNotFound(d) => ApiError::worktree(
+            format!("Cannot create a worktree from {d}: it is not a checkout of this project that supports worktrees, such as a git repository"),
+            None,
+        ),
         W::DestinationExists(d) => ApiError::worktree(format!("Worktree destination already exists: {d}"), None),
         W::InvalidDirectory(d) => ApiError::worktree(format!("Invalid worktree directory: {d}"), None),
         W::Git { message, force_required } => ApiError::worktree(message, force_required),
@@ -1951,7 +1963,7 @@ impl Engine {
     }
 
     /// `awaitPlugins` (server/src/location.ts): `Plugin.awaitActivation` for at most 5 seconds, then
-    /// `503 ServiceUnavailableError`.
+    /// `503 ServiceUnavailableError`. Since 2.2.7 only the endpoints that list or use providers wait.
     async fn await_plugins(&self, loc: &crate::locations::Loc) -> Result<(), ApiError> {
         tokio::time::timeout(std::time::Duration::from_secs(5), self.app.plugins.await_activation(&loc.key))
             .await
@@ -1972,8 +1984,6 @@ impl Engine {
     /// `{service: "opencode"}`.
     pub async fn usage_limits(&self, ctx: &RequestContext) -> Result<Option<Value>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        // The OpenCode Console plugin registers the sign-in method that refreshes an expired credential.
-        self.await_plugins(&loc).await?;
         self.catalog(&loc).await?;
         let integrations = self.models().integrations_for(Some(&loc.key));
         let user_agent = format!("opencode/{}/{}/{}", oc_util::version::CHANNEL, self.app.version, oc_util::version::ARTIFACT);
@@ -2122,7 +2132,7 @@ fn generate_error(error: oc_core::generate::GenerateError) -> ApiError {
 impl Engine {
     /// The location of an artifact route after validation (`server/src/handlers/artifact.ts`
     /// `inLocation`): an explicit directory, else the session's, else the stored artifact's, else the
-    /// request's; booted, with its plugins activated.
+    /// request's; booted (2.2.7 no longer waits for its plugins).
     async fn artifact_location(
         &self,
         ctx: &RequestContext,
@@ -2138,9 +2148,7 @@ impl Engine {
                 .and_then(|id| oc_core::artifact::locate(&self.app.db, id))
                 .unwrap_or_else(|| ctx.location.directory.clone())
         };
-        let loc = self.locations.get(&directory).await?;
-        self.await_plugins(&loc).await?;
-        Ok(loc)
+        self.locations.get(&directory).await
     }
 }
 

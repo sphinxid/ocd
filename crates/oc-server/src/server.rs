@@ -244,11 +244,12 @@ async fn vary_accept_encoding(req: axum::extract::Request, next: axum::middlewar
     res
 }
 
-/// Build the full HTTP application (CORS → compression → web UI → gate → API router).
+/// Build the full HTTP application (CORS → compression → cross-site check → web UI → gate → API router).
 pub(crate) fn build_router(app: Arc<App>) -> Router {
     crate::router::api_router(app.clone())
         .layer(from_fn_with_state(app.clone(), crate::app::gate))
         .layer(from_fn_with_state(app.clone(), crate::webui::web_ui))
+        .layer(from_fn_with_state(app.clone(), crate::request_site::middleware))
         .layer(axum::middleware::from_fn(mark_vary))
         .layer(CompressionLayer::new().compress_when(CompressionPolicy))
         .layer(from_fn_with_state(app, crate::cors::cors))

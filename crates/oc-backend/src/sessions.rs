@@ -425,7 +425,8 @@ impl Engine {
     }
 
     pub async fn synthetic(&self, id: &str, body: api::SessionSyntheticBody) -> Result<api::SessionInboxSynthetic, ApiError> {
-        self.session_scope(id).await?;
+        // 2.2.7 (#60801): admitted without booting the session's location.
+        self.session(id)?;
         let conflict = |mid: &str| {
             ApiError::conflict(format!("Synthetic input ID conflicts with an existing durable record: {mid}"), Some(mid.to_string()))
         };
@@ -446,7 +447,8 @@ impl Engine {
     }
 
     pub async fn compact(&self, id: &str, body: api::SessionCompactBody) -> Result<api::SessionInboxCompaction, ApiError> {
-        let (session, _) = self.session_scope(id).await?;
+        // 2.2.7 (#60801): admitted without booting the session's location.
+        let session = self.session(id)?;
         self.app.sessions.commit_revert(&session).map_err(defect)?;
         let input_id = body.id.unwrap_or_else(oc_schema::id::message);
         let conflict = || {

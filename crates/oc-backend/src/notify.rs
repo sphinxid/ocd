@@ -126,8 +126,8 @@ impl Engine {
 
     /// What upstream's `credential.updated`/`credential.switched` subscribers publish before the credential
     /// operation goes on (the bus resumes type subscribers inline, `bus.ts` `notify`): at every loaded location,
-    /// in load order, the Provider State announces a change of the available providers (`provider.ts`, then
-    /// `model.updated` from the Model State following it), and the policy plugin, when the account behind an
+    /// in load order, the Provider State announces a change of the available providers on a switch (`provider.ts`,
+    /// then `model.updated` from the Model State following it), and the policy plugin, when the account behind an
     /// integration's active credential changed, reloads providers and web search in one `State.batch`
     /// (`config/plugin/policy.ts`: `provider.updated`, `model.updated`, and `websearch.updated` when its list
     /// changed).
@@ -184,7 +184,7 @@ impl Engine {
     async fn credential_changed(&self, event: &CredentialEvent, accounts: &parking_lot::Mutex<oc_core::policy::Accounts>, states: &SwitchStates) {
         let switched = match event {
             CredentialEvent::Switched { integration_id, .. } => Some(integration_id.as_str()),
-            CredentialEvent::Updated => None,
+            CredentialEvent::Updated { .. } => None,
         };
         let all = oc_core::models::DbCredentials::all_of(&self.app.db).unwrap_or_default();
         let next = oc_core::policy::accounts(&all);
@@ -215,15 +215,16 @@ impl Engine {
         };
         for key in self.locations.keys() {
             let at = Some(oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None });
-            // A location still activating has its Provider State but no plugin subscribed yet; the State's first
-            // notify always announces.
+            // The Provider State follows `credential.switched` only (2.2.7 no longer reloads it on
+            // `credential.updated`). A location still activating has its Provider State but no plugin subscribed
+            // yet; the State's first notify always announces.
             if self.locations.activating(&key) {
-                if self.models().first_notify(&key) {
+                if switched.is_some() && self.models().first_notify(&key) {
                     pair(&at);
                 }
                 continue;
             }
-            if self.models().availability_changed(&key).await {
+            if switched.is_some() && self.models().availability_changed(&key).await {
                 pair(&at);
             }
             // The provider plugins reloading on a switch of their integration, in plugin order (`ctx.provider.reload()`
@@ -235,6 +236,9 @@ impl Engine {
                 }
             }
             if reload && self.app.plugins.builtin_enabled(&key, oc_core::policy::PLUGIN_ID) {
+                // The policy plugin's batch reload rebuilds the Provider State, which then holds what it announces:
+                // a later `credential.switched` finds nothing new.
+                self.models().availability_changed(&key).await;
                 pair(&at);
                 if self.app.plugins.domain_changed_since_boot(&key, "websearch").await {
                     bus.publish("websearch.updated", json!({}), at.clone());
@@ -244,7 +248,8 @@ impl Engine {
     }
 
     /// Lets the plugin layer and location rebuilds gate `*.updated` events on these projections.
-    /// `PersistentPty` subscribes to `session.deleted` and removes the session's terminals (#60322). Events are
+    /// `PersistentPty` subscribes to `session.deleted` and removes the session's terminals (#60322). A location that
+    /// shuts down ends its PTYs, as upstream's location-scoped `Pty` service does when its scope closes. Events are
     /// handled one at a time, and failures are logged per event so one never ends the subscription.
     pub(crate) fn install_pty_cleanup(self: &Arc<Self>) {
         let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
@@ -257,6 +262,21 @@ impl Engine {
                         let Some(engine) = weak.upgrade() else { break };
                         let Some(session) = e.data.get("sessionID").and_then(|v| v.as_str()) else { continue };
                         engine.persistent().await.remove_session(session).await;
+                    }
+                    Ok(e) if e.kind == "location.shutdown" => {
+                        let Some(engine) = weak.upgrade() else { break };
+                        let Some(location) = &e.location else { continue };
+                        let owned: Vec<String> = {
+                            let mut owners = engine.pty_owner.lock();
+                            let ids: Vec<String> = owners.iter().filter(|(_, o)| **o == location.directory).map(|(id, _)| id.clone()).collect();
+                            for id in &ids {
+                                owners.remove(id);
+                            }
+                            ids
+                        };
+                        for id in owned {
+                            let _ = engine.app.ptys.remove(&id);
+                        }
                     }
                     Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,

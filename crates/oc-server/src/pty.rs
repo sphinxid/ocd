@@ -128,6 +128,7 @@ async fn run_pty(socket: WebSocket, backend: Arc<dyn Backend>, ctx: RequestConte
     };
     let control = attachment.control.clone();
     let mut output = attachment.output;
+    let mut shutdown = attachment.shutdown.unwrap_or_else(|| futures::FutureExt::boxed(futures::future::pending::<()>()));
     let ok = async {
         for chunk in replay_chunks(&attachment.replay) {
             sink.send(Message::Text(chunk.into())).await.ok()?;
@@ -139,9 +140,17 @@ async fn run_pty(socket: WebSocket, backend: Arc<dyn Backend>, ctx: RequestConte
     if ok.is_some() {
         loop {
             tokio::select! {
+                biased;
+                _ = &mut shutdown => { let _ = sink.send(close(1012, "location shut down")).await; break }
                 out = output.next() => match out {
                     Some(text) => if sink.send(Message::Text(text.into())).await.is_err() { break },
-                    None => { let _ = sink.send(close(1000, "")).await; break }
+                    None => {
+                        // The location's shutdown ends its PTYs too; that close is the shutdown's.
+                        let code = if futures::FutureExt::now_or_never(&mut shutdown).is_some() { 1012 } else { 1000 };
+                        let reason = if code == 1012 { "location shut down" } else { "" };
+                        let _ = sink.send(close(code, reason)).await;
+                        break
+                    }
                 },
                 msg = stream.next() => match msg {
                     Some(Ok(Message::Text(t))) => control.write(t.as_str()),

@@ -940,6 +940,30 @@ async fn pty_lifecycle_and_attach() {
     assert_eq!(h.get(&format!("/api/pty/{id}")).await.status, 404);
 }
 
+/// `pty-transport.test.ts` "PTY websocket closes with 1012 when its location reloads" (2.2.7): the attachment's
+/// shutdown fires on the reload (oc-server then closes the socket with 1012) and the location's PTYs end with it.
+#[tokio::test]
+async fn location_reload_shuts_down_pty_attachments_and_their_ptys() {
+    use oc_server::{Backend, RequestContext};
+    let h = harness();
+    let shell = if cfg!(windows) { "cmd.exe" } else { "/bin/sh" };
+    let r = h.post("/api/pty", json!({"command": shell, "title": "t"})).await;
+    assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));
+    let id = r.json()["data"]["id"].as_str().unwrap().to_string();
+    let ctx = RequestContext::for_test(&h.dir());
+    let att = h.engine.pty_connect(&ctx, oc_server::PtyAttachRequest { pty_id: id.clone(), cursor: None }).await.unwrap();
+    let shutdown = att.shutdown.expect("a shutdown signal");
+    assert_eq!(h.req("POST", "/api/location/reload", None).await.status, 204);
+    tokio::time::timeout(std::time::Duration::from_secs(5), shutdown).await.expect("the location shut down");
+    for _ in 0..100 {
+        if h.get(&format!("/api/pty/{id}")).await.status == 404 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(h.get(&format!("/api/pty/{id}")).await.status, 404);
+}
+
 #[tokio::test]
 async fn session_stats() {
     let h = harness();

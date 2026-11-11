@@ -243,12 +243,13 @@ async fn serves_stored_media_as_refs_only_to_clients_that_opt_in_while_media_blo
     let exported = send(&h, "GET", &format!("/api/experimental/session/{sid}/export"), &[REFS], None).await.json();
     assert_eq!(exported["data"]["messages"], json!([user, assistant]));
 
-    // The route serves raw bytes with immutable caching and a 304, never rendering active content inline.
+    // The route serves raw bytes as downloads (2.2.7), with immutable caching and a 304; image types stay usable by <img>.
     let route = |data: &str| format!("/api/experimental/media/{}", hash(data));
     let r = send(&h, "GET", &route(PNG), &[], None).await;
     assert_eq!(r.status, 200);
     assert_eq!(header(&r, "content-type"), Some("image/png"));
-    assert_eq!(header(&r, "content-disposition"), None);
+    assert_eq!(header(&r, "content-disposition"), Some("attachment"));
+    assert_eq!(header(&r, "content-security-policy"), Some("default-src 'none'; img-src 'self'; media-src 'self'; sandbox"));
     assert_eq!(header(&r, "cache-control"), Some("private, max-age=31536000, immutable"));
     assert_eq!(header(&r, "etag"), Some(format!("\"{}\"", hash(PNG)).as_str()));
     for unsafe_ in [&svg, &html] {

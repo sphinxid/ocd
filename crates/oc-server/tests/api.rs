@@ -497,6 +497,9 @@ async fn fs_read_validators_and_ranges() {
     assert_eq!(r.header("accept-ranges"), Some("bytes"));
     assert_eq!(r.header("content-type"), Some("text/plain"));
     assert_eq!(r.header("last-modified"), Some("Thu, 09 Oct 2025 08:53:20 GMT"));
+    assert_eq!(r.header("content-disposition"), Some("attachment; filename=\"hello.txt\"; filename*=UTF-8''hello.txt"));
+    assert_eq!(r.header("content-security-policy"), Some("default-src 'none'; img-src 'self'; media-src 'self'; sandbox"));
+    assert_eq!(r.header("x-content-type-options"), Some("nosniff"));
 
     let send = |hdr: &'static str, val: String| {
         Request::get("/api/fs/read/hello.txt").header("authorization", basic(PASSWORD)).header(hdr, val).body(Body::empty()).unwrap()
@@ -505,12 +508,15 @@ async fn fs_read_validators_and_ranges() {
     assert_eq!(r.status, StatusCode::NOT_MODIFIED);
     assert!(r.body.is_empty());
     assert_eq!(r.header("etag"), Some(etag.as_str()));
+    assert_eq!(r.header("content-disposition"), Some("attachment; filename=\"hello.txt\"; filename*=UTF-8''hello.txt"));
+    assert_eq!(r.header("content-security-policy"), Some("default-src 'none'; img-src 'self'; media-src 'self'; sandbox"));
 
     let r = h.send(send("range", "bytes=2-4".into())).await;
     assert_eq!(r.status, StatusCode::PARTIAL_CONTENT);
     assert_eq!(&r.body[..], b"234");
     assert_eq!(r.header("content-range"), Some("bytes 2-4/10"));
     assert_eq!(r.header("content-length"), Some("3"));
+    assert_eq!(r.header("content-disposition"), Some("attachment; filename=\"hello.txt\"; filename*=UTF-8''hello.txt"));
 
     let r = h.send(send("range", "bytes=20-".into())).await;
     assert_eq!(r.status, StatusCode::RANGE_NOT_SATISFIABLE);
@@ -835,7 +841,7 @@ fn every_operation_is_routed_once() {
     }
 }
 
-/// `media.test.ts`: immutable caching, strong ETags, 304s and attachment disposition for non-images.
+/// `media.test.ts`: immutable caching, strong ETags, 304s, always a download (2.2.7), the real type only for images.
 #[tokio::test]
 async fn media_get_headers_and_conditional_requests() {
     let h = harness(Some(PASSWORD));
@@ -848,8 +854,8 @@ async fn media_get_headers_and_conditional_requests() {
     assert_eq!(r.header("cache-control"), Some("private, max-age=31536000, immutable"));
     assert_eq!(r.header("etag"), Some(format!("\"{png}\"").as_str()));
     assert_eq!(r.header("x-content-type-options"), Some("nosniff"));
-    assert_eq!(r.header("content-security-policy"), Some("default-src 'none'; sandbox"));
-    assert!(r.header("content-disposition").is_none());
+    assert_eq!(r.header("content-security-policy"), Some("default-src 'none'; img-src 'self'; media-src 'self'; sandbox"));
+    assert_eq!(r.header("content-disposition"), Some("attachment"));
 
     for inm in [format!("\"{png}\""), format!("W/\"{png}\""), format!("\"x\", w/\"{png}\""), "*".to_string()] {
         let r = h
@@ -905,4 +911,39 @@ async fn array_query_parameters_repeat_or_promote() {
     // model.list is not implemented by the mock (500), but decoding happens first
     let r = h.get(&format!("/api/model?location%5Bdirectory%5D={}&types=chat&types=image", enc(&h.dir()))).await;
     assert_eq!(r.status, 500);
+}
+
+/// `request-site.test.ts` (2.2.7): other sites may neither open API URLs as pages nor call the API from a disallowed
+/// origin; the 403 comes before auth and carries CORS headers. Native clients, same-origin pages and pairing links pass.
+#[tokio::test]
+async fn cross_site_api_requests_are_forbidden() {
+    let h = harness(Some(PASSWORD));
+    h.handle.set_ready();
+    let send = |path: &str, pairs: &[(&'static str, &'static str)], auth: bool| {
+        let mut b = Request::get(path.to_string()).header("host", "127.0.0.1:4096");
+        if auth {
+            b = b.header("authorization", basic(PASSWORD));
+        }
+        for (k, v) in pairs {
+            b = b.header(*k, *v);
+        }
+        b.body(Body::empty()).unwrap()
+    };
+    let navigate = |site: &'static str| [("sec-fetch-site", site), ("sec-fetch-mode", "navigate"), ("sec-fetch-dest", "document")];
+    for (site, status) in [("cross-site", 403), ("same-site", 403), ("same-origin", 200), ("none", 200)] {
+        let r = h.send(send("/api/fs/read/hello.txt", &navigate(site), true)).await;
+        assert_eq!(r.status.as_u16(), status, "{site}");
+    }
+    let r = h.send(send("/api/path", &navigate("cross-site"), false)).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    assert_eq!(r.json(), json!({"_tag": "ForbiddenError", "message": "Cross-site requests to the API are not allowed"}));
+    let cors = |origin: &'static str| [("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "cors"), ("origin", origin)];
+    let r = h.send(send("/api/fs/read/hello.txt", &cors("https://app.opencode.ai"), true)).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.header("access-control-allow-origin"), Some("https://app.opencode.ai"));
+    assert_eq!(h.send(send("/api/fs/read/hello.txt", &cors("https://example.com"), true)).await.status, StatusCode::FORBIDDEN);
+    let media = [("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "no-cors"), ("sec-fetch-dest", "video")];
+    assert_eq!(h.send(send("/api/fs/read/hello.txt", &media, true)).await.status, StatusCode::OK);
+    let r = h.send(send("/auth/connect/expired", &[navigate("cross-site")[0], navigate("cross-site")[1], ("accept", "text/html")], false)).await;
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
 }

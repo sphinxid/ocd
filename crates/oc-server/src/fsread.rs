@@ -1,4 +1,5 @@
-//! `GET /api/fs/read/*` response logic (spec 06 §8.5): ETag / Last-Modified / single Range.
+//! `GET /api/fs/read/*` response logic (spec 06 §8.5): ETag / Last-Modified / single Range, served as a sandboxed
+//! download (`server/src/content-headers.ts`, 2.2.7).
 
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -10,6 +11,70 @@ use regex::Regex;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::backend::{FsFile, FsSource};
+
+/// `ContentHeaders.CONTENT_SECURITY_POLICY`: media elements still load the bytes; a browser that opens the response
+/// as a page gets a sandboxed, inert document.
+pub const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; img-src 'self'; media-src 'self'; sandbox";
+
+/// `ContentHeaders.disposition`: RFC 6266, an ASCII filename for older clients plus the exact UTF-8 name in
+/// `filename*`; `attachment` alone for an empty name.
+pub fn disposition(name: &str) -> String {
+    if name.is_empty() {
+        return "attachment".into();
+    }
+    // `[^\x20-\x7e]|["\\%]` matches UTF-16 code units: a character outside the BMP becomes two `_`.
+    let mut fallback = String::new();
+    for c in name.chars() {
+        match c {
+            '"' | '\\' | '%' => fallback.push('_'),
+            ' '..='~' => fallback.push(c),
+            _ => {
+                for _ in 0..c.len_utf16() {
+                    fallback.push('_');
+                }
+            }
+        }
+    }
+    // `encodeURIComponent`, then `'()*` escaped too.
+    let mut encoded = String::new();
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.!~".contains(&b) {
+            encoded.push(b as char);
+        } else {
+            encoded.push_str(&format!("%{b:02X}"));
+        }
+    }
+    format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
+}
+
+/// `ContentHeaders.download`'s type: documents, scripts and XML (including SVG) go out as plain text, since clients
+/// read them as bytes and pick their own type from the path.
+pub fn download_type(mime: &str) -> &str {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)^(text/html|text/javascript|application/(x-)?javascript)(?-u:\b)|[/+]xml(?-u:\b)").expect("regex")
+    });
+    if RE.is_match(mime) { "text/plain; charset=utf-8" } else { mime }
+}
+
+/// `path.basename` of a requested path (Node's, for this platform).
+fn basename(path: &str) -> &str {
+    let separators: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+    let trimmed = path.trim_end_matches(separators);
+    trimmed.rsplit(separators).next().unwrap_or("")
+}
+
+/// `ContentHeaders.download({path, mime})`: raw file bytes are always a download, never rendered as a page on the
+/// server's origin.
+fn download(h: &mut HeaderMap, path: &str, mime: &str) {
+    if let Ok(v) = HeaderValue::from_str(download_type(mime)) {
+        h.insert(header::CONTENT_TYPE, v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&disposition(basename(path))) {
+        h.insert(header::CONTENT_DISPOSITION, v);
+    }
+    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(CONTENT_SECURITY_POLICY));
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+}
 
 /// Weak ETag `W/"<size hex>-<mtime ms hex | 0>"`.
 pub fn etag(size: u64, mtime_ms: Option<i64>) -> String {
@@ -98,8 +163,8 @@ pub fn parse_range(header: &str, size: u64) -> Range {
     Range::Partial { start: start as u64, end: end.min(size as f64 - 1.0) as u64 }
 }
 
-/// Serve a file with validators and range support.
-pub async fn serve(method: &Method, headers: &HeaderMap, file: FsFile) -> Response {
+/// Serve a file with validators and range support, as a download of `path` (the requested path).
+pub async fn serve(method: &Method, headers: &HeaderMap, file: FsFile, path: &str) -> Response {
     let etag = etag(file.size, file.mtime_ms);
     let last_modified = file.mtime_ms.map(http_date);
     let validators = |h: &mut HeaderMap| {
@@ -116,6 +181,7 @@ pub async fn serve(method: &Method, headers: &HeaderMap, file: FsFile) -> Respon
     if is_not_modified(headers, &etag, last_modified.as_deref()) {
         let mut res = StatusCode::NOT_MODIFIED.into_response();
         validators(res.headers_mut());
+        download(res.headers_mut(), path, &file.mime);
         return res;
     }
     let range_header = if method == Method::GET { header_str(headers, "range") } else { None };
@@ -146,11 +212,9 @@ pub async fn serve(method: &Method, headers: &HeaderMap, file: FsFile) -> Respon
     let mut res = (status, body).into_response();
     let h = res.headers_mut();
     validators(h);
+    download(h, path, &file.mime);
     h.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
     h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    if let Ok(v) = HeaderValue::from_str(&file.mime) {
-        h.insert(header::CONTENT_TYPE, v);
-    }
     if let Range::Partial { start, end } = range
         && let Ok(v) = HeaderValue::from_str(&format!("bytes {start}-{end}/{}", file.size))
     {
@@ -197,6 +261,40 @@ fn tokio_util_stream<R: tokio::io::AsyncRead + Send + Unpin + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `fs.test.ts` "serves file reads as downloads with explicit content headers" (2.2.7).
+    #[test]
+    fn download_headers() {
+        for (mime, served) in [
+            ("text/html", "text/plain; charset=utf-8"),
+            ("image/svg+xml", "text/plain; charset=utf-8"),
+            ("application/xml", "text/plain; charset=utf-8"),
+            ("text/xml", "text/plain; charset=utf-8"),
+            ("text/javascript", "text/plain; charset=utf-8"),
+            ("application/javascript", "text/plain; charset=utf-8"),
+            ("application/x-javascript", "text/plain; charset=utf-8"),
+            ("TEXT/HTML; charset=utf-8", "text/plain; charset=utf-8"),
+            ("image/png", "image/png"),
+            ("video/mp4", "video/mp4"),
+            ("text/plain", "text/plain"),
+            ("text/htmlx", "text/htmlx"),
+            ("application/xml-dtd", "text/plain; charset=utf-8"),
+            ("application/xmlx", "application/xmlx"),
+        ] {
+            assert_eq!(download_type(mime), served, "{mime}");
+        }
+        assert_eq!(disposition(""), "attachment");
+        assert_eq!(disposition("clip.mp4"), "attachment; filename=\"clip.mp4\"; filename*=UTF-8''clip.mp4");
+        assert_eq!(
+            disposition("naïve 100% (1).txt"),
+            "attachment; filename=\"na_ve 100_ (1).txt\"; filename*=UTF-8''na%C3%AFve%20100%25%20%281%29.txt"
+        );
+        assert_eq!(disposition("a\"b\\c*'~!.txt"), "attachment; filename=\"a_b_c*'~!.txt\"; filename*=UTF-8''a%22b%5Cc%2A%27~!.txt");
+        assert_eq!(disposition("😀.png"), "attachment; filename=\"__.png\"; filename*=UTF-8''%F0%9F%98%80.png");
+        assert_eq!(basename("dir/sub/file.txt"), "file.txt");
+        assert_eq!(basename("dir/sub/"), "sub");
+        assert_eq!(basename(""), "");
+    }
 
     #[test]
     fn ranges() {

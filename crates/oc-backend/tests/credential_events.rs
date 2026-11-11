@@ -1,10 +1,10 @@
 //! What a credential change announces before the operation goes on (upstream's bus resumes type subscribers
-//! inline): at every loaded location, in load order, the Provider State when the available providers changed
-//! (`provider.updated`, then `model.updated`), and the policy plugin when the account behind an integration's
-//! active credential changed (`provider.updated`, `model.updated`, `websearch.updated` only when its list changed).
-//! The sequences match the opencode 2.2.5 binary (`claude_*` parity scenarios: `credential.updated`, two pairs,
-//! `credential.switched`; a credential created through `/api/credential` also boots the global config location,
-//! which announces its own pairs).
+//! inline): at every loaded location, in load order, the policy plugin when the account behind an integration's
+//! active credential changed (`provider.updated`, `model.updated`, `websearch.updated` only when its list changed),
+//! and on `credential.switched` the Provider State when the available providers changed since (2.2.7 no longer
+//! reloads it on `credential.updated`). The sequences match the opencode 2.2.7 binary (`api225_credential_events`:
+//! `credential.updated`, one pair, `credential.switched`; a credential created through `/api/credential` also boots
+//! the global config location, which announces its own pairs after the switch).
 
 mod common;
 
@@ -50,17 +50,7 @@ async fn credential_changes_announce_availability_and_accounts_before_switching(
     let r = h.post("/api/integration/anthropic/connect/key", json!({ "key": "sk-1" })).await;
     assert_eq!(r.status, 204, "{}", String::from_utf8_lossy(&r.body));
     settle().await;
-    assert_eq!(
-        drain(&mut rx, &h),
-        [
-            "credential.updated",
-            "provider.updated@work",
-            "model.updated@work",
-            "provider.updated@work",
-            "model.updated@work",
-            "credential.switched",
-        ]
-    );
+    assert_eq!(drain(&mut rx, &h), ["credential.updated", "provider.updated@work", "model.updated@work", "credential.switched"]);
     let first = h.get("/api/credential").await.json()["data"][0]["id"].as_str().unwrap().to_string();
 
     // A second key for the same integration changes neither availability nor accounts.
@@ -83,17 +73,7 @@ async fn credential_changes_announce_availability_and_accounts_before_switching(
     assert_eq!(drain(&mut rx, &h), ["credential.updated"]);
     assert_eq!(h.req("DELETE", &format!("/api/credential/{second}"), None).await.status.as_u16() / 100, 2);
     settle().await;
-    assert_eq!(
-        drain(&mut rx, &h),
-        [
-            "credential.updated",
-            "provider.updated@work",
-            "model.updated@work",
-            "provider.updated@work",
-            "model.updated@work",
-            "credential.switched",
-        ]
-    );
+    assert_eq!(drain(&mut rx, &h), ["credential.updated", "provider.updated@work", "model.updated@work", "credential.switched"]);
 }
 
 #[tokio::test]
@@ -103,7 +83,7 @@ async fn credential_creation_announces_at_the_global_config_location_too() {
     settle().await;
     let mut rx = h.app.bus.subscribe();
     // Credential creation reads `integration.connect` from the global config location, which boots now without
-    // waiting for its plugins: only its Provider State's first notify comes before the switch, its boot burst after.
+    // waiting for its plugins: its Provider State's first notify comes with the switch, then its boot burst.
     let r = h.post("/api/credential", json!({ "integrationID": "anthropic", "value": { "type": "key", "key": "sk" } })).await;
     assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     settle().await;
@@ -113,29 +93,31 @@ async fn credential_creation_announces_at_the_global_config_location_too() {
             "credential.updated",
             "provider.updated@work",
             "model.updated@work",
-            "provider.updated@work",
-            "model.updated@work",
+            "credential.switched",
             "provider.updated@config",
             "model.updated@config",
-            "credential.switched",
             "provider.updated@config",
             "model.updated@config",
             "websearch.updated@config",
         ]
     );
-    // Booted: both locations announce. The three OpenAI provider plugins (ChatGPT, OpenAI, context caps) reload on
-    // the switch only when what they derive from the credential changed (2.2.7): an API key changes none of it.
+    // Booted: the policy plugin announces at both locations before the switch. The three OpenAI provider plugins
+    // (ChatGPT, OpenAI, context caps) reload on the switch only when what they derive from the credential changed
+    // (2.2.7): an API key changes none of it.
     let r = h.post("/api/credential", json!({ "integrationID": "openai", "value": { "type": "key", "key": "sk" } })).await;
     assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     settle().await;
-    let pairs = |at: &str, n: usize| -> Vec<String> {
-        (0..n).flat_map(|_| [format!("provider.updated@{at}"), format!("model.updated@{at}")]).collect()
-    };
-    let mut expected = vec!["credential.updated".to_string()];
-    expected.extend(pairs("work", 2));
-    expected.extend(pairs("config", 2));
-    expected.push("credential.switched".into());
-    assert_eq!(drain(&mut rx, &h), expected);
+    assert_eq!(
+        drain(&mut rx, &h),
+        [
+            "credential.updated",
+            "provider.updated@work",
+            "model.updated@work",
+            "provider.updated@config",
+            "model.updated@config",
+            "credential.switched",
+        ]
+    );
 }
 
 #[tokio::test]
