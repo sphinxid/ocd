@@ -25,7 +25,7 @@ struct Index {
     skills: Vec<IndexSkill>,
 }
 
-fn is_safe_segment(value: &str) -> bool {
+pub fn is_safe_segment(value: &str) -> bool {
     !value.is_empty() && value != "." && value != ".." && !value.contains('/') && !value.contains('\\') && !value.contains('\0')
 }
 

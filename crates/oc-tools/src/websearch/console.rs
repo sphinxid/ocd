@@ -1,5 +1,6 @@
-//! OpenCode Console web search (`plugin/provider/opencode.ts:357-413`):
-//! `POST ${server}/api/websearch` with the Console credential.
+//! OpenCode Console web search (`plugin/provider/opencode.ts` `search`): `POST ${server}/api/websearch` with the
+//! Console credential. The gateway may redirect, so redirects are followed by hand ([`oc_util::http::follow`]):
+//! at most five hops, and the credentials never cross to another origin.
 
 use super::http::{TIMEOUT, check_status, transport_error};
 use super::{ProviderError, ProviderInfo, Response, SearchProvider, SearchResult};
@@ -29,7 +30,7 @@ pub struct ConsoleProvider {
 }
 
 impl ConsoleProvider {
-    /// Builds its own client: the Console request refuses redirects (`redirect: "error"`).
+    /// Builds its own client, which leaves redirects to [`oc_util::http::follow`] (`redirect: "manual"`).
     pub fn new(provider_id: impl Into<String>, credential: ConsoleCredentialFn) -> Self {
         let client = oc_util::http::client_builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -68,21 +69,19 @@ impl SearchProvider for ConsoleProvider {
         let server = normalize_server(&rewrite_legacy_server(credential.server.as_deref().unwrap_or(DEFAULT_SERVER)))
             .map_err(ProviderError::new)?;
         let url = format!("{server}/api/websearch");
-        let mut request = self
-            .client
-            .post(&url)
-            .header("accept", "application/json")
-            .header("authorization", format!("Bearer {}", credential.token));
+        let mut headers = vec![("accept".to_string(), "application/json".to_string()), ("authorization".to_string(), format!("Bearer {}", credential.token))];
         if let Some(org) = credential.org_id.as_deref().filter(|o| !o.is_empty()) {
-            request = request.header("x-org-id", org);
+            headers.push(("x-org-id".into(), org.into()));
         }
         let body = json!({ "query": query, "providerID": self.provider_id });
-        let mut request = request.header("content-type", "application/json").body(body.to_string());
-        for (k, v) in oc_util::trace::headers() {
-            request = request.header(k, v);
-        }
+        headers.push(("content-type".into(), "application/json".into()));
+        headers.extend(oc_util::trace::headers().into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         let run = async {
-            let response = request.send().await.map_err(|e| transport_error("POST", &url, &e))?;
+            let response = oc_util::http::follow(&self.client, reqwest::Method::POST, &url, headers, Some(body.to_string())).await.map_err(|e| match e {
+                oc_util::http::FollowError::Transport(e) => transport_error("POST", &url, &e),
+                oc_util::http::FollowError::Redirect(message) => ProviderError::new(message),
+            })?;
+            let url = response.url().to_string();
             check_status(&response, "POST", &url)?;
             let text = response.text().await.map_err(|e| transport_error("POST", &url, &e))?;
             serde_json::from_str::<Response>(&text).map_err(|e| ProviderError::new(format!("DecodeError: {e}")))

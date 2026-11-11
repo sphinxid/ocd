@@ -1357,6 +1357,12 @@ impl Plugins {
         if !self.builtin_enabled(&location.key, "opencode.skill") {
             builtin.clear();
         }
+        // The OpenCode Console plugin (a provider plugin, after `opencode.skill`) adds the workspace's skills.
+        if self.builtin_enabled(&location.key, crate::console_config::PLUGIN_ID) {
+            for item in crate::console_config::skills(&location.key) {
+                crate::skills::add(&mut builtin, item.skill);
+            }
+        }
         let builtin = if self.host.get().is_some() {
             let value = json!({ "skills": builtin.iter().map(skill_json).collect::<Vec<_>>() });
             let out = self.transform(&location.key, "skill", value).await;

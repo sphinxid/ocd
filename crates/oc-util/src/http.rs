@@ -459,3 +459,74 @@ mod tests {
         }
     }
 }
+
+/// The most redirects [`follow`] takes.
+pub const MAX_REDIRECTS: usize = 5;
+const REDIRECT_STATUSES: [u16; 5] = [301, 302, 303, 307, 308];
+/// Headers that name or authenticate the caller. They stay with the original origin when a redirect leaves it.
+const CREDENTIAL_HEADERS: [&str; 4] = ["authorization", "cookie", "proxy-authorization", "x-org-id"];
+
+/// Why [`follow`] stopped without an answer.
+#[derive(Debug)]
+pub enum FollowError {
+    /// The request of one hop failed.
+    Transport(reqwest::Error),
+    /// Too many redirects, or one to a URL or protocol that cannot be followed.
+    Redirect(String),
+}
+
+impl std::fmt::Display for FollowError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FollowError::Transport(error) => write!(f, "{error}"),
+            FollowError::Redirect(message) => f.write_str(message),
+        }
+    }
+}
+
+/// Sends a request and follows its redirects by hand (the OpenCode Console plugin's `follow`), with a `client` that
+/// follows none: at most [`MAX_REDIRECTS`] hops through 301, 302, 303, 307 or 308 answers with a `Location`. A 303,
+/// and a 301 or 302 after a POST, become a bodyless GET, as fetch would send them. The credential headers stay with
+/// the original origin. The location is requested exactly as sent, so a presigned URL keeps its encoding.
+pub async fn follow(
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    url: &str,
+    headers: Vec<(String, String)>,
+    body: Option<String>,
+) -> Result<reqwest::Response, FollowError> {
+    let (mut method, mut url, mut headers, mut body) = (method, url.to_string(), headers, body);
+    let mut redirects = 0;
+    loop {
+        let mut request = client.request(method.clone(), &url);
+        for (name, value) in &headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        if let Some(body) = &body {
+            request = request.body(body.clone());
+        }
+        let response = request.send().await.map_err(FollowError::Transport)?;
+        let status = response.status().as_u16();
+        let location = response.headers().get("location").and_then(|v| v.to_str().ok()).map(String::from).filter(|l| !l.is_empty());
+        let Some(location) = location.filter(|_| REDIRECT_STATUSES.contains(&status)) else { return Ok(response) };
+        if redirects >= MAX_REDIRECTS {
+            return Err(FollowError::Redirect(format!("Too many redirects (more than {MAX_REDIRECTS})")));
+        }
+        let base = url::Url::parse(&url).map_err(|e| FollowError::Redirect(e.to_string()))?;
+        let target = base.join(&location).map_err(|_| FollowError::Redirect("Invalid URL".into()))?;
+        if target.scheme() != "http" && target.scheme() != "https" {
+            return Err(FollowError::Redirect(format!("redirect to unsupported protocol {}:", target.scheme())));
+        }
+        // Release this hop's connection before the next request; the redirect's own body is irrelevant.
+        let _ = response.bytes().await;
+        if status == 303 || ((status == 301 || status == 302) && method == reqwest::Method::POST) {
+            method = reqwest::Method::GET;
+            body = None;
+        }
+        if target.origin() != base.origin() {
+            headers.retain(|(name, _)| !CREDENTIAL_HEADERS.contains(&name.to_ascii_lowercase().as_str()));
+        }
+        url = target.to_string();
+        redirects += 1;
+    }
+}
