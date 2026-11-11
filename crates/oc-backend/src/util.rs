@@ -32,6 +32,42 @@ fn truncate(s: &str, n: usize) -> &str {
     }
 }
 
+/// A listed background job as the API's `Job.Info` (`JobList.toItem`).
+pub fn job_info(job: oc_core::job::ListedJob) -> oc_server::generated::JobInfo {
+    use oc_server::generated::{
+        JobImage, JobShell, JobStatus, JobSubagent, JobTime, LitImage, LitShell, LitSubagent,
+    };
+    use oc_tools::host::{JobRecovery, JobStatus as Status};
+    let status = match job.status {
+        Status::Running => JobStatus::Running,
+        Status::Completed => JobStatus::Completed,
+        Status::Error => JobStatus::Error,
+        Status::Cancelled => JobStatus::Cancelled,
+    };
+    let time = JobTime { started: job.started as f64, completed: job.completed.map(|c| c as f64) };
+    let (id, title) = (job.id, job.title);
+    match job.recovery {
+        JobRecovery::Shell { session_id, shell_id, command } => {
+            JobShell { kind: LitShell, id, session_id, status, title, time, shell_id, command }.into()
+        }
+        JobRecovery::Subagent { parent_session_id, child_session_id, agent, description } => JobSubagent {
+            kind: LitSubagent,
+            id,
+            session_id: parent_session_id,
+            status,
+            title,
+            time,
+            child_session_id,
+            agent,
+            description,
+        }
+        .into(),
+        JobRecovery::Image { session_id, path, model } => {
+            JobImage { kind: LitImage, id, session_id, status, title, time, path, model }.into()
+        }
+    }
+}
+
 /// Any unexpected failure → defect.
 pub fn defect(e: impl std::fmt::Display) -> ApiError {
     ApiError::defect(e.to_string())

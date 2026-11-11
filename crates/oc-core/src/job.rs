@@ -450,6 +450,57 @@ impl Jobs {
             .collect()
     }
 
+    /// `JobList.read` (`Job.backgroundJobs`): the persisted background jobs, oldest first, with the live job's
+    /// status, completion time and title when it is the same generation, then the backgrounded live jobs not stored
+    /// yet. Rows whose recovery does not decode are skipped.
+    pub fn background_jobs(&self) -> Vec<ListedJob> {
+        type Row = (String, String, String, Option<String>, String, i64, i64);
+        let rows: Vec<Row> = self
+            .db
+            .with(|c| {
+                let mut s = c.prepare(
+                    "SELECT id, notification_id, status, title, recovery, time_created, time_updated FROM job \
+                     ORDER BY time_created ASC, notification_id ASC",
+                )?;
+                let r = s
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
+                    .collect();
+                r
+            })
+            .unwrap_or_default();
+        let jobs = self.jobs.lock();
+        let mut seen = std::collections::HashSet::new();
+        let mut items = Vec::new();
+        for (id, notification_id, status, title, recovery, created, updated) in rows {
+            let Some(recovery) = decode_recovery(&recovery) else { continue };
+            seen.insert(notification_id.clone());
+            let live = jobs.get(&id).filter(|live| live.info.notification_id.as_deref() == Some(notification_id.as_str()));
+            let (status, completed, title) = match live {
+                Some(live) => (live.info.status, live.info.completed_at, live.info.title.clone().or(title)),
+                None => {
+                    let status = parse_status(&status);
+                    (status, (status != JobStatus::Running).then_some(updated as u64), title)
+                }
+            };
+            items.push(ListedJob { id, status, title, started: created as u64, completed, recovery });
+        }
+        for live in jobs.values() {
+            let Some(recovery) = live.recovery.clone().filter(|_| live.is_bg) else { continue };
+            if live.info.notification_id.as_ref().is_some_and(|nid| seen.contains(nid)) {
+                continue;
+            }
+            items.push(ListedJob {
+                id: live.info.id.clone(),
+                status: live.info.status,
+                title: live.info.title.clone(),
+                started: live.info.started_at,
+                completed: live.info.completed_at,
+                recovery,
+            });
+        }
+        items
+    }
+
     pub fn complete_background(&self, notification_id: &str) {
         if let Err(e) = self.db.with(|c| c.execute("DELETE FROM job WHERE notification_id = ?", [notification_id])) {
             tracing::error!(error = %e, notificationID = notification_id, "failed to complete background job");
@@ -462,6 +513,76 @@ impl Jobs {
             }
         }
     }
+}
+
+/// `RecoverySchema` decoding: the session ids must be `Session.ID`s (starting with `ses`).
+fn decode_recovery(text: &str) -> Option<JobRecovery> {
+    let recovery: JobRecovery = serde_json::from_str(text).ok()?;
+    let ids: Vec<&str> = match &recovery {
+        JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } => vec![session_id],
+        JobRecovery::Subagent { parent_session_id, child_session_id, .. } => vec![parent_session_id, child_session_id],
+    };
+    ids.iter().all(|id| id.starts_with("ses")).then_some(recovery)
+}
+
+/// A background job as `experimental.job.list` reports it (`JobList.Item`, the schema's `Job.Info`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListedJob {
+    pub id: String,
+    pub status: JobStatus,
+    pub title: Option<String>,
+    pub started: u64,
+    pub completed: Option<u64>,
+    pub recovery: JobRecovery,
+}
+
+impl ListedJob {
+    pub fn kind(&self) -> &'static str {
+        recovery_kind(&self.recovery)
+    }
+
+    /// The owning session: a subagent's parent.
+    pub fn session_id(&self) -> &str {
+        owner_session(&self.recovery)
+    }
+}
+
+/// `SessionBackground.ListFilter`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ListFilter {
+    pub session_id: Option<String>,
+    pub kind: Option<String>,
+    pub status: Option<JobStatus>,
+    pub descendants: bool,
+}
+
+/// `SessionBackground.list`: the background jobs matching the kind and status, and with a session, the ones it owns
+/// or, with `descendants`, the ones any session descending from it owns. `parent` gives a session's parent.
+pub fn list_background(jobs: Vec<ListedJob>, filter: &ListFilter, parent: impl Fn(&str) -> Option<String>) -> Vec<ListedJob> {
+    let items = jobs
+        .into_iter()
+        .filter(|item| filter.kind.as_deref().is_none_or(|kind| item.kind() == kind))
+        .filter(|item| filter.status.is_none_or(|status| item.status == status));
+    let Some(session) = filter.session_id.as_deref() else { return items.collect() };
+    if !filter.descendants {
+        return items.filter(|item| item.session_id() == session).collect();
+    }
+    let mut parents: HashMap<String, Option<String>> = HashMap::new();
+    let mut descends = |from: &str| {
+        let mut seen = std::collections::HashSet::new();
+        let mut current = Some(from.to_string());
+        while let Some(id) = current {
+            if id == session {
+                return true;
+            }
+            if !seen.insert(id.clone()) {
+                return false;
+            }
+            current = parents.entry(id.clone()).or_insert_with(|| parent(&id)).clone();
+        }
+        false
+    };
+    items.filter(|item| descends(item.session_id())).collect()
 }
 
 /// `SubagentCompletion.deliver`: admit the `<subagent>` notice in the parent (waking it unless `resume` is false)

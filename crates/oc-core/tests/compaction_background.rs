@@ -59,13 +59,18 @@ fn text_user(text: &str) -> Message {
     msg(json!({"type": "user", "id": oc_schema::id::message(), "time": {"created": 0}, "text": text}))
 }
 
+/// A response measured at `input` tokens, written now: background summaries start only while its prompt is cached.
 fn measured(text: &str, input: u64) -> Message {
+    measured_at(text, input, oc_schema::id::now_ms())
+}
+
+fn measured_at(text: &str, input: u64, created: u64) -> Message {
     msg(json!({
         "type": "assistant", "id": oc_schema::id::message(), "agent": "build",
         "model": {"id": "m1", "providerID": "mock"},
         "content": [{"type": "text", "text": text}],
         "tokens": {"input": input, "output": 100, "reasoning": 0, "cache": {"read": 0, "write": 0}},
-        "time": {"created": 0, "completed": 1}
+        "time": {"created": created, "completed": created + 1}
     }))
 }
 
@@ -89,8 +94,8 @@ fn old_reasoning(input: u64) -> Message {
     }))
 }
 
-/// A 200k window compacts at 170k and starts a background summary at 85% of that, 144.5k. `near` ends past that
-/// point; `due` continues it past the threshold.
+/// A 200k window compacts at 170k. The first response measured 80k, so a background summary starts half that room,
+/// 45k, before the threshold, at 125k. `near` ends past that point; `due` continues it past the threshold.
 struct History {
     near: Vec<Message>,
     due: Vec<Message>,
@@ -260,7 +265,8 @@ async fn scenarios() {
     Box::pin(async {
         for background in [false, true] {
             h.reset();
-            let messages = vec![text_user("Earlier question"), old_reasoning(INPUT), text_user("Latest question"), measured("Latest answer", INPUT)];
+            // The cycle starts low, so the latest response is past the point where a background summary starts.
+            let messages = vec![text_user("Earlier question"), old_reasoning(INPUT / 4), text_user("Latest question"), measured("Latest answer", INPUT)];
             let context = h.context(&summary, messages.clone()).await;
             let summarized = h.with(&context, if background { messages[..3].to_vec() } else { messages.clone() });
             let (normal, _) = h.engine.request(&summarized, false);
@@ -430,9 +436,10 @@ async fn scenarios() {
         h.reset();
         let history = precompute_history();
         let near = h.context(&on, history.near.clone()).await;
-        // About 35k tokens arrived after the summarized prefix, past the 30k that may stay verbatim beside it.
+        // About 75k tokens arrived after the summarized prefix, past the 68k (40% of the 170k budget) that may stay
+        // verbatim beside it.
         let mut behind = history.near.clone();
-        behind.extend([text_user(&"x".repeat(140_000)), measured("Burst handled", 160_000)]);
+        behind.extend([text_user(&"x".repeat(300_000)), measured("Burst handled", 160_000)]);
         h.engine.precompute(&near, false).await.unwrap();
         h.engine.precompute(&h.with(&near, behind.clone()), false).await.unwrap();
         let mut due = behind.clone();
@@ -486,8 +493,9 @@ async fn scenarios() {
     Box::pin(async {
         let history = precompute_history();
         let near = h.context(&on, history.near.clone()).await;
+        // About 75k tokens arrived after the summarized prefix, past the 68k that may stay verbatim beside it.
         let mut burst = history.near.clone();
-        burst.extend([text_user(&"x".repeat(140_000)), measured("Burst handled", 182_000)]);
+        burst.extend([text_user(&"x".repeat(300_000)), measured("Burst handled", 182_000)]);
         h.reset();
         h.engine.precompute(&near, false).await.unwrap();
         assert_eq!(h.auto(&h.with(&near, burst)).await, CompactOutcome::Completed);
@@ -499,6 +507,92 @@ async fn scenarios() {
         switched.resolved.model.id = "other".into();
         assert_eq!(h.auto(&switched).await, CompactOutcome::Completed);
         assert!(h.requests().last().unwrap()["messages"].to_string().contains("Third answer"));
+    })
+    .await;
+
+    // The one request of an automatic compaction after two background attempts, as JSON text.
+    let swapped_in = |context: Loaded, before: Vec<Message>, within: Vec<Message>, due: Vec<Message>| {
+        let h = &h;
+        async move {
+            h.reset();
+            h.engine.precompute(&h.with(&context, before), false).await.unwrap();
+            h.engine.precompute(&h.with(&context, within), false).await.unwrap();
+            assert_eq!(h.auto(&h.with(&context, due)).await, CompactOutcome::Completed);
+            let requests = h.requests();
+            assert_eq!(requests.len(), 1);
+            requests[0]["messages"].to_string()
+        }
+    };
+
+    // ---- a background summary keeps a tail longer than twice keep while it stays under 40% of the budget (2.2.7)
+    Box::pin(async {
+        let history = precompute_history();
+        let near = h.context(&on, history.near.clone()).await;
+        // About 35k tokens arrived after the summarized prefix: more than twice keep, less than 68k.
+        let mut burst = history.near.clone();
+        burst.extend([text_user(&"x".repeat(140_000)), measured("Burst handled", 160_000)]);
+        let mut due = burst.clone();
+        due.extend([text_user("Next question"), measured("Next answer", 182_000)]);
+        // The first summary was kept and swapped in: it ends before the response it was started from.
+        let summarized = swapped_in(near, history.near, burst, due).await;
+        assert!(summarized.contains("Second question") && !summarized.contains("Second answer"), "{summarized}");
+    })
+    .await;
+
+    // ---- a background summary starts a fixed lead before the threshold, not at a share of it
+    Box::pin(async {
+        // A 1M window compacts at 850k, so a background summary starts 60k before that, at 790k.
+        let mut large = h.context(&on, vec![]).await;
+        (large.resolved.model.limit.context, large.resolved.model.limit.output) = (1_000_000, 128_000);
+        let early = vec![text_user("First question"), measured("First answer", 100_000), text_user("Second question")];
+        let before = [early, vec![measured("Second answer", 760_000)]].concat();
+        let within = [before.clone(), vec![text_user("Third question"), measured("Third answer", 800_000)]].concat();
+        let due = [within.clone(), vec![text_user("Fourth question"), measured("Fourth answer", 860_000)]].concat();
+        // 760k is past 85% of the threshold, but still more than the lead away from it.
+        let summarized = swapped_in(large, before, within, due).await;
+        assert!(summarized.contains("Third question") && !summarized.contains("Third answer"));
+    })
+    .await;
+
+    // ---- a background summary starts on a window whose threshold is under 64k
+    Box::pin(async {
+        // A 64k window compacts at 48k. The first response measured 20k, so half that room, 14k, sets the start at 34k.
+        let mut small = h.context(&on, vec![]).await;
+        (small.resolved.model.limit.context, small.resolved.model.limit.output) = (64_000, 16_000);
+        let early = vec![text_user("First question"), measured("First answer", 20_000), text_user("Second question")];
+        let before = [early, vec![measured("Second answer", 30_000)]].concat();
+        let within = [before.clone(), vec![text_user("Third question"), measured("Third answer", 40_000)]].concat();
+        let due = [within.clone(), vec![text_user("Fourth question"), measured("Fourth answer", 50_000)]].concat();
+        let summarized = swapped_in(small, before, within, due).await;
+        assert!(summarized.contains("Third question") && !summarized.contains("Third answer"));
+    })
+    .await;
+
+    // ---- a background summary waits for a response whose prompt is still cached
+    Box::pin(async {
+        let now = oc_schema::id::now_ms();
+        let ten_minutes_ago = now - 10 * 60_000;
+        // The latest response was written ten minutes ago; then a new one arrives.
+        let near = vec![
+            text_user("First question"),
+            measured_at("First answer", 80_000, ten_minutes_ago),
+            text_user("Second question"),
+            measured_at("Second answer", 156_000, ten_minutes_ago),
+        ];
+        let resumed = [near.clone(), vec![text_user("Third question"), measured("Third answer", 160_000)]].concat();
+        let due = [resumed.clone(), vec![text_user("Fourth question"), measured("Fourth answer", 182_000)]].concat();
+        // Past the default five-minute cache, the summary starts from the next response instead.
+        let cold = h.context(&on, vec![]).await;
+        assert!(swapped_in(cold, near.clone(), resumed.clone(), due.clone()).await.contains("Third question"));
+        // A model that keeps its cache for an hour summarizes the older response right away.
+        let mut hour = h.context(&on, vec![]).await;
+        hour.resolved.cache = Some(serde_json::from_value(json!({"ttl": "1h"})).unwrap());
+        assert!(!swapped_in(hour, near, resumed, due).await.contains("Third question"));
+        assert_eq!(
+            [None, Some("1h"), Some("90s"), Some("250ms"), Some("2d"), Some("5"), Some("m"), Some("1.5h")]
+                .map(oc_core::compaction::cache_lifetime),
+            [300_000, 3_600_000, 90_000, 250, 172_800_000, 300_000, 300_000, 300_000]
+        );
     })
     .await;
 

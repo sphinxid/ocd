@@ -225,6 +225,23 @@ impl Backend for Engine {
         Ok(())
     }
 
+    /// `GET /api/experimental/job` (handlers/job.ts): an unknown session is a 404 before anything is listed.
+    async fn experimental_job_list(&self, _ctx: &RequestContext, req: ExperimentalJobListRequest) -> Result<Vec<JobInfo>, ApiError> {
+        if let Some(session) = &req.session_id {
+            self.session(session)?;
+        }
+        let filter = oc_core::job::ListFilter {
+            session_id: req.session_id,
+            kind: req.kind.map(|kind| kind.as_str().to_string()),
+            status: req.status.map(|status| oc_core::job::parse_status(status.as_str())),
+            descendants: req.descendants == Some(true),
+        };
+        let db = &self.app.db;
+        let parent = |id: &str| db.session_get(id).ok().flatten().and_then(|s| s.parent_id);
+        let jobs = oc_core::job::list_background(self.app.jobs.background_jobs(), &filter, parent);
+        Ok(jobs.into_iter().map(crate::util::job_info).collect())
+    }
+
     async fn session_revert_stage(&self, _ctx: &RequestContext, req: SessionRevertStageRequest) -> Result<SessionRevert, ApiError> {
         self.revert_stage(&req.session_id, &req.body.message_id, req.body.files).await
     }

@@ -73,14 +73,18 @@ pub const IMAGE_TOKEN_ESTIMATE: u64 = 1_500;
 pub const PDF_TOKEN_ESTIMATE: u64 = 2_000;
 /// Default `keep` (tokens of recent conversation kept verbatim beside the summary).
 pub const DEFAULT_KEEP: u64 = 15_000;
-/// Share of the compaction ceiling at which a background summary starts.
-pub const PRECOMPUTE_RATIO: f64 = 0.85;
-/// Measured prompt tokens below which a background summary is not worth its cost.
-pub const PRECOMPUTE_MIN_TOKENS: u64 = 64_000;
-/// The most text a swapped-in summary keeps verbatim beside it: twice `keep`, at least 30k, at most a quarter of the
-/// budget. A longer tail would leave the context near the threshold, so compaction summarizes from scratch instead.
-pub const PRECOMPUTED_TAIL_MIN: i64 = 30_000;
-pub const PRECOMPUTED_TAIL_SHARE: f64 = 0.25;
+/// Tokens before the ceiling at which a background summary starts. Writing one takes 30–60 s, and in that time the
+/// conversation grows by a few thousand tokens at the median but by 25k or more one time in twenty, when large file
+/// reads arrive together. How far ahead to start depends on that growth, not on the window, so the lead is fixed.
+pub const PRECOMPUTE_LEAD: f64 = 60_000.0;
+/// Prompt caches expire this long after their last use unless the model sets `cache.ttl`.
+pub const CACHE_LIFETIME: i64 = 5 * 60_000;
+/// A background summary starts only while this much of the latest response's cache lifetime is left.
+pub const CACHE_MARGIN: i64 = 30_000;
+/// The most text a swapped-in summary keeps verbatim beside it, and the tail at which a held summary is replaced, as
+/// a share of the budget. At 40%, a swapped-in context stays under about two thirds of the budget, so the next cycle
+/// keeps room; a longer tail makes compaction summarize from scratch instead.
+pub const PRECOMPUTED_TAIL_SHARE: f64 = 0.4;
 /// Failed background summaries after which no new one starts until the next compaction.
 pub const PRECOMPUTE_MAX_FAILURES: u32 = 2;
 
@@ -853,9 +857,32 @@ fn tail_tokens(messages: &[Message], index: usize) -> i64 {
     token_estimate(&text.join("\n\n")) as i64
 }
 
-/// `tailLimit(keep, budget)`
-fn tail_limit(keep: u64, budget: i64) -> i64 {
-    (keep as i64 * 2).max(PRECOMPUTED_TAIL_MIN).min((budget as f64 * PRECOMPUTED_TAIL_SHARE).floor() as i64)
+/// `tailLimit(budget)`
+fn tail_limit(budget: i64) -> i64 {
+    (budget as f64 * PRECOMPUTED_TAIL_SHARE).floor() as i64
+}
+
+/// `promptTokens(tokens)`: everything the provider read for a prompt.
+fn prompt_tokens(tokens: &oc_schema::TokenUsage) -> u64 {
+    tokens.input + tokens.cache.read + tokens.cache.write
+}
+
+/// `cacheLifetime(ttl)`: milliseconds a prompt cache entry lives, from a `cache.ttl` such as "5m" or "1h".
+pub fn cache_lifetime(ttl: Option<&str>) -> i64 {
+    let parsed = ttl.and_then(|ttl| {
+        let digits = ttl.find(|c: char| !c.is_ascii_digit()).filter(|end| *end > 0)?;
+        let unit = match &ttl[digits..] {
+            "ms" => 1,
+            "s" => 1_000,
+            "m" => 60_000,
+            "h" => 3_600_000,
+            "d" => 86_400_000,
+            _ => return None,
+        };
+        // `Number(match[1])`: a huge count is a float, never an overflow.
+        Some((ttl[..digits].parse::<f64>().ok()? * unit as f64).min(i64::MAX as f64) as i64)
+    });
+    parsed.unwrap_or(CACHE_LIFETIME)
 }
 
 /// The conversation as the runner would send it, after request hooks (`Prepared`).
@@ -1094,6 +1121,7 @@ impl Run<'_> {
         history: &LLMRequest,
         measured_size: Option<(u64, u64)>,
         history_is_prepared: bool,
+        text: bool,
     ) -> Result<Res, Fail> {
         if let Some(text) = &prepared.result {
             return Ok(Res { text: text.clone(), native: None, metadata: None });
@@ -1103,7 +1131,7 @@ impl Run<'_> {
         let mut policy = crate::retry::Policy::default();
         let mut rejections = 0usize;
         let mut rejected: Option<u64> = None;
-        let mut as_text = false;
+        let mut as_text = text;
         let mut fit = fit;
         loop {
             let measured = if rejections == 0 { measured_size } else { None };
@@ -1193,8 +1221,10 @@ impl Run<'_> {
         let fit = if *self.trigger == Trigger::Overflow { budget } else { budget.max(summary_room(limit.context, limit.input, output)) };
         let history = without_tail(&prepared.request, keep_id.as_deref());
         let history_is_prepared = !keep_id.as_deref().is_some_and(|k| prepared.request.messages.iter().any(|m| m.id.as_deref() == Some(k)));
+        // The provider just rejected this conversation, so sending it unchanged again would be rejected too.
+        let overflow = *self.trigger == Trigger::Overflow;
         let mut result = self
-            .deliver(&prepared, Mode::Summary { prompt }, budget - overhead, fit - overhead, &history, measured, history_is_prepared)
+            .deliver(&prepared, Mode::Summary { prompt }, budget - overhead, fit - overhead, &history, measured, history_is_prepared, overflow)
             .await?;
         let Some(keep_id) = keep_id else { return Ok(result) };
         // A compaction hook may choose its own kept range.
@@ -1212,7 +1242,7 @@ impl Run<'_> {
         }
         let prepared = self.prepare(messages, budget).await?;
         let history = prepared.request.clone();
-        self.deliver(&prepared, Mode::Native, budget, budget, &history, None, true).await
+        self.deliver(&prepared, Mode::Native, budget, budget, &history, None, true, false).await
     }
 
     fn publish(&self, outcome: Result<Res, SessionError>) -> anyhow::Result<CompactOutcome> {
@@ -1385,7 +1415,7 @@ async fn use_precomputed(run: &Run<'_>, held: Precomputed, budget: i64, settings
     let usable = settings.precompute
         && *run.trigger != Trigger::Overflow
         && run.model.compaction.as_deref() != Some("native")
-        && index.is_some_and(|i| tail_tokens(messages, i) <= tail_limit(settings.keep, budget));
+        && index.is_some_and(|i| tail_tokens(messages, i) <= tail_limit(budget));
     let Precomputed { keep_id, usage, task, .. } = held;
     let mut task = AbortOnDrop(task);
     if !usable {
@@ -1407,8 +1437,9 @@ async fn use_precomputed(run: &Run<'_>, held: Precomputed, budget: i64, settings
 }
 
 impl Engine {
-    /// `precompute`: once the context passes `PRECOMPUTE_RATIO` of the ceiling, summarizes everything before the
-    /// latest response in the background. That is the prefix the provider just processed, so the summary request
+    /// `precompute`: once the context is within `PRECOMPUTE_LEAD` of the ceiling (at most half the room the cycle
+    /// started with), and the latest response's prompt cache still has `CACHE_MARGIN` to live, summarizes everything
+    /// before that response in the background. That is the prefix the provider just processed, so the summary request
     /// reads it from the prompt cache. The summary is held, not applied: swapping it in now would rewrite the prefix
     /// and throw away the cache for every step until compaction is actually due. One summary is held per session
     /// until compaction takes it, or until it fails or falls too far behind, when a newer response replaces it.
@@ -1435,17 +1466,23 @@ impl Engine {
         if self.compaction_due_with(loaded, Some(ceiling), Some(estimate)) {
             return Ok(());
         }
-        if ((estimate.0 + estimate.1) as f64) < ceiling as f64 * PRECOMPUTE_RATIO {
-            return Ok(());
-        }
         let model_ref = loaded.resolved.model_ref();
         let messages = &loaded.messages;
+        // On a small window the lead is at most half the room the cycle started with, so the summary still covers
+        // more than the previous one.
+        let cycle_start = match messages.iter().find(|m| has_measured_prompt(m, &model_ref)) {
+            Some(Message::Assistant(first)) => first.tokens.as_ref().map(prompt_tokens).unwrap_or(0),
+            _ => 0,
+        };
+        let lead = PRECOMPUTE_LEAD.min((ceiling as f64 - cycle_start as f64) / 2.0);
+        if ((estimate.0 + estimate.1) as f64) < ceiling as f64 - lead {
+            return Ok(());
+        }
         let Some(anchor_index) = messages.iter().rposition(|m| has_measured_prompt(m, &model_ref)).filter(|i| *i > 0) else {
             return Ok(());
         };
         let Message::Assistant(anchor) = &messages[anchor_index] else { return Ok(()) };
-        let Some(tokens) = &anchor.tokens else { return Ok(()) };
-        if tokens.input + tokens.cache.read + tokens.cache.write < PRECOMPUTE_MIN_TOKENS {
+        if anchor.tokens.is_none() {
             return Ok(());
         }
         let session_id = loaded.sel.session.id.clone();
@@ -1468,6 +1505,12 @@ impl Engine {
         }
         // After a model switch nothing is cached for the new model yet; wait until its first response has written it.
         if anchor.model.id != model_ref.id || anchor.model.variant != model_ref.variant {
+            return Ok(());
+        }
+        // The same once the latest response is older than the cache lifetime, as when the user comes back from a
+        // break: the summary would write the whole prefix again, at the same time as the next request.
+        let age = oc_schema::id::now_ms() as i64 - anchor.time.created as i64;
+        if age > cache_lifetime(loaded.resolved.cache_ttl()) - CACHE_MARGIN {
             return Ok(());
         }
         let model = self.compaction_model(loaded).await.unwrap_or_else(|| loaded.resolved.clone());
@@ -1505,7 +1548,7 @@ impl Engine {
                 keep_id: anchor.id.clone(),
                 model: model_ref,
                 initial: loaded.initial.clone(),
-                tail_limit: tail_limit(settings.keep, cap),
+                tail_limit: tail_limit(cap),
                 failures,
                 usage,
                 state,

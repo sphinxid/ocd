@@ -482,6 +482,93 @@ async fn session_move() {
     assert_eq!(inbox["data"][0]["payload"]["location"]["directory"], json!(other.display().to_string()));
 }
 
+/// The `opencode.session_move` tool moves sessions through the same `Session.move` (steer delivery, #62204).
+#[tokio::test]
+async fn session_mover_for_tools() {
+    let h = harness();
+    let id = h.session().await;
+    let other = h.cwd.parent().unwrap().join("moved-by-tool");
+    std::fs::create_dir_all(&other).unwrap();
+    let mover = h.engine.app.session_mover.get().expect("the server installs the session mover").clone();
+    let missing = oc_git::paths::resolve(&h.cwd, "/definitely/missing");
+    let error = mover(id.clone(), missing.display().to_string()).await.unwrap_err();
+    assert_eq!(error, format!("Directory does not exist: {}", missing.display()));
+    mover(id.clone(), other.display().to_string()).await.unwrap();
+    let inbox = h.get(&format!("/api/session/{id}/inbox")).await.json();
+    assert_eq!((inbox["data"][0]["type"].clone(), inbox["data"][0]["delivery"].clone()), (json!("move"), json!("steer")));
+    assert_eq!(inbox["data"][0]["payload"]["location"]["directory"], json!(other.display().to_string()));
+}
+
+/// `GET /api/experimental/job` (#60698): persisted rows oldest first with the live generation's state, then live
+/// backgrounded jobs; filtered by kind, status and session, with descendants through the parent chain.
+#[tokio::test]
+async fn experimental_job_list() {
+    use oc_tools::host::JobRecovery;
+    let h = harness();
+    let parent = h.session().await;
+    let r = h.post("/api/session", json!({"parentID": parent})).await;
+    let child = r.json()["data"]["id"].as_str().unwrap().to_string();
+    let jobs = h.engine.app.jobs.clone();
+    let shell = JobRecovery::Shell { session_id: parent.clone(), shell_id: "sh_1".into(), command: "sleep 9".into() };
+    jobs.start("sh_1".into(), "shell".into(), Some("sleep 9".into()), Some(shell), Box::pin(futures::future::pending()));
+    jobs.background("sh_1").unwrap();
+    let subagent = JobRecovery::Subagent {
+        parent_session_id: child.clone(),
+        child_session_id: "ses_grandchild".into(),
+        agent: "explore".into(),
+        description: "Look around".into(),
+    };
+    jobs.start("job_2".into(), "subagent".into(), None, Some(subagent), Box::pin(async { Ok("done".to_string()) }));
+    jobs.background("job_2").unwrap();
+    // A row whose recovery is not a valid record is skipped.
+    h.engine
+        .app
+        .db
+        .with(|c| {
+            c.execute(
+                "INSERT INTO job (notification_id, id, session_id, kind, title, status, recovery, time_created, time_updated) \
+                 VALUES ('msg_bad', 'bad', 'x', 'shell', NULL, 'running', '{\"kind\":\"shell\",\"sessionID\":\"nope\"}', 1, 1)",
+                [],
+            )
+        })
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let all = h.get("/api/experimental/job").await;
+    assert_eq!(all.status, 200, "{:?}", String::from_utf8_lossy(&all.body));
+    let data = all.json()["data"].clone();
+    assert_eq!(data.as_array().unwrap().len(), 2, "{data}");
+    let shell = &data[0];
+    let keys: Vec<&str> = shell.as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(keys, ["kind", "id", "sessionID", "status", "title", "time", "shellID", "command"]);
+    assert_eq!((shell["status"].clone(), shell["time"].get("completed")), (json!("running"), None));
+    let sub = &data[1];
+    assert_eq!(
+        (sub["kind"].clone(), sub["sessionID"].clone(), sub["childSessionID"].clone(), sub["status"].clone(), sub["title"].clone()),
+        (json!("subagent"), json!(child), json!("ses_grandchild"), json!("completed"), json!("Look around"))
+    );
+    assert!(sub["time"]["completed"].is_number());
+
+    let ids = |uri: &str| {
+        let h = &h;
+        let uri = uri.to_string();
+        async move {
+            let r = h.get(&uri).await;
+            assert_eq!(r.status, 200, "{uri}: {:?}", String::from_utf8_lossy(&r.body));
+            r.json()["data"].as_array().unwrap().iter().map(|j| j["id"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(ids("/api/experimental/job?kind=subagent").await, ["job_2"]);
+    assert_eq!(ids("/api/experimental/job?status=running").await, ["sh_1"]);
+    assert_eq!(ids(&format!("/api/experimental/job?sessionID={parent}")).await, ["sh_1"]);
+    assert_eq!(ids(&format!("/api/experimental/job?sessionID={parent}&descendants=true")).await, ["sh_1", "job_2"]);
+    assert_eq!(ids(&format!("/api/experimental/job?sessionID={child}&descendants=false")).await, ["job_2"]);
+    let missing = h.get("/api/experimental/job?sessionID=ses_missing").await;
+    assert_eq!(missing.status, 404);
+    assert_eq!(missing.json()["_tag"], json!("SessionNotFoundError"));
+    jobs.cancel("sh_1");
+}
+
 #[tokio::test]
 async fn vcs_on_git_repository() {
     if !git_available() {

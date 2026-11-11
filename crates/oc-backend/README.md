@@ -63,7 +63,11 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `environment`, `view`, `active`, `shell` (runner `session_shell`, awaited like upstream; 500
   without a runner), `background` (`app.jobs.background_all` + the synthetic notice + wake).
   Subagent config commands create a child session and start/background a `SubagentJob` through
-  `oc_core::host::CoreHost`.
+  `oc_core::host::CoreHost`. The engine installs `app.session_mover`, so the `opencode.session_move` tool moves
+  sessions through the same `move` with steer delivery.
+* **job**: `experimental.job.list` (`GET /api/experimental/job`, 2.2.7): `app.jobs.background_jobs()` filtered by
+  `oc_core::job::list_background` (kind, status, owning session, `descendants` through the parent chain); an unknown
+  `sessionID` is a 404 `SessionNotFoundError`.
 * **generate**: `session.generate` (`runner.session_generate`; NotFound → 404, else 503
   `{service:"session generation"}`), `experimental.generate.text` and its deprecated alias
   `experimental.generate.textLegacy` (`runner.generate_text` at the global config directory after
