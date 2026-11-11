@@ -43,7 +43,10 @@ fn encode_questions(questions: &[Object]) -> Result<Object, AIError> {
         let name = question.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
         let instructions = question.get("instructions").cloned().unwrap_or(Value::Null);
         let value = match question.get("type").and_then(Value::as_str) {
-            Some("predicate") => json!({ "type": "noul", "instructions": instructions }),
+            Some("predicate") => match question.get("criteria") {
+                Some(criteria) => json!({ "type": "noul", "instructions": instructions, "criteria": criteria }),
+                None => json!({ "type": "noul", "instructions": instructions }),
+            },
             Some("score") => {
                 let criteria: Vec<Value> = question
                     .get("levels")

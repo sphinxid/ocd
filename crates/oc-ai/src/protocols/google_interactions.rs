@@ -216,7 +216,6 @@ impl Protocol for GoogleInteractions {
             lifecycle: Lifecycle::new(),
             steps: BTreeMap::new(),
             tools: ToolStream::new(ADAPTER),
-            completed: false,
         })
     }
     fn sanitizer(&self) -> Option<&'static str> {
@@ -284,7 +283,6 @@ struct Parser {
     lifecycle: Lifecycle,
     steps: BTreeMap<i64, Value>,
     tools: ToolStream,
-    completed: bool,
 }
 
 impl Parser {
@@ -426,8 +424,17 @@ impl Parser {
             "interaction.created" | "interaction.status_update" => {}
             "error" => {
                 let raw = encode(event);
-                let message = provider_error_message(&raw).unwrap_or_else(|| "Google Interactions stream error".into());
-                return Err(classify_provider_failure(ProviderFailure { message, data: event.get("error").cloned(), raw_body: Some(raw), ..Default::default() }));
+                // `{code?, error_type?, message?}`: a malformed field reads as absent.
+                let error = event.get("error").filter(|e| e.is_object());
+                let field = |k: &str| error.and_then(|e| e.get(k)).and_then(Value::as_str);
+                let code = field("code").or_else(|| field("error_type"));
+                let message = field("message")
+                    .map(str::trim)
+                    .filter(|m| !m.is_empty())
+                    .map(String::from)
+                    .or_else(|| provider_error_message(&raw).filter(|m| !m.is_empty()))
+                    .unwrap_or_else(|| "Google Interactions stream error".into());
+                return Err(failure_reason(&self.label, code, message, event.get("error").cloned(), raw));
             }
             "interaction.completed" => {
                 let interaction = event.get("interaction").filter(|i| i.get("status").map(Value::is_string).unwrap_or(false)).ok_or_else(invalid)?;
@@ -452,21 +459,19 @@ impl Parser {
                         .filter_map(|e| e.get("message").and_then(Value::as_str))
                         .filter(|m| !m.trim().is_empty())
                         .collect();
-                    return Err(classify_provider_failure(ProviderFailure {
-                        message: if messages.is_empty() { format!("Google Interactions {status}") } else { messages.join("\n") },
+                    let coded = errors.iter().find(|e| e.get("code").and_then(Value::as_str).is_some_and(|c| !c.is_empty()));
+                    return Err(failure_reason(
+                        &self.label,
+                        coded.and_then(|e| e.get("code")).and_then(Value::as_str),
+                        if messages.is_empty() { format!("Google Interactions {status}") } else { messages.join("\n") },
                         // The first coded error decides the classification; every message stays visible.
-                        data: Some(
-                            errors
-                                .iter()
-                                .find(|e| e.get("code").and_then(Value::as_str).is_some_and(|c| !c.is_empty()))
-                                .unwrap_or(interaction)
-                                .clone(),
-                        ),
-                        raw_body: Some(encode(event)),
-                        ..Default::default()
-                    }));
+                        Some(coded.unwrap_or(interaction).clone()),
+                        encode(event),
+                    ));
                 }
+                let has_tool_calls = self.steps.values().any(|s| s.get("type").and_then(Value::as_str) == Some("function_call"));
                 let normalized = match status {
+                    "completed" if has_tool_calls => FinishReason::ToolCalls,
                     "completed" => FinishReason::Stop,
                     "requires_action" => FinishReason::ToolCalls,
                     "incomplete" => FinishReason::Length,
@@ -481,7 +486,6 @@ impl Parser {
                 let mut pm = Object::new();
                 pm.insert(self.key.clone(), Value::Object(inner));
                 self.lifecycle.finish(&mut events, FinishReasonDetails::raw(normalized, Some(status.into())), usage, Some(pm));
-                self.completed = true;
                 return Ok(Step::terminal(events));
             }
             _ => {}
@@ -495,11 +499,18 @@ impl StreamParser for Parser {
         let event = decode_json_frame(ADAPTER, &self.label, frame)?;
         self.handle(&event)
     }
-    fn on_halt(&mut self) -> Result<Vec<LLMEvent>, AIError> {
-        if self.completed {
-            Ok(vec![])
-        } else {
-            Err(AIError::invalid_output(ADAPTER, "Google Interactions stream ended before interaction.completed"))
-        }
+}
+
+const RECOVERABLE_CODES: &[&str] = &["MALFORMED_FUNCTION_CALL", "MALFORMED_TOOL_CALL", "UNEXPECTED_TOOL_CALL", "MALFORMED_RESPONSE"];
+const INVALID_OUTPUT_CODES: &[&str] = &["MISSING_THOUGHT_SIGNATURE", "TOO_MANY_TOOL_CALLS", "NO_IMAGE"];
+
+/// `failureReason(route, code, message, data, rawBody)`: Gemini's output codes classify before the generic rules.
+fn failure_reason(route: &str, code: Option<&str>, message: String, data: Option<Value>, raw_body: String) -> AIError {
+    let normalized = code.map(|c| c.trim().to_uppercase().replace('-', "_")).filter(|c| !c.is_empty());
+    match normalized.as_deref() {
+        Some(c) if RECOVERABLE_CODES.contains(&c) => AIError::incomplete_stream(route, message).with_body(raw_body),
+        Some(c) if INVALID_OUTPUT_CODES.contains(&c) => AIError::invalid_output(route, message).with_body(raw_body),
+        Some(c) if c == "CONTENT_BLOCKED" || super::gemini::content_filtered(c) => AIError::new(crate::error::ErrorKind::ContentPolicy, message).with_body(raw_body),
+        _ => classify_provider_failure(ProviderFailure { message, data, raw_body: Some(raw_body), ..Default::default() }),
     }
 }

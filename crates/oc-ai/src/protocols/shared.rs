@@ -81,6 +81,29 @@ pub fn reported_cost(usage: &Value) -> Option<f64> {
     usage.get("cost").and_then(Value::as_f64).filter(|c| c.is_finite() && *c >= 0.0)
 }
 
+/// `ProviderShared.reportedBilling(usage, ...frames)`: the reported `cost`, or else GitHub Copilot's charge from the
+/// first frame carrying `copilot_usage.total_nano_aiu` (billionths of an AI credit, which costs $0.01).
+pub fn reported_billing(usage: &Value, frames: &[&Value]) -> Option<f64> {
+    reported_cost(usage).or_else(|| {
+        frames.iter().find_map(|frame| {
+            frame.get("copilot_usage").filter(|u| u.is_object())?.get("total_nano_aiu")?.as_f64().filter(|n| n.is_finite() && *n >= 0.0)
+        })
+        .map(|nano| nano / 100_000_000_000.0)
+    })
+}
+
+/// `ProviderShared.contentFilterCategory(...sources)`: the filter that blocked a response, from maps keyed by filter
+/// name (Azure's `content_filter_results` `{hate: {filtered: true}}`, GitHub Copilot's `copilot_annotations`).
+pub fn content_filter_category(sources: &[Option<&Value>]) -> Option<String> {
+    sources.iter().flatten().filter_map(|s| s.as_object()).flat_map(|o| o.iter()).find_map(|(key, value)| {
+        let blocked = match value.as_object() {
+            Some(o) if o.contains_key("filtered") => o.get("filtered") == Some(&Value::Bool(true)),
+            _ => crate::json::truthy(value),
+        };
+        blocked.then(|| key.clone())
+    })
+}
+
 /// `sumTokens` over billed amounts (`ProviderShared.sumTokens` applied to `cost`).
 pub fn sum_costs(values: &[Option<f64>]) -> Option<f64> {
     if values.iter().all(Option::is_none) {

@@ -51,7 +51,7 @@ pub(crate) enum ConnectFailure {
     /// `new WebSocket(...)` threw (a rejected proxy URL).
     Thrown(String),
     /// The error event of a socket that never opened.
-    Failed(String),
+    Failed(Failure),
 }
 
 /// Negotiated permessage-deflate parameters.
@@ -381,24 +381,34 @@ async fn tls(io: BoxIo, host: &str) -> Result<BoxIo, String> {
     Ok(Box::new(stream))
 }
 
-async fn tcp(host: &str, port: u16) -> Result<BoxIo, String> {
+/// Why a socket never opened: the error event's message, and the system code Bun puts on the event's error
+/// (`ECONNREFUSED`, `ENOTFOUND`, ...).
+#[derive(Debug)]
+pub(crate) struct Failure {
+    pub text: String,
+    pub code: Option<&'static str>,
+}
+
+impl From<String> for Failure {
+    fn from(text: String) -> Self {
+        Failure { text, code: None }
+    }
+}
+
+async fn tcp(host: &str, port: u16) -> Result<BoxIo, Failure> {
     let stream = tokio::net::TcpStream::connect((strip_brackets(host), port)).await.map_err(|e| {
         let code = match e.kind() {
-            io::ErrorKind::ConnectionRefused => Some("ECONNREFUSED"),
             io::ErrorKind::TimedOut => Some("ETIMEDOUT"),
-            _ => None,
+            _ => crate::route::transport::system_code(&e),
         };
-        match code {
-            Some(code) => format!("Failed to connect ({code})"),
-            None => format!("Failed to connect ({e})"),
-        }
+        Failure { text: "Failed to connect".into(), code }
     })?;
     let _ = stream.set_nodelay(true);
     Ok(Box::new(stream))
 }
 
 /// Opens the tunnel through `proxy` to `host:port`.
-async fn tunnel(proxy: &ProxyConfig, host: &str, port: u16) -> Result<BoxIo, String> {
+async fn tunnel(proxy: &ProxyConfig, host: &str, port: u16) -> Result<BoxIo, Failure> {
     let mut io = tcp(&proxy.host, proxy.port).await?;
     if proxy.https {
         io = tls(io, &proxy.host).await?;
@@ -410,7 +420,7 @@ async fn tunnel(proxy: &ProxyConfig, host: &str, port: u16) -> Result<BoxIo, Str
     if !(200..300).contains(&head.status) {
         let reason = if head.status == 407 { "Proxy authentication required" } else { "Proxy connection failed" };
         let status = if head.reason.is_empty() { head.status.to_string() } else { format!("{} {}", head.status, head.reason) };
-        return Err(format!("{reason}: {status}"));
+        return Err(format!("{reason}: {status}").into());
     }
     Ok(if buf.is_empty() { io } else { Box::new(Prefixed { prefix: buf, inner: io }) })
 }
@@ -427,7 +437,7 @@ pub(crate) async fn connect(url: &url::Url, headers: &Headers, env: proxy::Env<'
     }
     .map_err(ConnectFailure::Failed)?;
     if secure {
-        io = tls(io, &host).await.map_err(ConnectFailure::Failed)?;
+        io = tls(io, &host).await.map_err(|text| ConnectFailure::Failed(text.into()))?;
     }
     let key = base64::engine::general_purpose::STANDARD.encode(rand::random::<[u8; 16]>());
     let path = match url.query() {
@@ -440,10 +450,10 @@ pub(crate) async fn connect(url: &url::Url, headers: &Headers, env: proxy::Env<'
         io.write_all(&request).await?;
         io.flush().await
     };
-    write.await.map_err(|_| ConnectFailure::Failed("Failed to write".into()))?;
+    write.await.map_err(|_| ConnectFailure::Failed(String::from("Failed to write").into()))?;
     let mut buf = Vec::new();
-    let head = read_head(&mut io, &mut buf).await.map_err(ConnectFailure::Failed)?;
-    let deflate = validate(&head, &key).map_err(ConnectFailure::Failed)?;
+    let head = read_head(&mut io, &mut buf).await.map_err(|text| ConnectFailure::Failed(text.into()))?;
+    let deflate = validate(&head, &key).map_err(|text| ConnectFailure::Failed(text.into()))?;
     Ok(Upgraded { io, leftover: buf, deflate })
 }
 

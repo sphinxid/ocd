@@ -186,7 +186,7 @@ fn pick(source: &Object, keys: &[&str]) -> Object {
 }
 
 /// A question as the `Decision.Request` schema decodes it: its fields in the schema's order (`name`, `type`,
-/// `instructions`, then `choices` or `levels`), unknown keys dropped.
+/// `instructions`, then `choices`, `levels` or a predicate's `criteria`), unknown keys dropped.
 pub fn question(input: &Object) -> Object {
     let mut out = pick(input, &["name", "type", "instructions"]);
     let list = |key: &str, fields: &[&str]| -> Option<Value> {
@@ -202,6 +202,12 @@ pub fn question(input: &Object) -> Object {
         Some("score") => {
             if let Some(v) = list("levels", &["label", "description"]) {
                 out.insert("levels".into(), v);
+            }
+        }
+        // What counts as true and as false, for statements the instructions alone leave ambiguous.
+        Some("predicate") => {
+            if let Some(criteria) = input.get("criteria").and_then(Value::as_object) {
+                out.insert("criteria".into(), Value::Object(pick(criteria, &["true", "false"])));
             }
         }
         _ => {}

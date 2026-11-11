@@ -137,6 +137,7 @@ pub fn language_model(package: &str, model_id: &str, settings: &Object) -> Resul
         "openai-compatible/responses" | "openai-compatible-responses" => openai_compatible(model_id, &mut s, true),
         "azure" | "azure/responses" => azure(model_id, &mut s, false),
         "azure/chat" => azure(model_id, &mut s, true),
+        "azure/messages" => azure_messages(model_id, &mut s),
         "amazon-bedrock" => amazon_bedrock(model_id, &mut s),
         "amazon-bedrock/mantle" | "amazon-bedrock/mantle/responses" | "amazon-bedrock-mantle" => mantle(model_id, &mut s, "responses"),
         "amazon-bedrock/mantle/chat" => mantle(model_id, &mut s, "chat"),
@@ -379,6 +380,35 @@ fn azure(model_id: &str, s: &mut Settings, chat: bool) -> Result<LanguageModel> 
     let route = d.apply_openai(route, model_id);
     let m = model(route, model_id)?;
     Ok(if chat { with_compat(m, compat(json!({"supportsPromptCacheKey": true}))) } else { m })
+}
+
+/// `azure/messages` (`Azure.messagesModel`): Claude on Foundry serves Anthropic Messages under the resource's
+/// `services.ai.azure.com` host and accepts the resource key as `x-api-key`; it rejects `api-key`.
+fn azure_messages(model_id: &str, s: &mut Settings) -> Result<LanguageModel> {
+    let api_key = s.string("apiKey");
+    let _api_version = s.string("apiVersion");
+    let base = s.string("baseURL");
+    let resource = s.string("resourceName");
+    let _deployment_urls = s.take("useDeploymentBasedUrls");
+    let query_params: Option<IndexMap<String, String>> =
+        s.take("queryParams").and_then(|q| q.as_object().map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect()));
+    if base.is_none() && resource.is_none() {
+        return Err(ProviderConfigurationError::new("azure", "Azure requires resourceName or baseURL"));
+    }
+    let mut d = Defaults::from(s);
+    d.provider_options = std::mem::take(&mut s.rest);
+    let root = base
+        .unwrap_or_else(|| format!("https://{}.services.ai.azure.com/anthropic/v1", resource.unwrap_or_default().trim()))
+        .trim_end_matches('/')
+        .to_string();
+    let credential = Credential::optional(api_key, "apiKey").or_else(Credential::env("AZURE_OPENAI_API_KEY"));
+    let azure_auth = auth::and_then(auth::remove("authorization"), auth::header("x-api-key", credential));
+    let route = d
+        .apply(am::route().id("azure-anthropic-messages").provider("azure"))
+        .base_url(Some(root))
+        .query(query_params.unwrap_or_default())
+        .auth(azure_auth);
+    model(route, model_id)
 }
 
 /// Azure's Responses WebSocket (`providers/azure.ts` `responsesRoute.transport`): only the v1 API of an

@@ -427,11 +427,20 @@ fn malformed_response_is_retryable() {
         .model("gemini-2.5-flash")
         .unwrap();
     let req = LLMRequest::new(model);
-    for raw in ["MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL"] {
+    // 2.2.7: malformed responses and calls and unexpected tool calls retry; the other error finishes do not.
+    for raw in ["MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "NO_IMAGE", "TOO_MANY_TOOL_CALLS"] {
         let body = format!("data: {{\"candidates\":[{{\"finishReason\":\"{raw}\"}}]}}\n\n");
         let error = decode(&req, body.as_bytes()).pop().unwrap().unwrap_err();
         assert_eq!(error.message, format!("Gemini stopped with {raw}"));
         assert_eq!(error.tag(), "InvalidProviderOutput");
-        assert_eq!(error.is_retryable(), raw == "MALFORMED_RESPONSE", "{raw}");
+        assert_eq!(error.is_retryable(), raw.starts_with("MALFORMED") || raw == "UNEXPECTED_TOOL_CALL", "{raw}");
     }
+    // `FINISH_REASON_UNSPECIFIED` does not end the request.
+    let body = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hi\"}]},\"finishReason\":\"FINISH_REASON_UNSPECIFIED\"}]}\n\ndata: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n";
+    let events = decode(&req, body.as_bytes());
+    let finish = events.into_iter().filter_map(Result::ok).find_map(|e| match e {
+        oc_ai::LLMEvent::Finish { reason, .. } => Some(reason),
+        _ => None,
+    });
+    assert_eq!(finish.map(|r| (r.normalized, r.raw)), Some((oc_ai::FinishReason::Stop, Some("STOP".to_string()))));
 }

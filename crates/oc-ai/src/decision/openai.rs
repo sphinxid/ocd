@@ -99,7 +99,25 @@ impl DecisionProtocol for OpenAIDecisions {
         }
         out.insert("model".into(), json!(request.model.id));
         out.insert("input".into(), json!([{ "role": "user", "content": content }]));
-        out.insert("questions".into(), Value::Array(request.questions.iter().cloned().map(Value::Object).collect()));
+        let questions = request.questions.iter().map(|question| {
+            if question.get("type").and_then(Value::as_str) != Some("predicate") {
+                return Value::Object(question.clone());
+            }
+            // Predicates have no criteria field, so what true and false mean is appended to the instructions.
+            let criteria = question.get("criteria");
+            let meaning = |key: &str, label: &str| criteria.and_then(|c| c.get(key)).and_then(Value::as_str).map(|m| format!("{label} means: {m}"));
+            let meanings: Vec<String> = [meaning("true", "True"), meaning("false", "False")].into_iter().flatten().collect();
+            let instructions = question.get("instructions").and_then(Value::as_str).unwrap_or_default();
+            let mut out = Object::new();
+            out.insert("name".into(), question.get("name").cloned().unwrap_or(Value::Null));
+            out.insert("type".into(), json!("predicate"));
+            out.insert(
+                "instructions".into(),
+                if meanings.is_empty() { question.get("instructions").cloned().unwrap_or(Value::Null) } else { json!(format!("{instructions}\n\n{}", meanings.join("\n"))) },
+            );
+            Value::Object(out)
+        });
+        out.insert("questions".into(), Value::Array(questions.collect()));
         Ok(out)
     }
 

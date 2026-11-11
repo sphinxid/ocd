@@ -413,14 +413,9 @@ pub async fn execute(client: &reqwest::Client, call: &MediaCall) -> Result<Media
         builder = builder.body(body.clone());
     }
     let response = builder.send().await.map_err(|e| {
-        let code = if e.is_timeout() {
-            Some("Timeout")
-        } else if e.is_connect() {
-            Some("ConnectionError")
-        } else {
-            Some("TransportError")
-        };
-        AIError::transport(TransportOperation::Request, reqwest_message(&e), code, Some(&call.url))
+        let mut error = super::transport::send_error(&e, &call.url);
+        error.cause = None;
+        error
     })?;
     let status = response.status().as_u16();
     let url = response.url().to_string();

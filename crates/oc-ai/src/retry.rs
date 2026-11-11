@@ -194,6 +194,10 @@ pub const TOKEN_SHARING_MESSAGES: &[(&str, &str)] = &[
         "subscription_sharing_usage_limit_exceeded",
         "ChatGPT usage limit reached. Check ChatGPT Settings → Usage for details.",
     ),
+    (
+        "subscription_sharing_workplace_individual_usage_limit_exceeded",
+        "You've reached the usage limit your ChatGPT workspace admin set for you. Ask them to raise it in the OpenAI Admin Console.",
+    ),
     ("subscription_sharing_usage_unavailable", "ChatGPT usage can't be checked right now. Try again later."),
     (
         "subscription_sharing_unsupported_capability",

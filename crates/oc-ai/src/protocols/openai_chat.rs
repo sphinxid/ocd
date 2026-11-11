@@ -253,9 +253,6 @@ fn lower_detail(detail: Value) -> Value {
     }
 }
 
-fn native_compat(message: &Message) -> Option<&Value> {
-    message.native.as_ref().and_then(|n| n.get("openaiCompatible"))
-}
 
 fn lower_user(message: &Message, l: &mut Lowering) -> Result<Value, AIError> {
     let mut content = vec![];
@@ -307,33 +304,38 @@ fn lower_assistant(message: &Message, configured: Option<&str>, require_reasonin
     let part_details = |r: &ReasoningPart| -> Option<Vec<Value>> {
         r.provider_metadata.as_ref().and_then(|pm| pm.get(&key)).and_then(|m| m.get("reasoningDetails")).and_then(Value::as_array).cloned()
     };
-    let native = native_compat(message);
     let details: Option<Vec<Value>> = if reasoning.iter().any(|r| part_details(r).is_some()) {
         let observed: Vec<Value> = reasoning.iter().flat_map(|r| part_details(r).unwrap_or_default()).collect();
         Some(known_details(&observed).into_iter().map(lower_detail).collect())
     } else {
-        native.and_then(|n| n.get("reasoning_details")).and_then(Value::as_array).map(|d| known_details(d).into_iter().map(lower_detail).collect())
+        None
     };
     let observed_field = reasoning.iter().find_map(|r| {
         r.provider_metadata.as_ref().and_then(|pm| pm.get(&key)).and_then(|m| m.get("reasoningField")).and_then(Value::as_str).map(String::from)
     });
-    let native_reasoning = native.and_then(|n| n.get("reasoning_content")).and_then(Value::as_str).map(String::from);
     let fully_structured = reasoning.iter().all(|r| part_details(r).is_some());
-    let field: Option<String> = if configured.is_some() && (require_reasoning || !reasoning.is_empty() || native_reasoning.is_some()) {
+    let field: Option<String> = if configured.is_some() && (require_reasoning || !reasoning.is_empty()) {
         configured.map(String::from)
     } else if reasoning.is_empty() {
         if require_reasoning { Some("reasoning_content".into()) } else { None }
     } else if observed_field.is_some() {
         observed_field
-    } else if native_reasoning.is_some() || !fully_structured || require_reasoning {
+    } else if !fully_structured || require_reasoning {
         Some("reasoning_content".into())
     } else if details.as_ref().map(|d| d.iter().any(is_kimi_detail)).unwrap_or(false) {
         Some("reasoning_content".into())
     } else {
         None
     };
-    let reasoning_text: Option<String> = if reasoning.is_empty() {
-        native_reasoning.clone().or(if require_reasoning { Some(String::new()) } else { None })
+    // Interleaved reasoning yields one opaque value per segment; like the Copilot VS Code client, replay the
+    // latest one with the concatenated reasoning text.
+    let opaque = reasoning
+        .iter()
+        .filter_map(|r| r.provider_metadata.as_ref().and_then(|pm| pm.get(&key)).and_then(|m| m.get("reasoningOpaque")).and_then(Value::as_str))
+        .last()
+        .map(String::from);
+    let reasoning_text: Option<String> = if reasoning.is_empty() || (opaque.is_some() && text.is_empty()) {
+        if require_reasoning { Some(String::new()) } else { None }
     } else {
         Some(text)
     };
@@ -352,6 +354,9 @@ fn lower_assistant(message: &Message, configured: Option<&str>, require_reasonin
     }
     if let Some(d) = details {
         result.insert("reasoning_details".into(), Value::Array(d));
+    }
+    if let Some(opaque) = opaque {
+        result.insert("reasoning_opaque".into(), json!(opaque));
     }
     if let (Some(field), Some(text)) = (field, reasoning_text) {
         result.insert(field, json!(text));
@@ -693,6 +698,8 @@ pub struct ChatParser {
     reasoning_text_observed: bool,
     details: Vec<Value>,
     details_observed: bool,
+    /// Latest `reasoning_opaque` (GitHub Copilot); interleaved reasoning sends a new one before each tool call.
+    reasoning_opaque: Option<String>,
     reasoning_emitted: bool,
     latest_tool_index: Option<i64>,
     next_tool_index: i64,
@@ -702,18 +709,29 @@ pub struct ChatParser {
 }
 
 pub fn map_usage(usage: &Value, key: &str) -> Option<Usage> {
+    map_usage_in(usage, key, &Value::Null)
+}
+
+/// `map_usage` for the usage that `frame` carries; the frame may also carry GitHub Copilot's billing.
+pub fn map_usage_in(usage: &Value, key: &str, frame: &Value) -> Option<Usage> {
     if !usage.is_object() {
         return None;
     }
     let u = |path: &[&str]| crate::json::path(usage, path).and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)));
     let input = u(&["prompt_tokens"]);
-    let output = u(&["completion_tokens"]);
+    let completion = u(&["completion_tokens"]);
     let cached = u(&["prompt_tokens_details", "cached_tokens"])
         .or_else(|| u(&["prompt_cache_hit_tokens"]))
         .or_else(|| u(&["cached_tokens"]))
         .or_else(|| u(&["cache_read_input_tokens"]));
     let write = u(&["prompt_tokens_details", "cache_write_tokens"]).or_else(|| u(&["cache_created_input_tokens"]));
-    let reasoning = u(&["completion_tokens_details", "reasoning_tokens"]);
+    // GitHub Copilot reports reasoning at the top level instead of in `completion_tokens_details`.
+    let reasoning = u(&["completion_tokens_details", "reasoning_tokens"]).or_else(|| u(&["reasoning_tokens"]));
+    // Copilot's Gemini counts reasoning beside `completion_tokens` rather than inside it; the total tells which.
+    let output = match (completion, reasoning) {
+        (Some(c), Some(r)) if u(&["total_tokens"]).is_some() && u(&["total_tokens"]) == shared::sum_tokens(&[input, Some(c), Some(r)]) => Some(c + r),
+        _ => completion,
+    };
     let non_cached = shared::subtract_tokens(input, shared::sum_tokens(&[cached, write]));
     let mut pm = Object::new();
     pm.insert(key.into(), usage.clone());
@@ -726,7 +744,7 @@ pub fn map_usage(usage: &Value, key: &str) -> Option<Usage> {
         cache_write_input_tokens: write,
         reasoning_tokens: reasoning,
         total_tokens: shared::total_tokens(input, output, u(&["total_tokens"])),
-        cost: shared::reported_cost(usage),
+        cost: shared::reported_billing(usage, &[frame]),
         provider_metadata: Some(pm),
     })
 }
@@ -852,6 +870,7 @@ impl ChatParser {
             reasoning_text_observed: false,
             details: vec![],
             details_observed: false,
+            reasoning_opaque: None,
             reasoning_emitted: false,
             latest_tool_index: None,
             next_tool_index: 0,
@@ -867,12 +886,19 @@ impl ChatParser {
     }
 
     fn reasoning_metadata(&self, field: Option<&str>, details: Option<Vec<Value>>) -> ProviderMetadata {
+        self.reasoning_metadata_with(field, details, None)
+    }
+
+    fn reasoning_metadata_with(&self, field: Option<&str>, details: Option<Vec<Value>>, opaque: Option<&str>) -> ProviderMetadata {
         let mut inner = Object::new();
         if let Some(f) = field {
             inner.insert("reasoningField".into(), json!(f));
         }
         if let Some(d) = details {
             inner.insert("reasoningDetails".into(), Value::Array(d));
+        }
+        if let Some(o) = opaque.filter(|o| !o.is_empty()) {
+            inner.insert("reasoningOpaque".into(), json!(o));
         }
         let mut pm = Object::new();
         pm.insert(self.key.clone(), Value::Object(inner));
@@ -917,15 +943,24 @@ impl ChatParser {
         let usage = event
             .get("usage")
             .filter(|u| u.is_object())
-            .and_then(|u| map_usage(u, &self.key))
-            .or_else(|| choice.and_then(|c| c.get("usage")).filter(|u| u.is_object()).and_then(|u| map_usage(u, &self.key)))
+            .and_then(|u| map_usage_in(u, &self.key, event))
+            .or_else(|| choice.and_then(|c| c.get("usage")).filter(|u| u.is_object()).and_then(|u| map_usage_in(u, &self.key, event)))
             .or_else(|| self.usage.clone());
         let raw_finish = choice.and_then(|c| c.get("finish_reason")).and_then(Value::as_str).filter(|s| !s.is_empty());
         let finish = match raw_finish {
-            Some(raw) => Some(FinishReasonDetails::raw(
-                map_finish_reason(event, raw)?,
-                Some(choice.and_then(|c| c.get("native_finish_reason")).and_then(Value::as_str).unwrap_or(raw).to_string()),
-            )),
+            Some(raw) => {
+                let mut details = FinishReasonDetails::raw(
+                    map_finish_reason(event, raw)?,
+                    Some(choice.and_then(|c| c.get("native_finish_reason")).and_then(Value::as_str).unwrap_or(raw).to_string()),
+                );
+                if raw == "content_filter" {
+                    details.category = shared::content_filter_category(&[
+                        choice.and_then(|c| c.get("delta")).and_then(|d| d.get("copilot_annotations")),
+                        choice.and_then(|c| c.get("content_filter_results")),
+                    ]);
+                }
+                Some(details)
+            }
             None => self.finish.clone(),
         };
         let delta = choice.and_then(|c| c.get("delta")).filter(|d| d.is_object());
@@ -965,6 +1000,9 @@ impl ChatParser {
             append_details(&mut self.details, d.clone());
             self.details_observed = true;
         }
+        if let Some(opaque) = dstr("reasoning_opaque") {
+            self.reasoning_opaque = Some(opaque.to_string());
+        }
         let delta_metadata = self.reasoning_metadata(self.reasoning_field.clone().as_deref(), None);
         let text = match &detail_delta {
             Some(d) if !d.is_empty() => detail_text(d, self.reasoning_text_observed).or_else(|| reasoning.as_ref().map(|r| r.1.clone())),
@@ -976,7 +1014,7 @@ impl ChatParser {
         };
         if let Some(t) = text.filter(|t| !t.is_empty()) {
             self.lifecycle.reasoning_delta(&mut events, "reasoning-0", &t, Some(delta_metadata.clone()));
-        } else if self.details_observed
+        } else if (self.details_observed || self.reasoning_opaque.is_some())
             && !self.lifecycle.is_reasoning_open("reasoning-0")
             && (dstr("content").is_some() || dstr("refusal").is_some() || !tool_deltas.is_empty())
         {
@@ -1079,9 +1117,10 @@ impl ChatParser {
             }
             None => FinishReasonDetails::new(if has_tool_calls { FinishReason::ToolCalls } else { FinishReason::Stop }),
         };
-        let mut metadata = self.reasoning_metadata(
+        let mut metadata = self.reasoning_metadata_with(
             self.reasoning_field.clone().as_deref(),
             if self.details_observed { Some(self.details.clone()) } else { None },
+            self.reasoning_opaque.clone().as_deref(),
         );
         if let Some(extra) = self.hooks.reasoning_end_metadata() {
             if let Some(inner) = metadata.get_mut(&self.key).and_then(Value::as_object_mut) {
@@ -1090,7 +1129,7 @@ impl ChatParser {
                 }
             }
         }
-        if self.details_observed && !self.reasoning_emitted {
+        if (self.details_observed || self.reasoning_opaque.is_some()) && !self.reasoning_emitted {
             let m = self.reasoning_metadata(self.reasoning_field.clone().as_deref(), None);
             self.lifecycle.reasoning_start(&mut events, "reasoning-0", Some(m));
         }

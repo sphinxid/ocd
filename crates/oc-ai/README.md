@@ -67,7 +67,7 @@ Per-call options are `StreamOptions { http, web_socket }` (`Client::stream_opts`
 | `route` | `Route` (protocol × endpoint × auth × framing + defaults + optional WebSocket `channel`), `LanguageModel`, `Endpoint`, `auth` combinators (`bearer`, `header`, `bearer_header`, `scheme`, `remove`, `and_then`, `or_else`, `custom`, `bearer_options`), `Credential` (value, env, dynamic), `framing` (SSE, SSE+`[DONE]`, SSE event filter, NDJSON, document, AWS event stream with CRC check), `transport` (JSON POST, body overlay, header/chunk/total timeouts, `HttpMiddleware` hook), `websocket` (channel exchange types: `ChannelExecutor`, `ChannelExchange`, `ChannelDriver`, `ChannelObservation`, `ChannelCheckpoint`; the connector `open` / `open_with_env` / `DirectConnector`, `to_websocket_url`, WebSocket transport errors), `websocket::client` (the WebSocket client of Bun 1.4.4: CONNECT tunnel, upgrade request and validation, frames, permessage-deflate), `websocket::proxy` (proxy selection: upstream's constructor layer and Bun's own `NO_PROXY` matcher), `media` (media routes: JSON, multipart with Bun's `----WebKitFormBoundary` encoding and binary bodies, endpoint and query rendering, auth, the executor's status classification, `Identity` errors, media references). |
 | `protocols` | `Protocol` + `StreamParser` traits and the adapters listed below. |
 | `providers` | `language_model(package, model_id, settings)` for every `@opencode/ai/providers/*` entrypoint, plus provider wrappers (Groq, OpenRouter, Moonshot/MiniMax chat, Vercel gateway, Bedrock Mantle, DigitalOcean). `providers::media`: `image_model` / `decision_model` for the `.../images` and `.../decisions` entrypoints. |
-| `catalog` | models.dev fetch/cache/normalization, npm → native mapping, variants, custom providers from config, registry/availability/defaults, and `Catalog::resolve` → `ResolvedModel`. `catalog::copilot`: the GitHub Copilot `/models` decoding, `derive`/`build` and the `GithubCopilot` catalog plugin (core supplies the loaded state). |
+| `catalog` | models.dev fetch/cache/normalization, npm → native mapping, variants, custom providers from config, registry/availability/defaults, and `Catalog::resolve` → `ResolvedModel`. `catalog::copilot`: the GitHub Copilot `/models` decoding, `derive`/`build`, `route_for` (every Copilot model on a native package: Anthropic Messages at `<base>/v1`, OpenAI-compatible Responses or Chat Completions at the base), the Auto model (`auto_model`) and the `GithubCopilot` catalog plugin (core supplies the loaded state). |
 | `js_date` | `parse`: JavaScript `Date.parse` (ES date-time format, then the legacy format as Bun/V8 parse it), for release dates parsed from free-form strings. |
 | `aisdk` | The AI SDK route for `aisdk:` packages (`core/src/aisdk.ts`): `language_model` (route `ai-sdk:<package>`, metadata key, defaults), `call_options` (request → `LanguageModelV3CallOptions`), stream-part raising, `error_from_shape` (`llmError`), and the `AiSdkBridge` trait the JS side implements. |
 | `credentials` | `CredentialStore` trait (+ `MemoryCredentialStore`), `Integrations` (methods, connections, refresh-on-resolve, OAuth/command attempt lifecycle), the OAuth flows, well-known discovery (`KvStore`), and the Azure CLI token helper. |
@@ -292,9 +292,36 @@ opencode 2.2.5 changes (`tests/wire_2_2_5.rs`):
 - LiteLLM's `Context Window exceeded` is a context overflow; Responses send `file_url` without `filename`; the
   OpenRouter Responses route (`openrouter-responses` protocol) adds `models`, `provider`, `plugins`, `debug` and `user`.
 
-`tests/wire_2_2.rs` ports upstream's tests for these and cross-checks with the 2.2.2 checkout when `OCD_SCRATCH` and
+`tests/wire_2_2.rs` ports upstream's tests for the 2.2 changes and cross-checks with the 2.2.2 checkout when `OCD_SCRATCH` and
 `OCD_BUN_PATH` are set: every recorded response of the corpus decodes to the same events as upstream's route, and a
 set of requests with the new options compiles to the same URL, body text and headers.
+
+opencode 2.2.6-2.2.7 changes (`tests/wire_2_2_7.rs`):
+- **GitHub Copilot on the native routes**: OpenAI Chat parses `delta.reasoning_opaque` (the latest one is kept as
+  `reasoningOpaque` reasoning metadata and replayed as `reasoning_opaque`), reads a top-level `usage.reasoning_tokens`
+  and counts it into the output when the total says so (Copilot's Gemini); Open Responses items adopt the id already
+  open in their output slot (Copilot sends a new id on every event); Chat, Responses and Messages bill
+  `copilot_usage.total_nano_aiu` (USD = nano AIU / 10^11) when no `usage.cost` is reported; content-filter finishes
+  name the blocking filter (`copilot_annotations`, `content_filter_results`, Responses `content_filters`).
+- **Azure Messages** (`@opencode/ai/providers/azure/messages`, route `azure-anthropic-messages`): Claude on Foundry at
+  `https://<resource>.services.ai.azure.com/anthropic/v1/messages` with the key as `x-api-key`.
+- **Gemini**: `toolUsePromptTokenCount` is input (first request's on continuations, summed in provider metadata);
+  `FINISH_REASON_UNSPECIFIED` does not end a request; every error finish fails as "Gemini stopped with X", retryable
+  for `MALFORMED_RESPONSE`, `MALFORMED_FUNCTION_CALL` and `UNEXPECTED_TOOL_CALL`.
+- **Google Interactions**: coded failures classify by code (`MALFORMED_*`/`UNEXPECTED_TOOL_CALL` retryable incomplete
+  streams, `MISSING_THOUGHT_SIGNATURE`/`TOO_MANY_TOOL_CALLS`/`NO_IMAGE` invalid output, blocked or filtered content
+  policy), a stream that ends early is the generic incomplete stream, and a completion with function calls finishes as
+  tool calls. Cohere streams that end early are the generic (retryable) incomplete stream too.
+- **Decisions**: predicate `criteria` (`{true?, false?}`) go to System One as given and are appended to OpenAI
+  Decisions instructions (`True means: …` / `False means: …`).
+- **Transport codes**: a request that fails to connect carries Bun's system code and message (`ECONNREFUSED`,
+  `ENOTFOUND` / `EAI_AGAIN` as `getaddrinfo <code> <host>`, `ENETUNREACH`, `EHOSTUNREACH`, `ENETDOWN`), also on
+  the Responses WebSocket's open error; the session's retry gives unreachable hosts their own budget.
+- `gatewayApiKey` counts as configured auth (Cloudflare AI Gateway).
+
+`tests/wire_2_2_7.rs` cross-checks with the 2.2.7 checkout under Bun (`OCD_SCRATCH`, `OCD_BUN_PATH`): every recorded
+response of the corpus (with 2.2.7's Azure Messages and Foundry recordings) decodes to the same events as upstream's
+route, and requests on the changed routes compile to the same URL, body text and auth headers.
 
 ## Not ported / gaps
 

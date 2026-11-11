@@ -557,7 +557,8 @@ fn map_usage_with(usage: &Value, key: &str, metadata: &Value) -> Option<Usage> {
         return None;
     }
     let u = |k: &str| crate::json::get_u64(usage, k);
-    let prompt = u("promptTokenCount");
+    // `toolUsePromptTokenCount` is additional billed input.
+    let prompt = shared::sum_tokens(&[u("promptTokenCount"), u("toolUsePromptTokenCount")]);
     let cached = u("cachedContentTokenCount");
     let thoughts = u("thoughtsTokenCount");
     let visible = u("candidatesTokenCount");
@@ -578,9 +579,8 @@ fn map_usage_with(usage: &Value, key: &str, metadata: &Value) -> Option<Usage> {
     })
 }
 
-/// `mapContinuedUsage`: each continued request re-bills the output so far as input. Reporting the
-/// first request's input with all output keeps input plus output equal to the response's final
-/// context size, under-reporting billed input; the summed billed counts remain in provider metadata.
+/// `mapContinuedUsage`: continued requests retain the first request's input instead of summing re-billed
+/// prompts. Complete billed counts, including tool-use prompts from later requests, remain in provider metadata.
 fn map_continued_usage(requests: &[Value], key: &str) -> Option<Usage> {
     let sum = |field: &str| shared::sum_tokens(&requests.iter().map(|u| crate::json::get_u64(u, field)).collect::<Vec<_>>());
     let first = |field: &str| requests.first().and_then(|u| crate::json::get_u64(u, field));
@@ -595,6 +595,7 @@ fn map_continued_usage(requests: &[Value], key: &str) -> Option<Usage> {
     };
     let mut usage = object(&[
         ("promptTokenCount", first("promptTokenCount")),
+        ("toolUsePromptTokenCount", first("toolUsePromptTokenCount")),
         ("cachedContentTokenCount", first("cachedContentTokenCount")),
         ("candidatesTokenCount", sum("candidatesTokenCount")),
         ("thoughtsTokenCount", sum("thoughtsTokenCount")),
@@ -605,6 +606,7 @@ fn map_continued_usage(requests: &[Value], key: &str) -> Option<Usage> {
     }
     let mut metadata = object(&[
         ("promptTokenCount", sum("promptTokenCount")),
+        ("toolUsePromptTokenCount", sum("toolUsePromptTokenCount")),
         ("cachedContentTokenCount", sum("cachedContentTokenCount")),
         ("candidatesTokenCount", sum("candidatesTokenCount")),
         ("thoughtsTokenCount", sum("thoughtsTokenCount")),
@@ -613,6 +615,8 @@ fn map_continued_usage(requests: &[Value], key: &str) -> Option<Usage> {
     metadata.insert("requests".into(), json!(requests.len()));
     map_usage_with(&Value::Object(usage), key, &Value::Object(metadata))
 }
+
+const RECOVERABLE_FINISH_REASONS: &[&str] = &["MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"];
 
 pub struct GeminiParser {
     route: String,
@@ -700,15 +704,23 @@ impl GeminiParser {
             self.usage = Some(usage.clone());
         }
         let candidate = event.get("candidates").and_then(Value::as_array).and_then(|c| c.first());
-        let finish = candidate.and_then(|c| c.get("finishReason")).and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from);
-        // Gemini sporadically ends a valid request with MALFORMED_RESPONSE; continuing or resending it
-        // recovers, so it is a retryable incomplete stream.
-        if finish.as_deref() == Some("MALFORMED_RESPONSE") {
-            return Err(AIError::incomplete_stream(&self.route, "Gemini stopped with MALFORMED_RESPONSE").with_body(encode(event)));
-        }
+        // `terminalFinishReason`: `FINISH_REASON_UNSPECIFIED` does not end the request.
+        let finish = candidate
+            .and_then(|c| c.get("finishReason"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty() && *s != "FINISH_REASON_UNSPECIFIED")
+            .map(String::from);
         if let Some(f) = &finish {
             if map_finish(Some(f), self.has_tool_calls).is_none() {
-                return Err(AIError::invalid_output(&self.route, format!("Gemini stopped with {f}")).with_body(encode(event)));
+                // Gemini sporadically ends a valid request with a malformed response or call; continuing or
+                // resending it recovers, so those are retryable incomplete streams.
+                let message = format!("Gemini stopped with {f}");
+                let error = if RECOVERABLE_FINISH_REASONS.contains(&f.as_str()) {
+                    AIError::incomplete_stream(&self.route, message)
+                } else {
+                    AIError::invalid_output(&self.route, message)
+                };
+                return Err(error.with_body(encode(event)));
             }
         }
         let mut events = vec![];

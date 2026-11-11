@@ -178,7 +178,7 @@ impl Protocol for CohereChat {
         body(request)
     }
     fn parser(&self, request: &LLMRequest) -> Box<dyn StreamParser> {
-        Box::new(CohereParser { label: route_label(request), lifecycle: Lifecycle::new(), tools: ToolStream::new(ADAPTER), finished: false })
+        Box::new(CohereParser { label: route_label(request), lifecycle: Lifecycle::new(), tools: ToolStream::new(ADAPTER) })
     }
 }
 
@@ -244,7 +244,6 @@ struct CohereParser {
     label: String,
     lifecycle: Lifecycle,
     tools: ToolStream,
-    finished: bool,
 }
 
 const EVENT_TYPES: &[&str] = &[
@@ -314,19 +313,10 @@ impl StreamParser for CohereParser {
                 self.tools.finish_all(&mut events)?;
                 let usage = crate::json::path(&event, &["delta", "usage"]).map(map_usage);
                 self.lifecycle.finish(&mut events, finish_reason(reason), usage, None);
-                self.finished = true;
                 return Ok(Step::terminal(events));
             }
             _ => {}
         }
         Ok(Step::events(events))
-    }
-
-    fn on_halt(&mut self) -> Result<Vec<LLMEvent>, AIError> {
-        if self.finished {
-            Ok(vec![])
-        } else {
-            Err(AIError::invalid_output(ADAPTER, "Cohere stream ended without message-end"))
-        }
     }
 }

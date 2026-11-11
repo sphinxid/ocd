@@ -545,9 +545,11 @@ fn observe_checkpoint(frame: &Frame, token: &mut Option<String>, finish_reason: 
         decoded.push((reason, continuation));
     }
     let Some((reason, continuation)) = decoded.into_iter().next() else { return };
+    // `terminalFinishReason`: `FINISH_REASON_UNSPECIFIED` does not end the request.
+    let reason = reason.filter(|r| !r.is_empty() && r != "FINISH_REASON_UNSPECIFIED");
     *token = match continuation {
         Some(t) => Some(t),
-        None if reason.as_deref().is_some_and(|r| !r.is_empty()) => None,
+        None if reason.is_some() => None,
         None => token.take(),
     };
     if let Some(reason) = reason {

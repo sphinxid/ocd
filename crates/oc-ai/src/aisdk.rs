@@ -99,7 +99,6 @@ pub fn provider_option_key(package: &str, provider_id: &str) -> String {
         "@ai-sdk/amazon-bedrock" => "bedrock".into(),
         "@ai-sdk/amazon-bedrock/mantle" => "openai".into(),
         "@ai-sdk/azure" => "azure".into(),
-        "@ai-sdk/github-copilot" => "copilot".into(),
         "@jerome-benoit/sap-ai-provider-v2" => "sap-ai".into(),
         "@ai-sdk/openai-compatible" => provider_id.split('.').next().unwrap_or_default().to_string(),
         "@openrouter/ai-sdk-provider" => "openrouter".into(),
@@ -847,8 +846,8 @@ fn http_failure(message: String, url: Option<&str>, status: Option<u16>, data: O
 
 /// `llmError(error, operation)` from the bridge's error shape:
 ///
-/// - `{kind: "api", message, url?, statusCode?, data?, responseHeaders?, responseBody?, isRetryable, cause?}`:
-///   an `APICallError` (message already resolved by `providerErrorMessage`);
+/// - `{kind: "api", message, url?, statusCode?, data?, responseHeaders?, responseBody?, isRetryable, code?, cause?}`:
+///   an `APICallError` (message already resolved by `providerErrorMessage`; `code`: its cause's network code);
 /// - `{kind: "network", message, code?, cause?}`: a runtime network failure;
 /// - `{kind: "unknown", message, data?, responseBody?, cause?}`: anything else (`unknownErrorMessage`).
 pub fn error_from_shape(shape: &Value, operation: TransportOperation) -> AIError {
@@ -870,7 +869,7 @@ pub fn error_from_shape(shape: &Value, operation: TransportOperation) -> AIError
                 ErrorKind::Transport {
                     transport: TransportType::Http,
                     operation: TransportOperation::Request,
-                    code: None,
+                    code: shape.get("code").and_then(Value::as_str).map(String::from),
                     url: url.map(String::from),
                     phase: None,
                     delivery: None,

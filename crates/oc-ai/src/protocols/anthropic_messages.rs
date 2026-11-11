@@ -1223,7 +1223,8 @@ fn u(v: &Value, key: &str) -> Option<u64> {
     crate::json::get_u64(v, key)
 }
 
-fn map_usage(usage: Option<&Value>, key: &str) -> Option<Usage> {
+/// `mapUsage(usage, key, frame?)`: the `message_delta` frame may carry GitHub Copilot's billing.
+fn map_usage(usage: Option<&Value>, key: &str, frame: Option<&Value>) -> Option<Usage> {
     let usage = usage.filter(|u| u.is_object())?;
     let iterations: Vec<&Value> = match usage.get("iterations").and_then(Value::as_array) {
         Some(items) if !items.is_empty() => items.iter().collect(),
@@ -1253,7 +1254,7 @@ fn map_usage(usage: Option<&Value>, key: &str) -> Option<Usage> {
         cache_write_input_tokens: cache_write,
         reasoning_tokens: reasoning,
         total_tokens: shared::total_tokens(input, output, None),
-        cost: shared::reported_cost(usage),
+        cost: shared::reported_billing(usage, frame.as_slice()),
         provider_metadata: Some(pm),
     })
 }
@@ -1397,7 +1398,7 @@ impl Parser {
         let index = event.get("index").and_then(Value::as_i64);
         match kind {
             "message_start" => {
-                if let Some(usage) = map_usage(event.get("message").and_then(|m| m.get("usage")), &self.key) {
+                if let Some(usage) = map_usage(event.get("message").and_then(|m| m.get("usage")), &self.key, None) {
                     self.usage = merge_usage(self.usage.take(), Some(usage), &self.key);
                 }
             }
@@ -1599,7 +1600,7 @@ impl Parser {
                 } else {
                     return Err(self.invalid_event(event));
                 }
-                let usage = map_usage(event.get("usage"), &self.key);
+                let usage = map_usage(event.get("usage"), &self.key, Some(event));
                 self.usage = merge_usage(self.usage.take(), usage, &self.key);
                 let d = delta.unwrap();
                 if let Some(stop) = d.get("stop_reason").and_then(Value::as_str) {

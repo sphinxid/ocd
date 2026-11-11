@@ -173,7 +173,61 @@ impl Timeouts {
     }
 }
 
-fn reqwest_message(error: &reqwest::Error) -> String {
+/// The system error code Bun reports for a connect that failed before any exchange (`ECONNREFUSED`, `ENOTFOUND`,
+/// `EAI_AGAIN`, `ENETUNREACH`, `EHOSTUNREACH`, `ENETDOWN`). reqwest and tokio fold them into their connect errors,
+/// told apart by the underlying cause.
+pub fn system_code(error: &(dyn std::error::Error + 'static)) -> Option<&'static str> {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    let mut text = String::new();
+    while let Some(s) = source {
+        if let Some(io) = s.downcast_ref::<std::io::Error>() {
+            match io.kind() {
+                std::io::ErrorKind::ConnectionRefused => return Some("ECONNREFUSED"),
+                std::io::ErrorKind::NetworkUnreachable => return Some("ENETUNREACH"),
+                std::io::ErrorKind::HostUnreachable => return Some("EHOSTUNREACH"),
+                std::io::ErrorKind::NetworkDown => return Some("ENETDOWN"),
+                _ => {}
+            }
+        }
+        text.push_str(&s.to_string().to_ascii_lowercase());
+        text.push('\n');
+        source = s.source();
+    }
+    // getaddrinfo failures (`failed to lookup address information: <gai_strerror>`), as hyper's `dns error`.
+    if text.contains("temporary failure in name resolution") {
+        return Some("EAI_AGAIN");
+    }
+    if text.contains("dns error") || text.contains("failed to lookup address") {
+        return Some("ENOTFOUND");
+    }
+    None
+}
+
+/// The message Bun's `fetch` rejects with for a failed connect with a system code: what upstream reports.
+pub fn system_message(code: &str, host: &str) -> String {
+    match code {
+        "ECONNREFUSED" => "ECONNREFUSED: Unable to connect. Is the computer able to access the url?".into(),
+        "ENOTFOUND" | "EAI_AGAIN" => format!("getaddrinfo {code} {host}"),
+        _ => format!("{code}: Was there a typo in the url or port?"),
+    }
+}
+
+/// `httpError` for a request that failed to send: the code and message upstream's transport reports.
+pub fn send_error(error: &reqwest::Error, url: &str) -> AIError {
+    let system = if error.is_connect() { system_code(error) } else { None };
+    let (code, message) = match system {
+        _ if error.is_timeout() => ("Timeout", reqwest_message(error)),
+        Some(code) => {
+            let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default();
+            (code, system_message(code, &host))
+        }
+        None if error.is_connect() => ("ConnectionError", reqwest_message(error)),
+        None => ("TransportError", reqwest_message(error)),
+    };
+    AIError::transport(TransportOperation::Request, message, Some(code), Some(url)).with_cause(error)
+}
+
+pub(crate) fn reqwest_message(error: &reqwest::Error) -> String {
     let mut message = error.to_string();
     let mut source = std::error::Error::source(error);
     while let Some(s) = source {
@@ -268,16 +322,7 @@ pub async fn execute_with(
         },
         None => send.await,
     };
-    let response = response.map_err(|e| {
-        let code = if e.is_timeout() {
-            Some("Timeout")
-        } else if e.is_connect() {
-            Some("ConnectionError")
-        } else {
-            Some("TransportError")
-        };
-        AIError::transport(TransportOperation::Request, reqwest_message(&e), code, Some(&prepared.url)).with_cause(&e)
-    })?;
+    let response = response.map_err(|e| send_error(&e, &prepared.url))?;
     if let (Some(hook), Some(sent)) = (hook, &hooked)
         && hook.wants_response()
     {

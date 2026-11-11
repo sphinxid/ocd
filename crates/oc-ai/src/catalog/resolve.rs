@@ -428,7 +428,7 @@ impl ResolvedModel {
 
 /// `hasConfiguredAuth`.
 pub fn has_configured_auth(model: &ModelInfo) -> bool {
-    ["apiKey", "authToken", "accessToken"].iter().any(|key| {
+    ["apiKey", "gatewayApiKey", "authToken", "accessToken"].iter().any(|key| {
         model.settings.as_ref().and_then(|s| s.get(*key)).and_then(Value::as_str).map(|v| !v.is_empty()).unwrap_or(false)
     })
 }

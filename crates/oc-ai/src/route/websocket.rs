@@ -342,7 +342,12 @@ pub async fn open_with_env(url: &str, headers: &Headers, env: proxy::Env<'_>) ->
     }
     let upgraded = client::connect(&parsed, headers, env).await.map_err(|failure| match failure {
         client::ConnectFailure::Thrown(message) => connect_error(url, message),
-        client::ConnectFailure::Failed(text) => connect_error(url, format!("Failed to open WebSocket: WebSocket connection to '{parsed}' failed: {text}")),
+        // Bun puts the system code (ENOTFOUND, ECONNREFUSED) on the event's error; it is lifted like HTTP failures do.
+        client::ConnectFailure::Failed(failure) => transport_error(
+            format!("Failed to open WebSocket: WebSocket connection to '{parsed}' failed: {}", failure.text),
+            TransportOperation::Request,
+            WsError { url: Some(url), code: failure.code, phase: Some("connect"), delivery: Some("not-sent"), ..Default::default() },
+        ),
     })?;
     let deflate = upgraded.deflate;
     let (mut source, sink) = tokio::io::split(upgraded.io);

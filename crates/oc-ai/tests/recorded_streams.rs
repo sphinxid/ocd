@@ -21,6 +21,7 @@ fn package_for(dir: &str, path: &str) -> Option<&'static str> {
         ("alibaba-chat" | "alibaba-messages" | "alibaba-responses", "responses") => "alibaba/responses",
         ("azure", "chat") => "azure/chat",
         ("azure", "responses") => "azure/responses",
+        ("azure", "messages") => "azure/messages",
         ("bedrock-mantle" | "bedrock-mantle-messages", "responses") => "amazon-bedrock/mantle/responses",
         ("bedrock-mantle" | "bedrock-mantle-messages", "chat") => "amazon-bedrock/mantle/chat",
         ("bedrock-mantle" | "bedrock-mantle-messages", "messages") => "amazon-bedrock/mantle/messages",

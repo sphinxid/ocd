@@ -844,6 +844,7 @@ fn protocol_for(package: &str) -> Option<Protocol> {
         "@opencode/ai/providers/anthropic" => anthropic_messages,
         "@opencode/ai/providers/anthropic-compatible" => anthropic_messages,
         "@opencode/ai/providers/amazon-bedrock/mantle/messages" => anthropic_messages,
+        "@opencode/ai/providers/azure/messages" => anthropic_messages,
         "@opencode/ai/providers/google-vertex/messages" | "@opencode/ai/providers/google-vertex-messages" => anthropic_messages,
         "@opencode/ai/providers/alibaba/messages" => alibaba_messages,
         "@opencode/ai/providers/meta/messages" => anthropic_messages,

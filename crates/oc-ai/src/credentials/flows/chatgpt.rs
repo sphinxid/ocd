@@ -30,6 +30,7 @@ pub const INSTRUCTIONS: &str = "Complete authorization in your browser. This win
 /// Error codes in a response body that forbid session retries (`nonRetryableSharingCodes`).
 pub const NON_RETRYABLE_SHARING_CODES: &[&str] = &[
     "subscription_sharing_usage_limit_exceeded",
+    "subscription_sharing_workplace_individual_usage_limit_exceeded",
     "subscription_sharing_user_not_eligible",
     "subscription_sharing_unsupported_capability",
     "subscription_sharing_route_not_supported",

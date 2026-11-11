@@ -643,6 +643,11 @@ pub fn default_options() -> Object {
 // ---------------------------------------------------------------------------------------------
 
 pub fn map_usage(usage: Option<&Value>, key: &str) -> Option<Usage> {
+    map_usage_in(usage, key, &[])
+}
+
+/// `mapUsage(usage, key, ...frames)`: the frames may carry GitHub Copilot's billing.
+pub fn map_usage_in(usage: Option<&Value>, key: &str, frames: &[&Value]) -> Option<Usage> {
     let usage = usage.filter(|u| u.is_object())?;
     let u = |p: &[&str]| crate::json::path(usage, p).and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)));
     let input = u(&["input_tokens"]);
@@ -661,9 +666,34 @@ pub fn map_usage(usage: Option<&Value>, key: &str) -> Option<Usage> {
         cache_write_input_tokens: write,
         reasoning_tokens: reasoning,
         total_tokens: shared::total_tokens(input, output, u(&["total_tokens"])),
-        cost: shared::reported_cost(usage),
+        cost: shared::reported_billing(usage, frames),
         provider_metadata: Some(pm),
     })
+}
+
+/// GitHub Copilot lists the filters that ran (`response.content_filters`); the blocking one names its rule in
+/// `content_filter_raw`. A list that does not decode reads as empty.
+fn content_filter_category(raw: Option<&Value>) -> Option<String> {
+    let opt_str = |o: &Object, k: &str| o.get(k).is_none_or(Value::is_string);
+    let rule_ok = |r: &Value| r.as_object().is_some_and(|r| opt_str(r, "action") && opt_str(r, "label"));
+    let filter_ok = |f: &Value| {
+        f.as_object().is_some_and(|f| {
+            opt_str(f, "source_type")
+                && f.get("blocked").is_none_or(Value::is_boolean)
+                && f.get("content_filter_raw").is_none_or(|r| r.as_array().is_some_and(|r| r.iter().all(rule_ok)))
+        })
+    };
+    let filters = raw.and_then(Value::as_array).filter(|a| a.iter().all(filter_ok))?;
+    let blocked: Vec<&Value> = filters.iter().filter(|f| f.get("blocked") == Some(&Value::Bool(true))).collect();
+    let filter = blocked.iter().find(|f| f.get("source_type").and_then(Value::as_str) == Some("completion")).or(blocked.first())?;
+    filter
+        .get("content_filter_raw")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|r| r.get("action").and_then(Value::as_str) == Some("BLOCK") && r.get("result") == Some(&Value::Bool(true)))
+        .and_then(|r| r.get("label").and_then(Value::as_str).map(String::from))
+        .or_else(|| shared::content_filter_category(&[filter.get("content_filter_results")]))
 }
 
 const TERMINAL_TYPES: &[&str] = &["error", "response.completed", "response.incomplete", "response.failed"];
@@ -803,22 +833,23 @@ impl ResponsesParser {
         AIError::invalid_output(&self.id, message)
     }
 
+    /// An item adopts the id already open in its output slot, since GitHub Copilot sends a different id on every
+    /// event, including the item's own done event. Otherwise it keeps its id or gets a locally minted one.
     fn resolve_item(&self, item: &Value, index: Option<i64>) -> Value {
         let mut item = reorder_item(item);
-        let has_id = item.get("id").and_then(Value::as_str).is_some();
-        if !has_id {
-            let id = index.and_then(|i| self.output_items.get(&i).cloned()).unwrap_or_else(|| {
-                let prefix = match item.get("type").and_then(Value::as_str) {
-                    Some("message") => "msg",
-                    Some("reasoning") => "rs",
-                    Some("function_call") => "fc",
-                    Some("compaction") => "cmp",
-                    _ => "item",
-                };
-                mint(prefix)
-            });
-            item.as_object_mut().unwrap().insert("id".into(), json!(id));
-        }
+        let slot = index.and_then(|i| self.output_items.get(&i).cloned());
+        let own = item.get("id").and_then(Value::as_str).map(String::from);
+        let id = slot.or(own).unwrap_or_else(|| {
+            let prefix = match item.get("type").and_then(Value::as_str) {
+                Some("message") => "msg",
+                Some("reasoning") => "rs",
+                Some("function_call") => "fc",
+                Some("compaction") => "cmp",
+                _ => "item",
+            };
+            mint(prefix)
+        });
+        item.as_object_mut().unwrap().insert("id".into(), json!(id));
         item
     }
 
@@ -1256,7 +1287,8 @@ impl ResponsesParser {
         }
         let response = event.get("response");
         let raw = response.and_then(|r| r.get("incomplete_details")).and_then(|d| d.get("reason")).and_then(Value::as_str).map(String::from);
-        let usage = map_usage(response.and_then(|r| r.get("usage")), &self.key);
+        // Copilot reports its billing on the terminal event, beside `response`.
+        let usage = map_usage_in(response.and_then(|r| r.get("usage")), &self.key, &[event, response.unwrap_or(&Value::Null)]);
         let rid = response.and_then(|r| r.get("id")).and_then(Value::as_str).filter(|s| !s.is_empty());
         let tier = response.and_then(|r| r.get("service_tier")).and_then(Value::as_str).filter(|s| !s.is_empty());
         let metadata = if rid.is_some() || tier.is_some() {
@@ -1271,7 +1303,10 @@ impl ResponsesParser {
         } else {
             None
         };
-        let reason = FinishReasonDetails::raw(self.map_finish(event), raw);
+        let mut reason = FinishReasonDetails::raw(self.map_finish(event), raw);
+        if reason.normalized == FinishReason::ContentFilter {
+            reason.category = content_filter_category(response.and_then(|r| r.get("content_filters")));
+        }
         self.lifecycle.finish(events, reason, usage, metadata);
         Ok(())
     }
