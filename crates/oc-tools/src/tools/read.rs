@@ -754,7 +754,14 @@ fn missing_with(input: &str, absolute: &Path, moved: Vec<String>) -> ToolError {
         Listing::Missing => return missing_folder(input, &folder, suggestions),
         Listing::Found(names) => {
             let input_dir = util::dirname_str(input);
-            suggestions.extend(similar(&names, &util::basename(input)).into_iter().map(|entry| util::join_str(&input_dir, &entry)));
+            // Node's `path` is win32's on Windows: `\` separates there too.
+            let (name, join): (String, fn(&str, &str) -> String) = if cfg!(windows) {
+                let name = Path::new(input).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                (name, |dir, entry| Path::new(dir).join(entry).to_string_lossy().into_owned())
+            } else {
+                (util::basename(input), util::join_str)
+            };
+            suggestions.extend(similar(&names, &name).into_iter().map(|entry| join(&input_dir, &entry)));
         }
         Listing::Unknown => {}
     }

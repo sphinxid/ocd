@@ -94,6 +94,8 @@ fn titles(a: &mut App) -> Vec<String> {
 
 // ---- #62118: Ctrl+Z suspends while a dialog or form is open ----------------------------------------------------
 
+// Windows has no terminal suspend, so ctrl+z is not bound there.
+#[cfg(not(windows))]
 #[test]
 fn ctrl_z_suspends_with_a_dialog_or_a_form_open() {
     let mut a = app();

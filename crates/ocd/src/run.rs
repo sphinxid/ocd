@@ -1893,10 +1893,12 @@ mod tests {
 
     #[test]
     fn worktree_subfolders() {
+        // `path.relative` joins with the platform separator.
+        let sep = |s: &str| s.replace('/', std::path::MAIN_SEPARATOR_STR);
         assert_eq!(relative("/p", "/p"), "");
-        assert_eq!(relative("/p", "/p/a/b"), "a/b");
-        assert_eq!(relative("/p/a", "/p/b"), "../b");
-        assert_eq!(relative("/p", "/q"), "../q");
+        assert_eq!(relative("/p", "/p/a/b"), sep("a/b"));
+        assert_eq!(relative("/p/a", "/p/b"), sep("../b"));
+        assert_eq!(relative("/p", "/q"), sep("../q"));
     }
 
     fn outcome(id: &str, outcome: &'static str, error: Option<Value>) -> Outcome {
