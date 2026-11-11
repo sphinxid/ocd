@@ -1,9 +1,10 @@
 # Differential parity: upstream opencode v2 vs ocd
 
-Upstream reference: since the 2.2.5 catch-up, a local build of `anomalyco/opencode` at tag `v2.2.5` (commit
-`9bbb8ce`, built in `packages/cli` with `OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui`;
-reports `0.0.0-detached-<timestamp>`, channel `detached`). Port: `target/debug/ocd` (workspace version 2.2.5,
-channel `latest`). From 2026-10-30 to 2026-11-06 the reference was the same kind of build at tag `v2.2.2`
+Upstream reference: since the 2.2.7 catch-up, a local build of `anomalyco/opencode` at tag `v2.2.7` (commit
+`fedc6f2`, built in `packages/cli` with `OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui`;
+reports `0.0.0-detached-<timestamp>`, channel `detached`). Port: `target/debug/ocd` (workspace version 2.2.7,
+channel `latest`). From 2026-11-07 to 2026-11-10 the reference was the same kind of build at tag `v2.2.5` (commit
+`9bbb8ce`); from 2026-10-30 to 2026-11-06 the reference was the same kind of build at tag `v2.2.2`
 (commit `098aa7f`); from 2026-10-27 to 2026-10-29 it was the same kind of build at tag `v2.1.4` (commit
 `68bc26b`; ocd then reported 2.1.4). Results before 2026-10-27 were against the build of
 branch `v2` at commit `4617210` (reports `0.0.0-v2-<timestamp>`, channel `v2`; ocd then reported 2.0.26), and the
@@ -71,7 +72,7 @@ upgrade while this is the first unused turn). The mock records every upgrade (he
   inside a scheduled prompt's message ID, `msg_sch_…_<n>`), renumbered by first appearance; UUIDs;
 - epoch-millisecond numbers (any key), ISO timestamps, `duration`/`elapsed`-style keys, `pid`;
 - session `slug`s;
-- the build version (`0.0.0-v2-…` or `0.0.0-detached-…` upstream, `2.0.26`, `2.1.4`, `2.2.2` or `2.2.5` port) wherever it appears,
+- the build version (`0.0.0-v2-…` or `0.0.0-detached-…` upstream, `2.0.26`, `2.1.4`, `2.2.2`, `2.2.5` or `2.2.7` port) wherever it appears,
   the channel in the User-Agent and in the report skill's diagnostics (`v2`/`detached` vs `latest`);
 - the per-run project/state/server paths and URL (identical between runs; masked for readability);
 - pagination cursors are base64url-decoded and normalized instead of masked;
@@ -89,7 +90,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (177)
+## Scenarios (207)
 
 | group | scenarios |
 |---|---|
@@ -121,7 +122,23 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | artifact | `experimental.artifacts`: the HTTP routes and `view`, location resolution, the tools directly and through Code Mode, a plugin provider and its failures |
 | media | `experimental.media_blob`: images stored from a prompt and from the read tool, reads with and without the media capability, the media route, fork, import, cancel, revert and delete, a fork from a location without the flag |
 
+| api227 | 2.2.7's cross-site 403, `session.generate` tokens and cost, the legacy `auth.json` import into a fresh database, the new config keys and their order, download headers, input for a session whose directory is gone |
+| wire227 | unreachable and refused hosts (the retry schedule and the error text), the ChatGPT workspace limit, Azure Messages for Foundry models; plus `plugin_model_resolve` (the `experimental.model.resolve` hook) and `plugin_copilot_auto` (Copilot Auto's router, picks, fallback and compaction reroute) |
+| tools227 | 2.2.7's `read` (past the end, negative offsets, suggestions, `skill://`), shell exit and partial-line notices, webfetch fragments and credentials, Code Mode `import` and `fetch` redirects, the job list, `session_move` |
+| mcp227 | MCP OAuth refresh rotation across two locations, temporary refresh failures (503, 429) keeping the login, a pasted redirect URL, stdio probes, `~` in `cwd`, an invalid URL, a slow server missing the first step |
+| run227 | the rewritten `run`: message arguments, waiting for background jobs, retry notices, a permission question it cannot answer, `--worktree`, `--archived`, SIGTERM |
+
 ## Results
+
+**Final run against 2.2.7 (debug build, 2026-11-11):** all 207 scenarios against the local v2.2.7 build, `hg` 7.2.4
+on `PATH`, the scripted stand-in for the Claude Agent provider: **202 of 207 identical**. Left: `cli_help`,
+`cli_inventory`, `stop_retry_exhausted` and `loop_http_400` as before (in 10 extra upstream runs of `loop_http_400`,
+2 had ocd's order), `loop_tool_error` (Effect's fiber scheduler yields after 2,048 operations, so upstream settles
+instantly failing tool calls in the middle of a read; ocd keeps the 2.2.5-era order). The first
+full run found the per-drain trace roots, the browser plugin's state machine, `session.moved` sent once, the
+destination's boot events after a tool move, `project.updated` for a missing directory, the 416 headers, and
+`run227_signal` exiting 1 under load (a stopped `run` kept its event stream open and could strand a cancelled job's
+notice); all fixed. `tools227_session_move` once showed an extra `tool.progress` event in five runs (timing).
 
 **Run with the opt-in features of 2.2.x (debug build, 2026-11-09):** all 177 scenarios against the local v2.2.5
 build: **173 of 177 identical**, including every `schedule` (7), `image` (11), `artifact` (6) and `media` (4) scenario.
@@ -346,7 +363,7 @@ classified below; none is an unexplained behavioral difference.
 | `glob`/`grep` result order is ripgrep's parallel walk order (both binaries run `rg` with the same arguments; order changes between runs) | core/src/ripgrep.ts |
 | An unknown-tool failure and `session.step.streamed` race (concurrent tool fibers vs stream end) | session/runner/step.ts |
 | An HTTP 400 on the first step and the forked title rename can commit in either order (`loop_http_400`, occasionally) | core/src/session/runner/llm.ts:174 |
-| `b3`/`traceparent` header values are random (one trace ID per process, fresh span IDs per request) | Effect's native tracer; normalized by the harness, see #24 |
+| `b3`/`traceparent` header values are random (one trace ID per session drain and the process's own outside one, fresh span IDs per request except a compaction's requests, which share one) | Effect's native tracer; normalized by the harness, see #24 |
 | `run` without `-m` used to pick OpenCode Zen's free model in both (network) | caused by the harness passing the parent's `PWD`, which both binaries prefer over the working directory; the harness now sets `PWD` to the project (2026-10-25) |
 | Plugins activate asynchronously after a location boots: an early `plugin.list` (e.g. `ocd plugin list` against a fresh standalone server) shows only built-ins in both binaries; the plugin scenarios wait for `plugin.updated` and settle the lists | core/src/plugin/supervisor.ts |
 

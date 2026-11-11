@@ -1,4 +1,4 @@
-# Port state / handoff (last updated 2026-10-30)
+# Port state / handoff (last updated 2026-11-11)
 
 **Name:** the Rust port is **ocd** (user: only the app + binary are ocd; everything else must stay backward-compatible with opencode). TUI logo reads "opencode-d" (oc-tui view_helpers LOGO_RIGHT, breakpoints 31/53). `ocd upgrade` installs ocd's own GitHub releases and the TUI shows an update notice (`crates/ocd/src/release.rs`); `uninstall` unchanged. (binary `ocd`, crate `crates/ocd`). Upstream compatibility surfaces (config/data dirs, opencode.json, .opencode/, OPENCODE_* env, HTTP API, x-opencode-* headers, plugin package names) keep the opencode names on purpose.
 
@@ -7,12 +7,13 @@ Goal (user request): an exact behavioral replica of **opencode v2** in Rust — 
 `docs/PORTING.md`. Specs: `docs/spec/01..08` (~18k lines, all complete).
 
 ## Upstream reference
-- Repo `anomalyco/opencode`, tag `v2.2.5`, commit `9bbb8ce18c80f099e0e448775f59d965ead40a21`, MIT (`LICENSE-opencode`).
+- Repo `anomalyco/opencode`, tag `v2.2.7`, commit `fedc6f208aa2bd54c1019227214568083f6380ad`, MIT (`LICENSE-opencode`).
   The port started from branch `v2` at `4617210822bdbb31e5749751afbfb4584ccedac8` (2.0.26) and caught up with
-  2.1.4 (`docs/UPGRADE-2.1.4.md`), 2.2.2 (`docs/UPGRADE-2.2.2.md`) and 2.2.5 (`docs/UPGRADE-2.2.5.md`) in batches; the specs in `docs/spec/` still
+  2.1.4 (`docs/UPGRADE-2.1.4.md`), 2.2.2 (`docs/UPGRADE-2.2.2.md`), 2.2.5 (`docs/UPGRADE-2.2.5.md`) and 2.2.7
+  (`docs/UPGRADE-2.2.7.md`) in batches; the specs in `docs/spec/` still
   cite the 4617210 sources. The 2.2 tags are not descendants of `v2.1.4`: compare trees, not commit logs.
 - Read-only checkout (may vanish with the session scratchpad; re-clone if missing):
-  `git clone https://github.com/anomalyco/opencode.git && git -C opencode checkout v2.2.5`
+  `git clone https://github.com/anomalyco/opencode.git && git -C opencode checkout v2.2.7`
   (was at `$OCD_SCRATCH/src/opencode`).
 - Toolchain: rustup in `~/.cargo` (Rust 1.99, edition 2024). Always `export PATH=$HOME/.cargo/bin:$PATH`.
   Machine: 8 cores, 13 GB RAM. No git commits (user's global rule: only commit when asked; never add AI attribution).
@@ -93,6 +94,23 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-11-11: CAUGHT UP WITH 2.2.7 (`docs/UPGRADE-2.2.7.md`): four reviews, five batches and three fix batches, all
+  compared with an upstream 2.2.7 binary built from the tag. Storage/API/config (OpenAPI 170 ops incl.
+  `experimental.job.list`, fresh-DB `auth.json` import, part rows read/insert/fork, cross-site 403, the flag registry
+  `oc_config::flag`, `websearch.use`, sidecar on 2.2.7); providers (Copilot native routes + Copilot Auto in
+  `catalog/copilot.rs`, `SharedCache`, Azure Messages, unreachable-host retry, Console instructions/skills,
+  `experimental.model.resolve`); tools/Code Mode/jobs (`read` offsets and suggestions, `skill://`, shell exit notices,
+  `fetch` redirects, Code Mode `import`/`require` and catalog deltas, background compaction tuning); MCP (OAuth refresh
+  under `credential-refresh:<id>` with rotation, temporary failures, per-tool checks, pasted redirects); TUI/CLI (`run`
+  rewritten after `noninteractive.ts`, the 150 ms HOLD removed, 130/143 on signals, effect/cli 4.1.0 goldens, ACP
+  steering). Fixes after the first full run: per-drain trace roots (`oc_util::trace::{root, inherit, span, reroot}`),
+  the browser plugin's `machine.ts` (`oc_core::browser::machine`), `session.moved` once, 416 headers, three Windows CI
+  failures, a hanging background-compaction test, and `run` exiting at once on a signal (stream closed when over;
+  job sessions interrupted after delivery with `resume: true`). OPT-IN and not ported: MCP `pool`, the `part_rows` writer, Console
+  watches, session warming, the Code Mode bytecode VM (keys accepted and echoed). Every cargo test run now uses the
+  network fence too (`HTTPS_PROXY=http://127.0.0.1:9` etc.): one test had reached for api.github.com. Tests 2547
+  passed; parity 202/207 against 2.2.7
+  (left: cli_help, cli_inventory, stop_retry_exhausted, loop_http_400, loop_tool_error).
 - 2026-10-30: CAUGHT UP WITH 2.2.2 (`docs/UPGRADE-2.2.2.md`): seven batches, all compared with an upstream 2.2.2
   binary built from the tag (`OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui` in
   packages/cli; an exported tree has no git branch). Storage/API (58 migrations, session_part, media blob reads,
