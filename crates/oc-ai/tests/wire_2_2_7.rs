@@ -402,13 +402,15 @@ fn numbers(value: Value) -> Value {
 
 /// Runs `script` (TypeScript) under Bun in the checkout with `input` as JSON and returns its JSON output.
 fn run_bun(ai: &std::path::Path, bun: &str, script: &str, input: &Value) -> Value {
-    let dir = tempfile::tempdir().unwrap();
+    // In the checkout, so its packages resolve (Bun never installs them).
+    let dir = tempfile::tempdir_in(ai).unwrap();
     let path = dir.path().join("check.ts");
     std::fs::write(&path, script.replace("$AI", &format!("{:?}", ai.display().to_string()))).unwrap();
     let data = dir.path().join("in.json");
     std::fs::write(&data, serde_json::to_string(input).unwrap()).unwrap();
     let output = std::process::Command::new(bun)
         .arg("run")
+        .arg("--no-install")
         .arg(&path)
         .arg(&data)
         .arg(dir.path().join("out.json"))

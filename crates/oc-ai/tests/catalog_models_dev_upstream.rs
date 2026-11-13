@@ -14,7 +14,8 @@ fn upstream_core() -> Option<(PathBuf, PathBuf)> {
 }
 
 fn upstream_normalize(core: &PathBuf, bun: &PathBuf, catalog: &str) -> Value {
-    let dir = tempfile::tempdir().unwrap();
+    // In the upstream core package, so `effect` resolves from its packages (Bun never installs them).
+    let dir = tempfile::tempdir_in(core.parent().unwrap()).unwrap();
     let script = dir.path().join("normalize.ts");
     std::fs::write(
         &script,
@@ -31,14 +32,13 @@ writeFileSync(process.argv[3], JSON.stringify(result))
     .unwrap();
     let input = dir.path().join("catalog.json");
     std::fs::write(&input, catalog).unwrap();
-    // `effect` resolves from the upstream core package.
     let output = std::process::Command::new(bun)
         .arg("run")
+        .arg("--no-install")
         .arg(&script)
         .arg(&input)
         .arg(dir.path().join("out.json"))
         .current_dir(core.parent().unwrap())
-        .env("NODE_PATH", core.parent().unwrap().join("node_modules"))
         .output()
         .unwrap();
     assert!(output.status.success(), "bun failed: {}", String::from_utf8_lossy(&output.stderr));

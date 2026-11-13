@@ -694,7 +694,8 @@ fn recordings_decode_like_upstream() {
             }
         }
     }
-    let dir = tempfile::tempdir().unwrap();
+    // The script lives in the checkout so `effect` resolves from its packages (never installed).
+    let dir = tempfile::tempdir_in(&ai).unwrap();
     let script = dir.path().join("decode.ts");
     std::fs::write(
         &script,
@@ -734,6 +735,7 @@ writeFileSync(process.argv[3], JSON.stringify(out))
     std::fs::write(&input, serde_json::to_string(&jobs).unwrap()).unwrap();
     let output = std::process::Command::new(bun)
         .arg("run")
+        .arg("--no-install")
         .arg(&script)
         .arg(&input)
         .arg(dir.path().join("out.json"))
@@ -845,7 +847,7 @@ async fn request_bodies_match_upstream() {
             Err(error) => json!({"error": error.message}),
         });
     }
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir_in(&ai).unwrap();
     let script = dir.path().join("compile.ts");
     std::fs::write(
         &script,
@@ -896,6 +898,7 @@ writeFileSync(process.argv[3], JSON.stringify(out))
     std::fs::write(&input, serde_json::to_string(&cases).unwrap()).unwrap();
     let output = std::process::Command::new(bun)
         .arg("run")
+        .arg("--no-install")
         .arg(&script)
         .arg(&input)
         .arg(dir.path().join("out.json"))
