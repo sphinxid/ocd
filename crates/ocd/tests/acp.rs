@@ -7,6 +7,62 @@ use std::process::Stdio;
 
 use serde_json::{Value, json};
 
+/// Owns a spawned `ocd acp`: a watchdog kills it once `limit` has passed (so a hang fails the test instead of blocking
+/// it, the blocked read then seeing EOF), and dropping the guard kills it, so a failing test leaves no process. Its
+/// private server exits with it (the stdin lease).
+struct Guarded {
+    child: std::sync::Arc<std::sync::Mutex<std::process::Child>>,
+    done: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Guarded {
+    fn new(child: std::process::Child, limit: std::time::Duration) -> Guarded {
+        let child = std::sync::Arc::new(std::sync::Mutex::new(child));
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (c, d) = (child.clone(), done.clone());
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + limit;
+            while std::time::Instant::now() < deadline {
+                if d.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let _ = c.lock().unwrap_or_else(|e| e.into_inner()).kill();
+        });
+        Guarded { child, done }
+    }
+
+    /// Waits up to `secs` for the process to exit by itself; kills it and panics otherwise.
+    fn wait(&self, secs: u64) -> std::process::ExitStatus {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+        loop {
+            if let Some(status) = self.child.lock().unwrap().try_wait().unwrap() {
+                self.done.store(true, std::sync::atomic::Ordering::SeqCst);
+                return status;
+            }
+            if std::time::Instant::now() > deadline {
+                {
+                    let mut child = self.child.lock().unwrap();
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                panic!("ocd acp did not exit within {secs}s");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+}
+
+impl Drop for Guarded {
+    fn drop(&mut self) {
+        self.done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut child = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
 fn mock_provider() -> u16 {
     use axum::{Router, body::Body, response::Response, routing::post};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -47,9 +103,10 @@ fn acp_initialize_new_session_prompt_and_eof() {
         .to_string(),
     )
     .unwrap();
-    let mut child = env.command(&["acp"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut child = env.command(&["acp"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let guard = Guarded::new(child, std::time::Duration::from_secs(120));
     let mut send = |v: Value| {
         stdin.write_all(format!("{v}\n").as_bytes()).unwrap();
         stdin.flush().unwrap();
@@ -130,8 +187,7 @@ fn acp_initialize_new_session_prompt_and_eof() {
 
     drop(send);
     drop(stdin); // EOF ends the connection
-    let status = child.wait().unwrap();
-    assert_eq!(status.code(), Some(0));
+    assert_eq!(guard.wait(20).code(), Some(0));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -218,7 +274,7 @@ fn used(script: &Script, index: usize) -> bool {
 
 /// An ACP client on the agent's stdio: every received message is kept; permission requests are answered "once".
 struct Client {
-    child: std::process::Child,
+    child: Guarded,
     stdin: std::sync::Arc<std::sync::Mutex<Option<std::process::ChildStdin>>>,
     rx: std::sync::mpsc::Receiver<Value>,
     seen: Vec<Value>,
@@ -253,7 +309,7 @@ impl Client {
                 }
             }
         });
-        Client { child, stdin, rx, seen: vec![], next: 0 }
+        Client { child: Guarded::new(child, std::time::Duration::from_secs(150)), stdin, rx, seen: vec![], next: 0 }
     }
 
     fn send(&self, v: Value) {
@@ -318,18 +374,11 @@ impl Client {
         self.seen[at + 1..].to_vec()
     }
 
-    /// EOF ends the connection.
-    fn close(mut self) {
+    /// EOF ends the connection. The stdin handle lives only in the shared slot (the reader thread answers
+    /// permission requests through it), so taking it out closes the pipe.
+    fn close(self) {
         self.stdin.lock().unwrap().take();
-        let status = self.child.wait().unwrap();
-        assert_eq!(status.code(), Some(0));
-    }
-}
-
-impl Drop for Client {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        assert_eq!(self.child.wait(20).code(), Some(0));
     }
 }
 
