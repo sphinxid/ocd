@@ -339,9 +339,9 @@ pub fn nested_synthetic(files: &[File], project_root: &Path) -> (String, String,
     (text, description, metadata)
 }
 
-/// Skill content block (`Skill.toModelOutput` + `prepare`).
-pub fn skill_block(id: &str, name: &str, skill_path: &Path, content: &str) -> String {
-    // A skill that lives in memory (`skill://<id>/SKILL.md`) has its URI as base directory and no files on disk.
+/// Skill content block (`Skill.toModelOutput` + `prepare`). `files`: an in-memory skill's other files (`Skill.files`).
+pub fn skill_block(id: &str, name: &str, skill_path: &Path, content: &str, files: &[(String, String)]) -> String {
+    // A skill that lives in memory (`skill://<id>/SKILL.md`) has its URI as base directory and its files in memory.
     if skill_path.to_string_lossy().starts_with("skill://") {
         let skill = oc_tools::host::SkillInfo {
             id: id.into(),
@@ -349,7 +349,7 @@ pub fn skill_block(id: &str, name: &str, skill_path: &Path, content: &str) -> St
             description: None,
             path: skill_path.to_path_buf(),
             content: content.into(),
-            files: Vec::new(),
+            files: files.to_vec(),
         };
         return oc_tools::tools::skill::prepare(&skill).1;
     }
@@ -407,6 +407,21 @@ fn walk_files(dir: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// session-skill.test.ts: a prompt's skill attachment of an in-memory skill lists its virtual files (`Skill.prepare`
+    /// with `skills.files`), sorted and at most 10, under its `skill://` base directory.
+    #[test]
+    fn skill_block_lists_virtual_files() {
+        let files: Vec<(String, String)> = (0..12).rev().map(|i| (format!("refs/{i:02}.md"), "x".to_string())).collect();
+        let text = skill_block("deploy", "Deploy", Path::new("skill://deploy/SKILL.md"), "Body", &files);
+        let listed: Vec<&str> = text.lines().filter(|l| l.starts_with("<file>")).collect();
+        assert_eq!(listed.len(), 10);
+        assert_eq!(listed[0], "<file>skill://deploy/refs/00.md</file>");
+        assert_eq!(listed[9], "<file>skill://deploy/refs/09.md</file>");
+        assert!(text.contains("Base directory for this skill: skill://deploy\n"));
+        let none = skill_block("deploy", "Deploy", Path::new("skill://deploy/SKILL.md"), "Body", &[]);
+        assert!(none.contains("<skill_files>\n</skill_files>"));
+    }
     #[test]
     fn walks_project_agents() {
         let tmp = std::env::temp_dir().join(format!("oc-disc-{}", std::process::id()));

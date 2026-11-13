@@ -325,6 +325,27 @@ async fn effect_plugin_transforms_and_hooks() {
     s.host.shutdown().await;
 }
 
+/// skill.test.ts "stores virtual skill files ..." through the sidecar: a skill's files (`Skill.Data.files`, which the
+/// Console plugin fills) cross with the snapshot. A plugin's `add` takes only the skill (plugin/host.ts), so the files
+/// a plugin passes are dropped and re-adding a skill drops its files; untouched skills keep theirs.
+#[tokio::test]
+async fn skill_files_cross_the_transform() {
+    require_bun!();
+    let s = setup();
+    let result = s.host.load(request(&s, vec![add(fixture("skill-files-plugin"), json!({})), add(fixture("effect-plugin"), json!({}))])).await;
+    assert_eq!(result.packages[0]["state"]["status"], "active");
+    let skill = |id: &str| json!({ "id": id, "name": id, "description": "d", "path": format!("skill://{id}/SKILL.md"), "content": "c" });
+    let input = json!({
+        "skills": [skill("deploy"), skill("fixture-skill")],
+        "files": [["deploy", [["references/a.md", "A"], ["scripts/run.sh", "echo run\n"]]], ["fixture-skill", [["old.md", "old"]]]],
+    });
+    let out = s.host.transform(&s.location, "skill", input).await.unwrap();
+    let ids: Vec<&str> = out["skills"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["deploy", "fixture-skill", "fixture-files"]);
+    assert_eq!(out["files"], json!([["deploy", [["references/a.md", "A"], ["scripts/run.sh", "echo run\n"]]]]));
+    s.host.shutdown().await;
+}
+
 #[tokio::test]
 async fn catalog_transforms_return_untouched_entries_by_reference_and_reuse_inputs() {
     require_bun!();

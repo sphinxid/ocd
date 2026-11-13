@@ -231,11 +231,17 @@ const command: Spec<CommandState, unknown> = {
 // skill (core/src/skill.ts)
 // ---------------------------------------------------------------------------------------------
 
-type SkillState = { skills: Map<string, any> }
+// A skill's virtual files (`Skill.Data.files`, which only the Console plugin fills) cross as
+// `files: [[id, [[path, text], ...]], ...]`. The editor plugins get (plugin/host.ts) has an `add` that takes only the
+// skill, so it drops that skill's files like the core editor's `add` without files; `remove` drops them, `update`
+// keeps them.
+
+type SkillState = { skills: Map<string, any>; files: Map<string, ReadonlyArray<readonly [string, string]>> }
 
 const skill: Spec<SkillState, unknown> = {
   decode: (value) => ({
     skills: new Map(((value?.skills ?? []) as any[]).map((item) => [item.id, decodeWith<any>(Skill.Info, item)])),
+    files: new Map(((value?.files ?? []) as any[]).map(([id, entries]) => [id, entries])),
   }),
   editor: (state) => ({
     list: () => Array.from(state.skills.values()),
@@ -243,6 +249,7 @@ const skill: Spec<SkillState, unknown> = {
     add: (value: unknown) => {
       const decoded = Schema.decodeUnknownSync(Skill.Info)(value) as any
       state.skills.set(decoded.id, { ...decoded })
+      state.files.delete(decoded.id)
     },
     update: (id: string, update: (skill: any) => void) => {
       const current = state.skills.get(id)
@@ -252,9 +259,13 @@ const skill: Spec<SkillState, unknown> = {
     },
     remove: (id: string) => {
       state.skills.delete(id)
+      state.files.delete(id)
     },
   }),
-  encode: (state) => ({ skills: Array.from(state.skills.values(), (item) => encodeWith(Skill.Info, item)) }),
+  encode: (state) => ({
+    skills: Array.from(state.skills.values(), (item) => encodeWith(Skill.Info, item)),
+    files: Array.from(state.files).filter(([id]) => state.skills.has(id)),
+  }),
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -285,7 +285,7 @@ and functions are `{"$fn": handle}`. The upstream editors these values feed:
 | `model` | `{models: [[providerID, Model.Info[]]], default?: {providerID, modelID}, providers: ProviderRecord[]}` (`providers` is read-only input) | — |
 | `provider` | `{records: [{provider: Provider.Info, models: Model.Info[], sourceConnection?}]}` | — |
 | `reference` | `{sources: [[name, Reference.Source]]}` | — |
-| `skill` | `{skills: Skill.Info[]}` | — |
+| `skill` | `{skills: Skill.Info[], files?: [[id, [[path, text]]]]}` (`files`: the virtual files of in-memory skills, which only the Console plugin attaches; the editor plugins get drops a skill's files on `add`, which takes only the skill like 2.2.7's `plugin/host.ts`, and on `remove`, and keeps them on `update`) | — |
 | `tool` | `{tools: [{id, name, description, input: JSONSchema, output?, options?, execute}], namespaces: [{name, description}]}`; the answer adds `errors` | native tools: pass `execute: {"$fn": "rs:<anything>"}` |
 | `vcs` | `{providers: [{id, name, init?, info, base?, branches, status, diff}], selection?}` | each op takes its upstream input object |
 | `websearch` | `{providers: [{id, name, execute}], selection?}` | `execute(ProviderInput)` |
@@ -574,6 +574,7 @@ bun nor the checkout. After rebuilding, run the tests.
     and a cleanup;
   - an Effect plugin with agent and skill transforms, a failing `Tool.Error` hook, and
     provider-scoped `session.context` and `session.retry` hooks;
+  - a plugin adding an in-memory skill with files (`add(skill, files)`; 2.2.7 drops the files);
   - storage, event subscription and an RPC with an event;
   - an invalid module;
   - a throwing transform;

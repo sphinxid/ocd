@@ -100,7 +100,7 @@ pub fn builtin_with(version: &str, plugins: &[String]) -> Vec<Skill> {
         ("opencode", "OpenCode", OPENCODE_DESCRIPTION, "skill://opencode/SKILL.md", OPENCODE_CONTENT.to_string()),
         ("report", "Report", REPORT_DESCRIPTION, "skill://report/SKILL.md", report_content(version, oc_util::version::CHANNEL, plugins)),
     ] {
-        out.push(Skill { id: id.into(), name: name.into(), description: Some(description.into()), autoinvoke: None, path: PathBuf::from(path), content });
+        out.push(Skill { id: id.into(), name: name.into(), description: Some(description.into()), autoinvoke: None, path: PathBuf::from(path), content, files: Vec::new() });
     }
     out
 }
@@ -115,6 +115,7 @@ pub fn browser() -> Skill {
         autoinvoke: None,
         path: PathBuf::from("skill://browser/SKILL.md"),
         content: BROWSER_CONTENT.trim_end_matches('\n').to_string(),
+        files: Vec::new(),
     }
 }
 

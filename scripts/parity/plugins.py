@@ -371,3 +371,26 @@ def plugin_model_resolve(ctx):
         resolved = h.get("x-fixture-resolved") if r["kind"] == "main" else (h.get("x-fixture-resolved") or "").split("|")[0]
         out.append({"kind": r["kind"], "model": body.get("model"), "resolved": resolved})
     ctx.rec("requests", out)
+
+
+@scenario("plugin")
+def plugin_skill_files(ctx):
+    """a plugin adds an in-memory skill with files (`add(skill, files)`); the model loads it and reads its folder, a
+    file with offset/limit, SKILL.md and a missing file. 2.2.7's plugin editor drops the files, so the skill lists
+    none and only SKILL.md reads."""
+    base = "skill://fixture-files"
+    boot(ctx, ["./plugins/skill-files-plugin"], ["skill-files-plugin"], script=[
+        {"tools": [{"name": "skill", "id": "call_skill", "args": {"id": "fixture-files"}}]},
+        {"tools": [{"name": "read", "id": "call_guide", "args": {"path": f"{base}/references/guide.md", "offset": 2,
+                                                                 "limit": 2}}]},
+        {"tools": [{"name": "read", "id": "call_missing", "args": {"path": f"{base}/scripts/missing.sh"}}]},
+        {"tools": [{"name": "read", "id": "call_root", "args": {"path": f"{base}/"}}]},
+        {"tools": [{"name": "read", "id": "call_main", "args": {"path": f"{base}/SKILL.md", "offset": 1, "limit": 1}}]},
+        {"text": "Done."},
+    ])
+    sid = ctx.create_session()
+    settle_lists(ctx)
+    ctx.call("skill.list", "GET", f"/api/skill?directory={ctx.project}")
+    ctx.prompt(sid, "use the fixture skill")
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.record_llm()

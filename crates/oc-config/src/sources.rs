@@ -271,6 +271,10 @@ pub struct Skill {
     pub autoinvoke: Option<bool>,
     pub path: PathBuf,
     pub content: String,
+    /// The other files of an in-memory (`skill://`) skill by path from its root, sorted, without `SKILL.md`
+    /// (`Skill.files`). Only the Console plugin attaches them; they are not part of `Skill.Info`.
+    #[serde(skip)]
+    pub files: Vec<(String, String)>,
 }
 
 /// Why a skill file was skipped.
@@ -328,6 +332,7 @@ pub fn parse_skill(directory: &Path, file: &Path, content: &str) -> Result<Skill
         autoinvoke,
         path: file.to_path_buf(),
         content: markdown.content,
+        files: Vec::new(),
     })
 }
 

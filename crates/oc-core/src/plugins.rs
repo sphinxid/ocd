@@ -1375,13 +1375,28 @@ impl Plugins {
         // The OpenCode Console plugin (a provider plugin, after `opencode.skill`) adds the workspace's skills.
         if self.builtin_enabled(&location.key, crate::console_config::PLUGIN_ID) {
             for item in crate::console_config::skills(&location.key) {
-                crate::skills::add(&mut builtin, item.skill);
+                let mut skill = item.skill;
+                skill.files = item.files.into_iter().filter(|(path, _)| path != "SKILL.md").collect();
+                crate::skills::add(&mut builtin, skill);
             }
         }
         let builtin = if self.host.get().is_some() {
-            let value = json!({ "skills": builtin.iter().map(skill_json).collect::<Vec<_>>() });
+            // The files travel with the snapshot: a plugin's `add` (which takes no files) or `remove` drops a skill's
+            // files, `update` keeps them (`Skill` editor).
+            let value = json!({ "skills": builtin.iter().map(skill_json).collect::<Vec<_>>(), "files": skill_files_json(&builtin) });
             let out = self.transform(&location.key, "skill", value).await;
-            out.get("skills").and_then(Value::as_array).cloned().unwrap_or_default().iter().filter_map(skill_from_json).collect()
+            let mut files = skill_files_from_json(out.get("files"));
+            out.get("skills")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(skill_from_json)
+                .map(|mut skill| {
+                    skill.files = files.remove(&skill.id).unwrap_or_default();
+                    skill
+                })
+                .collect()
         } else {
             builtin
         };
@@ -2122,7 +2137,26 @@ fn skill_from_json(v: &Value) -> Option<oc_config::sources::Skill> {
         autoinvoke: v.get("autoinvoke").and_then(Value::as_bool),
         path: PathBuf::from(v.get("path").and_then(Value::as_str).unwrap_or_default()),
         content: v.get("content").and_then(Value::as_str).unwrap_or_default().to_string(),
+        files: Vec::new(),
     })
+}
+
+/// The skill domain's virtual files as they cross the sidecar: `[[id, [[path, text], ...]], ...]` (`Skill.Data.files`).
+fn skill_files_json(skills: &[oc_config::sources::Skill]) -> Value {
+    Value::Array(skills.iter().filter(|s| !s.files.is_empty()).map(|s| json!([s.id, s.files])).collect())
+}
+
+fn skill_files_from_json(v: Option<&Value>) -> HashMap<String, Vec<(String, String)>> {
+    let mut out = HashMap::new();
+    for item in v.and_then(Value::as_array).into_iter().flatten() {
+        let (Some(id), Some(entries)) = (item.get(0).and_then(Value::as_str), item.get(1).and_then(Value::as_array)) else { continue };
+        let files: Vec<(String, String)> =
+            entries.iter().filter_map(|e| Some((e.get(0)?.as_str()?.to_string(), e.get(1)?.as_str()?.to_string()))).collect();
+        if !files.is_empty() {
+            out.insert(id.to_string(), files);
+        }
+    }
+    out
 }
 
 fn options_json(options: &ToolOptions) -> Value {
@@ -2767,7 +2801,27 @@ impl PluginApi for CoreApi {
 
 #[cfg(test)]
 mod tests {
-    use super::activation_notifications;
+    use super::{activation_notifications, skill_files_from_json, skill_files_json};
+
+    /// The skill domain's files cross the sidecar as `[[id, [[path, text]]]]`; skills without files are left out.
+    #[test]
+    fn skill_files_round_trip() {
+        let skill = |id: &str, files: Vec<(&str, &str)>| oc_config::sources::Skill {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            autoinvoke: None,
+            path: format!("skill://{id}/SKILL.md").into(),
+            content: String::new(),
+            files: files.into_iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+        };
+        let json = skill_files_json(&[skill("deploy", vec![("a.md", "A"), ("b/c.sh", "C")]), skill("plain", vec![])]);
+        assert_eq!(json, serde_json::json!([["deploy", [["a.md", "A"], ["b/c.sh", "C"]]]]));
+        let back = skill_files_from_json(Some(&json));
+        assert_eq!(back.len(), 1);
+        assert_eq!(back["deploy"], vec![("a.md".to_string(), "A".to_string()), ("b/c.sh".to_string(), "C".to_string())]);
+        assert!(skill_files_from_json(None).is_empty());
+    }
 
     #[test]
     fn restarts_notify_in_the_order_their_registrations_close() {

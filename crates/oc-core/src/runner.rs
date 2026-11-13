@@ -885,8 +885,7 @@ impl Engine {
                         description: s.description.clone(),
                         path: s.path.clone(),
                         content: s.content.clone(),
-                        // Only plugins could add files to an in-memory skill (`Skill.files`); none do yet.
-                        files: Vec::new(),
+                        files: s.files.clone(),
                     })
                     .collect(),
             ),
