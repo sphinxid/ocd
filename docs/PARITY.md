@@ -17,7 +17,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude schedule image artifact media acp
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude schedule image artifact media api227 wire227 tools227 mcp227 run227 acp local
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -90,7 +90,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (211)
+## Scenarios (216)
 
 | group | scenarios |
 |---|---|
@@ -128,8 +128,19 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | mcp227 | MCP OAuth refresh rotation across two locations, temporary refresh failures (503, 429) keeping the login, a pasted redirect URL, stdio probes, `~` in `cwd`, an invalid URL, a slow server missing the first step |
 | run227 | the rewritten `run`: message arguments, waiting for background jobs, retry notices, a permission question it cannot answer, `--worktree`, `--archived`, SIGTERM |
 | acp | `opencode acp` over stdio (`scripts/parity/acp227.py`, a minimal ACP client with the child-session capability that answers permission requests `once`): a background subagent outliving the root turn, outliving a cancelled turn with its `read: ask` permission request, and a session closed while it runs. Every JSON-RPC message the client received is compared in three ordered lists (the root's updates with responses and requests, the child updates, everything after the prompt response), plus the root's and the child's model requests each in order: the server publishes a background child's start concurrently with the root's tool result, so how those interleave during the turn is a race in both binaries |
+| local | the LM Studio, Ollama and vLLM discovery plugins against mock servers (`scripts/parity/local.py`, ephemeral ports shared by both runs, configured `baseURL`s only): the discovery requests (paths, bearer keys, Ollama's `/api/show` bodies), the provider, model and integration lists they produce (embedding, foreign and failing models left out, contexts, families, capabilities), `apiKey` and `/api`/`/api/v1` base URLs, a chat through a discovered vLLM model (path, key, model), a 30 s outage keeping the inventory and the next answer replacing it, a config change moving LM Studio to another server and key and dropping vLLM's endpoint; the `*.updated` counts of the boot and of each change |
 
 ## Results
+
+**Local model discovery (debug build, 2026-11-13):** the new group `local` against the local v2.2.7 build: **5 of 5
+identical** (`local_discovery`, `local_api_key`, `local_chat`, `local_outage`, `local_config_reload`). The first runs
+differed only in the `*.updated` counts: upstream's plugins start inside the boot batch, so an inventory found at once
+is part of the boot's notifications (ocd's boot now waits up to 250 ms for the first round), and each reload's
+`integration.updated` compares with the list at that moment (ocd publishes a reload's notifications before the plugin
+goes on). With the harness's new global `opencode.jsonc` (the three providers at a dead port), the groups `readonly`,
+`cli`, `session`, `permission`, `form`, `api225` and `api227` (35 scenarios) keep their status: 33 identical, plus the
+known `cli_help` and `cli_inventory`. Their outputs change the same way on both sides: the config document is listed,
+LM Studio's models.dev provider and models become available and `ollama`/`vllm` integrations appear.
 
 **ACP background following (debug build, 2026-11-13):** the new `acp` group (`acp_child_after_turn`,
 `acp_child_outlives_cancel`, `acp_child_close_stops`) against the local v2.2.7 build, both through the isolation
@@ -414,4 +425,9 @@ All runs use isolated `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG
 `OPENCODE_TEST_HOME` under the scratchpad; servers bind `--port 0`; the background service is disabled in the
 isolated config (`service.json` and `service-<channel>.json` for `v2`, `local`, `detached`, `latest`, `dev` and `beta`,
 with `{"disabled": true}`) and
-server-backed CLI commands also get `--standalone`. The real `~/.local/share/opencode` is never touched.
+server-backed CLI commands also get `--standalone`. The real `~/.local/share/opencode` is never touched. Both
+binaries run the local model discovery plugins by default, which ask `127.0.0.1:1234`, `:11434` and `:8000`; the
+isolated global config therefore has an `opencode.jsonc` (a file no scenario writes) setting the `baseURL` of
+`lmstudio`, `ollama` and `vllm` to the dead port `127.0.0.1:9`, and the `local` scenarios configure their own mock
+servers on top. (The configured providers are `enabled`, so every scenario's provider, model and integration lists now
+include LM Studio's models.dev models and `ollama`/`vllm` entries, the same on both sides.)

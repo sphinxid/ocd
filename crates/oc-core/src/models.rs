@@ -729,6 +729,17 @@ impl Models {
             }
             _ => None,
         };
+        // opencode.provider.{lmstudio,ollama,vllm}: a provider discovered on a local server needs no integration
+        // (each plugin's integration transform removes it while its inventory is not empty).
+        let local: Vec<catalog::local::Discovered> = match (&host, key) {
+            (Some(plugins), Some(key)) => {
+                plugins.local.discovered(key).into_iter().filter(|d| plugins.builtin_enabled(key, d.kind.plugin_id())).collect()
+            }
+            _ => vec![],
+        };
+        for discovered in &local {
+            integrations.remove(discovered.kind.provider_id());
+        }
         // Plugin `integration` transforms run between the internal plugins and the configured ones.
         if let (Some(host), Some(key)) = (&host, key) {
             host.integrations(key, integrations).await;
@@ -794,6 +805,7 @@ impl Models {
             (&sign_in, chatgpt_on, openai_on, caps_on).hash(&mut fingerprint);
             serde_json::to_string(&policies).unwrap_or_default().hash(&mut fingerprint);
             accounts.hash(&mut fingerprint);
+            format!("{local:?}").hash(&mut fingerprint);
             let mut supplied: Vec<(&String, &String)> = suppliers.iter().collect();
             supplied.sort();
             supplied.hash(&mut fingerprint);
@@ -844,6 +856,9 @@ impl Models {
             if let Some(state) = copilot {
                 plugins.push(Box::new(catalog::copilot::GithubCopilot { state }));
             }
+            // opencode.provider.lmstudio and opencode.provider.ollama (before the OpenCode plugin).
+            let (early, late): (Vec<_>, Vec<_>) = local.iter().cloned().partition(|d| d.kind != catalog::local::Kind::Vllm);
+            plugins.push(Box::new(catalog::local::LocalProviders { providers: early }));
             // opencode.provider.opencode: the Console document's providers (`integrate`), then the keyless provider.
             plugins.push(Box::new(catalog::config::IntegrationProviders { documents: integration_documents.clone() }));
             plugins.push(Box::new(catalog::plugins::OpencodeZen { connected }));
@@ -856,6 +871,8 @@ impl Models {
             if caps_on {
                 plugins.push(Box::new(catalog::openai::OpenAiContextCaps { sign_in: sign_in.clone() }));
             }
+            // opencode.provider.vllm.
+            plugins.push(Box::new(catalog::local::LocalProviders { providers: late }));
             // opencode.provider.claude-agent, the last provider plugin.
             if let Some(claude) = &claude {
                 plugins.push(Box::new(crate::claude_agent::ProviderPlugin { catalog: claude.catalog.clone() }));

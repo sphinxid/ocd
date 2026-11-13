@@ -56,6 +56,12 @@ pub async fn start(
 ) -> anyhow::Result<(oc_server::RunningServer, Arc<Engine>)> {
     let engine = engine(app, runner);
     plugins::install(&engine, &opts);
+    // The LM Studio, Ollama and vLLM discovery plugins run in servers only.
+    engine.app.plugins.local.enable();
+    if engine.runner.is_some() {
+        // With the session runner a configuration change rebuilds the location's services right away.
+        engine.app.plugins.local.follow_rebuilds();
+    }
     // Adopt an inherited persistent-PTY handoff at boot.
     engine.persistent().await;
     let server = oc_server::serve(engine.clone() as Arc<dyn oc_server::Backend>, opts).await?;

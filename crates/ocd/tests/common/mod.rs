@@ -40,6 +40,8 @@ impl Env {
             .env("PWD", self.path("work"))
             .env("OPENCODE_DISABLE_MODELS_FETCH", "1")
             .env("OPENCODE_DISABLE_AUTOUPDATE", "1")
+            // Test-only: the local model discovery plugins ask a dead port, never a real LM Studio, Ollama or vLLM.
+            .env("OCD_TEST_LOCAL_PROVIDER_ORIGIN", "http://127.0.0.1:9")
             .env_remove("OPENCODE_TEST_HOME")
             .env_remove("OPENCODE_CONFIG_DIR")
             .env_remove("OPENCODE_PASSWORD")

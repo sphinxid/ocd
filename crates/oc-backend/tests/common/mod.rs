@@ -54,6 +54,8 @@ pub fn global(root: &Path) -> oc_util::Global {
 pub fn harness() -> Harness {
     // SAFETY: tests only ever set this to the same value.
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
+    // Test-only: the local model discovery plugins (when a test enables them) ask a dead port, never a real server.
+    unsafe { std::env::set_var("OCD_TEST_LOCAL_PROVIDER_ORIGIN", "http://127.0.0.1:9") };
     let root = tempfile::tempdir().unwrap();
     let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
     let cwd = root_path.join("work");

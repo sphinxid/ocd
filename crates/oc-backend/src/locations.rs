@@ -262,6 +262,10 @@ impl Locations {
         let at = oc_schema::types::LocationRef { directory: directory.to_string(), workspace_id: None };
         // A configuration reload: the rebuilt services notify like an in-place reload, and keep the VCS info.
         let reload = self.reloading.lock().remove(directory);
+        // A boot starts the local model discovery plugins (upstream: during plugin activation, inside the boot batch).
+        if reload.is_none() {
+            self.app.plugins.local.boot(&loc.key);
+        }
         if let Some(Some(previous)) = &reload {
             loc.vcs_state.seed(previous.vcs_state.cached());
         }
@@ -346,6 +350,8 @@ async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_s
             }
             app.bus.publish(&format!("{domain}.updated"), json!({}), Some(at.clone()));
         }
+        // The local model discovery plugins follow the reloaded configuration (after its notifications).
+        app.plugins.local.reconfigure(&loc.key);
         let (app, git, loc) = (app.clone(), git.clone(), loc.clone());
         tokio::spawn(async move { crate::vcs_watch::watch(&app, &git, &loc).await });
         return;
@@ -370,6 +376,9 @@ async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_s
     // artifact State in the same batch, after the built-ins before the configured plugins and before the `post`
     // ones (the first to touch references is `opencode.config.reference`): its first notify always fires.
     let artifacts = app.plugins.transforms(&loc.key, oc_core::artifact::DOMAIN);
+    // Upstream's local model discovery plugins ask their servers while the boot batch runs: an answer that comes
+    // at once is part of these notifications (a server that does not answer within the budget announces later).
+    app.plugins.local.first_round(&loc.key, std::time::Duration::from_millis(250)).await;
     for kind in BOOT_NOTIFICATIONS {
         if kind == vcs_slot {
             crate::vcs_watch::refresh(app, loc).await;
@@ -388,6 +397,8 @@ async fn boot_notifications(app: &Arc<App>, git: &Git, loc: &Arc<Loc>, at: &oc_s
     {
         app.plugins.note_projection(&loc.key, oc_core::artifact::DOMAIN, projection);
     }
+    // The local model discovery plugins started with the boot; what they find from now on announces itself.
+    app.plugins.local.booted(&loc.key).await;
     // `LocationWatcher` starts once plugins have activated, in the background.
     let (app, git, loc) = (app.clone(), git.clone(), loc.clone());
     tokio::spawn(async move { crate::vcs_watch::watch(&app, &git, &loc).await });

@@ -25,6 +25,7 @@ pub mod goal;
 pub mod history;
 pub mod host;
 pub mod inbox;
+pub mod local_providers;
 pub mod location;
 pub mod mcp;
 pub mod lower;

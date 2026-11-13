@@ -7,6 +7,7 @@
 //! * [`registry`]: provider/model folds, availability, effective models, default and small model.
 //! * [`config`]: custom providers from config and the v1 `provider` migration.
 //! * [`plugins`]: data-only effects of core provider plugins.
+//! * [`local`]: the provider transform of the LM Studio, Ollama and vLLM discovery plugins.
 //! * [`openai`]: the Codex, ChatGPT token-sharing and ChatGPT input-cap effects of the OpenAI sign-ins.
 //! * [`resolve`]: catalog model → runtime [`crate::LanguageModel`].
 //!
@@ -21,6 +22,7 @@
 
 pub mod config;
 pub mod copilot;
+pub mod local;
 pub mod models_dev;
 pub mod models_dev_v1;
 pub mod native;

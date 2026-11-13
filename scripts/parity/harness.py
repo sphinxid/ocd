@@ -150,6 +150,10 @@ class Normalizer:
 # ---------------------------------------------------------------------------------------------------------------
 # Server process
 # ---------------------------------------------------------------------------------------------------------------
+# Where the local model discovery plugins look when a scenario configures nothing else: a dead port.
+LOCAL_PROVIDERS = {name: {"settings": {"baseURL": "http://127.0.0.1:9/v1"}} for name in ("lmstudio", "ollama", "vllm")}
+
+
 def isolated_env(state_root, extra=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith("OPENCODE")}
     for key, sub in [("XDG_DATA_HOME", "data"), ("XDG_CONFIG_HOME", "config"), ("XDG_STATE_HOME", "state"),
@@ -166,6 +170,11 @@ def isolated_env(state_root, extra=None):
                  "service-dev.json", "service-beta.json"):
         with open(os.path.join(service_dir, name), "w") as f:
             f.write('{"disabled": true}\n')
+    # SAFETY: the local model discovery plugins (LM Studio, Ollama, vLLM) ask their default origins on
+    # 127.0.0.1:1234, :11434 and :8000 from every location's boot. A global config file no scenario writes points
+    # them at a dead port instead (scenarios that test discovery configure their own endpoints on top).
+    with open(os.path.join(service_dir, "opencode.jsonc"), "w") as f:
+        f.write(json.dumps({"providers": LOCAL_PROVIDERS}, indent=2) + "\n")
     env.update({
         "HOME": home,
         "OPENCODE_TEST_HOME": home,

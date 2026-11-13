@@ -25,6 +25,7 @@ ocd reports version 2.2.7.
   - the 2.2 changes: provider wire, `/goal`, background compaction and tools;
   - Mercurial repositories and the desktop browser attachment;
   - the 2.2.7 changes: `run`, MCP OAuth, Copilot Auto, tools, the API and config.
+  - local model discovery for LM Studio, Ollama and vLLM against mock servers.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
 - **Result:** 202 of the 207 scenarios are identical. The other five differ in ways that are expected or harmless:
@@ -51,6 +52,7 @@ ocd reports version 2.2.7.
 | opencode v1 import | Imports v1 history into the v2 tables byte-identically to upstream, with the same progress badge in the TUI |
 | Chat providers | Anthropic, OpenAI, Google, Bedrock, Mistral, Cohere, OpenAI-compatible, OpenCode Zen, and every models.dev provider using those protocols. 229 recorded upstream streams decode identically |
 | Sign-in | API keys and OAuth. ChatGPT, with token sharing, the Codex browser and device-code logins, and upstream's model list, endpoints and headers. Also GitHub Copilot and the Azure CLI. Available from `ocd auth` or the TUI's `/connect` (accounts, sign-in forms, browser and device OAuth, pasted codes and redirect URLs, login commands). Azure Messages for Foundry models |
+| Local model servers | The built-in LM Studio, Ollama and vLLM plugins find the models a local server serves (at the configured `baseURL`, else `127.0.0.1:1234`, `:11434` and `:8000`) when a location boots, every 30 s and after a config change of the endpoint or `apiKey`. The discovered models replace the models.dev ones, are served through the OpenAI-compatible package and need no sign-in; a server that stops answering keeps its last list. Like upstream's compiled binary, discovery is on by default (`OCD_TEST_LOCAL_PROVIDER_ORIGIN` replaces the default addresses in tests only) |
 | GitHub Copilot models | The account's model list and endpoint (`/copilot_internal/user`), native Chat, Responses and Messages routes, Copilot Auto (the router picks the model per session, with its fallback), costs from what Copilot billed, content-filter categories and Copilot's request headers |
 | OpenAI Responses over WebSocket | For OpenAI, Azure and xAI: one socket per session, incremental turns with `previous_response_id`, and the same fallback to HTTP. The same proxy variables as upstream (`WSS_PROXY`, `WS_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`) and `permessage-deflate` compression |
 | Cloud credentials | Bedrock uses the AWS SDK's full default chain: environment, profiles with role assumption, web identity, `credential_process`, SSO with token refresh, `aws login`, container and EC2 instance roles. Vertex uses Google's application default credentials, including workload identity federation (`external_account`) and service-account impersonation. Checked against upstream with stand-in AWS and Google endpoints |

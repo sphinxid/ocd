@@ -354,6 +354,8 @@ pub struct Plugins {
     pub browsers: Arc<crate::browser::Browsers>,
     /// The built-in Claude Agent provider plugin (`opencode.provider.claude-agent`).
     pub claude: Arc<crate::claude_agent::ClaudeAgent>,
+    /// The built-in LM Studio, Ollama and vLLM discovery plugins.
+    pub local: Arc<crate::local_providers::LocalProviders>,
     /// Each location's latest model catalog, for built-in hooks that look up the request's model
     /// (`Model.Service.get` in upstream's plugins).
     catalogs: Mutex<HashMap<String, oc_ai::catalog::Catalog>>,
@@ -399,6 +401,8 @@ enum Notice {
     Domain { domain: String, kind: &'static str, at: Option<oc_schema::types::LocationRef> },
     /// `plugin.updated`.
     Inventory { at: Option<oc_schema::types::LocationRef> },
+    /// Answers once every notification queued before it was published.
+    Flushed(tokio::sync::oneshot::Sender<()>),
 }
 
 impl Plugins {
@@ -407,6 +411,7 @@ impl Plugins {
         Arc::new_cyclic(|me| Plugins {
             global,
             claude: crate::claude_agent::ClaudeAgent::new(db.clone(), bus.clone(), me.clone()),
+            local: crate::local_providers::LocalProviders::new(bus.clone(), me.clone()),
             db,
             copilot: crate::copilot::Copilot::new(bus.clone(), version),
             openai: Arc::new(crate::openai::OpenAi::new()),
@@ -469,6 +474,22 @@ impl Plugins {
         self.domain_changed(key, domain).await
     }
 
+    /// Waits until the notifications queued at `key` so far were published (each compares what it announces with
+    /// the state at that point, like upstream's States notifying as they change).
+    pub async fn flush_notices(&self, key: &str) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.notice(key, Notice::Flushed(tx));
+        let _ = rx.await;
+    }
+
+    /// Records `domain`'s current projection at `key` unless one was recorded since the location's boot, so a
+    /// built-in plugin's reload right after compares with what the location announced before its change.
+    pub async fn baseline(&self, key: &str, domain: &str) {
+        if Self::gated(domain).is_some() && !self.has_projection(key, domain) {
+            self.domain_changed(key, domain).await;
+        }
+    }
+
     /// Whether a projection was recorded for `domain` at `key`.
     pub fn has_projection(&self, key: &str, domain: &str) -> bool {
         Self::gated(domain).is_some_and(|d| self.published.lock().contains_key(&(key.to_string(), d)))
@@ -523,6 +544,9 @@ impl Plugins {
                                     // Recorded, so a later configuration reload compares with what this announced.
                                     me.domain_changed(&key, "plugin").await;
                                     me.bus.publish("plugin.updated", json!({}), at);
+                                }
+                                Notice::Flushed(done) => {
+                                    let _ = done.send(());
                                 }
                             }
                         }
@@ -862,6 +886,7 @@ impl Plugins {
     }
 
     fn ensure_with(&self, location: &Arc<Location>, defer: bool) {
+        self.local.observe(&location.key, &location.entries);
         let ops = operations(location);
         let fingerprint = serde_json::to_string(&ops).unwrap_or_default();
         let pending = {
@@ -1077,6 +1102,7 @@ impl Plugins {
         self.copilot.close(key);
         // The Claude Agent plugin's scope ends; live `claude` processes are handed over to the next owner.
         self.claude.close(key);
+        self.local.close(key);
         let state = self.locations.lock().remove(key);
         self.websearch_by_key.lock().remove(key);
         self.plugin_integrations.lock().remove(key);

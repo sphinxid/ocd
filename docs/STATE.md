@@ -94,6 +94,14 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-11-13: LOCAL MODEL DISCOVERY (2.2.7's `opencode.provider.{lmstudio,ollama,vllm}`): `oc_core::local_providers`
+  (discovery per location from its boot, every 30 s and on `config.updated`; 1 s requests; answers cached per root and
+  key across locations; Ollama's `/api/show` cached by digest) and `oc_ai::catalog::local` (endpoint rules and the
+  provider transform; the integration is removed in `Models::build_catalog_at`). Runs only in servers
+  (`LocalProviders::enable` in `oc_backend::start`). `OCD_TEST_LOCAL_PROVIDER_ORIGIN` (test only) replaces the default
+  origins; the ocd and oc-backend test harnesses set it to a dead port, and the parity harness writes a global
+  `opencode.jsonc` pointing all three providers at `127.0.0.1:9` (never ask 127.0.0.1:8000 on this machine: another
+  user's service listens there). Parity group `local`.
 - 2026-11-13: TUI SCROLLING AND MESSAGE NAVIGATION: the first "previous message" / "Jump to" in a long session no
   longer renders the whole transcript first (it rendered 1,500 messages in 5.2 s); it searches from the bottom
   (`TranscriptCache::marks_from_bottom`) and renders only as far up as the target (10 ms). syntect now runs on
