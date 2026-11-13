@@ -479,7 +479,7 @@ provider (`opencode.provider.claude-agent`) never reaches the sidecar: oc-core s
 
 | plugin | hooks | ocd |
 |---|---|---|
-| `opencode.provider.gitlab` | `sdk` for `gitlab-ai-provider`, `language` for provider `gitlab` (agentic/workflow chat) | installs `gitlab-ai-provider@6.19.0`; user agent from `ctx.app` |
+| `opencode.provider.gitlab` | `sdk` for `gitlab-ai-provider`, `language` for provider `gitlab` (agentic/workflow chat) | installs `gitlab-ai-provider@6.23.1`; user agent from `ctx.app` |
 | `opencode.provider.sap.ai.core` | `sdk` / `language` for provider `sap-ai-core` | `loadSDKFactory` of the configured package, service-key environment |
 | `opencode.provider.dynamic` | `sdk` when none set it: the package's first `create*` export | `file://` URLs are imported directly; otherwise `npm.add` (official unversioned `@ai-sdk/x` → `@ai-sdk/x@ai-v6`), then `Bun.resolveSync` + import |
 | `opencode.provider.github.copilot` | none in the sidecar since 2.2.7 | runs in Rust on native packages (oc-ai `catalog/copilot.rs`: OpenAI-compatible Chat, Responses or Messages per advertised endpoint): catalog transforms, the account endpoint from `/copilot_internal/user`, the `/models` sync through a process-wide cache refreshed every 10 minutes (forced on `credential.switched`), Copilot Auto (`auto` model, `/auto` router, per-session pick, `Copilot-Session-Token`), `session.model.request` (`X-Interaction-Type`/`-Id`, `x-initiator: agent` for titles, compaction and subagents), `session.title` (free `gpt-4o-mini` utility title) and `session.http.request` |
