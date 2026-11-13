@@ -538,6 +538,33 @@ impl App {
         self.dirty = true;
     }
 
+    /// One wheel tick on the transcript (OpenTUI `ScrollBox.scrollByWheel`): `scroll.speed` lines
+    /// per tick, or the macOS-style acceleration with `scroll.acceleration`; fractions carry over
+    /// to the next tick in the same direction.
+    pub fn wheel_scroll(&mut self, up: bool) {
+        let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
+        let slack = self.views.get(&sid).map(|v| v.nav_slack).unwrap_or(0);
+        let max = self.transcript_lines.saturating_sub(self.transcript_rect.height as usize + slack);
+        let position = self.views.get(&sid).map(|v| v.scroll_from_bottom).unwrap_or(0);
+        if (up && position >= max) || (!up && position == 0) {
+            // At the edge: nothing to scroll (the top still asks for older messages).
+            self.scroll(up, 0);
+            return;
+        }
+        let sign = if up { 1.0 } else { -1.0 };
+        let speed = if self.config.scroll_acceleration() { self.wheel.tick(self.now()) } else { self.config.scroll_speed() };
+        let mut remainder = self.wheel.remainder;
+        if remainder * sign < 0.0 {
+            remainder = 0.0;
+        }
+        remainder += sign * speed;
+        let step = remainder.trunc();
+        self.scroll(up, step.abs() as usize);
+        let moved = self.views.get(&sid).map(|v| v.scroll_from_bottom.abs_diff(position)).unwrap_or(0);
+        // An edge clamp keeps no remainder toward the edge it hit.
+        self.wheel.remainder = if moved as f64 == step.abs() { remainder - step } else { 0.0 };
+    }
+
     /// Scroll so transcript line `top` is at the viewport top (adds navigation slack).
     pub fn jump_to_line(&mut self, top: usize) {
         self.transcript_complete();
@@ -560,11 +587,52 @@ impl App {
         self.transcript_lines.saturating_sub(h).saturating_sub(from_bottom)
     }
 
+    /// Scroll so the line `d` lines above the end of the transcript is at the viewport top, without
+    /// the line count (adds navigation slack like [`App::jump_to_line`]).
+    fn jump_from_bottom(&mut self, d: usize) {
+        let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
+        let h = self.transcript_rect.height as usize;
+        let slack = h.saturating_sub(d);
+        let v = self.view(&sid);
+        v.nav_slack = slack;
+        v.scroll_from_bottom = d + slack - h;
+        self.dirty = true;
+    }
+
     /// `session.message.*` navigation between message boundaries.
     pub fn navigate_message(&mut self, id: &str) -> bool {
+        let user_only = id.contains(".user.") || id == "session.messages_last_user";
+        // A long transcript may still be rendering above the window: look for the target from the
+        // bottom first, rendering only as far up as it lies.
+        if let Some(sid) = self.session_id().map(|s| s.to_string()) {
+            let h = self.transcript_rect.height as usize;
+            let (from_bottom, slack) = self.views.get(&sid).map(|v| (v.scroll_from_bottom, v.nav_slack)).unwrap_or((0, 0));
+            // Lines from the viewport's top line to the end.
+            let top = (from_bottom + h).saturating_sub(slack);
+            let found = self.find_mark_from_bottom(|marks| {
+                let mut wanted = marks.iter().filter(|(_, _, u)| !user_only || *u).map(|(d, _, _)| *d);
+                match id {
+                    "session.messages_last_user" => wanted.next().map(Some),
+                    _ if id.ends_with("next") => marks.iter().any(|(d, _, _)| *d >= top).then(|| wanted.rfind(|d| *d < top)),
+                    _ => wanted.find(|d| *d > top).map(Some),
+                }
+            });
+            match found {
+                Some(Some(d)) => {
+                    self.jump_from_bottom(d);
+                    return true;
+                }
+                Some(None) => {
+                    let v = self.view(&sid);
+                    v.nav_slack = 0;
+                    v.scroll_from_bottom = 0;
+                    return false;
+                }
+                None => {}
+            }
+        }
         self.transcript_complete();
         let top = self.current_top();
-        let user_only = id.contains(".user.") || id == "session.messages_last_user";
         let marks: Vec<usize> = self.transcript_marks().iter().filter(|(_, _, u)| !user_only || *u).map(|(l, _, _)| *l).collect();
         let target = match id {
             "session.messages_last_user" => marks.last().copied(),
@@ -591,6 +659,10 @@ impl App {
 
     /// Jump to a specific message (timeline / "Jump to").
     pub fn jump_to_message(&mut self, message: &str) {
+        if let Some(d) = self.find_mark_from_bottom(|marks| marks.iter().find(|(_, m, _)| m == message).map(|(d, _, _)| *d)) {
+            self.jump_from_bottom(d);
+            return;
+        }
         self.transcript_complete();
         if let Some((l, _, _)) = self.transcript_marks().iter().find(|(_, m, _)| m == message).cloned() {
             self.jump_to_line(l);
@@ -2137,16 +2209,14 @@ impl App {
                 if let Some(d) = self.dialogs.last_mut().and_then(|d| d.sel()) {
                     d.move_by(-1);
                 } else {
-                    let n = self.config.scroll_speed().round().max(1.0) as usize;
-                    self.scroll(true, n);
+                    self.wheel_scroll(true);
                 }
             }
             MouseEventKind::ScrollDown => {
                 if let Some(d) = self.dialogs.last_mut().and_then(|d| d.sel()) {
                     d.move_by(1);
                 } else {
-                    let n = self.config.scroll_speed().round().max(1.0) as usize;
-                    self.scroll(false, n);
+                    self.wheel_scroll(false);
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
@@ -2402,4 +2472,41 @@ fn load_text(ui: &mut FormUi, f: Option<&Value>) {
         },
         _ => String::new(),
     };
+}
+
+/// Wheel state of the transcript: OpenTUI's `MacOSScrollAccel` (`lib/scroll-acceleration.ts`) and
+/// the scroll box's fractional remainder.
+#[derive(Debug, Default)]
+pub struct Wheel {
+    last_tick: i64,
+    intervals: Vec<f64>,
+    pub remainder: f64,
+}
+
+impl Wheel {
+    /// Lines for a wheel tick at `now` (ms): 1 for a tick that starts a streak, more the tighter
+    /// the last three intervals, at most 6. Ticks under 6 ms apart (terminals that send several
+    /// per notch) count as part of the previous one.
+    pub fn tick(&mut self, now: i64) -> f64 {
+        const A: f64 = 0.8;
+        const TAU: f64 = 3.0;
+        const MAX: f64 = 6.0;
+        let dt = if self.last_tick != 0 { Some((now - self.last_tick) as f64) } else { None };
+        let Some(dt) = dt.filter(|dt| *dt <= 150.0) else {
+            self.last_tick = now;
+            self.intervals.clear();
+            return 1.0;
+        };
+        if dt < 6.0 {
+            return 1.0;
+        }
+        self.last_tick = now;
+        self.intervals.push(dt);
+        if self.intervals.len() > 3 {
+            self.intervals.remove(0);
+        }
+        let avg = self.intervals.iter().sum::<f64>() / self.intervals.len() as f64;
+        let velocity = 100.0 / avg;
+        (1.0 + A * ((velocity / TAU).exp() - 1.0)).min(MAX)
+    }
 }

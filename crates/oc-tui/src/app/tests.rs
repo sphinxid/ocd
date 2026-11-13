@@ -1074,3 +1074,57 @@ fn reconnecting_banner_managed_text() {
     assert!(contains(&lines, "Restarting service…"), "{}", lines.join("\n"));
     assert!(contains(&lines, "Your session will resume automatically."));
 }
+
+/// OpenTUI's `MacOSScrollAccel`: 1 line for a tick that starts a streak or follows within 6 ms,
+/// more the tighter the streak, at most 6; a pause over 150 ms starts over.
+#[test]
+fn wheel_acceleration_follows_opentui() {
+    let mut w = input::Wheel::default();
+    assert_eq!(w.tick(1_000), 1.0);
+    assert_eq!(w.tick(1_003), 1.0);
+    let m = w.tick(1_100);
+    assert!((m - (1.0 + 0.8 * ((1.0f64 / 3.0).exp() - 1.0))).abs() < 1e-9, "{m}");
+    let m = w.tick(1_120);
+    assert!((m - (1.0 + 0.8 * ((100.0 / 60.0 / 3.0f64).exp() - 1.0))).abs() < 1e-9, "{m}");
+    for t in [1_130, 1_140, 1_150] {
+        w.tick(t);
+    }
+    assert_eq!(w.tick(1_160), 6.0);
+    assert_eq!(w.tick(1_400), 1.0);
+}
+
+/// Wheel ticks move `scroll.speed` lines, fractions carrying over within one direction; with
+/// `scroll.acceleration` a fast streak moves further.
+#[test]
+fn wheel_scroll_speed_and_acceleration() {
+    let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    let mut app = super::perf::perf_app();
+    let sid = super::perf::long_session(&mut app, 8);
+    term.draw(|f| app.draw(f)).unwrap();
+    app.transcript_complete();
+    let pos = |app: &App| app.views.get(&sid).unwrap().scroll_from_bottom;
+    app.wheel_scroll(true);
+    assert_eq!(pos(&app), 3);
+    app.wheel_scroll(false);
+    assert_eq!(pos(&app), 0);
+    app.config = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "scroll": { "speed": 0.5 } }));
+    let moves: Vec<usize> = (0..4).map(|_| {
+        app.wheel_scroll(true);
+        pos(&app)
+    }).collect();
+    assert_eq!(moves, [0, 1, 1, 2]);
+    // Turning around drops the remainder.
+    app.wheel_scroll(false);
+    app.wheel_scroll(false);
+    assert_eq!(pos(&app), 1);
+    app.config = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "scroll": { "acceleration": true } }));
+    app.wheel = Default::default();
+    app.views.get_mut(&sid).unwrap().scroll_from_bottom = 0;
+    let mut t = 10_000;
+    for _ in 0..8 {
+        app.clock = Some(t);
+        app.wheel_scroll(true);
+        t += 10;
+    }
+    assert!(pos(&app) > 30, "a fast streak moved {} lines", pos(&app));
+}

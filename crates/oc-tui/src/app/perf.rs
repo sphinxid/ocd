@@ -461,3 +461,101 @@ async fn perf_flood_keys_responsive() {
     let budget = if cfg!(debug_assertions) { 500.0 } else { 100.0 };
     assert!(r.pct(0.95) < budget, "key latency p95 {:.0} ms (budget {budget} ms)", r.pct(0.95));
 }
+
+/// Scrolling and message navigation in a 1,500-message session: wheel frames while the rows
+/// above still render, the first and later "previous user message" jumps, and wheel frames at
+/// several depths of a complete transcript. `--ignored --nocapture perf_scroll_bench`.
+#[test]
+#[ignore]
+fn perf_scroll_bench() {
+    let mut term = Terminal::new(TestBackend::new(140, 50)).unwrap();
+    // 1) Session just opened: wheel up 3 lines per frame while the rest renders in the background.
+    let mut app = perf_app();
+    let sid = long_session(&mut app, 1500);
+    crate::ui::highlight::clear_cache();
+    draw(&mut app, &mut term);
+    let mut worst = 0f64;
+    let start = Instant::now();
+    for _ in 0..200 {
+        app.scroll(true, 3);
+        let t = Instant::now();
+        draw(&mut app, &mut term);
+        worst = worst.max(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    eprintln!("fresh: 200 wheel frames {:.1} ms total, worst {worst:.2} ms, complete={}", start.elapsed().as_secs_f64() * 1000.0, app.tcache.is_complete());
+    // 2) Session just opened: jump to the previous user message (first use completes the render).
+    let mut app = perf_app();
+    let _sid = long_session(&mut app, 1500);
+    crate::ui::highlight::clear_cache();
+    draw(&mut app, &mut term);
+    let t = Instant::now();
+    app.navigate_message("session.message.user.previous");
+    draw(&mut app, &mut term);
+    eprintln!("fresh: first previous-message jump {:.1} ms", t.elapsed().as_secs_f64() * 1000.0);
+    let t = Instant::now();
+    for _ in 0..50 {
+        app.navigate_message("session.message.user.previous");
+        draw(&mut app, &mut term);
+    }
+    eprintln!("then: 50 jumps {:.3} ms each", t.elapsed().as_secs_f64() * 1000.0 / 50.0);
+    // 3) Complete transcript: wheel frames at increasing distance from the bottom.
+    let mut app = perf_app();
+    let sid2 = long_session(&mut app, 1500);
+    draw(&mut app, &mut term);
+    app.transcript_complete();
+    draw(&mut app, &mut term);
+    let total = app.tcache.len();
+    for frac in [0usize, 25, 50, 75, 99] {
+        let v = app.view(&sid2);
+        v.scroll_from_bottom = total * frac / 100;
+        draw(&mut app, &mut term);
+        let t = Instant::now();
+        for _ in 0..50 {
+            app.scroll(true, 1);
+            draw(&mut app, &mut term);
+        }
+        eprintln!("complete ({total} lines): at {frac}% from bottom, wheel frame {:.3} ms", t.elapsed().as_secs_f64() * 1000.0 / 50.0);
+    }
+    let _ = sid;
+}
+
+/// Like `perf_pieces`, with the tokenization cache dropped before each run (what rendering a row
+/// for the first time costs). `--ignored --nocapture perf_pieces_cold`.
+#[test]
+#[ignore]
+fn perf_pieces_cold() {
+    let app = perf_app();
+    let t = app.theme().clone();
+    let time = |label: &str, f: &mut dyn FnMut()| {
+        let start = Instant::now();
+        for _ in 0..20 {
+            crate::ui::highlight::clear_cache();
+            f();
+        }
+        eprintln!("{label:28} {:8.3} ms", start.elapsed().as_secs_f64() * 1000.0 / 20.0);
+    };
+    let md = markdown(7);
+    let o = crate::ui::markdown::MdOpts { theme: &t, syntax: &app.syntax, conceal: true, fg: t.markdown.text, mono: false };
+    time("cold markdown", &mut || {
+        std::hint::black_box(crate::ui::markdown::render(&md, 130, &o));
+    });
+    let code: String = (0..30).map(|k| format!("export const value{k} = {k} * 7;")).collect::<Vec<_>>().join("\n");
+    time("cold highlight 30 ts", &mut || {
+        std::hint::black_box(crate::ui::highlight::highlight(&code, "typescript", &app.syntax));
+    });
+    let p = patch(7);
+    let d = crate::ui::diff::DiffOpts { theme: &t, syntax: &app.syntax, filetype: "typescript", split: true, wrap: true };
+    time("cold diff 20 split", &mut || {
+        std::hint::black_box(crate::ui::diff::render(&crate::ui::diff::parse(&p), 130, &d));
+    });
+    let mut app = perf_app();
+    let sid = long_session(&mut app, 4);
+    time("cold whole turn", &mut || {
+        std::hint::black_box(app.render_transcript_lines(&sid, 136));
+    });
+    let mut app = perf_app();
+    let sid = long_session(&mut app, 40);
+    time("cold 10 turns", &mut || {
+        std::hint::black_box(app.render_transcript_lines(&sid, 136));
+    });
+}

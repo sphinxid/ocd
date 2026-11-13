@@ -23,9 +23,10 @@
 //! distance from the bottom, then keeps rendering the rows above it within a small time budget, so
 //! a resize or theme switch of a long session shows the visible part at once and completes the
 //! rest over the next frames. Until every row is rendered the line count and the message marks are
-//! unknown; the window is then addressed from the bottom, and navigation that needs the marks
-//! completes the render first ([`App::transcript_complete`]). Drawing reads the visible window by
-//! reference.
+//! unknown; the window is then addressed from the bottom, and message navigation finds its target
+//! from the bottom ([`TranscriptCache::marks_from_bottom`]), completing the render
+//! ([`App::transcript_complete`]) only for a target above every rendered row. Drawing reads the
+//! visible window by reference.
 
 use super::App;
 use crate::api::types::*;
@@ -379,10 +380,11 @@ impl App {
     pub fn transcript_complete(&mut self) {
         if let Some(sid) = self.session_id().map(str::to_string)
             && self.tcache.sid == sid
-            && !self.tcache.complete
         {
-            let w = self.tcache.width;
-            self.transcript_sync(&sid, w);
+            if !self.tcache.complete {
+                let w = self.tcache.width;
+                self.transcript_sync(&sid, w);
+            }
             self.transcript_lines = self.tcache.len() + self.views.get(&sid).map(|v| v.nav_slack).unwrap_or(0);
         }
     }
@@ -395,6 +397,30 @@ impl App {
     /// Marks of the last synced transcript: (line, message id, user).
     pub fn transcript_marks(&self) -> &[(usize, String, bool)] {
         self.tcache.marks()
+    }
+
+    /// Find a message mark without rendering the whole transcript: rows are rendered bottom-up,
+    /// further each round, until `pick` decides from the marks counted from the bottom (see
+    /// [`TranscriptCache::marks_from_bottom`]); `pick` returns `None` to ask for more rows.
+    /// `None` when the transcript is (or became) complete, where the top-based marks apply.
+    pub(super) fn find_mark_from_bottom<T>(&mut self, mut pick: impl FnMut(&[(usize, String, bool)]) -> Option<T>) -> Option<T> {
+        let sid = self.session_id()?.to_string();
+        if self.tcache.sid != sid {
+            return None;
+        }
+        let width = self.tcache.width;
+        let h = self.transcript_rect.height as usize;
+        let mut need = self.views.get(&sid).map(|v| v.scroll_from_bottom).unwrap_or(0) + 2 * h.max(1);
+        loop {
+            if self.tcache.is_complete() {
+                return None;
+            }
+            if let Some(found) = pick(&self.tcache.marks_from_bottom()) {
+                return Some(found);
+            }
+            self.transcript_sync_need(&sid, width, Some(need));
+            need = need.saturating_mul(2);
+        }
     }
 }
 
@@ -428,6 +454,45 @@ impl TranscriptCache {
 
     pub fn marks(&self) -> &[(usize, String, bool)] {
         &self.marks
+    }
+
+    /// Marks of the rendered rows at the bottom, counted from the bottom: (lines from the mark's
+    /// line to the end of the transcript, message id, user), nearest the bottom first. Valid
+    /// before the rows above are rendered; the topmost message read is left out then, as its rows
+    /// may continue above.
+    pub fn marks_from_bottom(&self) -> Vec<(usize, String, bool)> {
+        let mut out: Vec<(usize, String, bool)> = Vec::new();
+        let mut at: HashMap<&str, usize> = HashMap::new();
+        let mut below = self.extra.len();
+        let mut top: Option<&str> = None;
+        let mut all = true;
+        for c in self.rows.iter().rev() {
+            if c.lines.is_none() {
+                all = false;
+                break;
+            }
+            let span = c.span();
+            if span > 0
+                && let Some((id, user)) = &c.cand
+            {
+                // A message's mark is its topmost row's.
+                let mark = (below + span - usize::from(*user), id.clone(), *user);
+                match at.get(id.as_str()) {
+                    Some(&i) => out[i] = mark,
+                    None => {
+                        at.insert(id, out.len());
+                        out.push(mark);
+                    }
+                }
+                top = Some(id);
+            }
+            below += span;
+        }
+        if !all && let Some(top) = top {
+            out.retain(|(_, id, _)| id != top);
+        }
+        out.sort_by_key(|(d, _, _)| *d);
+        out
     }
 
     /// Lines from `offset` on, by reference.

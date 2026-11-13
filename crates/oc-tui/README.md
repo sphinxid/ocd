@@ -337,9 +337,12 @@ Long sessions must not slow the TUI down: the cost of a frame and of an event do
 - **Lazy rows:** rows are rendered bottom-up, only as far as the window reaches, and the rest within 8 ms per frame
   afterwards. Opening, resizing or re-theming a long session shows the visible part at once; until every row is
   rendered the line count and the message marks are unknown, the window is addressed from the bottom
-  (`TranscriptCache::window_bottom`) and scrolling is unclamped. Message navigation (`App::transcript_complete`)
-  finishes the render first. The window is drawn by reference (no copy of the transcript per frame).
-- **Highlighting:** `ui/highlight.rs` caches syntect tokenization (style-independent) per (language, code), up to
+  (`TranscriptCache::window_bottom`) and scrolling is unclamped. Message navigation and "Jump to" look for their
+  target from the bottom (`TranscriptCache::marks_from_bottom`), rendering only as far up as it lies, and finish
+  the render first only when it lies above everything rendered. The window is drawn by reference (no copy of the
+  transcript per frame).
+- **Highlighting:** syntect runs on Oniguruma (`regex-onig`; the pure-Rust `fancy-regex` engine made first renders
+  about 2.5× slower). `ui/highlight.rs` caches syntect tokenization (style-independent) per (language, code), up to
   32 MB of code; finished code blocks of a streaming answer and re-wraps never parse again. The diff viewer caches
   each file's rendered diff by content, width and theme.
 - **Other per-frame paths** read the tail only: the busy line's phase scans back to the last `idle` marker; the
@@ -351,7 +354,9 @@ Long sessions must not slow the TUI down: the cost of a frame and of an event do
   lazily drawn frame must equal a complete one. `perf_frame_cost_independent_of_transcript_length` fails if a frame
   after one delta in a 1,500-message session costs more than 4 ms (release) or 3× a 16-message one;
   `perf_flood_keys_responsive` streams 200 deltas/s while pressing ↓ in a question dialog. Heavier, ignored:
-  `cargo test -p oc-tui --release -- --ignored --nocapture perf_bench perf_flood_bench perf_pieces`.
+  `cargo test -p oc-tui --release -- --ignored --nocapture perf_bench perf_flood_bench perf_pieces perf_scroll_bench`.
+  `navigation_without_the_full_render_matches_the_complete_one` checks that navigation from a partial render lands
+  where it lands on the complete transcript, from every scroll position.
   End to end: `scripts/tui_latency.py`.
 
 ## Modules

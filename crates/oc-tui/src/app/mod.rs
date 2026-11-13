@@ -278,6 +278,8 @@ pub struct App {
     pub dismissed_text: Option<String>,
     pub interrupt: u8,
     pub interrupt_at: Option<Instant>,
+    /// Transcript wheel scrolling: acceleration and the fractional remainder.
+    pub wheel: input::Wheel,
     pub placeholder: usize,
     pub permission_ui: Option<PermissionUi>,
     pub form_ui: Option<FormUi>,
@@ -446,6 +448,7 @@ impl App {
             dismissed_text: None,
             interrupt: 0,
             interrupt_at: None,
+            wheel: Default::default(),
             placeholder: rand::random_range(0..3),
             permission_ui: None,
             form_ui: None,

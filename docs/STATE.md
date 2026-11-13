@@ -94,6 +94,14 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-11-13: TUI SCROLLING AND MESSAGE NAVIGATION: the first "previous message" / "Jump to" in a long session no
+  longer renders the whole transcript first (it rendered 1,500 messages in 5.2 s); it searches from the bottom
+  (`TranscriptCache::marks_from_bottom`) and renders only as far up as the target (10 ms). syntect now runs on
+  Oniguruma (`regex-onig`), about 2.5x faster on first renders (also checked under `cargo zigbuild` for glibc 2.17:
+  linked statically, no new glibc symbols). Wheel scrolling follows OpenTUI: fractional `scroll.speed` carries over and
+  `scroll.acceleration` uses `MacOSScrollAccel` (both were ignored or rounded). The upstream Bun comparisons in
+  `oc-ai/tests` now write their scripts inside the checkout: from a temp dir Bun auto-installed `effect` from npm, so they
+  failed under the network fence.
 - 2026-11-11: CAUGHT UP WITH 2.2.7 (`docs/UPGRADE-2.2.7.md`): four reviews, five batches and three fix batches, all
   compared with an upstream 2.2.7 binary built from the tag. Storage/API/config (OpenAPI 170 ops incl.
   `experimental.job.list`, fresh-DB `auth.json` import, part rows read/insert/fork, cross-site 403, the flag registry

@@ -298,3 +298,67 @@ fn lazy_frame_is_pixel_identical() {
     assert!(!a.tcache.is_complete());
     assert_eq!(&complete, term.backend().buffer());
 }
+
+/// Message navigation before the rows above the window are rendered lands exactly where it lands
+/// on the complete transcript, from every scroll position, and renders only part of a long
+/// transcript for the nearby targets.
+#[test]
+fn navigation_without_the_full_render_matches_the_complete_one() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let mut term = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    let mut app = perf_app();
+    let sid = long_session(&mut app, 12);
+    // The first user message has no text: it gets no mark.
+    app.store.messages.get_mut(&sid).unwrap()[4].content.clear();
+    term.draw(|f| app.draw(f)).unwrap();
+    app.transcript_complete();
+    let total = app.tcache.len();
+    let ids = ["session.message.previous", "session.message.next", "session.message.user.previous", "session.message.user.next", "session.messages_last_user"];
+    let messages: Vec<String> = app.store.messages(&sid).iter().map(|m| m.id.clone()).collect();
+    let reset = |app: &mut App, from_bottom: usize, slack: usize, complete: bool, term: &mut Terminal<TestBackend>| {
+        app.tcache = TranscriptCache { budget: Some(std::time::Duration::ZERO), ..Default::default() };
+        let v = app.view(&sid);
+        v.scroll_from_bottom = 0;
+        v.nav_slack = 0;
+        term.draw(|f| app.draw(f)).unwrap();
+        if complete {
+            app.transcript_complete();
+        }
+        let v = app.view(&sid);
+        v.scroll_from_bottom = from_bottom;
+        v.nav_slack = slack;
+        term.draw(|f| app.draw(f)).unwrap();
+    };
+    let mut partial = 0;
+    let state = |app: &App| app.views.get(&sid).map(|v| (v.scroll_from_bottom, v.nav_slack)).unwrap();
+    for from_bottom in (0..total).step_by(13).chain([total - 23, total - 24]) {
+        for slack in [0, 5].into_iter().filter(|s| *s == 0 || from_bottom < 60) {
+            for id in ids {
+                reset(&mut app, from_bottom, slack, true, &mut term);
+                let want = (app.navigate_message(id), state(&app));
+                reset(&mut app, from_bottom, slack, false, &mut term);
+                partial += usize::from(!app.tcache.is_complete());
+                let got = (app.navigate_message(id), state(&app));
+                assert_eq!(got, want, "{id} from {from_bottom} (slack {slack})");
+            }
+        }
+    }
+    assert!(partial >= 40, "only {partial} navigations started on a partial render");
+    for m in &messages {
+        reset(&mut app, 0, 0, true, &mut term);
+        app.jump_to_message(m);
+        let want = state(&app);
+        reset(&mut app, 0, 0, false, &mut term);
+        app.jump_to_message(m);
+        assert_eq!(state(&app), want, "jump to {m}");
+    }
+    // A nearby target in a long transcript renders only the rows down to it.
+    let mut app = perf_app();
+    let _ = long_session(&mut app, 400);
+    app.tcache.budget = Some(std::time::Duration::ZERO);
+    term.draw(|f| app.draw(f)).unwrap();
+    assert!(app.navigate_message("session.message.user.previous"));
+    assert!(!app.tcache.is_complete());
+    assert!(app.tcache.stats.rendered < 20, "rendered {} rows", app.tcache.stats.rendered);
+}
