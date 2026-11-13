@@ -68,7 +68,7 @@ ocd reports version 2.2.7.
 | Persistent terminals | `@opencode/pty` 0.4.0: terminals belong to their session, are removed with it, and can be renamed |
 | Mercurial | Project identity, status, working and branch diffs, `vcs.init` for hg and branch watching. Like upstream, snapshots and worktrees are git-only. Needs `hg` on `PATH` |
 | Desktop browser attachment | The built-in `opencode.browser` plugin: the `experimental.browser` RPC (attach, state, commands and results, tunnels), its control events, the session permissions an attached desktop grants, the 45 `browser.*` Code Mode tools with file uploads and captures, and the 60 s request timeout. The `browser` skill is denied to every agent until a desktop attaches. The desktop's own proxy is part of the desktop app, not the server |
-| Editor integration (ACP) | `ocd acp`, including the file diffs on permission requests and completed edits |
+| Editor integration (ACP) | `ocd acp`, including the file diffs on permission requests and completed edits, and following subagents that outlive the turn (or its cancellation) until they finish |
 | CLI prompts | `ocd auth`, `ocd mcp auth` and `ocd session export` use the same prompts as upstream (pickers, search lists, forms), down to resizing and key handling. `--wizard` builds any command interactively with upstream's prompts, byte for byte |
 | Remote access | `ocd pair --remote` |
 | Scripted runs | `ocd run` as rewritten in 2.2.7: `--worktree`, `--archived`, waiting for the run's background jobs, retry notices, and SIGINT/SIGTERM cancelling the session and its jobs. Every command exits 130/143 on those signals |

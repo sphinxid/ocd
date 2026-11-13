@@ -155,8 +155,14 @@ exited unexpectedly (...)`), and file diffs (`acp/permission.ts`): permission re
 `diff` preview per file (`N files` title for several) and completed edit/patch calls (live and in
 history replay) append a `diff` per changed file, the old text rebuilt by reversing the recorded
 patch against the file (jsdiff `parsePatch`/`reversePatch`/`applyPatch`, ported in
-`oc_tools::jsdiff`) or, for the patch tool's trimmed diffs, from its hunks. Not ported: background
-following of child sessions after the root turn ends.
+`oc_tools::jsdiff`) or, for the patch tool's trimmed diffs, from its hunks. Background following of
+child sessions (`turn.ts` `handoff`/`followChildren`): when a turn ends (or is cancelled) with child
+sessions still open, a follower takes over its event feed in the session's scope. It folds only the
+tracked children's events (and their children's), sends their `opencode/session/child_update`
+notifications (nothing without the child capability) and their permission/form asks (forms without a
+`toolCallId`), never the root's own updates (the root's answer to a subagent's report is not
+streamed), and stops once no child is open and their asks are answered, or when the session is
+closed, deleted or attached again (an ask in progress then gets its fallback answer).
 
 ## Notes / deviations
 

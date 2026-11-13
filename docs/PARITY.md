@@ -17,7 +17,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude schedule image artifact media
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude schedule image artifact media acp
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -90,7 +90,7 @@ creation waits until `agent.list` answers the same twice and `plugin.updated` wa
 the agent/command/skill/model/provider/integration lists the same way; `readonly_vcs*` issue one unrecorded
 `vcs.get` first.
 
-## Scenarios (207)
+## Scenarios (210)
 
 | group | scenarios |
 |---|---|
@@ -127,8 +127,14 @@ the agent/command/skill/model/provider/integration lists the same way; `readonly
 | tools227 | 2.2.7's `read` (past the end, negative offsets, suggestions, `skill://`), shell exit and partial-line notices, webfetch fragments and credentials, Code Mode `import` and `fetch` redirects, the job list, `session_move` |
 | mcp227 | MCP OAuth refresh rotation across two locations, temporary refresh failures (503, 429) keeping the login, a pasted redirect URL, stdio probes, `~` in `cwd`, an invalid URL, a slow server missing the first step |
 | run227 | the rewritten `run`: message arguments, waiting for background jobs, retry notices, a permission question it cannot answer, `--worktree`, `--archived`, SIGTERM |
+| acp | `opencode acp` over stdio (`scripts/parity/acp227.py`, a minimal ACP client with the child-session capability that answers permission requests `once`): a background subagent outliving the root turn, outliving a cancelled turn with its `read: ask` permission request, and a session closed while it runs. Every JSON-RPC message the client received is compared in three ordered lists (the root's updates with responses and requests, the child updates, everything after the prompt response), plus the root's and the child's model requests each in order: the server publishes a background child's start concurrently with the root's tool result, so how those interleave during the turn is a race in both binaries |
 
 ## Results
+
+**ACP background following (debug build, 2026-11-13):** the new `acp` group (`acp_child_after_turn`,
+`acp_child_outlives_cancel`, `acp_child_close_stops`) against the local v2.2.7 build, both through the isolation
+guard: **3 of 3 identical**. After the prompt response both send the child's updates (and its permission request)
+until it completes, nothing of the root's answer to the report, and nothing after `session/close`.
 
 **Final run against 2.2.7 (debug build, 2026-11-11):** all 207 scenarios against the local v2.2.7 build, `hg` 7.2.4
 on `PATH`, the scripted stand-in for the Claude Agent provider: **202 of 207 identical**. Left: `cli_help`,
