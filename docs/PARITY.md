@@ -164,6 +164,16 @@ iterator's `next`.
 
 ## Results
 
+**Opt-in part rows (`experimental.part_rows`; debug build, 2026-11-20):** against the opencode 2.3.1 binary, the new
+`partrows` group (5 scenarios, comparing the stored `session_message` and `session_part` rows down to each part's key
+order) is **identical**, including `partrows_roundtrip`, where each binary reads, with the flag off and on, and
+continues a database the other wrote. Groups `loop` and `session` rerun with
+`PARITY_CONFIG_EXTRA='{"experimental": {"part_rows": true}}'` (30 scenarios): **28 identical**, the two left being the
+known `loop_tool_error` and `loop_http_400` event-order races; with the flag off (`loop`, `session`, `media`, 34
+scenarios) the same two differ and the rest are identical. Through the isolation guard, sessions written by each
+binary with the flag on (two prompts with reasoning, a tool call and text: 8 part rows) export identically from both
+binaries with the flag on and off, before and after the other binary continued them with the flag off and then on.
+
 **2.3.1 catch-up, core tools and sessions (Q2; debug build, 2026-11-18):** against the opencode 2.3.1 binary,
 groups `loop`, `permission`, `stop`, `tools22`, `tools227` and `shell225` plus `readonly_*` (57 scenarios): **53
 identical**, among them `readonly_instructions` and `loop_llm_request` (the 2.3.1 `read`/`shell` descriptions and
