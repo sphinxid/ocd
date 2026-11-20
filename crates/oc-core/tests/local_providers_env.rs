@@ -66,7 +66,8 @@ async fn lmstudio_keeps_sending_the_integration_env_key_after_models_load() {
     plugins.local.observe("/loc", &[]);
     plugins.local.start("/loc");
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    // Generous for loaded debug runs (the other discovery tests wait up to 15 s).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         let catalog = models.catalog_at(&[], Some("/loc")).await.unwrap();
         if catalog.model("lmstudio", "secured-model").is_some() && seen.lock().len() >= 3 {

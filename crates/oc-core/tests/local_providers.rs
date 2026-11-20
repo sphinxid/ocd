@@ -658,7 +658,11 @@ async fn ollama_reloads_layered_endpoint_and_bearer_settings() {
     let entries = vec![config(json!({"ollama": {"settings": {"baseURL": base, "apiKey": "secret"}}})), config(json!({"ollama": {"settings": {"apiKey": null}}}))];
     c.reconfigure("/loc", &entries);
     eventually(|| async { c.discovered("/loc", Kind::Ollama).map(|d| d.api_key) }, |k| *k == Some(None)).await;
-    let seen = configured.seen();
+    // The discovered state can change before the mock has logged every request of that round: wait for the log.
+    let unauthorized = |method: &'static str, path: &'static str| {
+        move |seen: &Vec<_>| seen.iter().any(|s: &Seen| s.authorization.is_none() && s.method == method && s.path == path)
+    };
+    let seen = eventually(|| async { configured.seen() }, |seen| unauthorized("GET", "/proxy/api/tags")(seen) && unauthorized("POST", "/proxy/api/show")(seen)).await;
     assert!(seen.iter().any(|s| s.authorization.is_none() && s.method == "GET" && s.path == "/proxy/api/tags"));
     // The digest is unchanged but the key changed: the details are asked again.
     assert!(seen.iter().any(|s| s.authorization.is_none() && s.method == "POST" && s.path == "/proxy/api/show"));
@@ -668,7 +672,10 @@ async fn ollama_reloads_layered_endpoint_and_bearer_settings() {
     let entries = vec![config(json!({"ollama": {"settings": {"baseURL": api_base, "apiKey": "api-secret"}}}))];
     c.reconfigure("/loc", &entries);
     eventually(|| async { c.discovered("/loc", Kind::Ollama).map(|d| d.base_url) }, |b| b.as_deref() == Some(api_base.as_str())).await;
-    let seen = configured.seen();
+    let bearer = |method: &'static str, path: &'static str| {
+        move |seen: &Vec<_>| seen.iter().any(|s: &Seen| s.authorization.as_deref() == Some("Bearer api-secret") && s.method == method && s.path == path)
+    };
+    let seen = eventually(|| async { configured.seen() }, |seen| bearer("GET", "/proxy/api/tags")(seen) && bearer("POST", "/proxy/api/show")(seen)).await;
     assert!(seen.iter().any(|s| s.authorization.as_deref() == Some("Bearer api-secret") && s.method == "GET" && s.path == "/proxy/api/tags"));
     assert!(seen.iter().any(|s| s.authorization.as_deref() == Some("Bearer api-secret") && s.method == "POST" && s.path == "/proxy/api/show"));
 }
