@@ -2,7 +2,7 @@
 //! over the real service, with a manual clock, a prompter that admits into the session inbox and records wakes, and
 //! test Code Mode tools in the `slack` namespace. Each test builds its own app (explicit paths, no process-wide XDG).
 //!
-//! Not ported: the MCP event watch cases (`automation-event.test.ts`; ocd has no MCP events), and the plugin
+//! The MCP event watch cases (`automation-event.test.ts`) are in `automation_event.rs`. Not ported: the plugin
 //! activation gate of "waits for plugins when authorizing" (ocd activates plugins while it builds the location).
 
 use std::path::{Path, PathBuf};
@@ -1022,8 +1022,8 @@ async fn validates_durations_at_creation() {
     assert_eq!(invalid(create(event, prompt("x")).await), "Event automations require experimental.mcp_events");
 }
 
-/// With `mcp_events` on, an event watch needs a tool call in a local session, then a server offering push events;
-/// ocd has no MCP events client, so every server reads as offering none.
+/// With `mcp_events` on, an event watch needs a tool call in a local session, then a configured server offering push
+/// events (the event cases are in `automation_event.rs`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn event_watches_need_a_tool_call_and_a_server_offering_events() {
     let h = harness();
@@ -1032,7 +1032,7 @@ async fn event_watches_need_a_tool_call_and_a_server_offering_events() {
     let input =
         json!({"sessionID": s, "name": "watch", "trigger": {"type": "event", "server": "ci", "event": "build.changed"}, "action": prompt("Check the build")});
     assert_eq!(invalid(h.create(input.clone()).await), "Create an event automation from a tool call in a local session");
-    assert_eq!(invalid(h.create_as(input, &invocation(&s)).await), "MCP server ci is not connected or offers no events");
+    assert_eq!(invalid(h.create_as(input, &invocation(&s)).await), "MCP server not found: ci");
     assert!(h.automations.list(&ListInput::default()).is_empty());
 }
 

@@ -191,3 +191,68 @@ def mcpopt231_watch_wakes_session(ctx):
     ctx.record_events(filt=lambda e: not e.get("type", "").startswith("mcp."))
     ctx.record_llm(full=True)
 
+
+
+def _automation_rows(ctx):
+    """The automation table's event bookkeeping, read from the data directory's database."""
+    import glob
+    import sqlite3
+    rows = []
+    for path in sorted(glob.glob(os.path.join(ctx.state, "data", "opencode", "*.db"))):
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            for name, status, run_count, outcome, position, due in con.execute(
+                    "SELECT name, status, run_count, last_outcome, event_position, next_due_at FROM automation ORDER BY time_created"):
+                rows.append({"name": name, "status": status, "runCount": run_count, "lastOutcome": outcome,
+                             "eventPosition": json.loads(position) if position else None, "nextDueAt": due})
+        except sqlite3.Error as error:
+            rows.append({"error": str(error)})
+        finally:
+            con.close()
+    return rows
+
+
+@scenario("mcpopt231", hold_for_title=0, timeout=180)
+def mcpopt231_automation_event_fires(ctx):
+    """An automation with an `event` trigger (`OPENCODE_FLAGS=automations,mcp_events`), created by the model with
+    `opencode_automation_create`: the watch's stream opens with the trigger's arguments, the server's event fires the
+    prompt into the session with the event quoted as untrusted data, a heartbeat and the event move `event_position`,
+    and an event the payload schema refuses pauses the watch."""
+    files = os.path.join(ctx.state, "mcp")
+    emit, wire = os.path.join(files, "emit"), os.path.join(files, "wire")
+    servers = {"jobs": {"type": "local", "protocol": "2026-07-28",
+                        "command": [sys.executable, SERVER, "--events", f"--emit={emit}", f"--wire-log={wire}"]}}
+    create = {"name": "On job", "trigger": {"type": "event", "server": "jobs", "event": "job.finished", "args": {"job": "j1"}},
+              "action": {"type": "prompt", "prompt": "Report the finished job."}}
+    _boot_events(ctx, [
+        {"tools": [{"name": "opencode_automation_create", "id": "call_1",
+                    "args": {**create, "trigger": {**create["trigger"], "event": "poll.only"}}}]},
+        {"tools": [{"name": "opencode_automation_create", "id": "call_2",
+                    "args": {**create, "trigger": {**create["trigger"], "args": {"job": 1}}}}]},
+        {"tools": [{"name": "opencode_automation_create", "id": "call_3", "args": create}]},
+        {"text": "Watching."},
+        {"text": "The job finished."},
+    ], servers, flags="automations,mcp_events")
+    sid = ctx.create_session(title="Automation")
+    _settled(ctx, ctx.project)
+    ctx.prompt(sid, "when job j1 finishes, report it", timeout=90)
+    deadline = time.time() + 20
+    while time.time() < deadline and _lines(wire).count("events/stream") < 1:
+        time.sleep(0.1)
+    ctx.rec("rows.created", _automation_rows(ctx))
+    mark = len(ctx.server.events)
+    _emit(emit, {"eventId": "evt-1", "data": {"status": "done"}, "cursor": "c1"})
+    ctx.wait_for("session.inbox.enqueued", timeout=30, start=mark)
+    ctx.wait_idle(sid, start=mark, timeout=60)
+    time.sleep(0.5)
+    ctx.rec("rows.fired", _automation_rows(ctx))
+    _emit(emit, {"eventId": "evt-2", "data": {"status": 2}, "cursor": "c2"})
+    deadline = time.time() + 20
+    while time.time() < deadline and not any(r.get("status") == "paused" for r in _automation_rows(ctx)):
+        time.sleep(0.2)
+    ctx.rec("rows.paused", _automation_rows(ctx))
+    ctx.call("automations", "GET", "/api/experimental/automation")
+    ctx.rec("wire", _wire(wire))
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")
+    ctx.record_events(filt=lambda e: not e.get("type", "").startswith("mcp."))
+    ctx.record_llm(full=True)

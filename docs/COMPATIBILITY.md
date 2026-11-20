@@ -16,7 +16,7 @@ ocd reports version 2.3.1.
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 263 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 271 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
@@ -34,10 +34,12 @@ ocd reports version 2.3.1.
   - the 2.3.1 changes: the API (automation, video and blob routes) and config keys;
   - the 2.3.1 provider and server changes: reasoning replay, the ChatGPT token-sharing catalog, video models in the
     catalog, storage failures answering readable 500s, and the local agent CLI's context check;
-  - local model discovery for LM Studio, Ollama and vLLM against mock servers.
+  - local model discovery for LM Studio, Ollama and vLLM against mock servers;
+  - the opt-in part rows, and the opt-in MCP features: connection pooling, MCP Events with the watch tool, and
+    automation event triggers.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 257 of the 263 scenarios are identical. The other six differ in ways that are expected or harmless:
+- **Result:** 265 of the 271 scenarios are identical. The other six differ in ways that are expected or harmless:
   - the intended renames;
   - the upstream test build's database file name;
   - two timing races that also vary between runs of upstream (one is the title rename racing a failed step);
@@ -108,7 +110,7 @@ ocd reports version 2.3.1.
 | Start-up events | A new session's start-up notifications arrive about 0.5 s sooner; same events, same order |
 | Stopping `ocd run` | On SIGINT/SIGTERM ocd interrupts a background job's session once its input is delivered, with `resume: true` (upstream interrupts when the session starts), so a cancelled job's notice can't hold up the exit. Same output and exit codes |
 | Tool failure events | When several tool calls in one response fail instantly (unknown tool, unparseable input), upstream records some of the failures in the middle of the response, where its runtime's scheduler happens to yield; ocd records them after it |
-| Automations (2.3.1) | `experimental.automations` (old name `experimental.schedules`, off in releases): timers (`at`, `every`, `cron` in a zone, `expires`), prompt actions to a session or to a new subagent child per run, model-free Code Mode actions with state and one send, the tools, `/automation`, the six routes, pause/resume, the KV lease `automation:leader` and the rewake after a restart, on the same `automation` table, so ocd and 2.3.1 list and run each other's automations. Event triggers are not ported (see below). Plugin activation is part of building a location in ocd, so it does not count toward a code action's 30 s cap |
+| Automations (2.3.1) | `experimental.automations` (old name `experimental.schedules`, off in releases): timers (`at`, `every`, `cron` in a zone, `expires`), prompt actions to a session or to a new subagent child per run, model-free Code Mode actions with state and one send, the tools, `/automation`, the six routes, pause/resume, the KV lease `automation:leader` and the rewake after a restart, on the same `automation` table, so ocd and 2.3.1 list and run each other's automations. With `experimental.mcp_events` also on, `{type: "event"}` triggers watch a connected server's push event: created from a tool call in a local session after the `opencode_watch_mcp_event` permission and the server's push type and argument checks, opened by the lease holder (an event-only database keeps the lease), rechecked (flag, creating session and agent, permission) before each stream and run, run with the event quoted as untrusted data (a prompt) or as `input.event` (code), with `event_position` committed per event and resumed from after a reconnect, a pause or a restart (three reconnects in a row, then paused; no replay cursor, a truncated replay, an invalid or oversized event, a rejected or terminated stream, a revoked permission pause it; `expires` ends it between deliveries). Watches a 2.3.1 process created in the same database run here too, and the other way round. Plugin activation is part of building a location in ocd, so it does not count toward a code action's 30 s cap |
 | `pair --remote` | A native OpenTunnel client (`crates/oc-tunnel`) replaces upstream's JavaScript SDK. It keeps the tunnel in the same place, so ocd, upstream and the opentunnel CLI share a device's tunnel. Tested against a local stand-in for the service, not yet against opentunnel.xyz |
 
 ## Not implemented yet
@@ -121,7 +123,6 @@ ocd reports version 2.3.1.
 | Speech, video and transcription models | Upstream has these only as library code that nothing in the app calls. From 2.3.1 models.dev video models are kept in the catalog (listed with `GET /api/model?types=video`, never offered for sessions; a video model's ref sent to text, image or decision generation is a 422) and `@opencode/ai/providers/xai/videos` is a bundled package, like upstream; ocd generates no videos |
 | Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 `UnknownError` |
 | Opt-in features of 2.2.6 and 2.2.7 | Console watches and session warming. Their config keys are accepted and echoed like 2.2.7. `experimental.codemode_vm` is a deprecated, ignored key since 2.3.0 (upstream always runs its bytecode VM; ocd runs its interpreter, tested against it) |
-| Automation event triggers (2.3.1) | `{type: "event"}` triggers need MCP Events (`experimental.mcp_events`), which ocd does not port: with that flag off creating one fails like upstream; with it on, every MCP server reads as offering no push events (`MCP server <name> is not connected or offers no events`). Event watches a 2.3.1 process created are left alone: ocd neither opens nor pauses them, and they do not keep its automation lease |
 | Opt-in features of 2.3.1 | Video generation (`experimental.video_generate`: both routes answer 403 like a release build, also with the flag on, since ocd has no video protocols) and the full Code Mode (`experimental.full_codemode`). Their config keys are accepted and echoed like 2.3.1 |
 | Other experimental features | `location_idle_timeout` and the new designs. Their config keys are accepted and do nothing |
 

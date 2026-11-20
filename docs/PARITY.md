@@ -111,7 +111,7 @@ find VM differences: the VM's standard library is partly program code, so some e
 imports changed. ocd follows them (`crates/oc-codemode/tests/upstream_2_3_0.rs`) except the VM's lazy check of an
 iterator's `next`.
 
-## Scenarios (268)
+## Scenarios (271)
 
 | group | scenarios |
 |---|---|
@@ -147,7 +147,7 @@ iterator's `next`.
 | wire227 | unreachable and refused hosts (the retry schedule and the error text), the ChatGPT workspace limit, Azure Messages for Foundry models; plus `plugin_model_resolve` (the `experimental.model.resolve` hook) and `plugin_copilot_auto` (Copilot Auto's router, picks, fallback and compaction reroute) |
 | tools227 | 2.2.7's `read` (past the end, negative offsets, suggestions, `skill://`), shell exit and partial-line notices, webfetch fragments and credentials, Code Mode `import` and `fetch` redirects, the job list, `session_move` |
 | mcp227 | MCP OAuth refresh rotation across two locations, temporary refresh failures (503, 429) keeping the login, a pasted redirect URL, stdio probes, `~` in `cwd`, an invalid URL, a slow server missing the first step |
-| mcpopt231 | 2.3.1's opt-in MCP features against `scripts/parity/fake_mcp_modern.py`, a stdio server speaking the 2026-07-28 revision (or only the legacy handshake): `mcpopt231_pool_shares_local_servers`, two Locations of one server with `pool: true` servers (a modern one with a fixed `cwd` spawned once, a legacy one private per Location after one shared attempt, one without a fixed `cwd` per directory, an unpooled one per Location; spawn counts, wire methods, the `mcp.*` events per Location), and the shared process kept by one Location after the other disconnects, stopped by the last; `mcpopt231_watch_wakes_session` (`OPENCODE_FLAGS=mcp_events`, Code Mode off): the model lists the event types with `opencode_watch_mcp_event`, watches `job.finished`, and the server's event wakes the session with the synthetic message (the full requests, the wire methods and the cancellation after the first event) |
+| mcpopt231 | 2.3.1's opt-in MCP features against `scripts/parity/fake_mcp_modern.py`, a stdio server speaking the 2026-07-28 revision (or only the legacy handshake): `mcpopt231_pool_shares_local_servers`, two Locations of one server with `pool: true` servers (a modern one with a fixed `cwd` spawned once, a legacy one private per Location after one shared attempt, one without a fixed `cwd` per directory, an unpooled one per Location; spawn counts, wire methods, the `mcp.*` events per Location), and the shared process kept by one Location after the other disconnects, stopped by the last; `mcpopt231_watch_wakes_session` (`OPENCODE_FLAGS=mcp_events`, Code Mode off): the model lists the event types with `opencode_watch_mcp_event`, watches `job.finished`, and the server's event wakes the session with the synthetic message (the full requests, the wire methods and the cancellation after the first event); `mcpopt231_automation_event_fires` (`OPENCODE_FLAGS=automations,mcp_events`): the model creates event automations with `opencode_automation_create` (a poll-only type and bad arguments refused, then a watch of `job.finished`), the event fires the prompt into the session, `event_position` before and after, and an event the payload schema refuses pausing the watch |
 | run227 | the rewritten `run`: message arguments, waiting for background jobs, retry notices, a permission question it cannot answer, `--worktree`, `--archived`, SIGTERM |
 | acp | `opencode acp` over stdio (`scripts/parity/acp227.py`, a minimal ACP client with the child-session capability that answers permission requests `once`): a background subagent outliving the root turn (2.3.0: and the root's answer to its report, streamed after the prompt's response), outliving a cancelled turn with its `read: ask` permission request, and a session closed while it runs. Every JSON-RPC message the client received is compared in three ordered lists (the root's updates with responses and requests, the child updates, everything after the prompt response), plus the root's and the child's model requests each in order: the server publishes a background child's start concurrently with the root's tool result, so how those interleave during the turn is a race in both binaries. 2.3.1 (`acp231.py`): a prompt that ends while its background shell runs, the turn the shell's notice wakes streamed after the response, a fast shell's reaction and a follow-up prompt |
 | local | the LM Studio, Ollama and vLLM discovery plugins against mock servers (`scripts/parity/local.py`, ephemeral ports shared by both runs, configured `baseURL`s only): the discovery requests (paths, bearer keys, Ollama's `/api/show` bodies), the provider, model and integration lists they produce (embedding, foreign and failing models left out, contexts, families, capabilities), `apiKey` and `/api`/`/api/v1` base URLs, a chat through a discovered vLLM model (path, key, model), a 30 s outage keeping the inventory and the next answer replacing it, a config change moving LM Studio to another server and key and dropping vLLM's endpoint; the `*.updated` counts of the boot and of each change. 2.3.0: an LM Studio decision model (`max_context_length: null`, `has_vision_adapter`) in the lists and through `/generate/decisions` (the System One request and answer), a key saved through `/api/credential` while LM Studio refuses requests without it, and the integration's env key `LMSTUDIO_API_KEY` |
@@ -175,10 +175,14 @@ scenarios) the same two differ and the rest are identical. Through the isolation
 binary with the flag on (two prompts with reasoning, a tool call and text: 8 part rows) export identically from both
 binaries with the flag on and off, before and after the other binary continued them with the flag off and then on.
 
-**Opt-in MCP pooling (debug build, 2026-11-20):** the new group `mcpopt231` against the opencode 2.3.1 binary,
-through the isolation guard: `mcpopt231_pool_shares_local_servers` identical (one process for both Locations, the
-legacy server's single probe and three handshakes, the per-directory server, the status and catalog events, the
-shared process outliving one Location's disconnect). A first run showed that 2.3.1's SDK fails a 2026-07-28
+**Opt-in MCP features (debug build, 2026-11-20):** the new group `mcpopt231` against the opencode 2.3.1 binary,
+through the isolation guard: **3 of 3 identical**. `mcpopt231_pool_shares_local_servers` (one process for both
+Locations, the legacy server's single probe and three handshakes, the per-directory server, the status and catalog
+events, the shared process outliving one Location's disconnect), `mcpopt231_watch_wakes_session` (the watch tool's
+definition in the full request, its listing, the wake message and its ID, the stream cancelled after the first
+event) and `mcpopt231_automation_event_fires` (the creation checks, the fired prompt quoting the event,
+`event_position` as 2.3.1 writes it, the pause on a payload the schema refuses). The wake's message ID hashes the
+session ID, so the normalizer masks `msg_mcp_<hash>` and the scenario checks the hash itself. A first run showed that 2.3.1's SDK fails a 2026-07-28
 `tools/list` result without `ttlMs` and `cacheScope` (a Zod error dump as the status); the fake now sends them as
 the SDK's server does. ocd does not check those fields (P3, left).
 

@@ -4,7 +4,8 @@
 //! The tools a program calls are found statically (`tools.<path>(...)`) and authorized once at creation while the
 //! user is present (permissions asked without `save`). Each run then executes under narrow `Unattended` rules: an
 //! ask the rules do not settle is denied with `Permission <action> needs approval, and nobody is present to give
-//! it`. A program receives `input = { state, now, runs, args }` (also as globals) and returns nothing or
+//! it`. A program receives `input = { state, now, runs, args, event? }` (also as globals; `event` = `{id, timestamp,
+//! data}` for an event trigger) and returns nothing or
 //! `{ state?, done?, send? }`.
 
 use std::collections::HashSet;
@@ -70,6 +71,8 @@ pub struct RunInput {
     pub state: Value,
     pub now: i64,
     pub runs: i64,
+    /// The event an event trigger fired on (`AutomationEvent.input`: `{id, timestamp, data}`).
+    pub event: Option<Value>,
 }
 
 /// `{ send: { prompt, to?: { subagent } } }`
@@ -331,6 +334,9 @@ async fn run_once(automations: &Automations, session: &SessionInfo, action: &Val
     bindings.insert("now".into(), json!(input.now));
     bindings.insert("runs".into(), json!(input.runs));
     bindings.insert("args".into(), action.get("args").cloned().unwrap_or(Value::Null));
+    if let Some(event) = &input.event {
+        bindings.insert("event".into(), event.clone());
+    }
     let mut globals: Vec<(String, Value)> = bindings.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     globals.push(("input".into(), Value::Object(bindings)));
     let result = crate::permission::unattended(
