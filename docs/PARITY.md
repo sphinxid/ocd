@@ -364,6 +364,13 @@ until it completes, nothing of the root's answer to the report, and nothing afte
 dropped (only the Console plugin attaches files, which ocd now keeps through the plugin transform and serves from
 the `skill` and `read` tools).
 
+**Run with the opt-in features of 2.2.6–2.3.1 (debug build, 2026-11-20):** all 280 scenarios against the local v2.3.1
+build after the MCP pooling, MCP Events and automation event triggers, part-row writer, session warming and Console
+watches/artifacts batches: 274 identical; the six left are the known `cli_help`, `cli_inventory`,
+`stop_retry_exhausted`, `loop_tool_error` and `readonly_fs`, plus `partrows_loop`, whose two parallel tools included a
+`glob` of two files that rg lists in directory order (upstream's glob does not sort); the part-row scenarios now glob a
+single file and were identical in 4 of 4 reruns (`loop_http_400`, a known race, matched in this run).
+
 **Final run against 2.3.1 (debug build, 2026-11-18):** all 263 scenarios against the local v2.3.1 build, ocd
 reporting 2.3.1: **257 of 263 identical** (the full run, then `hg_session` and `acp_background_shell_wakes_turn`
 rerun after their fixes, identical in 5 of 5 runs each). Left: `cli_help`, `cli_inventory`, `stop_retry_exhausted`,

@@ -6,7 +6,6 @@ databases written by one binary and read (and written on) by the other with the 
 import json
 import os
 import sqlite3
-import time
 
 from parity.artifact import database
 from parity.media import ints
@@ -26,8 +25,10 @@ def stored(ctx, label, sid):
     con = sqlite3.connect(db_path(ctx))
     try:
         m = con.execute("SELECT id, type, seq, data FROM session_message WHERE session_id = ? ORDER BY seq", (sid,)).fetchall()
+        # `time_updated >= time_created`: a part updated in the millisecond it was created keeps equal times, which
+        # either binary can hit, so only the ordering is compared (the Rust tests check that updates stamp it).
         p = con.execute(
-            "SELECT p.message_id, p.ordinal, p.type, p.call_id, p.time_updated > p.time_created, p.data FROM session_part AS p "
+            "SELECT p.message_id, p.ordinal, p.type, p.call_id, p.time_updated >= p.time_created, p.data FROM session_part AS p "
             "JOIN session_message AS m ON m.id = p.message_id WHERE p.session_id = ? ORDER BY m.seq, p.ordinal", (sid,)).fetchall()
     finally:
         con.close()
@@ -59,7 +60,7 @@ def users(ctx, sid):
 TOOLS = [
     {"reasoning": "Look at both files.", "text": "Reading two files.",
      "tools": [{"name": "read", "id": "call_a", "args": {"path": "$PROJECT/a.txt"}},
-               {"name": "glob", "id": "call_b", "args": {"pattern": "*.txt"}}]},
+               {"name": "glob", "id": "call_b", "args": {"pattern": "b.*"}}]},
     {"reasoning": "Both read.", "text": "a.txt says alpha."},
 ]
 
