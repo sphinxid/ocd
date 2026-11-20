@@ -256,6 +256,7 @@ pub fn tool_plugin(tool: &dyn Tool) -> Option<&'static str> {
         name if tool.options().namespace.as_deref() == Some("opencode") && crate::mcp_events::is_watch_tool(name) => {
             crate::mcp_events::PLUGIN_ID
         }
+        _ if crate::console_watches::is_watch_tool(tool) => crate::console_config::PLUGIN_ID,
         _ if tool.options().namespace.as_deref() == Some("opencode") => "opencode.tools",
         _ => return None,
     })

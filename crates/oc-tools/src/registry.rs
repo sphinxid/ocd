@@ -131,6 +131,22 @@ impl Registry {
         Ok(())
     }
 
+    /// [`Registry::namespace`] at `index` (clamped): a plugin whose namespace registers before others'. An existing
+    /// namespace of the same name is replaced in place.
+    pub fn insert_namespace(&mut self, index: usize, namespace: Namespace) -> Result<(), RegistrationError> {
+        if self.namespaces.iter().any(|n| n.name == namespace.name) {
+            return self.namespace(namespace);
+        }
+        if let Some(error) = namespace_error(&namespace.name) {
+            tracing::error!(name = %namespace.name, error = %error.message, "Skipping invalid namespace registration");
+            self.errors.push(error.clone());
+            return Err(error);
+        }
+        let index = index.min(self.namespaces.len());
+        self.namespaces.insert(index, namespace);
+        Ok(())
+    }
+
     pub fn remove(&mut self, id: &str) {
         self.tools.retain(|(name, _)| name != id);
     }

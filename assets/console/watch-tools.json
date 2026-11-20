@@ -1,0 +1,285 @@
+[
+ {
+  "name": "watch",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "target": {
+     "anyOf": [
+      {
+       "type": "string",
+       "description": "A Slack message or thread link, a GitHub pull request, issue, commit or Actions run link, owner/repo#123, or owner/repo@<full commit SHA>"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "server": {
+     "anyOf": [
+      {
+       "type": "string",
+       "description": "Instead of target: the server of an event type `events` lists"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "event": {
+     "anyOf": [
+      {
+       "type": "string",
+       "description": "The event type's name, with server"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "arguments": {
+     "anyOf": [
+      {
+       "type": "object",
+       "description": "The event type's arguments, as its input schema describes"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "minutes": {
+     "anyOf": [
+      {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 20160,
+       "description": "How long to watch from now, in minutes; the event type's own default otherwise"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "sessionID": {
+     "type": "string"
+    },
+    "routingKey": {
+     "type": "string"
+    },
+    "mode": {
+     "type": "string"
+    },
+    "expiresAt": {
+     "type": "string"
+    },
+    "serverSlug": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "eventType": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "arguments": {
+     "anyOf": [
+      {
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   },
+   "required": [
+    "id",
+    "sessionID",
+    "routingKey",
+    "mode",
+    "expiresAt"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "unwatch",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  },
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "removed": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "id",
+    "removed"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "watches",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  },
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "watches": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "sessionID": {
+        "type": "string"
+       },
+       "routingKey": {
+        "type": "string"
+       },
+       "mode": {
+        "type": "string"
+       },
+       "expiresAt": {
+        "type": "string"
+       },
+       "serverSlug": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "eventType": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "arguments": {
+        "anyOf": [
+         {
+          "type": "object"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "required": [
+       "id",
+       "sessionID",
+       "routingKey",
+       "mode",
+       "expiresAt"
+      ],
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "watches"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "events",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "additionalProperties": false
+  },
+  "outputSchema": {
+   "type": "object",
+   "properties": {
+    "types": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "server": {
+        "type": "string"
+       },
+       "name": {
+        "type": "string"
+       },
+       "description": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "inputSchema": {
+        "type": "object"
+       }
+      },
+      "required": [
+       "server",
+       "name",
+       "inputSchema"
+      ],
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "types"
+   ],
+   "additionalProperties": false
+  }
+ }
+]

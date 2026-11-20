@@ -27,9 +27,9 @@ agent/provider registries. It uses the functions below to do that work.
   `boolean | {interval?, duration?}` with raw strings), read by the session warming plugin
   (`oc_core::warming`). `part_rows` drives the projector's part-row writer
   (read like upstream's `partRowsEnabled`: the highest-priority document that sets `experimental`, no
-  `OPENCODE_FLAGS` or `all_flags`; `oc-core` records it per location). The features behind `console_watches`
-  and `pool` are opt-in upstream and not ported: ocd has no Console watches and connects MCP servers
-  per location.
+  `OPENCODE_FLAGS` or `all_flags`; `oc-core` records it per location), and `console_watches` turns on
+  oc-core's Console watches. The feature behind `pool` is opt-in upstream and not ported: ocd connects MCP
+  servers per location.
 - 2.3.0 keys: the flag `experimental.mcp_events` (accepted and echoed; its feature is not ported);
   `experimental.codemode_vm` is a deprecated, ignored key right after `portable_shell_scanner`, and
   the retired `codemodeVm` alias is ignored without a diagnostic; provider `settings.tls` (`Tls`:

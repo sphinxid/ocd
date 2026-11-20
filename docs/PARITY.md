@@ -19,7 +19,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude automation image artifact media api227 wire227 tools227 mcp227 run227 acp local api230 freeform230 auth230 subagent tls230 codemode231 api231 providers231 daemon231 partrows mcpopt231 warming231
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude automation image artifact media api227 wire227 tools227 mcp227 run227 acp local api230 freeform230 auth230 subagent tls230 codemode231 api231 providers231 daemon231 partrows mcpopt231 warming231 console231
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -111,7 +111,7 @@ find VM differences: the VM's standard library is partly program code, so some e
 imports changed. ocd follows them (`crates/oc-codemode/tests/upstream_2_3_0.rs`) except the VM's lazy check of an
 iterator's `next`.
 
-## Scenarios (271)
+## Scenarios (280)
 
 | group | scenarios |
 |---|---|
@@ -163,8 +163,18 @@ iterator's `next`.
 | freeform230 | 2.3.0 freeform tool input against the mock's Responses and Chat endpoints (`scripts/parity/freeform230.py`; the mock streams `custom_tool_call` items): `execute` and `patch` as custom tools (free text, and the Lark patch grammar) on a model configured with `capabilities.freeform`, custom calls run with their object input, the stored parts, the files the patch wrote, and the replay of the calls as `custom_tool_call`/`custom_tool_call_output` in later requests; the formats a model lists (`["text"]`, `[]`, unset) deciding which tools go out custom; `openai/gpt-5.4-mini` freeform from the bundled models.dev catalog (and its `/api/model` capabilities); Chat Completions custom tools and a streamed `custom` call. Every request body (custom tools in full, function tools as one digest each, input/messages in full) is compared |
 | codemode230 | 2.3.0 Code Mode (`scripts/parity/codemode230.py`): `search` over the built-in and fake MCP tools (whole and partial words, plurals, a namespace filter), an unknown tool's suggestion and namespace calls naming up to three tools, a compact JSON result; streaming `fetch` against mock routes that send chunks 80 ms apart (a reader, `for await` with a streaming `TextDecoder`, a second whole-body read failing, the response's keys and `Headers`, `bodyUsed`), a redirect whose open body the mock sees discarded, and a body left open at the program's end that the mock sees cancelled |
 | codemode231 | 2.3.1 Code Mode (`scripts/parity/codemode231.py`): `Buffer` (text in each encoding, number reads and writes, views, Node's error codes, the `buffer` module, a Buffer returned and logged, a logging-only program with no `null` line); arguments of fake MCP calls crossing as host copies then JSON (a `toJSON` not run, functions left out, promises awaited, Dates/Sets/URLs/errors converted; an iterator, a symbol, `tools`, a Uint8Array and a Buffer refused; a rejected promise), `search("text")` and its input error's suggestion, the reworded diagnostics; a plugin (`crates/oc-plugin/tests/fixtures/codemode-rename-plugin`) renaming calls inside a program to another Code Mode tool (structured output returned) or to a direct or unknown tool (not available); a nested `worktree_remove` asking `edit`, whose `permission.asked` names the `execute` call as its source |
+| console231 | OpenCode Console opt-in features against a local mock Console signed in with a fake API key (`scripts/parity/console231.py`; the mock answers the config with the headers a scenario turns on, the event stream over a WebSocket or long polls, the watch and artifact routes, and records every request with its sign-in headers). `console_watches` (2.2.7, `experimental.console_watches` + `x-opencode-event-watches`): the `console_watch` tools through Code Mode (a target, an MCP event type with minutes, the list, an unwatch of another session's watch, both kinds at once, the event types) and the catalog's `console_watch` namespace; a teammate's review waking the session (the steer and the model request it resumes), another machine's event left unacknowledged, a lease end reconnecting at once, two shell calls that printed a pull request URL (2.3.1's shell result has `exitCode` where the watch reads `exit`: neither binary watches them), a deleted session's watches cancelled and its later event acknowledged, the upgrade's sign-in headers. `console_watches_poll`: a refused upgrade, long polls with Console's cursor, a CI failure waking the session. `console_watches_off`: no flag, or no header: no socket, no request, no tools. `console_artifacts` (2.3.1, `artifacts` + `x-opencode-artifacts`): the providers, a publish over HTTP (prepare, only missing blobs, the publish with the session), an update over the same slug, a read Console can't serve, a name another member took, `artifact_create` from a session, the list and a delete, `artifact.updated`. `console_artifacts_quiet`: without watches the publish names no session; without the header `local` stays the default |
 
 ## Results
+
+**OpenCode Console opt-in features (debug build, 2026-11-20):** the new `console231` group (5 scenarios) against the
+opencode 2.3.1 binary with a local mock Console and a fake API key: **5 identical**. The watch tools, the catalog
+namespace, a wake and the model request it resumes, the WebSocket lease reconnect, the long polls, the dormant cases,
+the `console` artifact provider's requests (blobs compared sorted, since they upload concurrently; slug suffixes come
+from the random artifact ID and are masked) and the `artifact.updated` notifications match. Two shell calls that
+printed a pull request URL are watched by neither binary: 2.3.1's shell result reports `exitCode` where the watch reads
+`exit` (the ported unit tests trigger the hook with `exit` like upstream's own). Code Mode's ephemeral tool progress is
+left out of `console_watches`, where upstream sometimes sends none.
 
 **Opt-in part rows (`experimental.part_rows`; debug build, 2026-11-20):** against the opencode 2.3.1 binary, the new
 `partrows` group (5 scenarios, comparing the stored `session_message` and `session_part` rows down to each part's key

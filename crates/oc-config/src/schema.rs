@@ -1758,7 +1758,7 @@ pub struct Experimental {
     /// Flag: the experimental video generation API (accepted; not ported).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_generate: Option<bool>,
-    /// Flag: OpenCode Console watches (accepted; not ported).
+    /// Flag: OpenCode Console watches (`oc_core::console_watches`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub console_watches: Option<bool>,
     /// Flag: experimental MCP Events, a draft MCP extension (accepted; not ported).

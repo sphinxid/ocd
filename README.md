@@ -71,7 +71,7 @@ optimisation, after v0.3.4), the same mock model and isolated folders; medians o
 | ⛔ **Not yet** | TUI plugins, speech and video models, image previews in the terminal, a few other experimental features |
 | ✨ **Different on purpose** | A working status line in the TUI, `ocd upgrade` from ocd's own releases, `ocd --version` shows ocd's own version |
 
-269 of 275 side-by-side scenarios produce identical output against opencode 2.3.1; the other six differ only by
+274 of 280 side-by-side scenarios produce identical output against opencode 2.3.1; the other six differ only by
 the renames, the test build's file name, two upstream timing races and the order of instantly failing tool calls. Details: **[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
 
 CI runs the whole test suite on macOS, Windows and Linux ARM on every push to main; the side-by-side comparison with

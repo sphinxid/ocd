@@ -223,6 +223,8 @@ impl Engine {
         self.watch(directory, &loc);
         self.console_watch(directory);
         self.console_skills(directory);
+        // Part of the location's boot: its burst announces the artifact providers.
+        self.console_features(directory, false).await;
         Ok(loc)
     }
 
@@ -277,6 +279,78 @@ impl Engine {
         }
     }
 
+    /// `syncWatches` and `artifacts.sync`: the Console's event watches run while the location holds the Console
+    /// document unchanged, the config says the workspace has watches and the `console_watches` flag is on; the
+    /// `console` artifact provider is offered while the config says the member may share artifacts (and promises
+    /// comment wakes while watches run). Both stop when that no longer holds. `announce`: a change of the artifact
+    /// providers announces itself (`artifact.updated`); a booting location's burst announces them instead.
+    async fn console_features(&self, directory: &str, announce: bool) {
+        use crate::console_config::{self, PLUGIN_ID};
+        let snapshot = console_config::snapshot(directory);
+        let Some(location) = self.locations.lock().get(directory).cloned() else { return };
+        let allowed = self.app.plugins.builtin_enabled(directory, PLUGIN_ID) && snapshot.allowed(&location.entries);
+        let watching = allowed && snapshot.watches && oc_config::flag::enabled(&location.entries, "console_watches");
+        let user_agent = format!("opencode/{}/{}/{}", oc_util::version::CHANNEL, self.app.version, oc_util::version::ARTIFACT);
+        let connection = snapshot.connection.clone().filter(|_| allowed);
+        // Signed out, or the Console document withheld: nothing runs, and no credential is looked up.
+        if connection.is_none() && !crate::console_watches::active(directory) && crate::console_artifacts::offered(directory).is_none() {
+            return;
+        }
+        let integrations = self.models.prepared_integrations(directory).await;
+        match (watching, &connection) {
+            (true, Some(connection)) => match self.console_of(&integrations, connection).await {
+                Ok(console) => {
+                    let host = crate::console_watches::AppHost::new(&self.app, user_agent.clone());
+                    crate::console_watches::sync(directory, console, host);
+                }
+                Err(cause) => tracing::warn!(%cause, "failed to start Console event watches"),
+            },
+            _ => {
+                let host = crate::console_watches::AppHost::new(&self.app, user_agent.clone());
+                crate::console_watches::sync(directory, None, host);
+            }
+        }
+        let offered = connection.filter(|_| allowed && snapshot.artifacts).map(|connection| crate::console_artifacts::Current {
+            connection,
+            wakes: watching,
+            integrations: integrations.clone(),
+            user_agent,
+        });
+        if crate::console_artifacts::sync(directory, offered) && announce && self.app.plugins.domain_changed(directory, "artifact").await {
+            let at = oc_schema::types::LocationRef { directory: directory.to_string(), workspace_id: None };
+            self.app.bus.publish("artifact.updated", serde_json::json!({}), Some(at));
+        }
+    }
+
+    /// The Console workspace a connection signed in to, for its event watches: `None` when the connection has no
+    /// credential of its own. Every request resolves the credential again, so a refreshed token is the one sent.
+    async fn console_of(
+        &self,
+        integrations: &Arc<oc_ai::credentials::integration::Integrations>,
+        connection: &oc_ai::credentials::integration::ConnectionInfo,
+    ) -> Result<Option<crate::console_watches::Console>, String> {
+        use oc_ai::credentials::CredentialValue;
+        use oc_ai::credentials::flows::console::{credential_headers, server_url};
+        let credential = integrations.resolve(connection).await.map_err(|e| e.to_string())?;
+        let credential = match credential {
+            Some(c) if !matches!(c, CredentialValue::External { .. }) => c,
+            _ => return Ok(None),
+        };
+        let server = oc_tools::websearch::normalize_server(&server_url(&credential))?;
+        let key = crate::console_config::workspace_key(connection, &credential);
+        let (integrations, connection) = (integrations.clone(), connection.clone());
+        let headers: crate::console_watches::HeadersFn = Arc::new(move || {
+            let (integrations, connection) = (integrations.clone(), connection.clone());
+            Box::pin(async move {
+                match integrations.resolve(&connection).await.map_err(|e| e.to_string())? {
+                    Some(c) if !matches!(c, CredentialValue::External { .. }) => Ok(credential_headers(&c)),
+                    _ => Err("OpenCode Console is not connected".to_string()),
+                }
+            })
+        });
+        Ok(Some(crate::console_watches::Console { key, server, headers }))
+    }
+
     /// Check the Console config again every minute while signed in, and on every `credential.switched` for
     /// `opencode`; a changed document reloads the location's config.
     fn console_watch(&self, directory: &str) {
@@ -303,12 +377,13 @@ impl Engine {
                         },
                     }
                     let Some(engine) = me.upgrade() else { return };
-                    if engine.console_refresh(&key).await
-                        && let Err(error) = engine.reload_location(&key).await
-                    {
+                    let reloaded = engine.console_refresh(&key).await;
+                    if reloaded && let Err(error) = engine.reload_location(&key).await {
                         tracing::error!(directory = %key, error = %error, "failed to reload config");
                     }
                     engine.console_skills(&key);
+                    // A changed document reloads the location, whose plugins announce their artifact providers again.
+                    engine.console_features(&key, !reloaded).await;
                 }
             }),
         );
@@ -360,6 +435,8 @@ impl Engine {
             handle.abort();
         }
         crate::console_config::forget(directory);
+        crate::console_artifacts::sync(directory, None);
+        crate::console_watches::sync(directory, None, crate::console_watches::AppHost::new(&self.app, String::new()));
         let canonical = location.as_ref().map(|l| l.directory.display().to_string()).unwrap_or_else(|| directory.to_string());
         let in_location = |session: &str| {
             self.app.sessions.get(session).is_ok_and(|s| {
@@ -574,6 +651,12 @@ impl Engine {
         {
             let tool: Arc<dyn oc_tools::Tool> = crate::mcp_events::WatchMcpEvent::new(self.app.clone(), mcp.clone());
             crate::plugins::insert_tools(&mut registry, crate::mcp_events::PLUGIN_ID, vec![tool]);
+        }
+        // The OpenCode Console plugin's `console_watch` tools, while the location watches (`opencode-watches.ts`).
+        if let Some((namespace, tools)) = crate::console_watches::tools(key) {
+            // The provider plugins register before every tool plugin, whose namespaces follow.
+            let _ = registry.insert_namespace(0, namespace);
+            crate::plugins::insert_tools(&mut registry, crate::console_config::PLUGIN_ID, tools);
         }
         for tool in self.extra_tools.lock().iter() {
             let _ = registry.add(tool.clone());
@@ -1662,6 +1745,12 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
         }
         if let Some(plan) = &self.plan {
             plan.after(tool, input, result, ctx).await;
+        }
+        // The OpenCode Console plugin watches what a finished shell command started.
+        if tool == "shell"
+            && let Ok(r) = result
+        {
+            crate::console_watches::shell_completed(&self.key, &ctx.session_id, input, r.output.as_ref());
         }
         if !self.plugins.has_hook(&self.key, "tool.execute.after", None) {
             return;

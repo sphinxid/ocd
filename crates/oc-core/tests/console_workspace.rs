@@ -452,3 +452,32 @@ async fn keeps_credentials_on_a_same_origin_skill_redirect() {
     assert_eq!(download(&server).await.len(), 1);
     assert_eq!(seen.lock().last().unwrap().1.as_deref(), Some("Bearer secret"));
 }
+
+/// Answers the config with the event watch and artifact headers (2.2.7, 2.3.1).
+struct Advertising;
+
+#[async_trait]
+impl Http for Advertising {
+    async fn get(&self, url: &str, _: &[(String, String)]) -> Result<Response, String> {
+        assert!(url.ends_with("/api/v2/config"), "{url}");
+        let headers = vec![
+            (oc_core::console_watches::HEADER.to_string(), "1".to_string()),
+            (oc_core::console_artifacts::HEADER.to_string(), "1".to_string()),
+        ];
+        Ok(Response { status: 200, body: "{}".into(), headers })
+    }
+}
+
+#[tokio::test]
+async fn reads_whether_the_workspace_has_event_watches_and_artifacts_from_the_config_headers() {
+    let integrations = location(Some(signed_in())).await;
+    let shared: Arc<dyn Http> = Arc::new(Advertising);
+    let cache = Arc::new(SharedCache::default());
+    let snapshot = console_config::load_with(&cache, Duration::ZERO, &integrations, shared, "ua", &Snapshot::default()).await;
+    assert!(snapshot.watches && snapshot.artifacts);
+    assert!(snapshot.remote.is_some());
+    // Neither header: neither feature.
+    let plain = Fake::new(vec![("/api/v2/config", 200, json!({}))]);
+    let snapshot = load(&integrations, &plain, "ua", &Snapshot::default()).await;
+    assert!(!snapshot.watches && !snapshot.artifacts);
+}

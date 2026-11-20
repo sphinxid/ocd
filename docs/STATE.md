@@ -94,6 +94,14 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-11-20: OPENCODE CONSOLE WATCHES AND ARTIFACT PROVIDER PORTED (`opencode-watches.ts` 2.2.7, `opencode-artifacts.ts`
+  2.3.1 #63929): `oc_core::console_watches` (the `console_watch` Code Mode tools, one shared event connection per
+  workspace over WebSocket or long polls, synthetic-steer wakes with the 5-in-10-minutes and 20-since-prompt limits,
+  deleted-session cleanup, the prompt hook, the shell auto-watch that like 2.3.1 reads `exit` where the shell result has
+  `exitCode`) and `oc_core::console_artifacts` (the default `console` provider while `x-opencode-artifacts` is sent),
+  synced by the runner's `console_features` after each Console config load. Upstream's tests ported against in-process
+  fake Consoles (`tests/console_watches.rs` 32, `tests/console_artifacts.rs` 6); parity group `console231` (5
+  scenarios, a mock Console) identical against 2.3.1.
 - 2026-11-20: OPT-IN SESSION WARMING PORTED (`opencode.warming`, 2.3.1 behaviour): `oc_core::warming` (decision,
   per-location loops, end events from the bus, cache-miss stop), hooked in `plugin_request::shape` for primary,
   compaction and generate requests; pings go through `Engine::session_generate` in the scheduling request's trace.

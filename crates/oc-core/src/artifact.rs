@@ -190,7 +190,8 @@ pub fn string_entries(value: &Value) -> Vec<(String, String)> {
 
 // ---- providers ------------------------------------------------------------------------------
 
-/// A registered provider: the native local one (no handles) or a plugin's (function handles).
+/// A registered provider: a native one (no handles: the local provider, or the OpenCode Console plugin's `console`
+/// provider) or a plugin's (function handles).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Provider {
     pub id: String,
@@ -217,6 +218,22 @@ impl Provider {
             prompt: LOCAL_PROMPT.into(),
             handles: None,
         }
+    }
+
+    /// The OpenCode Console plugin's provider (`opencode-artifacts.ts`), offered with `prompt`.
+    fn console(prompt: String) -> Self {
+        Provider {
+            id: crate::console_artifacts::PROVIDER_ID.into(),
+            name: crate::console_artifacts::NAME.into(),
+            capabilities: vec!["static".into()],
+            prompt,
+            handles: None,
+        }
+    }
+
+    /// Whether this is the native `console` provider.
+    fn is_console(&self) -> bool {
+        self.handles.is_none() && self.id == crate::console_artifacts::PROVIDER_ID
     }
 
     fn native_json(&self) -> Value {
@@ -301,12 +318,23 @@ fn locale_compare(a: &str, b: &str) -> Ordering {
     oc_schema::collate::locale_compare(a, b)
 }
 
-/// The providers of location `key`: the local one, then what plugin `artifact` transforms make of it.
+/// The providers of location `key`: the local one, the OpenCode Console plugin's `console` provider (the default)
+/// while the Console offers it, then what plugin `artifact` transforms make of them.
 pub async fn providers(plugins: &crate::plugins::Plugins, key: &str) -> Providers {
-    if !plugins.transforms(key, DOMAIN) {
-        return Providers::default();
+    let mut native = Providers::default();
+    if plugins.builtin_enabled(key, crate::console_config::PLUGIN_ID)
+        && let Some(prompt) = crate::console_artifacts::offered(key)
+    {
+        native.list.push(Provider::console(prompt));
+        native.selection = Some(crate::console_artifacts::PROVIDER_ID.into());
     }
-    let input = json!({ "providers": [Provider::local().native_json()] });
+    if !plugins.transforms(key, DOMAIN) {
+        return native;
+    }
+    let mut input = json!({ "providers": native.list.iter().map(Provider::native_json).collect::<Vec<_>>() });
+    if let Some(selection) = &native.selection {
+        input["selection"] = json!(selection);
+    }
     let out = plugins.transform(key, DOMAIN, input).await;
     let list: Vec<Provider> =
         out.get("providers").and_then(Value::as_array).into_iter().flatten().filter_map(Provider::from_json).collect();
@@ -502,6 +530,7 @@ impl<'a> Service<'a> {
         let registry = self.registry().await;
         let provider = self.resolve_provider(&registry, Some(&existing.info.provider))?;
         let files = match &provider.handles {
+            None if provider.is_console() => crate::console_artifacts::read().map_err(|m| provider_error(&provider, m))?,
             None => read_directory_files(&self.item_dir(id)),
             Some(h) => {
                 let out = self.call(&provider, &h.read, vec![json!(id)]).await?;
@@ -554,6 +583,9 @@ impl<'a> Service<'a> {
         let registry = self.registry().await;
         if let Some(provider) = registry.get(&existing.info.provider).cloned() {
             match &provider.handles {
+                None if provider.is_console() => {
+                    crate::console_artifacts::delete(&self.app.db, self.key(), id).await.map_err(|m| provider_error(&provider, m))?;
+                }
                 None => {
                     let _ = std::fs::remove_dir_all(self.item_dir(id));
                 }
@@ -605,6 +637,14 @@ impl<'a> Service<'a> {
         create: bool,
     ) -> Result<Option<String>, Error> {
         match &provider.handles {
+            None if provider.is_console() => {
+                let url = if create {
+                    crate::console_artifacts::create(&self.app.db, self.key(), id, title, files, session_id).await
+                } else {
+                    crate::console_artifacts::update(&self.app.db, self.key(), id, title, files, session_id).await
+                };
+                url.map(Some).map_err(|m| provider_error(provider, m))
+            }
             None => {
                 replace_directory_files(&self.item_dir(id), files)
                     .map_err(|_| Error::Provider { provider_id: provider.id.clone(), message: None })?;
@@ -647,6 +687,11 @@ impl<'a> Service<'a> {
 }
 
 // ---- helpers --------------------------------------------------------------------------------
+
+/// `ProviderError` of a native provider's failure (an Error with this message).
+fn provider_error(provider: &Provider, message: String) -> Error {
+    Error::Provider { provider_id: provider.id.clone(), message: (!message.is_empty()).then_some(message) }
+}
 
 fn js_trim(s: &str) -> &str {
     oc_tools::util::js::trim(s)

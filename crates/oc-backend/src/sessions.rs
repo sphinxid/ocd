@@ -395,6 +395,8 @@ impl Engine {
         // `SessionPrompt.prepare`: `Plugin.awaitActivation`, then the `session.prompt` hook before
         // attachments are materialised.
         self.app.plugins.await_activation(&loc.key).await;
+        // The OpenCode Console plugin's hook: a person's prompt starts the session's watch wake count over.
+        oc_core::console_watches::prompted(&loc.key, id);
         let mut body = body;
         if self.app.plugins.has_hook(&loc.key, "session.prompt", None) {
             let message_id = body.id.clone().unwrap_or_else(oc_schema::id::message);

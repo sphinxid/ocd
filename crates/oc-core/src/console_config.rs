@@ -73,6 +73,10 @@ pub struct Snapshot {
     pub organization: Option<String>,
     /// The account `integration.use` names (`ManagedPolicy.account` of the stored credential).
     pub account: Option<String>,
+    /// The config says the workspace has event watches (`x-opencode-event-watches`, 2.2.7).
+    pub watches: bool,
+    /// The config says the member may share artifacts (`x-opencode-artifacts`, 2.3.1).
+    pub artifacts: bool,
 }
 
 impl Snapshot {
@@ -257,6 +261,10 @@ pub fn sso_url(server: &str, connection_id: &str) -> Result<String, String> {
 }
 
 /// `encodeURIComponent`.
+pub(crate) fn encode_uri_component(input: &str) -> String {
+    percent_encode(input)
+}
+
 fn percent_encode(input: &str) -> String {
     let mut out = String::new();
     for byte in input.bytes() {
@@ -274,11 +282,14 @@ fn percent_encode(input: &str) -> String {
 /// (2.3.0, #63259).
 pub const LISTS_HEADER: &str = "x-opencode-instructions-skills";
 
-/// Console's config answer: the config, and whether the workspace has instructions and skills to fetch.
+/// Console's config answer: the config, and whether the workspace has instructions and skills to fetch, event
+/// watches, and artifacts the member may share.
 #[derive(Debug, Clone)]
 pub struct Remote {
     pub info: Info,
     pub lists: bool,
+    pub watches: bool,
+    pub artifacts: bool,
 }
 
 /// `fetchConfig`: the Console's config, `None` when it has none (404). A Console that accepts the connection but
@@ -326,10 +337,12 @@ async fn fetch_config_now(http: &dyn crate::usage_limits::Http, user_agent: &str
     if !(200..300).contains(&response.status) {
         return Err(status_failure(response.status, &url));
     }
+    let watches = response.header(crate::console_watches::HEADER).is_some();
     let lists = response.header(LISTS_HEADER).is_some();
+    let artifacts = response.header(crate::console_artifacts::HEADER).is_some();
     let body: Value = serde_json::from_str(&response.body).map_err(|e| LoadError::Other(e.to_string()))?;
     let info = oc_config::integration::decode_remote(&body).map_err(LoadError::Other)?;
-    Ok(Some(Remote { info, lists }))
+    Ok(Some(Remote { info, lists, watches, artifacts }))
 }
 
 /// Whether a 403 body is Console's SSO error (`SsoRequired`).
@@ -399,6 +412,16 @@ fn shared(error: LoadError) -> shared_cache::LoadError {
 /// shared like a config rather than replaced by the last config, as a network failure is.
 type ConfigAnswer = Result<Option<Remote>, LoadError>;
 
+/// What one load of the workspace found: its config with the headers' flags, instructions and skills.
+#[derive(Default)]
+struct Workspace {
+    remote: Option<Info>,
+    instructions: Vec<Instruction>,
+    skills: Vec<SkillRef>,
+    watches: bool,
+    artifacts: bool,
+}
+
 /// The workspace's config through the cache, then its instructions and skills together (each its own entry).
 async fn workspace(
     cache: &Arc<SharedCache>,
@@ -407,7 +430,7 @@ async fn workspace(
     user_agent: &str,
     connection: &ConnectionInfo,
     credential: &CredentialValue,
-) -> Result<(Option<Info>, Vec<Instruction>, Vec<SkillRef>), LoadError> {
+) -> Result<Workspace, LoadError> {
     let workspace = workspace_key(connection, credential);
     let answer = {
         let (http, user_agent, credential) = (http.clone(), user_agent.to_string(), credential.clone());
@@ -425,10 +448,10 @@ async fn workspace(
             .await
             .map_err(|e| LoadError::Other(e.message))?
     };
-    let Some(Remote { info: remote, lists }) = answer? else { return Ok((None, vec![], vec![])) };
+    let Some(Remote { info: remote, lists, watches, artifacts }) = answer? else { return Ok(Workspace::default()) };
     // Instructions and skills are fetched only when the config says the workspace has them.
     if !lists {
-        return Ok((Some(remote), vec![], vec![]));
+        return Ok(Workspace { remote: Some(remote), watches, artifacts, ..Workspace::default() });
     }
     let list = |name: &str| (cache.clone(), format!("opencode-console-{name}:{workspace}"), http.clone(), user_agent.to_string(), credential.clone());
     let (cache_a, key_a, http_a, ua_a, credential_a) = list("instructions");
@@ -453,7 +476,7 @@ async fn workspace(
                 .unwrap_or_default()
         },
     );
-    Ok((Some(remote), instructions, skills))
+    Ok(Workspace { remote: Some(remote), instructions, skills, watches, artifacts })
 }
 
 /// `loadSkills`: downloads the listed skills (at most 8 at a time), each shared by every location through the cache
@@ -613,7 +636,8 @@ pub async fn load_with(
         match credential {
             None | Some(CredentialValue::External { .. }) => Ok(Snapshot { connection: Some(connection.clone()), ..Snapshot::default() }),
             Some(credential) => {
-                let (remote, instructions, skills) = workspace(cache, max_age, http, user_agent, &connection, &credential).await?;
+                let Workspace { remote, instructions, skills, watches, artifacts } =
+                    workspace(cache, max_age, http, user_agent, &connection, &credential).await?;
                 Ok(Snapshot {
                     remote,
                     instructions,
@@ -621,6 +645,8 @@ pub async fn load_with(
                     connection: Some(connection.clone()),
                     organization: organization_name(&credential),
                     account: oc_config::policy::account(credential.metadata()),
+                    watches,
+                    artifacts,
                 })
             }
         }
@@ -645,6 +671,8 @@ pub async fn load_with(
                     connection: Some(connection),
                     organization: previous.organization.clone(),
                     account: previous.account.clone(),
+                    watches: previous.watches,
+                    artifacts: previous.artifacts,
                 }
             } else {
                 Snapshot { connection: Some(connection), ..Snapshot::default() }
