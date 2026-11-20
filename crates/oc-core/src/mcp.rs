@@ -78,6 +78,7 @@ pub async fn servers(plugins: &crate::plugins::Plugins, location: &Location) -> 
 
 /// The location's MCP manager. `sink` receives its events from the first one on (the startup statuses
 /// included), before the servers are set.
+#[allow(clippy::too_many_arguments)]
 pub async fn manager(
     credentials: Arc<dyn oc_ai::credentials::store::CredentialStore>,
     locks: std::path::PathBuf,
@@ -85,9 +86,11 @@ pub async fn manager(
     location: &Location,
     version: &str,
     plugins: &crate::plugins::Plugins,
+    pool: &oc_mcp::McpPool,
     sink: oc_mcp::manager::EventSink,
 ) -> Arc<McpManager> {
     let manager = Arc::new(McpManager::new(ManagerOptions {
+        pool: Some(pool.clone()),
         directory: location.directory.clone(),
         client_info: ClientInfo { name: "opencode".into(), version: version.into() },
         credentials: Some(Arc::new(McpCreds(credentials, Some(locks)))),
@@ -370,6 +373,7 @@ mod elicitation_tests {
             client_info: ClientInfo { name: "opencode".into(), version: "test".into() },
             credentials: None,
             elicitation: None,
+            pool: None,
         }));
         let servers = |v: serde_json::Value| serde_json::from_value::<indexmap::IndexMap<String, oc_mcp::config::ServerConfig>>(v).unwrap();
         manager

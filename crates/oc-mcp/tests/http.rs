@@ -218,6 +218,7 @@ fn remote(port: u16, oauth: Option<OAuthSetting>) -> ServerConfig {
         codemode: None,
         timeout: Some(TimeoutConfig { startup: Some(10_000), catalog: None, execution: None }),
         protocol: None,
+        pool: None,
     })
 }
 
@@ -227,6 +228,7 @@ fn manager(credentials: Option<Arc<dyn McpCredentialStore>>) -> McpManager {
         client_info: ClientInfo { name: "opencode".into(), version: "test".into() },
         credentials,
         elicitation: None,
+        pool: None,
     })
 }
 
@@ -313,6 +315,7 @@ async fn http_unreachable_and_invalid_url() {
             codemode: None,
             timeout: None,
             protocol: None,
+            pool: None,
         }),
     );
     manager.set_servers(servers).await;

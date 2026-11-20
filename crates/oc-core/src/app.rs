@@ -41,6 +41,8 @@ pub struct App {
     pub session_mover: OnceLock<SessionMover>,
     /// `Project.activate`'s once-a-minute throttle, per project.
     pub project_activity: crate::project::Activity,
+    /// MCP connections shared across this process's Locations (`McpPool`, servers with `pool: true`).
+    pub mcp_pool: oc_mcp::McpPool,
 }
 
 /// Moves a session to an absolute directory; the error is the move's failure message.
@@ -165,6 +167,7 @@ impl App {
             wellknown: OnceLock::new(),
             session_mover: OnceLock::new(),
             project_activity: Default::default(),
+            mcp_pool: oc_mcp::McpPool::new(),
         })
     }
 

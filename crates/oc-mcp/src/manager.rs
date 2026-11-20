@@ -3,20 +3,23 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock, Weak};
 
+use async_trait::async_trait;
+use futures::future::BoxFuture;
 use indexmap::IndexMap;
-use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, watch};
-use url::Url;
 
 use crate::config::{ServerConfig, apply_codemode_defaults};
-use crate::connection::{ConnectError, Connection};
+use crate::connection::Connection;
 use crate::error::McpError;
+use crate::link::{AuthProvider, Kind, Link, LinkEvents, LinkInput, Listed, Runner};
 use crate::oauth::fetch::Fetcher;
 use crate::oauth::{self, AuthorizeHandle, AuthorizeOptions, McpCredentialStore};
+use crate::pool::{self, McpPool, PoolInput, Pooled, Selection};
 use crate::protocol::ElicitationHandler;
 use crate::types::{
     ClientInfo, McpEvent, Prompt, PromptResult, Resource, ResourceCatalog, ResourceContent, ResourceContentPart,
@@ -63,6 +66,7 @@ pub fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     })
 }
 
+#[derive(Default)]
 pub struct ManagerOptions {
     /// The Location directory (stdio cwd base, `roots/list`).
     pub directory: PathBuf,
@@ -70,6 +74,9 @@ pub struct ManagerOptions {
     pub client_info: ClientInfo,
     pub credentials: Option<Arc<dyn McpCredentialStore>>,
     pub elicitation: Option<Arc<dyn ElicitationHandler>>,
+    /// The process's connection pool (`McpPool.Service`): servers with `pool: true` share one connection with every
+    /// other Location that configures them identically. Without one, every server connects on its own.
+    pub pool: Option<McpPool>,
 }
 
 #[derive(Default)]
@@ -78,14 +85,14 @@ struct KeyedMutex {
 }
 
 impl KeyedMutex {
+    fn get(&self, key: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.locks.lock().entry(key.to_string()).or_default().clone()
+    }
+
     async fn lock(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()> {
-        let lock = self.locks.lock().entry(key.to_string()).or_default().clone();
-        lock.lock_owned().await
+        self.get(key).lock_owned().await
     }
 }
-
-// Concurrent startups to the same remote URL are serialized across all Locations.
-static ENDPOINT_LOADS: Lazy<KeyedMutex> = Lazy::new(KeyedMutex::default);
 
 /// How long a model call may wait for a server that is still connecting, counted from when it began
 /// (`STARTUP_GRACE_MS`).
@@ -106,10 +113,63 @@ impl Attempt {
 #[derive(Default)]
 struct EntryState {
     status: Option<Status>,
-    connection: Option<Arc<Connection>>,
-    tools: Option<Vec<Tool>>,
-    prompts: Option<Vec<Prompt>>,
     attempt: Option<Attempt>,
+}
+
+/// A server's connection: its own, or a pooled one (`McpConnection.Connection`).
+enum Conn {
+    Direct(Arc<Link>),
+    Pooled(Arc<Pooled>),
+}
+
+impl Conn {
+    fn client(&self) -> Option<Arc<Connection>> {
+        match self {
+            Conn::Direct(link) => link.client(),
+            Conn::Pooled(pooled) => pooled.client(),
+        }
+    }
+
+    fn tools(&self) -> Option<Listed> {
+        match self {
+            Conn::Direct(link) => link.tools(),
+            Conn::Pooled(pooled) => pooled.tools(),
+        }
+    }
+
+    fn prompts(&self) -> Option<Listed> {
+        match self {
+            Conn::Direct(link) => link.prompts(),
+            Conn::Pooled(pooled) => pooled.prompts(),
+        }
+    }
+
+    fn start(&self) -> BoxFuture<'_, ()> {
+        match self {
+            Conn::Direct(link) => link.start(),
+            Conn::Pooled(pooled) => pooled.start(),
+        }
+    }
+
+    fn stop(&self) -> BoxFuture<'_, ()> {
+        match self {
+            Conn::Direct(link) => link.stop(),
+            Conn::Pooled(pooled) => pooled.stop(),
+        }
+    }
+
+    /// Runs a request and, on session expiry, reconnects and retries once on the new client. A request through a
+    /// shared connection brings this Location's elicitation handler along.
+    async fn recovering<T, F, Fut>(&self, client: Arc<Connection>, run: F) -> Result<T, McpError>
+    where
+        F: Fn(Arc<Connection>, Option<Arc<dyn ElicitationHandler>>) -> Fut,
+        Fut: std::future::Future<Output = Result<T, McpError>>,
+    {
+        match self {
+            Conn::Direct(link) => link.recovering(client, |c| run(c, None)).await,
+            Conn::Pooled(pooled) => pooled.recovering(client, run).await,
+        }
+    }
 }
 
 struct Entry {
@@ -117,6 +177,9 @@ struct Entry {
     integration_id: Option<String>,
     state: Mutex<EntryState>,
     startup: watch::Sender<bool>,
+    conn: OnceLock<Conn>,
+    /// The initial reconcile already announced this start's `pending` status, before `set_servers` returned.
+    announced: AtomicBool,
 }
 
 impl Entry {
@@ -128,13 +191,15 @@ impl Entry {
         Arc::new(Self {
             config,
             integration_id,
-            state: Mutex::new(EntryState {
-                status: Some(Status::Pending),
-                attempt: Some(Attempt::new(started)),
-                ..Default::default()
-            }),
+            state: Mutex::new(EntryState { status: Some(Status::Pending), attempt: Some(Attempt::new(started)) }),
             startup: watch::channel(false).0,
+            conn: OnceLock::new(),
+            announced: AtomicBool::new(false),
         })
+    }
+
+    fn conn(&self) -> &Conn {
+        self.conn.get().expect("entry connection")
     }
 
     /// `connecting`: a server still pending from creation keeps the window that started with its entry.
@@ -163,7 +228,7 @@ impl Entry {
     }
 
     fn connection(&self) -> Option<Arc<Connection>> {
-        self.state.lock().connection.clone()
+        self.conn.get().and_then(Conn::client)
     }
 
     fn open_startup(&self) {
@@ -175,8 +240,108 @@ impl Entry {
         let _ = rx.wait_for(|open| *open).await;
     }
 
-    fn is_live(&self, connection: &Arc<Connection>) -> bool {
-        self.connection().is_some_and(|c| Arc::ptr_eq(&c, connection))
+    /// The connection's tool list tagged for this server.
+    fn tools(&self, name: &str) -> Vec<Tool> {
+        let codemode = self.config.codemode();
+        let Some(listed) = self.conn.get().and_then(Conn::tools) else { return Vec::new() };
+        listed.iter().filter_map(|t| Tool::from_raw(name, codemode, t.clone())).collect()
+    }
+
+    fn prompts(&self, name: &str) -> Vec<Prompt> {
+        let Some(listed) = self.conn.get().and_then(Conn::prompts) else { return Vec::new() };
+        listed.iter().filter_map(|p| Prompt::from_raw(name, p.clone())).collect()
+    }
+}
+
+/// What a server's connection reports to the registry (the `events` of `makeEntry`).
+struct EntryEvents {
+    manager: Weak<Inner>,
+    name: String,
+    entry: Weak<Entry>,
+}
+
+impl EntryEvents {
+    fn parts(&self) -> Option<(McpManager, Arc<Entry>)> {
+        Some((McpManager { inner: self.manager.upgrade()? }, self.entry.upgrade()?))
+    }
+}
+
+#[async_trait]
+impl LinkEvents for EntryEvents {
+    async fn connecting(&self) {
+        let Some((manager, entry)) = self.parts() else { return };
+        entry.connecting();
+        // Announce the handshake so connect() and credential reconnects don't show a stale disabled/failed status for
+        // the duration of the connection attempt. The initial reconcile announced the first one already.
+        if entry.announced.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        manager.publish(McpEvent::StatusChanged { server: self.name.clone() });
+    }
+
+    async fn connected(&self) {
+        let Some((manager, entry)) = self.parts() else { return };
+        entry.set_status(Status::Connected);
+        let tools = entry.conn.get().and_then(Conn::tools).map(|t| t.len()).unwrap_or_default();
+        tracing::info!(server = %self.name, tools, "mcp connected");
+        // Announce every list a consumer may read, since each reads them only on these events. A connection another
+        // Location already holds has loaded its prompts, and no later change would tell this one; prompts still
+        // loading read empty now and announce themselves later.
+        let server = || self.name.clone();
+        manager.publish(McpEvent::ToolsChanged { server: server() });
+        manager.publish(McpEvent::ResourcesChanged { server: server() });
+        manager.publish(McpEvent::PromptsChanged { server: server() });
+        manager.publish(McpEvent::StatusChanged { server: server() });
+    }
+
+    async fn failed(&self, failure: Status, _answered: bool) {
+        let Some((manager, entry)) = self.parts() else { return };
+        tracing::warn!(server = %self.name, status = ?failure, "mcp connect failed");
+        entry.set_status(failure);
+        manager.publish(McpEvent::StatusChanged { server: self.name.clone() });
+    }
+
+    async fn settled(&self) {
+        if let Some(entry) = self.entry.upgrade() {
+            entry.settled();
+        }
+    }
+
+    async fn closed(&self, reason: String) {
+        let Some((manager, entry)) = self.parts() else { return };
+        entry.set_status(Status::Failed { error: reason });
+        entry.conn().stop().await;
+        manager.publish(McpEvent::StatusChanged { server: self.name.clone() });
+    }
+
+    async fn changed(&self, kind: Kind) {
+        let Some(manager) = self.manager.upgrade().map(|inner| McpManager { inner }) else { return };
+        let server = self.name.clone();
+        manager.publish(match kind {
+            Kind::Tools => McpEvent::ToolsChanged { server },
+            Kind::Resources => McpEvent::ResourcesChanged { server },
+            Kind::Prompts => McpEvent::PromptsChanged { server },
+        });
+    }
+}
+
+/// Connection callbacks run here (`callbacks`): once the Location is closing, in-flight callbacks are dropped and
+/// later ones never start, so connections closing with the Location publish nothing. Clients re-fetch on MCP events,
+/// which would boot the Location straight back up.
+struct Callbacks(Weak<Inner>);
+
+impl Runner for Callbacks {
+    fn run(&self, work: BoxFuture<'static, ()>) {
+        let closing = |inner: &Weak<Inner>| inner.upgrade().is_none_or(|inner| inner.closing.load(Ordering::SeqCst));
+        if closing(&self.0) {
+            return;
+        }
+        let inner = self.0.clone();
+        tokio::spawn(async move {
+            if !closing(&inner) {
+                work.await;
+            }
+        });
     }
 }
 
@@ -326,7 +491,7 @@ impl McpManager {
         if initial {
             let started = tokio::time::Instant::now();
             let entries: Vec<(String, Arc<Entry>)> =
-                servers.iter().map(|(name, config)| (name.clone(), Entry::new(name, config.clone(), started))).collect();
+                servers.iter().map(|(name, config)| (name.clone(), self.make_entry(name, config.clone(), started))).collect();
             {
                 let mut map = self.inner.entries.lock();
                 for (name, entry) in &entries {
@@ -349,6 +514,7 @@ impl McpManager {
             // notification that started them returns; announcing here keeps that order.
             for (name, entry) in &starting {
                 entry.set_status(Status::Pending);
+                entry.announced.store(true, Ordering::SeqCst);
                 self.publish(McpEvent::StatusChanged { server: name.clone() });
             }
             for (name, entry) in starting {
@@ -357,10 +523,11 @@ impl McpManager {
                     let _guard = this.inner.locks.lock(&name).await;
                     // connect() or disconnect() may have settled the server while this startup waited to run.
                     if entry.status() != Status::Pending {
+                        entry.announced.store(false, Ordering::SeqCst);
                         entry.open_startup();
                         return;
                     }
-                    this.connect_server(&name, &entry).await;
+                    entry.conn().start().await;
                 });
             }
             return;
@@ -389,267 +556,129 @@ impl McpManager {
 
     async fn replace_server(&self, name: &str, config: ServerConfig) {
         if let Some(previous) = self.entry(name) {
-            self.stop_server(name, &previous).await;
+            previous.conn().stop().await;
         }
-        let entry = Entry::new(name, config, tokio::time::Instant::now());
+        let entry = self.make_entry(name, config, tokio::time::Instant::now());
         self.inner.entries.lock().insert(name.to_string(), entry.clone());
         if entry.config.disabled() {
             entry.set_status(Status::Disabled);
             self.publish(McpEvent::StatusChanged { server: name.to_string() });
         } else {
-            self.start_server(name, &entry).await;
+            entry.conn().start().await;
         }
         entry.open_startup();
     }
 
     async fn remove_server(&self, name: &str) {
         let Some(entry) = self.entry(name) else { return };
-        self.stop_server(name, &entry).await;
+        entry.conn().stop().await;
         // Credentials are keyed by name + URL and intentionally survive removal.
         self.inner.entries.lock().shift_remove(name);
         self.publish(McpEvent::StatusChanged { server: name.to_string() });
     }
 
-    fn start_server<'a>(&'a self, name: &'a str, entry: &'a Arc<Entry>) -> futures::future::BoxFuture<'a, ()> {
-        Box::pin(async move {
-            // Announce the handshake so connect() and credential reconnects don't show a stale
-            // disabled/failed status for the duration of the connection attempt.
-            entry.connecting();
-            self.publish(McpEvent::StatusChanged { server: name.to_string() });
-            self.connect_server(name, entry).await;
-        })
-    }
-
-    /// `startServer` after its `pending` announcement.
-    fn connect_server<'a>(&'a self, name: &'a str, entry: &'a Arc<Entry>) -> futures::future::BoxFuture<'a, ()> {
-        Box::pin(async move {
-            let connection_id = uuid::Uuid::new_v4().to_string();
-            let directory = self.inner.options.directory.display().to_string();
-            // Checked before the OAuth provider is built, which parses the URL too.
-            if let ServerConfig::Remote(remote) = &entry.config {
-                if Url::parse(&remote.url).is_err() {
-                    let status = Status::Failed { error: format!("Invalid MCP server URL: {}", remote.url) };
-                    tracing::warn!(server = %name, directory = %directory, connectionID = %connection_id, status = ?status, "mcp connect failed");
-                    entry.set_status(status);
-                    self.publish(McpEvent::StatusChanged { server: name.to_string() });
-                    entry.settled();
-                    return;
-                }
-            }
-            let result = async {
-                let provider = match (&entry.config, &entry.integration_id) {
-                    (ServerConfig::Remote(remote), Some(integration_id)) => {
-                        // The credential is selected here, once per attempt; the provider never looks up another.
-                        let credentials = self.inner.options.credentials.as_ref();
-                        let credential = match credentials {
-                            Some(store) => store
-                                .list(integration_id)
-                                .await
-                                .map_err(|e| ConnectError::Connect { server: name.to_string(), message: e.to_string() })?
-                                .pop(),
-                            None => None,
-                        };
-                        Some(Arc::new(oauth::connect_provider(
-                            remote,
-                            credential,
-                            credentials,
-                            Fetcher::new(name.to_string()).with_base_headers(remote.headers.clone()),
-                        )))
-                    }
-                    _ => None,
-                };
-                let _endpoint = match &entry.config {
-                    ServerConfig::Remote(remote) => Some(ENDPOINT_LOADS.lock(&remote.url).await),
-                    _ => None,
-                };
-                let connection = Connection::connect(
-                    name,
-                    &entry.config,
-                    &self.inner.options.directory,
-                    provider,
-                    self.inner.options.elicitation.clone(),
-                    &self.inner.options.client_info,
-                )
-                .await?;
-                // List tools as part of connect so a failure marks the server failed.
-                match connection.tools().await {
-                    Ok(tools) => Ok((connection, tools)),
-                    Err(error) => {
-                        connection.close().await;
-                        Err(ConnectError::Connect { server: name.to_string(), message: error.to_string() })
-                    }
-                }
-            }
-            .await;
-            match result {
-                Ok((connection, tools)) => {
-                    let connection = Arc::new(connection);
-                    let codemode = entry.config.codemode();
-                    let tools: Vec<Tool> = tools.into_iter().filter_map(|t| Tool::from_raw(name, codemode, t)).collect();
-                    let count = tools.len();
-                    {
-                        let mut state = entry.state.lock();
-                        state.connection = Some(connection.clone());
-                        state.tools = Some(tools);
-                        state.prompts = Some(vec![]);
-                        state.status = Some(Status::Connected);
-                    }
-                    self.watch(name, entry, &connection);
-                    tracing::info!(server = %name, directory = %directory, connectionID = %connection_id, tools = count, "mcp connected");
-                    // Announce every list a consumer may read, since each reads them only on these events; prompts
-                    // still loading read empty now and announce themselves later.
-                    self.publish(McpEvent::ToolsChanged { server: name.to_string() });
-                    self.publish(McpEvent::ResourcesChanged { server: name.to_string() });
-                    self.publish(McpEvent::PromptsChanged { server: name.to_string() });
-                    self.publish(McpEvent::StatusChanged { server: name.to_string() });
-                    let this = self.clone();
-                    let name = name.to_string();
-                    let entry = entry.clone();
-                    tokio::spawn(async move {
-                        let _guard = this.inner.locks.lock(&name).await;
-                        if entry.is_live(&connection) {
-                            this.refresh_prompts(&name, &entry, &connection).await;
-                        }
-                    });
-                }
-                Err(error) => {
-                    let status = match error {
-                        ConnectError::NeedsAuth { message, .. } => Status::NeedsAuth { error: message },
-                        ConnectError::Connect { message, .. } => Status::Failed { error: message },
+    /// `makeEntry`: the server's entry with its connection, pooled when its config asks for that.
+    fn make_entry(&self, name: &str, config: ServerConfig, started: tokio::time::Instant) -> Arc<Entry> {
+        let entry = Entry::new(name, config, started);
+        let options = &self.inner.options;
+        let weak_entry = Arc::downgrade(&entry);
+        let credentials = options.credentials.clone();
+        // The credential one start connects with: the integration's latest, or none. Read it once per start and pass
+        // the result along, so anything keyed on it and the provider it builds agree on the account.
+        let select_credential = {
+            let (weak, credentials) = (weak_entry.clone(), credentials.clone());
+            move || {
+                let (weak, credentials) = (weak.clone(), credentials.clone());
+                async move {
+                    let Some(entry) = weak.upgrade() else { return Ok(None) };
+                    let (ServerConfig::Remote(_), Some(integration_id), Some(store)) = (&entry.config, &entry.integration_id, &credentials)
+                    else {
+                        return Ok(None);
                     };
-                    tracing::warn!(server = %name, directory = %directory, connectionID = %connection_id, status = ?status, "mcp connect failed");
-                    entry.set_status(status);
-                    self.publish(McpEvent::StatusChanged { server: name.to_string() });
+                    store.list(integration_id).await.map(|mut rows| rows.pop()).map_err(|e| e.to_string())
                 }
             }
-            entry.settled();
-        })
-    }
-
-    async fn stop_server(&self, name: &str, entry: &Arc<Entry>) {
-        let connection = {
-            let mut state = entry.state.lock();
-            let connection = state.connection.take();
-            if connection.is_some() {
-                state.tools = None;
-                state.prompts = None;
-            }
-            connection
         };
-        let Some(connection) = connection else { return };
-        connection.close().await;
-        self.publish(McpEvent::ToolsChanged { server: name.to_string() });
-        self.publish(McpEvent::ResourcesChanged { server: name.to_string() });
-        self.publish(McpEvent::PromptsChanged { server: name.to_string() });
-    }
-
-    /// A failed refresh keeps the previous prompts and publishes nothing.
-    async fn refresh_prompts(&self, name: &str, entry: &Arc<Entry>, connection: &Arc<Connection>) {
-        let Ok(prompts) = connection.prompts().await else { return };
-        entry.state.lock().prompts = Some(prompts.into_iter().filter_map(|p| Prompt::from_raw(name, p)).collect());
-        self.publish(McpEvent::PromptsChanged { server: name.to_string() });
-    }
-
-    /// Runs `f` under the server lock only while `connection` is still the entry's live client.
-    fn when_live<F, Fut>(&self, name: &str, entry: &Arc<Entry>, connection: &Arc<Connection>, f: F)
-    where
-        F: FnOnce(McpManager, String, Arc<Entry>, Arc<Connection>) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = ()> + Send + 'static,
-    {
-        let this = self.clone();
-        let name = name.to_string();
-        let entry = entry.clone();
-        let connection = connection.clone();
-        if this.closing() {
-            return;
-        }
-        tokio::spawn(async move {
-            let _guard = this.inner.locks.lock(&name).await;
-            if !this.closing() && entry.is_live(&connection) {
-                f(this.clone(), name, entry, connection).await;
+        let provider = {
+            let (weak, credentials, server) = (weak_entry.clone(), credentials.clone(), name.to_string());
+            move |credential: Option<crate::oauth::StoredCredential>| -> Option<Arc<crate::oauth::ConnectAuth>> {
+                let entry = weak.upgrade()?;
+                let (ServerConfig::Remote(remote), Some(_)) = (&entry.config, &entry.integration_id) else { return None };
+                Some(Arc::new(oauth::connect_provider(
+                    remote,
+                    credential,
+                    credentials.as_ref(),
+                    Fetcher::new(server.clone()).with_base_headers(remote.headers.clone()),
+                )))
             }
-        });
-    }
-
-    fn watch(&self, name: &str, entry: &Arc<Entry>, connection: &Arc<Connection>) {
-        let weak = Arc::downgrade(connection);
-        let (this, n, e) = (self.clone(), name.to_string(), entry.clone());
-        connection.on_close(move |reason| {
-            let Some(connection) = weak.upgrade() else { return };
-            this.when_live(&n, &e, &connection, move |this, name, entry, _| async move {
-                entry.set_status(Status::Failed { error: reason });
-                this.stop_server(&name, &entry).await;
-                this.publish(McpEvent::StatusChanged { server: name });
-            });
-        });
-        let weak = Arc::downgrade(connection);
-        let (this, n, e) = (self.clone(), name.to_string(), entry.clone());
-        connection.on_session_expired(move || {
-            let Some(connection) = weak.upgrade() else { return };
-            let (this, n, e) = (this.clone(), n.clone(), e.clone());
-            tokio::spawn(async move { this.recover(&n, &e, &connection).await });
-        });
-        let weak = Arc::downgrade(connection);
-        let (this, n, e) = (self.clone(), name.to_string(), entry.clone());
-        connection.on_tools_changed(move || {
-            let Some(connection) = weak.upgrade() else { return };
-            this.when_live(&n, &e, &connection, |this, name, entry, connection| async move {
-                if let Ok(tools) = connection.tools().await {
-                    let codemode = entry.config.codemode();
-                    entry.state.lock().tools =
-                        Some(tools.into_iter().filter_map(|t| Tool::from_raw(&name, codemode, t)).collect());
-                    this.publish(McpEvent::ToolsChanged { server: name });
-                }
-            });
-        });
-        let weak = Arc::downgrade(connection);
-        let (this, n, e) = (self.clone(), name.to_string(), entry.clone());
-        connection.on_prompts_changed(move || {
-            let Some(connection) = weak.upgrade() else { return };
-            this.when_live(&n, &e, &connection, |this, name, entry, connection| async move {
-                this.refresh_prompts(&name, &entry, &connection).await;
-            });
-        });
-        let weak = Arc::downgrade(connection);
-        let (this, n, e) = (self.clone(), name.to_string(), entry.clone());
-        connection.on_resources_changed(move || {
-            let Some(connection) = weak.upgrade() else { return };
-            this.when_live(&n, &e, &connection, |this, name, _, _| async move {
-                this.publish(McpEvent::ResourcesChanged { server: name });
-            });
-        });
-    }
-
-    /// Re-establishes a server whose HTTP session expired.
-    async fn recover(&self, name: &str, entry: &Arc<Entry>, connection: &Arc<Connection>) {
-        let _guard = self.inner.locks.lock(name).await;
-        if !entry.is_live(connection) {
-            return;
-        }
-        tracing::info!(server = %name, "mcp session expired, reconnecting");
-        self.stop_server(name, entry).await;
-        self.start_server(name, entry).await;
-    }
-
-    /// Runs a request and, on session expiry, reconnects and retries once on the new client.
-    async fn recovering<T, F, Fut>(&self, name: &str, entry: &Arc<Entry>, connection: Arc<Connection>, run: F) -> Result<T, McpError>
-    where
-        F: Fn(Arc<Connection>) -> Fut,
-        Fut: std::future::Future<Output = Result<T, McpError>>,
-    {
-        match run(connection.clone()).await {
-            Err(error @ McpError::SessionExpired { .. }) => {
-                self.recover(name, entry, &connection).await;
-                match entry.connection() {
-                    Some(next) => run(next).await,
-                    None => Err(error),
-                }
+        };
+        let auth_provider: AuthProvider = {
+            let (select_credential, provider) = (select_credential.clone(), provider.clone());
+            Arc::new(move || {
+                let (select_credential, provider) = (select_credential.clone(), provider.clone());
+                Box::pin(async move { Ok(provider(select_credential().await?)) })
+            })
+        };
+        let link = LinkInput {
+            name: name.to_string(),
+            // Pooling offers 2026-07-28, the only revision a connection can be shared on.
+            config: pool::effective_config(&entry.config),
+            directory: options.directory.clone(),
+            shared: false,
+            client_info: options.client_info.clone(),
+            auth_provider,
+            elicitation: options.elicitation.clone(),
+            lock: self.inner.locks.get(name),
+            callbacks: Arc::new(Callbacks(Arc::downgrade(&self.inner))),
+            fork: Arc::new(Callbacks(Arc::downgrade(&self.inner))),
+            events: Arc::new(EntryEvents { manager: Arc::downgrade(&self.inner), name: name.to_string(), entry: weak_entry }),
+        };
+        let conn = match options.pool.clone().filter(|_| pool::pooled(&entry.config)) {
+            None => Conn::Direct(Link::new(link)),
+            Some(pool) => {
+                let config = link.config.clone();
+                let (directory, client_info) = (options.directory.clone(), options.client_info.clone());
+                let select: pool::Select = Arc::new(move || {
+                    let (config, directory, client_info) = (config.clone(), directory.clone(), client_info.clone());
+                    let (select_credential, provider) = (select_credential.clone(), provider.clone());
+                    Box::pin(async move {
+                        if let ServerConfig::Local(local) = &config {
+                            // Resolved exactly as the spawn resolves it, `~` included, so the key matches where the
+                            // server runs.
+                            let cwd = crate::connection::resolve_cwd(&directory, local.cwd.as_deref());
+                            let key = pool::key(&pool::KeyInput {
+                                config: &config,
+                                cwd: Some(&cwd),
+                                credential: None,
+                                client_info: Some(&client_info),
+                                mcp_events: false,
+                            });
+                            return Selection { key, auth_provider: crate::link::no_auth() };
+                        }
+                        let credential = select_credential().await;
+                        let id = credential.as_ref().ok().and_then(|c| c.as_ref().map(|c| c.id.clone()));
+                        let key = pool::key(&pool::KeyInput {
+                            config: &config,
+                            cwd: None,
+                            credential: id.as_deref(),
+                            client_info: Some(&client_info),
+                            mcp_events: false,
+                        });
+                        let auth_provider: AuthProvider = Arc::new(move || {
+                            let result = credential.clone().map(|c| provider(c));
+                            Box::pin(async move { result })
+                        });
+                        Selection { key, auth_provider }
+                    })
+                });
+                Conn::Pooled(pool.connection(PoolInput { link, select }))
             }
-            other => other,
-        }
+        };
+        let _ = entry.conn.set(conn);
+        entry
     }
 
-    // ---- public interface -------------------------------------------------------------------
+    // ---- public interface -------------------------------------------------------------------    // ---- public interface -------------------------------------------------------------------
 
     /// `servers()`: `{name, status, title?, integrationID?}` sorted by name.
     pub fn servers(&self) -> Vec<ServerInfo> {
@@ -744,8 +773,8 @@ impl McpManager {
         self.transition(move |this| async move {
             let _guard = this.inner.locks.lock(&server).await;
             let entry = this.require(&server)?;
-            this.stop_server(&server, &entry).await;
-            this.start_server(&server, &entry).await;
+            entry.conn().stop().await;
+            entry.conn().start().await;
             Ok(())
         })
         .await
@@ -757,7 +786,7 @@ impl McpManager {
         self.transition(move |this| async move {
             let _guard = this.inner.locks.lock(&server).await;
             let entry = this.require(&server)?;
-            this.stop_server(&server, &entry).await;
+            entry.conn().stop().await;
             entry.set_status(Status::Disabled);
             this.publish(McpEvent::StatusChanged { server });
             Ok(())
@@ -783,7 +812,7 @@ impl McpManager {
     /// All connected tools sorted by server, then name.
     pub fn tools(&self) -> Vec<Tool> {
         let mut tools: Vec<Tool> =
-            self.inner.entries.lock().values().flat_map(|e| e.state.lock().tools.clone().unwrap_or_default()).collect();
+            self.inner.entries.lock().iter().flat_map(|(name, e)| e.tools(name)).collect();
         tools.sort_by(|a, b| locale_cmp(&a.server, &b.server).then_with(|| locale_cmp(&a.name, &b.name)));
         tools
     }
@@ -805,10 +834,11 @@ impl McpManager {
                 message: unavailable_message(server, &entry.status()),
             });
         };
-        let result = self
-            .recovering(server, &entry, connection, |c| {
+        let result = entry
+            .conn()
+            .recovering(connection, |c, elicitation| {
                 let args = args.clone();
-                async move { c.call_tool(name, args, session_id).await }
+                async move { c.call_tool_for(name, args, session_id, elicitation).await }
             })
             .await
             .map_err(|error| ManagerError::ToolCall {
@@ -841,7 +871,7 @@ impl McpManager {
     /// All prompts sorted by server, then name.
     pub fn prompts(&self) -> Vec<Prompt> {
         let mut prompts: Vec<Prompt> =
-            self.inner.entries.lock().values().flat_map(|e| e.state.lock().prompts.clone().unwrap_or_default()).collect();
+            self.inner.entries.lock().iter().flat_map(|(name, e)| e.prompts(name)).collect();
         prompts.sort_by(|a, b| locale_cmp(&a.server, &b.server).then_with(|| locale_cmp(&a.name, &b.name)));
         prompts
     }
@@ -856,10 +886,11 @@ impl McpManager {
         let entry = self.require(server)?;
         entry.await_startup().await;
         let Some(connection) = entry.connection() else { return Ok(None) };
-        let result = self
-            .recovering(server, &entry, connection, |c| {
+        let result = entry
+            .conn()
+            .recovering(connection, |c, elicitation| {
                 let args = args.clone();
-                async move { c.prompt(name, args.as_ref()).await }
+                async move { c.prompt_for(name, args.as_ref(), elicitation).await }
             })
             .await;
         let Ok(Value::Object(raw)) = result else { return Ok(None) };
@@ -873,8 +904,9 @@ impl McpManager {
     }
 
     async fn load_catalog(&self, name: &str, entry: &Arc<Entry>, connection: Arc<Connection>) -> Result<ResourceCatalog, McpError> {
-        let (resources, templates) = self
-            .recovering(name, entry, connection, |c| async move {
+        let (resources, templates) = entry
+            .conn()
+            .recovering(connection, |c, _| async move {
                 // Some servers declare resources without implementing template listing.
                 let (resources, templates) = tokio::join!(c.resources(), c.resource_templates());
                 Ok((resources?, templates.unwrap_or_default()))
@@ -931,7 +963,10 @@ impl McpManager {
         let entry = self.require(server).map_err(|e| McpError::other(e.to_string()))?;
         entry.await_startup().await;
         let Some(connection) = entry.connection() else { return Ok(None) };
-        let result = self.recovering(server, &entry, connection, |c| async move { c.read_resource(uri).await }).await?;
+        let result = entry
+            .conn()
+            .recovering(connection, |c, elicitation| async move { c.read_resource_for(uri, elicitation).await })
+            .await?;
         let Some(result) = result else { return Ok(None) };
         let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(String::from);
         let contents = result
@@ -1032,8 +1067,8 @@ impl McpManager {
         if entry.integration_id.as_deref() != Some(integration_id) || entry.status() == Status::Disabled {
             return;
         }
-        self.stop_server(&name, &entry).await;
-        self.start_server(&name, &entry).await;
+        entry.conn().stop().await;
+        entry.conn().start().await;
     }
 
     /// Stops every server (Location disposal), publishing nothing. Servers stop in parallel, so one slow server's stop grace does not delay
@@ -1044,7 +1079,7 @@ impl McpManager {
             self.inner.entries.lock().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         futures::future::join_all(entries.into_iter().map(|(name, entry)| async move {
             let _guard = self.inner.locks.lock(&name).await;
-            self.stop_server(&name, &entry).await;
+            entry.conn().stop().await;
         }))
         .await;
     }
@@ -1083,6 +1118,7 @@ mod tests {
             client_info: ClientInfo { name: "opencode".into(), version: "test".into() },
             credentials: None,
             elicitation: None,
+            pool: None,
         });
         let seen: Arc<Mutex<Vec<McpEvent>>> = Arc::default();
         let sink_seen = seen.clone();

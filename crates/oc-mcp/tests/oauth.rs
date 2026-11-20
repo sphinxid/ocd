@@ -152,6 +152,7 @@ fn remote_with(url: &str, oauth: Option<OAuthSetting>) -> RemoteConfig {
         codemode: None,
         timeout: Some(TimeoutConfig { startup: Some(10_000), catalog: None, execution: None }),
         protocol: None,
+        pool: None,
     }
 }
 

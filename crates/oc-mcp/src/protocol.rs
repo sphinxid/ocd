@@ -62,6 +62,10 @@ pub struct RequestOptions {
     pub cancel: Option<CancellationToken>,
     /// Request progress notifications (`onprogress`): adds `_meta.progressToken`.
     pub progress: bool,
+    /// Answers the elicitations this request causes instead of the connection's handler (`PerRequest.elicitation`),
+    /// for a connection that serves several callers. 2026-07-28 only: there the server asks for input in the
+    /// result of the request that needs it.
+    pub elicitation: Option<Arc<dyn ElicitationHandler>>,
 }
 
 type Callback = Arc<dyn Fn() + Send + Sync>;
@@ -82,6 +86,8 @@ pub struct ClientConfig {
     pub elicitation: Option<Arc<dyn ElicitationHandler>>,
     /// `file://` URI of the Location directory returned from `roots/list`.
     pub root_uri: String,
+    /// `roots: false`: declares no roots and leaves `roots/list` unanswered, for a connection no one directory owns.
+    pub without_roots: bool,
 }
 
 enum Pending {
@@ -118,8 +124,11 @@ impl Client {
             // Spec-shaped capability: the client no longer fills schema defaults into accepted content.
             capabilities.insert("elicitation".into(), json!({"form": {}, "url": {}}));
         }
-        // Legacy era only: some legacy servers refuse to run without roots.
-        capabilities.insert("roots".into(), json!({}));
+        // Legacy era only: roots are deprecated as of 2026-07-28 and modern servers cannot request them. Some legacy
+        // servers refuse to run without one.
+        if !config.without_roots {
+            capabilities.insert("roots".into(), json!({}));
+        }
         let client = Arc::new(Self {
             transport,
             config,
@@ -332,7 +341,7 @@ impl Client {
         let params = message.get("params").cloned().unwrap_or(Value::Null);
         let token = CancellationToken::new();
         self.handlers.lock().insert(jsonrpc::id_key(&id), token.clone());
-        let result = self.dispatch_request(&method, params, token.clone()).await;
+        let result = self.dispatch_request(&method, params, token.clone(), None).await;
         self.handlers.lock().remove(&jsonrpc::id_key(&id));
         if token.is_cancelled() {
             return;
@@ -347,18 +356,21 @@ impl Client {
         }
     }
 
-    /// Runs a server→client request locally. `None` = method not found.
+    /// Runs a server→client request locally. `None` = method not found. `caller` is the elicitation handler the
+    /// request that caused it brought along, which wins over the connection's.
     async fn dispatch_request(
         &self,
         method: &str,
         params: Value,
         cancel: CancellationToken,
+        caller: Option<Arc<dyn ElicitationHandler>>,
     ) -> Option<Result<Value, (i64, String)>> {
         match method {
             "ping" => Some(Ok(json!({}))),
-            "roots/list" => Some(Ok(json!({"roots": [{"uri": self.config.root_uri}]}))),
+            "roots/list" if !self.config.without_roots => Some(Ok(json!({"roots": [{"uri": self.config.root_uri}]}))),
             "elicitation/create" => {
-                let handler = self.config.elicitation.clone()?;
+                self.config.elicitation.as_ref()?;
+                let handler = caller.or_else(|| self.config.elicitation.clone())?;
                 Some(self.elicit(handler, params, cancel).await)
             }
             _ => None,
@@ -502,7 +514,7 @@ impl Client {
                         }
                         let inner_params = entry.get("params").cloned().unwrap_or(Value::Null);
                         let cancel = options.cancel.clone().unwrap_or_default();
-                        match self.dispatch_request(inner, inner_params, cancel).await {
+                        match self.dispatch_request(inner, inner_params, cancel, options.elicitation.clone()).await {
                             None => {
                                 return Err(McpError::sdk(
                                     SdkErrorCode::CapabilityNotSupported,
@@ -800,9 +812,10 @@ impl Client {
                     }
                 }
                 Outcome::Auth(error) => Err(error),
-                Outcome::Network(error) => Err(McpError::sdk(
+                Outcome::Network(error) => Err(McpError::sdk_caused(
                     SdkErrorCode::EraNegotiationFailed,
                     format!("Version negotiation probe failed: {error}"),
+                    error,
                 )),
                 Outcome::Closed => Err(McpError::sdk(
                     SdkErrorCode::EraNegotiationFailed,

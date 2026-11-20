@@ -427,7 +427,7 @@ impl Engine {
             let (E::ToolsChanged { server } | E::ResourcesChanged { server } | E::StatusChanged { server } | E::PromptsChanged { server }) = ev;
             bus.publish(ev.event_type(), serde_json::json!({"server": server}), Some(loc.clone()));
         });
-        let m = crate::mcp::manager(self.models.credential_store(), self.app.global.locks(), &self.app.forms, location, &self.app.version, &self.app.plugins, sink).await;
+        let m = crate::mcp::manager(self.models.credential_store(), self.app.global.locks(), &self.app.forms, location, &self.app.version, &self.app.plugins, &self.app.mcp_pool, sink).await;
         // `Credential.Event.Switched` for a server's integration (an OAuth login through the
         // integration API) brings that server back online with the new credential.
         let mut events = self.app.bus.subscribe();

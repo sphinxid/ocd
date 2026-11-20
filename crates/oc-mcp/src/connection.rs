@@ -30,8 +30,30 @@ const HEADER_MISMATCH: i64 = -32020;
 pub enum ConnectError {
     #[error("{message}")]
     NeedsAuth { server: String, message: String },
+    /// `answered`: the server was reached but refused or broke the handshake, so connecting again, or differently,
+    /// would not necessarily fail the same way.
     #[error("{message}")]
-    Connect { server: String, message: String },
+    Connect { server: String, message: String, answered: bool },
+}
+
+impl ConnectError {
+    pub fn connect(server: &str, message: impl Into<String>) -> ConnectError {
+        ConnectError::Connect { server: server.to_string(), message: message.into(), answered: false }
+    }
+}
+
+/// `McpClient.ConnectOptions`.
+pub struct ConnectOptions<'a> {
+    pub server: &'a str,
+    pub config: &'a ServerConfig,
+    /// Resolves a relative stdio `cwd` and is the default one, and is the root `roots/list` answers with.
+    pub directory: &'a Path,
+    /// Remote only.
+    pub auth_provider: Option<Arc<ConnectAuth>>,
+    pub elicitation: Option<Arc<dyn ElicitationHandler>>,
+    pub client_info: &'a ClientInfo,
+    /// False declares no roots and leaves `roots/list` unanswered, for a connection no one directory owns.
+    pub roots: bool,
 }
 
 type Callback = Arc<dyn Fn() + Send + Sync>;
@@ -139,24 +161,22 @@ struct Opened {
 }
 
 async fn initialize(
-    server: &str,
+    options: &ConnectOptions<'_>,
     transport: Arc<dyn Transport>,
     events: mpsc::UnboundedReceiver<crate::transport::TransportEvent>,
-    config: &ServerConfig,
-    directory: &Path,
-    elicitation: Option<Arc<dyn ElicitationHandler>>,
-    client_info: &ClientInfo,
     last_error: Arc<Mutex<Option<String>>>,
 ) -> Result<Opened, McpError> {
+    let (server, config) = (options.server, options.config);
     let client = Client::new(
         transport.clone(),
         events,
         ClientConfig {
             server: server.to_string(),
-            client_info: client_info.clone(),
+            client_info: options.client_info.clone(),
             negotiation: config.protocol(),
-            elicitation,
-            root_uri: file_url(directory),
+            elicitation: options.elicitation.clone(),
+            root_uri: file_url(options.directory),
+            without_roots: !options.roots,
         },
     );
     let name = server.to_string();
@@ -180,7 +200,8 @@ async fn initialize(
 }
 
 impl Connection {
-    /// Connects a server. `auth_provider` is used for remote servers only.
+    /// Connects a server that answers `roots/list` and does not declare MCP Events. `auth_provider` is used for
+    /// remote servers only.
     pub async fn connect(
         server: &str,
         config: &ServerConfig,
@@ -189,6 +210,13 @@ impl Connection {
         elicitation: Option<Arc<dyn ElicitationHandler>>,
         client_info: &ClientInfo,
     ) -> Result<Connection, ConnectError> {
+        Self::open(ConnectOptions { server, config, directory, auth_provider, elicitation, client_info, roots: true })
+            .await
+    }
+
+    /// `McpClient.connect`.
+    pub async fn open(options: ConnectOptions<'_>) -> Result<Connection, ConnectError> {
+        let (server, config, directory) = (options.server, options.config, options.directory);
         let last_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let session = Arc::new(Mutex::new(SessionState::default()));
         let opened: Result<Opened, McpError> = match config {
@@ -209,14 +237,11 @@ impl Connection {
                     StdioOptions { server: server.to_string(), command, args, cwd, environment },
                     tx,
                 );
-                initialize(server, transport, rx, config, directory, elicitation, client_info, last_error.clone()).await
+                initialize(&options, transport, rx, last_error.clone()).await
             }
             ServerConfig::Remote(remote) => {
                 let Ok(configured) = Url::parse(&remote.url) else {
-                    return Err(ConnectError::Connect {
-                        server: server.to_string(),
-                        message: format!("Invalid MCP server URL: {}", remote.url),
-                    });
+                    return Err(ConnectError::connect(server, format!("Invalid MCP server URL: {}", remote.url)));
                 };
                 let fetch = Fetcher::new(server.to_string());
                 // Servers that bundle their own Code Mode expose raw tools with ?codemode=false.
@@ -232,16 +257,16 @@ impl Connection {
                 let deadline = Instant::now() + Duration::from_millis(config.startup_timeout_ms());
                 let open = |url: Url| {
                     let fetch = fetch.clone();
-                    let auth_provider = auth_provider.clone();
-                    let elicitation = elicitation.clone();
+                    let auth_provider = options.auth_provider.clone();
                     let last_error = last_error.clone();
+                    let options = &options;
                     async move {
                         let (tx, rx) = mpsc::unbounded_channel();
                         let transport: Arc<dyn Transport> = HttpTransport::new(
                             HttpOptions { url, headers: remote.headers.clone(), auth_provider, fetch },
                             tx,
                         );
-                        initialize(server, transport, rx, config, directory, elicitation, client_info, last_error).await
+                        initialize(options, transport, rx, last_error).await
                     }
                 };
                 retrying(server, "MCP connect", Some(deadline), || {
@@ -270,14 +295,18 @@ impl Connection {
                     McpError::Unauthorized(message) | McpError::InsufficientScope(message) => {
                         ConnectError::NeedsAuth { server: server.to_string(), message: message.clone() }
                     }
-                    McpError::UnsupportedProtocolVersion { message, supported, .. } => ConnectError::Connect {
-                        server: server.to_string(),
-                        message: format!(
+                    McpError::UnsupportedProtocolVersion { message, supported, .. } => ConnectError::connect(
+                        server,
+                        format!(
                             "{message}; the server supports {}. Set \"protocol\" for this server to one of those or to \"legacy\".",
                             supported.join(", ")
                         ),
+                    ),
+                    other => ConnectError::Connect {
+                        server: server.to_string(),
+                        message: explain(other, &last_error),
+                        answered: !other.repeats(),
                     },
-                    other => ConnectError::Connect { server: server.to_string(), message: explain(other, &last_error) },
                 });
             }
         };
@@ -299,6 +328,15 @@ impl Connection {
     /// True when the connection negotiated revision 2026-07-28 or later.
     pub fn modern(&self) -> bool {
         self.client.is_modern()
+    }
+
+    /// The protocol revision the connection negotiated, such as "2025-11-25".
+    pub fn protocol_version(&self) -> Option<String> {
+        self.client.negotiated_protocol_version()
+    }
+
+    pub fn server(&self) -> &str {
+        &self.server
     }
 
     /// `client.getInstructions()?.trim() || undefined`.
@@ -349,6 +387,15 @@ impl Connection {
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<Vec<Value>, McpError>>,
     {
+        self.list_value(what, run).await
+    }
+
+    /// Listing is read-only, so a transient failure is safe to retry.
+    pub(crate) async fn list_value<T, F, Fut>(&self, what: &str, run: F) -> Result<T, McpError>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<T, McpError>>,
+    {
         let result = retrying(&self.server, what, None, run).await.map_err(|e| self.failure(e));
         if let Err(error) = &result {
             tracing::warn!(server = %self.server, error = %error, "failed to {what}");
@@ -386,8 +433,15 @@ impl Connection {
         Ok(items.into_iter().filter_map(|v| v.as_object().cloned()).collect())
     }
 
-    async fn request(&self, what: &str, method: &str, params: Value, progress: bool) -> Result<Value, McpError> {
-        let options = RequestOptions { timeout: Some(self.execution), progress, ..Default::default() };
+    async fn request(
+        &self,
+        what: &str,
+        method: &str,
+        params: Value,
+        progress: bool,
+        elicitation: Option<Arc<dyn ElicitationHandler>>,
+    ) -> Result<Value, McpError> {
+        let options = RequestOptions { timeout: Some(self.execution), progress, elicitation, ..Default::default() };
         let result = if method == "tools/call" {
             let result = self.client.call_tool(params.clone(), &options).await;
             match result {
@@ -411,26 +465,52 @@ impl Connection {
 
     /// `readResource`: `Ok(None)` when the server does not advertise resources.
     pub async fn read_resource(&self, uri: &str) -> Result<Option<Value>, McpError> {
+        self.read_resource_for(uri, None).await
+    }
+
+    /// `readResource` whose elicitations go to `elicitation` (`PerRequest`).
+    pub async fn read_resource_for(&self, uri: &str, elicitation: Option<Arc<dyn ElicitationHandler>>) -> Result<Option<Value>, McpError> {
         if !self.client.has_resources() {
             return Ok(None);
         }
-        self.request("read MCP resource", "resources/read", json!({"uri": uri}), false).await.map(Some)
+        self.request("read MCP resource", "resources/read", json!({"uri": uri}), false, elicitation).await.map(Some)
     }
 
     /// `prompts/get` with `arguments: args ?? {}`.
     pub async fn prompt(&self, name: &str, args: Option<&IndexMap<String, String>>) -> Result<Value, McpError> {
+        self.prompt_for(name, args, None).await
+    }
+
+    /// `prompts/get` whose elicitations go to `elicitation` (`PerRequest`).
+    pub async fn prompt_for(
+        &self,
+        name: &str,
+        args: Option<&IndexMap<String, String>>,
+        elicitation: Option<Arc<dyn ElicitationHandler>>,
+    ) -> Result<Value, McpError> {
         let arguments = serde_json::to_value(args.cloned().unwrap_or_default()).unwrap_or(json!({}));
-        self.request("get MCP prompt", "prompts/get", json!({"name": name, "arguments": arguments}), false).await
+        self.request("get MCP prompt", "prompts/get", json!({"name": name, "arguments": arguments}), false, elicitation).await
     }
 
     /// `tools/call` with `arguments: args ?? {}` and `_meta["ai.opencode/sessionID"]` when known.
     pub async fn call_tool(&self, name: &str, args: Option<Value>, session_id: Option<&str>) -> Result<CallToolResult, McpError> {
+        self.call_tool_for(name, args, session_id, None).await
+    }
+
+    /// `tools/call` whose elicitations go to `elicitation` (`PerRequest`).
+    pub async fn call_tool_for(
+        &self,
+        name: &str,
+        args: Option<Value>,
+        session_id: Option<&str>,
+        elicitation: Option<Arc<dyn ElicitationHandler>>,
+    ) -> Result<CallToolResult, McpError> {
         let mut params = json!({"name": name, "arguments": args.unwrap_or_else(|| json!({}))});
         if let Some(session_id) = session_id {
             params["_meta"] = json!({"ai.opencode/sessionID": session_id});
         }
         // Requesting progress keeps long calls alive; execution is the hard wall.
-        let result = self.request("call MCP tool", "tools/call", params, true).await?;
+        let result = self.request("call MCP tool", "tools/call", params, true, elicitation).await?;
         Ok(to_call_tool_result(&result))
     }
 

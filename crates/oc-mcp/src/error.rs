@@ -70,7 +70,12 @@ pub mod codes {
 pub enum McpError {
     /// `SdkError` (non-HTTP).
     #[error("{message}")]
-    Sdk { code: SdkErrorCode, message: String },
+    Sdk {
+        code: SdkErrorCode,
+        message: String,
+        /// The error a failed `auto` probe hit (`EraNegotiationFailed`'s `cause`).
+        cause: Option<Box<McpError>>,
+    },
     /// `SdkHttpError`: carries the HTTP status and (when read) body text.
     #[error("{message}")]
     Http {
@@ -115,7 +120,29 @@ impl McpError {
     }
 
     pub fn sdk(code: SdkErrorCode, message: impl Into<String>) -> Self {
-        Self::Sdk { code, message: message.into() }
+        Self::Sdk { code, message: message.into(), cause: None }
+    }
+
+    /// An `SdkError` that wraps the error it hit, as a failed `auto` probe does.
+    pub fn sdk_caused(code: SdkErrorCode, message: impl Into<String>, cause: McpError) -> Self {
+        Self::Sdk { code, message: message.into(), cause: Some(Box::new(cause)) }
+    }
+
+    /// `repeats` (`client.ts`): connecting again would fail the same way. The server could not be spawned or
+    /// reached, did not answer in time, is overloaded or down for now, or refused this client's access. A failed
+    /// `auto` probe wraps the error it hit.
+    pub fn repeats(&self) -> bool {
+        match self {
+            Self::Sdk { code: SdkErrorCode::EraNegotiationFailed, cause: Some(cause), .. } => cause.repeats(),
+            Self::Sdk { code: SdkErrorCode::RequestTimeout, .. } => true,
+            // Refused credentials, even without OAuth: any connection with them would be refused the same way.
+            Self::Http { status: 401 | 403, .. } => true,
+            // The authorization server could not refresh the token for now.
+            Self::OAuth { code, .. } if code == "temporarily_unavailable" => true,
+            // A network failure, or a platform error such as a spawn that failed.
+            Self::Network { .. } => true,
+            other => other.is_transient(),
+        }
     }
 
     pub fn connection_closed() -> Self {

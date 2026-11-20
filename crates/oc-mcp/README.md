@@ -15,7 +15,9 @@ behaviour match the TS SDK exactly.
 | `config` | `schema/src/mcp.ts`, `config/plugin/mcp.ts`, `plugin/mcp-codemode-defaults.ts`, `v1/config/migrate.ts` | `ServerConfig` (`local`/`remote`), `TimeoutConfig` (defaults 30 000 / 30 000 / 43 200 000 ms), `Protocol`, `OAuthConfig`/`OAuthSetting` (`false` disables), `McpSection`, `merge_documents`, `apply_codemode_defaults`, `migrate_v1_server` |
 | `types` | `schema/src/mcp.ts`, `mcp-event.ts` | `Status` (`connected`/`pending`/`disabled`/`failed{error}`/`needs_auth{error}`), `ServerInfo`, `Resource*`, `Tool`, `Prompt`, `PromptResult`, `CallToolContent`, `ToolResult`, `ClientInfo`, `McpEvent` |
 | `manager` | `mcp/index.ts` | `McpManager` registry/lifecycle |
-| `connection` | `mcp/client.ts` | one connection: transport choice, `?codemode=false`, transient retry, session expiry, teardown |
+| `link` | `mcp/connection.ts` | `Link`: one server connection reconnected in place, with the tools and prompts it listed; reports `connecting`/`connected`/`failed{answered}`/`settled`/`closed`/`changed`/`legacy` to its owner (`LinkEvents`) under the owner's lock; per-endpoint handshake turns for unshared remote connections |
+| `pool` | `mcp/pool.ts` | `McpPool` (process-wide, 2.2.6/2.2.7 `pool: true`): `key` (everything that changes a connection, secrets as fingerprints, the credential ID, the resolved local `cwd`), shared slots with holders, the `unpoolable`/`legacy` verdicts, `Pooled` (a Location's connection: joins the slot or connects privately), first-answer-wins elicitations no request claims |
+| `connection` | `mcp/client.ts` | one connection: transport choice, `?codemode=false`, transient retry, session expiry, teardown; `ConnectError::Connect{answered}` (`!repeats(error)`), `roots: false` for shared connections, per-request elicitation handlers (`call_tool_for`, `prompt_for`, `read_resource_for`) |
 | `protocol` | SDK `Protocol`/`Client` | request correlation, timeouts, cancellation, legacy handshake, `2026-07-28` negotiation (an unanswered or closed probe on stdio means a legacy server or the SDK's "probed in place" failure), server requests, pagination; results are not checked against a tool's `outputSchema` (2.2.7) |
 | `tool_check` | `mcp/client.ts` `tools()` (2.2.7) | per-tool checks of `tools/list`: a tool that is not an object, has no non-empty name, no object `inputSchema` or an `inputSchema.type` other than `"object"` is skipped with the warning "skipping invalid MCP tool" `{server, tool, reason}`; the rest are copied keeping only fields of the right type (`inputSchema` with `type:"object"`, `properties` if a record, `required` if all strings; `icons` dropped) |
 | `transport::stdio` | `mcp/stdio.ts` | process-group spawn, newline framing (no overall buffer cap; a line over 16 MiB reports `MCP server {server} wrote more than 16 MiB to stdout without a message boundary` and closes the transport; blank lines are skipped and invalid ones reported as `Invalid MCP stdio message from {server}: {cause}`), stderr tail, kill sequence |
@@ -35,6 +37,7 @@ let manager = McpManager::new(ManagerOptions {
     client_info: ClientInfo { name: "opencode".into(), version: app_version },
     credentials: Some(store),                    // Arc<dyn McpCredentialStore>, over the SQLite `credential` table
     elicitation: Some(handler),                  // Arc<dyn ElicitationHandler>
+    pool: Some(pool),                            // McpPool shared by the process's Locations (core: App::mcp_pool)
 });
 let mut events = manager.subscribe();            // broadcast::Receiver<McpEvent>
 manager.on_event(sink);                          // or a synchronous EventSink, called as each event is published
@@ -69,6 +72,7 @@ notification returns; core publishes them on the bus through the sink.
 | `auth_finish(server, credential) -> credential id` | stores the credential (keeps previous label, removes old rows), reconnects |
 | `logout(server) -> usize` | removes all stored credentials of the integration, reconnects |
 | `credential_switched(integration_id)` | call when core's credential store switches a credential (`Credential.Event.Switched`) |
+| pooling | a server with `pool: true` (and a protocol other than `legacy`) connects through the pool with `protocol: "auto"` when unset. Its start joins the shared connection for its key (`connecting`, then `connected` or the shared failure), or, when the key can't be shared, connects on its own (a key that negotiated legacy skips the probe). Logs: `mcp pool ignored: server speaks an older protocol` `{server, version}`, `mcp pool ignored: server refused the shared connection` `{server, error}`, once per name `mcp pool ignored: local server has no fixed cwd, so each directory runs its own` `{server}`. A shared connection closing on its own fails every holder; `disconnect`/`shutdown` lets go, and the last holder closes it |
 | `shutdown()` | stops every server (kills stdio processes, DELETEs HTTP sessions); from its start nothing is published and connection callbacks no longer run (#60668) |
 
 Events (`McpEvent::event_type()`, payload `{server}`): `mcp.tools.changed`,

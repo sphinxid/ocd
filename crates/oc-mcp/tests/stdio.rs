@@ -173,6 +173,7 @@ fn server_config(extra_env: &[(&str, &str)], cwd: Option<&str>) -> ServerConfig 
         codemode: None,
         timeout: Some(TimeoutConfig { startup: Some(20_000), catalog: Some(10_000), execution: Some(1_000) }),
         protocol: None,
+        pool: None,
     })
 }
 
@@ -182,6 +183,7 @@ fn manager(directory: PathBuf) -> McpManager {
         client_info: ClientInfo { name: "opencode".into(), version: "2.0.26".into() },
         credentials: None,
         elicitation: None,
+        pool: None,
     })
 }
 
@@ -208,6 +210,7 @@ async fn stdio_lifecycle_tools_and_calls() {
             codemode: None,
             timeout: None,
             protocol: None,
+            pool: None,
         }),
     );
     manager.set_servers(servers).await;
@@ -428,6 +431,7 @@ async fn stdio_spawn_failure_and_reload() {
             codemode: None,
             timeout: None,
             protocol: None,
+            pool: None,
         }),
     );
     manager.set_servers(servers.clone()).await;
@@ -590,6 +594,7 @@ async fn stdio_handshake_declares_capabilities() {
             negotiation: None,
             elicitation: Some(Arc::new(AcceptAll)),
             root_uri: "file:///tmp".into(),
+            without_roots: false,
         },
     );
     client.connect(Duration::from_secs(20)).await.unwrap();

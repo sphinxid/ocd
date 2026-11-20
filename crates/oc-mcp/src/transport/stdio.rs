@@ -294,8 +294,9 @@ fn spawn_error(command: &str, error: &std::io::Error) -> McpError {
         std::io::ErrorKind::PermissionDenied => "EACCES",
         _ => "",
     };
+    // A platform error either way: connecting again would fail the same way (`repeats`).
     if code.is_empty() {
-        McpError::other(format!("spawn {command} {error}"))
+        McpError::Network { message: format!("spawn {command} {error}"), code: None }
     } else {
         McpError::Network { message: format!("spawn {command} {code}"), code: None }
     }

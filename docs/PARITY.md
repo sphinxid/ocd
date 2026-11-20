@@ -19,7 +19,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude automation image artifact media api227 wire227 tools227 mcp227 run227 acp local api230 freeform230 auth230 subagent tls230 codemode231 api231 providers231 daemon231 partrows
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude automation image artifact media api227 wire227 tools227 mcp227 run227 acp local api230 freeform230 auth230 subagent tls230 codemode231 api231 providers231 daemon231 partrows mcpopt231
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -147,6 +147,7 @@ iterator's `next`.
 | wire227 | unreachable and refused hosts (the retry schedule and the error text), the ChatGPT workspace limit, Azure Messages for Foundry models; plus `plugin_model_resolve` (the `experimental.model.resolve` hook) and `plugin_copilot_auto` (Copilot Auto's router, picks, fallback and compaction reroute) |
 | tools227 | 2.2.7's `read` (past the end, negative offsets, suggestions, `skill://`), shell exit and partial-line notices, webfetch fragments and credentials, Code Mode `import` and `fetch` redirects, the job list, `session_move` |
 | mcp227 | MCP OAuth refresh rotation across two locations, temporary refresh failures (503, 429) keeping the login, a pasted redirect URL, stdio probes, `~` in `cwd`, an invalid URL, a slow server missing the first step |
+| mcpopt231 | 2.3.1's opt-in MCP features against `scripts/parity/fake_mcp_modern.py`, a stdio server speaking the 2026-07-28 revision (or only the legacy handshake): `mcpopt231_pool_shares_local_servers`, two Locations of one server with `pool: true` servers (a modern one with a fixed `cwd` spawned once, a legacy one private per Location after one shared attempt, one without a fixed `cwd` per directory, an unpooled one per Location; spawn counts, wire methods, the `mcp.*` events per Location), and the shared process kept by one Location after the other disconnects, stopped by the last |
 | run227 | the rewritten `run`: message arguments, waiting for background jobs, retry notices, a permission question it cannot answer, `--worktree`, `--archived`, SIGTERM |
 | acp | `opencode acp` over stdio (`scripts/parity/acp227.py`, a minimal ACP client with the child-session capability that answers permission requests `once`): a background subagent outliving the root turn (2.3.0: and the root's answer to its report, streamed after the prompt's response), outliving a cancelled turn with its `read: ask` permission request, and a session closed while it runs. Every JSON-RPC message the client received is compared in three ordered lists (the root's updates with responses and requests, the child updates, everything after the prompt response), plus the root's and the child's model requests each in order: the server publishes a background child's start concurrently with the root's tool result, so how those interleave during the turn is a race in both binaries. 2.3.1 (`acp231.py`): a prompt that ends while its background shell runs, the turn the shell's notice wakes streamed after the response, a fast shell's reaction and a follow-up prompt |
 | local | the LM Studio, Ollama and vLLM discovery plugins against mock servers (`scripts/parity/local.py`, ephemeral ports shared by both runs, configured `baseURL`s only): the discovery requests (paths, bearer keys, Ollama's `/api/show` bodies), the provider, model and integration lists they produce (embedding, foreign and failing models left out, contexts, families, capabilities), `apiKey` and `/api`/`/api/v1` base URLs, a chat through a discovered vLLM model (path, key, model), a 30 s outage keeping the inventory and the next answer replacing it, a config change moving LM Studio to another server and key and dropping vLLM's endpoint; the `*.updated` counts of the boot and of each change. 2.3.0: an LM Studio decision model (`max_context_length: null`, `has_vision_adapter`) in the lists and through `/generate/decisions` (the System One request and answer), a key saved through `/api/credential` while LM Studio refuses requests without it, and the integration's env key `LMSTUDIO_API_KEY` |
@@ -173,6 +174,13 @@ known `loop_tool_error` and `loop_http_400` event-order races; with the flag off
 scenarios) the same two differ and the rest are identical. Through the isolation guard, sessions written by each
 binary with the flag on (two prompts with reasoning, a tool call and text: 8 part rows) export identically from both
 binaries with the flag on and off, before and after the other binary continued them with the flag off and then on.
+
+**Opt-in MCP pooling (debug build, 2026-11-20):** the new group `mcpopt231` against the opencode 2.3.1 binary,
+through the isolation guard: `mcpopt231_pool_shares_local_servers` identical (one process for both Locations, the
+legacy server's single probe and three handshakes, the per-directory server, the status and catalog events, the
+shared process outliving one Location's disconnect). A first run showed that 2.3.1's SDK fails a 2026-07-28
+`tools/list` result without `ttlMs` and `cacheScope` (a Zod error dump as the status); the fake now sends them as
+the SDK's server does. ocd does not check those fields (P3, left).
 
 **2.3.1 catch-up, core tools and sessions (Q2; debug build, 2026-11-18):** against the opencode 2.3.1 binary,
 groups `loop`, `permission`, `stop`, `tools22`, `tools227` and `shell225` plus `readonly_*` (57 scenarios): **53

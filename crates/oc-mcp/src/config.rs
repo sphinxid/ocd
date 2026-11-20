@@ -112,6 +112,11 @@ pub struct LocalConfig {
     pub timeout: Option<TimeoutConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<Protocol>,
+    /// Share one connection to this server across every directory that configures it identically, instead of one
+    /// per directory. Only connections that negotiate the 2026-07-28 revision are shared; an unset "protocol"
+    /// becomes "auto", and "legacy" never shares. Defaults to false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<bool>,
 }
 
 /// `Mcp.OAuthConfig` (snake_case keys).
@@ -187,6 +192,11 @@ pub struct RemoteConfig {
     pub timeout: Option<TimeoutConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<Protocol>,
+    /// Share one connection to this server across every directory that configures it identically, instead of one
+    /// per directory. Only connections that negotiate the 2026-07-28 revision are shared; an unset "protocol"
+    /// becomes "auto", and "legacy" never shares. Defaults to false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<bool>,
 }
 
 impl RemoteConfig {
@@ -246,6 +256,21 @@ impl ServerConfig {
         match self {
             Self::Local(c) => c.protocol,
             Self::Remote(c) => c.protocol,
+        }
+    }
+
+    pub fn set_protocol(&mut self, protocol: Option<Protocol>) {
+        match self {
+            Self::Local(c) => c.protocol = protocol,
+            Self::Remote(c) => c.protocol = protocol,
+        }
+    }
+
+    /// `pool === true`.
+    pub fn pool(&self) -> bool {
+        match self {
+            Self::Local(c) => c.pool == Some(true),
+            Self::Remote(c) => c.pool == Some(true),
         }
     }
 
@@ -381,6 +406,7 @@ pub fn migrate_v1_server(value: &Value) -> Option<ServerConfig> {
                 codemode: None,
                 timeout,
                 protocol: None,
+                pool: None,
             }))
         }
         "remote" => {
@@ -412,6 +438,7 @@ pub fn migrate_v1_server(value: &Value) -> Option<ServerConfig> {
                 codemode: None,
                 timeout,
                 protocol: None,
+                pool: None,
             }))
         }
         _ => None,
