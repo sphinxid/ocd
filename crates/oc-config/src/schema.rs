@@ -1770,7 +1770,8 @@ pub struct Experimental {
     /// Deprecated: use experimental.automations (read as its old name).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedules: Option<bool>,
-    /// Each assistant part as its own `session_part` row (accepted; not ported, ocd writes whole messages).
+    /// Write each assistant part as its own session_part row instead of rewriting the whole message on every event.
+    /// Defaults to false (read where an event projects: the session's location).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_rows: Option<bool>,
     /// Settings for the experimental_image_generate tool: `false` turns the tool off, `{model}` sets its preferred

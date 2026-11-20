@@ -404,6 +404,11 @@ class Ctx:
                 cfg = config
             for k, v in (config_extra or {}).items():
                 cfg[k] = v
+            # `PARITY_CONFIG_EXTRA` (JSON) runs scenarios under extra config, its object values merged into the
+            # scenario's (e.g. `{"experimental": {"part_rows": true}}` repeats the loop and session scenarios with
+            # the part-row writer).
+            for k, v in json.loads(os.environ.get("PARITY_CONFIG_EXTRA") or "{}").items():
+                cfg = {**cfg, k: {**cfg[k], **v} if isinstance(v, dict) and isinstance(cfg.get(k), dict) else v}
             files = dict(files or {})
             files.setdefault("opencode.json", json.dumps(cfg, indent=2))
         for rel, content in (files or {}).items():

@@ -21,6 +21,11 @@ pub struct Committing<'a> {
     /// `SessionBlob.enabled` where the event projects: `experimental.media_blob` of the session's location (the
     /// parent's for `session.forked`, `ForkMedia`). On, inline media is stored in `blob` behind `media:` refs.
     pub media: bool,
+    /// `partRowsEnabled`: `experimental.part_rows` of the config the event projects under (the session's location;
+    /// off outside any location). On, each assistant part is its own `session_part` row written by the part methods
+    /// and envelope updates leave the row's `content` alone; off, every assistant event rewrites the whole message
+    /// (into the part rows the message already has, if any).
+    pub part_rows: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -785,21 +790,27 @@ fn decode(id: String, kind: String, data: String) -> Option<Message> {
     Message::from_row(&id, &kind, &data).ok()
 }
 
-/// Read one message row for the updater (`decodeAssistantRow`: parts inlined, media refs kept).
-fn query_message(c: &Connection, sql: &str, p: impl rusqlite::Params) -> rusqlite::Result<Option<Message>> {
+/// Read one message row for the updater. `parts`: fold the message's `session_part` rows into its `content` first
+/// (the `experimental.part_rows` off reads, `withParts`); the part-row path decodes the row as stored, so an
+/// assistant's `content` is whatever the row still holds inline. Media refs are kept either way.
+fn query_message(c: &Connection, parts: bool, sql: &str, p: impl rusqlite::Params) -> rusqlite::Result<Option<Message>> {
     let row = c
         .query_row(sql, p, |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
         .optional()?;
     let Some(row) = row else { return Ok(None) };
     let mut rows = [row];
-    crate::stored::with_parts(c, &mut rows)?;
+    if parts {
+        crate::stored::with_parts(c, &mut rows)?;
+    }
     let [(i, k, d)] = rows;
     Ok(decode(i, k, d))
 }
 
-fn get_assistant(c: &Connection, session: &str, id: &str) -> rusqlite::Result<Option<Box<Assistant>>> {
+/// `assistantReads.getAssistant` of the path `e` projects with.
+fn get_assistant(c: &Connection, e: &Committing<'_>, session: &str, id: &str) -> rusqlite::Result<Option<Box<Assistant>>> {
     Ok(match query_message(
         c,
+        !e.part_rows,
         "SELECT id, type, data FROM session_message WHERE id = ? AND session_id = ? AND type = 'assistant'",
         params![id, session],
     )? {
@@ -808,9 +819,11 @@ fn get_assistant(c: &Connection, session: &str, id: &str) -> rusqlite::Result<Op
     })
 }
 
-fn current_assistant(c: &Connection, session: &str) -> rusqlite::Result<Option<Box<Assistant>>> {
+/// `assistantReads.getCurrentAssistant`: the newest assistant row, when it is still incomplete.
+fn current_assistant(c: &Connection, e: &Committing<'_>, session: &str) -> rusqlite::Result<Option<Box<Assistant>>> {
     Ok(match query_message(
         c,
+        !e.part_rows,
         "SELECT id, type, data FROM session_message WHERE session_id = ? AND type = 'assistant' ORDER BY seq DESC LIMIT 1",
         [session],
     )? {
@@ -822,6 +835,7 @@ fn current_assistant(c: &Connection, session: &str) -> rusqlite::Result<Option<B
 fn running_compaction(c: &Connection, session: &str) -> rusqlite::Result<Option<Box<Compaction>>> {
     Ok(match query_message(
         c,
+        false,
         "SELECT id, type, data FROM session_message WHERE session_id = ? AND type = 'compaction' AND json_extract(data, '$.status') = 'running' ORDER BY seq DESC LIMIT 1",
         [session],
     )? {
@@ -830,6 +844,37 @@ fn running_compaction(c: &Connection, session: &str) -> rusqlite::Result<Option<
     })
 }
 
+/// `updateAssistant` / `updateShell` / `updateCompaction`: with part rows off, the whole message
+/// ([`update_message`]); on, only the envelope ([`update_envelope`]).
+fn update(c: &Connection, e: &Committing<'_>, session: &str, m: &Message) -> rusqlite::Result<()> {
+    if e.part_rows { update_envelope(c, e, session, m) } else { update_message(c, e, session, m) }
+}
+
+/// `updateMessage` of the part-row path. Assistant content is written only by the part methods, so an assistant's
+/// envelope keeps whatever `content` its row already holds: inline for a legacy row that was never split, `[]` once
+/// it was. `time_created` follows the message only on `session.step.started`; no media moves and no refs change.
+fn update_envelope(c: &Connection, e: &Committing<'_>, session: &str, m: &Message) -> rusqlite::Result<()> {
+    let started = matches!(e.event, SessionEvent::StepStarted { .. });
+    let (data, assistant) = match m {
+        Message::Assistant(a) => {
+            let mut envelope = (**a).clone();
+            envelope.content = Vec::new();
+            (Message::Assistant(Box::new(envelope)).to_row_data(), true)
+        }
+        _ => (m.to_row_data(), false),
+    };
+    c.execute(
+        "UPDATE session_message SET
+           time_created = CASE WHEN ?1 THEN ?2 ELSE time_created END,
+           data = CASE WHEN ?3 THEN json_set(?4, '$.content', json(coalesce(data -> '$.content', '[]'))) ELSE ?4 END,
+           time_updated = ?5
+         WHERE id = ?6 AND session_id = ?7",
+        params![started, m.created() as i64, assistant, data, now_ms(), m.id(), session],
+    )?;
+    Ok(())
+}
+
+/// `updateOwnedAssistant`: reads the message, applies `f` and writes it back (`updateAssistant`).
 fn with_assistant(
     c: &Connection,
     e: &Committing<'_>,
@@ -837,15 +882,222 @@ fn with_assistant(
     id: &str,
     f: impl FnOnce(&mut Assistant),
 ) -> rusqlite::Result<()> {
-    if let Some(mut a) = get_assistant(c, session, id)? {
+    if let Some(mut a) = get_assistant(c, e, session, id)? {
         f(&mut a);
-        update_message(c, e, session, &Message::Assistant(a))?;
+        update(c, e, session, &Message::Assistant(a))?;
     }
     Ok(())
 }
 
-fn last_tool<'a>(a: &'a mut Assistant, call: &str) -> Option<&'a mut AssistantContent> {
-    a.content.iter_mut().rev().find(|c| matches!(c, AssistantContent::Tool { id, .. } if id == call))
+/// Which part `updateAssistantPart` changes: the last one of its type, with this call ID for a tool, and still
+/// incomplete for reasoning.
+enum PartMatch<'a> {
+    Text,
+    Tool(&'a str),
+    IncompleteReasoning,
+}
+
+impl PartMatch<'_> {
+    fn kind(&self) -> &'static str {
+        match self {
+            PartMatch::Text => "text",
+            PartMatch::Tool(_) => "tool",
+            PartMatch::IncompleteReasoning => "reasoning",
+        }
+    }
+
+    fn matches(&self, part: &AssistantContent) -> bool {
+        match (self, part) {
+            (PartMatch::Text, AssistantContent::Text { .. }) => true,
+            (PartMatch::Tool(call), AssistantContent::Tool { id, .. }) => id == call,
+            (PartMatch::IncompleteReasoning, AssistantContent::Reasoning { time, .. }) => {
+                time.as_ref().and_then(|t| t.completed).is_none()
+            }
+            _ => false,
+        }
+    }
+}
+
+/// `encodePart`: a part as its `session_part.data` JSON.
+fn encode_part(part: &AssistantContent) -> Value {
+    serde_json::to_value(part).expect("part serializes")
+}
+
+/// `type` and `call_id` columns of a part row.
+fn part_columns(part: &Value) -> (&str, Option<&str>) {
+    let kind = part.get("type").and_then(Value::as_str).unwrap_or_default();
+    (kind, if kind == "tool" { part.get("id").and_then(Value::as_str) } else { None })
+}
+
+/// `SessionBlob.externalizePart`: with `experimental.media_blob` on, a tool part's `data:` result files go to `blob`.
+/// Returns whether anything moved.
+fn externalize_part(c: &Connection, e: &Committing<'_>, part: &mut Value) -> rusqlite::Result<bool> {
+    if !e.media {
+        return Ok(false);
+    }
+    let mut wrapped = serde_json::json!({ "content": [std::mem::take(part)] });
+    let taken = crate::stored::externalize("assistant", &mut wrapped);
+    *part = wrapped["content"][0].take();
+    if taken.is_empty() {
+        return Ok(false);
+    }
+    crate::stored::save(c, &taken)?;
+    Ok(true)
+}
+
+fn insert_part_row(
+    c: &Connection,
+    session: &str,
+    message: &str,
+    ordinal: i64,
+    created: i64,
+    updated: i64,
+    data: &Value,
+) -> rusqlite::Result<()> {
+    let (kind, call_id) = part_columns(data);
+    c.execute(
+        "INSERT INTO session_part (message_id, session_id, ordinal, type, call_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![message, session, ordinal, kind, call_id, created, updated, data.to_string()],
+    )?;
+    Ok(())
+}
+
+/// `prepareAssistantParts`, the only place a legacy inline assistant row moves to `session_part`, called right before
+/// a part write. With `carry`, the row's inline parts are appended after any part rows it already has (an older build
+/// that wrote inline content while part rows existed leaves both shapes on one message, and a downgrade and re-upgrade
+/// loses nothing); without, they are dropped, for a write that replaces them all. The row is then rewritten with an
+/// empty `content`. Returns the `seq` the message's part refs belong to, `None` when there is no such assistant row.
+fn prepare_parts(c: &Connection, e: &Committing<'_>, session: &str, message: &str, carry: bool) -> anyhow::Result<Option<i64>> {
+    let row: Option<(i64, Option<i64>)> = c
+        .query_row(
+            "SELECT seq, json_array_length(data, '$.content') FROM session_message WHERE id = ? AND session_id = ? AND type = 'assistant'",
+            params![message, session],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((seq, inline)) = row else { return Ok(None) };
+    if inline.unwrap_or(0) > 0 {
+        let (created, data): (i64, String) = c.query_row(
+            "SELECT time_created, data FROM session_message WHERE id = ?",
+            [message],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let Message::Assistant(mut a) = Message::from_row(message, "assistant", &data)? else { unreachable!() };
+        if carry {
+            let last: Option<i64> =
+                c.query_row("SELECT max(ordinal) FROM session_part WHERE message_id = ?", [message], |r| r.get(0))?;
+            let first = last.unwrap_or(-1) + 1;
+            for (index, part) in a.content.iter().enumerate() {
+                insert_part_row(c, session, message, first + index as i64, created, e.created as i64, &encode_part(part))?;
+            }
+        }
+        a.content = Vec::new();
+        c.execute(
+            "UPDATE session_message SET data = ?, time_updated = ? WHERE id = ? AND session_id = ?",
+            params![Message::Assistant(a).to_row_data(), now_ms(), message, session],
+        )?;
+    }
+    Ok(Some(seq))
+}
+
+/// `appendAssistantPart`: with part rows off, the part is pushed onto the whole message; on, it is a new
+/// `session_part` row after the message's last ordinal.
+fn append_part(c: &Connection, e: &Committing<'_>, session: &str, message: &str, part: AssistantContent) -> anyhow::Result<()> {
+    if !e.part_rows {
+        with_assistant(c, e, session, message, |a| a.content.push(part))?;
+        return Ok(());
+    }
+    let Some(seq) = prepare_parts(c, e, session, message, true)? else { return Ok(()) };
+    let mut data = encode_part(&part);
+    externalize_part(c, e, &mut data)?;
+    let next: i64 = c.query_row(
+        "SELECT coalesce(max(ordinal) + 1, 0) FROM session_part WHERE message_id = ?",
+        [message],
+        |r| r.get(0),
+    )?;
+    insert_part_row(c, session, message, next, e.created as i64, e.created as i64, &data)?;
+    crate::stored::record_refs(c, session, message, seq, &serde_json::json!({ "content": [data] }))?;
+    Ok(())
+}
+
+/// `updateAssistantPart`: applies `recipe` to the last part `m` matches. With part rows off the whole message is
+/// rewritten; on, only that part's row, and only when `recipe` changed it (it returns whether it did).
+fn update_part(
+    c: &Connection,
+    e: &Committing<'_>,
+    session: &str,
+    message: &str,
+    m: PartMatch<'_>,
+    recipe: impl FnOnce(&mut AssistantContent) -> bool,
+) -> anyhow::Result<()> {
+    if !e.part_rows {
+        with_assistant(c, e, session, message, |a| {
+            if let Some(part) = a.content.iter_mut().rev().find(|p| m.matches(p)) {
+                recipe(part);
+            }
+        })?;
+        return Ok(());
+    }
+    let Some(seq) = prepare_parts(c, e, session, message, true)? else { return Ok(()) };
+    let mut sql = "SELECT ordinal, type, data FROM session_part WHERE message_id = ? AND session_id = ? AND type = ?".to_string();
+    let mut args: Vec<rusqlite::types::Value> = vec![message.to_string().into(), session.to_string().into(), m.kind().to_string().into()];
+    match &m {
+        PartMatch::Tool(call) => {
+            sql.push_str(" AND call_id = ?");
+            args.push(call.to_string().into());
+        }
+        PartMatch::IncompleteReasoning => sql.push_str(" AND json_extract(data, '$.time.completed') IS NULL"),
+        PartMatch::Text => {}
+    }
+    sql.push_str(" ORDER BY ordinal DESC LIMIT 1");
+    let row: Option<(i64, String, String)> = c
+        .query_row(&sql, rusqlite::params_from_iter(args), |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .optional()?;
+    let Some((ordinal, kind, data)) = row else { return Ok(()) };
+    let mut part = decode_part_row(&kind, &data)?;
+    if !recipe(&mut part) {
+        return Ok(());
+    }
+    let mut data = encode_part(&part);
+    let moved = externalize_part(c, e, &mut data)?;
+    c.execute(
+        "UPDATE session_part SET data = ?, time_updated = ? WHERE message_id = ? AND ordinal = ?",
+        params![data.to_string(), e.created as i64, message, ordinal],
+    )?;
+    if moved {
+        crate::stored::record_refs(c, session, message, seq, &serde_json::json!({ "content": [data] }))?;
+    }
+    Ok(())
+}
+
+/// `replaceAssistantParts`: the message's whole content. With part rows on, its part rows are deleted and the parts
+/// written from ordinal 0 (inline media moved to `blob` where the flag is on), and refs the new parts no longer name
+/// are released.
+fn replace_parts(c: &Connection, e: &Committing<'_>, session: &str, message: &str, parts: &[AssistantContent]) -> anyhow::Result<()> {
+    if !e.part_rows {
+        with_assistant(c, e, session, message, |a| a.content = parts.to_vec())?;
+        return Ok(());
+    }
+    let Some(seq) = prepare_parts(c, e, session, message, false)? else { return Ok(()) };
+    c.execute("DELETE FROM session_part WHERE message_id = ?", [message])?;
+    let mut content = Vec::with_capacity(parts.len());
+    for part in parts {
+        let mut data = encode_part(part);
+        externalize_part(c, e, &mut data)?;
+        content.push(data);
+    }
+    for (ordinal, data) in content.iter().enumerate() {
+        insert_part_row(c, session, message, ordinal as i64, e.created as i64, e.created as i64, data)?;
+    }
+    crate::stored::sync_refs(c, session, message, seq, &serde_json::json!({ "content": content }))?;
+    Ok(())
+}
+
+/// `decodePartRowSync`: a part row's data with its `type` column, upgraded from older shapes.
+fn decode_part_row(kind: &str, data: &str) -> anyhow::Result<AssistantContent> {
+    let mut value: Map<String, Value> = serde_json::from_str(data)?;
+    value.insert("type".into(), Value::String(kind.to_string()));
+    Ok(serde_json::from_value(oc_schema::legacy::part(Value::Object(value)))?)
 }
 
 /// A result event's native data merges into the tool's call data (result keys win).
@@ -865,10 +1117,10 @@ fn terminal_snapshot(a: &mut Assistant, snapshot: &Option<String>, files: &Optio
 }
 
 fn clear_current_retry(c: &Connection, e: &Committing<'_>, session: &str) -> rusqlite::Result<()> {
-    if let Some(mut a) = current_assistant(c, session)? {
+    if let Some(mut a) = current_assistant(c, e, session)? {
         if a.retry.is_some() {
             a.retry = None;
-            update_message(c, e, session, &Message::Assistant(a))?;
+            update(c, e, session, &Message::Assistant(a))?;
         }
     }
     Ok(())
@@ -888,9 +1140,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
         append(Message::Idle { id: from_event.clone(), metadata: meta.clone(), time: Created { created }, outcome, error })
     };
     match e.event {
-        E::MessageContentUpdated { message_id, content, .. } => {
-            with_assistant(c, e, s, message_id, |a| a.content = content.clone())?;
-        }
+        E::MessageContentUpdated { message_id, content, .. } => replace_parts(c, e, s, message_id, content)?,
         E::AgentSelected { agent, previous, .. } => {
             let previous = match previous {
                 Some(p) => Some(p.clone()),
@@ -1009,11 +1259,12 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
         E::ShellEnded { shell, output, .. } => {
             let current = query_message(
                 c,
+                false,
                 "SELECT id, type, data FROM session_message WHERE session_id = ? AND type = 'shell' AND json_extract(data, '$.shellID') = ? ORDER BY seq DESC LIMIT 1",
                 params![s, shell.id],
             )?;
             if let Some(Message::Shell { id, metadata, time, shell_id, command, .. }) = current {
-                update_message(
+                update(
                     c,
                     e,
                     s,
@@ -1031,7 +1282,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             }
         }
         E::StepStarted { assistant_message_id, agent, model, snapshot, started, .. } => {
-            if let Some(mut a) = get_assistant(c, s, assistant_message_id)? {
+            if let Some(mut a) = get_assistant(c, e, s, assistant_message_id)? {
                 a.agent = agent.clone();
                 a.model = model.clone();
                 a.retry = None;
@@ -1045,13 +1296,13 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                     sn.start = Some(snap.clone());
                     a.snapshot = Some(sn);
                 }
-                update_message(c, e, s, &Message::Assistant(a))?;
+                update(c, e, s, &Message::Assistant(a))?;
                 return Ok(());
             }
-            if let Some(mut cur) = current_assistant(c, s)? {
+            if let Some(mut cur) = current_assistant(c, e, s)? {
                 cur.retry = None;
                 cur.time.completed = Some(created);
-                update_message(c, e, s, &Message::Assistant(cur))?;
+                update(c, e, s, &Message::Assistant(cur))?;
             }
             append(Message::Assistant(Box::new(Assistant {
                 id: assistant_message_id.clone(),
@@ -1102,95 +1353,102 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
             }
             terminal_snapshot(a, snapshot, files);
         })?,
-        E::TextStarted { assistant_message_id, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
-            a.content.push(AssistantContent::Text { text: String::new(), native: None })
-        })?,
-        E::TextEnded { assistant_message_id, text, native, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
-            if let Some(AssistantContent::Text { text: t, native: n }) =
-                a.content.iter_mut().rev().find(|c| matches!(c, AssistantContent::Text { .. }))
-            {
-                *t = text.clone();
-                *n = native.clone();
-            }
-        })?,
-        E::ToolInputStarted { assistant_message_id, id, name, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
-            a.content.push(AssistantContent::Tool {
+        E::TextStarted { assistant_message_id, .. } => {
+            append_part(c, e, s, assistant_message_id, AssistantContent::Text { text: String::new(), native: None })?
+        }
+        E::TextEnded { assistant_message_id, text, native, .. } => {
+            update_part(c, e, s, assistant_message_id, PartMatch::Text, |part| {
+                if let AssistantContent::Text { text: t, native: n } = part {
+                    *t = text.clone();
+                    *n = native.clone();
+                }
+                true
+            })?
+        }
+        E::ToolInputStarted { assistant_message_id, id, name, .. } => append_part(
+            c,
+            e,
+            s,
+            assistant_message_id,
+            AssistantContent::Tool {
                 id: id.clone(),
                 name: name.clone(),
                 executed: None,
                 native: None,
                 state: ToolState::Streaming { input: String::new() },
                 time: ToolTime { created, ran: None, completed: None },
-            })
-        })?,
-        E::ToolInputEnded { assistant_message_id, id, text, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
-            if let Some(AssistantContent::Tool { state: ToolState::Streaming { input }, .. }) = last_tool(a, id) {
-                *input = text.clone();
-            }
-        })?,
+            },
+        )?,
+        E::ToolInputEnded { assistant_message_id, id, text, .. } => {
+            update_part(c, e, s, assistant_message_id, PartMatch::Tool(id), |part| match part {
+                AssistantContent::Tool { state: ToolState::Streaming { input }, .. } if input != text => {
+                    *input = text.clone();
+                    true
+                }
+                _ => false,
+            })?
+        }
         E::ToolCalled { assistant_message_id, id, input, executed, native, .. } => {
-            with_assistant(c, e, s, assistant_message_id, |a| {
-                if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
+            update_part(c, e, s, assistant_message_id, PartMatch::Tool(id), |part| {
+                if let AssistantContent::Tool { executed: ex, native: n, time, state: st, .. } = part {
                     *ex = Some(*executed);
                     *n = native.clone();
                     time.ran = Some(created);
                     *st = ToolState::Running { input: input.clone(), metadata: Map::new() };
                 }
+                true
             })?
         }
         E::ToolSuccess { assistant_message_id, id, content, metadata, executed, native, .. } => {
-            with_assistant(c, e, s, assistant_message_id, |a| {
-                if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
-                    if let ToolState::Running { input, .. } = st {
-                        let input = input.clone();
-                        *ex = Some(*executed || *ex == Some(true));
-                        merge_native(n, native);
-                        time.completed = Some(created);
-                        *st = ToolState::Completed { input, content: content.clone(), metadata: metadata.clone() };
-                    }
-                }
+            update_part(c, e, s, assistant_message_id, PartMatch::Tool(id), |part| {
+                let AssistantContent::Tool { executed: ex, native: n, time, state: st, .. } = part else { return false };
+                let ToolState::Running { input, .. } = st else { return false };
+                let input = input.clone();
+                *ex = Some(*executed || *ex == Some(true));
+                merge_native(n, native);
+                time.completed = Some(created);
+                *st = ToolState::Completed { input, content: content.clone(), metadata: metadata.clone() };
+                true
             })?
         }
         E::ToolFailed { assistant_message_id, id, error, content, metadata, executed, native, .. } => {
-            with_assistant(c, e, s, assistant_message_id, |a| {
-                if let Some(AssistantContent::Tool { executed: ex, native: n, time, state: st, .. }) = last_tool(a, id) {
-                    let input = match st {
-                        ToolState::Streaming { .. } => Some(Map::new()),
-                        ToolState::Running { input, .. } => Some(input.clone()),
-                        _ => None,
-                    };
-                    if let Some(input) = input {
-                        *ex = Some(*executed || *ex == Some(true));
-                        merge_native(n, native);
-                        time.completed = Some(created);
-                        *st = ToolState::Error {
-                            input,
-                            error: error.clone(),
-                            content: content.clone(),
-                            metadata: metadata.clone(),
-                        };
-                    }
-                }
+            update_part(c, e, s, assistant_message_id, PartMatch::Tool(id), |part| {
+                let AssistantContent::Tool { executed: ex, native: n, time, state: st, .. } = part else { return false };
+                let input = match st {
+                    ToolState::Streaming { .. } => Map::new(),
+                    ToolState::Running { input, .. } => input.clone(),
+                    _ => return false,
+                };
+                *ex = Some(*executed || *ex == Some(true));
+                merge_native(n, native);
+                time.completed = Some(created);
+                *st = ToolState::Error { input, error: error.clone(), content: content.clone(), metadata: metadata.clone() };
+                true
             })?
         }
-        E::ReasoningStarted { assistant_message_id, native, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
-            a.content.push(AssistantContent::Reasoning {
+        E::ReasoningStarted { assistant_message_id, native, .. } => append_part(
+            c,
+            e,
+            s,
+            assistant_message_id,
+            AssistantContent::Reasoning {
                 text: String::new(),
                 native: native.clone(),
                 time: Some(CompletedTime { created, completed: None }),
-            })
-        })?,
-        E::ReasoningEnded { assistant_message_id, text, native, .. } => with_assistant(c, e, s, assistant_message_id, |a| {
-            if let Some(AssistantContent::Reasoning { text: t, native: n, time }) = a.content.iter_mut().rev().find(|c| {
-                matches!(c, AssistantContent::Reasoning { time, .. } if time.as_ref().and_then(|t| t.completed).is_none())
-            }) {
-                *t = text.clone();
-                *time = Some(CompletedTime { created: time.map(|t| t.created).unwrap_or(created), completed: Some(created) });
-                if native.is_some() {
-                    *n = native.clone();
+            },
+        )?,
+        E::ReasoningEnded { assistant_message_id, text, native, .. } => {
+            update_part(c, e, s, assistant_message_id, PartMatch::IncompleteReasoning, |part| {
+                if let AssistantContent::Reasoning { text: t, native: n, time } = part {
+                    *t = text.clone();
+                    *time = Some(CompletedTime { created: time.map(|t| t.created).unwrap_or(created), completed: Some(created) });
+                    if native.is_some() {
+                        *n = native.clone();
+                    }
                 }
-            }
-        })?,
+                true
+            })?
+        }
         E::RetryScheduled { assistant_message_id, attempt, at, error, .. } => {
             with_assistant(c, e, s, assistant_message_id, |a| {
                 a.retry = Some(AssistantRetry { attempt: *attempt, at: *at, error: error.clone() })
@@ -1218,7 +1476,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                     cur.metadata = Some(merged);
                 }
                 cur.status = status;
-                update_message(c, e, s, &Message::Compaction(cur))?;
+                update(c, e, s, &Message::Compaction(cur))?;
             } else {
                 append(Message::Compaction(Box::new(Compaction {
                     id: from_event.clone(),
@@ -1241,7 +1499,7 @@ fn run(c: &Connection, e: &Committing<'_>, seq: i64) -> anyhow::Result<()> {
                 status: CompactionStatus::Failed { reason: *reason, error: error.clone(), cost: *cost, tokens: *tokens },
             };
             if current.is_some() {
-                update_message(c, e, s, &Message::Compaction(Box::new(failed)))?;
+                update(c, e, s, &Message::Compaction(Box::new(failed)))?;
             } else {
                 append(Message::Compaction(Box::new(failed)))?;
             }

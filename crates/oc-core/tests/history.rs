@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 
 fn commit(db: &Database, e: SessionEvent) -> String {
     let eid = id::event();
-    db.commit_session_event(Committing { id: &eid, created: 1, metadata: None, event: &e, media: false }).unwrap();
+    db.commit_session_event(Committing { id: &eid, created: 1, metadata: None, event: &e, media: false, part_rows: false }).unwrap();
     eid
 }
 
@@ -85,7 +85,7 @@ fn compact(db: &Database, session: &str, native: Option<Value>, by: ModelRef, ke
         cost: None,
         tokens: None,
     };
-    db.commit_session_event(Committing { id: &eid, created: 1, metadata: metadata.as_ref(), event: &event, media: false }).unwrap();
+    db.commit_session_event(Committing { id: &eid, created: 1, metadata: metadata.as_ref(), event: &event, media: false, part_rows: false }).unwrap();
 }
 
 fn window() -> Value {

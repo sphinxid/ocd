@@ -24,9 +24,11 @@ agent/provider registries. It uses the functions below to do that work.
 - 2.2.7 keys, accepted, normalized and echoed in upstream's key order: `experimental.all_flags`,
   `console_watches`, `part_rows`; MCP `pool` on local and remote servers;
   `warming.interval: "auto"` (`WarmingInterval`); provider and model `cache.warming` (`CacheWarming`:
-  `boolean | {interval?, duration?}` with raw strings). The features behind `console_watches`,
-  `part_rows`, `pool` and warming are opt-in upstream and not ported: ocd has no Console
-  watches, writes whole messages, connects MCP servers per location and sends no keep-alive requests.
+  `boolean | {interval?, duration?}` with raw strings). `part_rows` drives the projector's part-row writer
+  (read like upstream's `partRowsEnabled`: the highest-priority document that sets `experimental`, no
+  `OPENCODE_FLAGS` or `all_flags`; `oc-core` records it per location). The features behind `console_watches`,
+  `pool` and warming are opt-in upstream and not ported: ocd has no Console watches, connects MCP servers
+  per location and sends no keep-alive requests.
 - 2.3.0 keys: the flag `experimental.mcp_events` (accepted and echoed; its feature is not ported);
   `experimental.codemode_vm` is a deprecated, ignored key right after `portable_shell_scanner`, and
   the retired `codemodeVm` alias is ignored without a diagnostic; provider `settings.tls` (`Tls`:

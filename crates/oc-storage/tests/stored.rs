@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 fn commit(db: &Database, e: SessionEvent, created: u64) -> (String, i64) {
     let eid = id::event();
-    let seq = db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e, media: false }).unwrap();
+    let seq = db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e, media: false, part_rows: false }).unwrap();
     (eid, seq)
 }
 
@@ -745,7 +745,7 @@ fn migrates_legacy_kv_job_markers_into_the_job_table() {
 
 fn commit_media(db: &Database, e: SessionEvent, created: u64) -> i64 {
     let eid = id::event();
-    db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e, media: true }).unwrap()
+    db.commit_session_event(Committing { id: &eid, created, metadata: None, event: &e, media: true, part_rows: false }).unwrap()
 }
 
 fn inline_file(name: &str) -> Value {
@@ -893,7 +893,7 @@ fn forks_store_inline_media_as_blobs_only_with_fork_media() {
             instructions: None,
             instruction_entries: None,
         };
-        db.commit_session_event(Committing { id: &eid, created: 3, metadata: None, event: &e, media }).unwrap();
+        db.commit_session_event(Committing { id: &eid, created: 3, metadata: None, event: &e, media, part_rows: false }).unwrap();
         let copy: (String, i64, String) = db
             .with(|c| {
                 c.query_row("SELECT id, seq, data FROM session_message WHERE session_id = ?", [&child], |r| {

@@ -51,6 +51,8 @@ def run_one(sc, binaries, out_root, port):
     for side, binary in binaries:
         mock = Mock(port, hold_for_title=sc.hold_for_title)
         ctx = harness.Ctx(side, binary, work, mock, {})
+        # The other binary, for scenarios that hand one database between them.
+        ctx.peer = next((b for s, b in binaries if s != side), None)
         started = time.time()
         try:
             sc.fn(ctx)

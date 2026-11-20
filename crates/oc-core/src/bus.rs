@@ -51,6 +51,8 @@ pub struct Bus {
     tx: broadcast::Sender<Event>,
     /// `experimental.media_blob` of each loaded location, by directory (see [`Bus::set_media_blob`]).
     media: Arc<parking_lot::RwLock<std::collections::HashMap<String, bool>>>,
+    /// `experimental.part_rows` of each loaded location, by directory (see [`Bus::set_part_rows`]).
+    part_rows: Arc<parking_lot::RwLock<std::collections::HashMap<String, bool>>>,
 }
 
 /// A durable session event to publish.
@@ -70,7 +72,7 @@ impl From<SessionEvent> for Durable1 {
 impl Bus {
     pub fn new(db: Database) -> Self {
         let (tx, _) = broadcast::channel(4096);
-        Bus { db, tx, media: Default::default() }
+        Bus { db, tx, media: Default::default(), part_rows: Default::default() }
     }
 
     pub fn db(&self) -> &Database {
@@ -94,6 +96,21 @@ impl Bus {
     /// Whether a location (by directory) stores media as blobs.
     pub fn media_blob(&self, directory: &str) -> bool {
         self.media.read().get(directory).copied().unwrap_or(false)
+    }
+
+    /// Records a loaded location's `experimental.part_rows` (`partRowsEnabled` reads the config in scope where an
+    /// event projects): assistant parts of sessions in that directory are written as `session_part` rows. A location
+    /// that never loaded, and an event published outside any location, write whole messages.
+    pub fn set_part_rows(&self, directories: &[&str], on: bool) {
+        let mut part_rows = self.part_rows.write();
+        for d in directories {
+            part_rows.insert(d.to_string(), on);
+        }
+    }
+
+    /// Whether a location (by directory) writes assistant parts as `session_part` rows.
+    pub fn part_rows(&self, directory: &str) -> bool {
+        self.part_rows.read().get(directory).copied().unwrap_or(false)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -176,12 +193,13 @@ impl Bus {
             }
             _ => before.as_ref().is_some_and(|l| self.media_blob(&l.directory)),
         };
+        let part_rows = !unlocated() && before.as_ref().is_some_and(|l| self.part_rows(&l.directory));
         let ids: Vec<String> = events.iter().map(|e| e.id.clone().unwrap_or_else(oc_schema::id::event)).collect();
         let created = oc_schema::id::now_ms();
         let committing: Vec<Committing> = events
             .iter()
             .zip(&ids)
-            .map(|(e, id)| Committing { id, created, metadata: e.metadata.as_ref(), event: &e.event, media })
+            .map(|(e, id)| Committing { id, created, metadata: e.metadata.as_ref(), event: &e.event, media, part_rows })
             .collect();
         let seqs = self.db.commit_session_events(&committing, hook)?;
         let after = self.session_location(&session);

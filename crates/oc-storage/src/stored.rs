@@ -2,8 +2,10 @@
 //! `session_part` (`core/src/session/history.ts` `withParts`, `projector.ts` `writeParts`) and media
 //! kept in `blob` behind `media:<sha256>` refs (`core/src/session/blob.ts`).
 //!
-//! Like upstream 2.2.7 with `experimental.part_rows` off, ocd writes part rows only for an assistant message
-//! inserted with content and for the parts a fork copies; it reads them and keeps existing ones up to date. Blobs are written where the session's location sets `experimental.media_blob` (the projector's
+//! With `experimental.part_rows` off (the default), ocd writes part rows only for an assistant message inserted with
+//! content and for the parts a fork copies, and keeps a message's existing part rows up to date; with it on, the
+//! projector writes every assistant part as its own row (`projector.rs` `partRowWrites`). Reads fold them back either
+//! way. Blobs are written where the session's location sets `experimental.media_blob` (the projector's
 //! `Committing::media`, imports), read back inline or kept as refs for clients that opt in, and released.
 
 use std::collections::{HashMap, HashSet};

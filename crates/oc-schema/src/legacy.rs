@@ -68,7 +68,8 @@ fn content(mut data: Map<String, Value>) -> Map<String, Value> {
     data
 }
 
-fn part(value: Value) -> Value {
+/// `SessionLegacy.part`: upgrades one stored assistant part (a `session_part` row's data with its `type`).
+pub fn part(value: Value) -> Value {
     let Value::Object(m) = value else { return value };
     let m = match m.get("type").and_then(Value::as_str) {
         Some("text" | "reasoning") => rename(m, "state", "native"),
