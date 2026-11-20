@@ -7,6 +7,11 @@
 //! this platform, checks it against the release's `SHA256SUMS`, runs the new binary once (`--version`, in empty
 //! directories) and then replaces its own executable:
 //!
+//! The lookup and the download always verify TLS certificates, even when `NODE_TLS_REJECT_UNAUTHORIZED=0` turned
+//! verification off for the rest of ocd: a checksum fetched over the same connection as the archive authenticates
+//! neither. The client still trusts the roots from the environment, so a proxy named in `NODE_EXTRA_CA_CERTS`
+//! keeps working.
+//!
 //! - Unix: the new binary is written next to the real path of the executable with the same permissions and
 //!   renamed over it. A running process keeps the old inode, so a running TUI or service is not disturbed.
 //! - Windows: a running executable cannot be replaced, but it can be renamed, so `ocd.exe` becomes `ocd.exe.old`
@@ -302,6 +307,31 @@ fn error_detail(e: &(dyn std::error::Error + 'static)) -> String {
     parts.join(": ")
 }
 
+/// What to say instead of "check your network" when the release lookup or the upgrade download refused a
+/// certificate that only `NODE_TLS_REJECT_UNAUTHORIZED=0` would have accepted: `(detail, retry)`.
+fn certificate_advice(detail: &str, unchecked: bool) -> Option<(String, String)> {
+    if !unchecked || !detail.contains("certificate") {
+        return None;
+    }
+    Some((
+        format!(
+            "{detail}. The release lookup and the upgrade download verify certificates whatever NODE_TLS_REJECT_UNAUTHORIZED says."
+        ),
+        format!(
+            "Set NODE_EXTRA_CA_CERTS to the certificate of the proxy or private CA, or download the binary from {RELEASES}."
+        ),
+    ))
+}
+
+/// The error for a failed request of [`client`].
+fn network_error(title: impl Into<String>, e: &(dyn std::error::Error + 'static)) -> UpgradeError {
+    let detail = error_detail(e);
+    match certificate_advice(&detail, !oc_util::http::Trust::global().verifies()) {
+        Some((detail, retry)) => UpgradeError::new(title, detail, retry),
+        None => UpgradeError::new(title, detail, RETRY_NETWORK),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // GitHub
 
@@ -333,7 +363,7 @@ fn user_agent() -> String {
 }
 
 fn client() -> reqwest::Client {
-    oc_util::http::client_builder()
+    oc_util::http::client_builder_strict()
         .user_agent(user_agent())
         .connect_timeout(Duration::from_secs(10))
         .build()
@@ -364,7 +394,7 @@ pub async fn fetch(source: &Source, target: Option<&str>, timeout: Duration) -> 
     if let Some(t) = &source.token {
         req = req.header("authorization", format!("Bearer {t}"));
     }
-    let res = req.send().await.map_err(|e| UpgradeError::new(CHECK_TITLE, error_detail(&e), RETRY_NETWORK))?;
+    let res = req.send().await.map_err(|e| network_error(CHECK_TITLE, &e))?;
     let status = res.status();
     if !status.is_success() {
         let header = |k: &str| res.headers().get(k).and_then(|v| v.to_str().ok()).map(String::from);
@@ -501,7 +531,12 @@ pub fn extract(archive: &[u8], tag: &str, platform: &str) -> Result<Vec<u8>, Str
 
 async fn get_bytes(url: &str, what: &str, version: &Version) -> Result<Vec<u8>, UpgradeError> {
     let failed = |detail: String| UpgradeError::new(format!("Could not download ocd {version}"), detail, RETRY_NETWORK);
-    let res = client().get(url).timeout(Duration::from_secs(10 * 60)).send().await.map_err(|e| failed(error_detail(&e)))?;
+    let res = client()
+        .get(url)
+        .timeout(Duration::from_secs(10 * 60))
+        .send()
+        .await
+        .map_err(|e| network_error(format!("Could not download ocd {version}"), &e))?;
     if !res.status().is_success() {
         return Err(failed(format!("Downloading {what} returned HTTP {}.", res.status().as_u16())));
     }

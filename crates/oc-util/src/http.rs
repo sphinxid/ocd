@@ -121,6 +121,14 @@ impl Trust {
         }
 
         let verify = env("NODE_TLS_REJECT_UNAUTHORIZED").is_none_or(|v| v != "0");
+        if !verify {
+            // Loud, once, at startup: provider requests carry API keys, and nothing authenticates them with
+            // verification off.
+            warnings.push(
+                "warn: NODE_TLS_REJECT_UNAUTHORIZED=0: TLS certificate verification is off; provider requests carry API keys"
+                    .to_string(),
+            );
+        }
         let self_signed = certs.extra.iter().filter(|c| is_self_issued(c)).map(|c| c.as_ref().to_vec()).collect();
         let mut roots = RootCertStore::empty();
         roots.extend(certs.anchors);
@@ -151,6 +159,13 @@ impl Trust {
     /// Whether certificates are verified (`NODE_TLS_REJECT_UNAUTHORIZED` is not `0`).
     pub fn verifies(&self) -> bool {
         self.verify
+    }
+
+    /// The same trust, verifying certificates whatever the environment said. The release lookup and the upgrade
+    /// download use it, so a `NODE_TLS_REJECT_UNAUTHORIZED=0` in the environment cannot turn them into a man in
+    /// the middle.
+    pub fn verified(&self) -> Trust {
+        Trust { verify: true, ..self.clone() }
     }
 
     /// A rustls client configuration with this trust and the given ALPN protocols.
@@ -459,6 +474,17 @@ pub fn client_builder() -> reqwest::ClientBuilder {
 /// `client_builder().build()`.
 pub fn client() -> reqwest::Client {
     client_builder().build().expect("reqwest client")
+}
+
+/// [`client_builder`] with certificate verification always on, whatever `NODE_TLS_REJECT_UNAUTHORIZED` says.
+/// The roots still come from the environment, so a named proxy CA (`NODE_EXTRA_CA_CERTS`) keeps working.
+pub fn client_builder_strict() -> reqwest::ClientBuilder {
+    static STRICT_TLS: LazyLock<ClientConfig> = LazyLock::new(|| {
+        client_config(Source::Owned(Arc::new(Trust::global().verified())), &[b"h2", b"http/1.1"])
+    });
+    reqwest::Client::builder()
+        .use_preconfigured_tls(STRICT_TLS.clone())
+        .proxy(reqwest::Proxy::custom(|url| crate::proxy::fetch_proxy(&crate::proxy::process_env, url)))
 }
 
 /// Reads the certificates on a background thread (server start), so that the first handshake does not wait the few

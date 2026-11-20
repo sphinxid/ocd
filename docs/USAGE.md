@@ -80,7 +80,10 @@ WebSockets:
 - **Unreadable file:** if that file can't be read or holds no certificate, the server prints
   `warn: ignoring extra certs from <file>, load failed: <reason>` and carries on without it, as upstream does.
   ocd also writes the line to its log.
-- **Turning checks off:** `NODE_TLS_REJECT_UNAUTHORIZED=0` turns certificate checks off.
+- **Turning checks off:** `NODE_TLS_REJECT_UNAUTHORIZED=0` turns certificate checks off. The
+  release lookup and the `ocd upgrade` download always verify, because the `SHA256SUMS` that
+  authenticate the archive arrive over the same connection: behind such a proxy, also set
+  `NODE_EXTRA_CA_CERTS` to the proxy's certificate, or download the binary from the releases page.
 
 **Proxies:** outgoing requests use `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and `NO_PROXY` (either case) with
 upstream's rules. The OpenAI WebSocket transport also reads `WSS_PROXY` and `WS_PROXY`, and tunnels through `http:`
