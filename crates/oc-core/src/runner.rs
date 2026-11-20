@@ -140,6 +140,9 @@ impl Engine {
         if self.app.coordinator.set(crate::coordinator::Coordinator::new(driver)).is_ok() {
             crate::plan::spawn(self.app.clone());
             self.goal_spawn();
+            // The warming plugin pings through this engine and learns of request ends and deletions from the bus.
+            self.app.plugins.warming.set_generator(Arc::new(crate::warming::EngineGenerator(Arc::downgrade(self))));
+            self.app.plugins.warming.listen(self.app.bus.subscribe());
             self.app.plugins.set_tool_source(Arc::new(RunnerTools(Arc::downgrade(self))));
             // Plugin MCP transforms changed: reconcile the location's servers.
             let mut changes = self.app.plugins.subscribe_changes();

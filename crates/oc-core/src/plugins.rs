@@ -374,6 +374,8 @@ pub struct Plugins {
     pub azure: Arc<crate::azure::Azure>,
     /// The built-in browser plugin's desktop attachments (`opencode.browser`).
     pub browsers: Arc<crate::browser::Browsers>,
+    /// The built-in session warming plugin (`opencode.warming`).
+    pub warming: Arc<crate::warming::Warming>,
     /// The built-in Claude Agent provider plugin (`opencode.provider.claude-agent`).
     pub claude: Arc<crate::claude_agent::ClaudeAgent>,
     /// The built-in LM Studio, Ollama and vLLM discovery plugins.
@@ -439,6 +441,7 @@ impl Plugins {
             openai: Arc::new(crate::openai::OpenAi::new()),
             azure: Arc::default(),
             browsers: crate::browser::Browsers::new(bus.clone(), version),
+            warming: crate::warming::Warming::new(),
             catalogs: Mutex::new(HashMap::new()),
             bus,
             // `App.Info` of the server (`App.configured(options.app)`: the CLI names itself "cli").
@@ -996,6 +999,7 @@ impl Plugins {
                 .collect();
         }
         let browser = self.browser_generation(&key);
+        let warming = self.generation_through(&key, crate::warming::PLUGIN_ID);
         let before = self.generation(&key);
         let host = self.host_or_create();
         let info = json!({
@@ -1039,6 +1043,10 @@ impl Plugins {
         // The browser plugin's attachments end when it restarts or is disabled.
         if browser.is_some() && browser != self.browser_generation(&key) {
             self.browsers.restart(&key);
+        }
+        // So do the warming plugin's loops.
+        if warming.is_some() && warming != self.generation_through(&key, crate::warming::PLUGIN_ID) {
+            self.warming.close(&key);
         }
         // Every cached domain of this location may have changed.
         self.cache.lock().retain(|(k, _), _| *k != key);
@@ -1096,8 +1104,14 @@ impl Plugins {
     /// `None` when the browser plugin is disabled. Unchanged, the browser plugin keeps running across an
     /// activation (`Plugin.activate`'s prefix diff).
     fn browser_generation(&self, key: &str) -> Option<Vec<(String, String)>> {
+        self.generation_through(key, crate::browser::PLUGIN_ID)
+    }
+
+    /// The enabled plugins up to and including `id` (`None` when it is disabled): the plugin restarted or stopped
+    /// when this changes.
+    fn generation_through(&self, key: &str, id: &str) -> Option<Vec<(String, String)>> {
         let entries = self.generation(key);
-        let index = entries.iter().position(|(id, _)| id == crate::browser::PLUGIN_ID)?;
+        let index = entries.iter().position(|(p, _)| p == id)?;
         Some(entries[..=index].to_vec())
     }
 
@@ -1197,6 +1211,11 @@ impl Plugins {
     /// The latest catalog of location `key`.
     pub fn catalog(&self, key: &str) -> Option<oc_ai::catalog::Catalog> {
         self.catalogs.lock().get(key).cloned()
+    }
+
+    /// The configuration entries of location `key`'s latest activation.
+    pub fn entries(&self, key: &str) -> Option<Vec<oc_config::schema::Entry>> {
+        self.locations.lock().get(key)?.location.as_ref().map(|l| l.entries.clone())
     }
 
     /// Whether the built-in GitHub Copilot plugin runs at the location.

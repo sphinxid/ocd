@@ -890,17 +890,15 @@ fn per_key_folds() {
         "docs": { "type": "local", "path": home.join("d"), "hidden": true },
         "repo": { "type": "git", "repository": "github.com/a/b" },
     }));
-    let w = fold::warming(&entries).unwrap();
-    let oc_config::schema::WarmingInterval::Duration(interval) = &w.interval else { panic!("{w:?}") };
+    // `Config.latest(entries, "warming")`: the latest document's whole value, merged with the defaults by the plugin.
+    let Some(oc_config::schema::Warming::Settings(w)) = fold::warming(&entries) else { panic!() };
+    let Some(oc_config::schema::WarmingInterval::Duration(interval)) = &w.interval else { panic!("{w:?}") };
     assert_eq!(interval.to_millis(), 60_000.0);
-    assert_eq!(w.duration.to_millis(), 1_800_000.0);
-    assert_eq!(w.prompt, fold::WARMING_PROMPT);
-    assert!(fold::warming(&[doc(json!({ "warming": { "interval": "0 millis" } }))]).is_none());
-    assert!(fold::warming(&[doc(json!({ "warming": false }))]).is_none());
-    // 2.2.7: `"auto"` is the default interval; a set one must be shorter than the duration.
-    assert_eq!(fold::warming(&[doc(json!({ "warming": true }))]).unwrap().interval, oc_config::schema::WarmingInterval::Auto);
-    assert_eq!(fold::warming(&[doc(json!({ "warming": { "interval": "auto" } }))]).unwrap().interval, oc_config::schema::WarmingInterval::Auto);
-    assert!(fold::warming(&[doc(json!({ "warming": { "interval": "40 minutes" } }))]).is_none());
+    assert_eq!((w.duration, w.prompt.as_deref()), (None, None));
+    assert_eq!(fold::warming(&[doc(json!({ "warming": false }))]), Some(&oc_config::schema::Warming::Enabled(false)));
+    let later = [doc(json!({ "warming": { "interval": "auto" } })), doc(json!({ "warming": true }))];
+    assert_eq!(fold::warming(&later), Some(&oc_config::schema::Warming::Enabled(true)));
+    assert_eq!(fold::warming(&[doc(json!({}))]), None);
     assert_eq!(fold::subagent_depth(&entries), 1);
 }
 

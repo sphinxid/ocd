@@ -94,6 +94,12 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-11-20: OPT-IN SESSION WARMING PORTED (`opencode.warming`, 2.3.1 behaviour): `oc_core::warming` (decision,
+  per-location loops, end events from the bus, cache-miss stop), hooked in `plugin_request::shape` for primary,
+  compaction and generate requests; pings go through `Engine::session_generate` in the scheduling request's trace.
+  Loops stop on session deletion, location close and a restart or disable of the plugin. `fold::warming` now returns
+  the latest top-level value. Upstream's 17 plugin tests ported on paused time (`tests/warming.rs`, 3 more) plus an engine test
+  against a mock provider; parity group `warming231` (4 scenarios) identical against 2.3.1.
 - 2026-11-18: CAUGHT UP WITH 2.3.1 (`docs/UPGRADE-2.3.1.md`): four reviews, seven batches (foundation with the three
   automation migrations, Code Mode, core tools, providers/server, TUI/ACP, automations, process-daemon shells on
   `@opencode/pty` 0.6.0 protocol 9) and fixes for a macOS test race, Windows file names, a Windows stack overflow (large

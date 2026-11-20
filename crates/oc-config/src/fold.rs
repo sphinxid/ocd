@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::schema::{
-    Agent, AgentMode, Capabilities, Compatibility, Cost, CostCache, Duration, Experimental, FormatterEntry, Info,
+    Agent, AgentMode, Capabilities, Compatibility, Cost, CostCache, Experimental, FormatterEntry, Info,
     McpServer, McpTimeout, ModelSelection, Provider, ProviderModel, Reference, Ruleset, ToolOutput, Variant, Warming,
     WebSearch,
 };
@@ -68,51 +68,10 @@ pub fn websearch(entries: &[Entry]) -> Option<Option<&str>> {
 pub const WARMING_PROMPT: &str =
     "This is a keep-alive request. Do not perform any work or use tools. Reply with exactly: OK";
 
-/// Resolved top-level warming settings (the `interval` stays `"auto"` until a model's `cache.ttl` resolves it).
-#[derive(Debug, Clone, PartialEq)]
-pub struct WarmingSettings {
-    pub prompt: String,
-    pub interval: crate::schema::WarmingInterval,
-    pub duration: Duration,
-}
-
-/// `warming`: latest defined; `true` → defaults; object → `{...defaults, ...obj}`. A set interval must be positive
-/// and shorter than a finite duration, else the verbatim warning and no warming (2.2.7; the session runtime that
-/// resolves `"auto"` from the model's `cache.ttl` is not ported).
-pub fn warming(entries: &[Entry]) -> Option<WarmingSettings> {
-    let configured = latest(entries, |i| i.warming.as_ref())?;
-    let mut settings = WarmingSettings {
-        prompt: WARMING_PROMPT.into(),
-        interval: crate::schema::WarmingInterval::Auto,
-        duration: Duration::minutes(30.0),
-    };
-    match configured {
-        Warming::Enabled(false) => return None,
-        Warming::Enabled(true) => {}
-        Warming::Settings(s) => {
-            if let Some(p) = &s.prompt {
-                settings.prompt = p.clone();
-            }
-            if let Some(i) = &s.interval {
-                settings.interval = i.clone();
-            }
-            if let Some(d) = s.duration {
-                settings.duration = d;
-            }
-        }
-    }
-    let duration = settings.duration.to_millis();
-    let valid = duration.is_finite()
-        && match &settings.interval {
-            crate::schema::WarmingInterval::Auto => true,
-            crate::schema::WarmingInterval::Duration(i) => i.to_millis() > 0.0 && i.to_millis() < duration,
-        };
-    if valid {
-        Some(settings)
-    } else {
-        tracing::warn!("warming interval must be positive and shorter than a finite duration");
-        None
-    }
+/// `Config.latest(entries, "warming")`: the latest defined top-level `warming`. The warming plugin
+/// (`oc_core::warming`) merges it with the request model's `cache.warming` and resolves `"auto"` from its `cache.ttl`.
+pub fn warming(entries: &[Entry]) -> Option<&Warming> {
+    latest(entries, |i| i.warming.as_ref())
 }
 
 /// `experimental`: latest document that has `experimental` (whole object).

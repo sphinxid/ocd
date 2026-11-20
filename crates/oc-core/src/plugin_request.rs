@@ -99,6 +99,10 @@ pub async fn shape(
     if kind == Kind::Compaction && model.provider_id == oc_ai::catalog::copilot::PROVIDER_ID && plugins.copilot_enabled(key) {
         plugins.copilot.compacted(key, session_id);
     }
+    // The warming plugin's `context` / `compaction` / `generate` hooks (the last `pre` plugin).
+    if kind != Kind::Title && plugins.builtin_enabled(key, crate::warming::PLUGIN_ID) {
+        warming_hook(plugins, key, kind, session_id, model, &req.messages);
+    }
     if plugins.has_hook(key, hook, Some(&model.provider_id)) {
         let mut event = Map::new();
         event.insert("sessionID".into(), json!(session_id));
@@ -185,6 +189,33 @@ pub async fn shape(
     model_request(plugins, key, kind, session_id, agent, model, req).await?;
     shaped.http = http_hooks(plugins, key, kind, session_id, agent, model);
     Ok(shaped)
+}
+
+/// `WarmingPlugin`'s hook: subagent sessions are never warmed; otherwise the request (re)schedules, stops or leaves
+/// the session's warming by the request model's `settings.cache` (`model.list()`'s provider settings overlaid by the
+/// model's; a model the catalog doesn't list has none) and the location's top-level `warming`.
+fn warming_hook(plugins: &Arc<Plugins>, key: &str, kind: Kind, session_id: &str, model: &ModelRef, messages: &[oc_ai::types::Message]) {
+    let Ok(Some(session)) = plugins.db().session_get(session_id) else { return };
+    let cache = plugins.catalog(key).and_then(|catalog| {
+        let info = catalog.available_models().into_iter().find(|m| m.provider_id == model.provider_id && m.id == model.id)?;
+        let provider = catalog.provider(&model.provider_id).and_then(|p| p.settings.as_ref());
+        let settings = oc_ai::catalog::types::merge_overlay(
+            oc_ai::catalog::types::model_settings(provider).as_ref(),
+            oc_ai::catalog::types::model_settings(info.settings.as_ref()).as_ref(),
+        )?;
+        settings.get("cache")?.as_object().cloned()
+    });
+    let global = plugins.entries(key).and_then(|entries| oc_config::fold::warming(&entries).cloned());
+    plugins.warming.hook(crate::warming::Hook {
+        key: key.to_string(),
+        session_id: session_id.to_string(),
+        tracked: kind != Kind::Generate,
+        child: session.parent_id.is_some(),
+        cache,
+        global,
+        model: format!("{}/{}", model.provider_id, model.id),
+        text: crate::warming::last_text(messages).map(String::from),
+    });
 }
 
 /// The OpenAI plugin's `session.context` / `session.compaction` hooks (openai.ts): provider `openai`

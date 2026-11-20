@@ -1182,8 +1182,8 @@ pub struct Cache {
     /// Prompt-cache lifetime such as "5m", "30m", "1h" or "24h" (`Provider.CacheTTL`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ttl: Option<String>,
-    /// Keep-alive requests for this provider's or model's sessions; overrides the top-level `warming` (2.2.7;
-    /// accepted, ocd has no warming runtime).
+    /// Keep-alive requests for this provider's or model's sessions; overrides the top-level `warming` (2.2.7; read
+    /// by the warming plugin, `oc_core::warming`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warming: Option<CacheWarming>,
 }

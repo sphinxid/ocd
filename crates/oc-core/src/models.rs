@@ -510,6 +510,7 @@ impl Models {
             plugins.openai.remove(key);
             plugins.azure.remove(key);
             plugins.local.unregister(key);
+            plugins.warming.close(key);
             plugins.set_catalog(key, None);
         }
     }
