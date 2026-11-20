@@ -182,6 +182,7 @@ struct Opening {
     config: ServerConfig,
     directory: PathBuf,
     client_info: ClientInfo,
+    mcp_events: bool,
 }
 
 impl McpPool {
@@ -234,6 +235,7 @@ impl McpPool {
             directory: input.directory,
             shared: true,
             client_info: input.client_info,
+            mcp_events: input.mcp_events,
             auth_provider: auth,
             elicitation: Some(Arc::new(Shared { slot: weak.clone() })),
             lock: slot.lock.clone(),
@@ -573,6 +575,7 @@ impl Pooled {
             config: self.input.config.clone(),
             directory: self.input.directory.clone(),
             client_info: self.input.client_info.clone(),
+            mcp_events: self.input.mcp_events,
         };
         let Some(claim) = self.pool.acquire(&selected.key, opening, &holder) else { return false };
         let slot = claim.slot.clone();

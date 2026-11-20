@@ -100,7 +100,7 @@ pub const BUILTIN_PLUGINS: [&str; 94] = [
     "opencode.tool.grep",
     "opencode.tool.image-generate",
     "opencode.tools",
-    // 2.3.0: adds `watch_mcp_event` only with the `mcp_events` flag, which ocd does not port; listed like upstream.
+    // 2.3.0: adds `watch_mcp_event` only with the `mcp_events` flag.
     "opencode.tools.mcp-events",
     "opencode.tools.mcp-resources",
     "opencode.tool.question",
@@ -253,6 +253,9 @@ pub fn tool_plugin(tool: &dyn Tool) -> Option<&'static str> {
             crate::automation::PLUGIN_ID
         }
         name if crate::artifact::tools::is_artifact_tool(name) => crate::artifact::tools::PLUGIN_ID,
+        name if tool.options().namespace.as_deref() == Some("opencode") && crate::mcp_events::is_watch_tool(name) => {
+            crate::mcp_events::PLUGIN_ID
+        }
         _ if tool.options().namespace.as_deref() == Some("opencode") => "opencode.tools",
         _ => return None,
     })

@@ -1,0 +1,114 @@
+{
+ "name": "opencode_watch_mcp_event",
+ "inputSchema": {
+  "type": "object",
+  "properties": {
+   "server": {
+    "type": "string",
+    "description": "MCP server name as configured. Omit to list every server."
+   },
+   "event": {
+    "type": "string",
+    "description": "Event type to watch. Omit to list event types instead."
+   },
+   "arguments": {
+    "type": "object",
+    "description": "The event type's arguments, as its inputSchema describes"
+   },
+   "cursor": {
+    "type": "string",
+    "description": "Where to start, such as a cursor a tool result gave. Omit to start from now."
+   },
+   "once": {
+    "type": "boolean",
+    "description": "Stop after the first event (default). false wakes on every event until the session is deleted."
+   }
+  },
+  "additionalProperties": false
+ },
+ "outputSchema": {
+  "type": "object",
+  "properties": {
+   "events": {
+    "anyOf": [
+     {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "server": {
+         "type": "string"
+        },
+        "name": {
+         "type": "string"
+        },
+        "description": {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "delivery": {
+         "anyOf": [
+          {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "inputSchema": {
+         "anyOf": [
+          {
+           "type": "object"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "payloadSchema": {
+         "anyOf": [
+          {
+           "type": "object"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       },
+       "required": [
+        "server",
+        "name"
+       ],
+       "additionalProperties": false
+      }
+     },
+     {
+      "type": "null"
+     }
+    ]
+   },
+   "watching": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ]
+   }
+  },
+  "additionalProperties": false
+ }
+}

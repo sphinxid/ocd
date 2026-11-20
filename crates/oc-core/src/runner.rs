@@ -423,9 +423,7 @@ impl Engine {
         let bus = self.app.bus.clone();
         let loc = oc_schema::types::LocationRef { directory: key.clone(), workspace_id: None };
         let sink: oc_mcp::manager::EventSink = Arc::new(move |ev: &oc_mcp::types::McpEvent| {
-            use oc_mcp::types::McpEvent as E;
-            let (E::ToolsChanged { server } | E::ResourcesChanged { server } | E::StatusChanged { server } | E::PromptsChanged { server }) = ev;
-            bus.publish(ev.event_type(), serde_json::json!({"server": server}), Some(loc.clone()));
+            bus.publish(ev.event_type(), ev.payload(), Some(loc.clone()));
         });
         let m = crate::mcp::manager(self.models.credential_store(), self.app.global.locks(), &self.app.forms, location, &self.app.version, &self.app.plugins, &self.app.mcp_pool, sink).await;
         // `Credential.Event.Switched` for a server's integration (an OAuth login through the
@@ -536,7 +534,7 @@ impl Engine {
     }
 
     /// The native tool registry of a location: built-ins plus its MCP tools.
-    pub async fn base_registry(&self, location: &Location, mcp: &oc_mcp::manager::McpManager) -> Registry {
+    pub async fn base_registry(&self, location: &Location, mcp: &Arc<oc_mcp::manager::McpManager>) -> Registry {
         let key = location.key.as_str();
         let mut registry = self.registry.clone();
         // `opencode.tool.todo` adds `todowrite` only while the `todo` flag is on (`Flag.enabled("todo")`).
@@ -566,6 +564,13 @@ impl Engine {
             && self.app.plugins.enabled(key).is_none_or(|enabled| enabled.iter().any(|e| e == crate::automation::PLUGIN_ID))
         {
             crate::plugins::insert_tools(&mut registry, crate::automation::PLUGIN_ID, crate::automation::tools::tools(&self.automations));
+        }
+        // `opencode.tools.mcp-events` adds `watch_mcp_event` only while the `mcp_events` flag is on.
+        if oc_config::flag::enabled(&location.entries, "mcp_events")
+            && self.app.plugins.enabled(key).is_none_or(|enabled| enabled.iter().any(|e| e == crate::mcp_events::PLUGIN_ID))
+        {
+            let tool: Arc<dyn oc_tools::Tool> = crate::mcp_events::WatchMcpEvent::new(self.app.clone(), mcp.clone());
+            crate::plugins::insert_tools(&mut registry, crate::mcp_events::PLUGIN_ID, vec![tool]);
         }
         for tool in self.extra_tools.lock().iter() {
             let _ = registry.add(tool.clone());

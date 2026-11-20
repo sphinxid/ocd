@@ -47,6 +47,83 @@ pub fn unavailable_message(server: &str, status: &Status) -> String {
     }
 }
 
+/// Why `subscribe` cannot follow a server's events (`MCP.EventsUnavailableError`, `MCP.NotFoundError`).
+/// Experimental: MCP Events is a draft extension.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SubscribeError {
+    #[error("MCP server not found: {0}")]
+    NotFound(String),
+    #[error("{message}")]
+    EventsUnavailable { server: String, message: String },
+}
+
+/// `Mcp.SubscriptionStatus`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubscriptionStatus {
+    Pending,
+    Active,
+    /// `reason`: `unavailable`, `rejected` or `terminated`; `error` `{code, message}` for the last two.
+    Ended { reason: String, error: Option<Value> },
+}
+
+impl SubscriptionStatus {
+    fn kind(&self) -> &'static str {
+        match self {
+            SubscriptionStatus::Pending => "pending",
+            SubscriptionStatus::Active => "active",
+            SubscriptionStatus::Ended { .. } => "ended",
+        }
+    }
+
+    pub fn to_json(&self) -> Value {
+        match self {
+            SubscriptionStatus::Ended { reason, error } => {
+                let mut out = json!({ "status": "ended", "reason": reason });
+                if let Some(error) = error {
+                    out["error"] = error.clone();
+                }
+                out
+            }
+            other => json!({ "status": other.kind() }),
+        }
+    }
+}
+
+/// An event type of a server, followed onto the bus as `experimental.mcp.event` (`Mcp.Subscription`).
+/// Experimental: MCP Events is a draft extension.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Subscription {
+    /// The same for every subscribe to this server, event name and arguments, within this Location.
+    pub id: String,
+    pub server: String,
+    pub name: String,
+    pub arguments: Option<Value>,
+    pub status: SubscriptionStatus,
+    /// Where it resumes from: the last cursor the server sent.
+    pub cursor: Option<String>,
+}
+
+/// A subscription and whether the server skipped events since it was last delivered one.
+type Followed = Arc<Mutex<(Subscription, bool)>>;
+
+/// `canonicalJson`: object keys sorted by UTF-16 code units, everything else as `JSON.stringify`.
+fn canonical_json(value: &Value) -> String {
+    match value {
+        Value::Array(items) => format!("[{}]", items.iter().map(canonical_json).collect::<Vec<_>>().join(",")),
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+            let fields: Vec<String> =
+                keys.into_iter().map(|k| format!("{}:{}", Value::String(k.clone()), canonical_json(&map[k]))).collect();
+            format!("{{{}}}", fields.join(","))
+        }
+        other => other.to_string(),
+    }
+}
+
+/// A broken, silent or closed event stream reopens after a delay growing from a second to this cap (`EVENT_REOPEN`).
+const EVENT_REOPEN_CAP: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// `String.prototype.localeCompare` approximation for ASCII names: case-insensitive first,
 /// lowercase before uppercase on ties.
 pub fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
@@ -77,6 +154,9 @@ pub struct ManagerOptions {
     /// The process's connection pool (`McpPool.Service`): servers with `pool: true` share one connection with every
     /// other Location that configures them identically. Without one, every server connects on its own.
     pub pool: Option<McpPool>,
+    /// Experimental `mcp_events` flag of the Location: connections declare MCP Events, and [`McpManager::events`]
+    /// and subscriptions read the events of servers that offer them.
+    pub mcp_events: bool,
 }
 
 #[derive(Default)]
@@ -363,6 +443,14 @@ struct Inner {
     registered: Mutex<Option<Vec<Tool>>>,
     /// Bumped by every `ToolsChanged`; the registry reads the tools again once these settle.
     tools_changed: tokio::sync::watch::Sender<u64>,
+    /// Experimental MCP Events subscriptions, by server, then id. Each streams while its server is connected.
+    followed: Mutex<IndexMap<String, IndexMap<String, Followed>>>,
+    /// The running stream of each subscription, by id.
+    streams: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// Serializes `follows`, which runs on every status change.
+    follows_lock: tokio::sync::Mutex<()>,
+    /// Work tied to this Location's MCP service (see [`McpManager::spawn_scoped`]).
+    scoped: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 /// How long `ToolsChanged` bursts settle before the session tool registry reads the tools again (`tool/mcp.ts`
@@ -395,6 +483,10 @@ impl McpManager {
             closing: Default::default(),
             registered: Mutex::new(None),
             tools_changed,
+            followed: Mutex::new(IndexMap::new()),
+            streams: Mutex::new(HashMap::new()),
+            follows_lock: tokio::sync::Mutex::new(()),
+            scoped: Mutex::new(Vec::new()),
         });
         // `tool/mcp.ts`: after the initial registration, `ToolsChanged` bursts settle for 100 ms before the
         // registry reads the tools again.
@@ -442,11 +534,20 @@ impl McpManager {
         if matches!(event, McpEvent::ToolsChanged { .. }) {
             self.inner.tools_changed.send_modify(|n| *n += 1);
         }
+        // Subscriptions start or stop with their server's status (a bus subscriber upstream).
+        let follow = match &event {
+            McpEvent::StatusChanged { server } if self.inner.options.mcp_events => Some(server.clone()),
+            _ => None,
+        };
         let sink = self.inner.sink.lock().clone();
         if let Some(sink) = sink {
             sink(&event);
         }
         let _ = self.inner.events.send(event);
+        if let Some(server) = follow {
+            let this = self.clone();
+            tokio::spawn(async move { this.follows(&server).await });
+        }
     }
 
     fn entry(&self, name: &str) -> Option<Arc<Entry>> {
@@ -626,6 +727,7 @@ impl McpManager {
             directory: options.directory.clone(),
             shared: false,
             client_info: options.client_info.clone(),
+            mcp_events: options.mcp_events,
             auth_provider,
             elicitation: options.elicitation.clone(),
             lock: self.inner.locks.get(name),
@@ -637,7 +739,7 @@ impl McpManager {
             None => Conn::Direct(Link::new(link)),
             Some(pool) => {
                 let config = link.config.clone();
-                let (directory, client_info) = (options.directory.clone(), options.client_info.clone());
+                let (directory, client_info, mcp_events) = (options.directory.clone(), options.client_info.clone(), options.mcp_events);
                 let select: pool::Select = Arc::new(move || {
                     let (config, directory, client_info) = (config.clone(), directory.clone(), client_info.clone());
                     let (select_credential, provider) = (select_credential.clone(), provider.clone());
@@ -651,7 +753,7 @@ impl McpManager {
                                 cwd: Some(&cwd),
                                 credential: None,
                                 client_info: Some(&client_info),
-                                mcp_events: false,
+                                mcp_events,
                             });
                             return Selection { key, auth_provider: crate::link::no_auth() };
                         }
@@ -662,7 +764,7 @@ impl McpManager {
                             cwd: None,
                             credential: id.as_deref(),
                             client_info: Some(&client_info),
-                            mcp_events: false,
+                            mcp_events,
                         });
                         let auth_provider: AuthProvider = Arc::new(move || {
                             let result = credential.clone().map(|c| provider(c));
@@ -994,6 +1096,229 @@ impl McpManager {
         Ok(Some(ResourceContent { server: server.to_string(), uri: uri.to_string(), contents }))
     }
 
+    // ---- MCP Events (experimental) ------------------------------------------------------------
+
+    /// Runs `work` for as long as this Location's MCP service lives: [`McpManager::shutdown`] stops it, as closing
+    /// the Location's plugin scope interrupts what a tool forked into it upstream (the MCP event watches).
+    pub fn spawn_scoped(&self, work: impl std::future::Future<Output = ()> + Send + 'static) {
+        if self.closing() {
+            return;
+        }
+        let mut scoped = self.inner.scoped.lock();
+        scoped.retain(|task| !task.is_finished());
+        scoped.push(tokio::spawn(work));
+    }
+
+    /// Experimental: MCP Events of a connected server that offers them, while the `mcp_events` flag is on.
+    pub async fn events(&self, server: &str) -> Result<Option<crate::events::Events>, ManagerError> {
+        let entry = self.require(server)?;
+        entry.await_startup().await;
+        if !self.inner.options.mcp_events {
+            return Ok(None);
+        }
+        Ok(entry.connection().as_ref().and_then(crate::events::Events::of))
+    }
+
+    /// Experimental: follows an event type of a server, publishing each event as `experimental.mcp.event` while the
+    /// server is connected, and resuming from the last cursor after a reconnect or a broken stream. Its status changes
+    /// publish `experimental.mcp.subscription.changed`. Subscribing again to the same server, name and arguments
+    /// returns the existing subscription. An ended one stays until unsubscribed. `cursor`: where to start; `None`
+    /// starts from now.
+    pub async fn subscribe_events(
+        &self,
+        server: &str,
+        name: &str,
+        arguments: Option<Value>,
+        cursor: Option<String>,
+    ) -> Result<Subscription, SubscribeError> {
+        if !self.inner.options.mcp_events {
+            return Err(SubscribeError::EventsUnavailable {
+                server: server.to_string(),
+                message: "MCP events need the mcp_events flag.".into(),
+            });
+        }
+        if self.entry(server).is_none() {
+            return Err(SubscribeError::NotFound(server.to_string()));
+        }
+        let key = json!([server, name, arguments.clone().unwrap_or_else(|| json!({}))]);
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(canonical_json(&key).as_bytes());
+        let id = format!("mcpsub_{}", &hex::encode(digest)[..24]);
+        let view = {
+            let mut followed = self.inner.followed.lock();
+            let subs = followed.entry(server.to_string()).or_default();
+            let existing = subs.get(&id).map(|sub| sub.lock().0.clone());
+            if let Some(existing) = &existing
+                && !matches!(existing.status, SubscriptionStatus::Ended { .. })
+            {
+                return Ok(existing.clone());
+            }
+            let view = Subscription {
+                id: id.clone(),
+                server: server.to_string(),
+                name: name.to_string(),
+                arguments,
+                status: SubscriptionStatus::Pending,
+                cursor: cursor.or_else(|| existing.and_then(|e| e.cursor)),
+            };
+            subs.insert(id.clone(), Arc::new(Mutex::new((view.clone(), false))));
+            view
+        };
+        self.publish(McpEvent::ExperimentalSubscriptionChanged { id });
+        self.follows(server).await;
+        Ok(self.event_subscriptions().into_iter().find(|s| s.id == view.id).unwrap_or(view))
+    }
+
+    /// Experimental: stops following a subscription.
+    pub fn unsubscribe_events(&self, id: &str) {
+        let removed = self.inner.followed.lock().values_mut().any(|subs| subs.shift_remove(id).is_some());
+        if !removed {
+            return;
+        }
+        if let Some(stream) = self.inner.streams.lock().remove(id) {
+            stream.abort();
+        }
+        self.publish(McpEvent::ExperimentalSubscriptionChanged { id: id.to_string() });
+    }
+
+    /// Experimental: every subscription, with its status.
+    pub fn event_subscriptions(&self) -> Vec<Subscription> {
+        self.inner.followed.lock().values().flat_map(|subs| subs.values().map(|sub| sub.lock().0.clone()).collect::<Vec<_>>()).collect()
+    }
+
+    fn set_status(&self, sub: &Followed, status: SubscriptionStatus) {
+        let id = {
+            let mut sub = sub.lock();
+            if sub.0.status.kind() == status.kind() {
+                return;
+            }
+            sub.0.status = status;
+            sub.0.id.clone()
+        };
+        self.publish(McpEvent::ExperimentalSubscriptionChanged { id });
+    }
+
+    fn receive(&self, sub: &Followed, message: crate::events::EventMessage) {
+        use crate::events::EventMessage;
+        match message {
+            EventMessage::Error { error } => {
+                let (server, name) = {
+                    let sub = sub.lock();
+                    (sub.0.server.clone(), sub.0.name.clone())
+                };
+                tracing::warn!(server = %server, name = %name, code = ?error.get("code"), "mcp event stream error");
+            }
+            EventMessage::Heartbeat { cursor } => sub.lock().0.cursor = cursor,
+            EventMessage::Active { cursor, truncated } => {
+                {
+                    let mut sub = sub.lock();
+                    sub.1 |= cursor.is_some() && truncated;
+                    sub.0.cursor = cursor;
+                }
+                self.set_status(sub, SubscriptionStatus::Active);
+            }
+            EventMessage::Event { event_id, timestamp, data, cursor, .. } => {
+                let mut payload = {
+                    let sub = sub.lock();
+                    json!({
+                        "id": sub.0.id, "server": sub.0.server, "name": sub.0.name, "eventId": event_id,
+                        "timestamp": timestamp, "data": data, "cursor": cursor,
+                    })
+                };
+                if sub.lock().1 {
+                    payload["truncated"] = json!(true);
+                }
+                // The cursor moves past the event only once it is published.
+                self.publish(McpEvent::ExperimentalEvent { data: payload });
+                let mut sub = sub.lock();
+                sub.0.cursor = cursor;
+                sub.1 = false;
+            }
+        }
+    }
+
+    /// Streams until the server terminates or rejects the subscription. A clean close reopens like a broken stream;
+    /// only a confirmed open resets the delay.
+    async fn follow(self, sub: Followed, events: crate::events::Events) {
+        use crate::events::{EventMessage, EventStreamError, StreamInput};
+        let mut delay = std::time::Duration::from_secs(1);
+        loop {
+            let (server, input) = {
+                let sub = sub.lock();
+                let view = &sub.0;
+                let input = StreamInput {
+                    name: view.name.clone(),
+                    arguments: view.arguments.clone(),
+                    cursor: Some(view.cursor.clone()),
+                    max_age_ms: None,
+                };
+                (view.server.clone(), input)
+            };
+            let mut stream = events.stream(input);
+            let error = loop {
+                match stream.next().await {
+                    Ok(Some(message)) => {
+                        if matches!(message, EventMessage::Active { .. }) {
+                            delay = std::time::Duration::from_secs(1);
+                        }
+                        self.receive(&sub, message);
+                    }
+                    Ok(None) => break EventStreamError::Broken(format!("MCP server {server} closed the event stream")),
+                    Err(error) => break error,
+                }
+            };
+            drop(stream);
+            match error {
+                EventStreamError::Rejected { code, message, .. } => {
+                    let error = json!({ "code": code, "message": message });
+                    return self.set_status(&sub, SubscriptionStatus::Ended { reason: "rejected".into(), error: Some(error) });
+                }
+                EventStreamError::Terminated { code, message, .. } => {
+                    let error = json!({ "code": code, "message": message });
+                    return self.set_status(&sub, SubscriptionStatus::Ended { reason: "terminated".into(), error: Some(error) });
+                }
+                EventStreamError::Broken(_) => self.set_status(&sub, SubscriptionStatus::Pending),
+            }
+            tokio::time::sleep(delay).await;
+            delay = (delay * 2).min(EVENT_REOPEN_CAP);
+        }
+    }
+
+    /// Starts or stops a server's subscriptions to match its status; runs on every status change.
+    async fn follows(&self, server: &str) {
+        let _guard = self.inner.follows_lock.lock().await;
+        if self.closing() {
+            return;
+        }
+        let entry = self.entry(server);
+        let client = entry.as_ref().filter(|e| e.status() == Status::Connected).and_then(|e| e.connection());
+        let events = client.as_ref().and_then(crate::events::Events::of);
+        let subs: Vec<Followed> = self.inner.followed.lock().get(server).map(|subs| subs.values().cloned().collect()).unwrap_or_default();
+        for sub in subs {
+            let (id, ended) = {
+                let sub = sub.lock();
+                (sub.0.id.clone(), matches!(sub.0.status, SubscriptionStatus::Ended { .. }))
+            };
+            if ended {
+                continue;
+            }
+            if let Some(events) = &events {
+                let mut streams = self.inner.streams.lock();
+                if streams.get(&id).is_none_or(|s| s.is_finished()) {
+                    streams.insert(id, tokio::spawn(self.clone().follow(sub.clone(), events.clone())));
+                }
+                continue;
+            }
+            if let Some(stream) = self.inner.streams.lock().remove(&id) {
+                stream.abort();
+            }
+            let unavailable = entry.as_ref().is_none_or(|e| e.status() == Status::Disabled) || client.is_some();
+            self.set_status(
+                &sub,
+                if unavailable { SubscriptionStatus::Ended { reason: "unavailable".into(), error: None } } else { SubscriptionStatus::Pending },
+            );
+        }
+    }
+
     // ---- OAuth -------------------------------------------------------------------------------
 
     /// Starts the interactive OAuth flow for a remote server (`authorize`).
@@ -1075,6 +1400,12 @@ impl McpManager {
     /// the rest past a service restart's kill deadline and leave them orphaned.
     pub async fn shutdown(&self) {
         self.inner.closing.store(true, std::sync::atomic::Ordering::SeqCst);
+        for (_, stream) in self.inner.streams.lock().drain() {
+            stream.abort();
+        }
+        for task in self.inner.scoped.lock().drain(..) {
+            task.abort();
+        }
         let entries: Vec<(String, Arc<Entry>)> =
             self.inner.entries.lock().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         futures::future::join_all(entries.into_iter().map(|(name, entry)| async move {
@@ -1119,6 +1450,7 @@ mod tests {
             credentials: None,
             elicitation: None,
             pool: None,
+            mcp_events: false,
         });
         let seen: Arc<Mutex<Vec<McpEvent>>> = Arc::default();
         let sink_seen = seen.clone();

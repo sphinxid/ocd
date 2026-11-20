@@ -299,7 +299,7 @@ impl Default for ClientInfo {
     }
 }
 
-/// Ephemeral bus events published by the registry; payload is always `{server}`.
+/// Ephemeral bus events published by the registry; payload `{server}`, except the experimental MCP Events ones.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpEvent {
     /// `mcp.tools.changed`
@@ -310,6 +310,11 @@ pub enum McpEvent {
     StatusChanged { server: String },
     /// `mcp.prompts.changed` (core-local)
     PromptsChanged { server: String },
+    /// `experimental.mcp.event` (public): one event of a followed subscription, `{id, server, name, eventId,
+    /// timestamp, data, cursor, truncated?}`.
+    ExperimentalEvent { data: Value },
+    /// `experimental.mcp.subscription.changed` (internal): a subscription's status changed, or it was added or removed.
+    ExperimentalSubscriptionChanged { id: String },
 }
 
 impl McpEvent {
@@ -319,21 +324,30 @@ impl McpEvent {
             Self::ResourcesChanged { .. } => "mcp.resources.changed",
             Self::StatusChanged { .. } => "mcp.status.changed",
             Self::PromptsChanged { .. } => "mcp.prompts.changed",
+            Self::ExperimentalEvent { .. } => "experimental.mcp.event",
+            Self::ExperimentalSubscriptionChanged { .. } => "experimental.mcp.subscription.changed",
         }
     }
 
+    /// The server the event is about (empty for a subscription change).
     pub fn server(&self) -> &str {
         match self {
             Self::ToolsChanged { server }
             | Self::ResourcesChanged { server }
             | Self::StatusChanged { server }
             | Self::PromptsChanged { server } => server,
+            Self::ExperimentalEvent { data } => data.get("server").and_then(Value::as_str).unwrap_or_default(),
+            Self::ExperimentalSubscriptionChanged { .. } => "",
         }
     }
 
-    /// The bus payload `{"server": "<name>"}`.
+    /// The bus payload: `{"server": "<name>"}`, the event itself, or `{"id"}`.
     pub fn payload(&self) -> Value {
-        serde_json::json!({ "server": self.server() })
+        match self {
+            Self::ExperimentalEvent { data } => data.clone(),
+            Self::ExperimentalSubscriptionChanged { id } => serde_json::json!({ "id": id }),
+            _ => serde_json::json!({ "server": self.server() }),
+        }
     }
 }
 

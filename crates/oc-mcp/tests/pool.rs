@@ -118,6 +118,7 @@ async fn open_with(
         credentials: None,
         elicitation,
         pool: Some(pool.clone()),
+        mcp_events: false,
     });
     let events: Arc<Mutex<Vec<McpEvent>>> = Arc::default();
     let seen = events.clone();
@@ -437,6 +438,7 @@ async fn asks_every_holder_about_an_elicitation_no_request_claims_and_takes_the_
                 directory: directory.to_path_buf(),
                 shared: false,
                 client_info: ClientInfo::default(),
+                mcp_events: false,
                 auth_provider: oc_mcp::link::no_auth(),
                 elicitation: Some(handler),
                 lock: Default::default(),

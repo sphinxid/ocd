@@ -32,6 +32,10 @@ pub struct Options {
     pub pid_file: Option<String>,
     /// Appends every request method here.
     pub wire_log: Option<String>,
+    /// The `events/list` pages (default: `job.finished`, then `job.failed`).
+    pub event_pages: Option<Vec<Vec<Value>>>,
+    /// The first this many `events/stream` requests fail with -32603 "Temporary failure".
+    pub failed_opens: usize,
 }
 
 impl Options {
@@ -45,6 +49,7 @@ impl Options {
             events: flag("FAKE_EVENTS"),
             pid_file: std::env::var("FAKE_PID_FILE").ok(),
             wire_log: std::env::var("FAKE_WIRE_LOG").ok(),
+            ..Default::default()
         }
     }
 }
@@ -58,8 +63,10 @@ pub struct State {
     pub methods: Vec<String>,
     /// The client's declared capabilities, from its handshake.
     pub capabilities: Option<Value>,
-    /// `events/stream` params, in order.
+    /// `events/stream` params, in order (refused ones included).
     pub streams: Vec<Value>,
+    /// `events/list` params, in order.
+    pub lists: Vec<Value>,
     pub cancelled: Vec<Value>,
 }
 
@@ -224,13 +231,33 @@ impl Fake {
                     _ => Reply::Message(self.result(&id, json!({"content": [{"type": "text", "text": "ok"}]}), modern)),
                 }
             }
-            "events/list" => Reply::Message(self.result(
-                &id,
-                json!({"events": [{"name": "job.finished", "description": "A job ended", "delivery": ["push"]}]}),
-                modern,
-            )),
+            "events/list" => {
+                self.state.lock().lists.push(params.clone());
+                let pages = self.options.event_pages.clone().unwrap_or_else(|| {
+                    vec![
+                        vec![json!({"name": "job.finished", "description": "A job ended", "inputSchema": {}})],
+                        vec![json!({"name": "job.failed", "delivery": ["push"]})],
+                    ]
+                });
+                let page = params.get("cursor").and_then(Value::as_str).and_then(|c| c.strip_prefix("page-")).and_then(|n| n.parse::<usize>().ok()).unwrap_or(1);
+                let mut result = json!({"events": pages.get(page - 1).cloned().unwrap_or_default()});
+                if page < pages.len() {
+                    result["nextCursor"] = json!(format!("page-{}", page + 1));
+                }
+                Reply::Message(self.result(&id, result, modern))
+            }
             "events/stream" => {
-                self.state.lock().streams.push(params);
+                let opened = {
+                    let mut state = self.state.lock();
+                    state.streams.push(params.clone());
+                    state.streams.len()
+                };
+                if opened <= self.options.failed_opens {
+                    return Reply::Message(Self::error(&id, -32603, "Temporary failure"));
+                }
+                if params.get("name").and_then(Value::as_str) == Some("missing") {
+                    return Reply::Message(Self::error(&id, -32023, "Unknown event type"));
+                }
                 Reply::Stream(id)
             }
             "ping" => Reply::Message(self.result(&id, json!({}), modern)),
@@ -282,10 +309,17 @@ pub fn run_stdio() {
 pub struct OpenStream {
     pub id: Value,
     pub params: Value,
+    /// The request's `Mcp-Name` header.
+    pub name: Option<String>,
     pub sender: mpsc::UnboundedSender<Option<Value>>,
 }
 
 impl OpenStream {
+    /// Waits until the client drops the stream (a cancelled request).
+    pub async fn aborted(&self) {
+        tokio::time::timeout(std::time::Duration::from_secs(20), self.sender.closed()).await.expect("the client dropped the stream");
+    }
+
     /// Sends a `notifications/events/<kind>` naming this stream.
     pub fn notify(&self, kind: &str, mut params: Value) {
         params["_meta"] = json!({SUBSCRIPTION_ID: self.id});
@@ -366,7 +400,7 @@ pub async fn serve_http(options: Options) -> Http {
         listeners: Arc::default(),
         opener: opener.clone(),
     };
-    async fn handle(State(shared): State<Shared>, _headers: HeaderMap, body: String) -> axum::response::Response {
+    async fn handle(State(shared): State<Shared>, headers: HeaderMap, body: String) -> axum::response::Response {
         use axum::body::Body;
         if let Some(status) = *shared.refuse.lock() {
             *shared.refused.lock() += 1;
@@ -387,7 +421,8 @@ pub async fn serve_http(options: Options) -> Http {
                     return sse(rx, vec![acknowledged(&id)]);
                 }
                 let params = message.get("params").cloned().unwrap_or(Value::Null);
-                let _ = shared.opener.send(OpenStream { id, params, sender: tx });
+                let name = headers.get("mcp-name").and_then(|v| v.to_str().ok()).map(String::from);
+                let _ = shared.opener.send(OpenStream { id, params, name, sender: tx });
                 sse(rx, vec![])
             }
         }

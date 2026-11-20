@@ -115,6 +115,8 @@ class Normalizer:
         # Also inside JSON text (`...\\nPID: <n>`, where no word boundary precedes it) and as a `"pid":<n>` field there.
         s = re.sub(r"PID: \d+\b", "PID: <pid>", s)
         s = re.sub(r'"pid":\d+\b', '"pid":"<pid>"', s)
+        # An MCP event wake's message ID hashes the session ID (`msg_mcp_` + 26 hex digits); the scenarios check it.
+        s = re.sub(r"\bmsg_mcp_[0-9a-f]{26}\b", "msg_mcp_<hash>", s)
         # Plugin failure references (`err_` + 8 random hex digits).
         s = re.sub(r"\berr_[0-9a-f]{8}\b", "<err-ref>", s)
         # The module that imported a missing AI SDK package: upstream's bundle chunk inside the compiled binary

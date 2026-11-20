@@ -29,6 +29,7 @@ pub mod inbox;
 pub mod local_providers;
 pub mod location;
 pub mod mcp;
+pub mod mcp_events;
 pub mod lower;
 pub mod model_transport;
 pub mod models;

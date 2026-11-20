@@ -229,6 +229,7 @@ fn manager(credentials: Option<Arc<dyn McpCredentialStore>>) -> McpManager {
         credentials,
         elicitation: None,
         pool: None,
+        mcp_events: false,
     })
 }
 

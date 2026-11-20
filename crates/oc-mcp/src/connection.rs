@@ -54,6 +54,9 @@ pub struct ConnectOptions<'a> {
     pub client_info: &'a ClientInfo,
     /// False declares no roots and leaves `roots/list` unanswered, for a connection no one directory owns.
     pub roots: bool,
+    /// Experimental: declares MCP Events, a draft extension, and exposes [`Connection::events`] for a server that
+    /// offers them.
+    pub events: bool,
 }
 
 type Callback = Arc<dyn Fn() + Send + Sync>;
@@ -177,6 +180,7 @@ async fn initialize(
             elicitation: options.elicitation.clone(),
             root_uri: file_url(options.directory),
             without_roots: !options.roots,
+            events: options.events,
         },
     );
     let name = server.to_string();
@@ -210,7 +214,7 @@ impl Connection {
         elicitation: Option<Arc<dyn ElicitationHandler>>,
         client_info: &ClientInfo,
     ) -> Result<Connection, ConnectError> {
-        Self::open(ConnectOptions { server, config, directory, auth_provider, elicitation, client_info, roots: true })
+        Self::open(ConnectOptions { server, config, directory, auth_provider, elicitation, client_info, roots: true, events: false })
             .await
     }
 
@@ -403,7 +407,12 @@ impl Connection {
         result
     }
 
-    fn catalog_options(&self) -> RequestOptions {
+    /// `failure(error).message`.
+    pub(crate) fn failure_message(&self, error: McpError) -> String {
+        self.failure(error).to_string()
+    }
+
+    pub(crate) fn catalog_options(&self) -> RequestOptions {
         RequestOptions { timeout: Some(self.catalog), ..Default::default() }
     }
 

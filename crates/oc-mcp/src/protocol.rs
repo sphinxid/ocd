@@ -66,6 +66,22 @@ pub struct RequestOptions {
     /// for a connection that serves several callers. 2026-07-28 only: there the server asks for input in the
     /// result of the request that needs it.
     pub elicitation: Option<Arc<dyn ElicitationHandler>>,
+    /// Called with the JSON-RPC id before the request is sent (the SDK's `onRequestId`), so notifications that name
+    /// the request can be routed before it settles.
+    pub on_request_id: Option<Arc<dyn Fn(i64) + Send + Sync>>,
+}
+
+/// MCP Events (SEP-3415), a draft extension: the capability key a client declares and a server offers.
+pub const EVENTS_EXTENSION: &str = "io.modelcontextprotocol/events";
+
+/// A `notifications/events/*` notification, routed to the stream its `_meta` subscription id names.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventNotification {
+    Active { cursor: Option<String>, truncated: bool },
+    Event { event_id: String, name: String, timestamp: String, data: Value, cursor: Option<String> },
+    Heartbeat { cursor: Option<String> },
+    Error { error: Value },
+    Terminated { error: Value },
 }
 
 type Callback = Arc<dyn Fn() + Send + Sync>;
@@ -88,6 +104,8 @@ pub struct ClientConfig {
     pub root_uri: String,
     /// `roots: false`: declares no roots and leaves `roots/list` unanswered, for a connection no one directory owns.
     pub without_roots: bool,
+    /// Declares MCP Events (`extensions: {"io.modelcontextprotocol/events": {}}`) and routes its notifications.
+    pub events: bool,
 }
 
 enum Pending {
@@ -110,6 +128,8 @@ pub struct Client {
     callbacks: RwLock<Callbacks>,
     list_changed: RwLock<(bool, bool, bool)>,
     listen: Mutex<Option<(String, Option<oneshot::Sender<()>>)>>,
+    /// Open event streams, by the JSON-RPC id of their `events/stream` request.
+    event_streams: Mutex<HashMap<String, mpsc::UnboundedSender<EventNotification>>>,
 }
 
 impl Client {
@@ -129,6 +149,9 @@ impl Client {
         if !config.without_roots {
             capabilities.insert("roots".into(), json!({}));
         }
+        if config.events {
+            capabilities.insert("extensions".into(), json!({ EVENTS_EXTENSION: {} }));
+        }
         let client = Arc::new(Self {
             transport,
             config,
@@ -145,6 +168,7 @@ impl Client {
             callbacks: RwLock::new(Callbacks::default()),
             list_changed: RwLock::new((false, false, false)),
             listen: Mutex::new(None),
+            event_streams: Mutex::new(HashMap::new()),
         });
         let weak = Arc::downgrade(&client);
         tokio::spawn(async move {
@@ -221,6 +245,7 @@ impl Client {
         }
         let pending: Vec<_> = self.pending.lock().drain().collect();
         self.progress.lock().clear();
+        self.event_streams.lock().clear();
         let handlers: Vec<_> = self.handlers.lock().drain().collect();
         let callback = self.callbacks.read().on_close.clone();
         if let Some(callback) = callback {
@@ -322,6 +347,9 @@ impl Client {
                     }
                 }
             }
+            method if self.config.events && method.starts_with("notifications/events/") => {
+                self.on_event_notification(method, &params);
+            }
             "notifications/elicitation/complete" => {
                 if let (Some(handler), Some(id)) =
                     (self.config.elicitation.clone(), params.get("elicitationId").and_then(Value::as_str))
@@ -333,6 +361,80 @@ impl Client {
             }
             _ => {}
         }
+    }
+
+    /// Routes a `notifications/events/*` notification to the stream its subscription id names. Notifications whose
+    /// params do not match the extension's schema are dropped.
+    fn on_event_notification(&self, method: &str, params: &Value) {
+        let id = match params.get("_meta").and_then(|m| m.get(SUBSCRIPTION_ID_META_KEY)) {
+            Some(Value::String(id)) => id.clone(),
+            Some(Value::Number(id)) => id.to_string(),
+            _ => return,
+        };
+        let cursor = match params.get("cursor") {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(cursor)) => Ok(Some(cursor.clone())),
+            Some(_) => Err(()),
+        };
+        let text = |key: &str| params.get(key).and_then(Value::as_str).map(String::from);
+        let error = || {
+            let error = params.get("error")?;
+            (error.get("code").is_some_and(Value::is_number) && error.get("message").is_some_and(Value::is_string)).then(|| {
+                let mut out = Map::new();
+                out.insert("code".into(), error["code"].clone());
+                out.insert("message".into(), error["message"].clone());
+                if let Some(data) = error.get("data") {
+                    out.insert("data".into(), data.clone());
+                }
+                Value::Object(out)
+            })
+        };
+        let notification = match method {
+            "notifications/events/active" => match (cursor, params.get("truncated")) {
+                (Ok(cursor), None | Some(Value::Bool(_))) => {
+                    Some(EventNotification::Active { cursor, truncated: params.get("truncated") == Some(&Value::Bool(true)) })
+                }
+                _ => None,
+            },
+            "notifications/events/event" => match (cursor, text("eventId"), text("name"), text("timestamp"), params.get("data")) {
+                (Ok(cursor), Some(event_id), Some(name), Some(timestamp), Some(data)) => {
+                    Some(EventNotification::Event { event_id, name, timestamp, data: data.clone(), cursor })
+                }
+                _ => None,
+            },
+            "notifications/events/heartbeat" => cursor.ok().map(|cursor| EventNotification::Heartbeat { cursor }),
+            "notifications/events/error" => error().map(|error| EventNotification::Error { error }),
+            "notifications/events/terminated" => error().map(|error| EventNotification::Terminated { error }),
+            _ => None,
+        };
+        let Some(notification) = notification else {
+            self.on_error(&McpError::other(format!("Invalid params for {method}")));
+            return;
+        };
+        if let Some(stream) = self.event_streams.lock().get(&id) {
+            let _ = stream.send(notification);
+        }
+    }
+
+    /// Routes the event notifications that name request `id` to `sender` until [`Client::close_event_stream`].
+    pub fn open_event_stream(&self, id: i64, sender: mpsc::UnboundedSender<EventNotification>) {
+        self.event_streams.lock().insert(id.to_string(), sender);
+    }
+
+    pub fn close_event_stream(&self, id: i64) {
+        self.event_streams.lock().remove(&id.to_string());
+    }
+
+    /// Whether the connection declared MCP Events and the server offers them (`capabilities.extensions`).
+    pub fn offers_events(&self) -> bool {
+        self.config.events
+            && self
+                .server_capabilities
+                .read()
+                .as_ref()
+                .and_then(|c| c.get("extensions"))
+                .and_then(|e| e.get(EVENTS_EXTENSION))
+                .is_some_and(|v| !v.is_null() && v != &Value::Bool(false))
     }
 
     async fn on_request(self: Arc<Self>, message: Value) {
@@ -580,6 +682,9 @@ impl Client {
         let key = jsonrpc::id_key(&json!(id));
         let (tx, rx) = oneshot::channel();
         self.pending.lock().insert(key.clone(), Pending::Response(tx));
+        if let Some(on_request_id) = &options.on_request_id {
+            on_request_id(id);
+        }
         let per_request = self.is_modern() && self.transport.has_per_request_stream();
         let request_cancel = per_request.then(CancellationToken::new);
         let send_options = SendOptions { request_cancel: request_cancel.clone(), ..Default::default() };

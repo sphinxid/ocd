@@ -184,6 +184,7 @@ fn manager(directory: PathBuf) -> McpManager {
         credentials: None,
         elicitation: None,
         pool: None,
+        mcp_events: false,
     })
 }
 
@@ -595,6 +596,7 @@ async fn stdio_handshake_declares_capabilities() {
             elicitation: Some(Arc::new(AcceptAll)),
             root_uri: "file:///tmp".into(),
             without_roots: false,
+            events: false,
         },
     );
     client.connect(Duration::from_secs(20)).await.unwrap();
