@@ -362,3 +362,54 @@ fn navigation_without_the_full_render_matches_the_complete_one() {
     assert!(!app.tcache.is_complete());
     assert!(app.tcache.stats.rendered < 20, "rendered {} rows", app.tcache.stats.rendered);
 }
+
+/// Sticky scroll (OpenTUI's `stickyStart="bottom"`): only a view at the bottom follows new output.
+/// A view scrolled up keeps the lines it shows while the assistant streams below it.
+#[test]
+fn appended_lines_do_not_move_a_view_scrolled_up() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    let mut app = perf_app();
+    let sid = long_session(&mut app, 12);
+    term.draw(|f| app.draw(f)).unwrap();
+    app.transcript_complete();
+    app.view(&sid).scroll_from_bottom = 30;
+    term.draw(|f| app.draw(f)).unwrap();
+    assert!(app.tcache.is_complete());
+    assert_eq!(app.view(&sid).scroll_from_bottom, 30);
+    // The transcript rows the viewport shows, top-down, and the absolute top line.
+    let rows = |app: &App, term: &Terminal<TestBackend>| -> Vec<String> {
+        let r = app.transcript_rect;
+        (r.y..r.bottom()).map(|y| (r.x..r.right()).map(|x| term.backend().buffer()[(x, y)].symbol().to_string()).collect()).collect()
+    };
+    let top = |app: &App| app.transcript_lines - app.transcript_rect.height as usize - app.views[&sid].scroll_from_bottom;
+    let before = rows(&app, &term);
+    let top_before = top(&app);
+    start_stream(&mut app, &sid);
+    let mut added = 0;
+    for k in 0..60 {
+        let len = app.tcache.len();
+        app.on_event(delta(&sid, k));
+        term.draw(|f| app.draw(f)).unwrap();
+        assert!(app.tcache.is_complete());
+        let grew = app.tcache.len() - len;
+        if grew > 0 {
+            added += grew;
+            assert_eq!(top(&app), top_before, "delta {k} moved the view");
+            let now = rows(&app, &term);
+            let n = before.len().min(now.len());
+            assert_eq!(now[..n], before[..n], "delta {k} changed the visible rows");
+        }
+    }
+    assert!(added > 0, "the stream added no lines");
+    assert!(app.view(&sid).scroll_from_bottom > 30, "compensated {} lines", app.view(&sid).scroll_from_bottom);
+    // Back at the bottom the view follows the stream again.
+    app.view(&sid).scroll_from_bottom = 0;
+    term.draw(|f| app.draw(f)).unwrap();
+    for k in 60..80 {
+        app.on_event(delta(&sid, k));
+        term.draw(|f| app.draw(f)).unwrap();
+    }
+    assert_eq!(app.view(&sid).scroll_from_bottom, 0);
+}

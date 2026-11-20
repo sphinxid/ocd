@@ -893,10 +893,22 @@ impl App {
         let total = self.tcache.len() + slack;
         self.transcript_lines = total;
         let max = total.saturating_sub(h);
-        let from_bottom = from_bottom.min(max);
-        if let Some(v) = self.views.get_mut(sid) {
-            v.scroll_from_bottom = from_bottom;
-        }
+        // Sticky scroll (OpenTUI's `stickyStart="bottom"`): only a view at the bottom follows new
+        // lines. A view scrolled up keeps its top line, so its offset absorbs the lines appended
+        // below it, and a viewport that changed height.
+        let len = self.tcache.len();
+        let prev = self.tcache.last_frame;
+        self.tcache.last_frame = Some((len, h));
+        let delta = prev.map_or(0, |(prev_len, prev_h)| (len as isize - prev_len as isize) - (h as isize - prev_h as isize));
+        let from_bottom = if let Some(v) = self.views.get_mut(sid) {
+            if v.scroll_from_bottom > 0 {
+                v.scroll_from_bottom = v.scroll_from_bottom.saturating_add_signed(delta);
+            }
+            v.scroll_from_bottom = v.scroll_from_bottom.min(max);
+            v.scroll_from_bottom
+        } else {
+            from_bottom.min(max)
+        };
         let offset = max - from_bottom;
         let visible = total.saturating_sub(offset).min(h);
         let lines = self.tcache.iter_from(offset).chain(std::iter::repeat(&SLINE_BLANK)).take(visible);
