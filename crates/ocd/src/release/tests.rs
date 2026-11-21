@@ -133,6 +133,21 @@ fn errors_format_like_upstream() {
     assert!(retry.iter().all(|l| l.len() <= 9 + 24), "{text}");
 }
 
+/// A certificate error that only `NODE_TLS_REJECT_UNAUTHORIZED=0` would have allowed says how to fix it;
+/// nothing else gains the note.
+#[test]
+fn certificate_errors_name_the_upgrade_client() {
+    let tls = "error sending request for url (https://api.github.com/repos/sphinxid/ocd/releases/latest): invalid peer certificate: UnknownIssuer";
+    let (detail, retry) = certificate_advice(tls, true).unwrap();
+    assert!(detail.starts_with(tls), "{detail}");
+    assert!(detail.contains("NODE_TLS_REJECT_UNAUTHORIZED"), "{detail}");
+    assert!(retry.contains("NODE_EXTRA_CA_CERTS") && retry.contains(RELEASES), "{retry}");
+    // Nothing to add when the environment already verified, or the failure is not about a certificate.
+    assert_eq!(certificate_advice(tls, false), None);
+    let dns = "error sending request: dns error: failed to lookup address information";
+    assert_eq!(certificate_advice(dns, true), None);
+}
+
 #[test]
 fn cache_freshness() {
     let day = CHECK_INTERVAL.as_millis() as i64;

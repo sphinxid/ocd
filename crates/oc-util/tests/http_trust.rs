@@ -77,13 +77,20 @@ fn serve(cert: CertificateDer<'static>, key: PrivateKeyDer<'static>) -> u16 {
     port
 }
 
-/// Child side: GET `$OCD_TLS_PROBE_URL` with the shared client and print the outcome.
+/// Child side: GET `$OCD_TLS_PROBE_URL` with the shared client (with `OCD_TLS_PROBE_STRICT=1`, the one the
+/// release lookup and the upgrade download use) and print the outcome.
 #[test]
 fn probe_child() {
     let Ok(url) = std::env::var("OCD_TLS_PROBE_URL") else { return };
+    let strict = std::env::var_os("OCD_TLS_PROBE_STRICT").is_some_and(|v| v == "1");
+    let client = if strict {
+        oc_util::http::client_builder_strict().build().expect("reqwest client")
+    } else {
+        oc_util::http::client()
+    };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     runtime.block_on(async {
-        match oc_util::http::client().get(&url).send().await {
+        match client.get(&url).send().await {
             Ok(response) => println!("PROBE OK {} {}", response.status().as_u16(), response.text().await.unwrap_or_default()),
             Err(error) => {
                 let mut chain = error.to_string();
@@ -110,12 +117,22 @@ impl Outcome {
 }
 
 fn probe(url: &str, env: &[(&str, &str)]) -> Outcome {
+    probe_with(url, env, false)
+}
+
+/// The same probe through the client the release lookup and the upgrade download use.
+fn probe_strict(url: &str, env: &[(&str, &str)]) -> Outcome {
+    probe_with(url, env, true)
+}
+
+fn probe_with(url: &str, env: &[(&str, &str)], strict: bool) -> Outcome {
     let mut command = Command::new(std::env::current_exe().unwrap());
     command.args(["--exact", "probe_child", "--nocapture", "--test-threads=1"]);
     for name in TLS_VARS.iter().chain(PROXY_VARS.iter()) {
         command.env_remove(name);
     }
     command.env("OCD_TLS_PROBE_URL", url);
+    command.env("OCD_TLS_PROBE_STRICT", if strict { "1" } else { "0" });
     for (name, value) in env {
         command.env(name, value);
     }
@@ -177,6 +194,29 @@ fn environment_controls_certificate_trust() {
     assert!(probe(&url, &[("NODE_TLS_REJECT_UNAUTHORIZED", "0")]).ok());
     assert!(!probe(&url, &[("NODE_TLS_REJECT_UNAUTHORIZED", "false")]).ok());
     assert!(!probe(&url, &[("NODE_TLS_REJECT_UNAUTHORIZED", "1")]).ok());
+}
+
+/// The release lookup and the upgrade download always verify: the `SHA256SUMS` that authenticate the archive
+/// come over the same connection, so an unverified one authenticates nothing.
+#[test]
+fn upgrades_verify_certificates_whatever_the_environment_says() {
+    let (ca_pem, cert, key) = pki();
+    let url = format!("https://127.0.0.1:{}/", serve(cert, key));
+    let dir = tempfile::tempdir().unwrap();
+    let ca = dir.path().join("ca.pem");
+    std::fs::write(&ca, &ca_pem).unwrap();
+
+    // The documented switch still applies to ordinary requests.
+    assert!(probe(&url, &[("NODE_TLS_REJECT_UNAUTHORIZED", "0")]).ok());
+    // It does not apply to the upgrade client.
+    let off = probe_strict(&url, &[("NODE_TLS_REJECT_UNAUTHORIZED", "0")]);
+    assert!(!off.ok(), "{}", off.stdout);
+    assert!(off.stdout.contains("invalid peer certificate"), "{}", off.stdout);
+    // The roots are still the environment's, so a proxy whose CA is named keeps working.
+    assert!(probe_strict(&url, &[("NODE_TLS_REJECT_UNAUTHORIZED", "0"), ("NODE_EXTRA_CA_CERTS", path(&ca))]).ok());
+    assert!(probe(&url, &[("NODE_EXTRA_CA_CERTS", path(&ca))]).ok());
+    // Without the switch, the two clients agree.
+    assert!(!probe_strict(&url, &[]).ok());
 }
 
 #[test]
