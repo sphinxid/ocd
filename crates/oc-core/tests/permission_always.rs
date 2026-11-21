@@ -51,7 +51,12 @@ async fn always_reply_saves_rule_for_session_project() {
     let perms = app.permissions.clone();
     let first = input("per_000000000001aaaaaaaaaaaaaa");
     let waiter = tokio::spawn(async move { perms.assert(first).await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Reply only once the request is registered (a fixed wait was too short on a loaded machine).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !app.permissions.list().iter().any(|p| p.id == "per_000000000001aaaaaaaaaaaaaa") {
+        assert!(tokio::time::Instant::now() < deadline, "the permission request was never registered");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     // Reply from a plain OS thread: nothing may depend on thread-local state from the evaluation.
     let perms = app.permissions.clone();
     std::thread::spawn(move || futures::executor::block_on(perms.reply("per_000000000001aaaaaaaaaaaaaa", Reply::Always, None)).unwrap())
