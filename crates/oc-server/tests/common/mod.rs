@@ -59,6 +59,10 @@ pub struct Mock {
     /// Fires the PTY attachment's location shutdown.
     pub pty_shutdown: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     pub persistent_input: Arc<Mutex<Vec<(u8, u16, u16, Vec<u8>)>>>,
+    /// Frames for the next client MCP socket.
+    pub mcp_client_output: Mutex<Option<mpsc::UnboundedReceiver<McpClientOutbound>>>,
+    /// What the client MCP attachment saw: `open`, `deliver <text>` and `ended`.
+    pub mcp_client_seen: Arc<Mutex<Vec<String>>>,
 }
 
 impl Mock {
@@ -72,6 +76,8 @@ impl Mock {
             pty_output: Mutex::new(None),
             pty_shutdown: Mutex::new(None),
             persistent_input: Arc::new(Mutex::new(Vec::new())),
+            mcp_client_output: Mutex::new(None),
+            mcp_client_seen: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -88,6 +94,19 @@ struct PtyCtl(Arc<Mutex<Vec<String>>>);
 impl PtyControl for PtyCtl {
     fn write(&self, data: &str) {
         self.0.lock().push(data.to_string());
+    }
+}
+
+struct McpClientCtl(Arc<Mutex<Vec<String>>>);
+impl McpClientControl for McpClientCtl {
+    fn open(&self) {
+        self.0.lock().push("open".into());
+    }
+    fn deliver(&self, text: &str) {
+        self.0.lock().push(format!("deliver {text}"));
+    }
+    fn ended(&self) {
+        self.0.lock().push("ended".into());
     }
 }
 
@@ -264,6 +283,13 @@ impl Backend for Mock {
         let output = futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|s| (s, rx)) }).boxed();
         let shutdown = self.pty_shutdown.lock().take().map(|rx| futures::FutureExt::boxed(async move { let _ = rx.await; }));
         Ok(PtyAttachment { replay: "hello".into(), cursor: 5, output, control: Arc::new(PtyCtl(self.pty_input.clone())), shutdown })
+    }
+
+    async fn experimental_mcp_client(&self, ctx: &RequestContext, req: McpClientAttachRequest) -> Result<McpClientAttachment, ApiError> {
+        self.record(ctx, &req);
+        let rx = self.mcp_client_output.lock().take().ok_or_else(|| ApiError::defect("no client MCP output"))?;
+        let output = futures::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|s| (s, rx)) }).boxed();
+        Ok(McpClientAttachment { output, control: Arc::new(McpClientCtl(self.mcp_client_seen.clone())) })
     }
 
     async fn experimental_persistent_pty_get(

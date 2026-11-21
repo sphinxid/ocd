@@ -123,11 +123,13 @@ SCOPE_F = {"session.form.list", "session.form.create", "session.form.get",
 # stored artifact, else the request), after param and body validation.
 SCOPE_H = {"session.permission.list", "pty.connect", "experimental.artifacts.providers",
            "experimental.artifacts.list", "experimental.artifacts.create", "experimental.artifacts.get",
-           "experimental.artifacts.update", "experimental.artifacts.delete", "experimental.artifacts.view"}
+           "experimental.artifacts.update", "experimental.artifacts.delete", "experimental.artifacts.view",
+           # Checks origin and ticket before it resolves the location itself.
+           "experimental.mcp.client"}
 
 # Operations owned by the server itself (not part of the Backend trait).
 SERVER_OWNED = {"server.pair", "server.connect", "pty.connect.token",
-                "experimental.persistentPty.connectToken"}
+                "experimental.persistentPty.connectToken", "experimental.mcp.client.token"}
 
 # Operations whose handlers are hand-written (signature overridden below).
 SPECIAL = {
@@ -142,6 +144,7 @@ SPECIAL = {
     "experimental.persistentPty.connect": ("crate::backend::PersistentPtyAttachRequest",
                               "crate::backend::PersistentPtyAttachment"),
     "experimental.artifacts.view": ("crate::backend::ArtifactViewRequest", "crate::backend::ArtifactView"),
+    "experimental.mcp.client": ("crate::backend::McpClientAttachRequest", "crate::backend::McpClientAttachment"),
     "rpc.call": None,      # generated normally, but defects map to RpcInternalError
     "server.info": None,   # generated normally, default impl builds from ctx.server
 }
@@ -729,7 +732,7 @@ for info in op_infos:
             continue
         if loc == "header":
             continue
-        if oid in ("pty.connect", "experimental.persistentPty.connect"):
+        if oid in ("pty.connect", "experimental.persistentPty.connect", "experimental.mcp.client"):
             continue
         fid = field_ident(name)
         schema = prm["schema"]
@@ -838,7 +841,8 @@ g.compute_defaults()
 req_items = OrderedDict()
 for info in op_infos:
     oid = info["id"]
-    if oid in SERVER_OWNED or oid in ("pty.connect", "experimental.persistentPty.connect", "fs.read", "event.subscribe",
+    if oid in SERVER_OWNED or oid in ("pty.connect", "experimental.persistentPty.connect", "experimental.mcp.client",
+                                      "fs.read", "event.subscribe",
                                       "session.list", "session.message.list"):
         continue
     P = info["pascal"]

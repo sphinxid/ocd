@@ -107,11 +107,11 @@ pub(crate) async fn special(
             let pty_id = call.path_str("ptyID", Some("^pty"))?;
             check_ticket_request(app, &call, "Invalid PTY connect token request")?;
             app.backend.pty_get(&call.ctx, PtyGetRequest { pty_id: pty_id.clone() }).await?;
-            let ticket = app.tickets.issue(TicketScope {
-                pty_id,
-                directory: Some(call.ctx.location.directory.clone()),
-                workspace_id: call.ctx.location.workspace_id.clone(),
-            });
+            let ticket = app.tickets.issue(TicketScope::pty(
+                &pty_id,
+                Some(call.ctx.location.directory.clone()),
+                call.ctx.location.workspace_id.clone(),
+            ));
             Ok(respond::location(&call.ctx, &PtyTicketConnectToken { ticket, expires_in: TICKET_TTL_SECONDS }))
         }
         Op::ExperimentalPersistentPtyConnectToken => {
@@ -120,9 +120,11 @@ pub(crate) async fn special(
             app.backend
                 .experimental_persistent_pty_get(&call.ctx, ExperimentalPersistentPtyGetRequest { pty_id: pty_id.clone() })
                 .await?;
-            let ticket = app.tickets.issue(TicketScope { pty_id, directory: None, workspace_id: None });
+            let ticket = app.tickets.issue(TicketScope::pty(&pty_id, None, None));
             Ok(respond::data(&PtyTicketConnectToken { ticket, expires_in: TICKET_TTL_SECONDS }))
         }
+        Op::ExperimentalMcpClientToken => crate::mcp_client::token(app, &call),
+        Op::ExperimentalMcpClient => crate::mcp_client::connect(app, call, ws).await,
         Op::PtyConnect => crate::pty::connect(app, call, ws).await,
         Op::ExperimentalPersistentPtyConnect => crate::pty::persistent_connect(app, call, ws).await,
         other => Err(ApiError::defect(format!("no special handler for {other:?}"))),
@@ -196,7 +198,7 @@ fn media_response(hash: &str, blob: crate::backend::MediaBlob, headers: &axum::h
 }
 
 /// `x-opencode-ticket: 1` and an allowed (or same-host) Origin, else `403 ForbiddenError`.
-fn check_ticket_request(app: &App, call: &Call, message: &str) -> Result<(), ApiError> {
+pub(crate) fn check_ticket_request(app: &App, call: &Call, message: &str) -> Result<(), ApiError> {
     let header_ok = call.headers.get("x-opencode-ticket").is_some_and(|v| v.as_bytes() == b"1");
     if !header_ok || !is_allowed_request_origin(&call.headers, &app.cors) {
         return Err(ApiError::forbidden(message));

@@ -13930,22 +13930,6 @@ pub struct ExperimentalMcpDisconnectRequest {
 pub struct McpResourceCatalogRequest {
 }
 
-/// Request for `experimental.mcp.client.token` (`POST /api/experimental/client-mcp/token`).
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ExperimentalMcpClientTokenRequest {
-    /// query parameter `name`.
-    pub name: String,
-}
-
-/// Request for `experimental.mcp.client` (`GET /api/experimental/client-mcp`).
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ExperimentalMcpClientRequest {
-    /// query parameter `name`.
-    pub name: String,
-    /// query parameter `ticket`.
-    pub ticket: Option<String>,
-}
-
 /// Request for `credential.list` (`GET /api/credential`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CredentialListRequest {
@@ -15008,8 +14992,8 @@ pub const OPS: &[OpMeta] = &[
     OpMeta { op: Op::ExperimentalMcpConnect, id: "experimental.mcp.connect", method: "POST", path: "/api/experimental/mcp/{server}/connect", route: "/api/experimental/mcp/{server}/connect", scope: Scope::L, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::ExperimentalMcpDisconnect, id: "experimental.mcp.disconnect", method: "POST", path: "/api/experimental/mcp/{server}/disconnect", route: "/api/experimental/mcp/{server}/disconnect", scope: Scope::L, envelope: Envelope::NoContent, special: false },
     OpMeta { op: Op::McpResourceCatalog, id: "mcp.resource.catalog", method: "GET", path: "/api/mcp/resource", route: "/api/mcp/resource", scope: Scope::L, envelope: Envelope::Location, special: false },
-    OpMeta { op: Op::ExperimentalMcpClientToken, id: "experimental.mcp.client.token", method: "POST", path: "/api/experimental/client-mcp/token", route: "/api/experimental/client-mcp/token", scope: Scope::L, envelope: Envelope::Location, special: false },
-    OpMeta { op: Op::ExperimentalMcpClient, id: "experimental.mcp.client", method: "GET", path: "/api/experimental/client-mcp", route: "/api/experimental/client-mcp", scope: Scope::L, envelope: Envelope::Raw, special: false },
+    OpMeta { op: Op::ExperimentalMcpClientToken, id: "experimental.mcp.client.token", method: "POST", path: "/api/experimental/client-mcp/token", route: "/api/experimental/client-mcp/token", scope: Scope::L, envelope: Envelope::Location, special: true },
+    OpMeta { op: Op::ExperimentalMcpClient, id: "experimental.mcp.client", method: "GET", path: "/api/experimental/client-mcp", route: "/api/experimental/client-mcp", scope: Scope::H, envelope: Envelope::Raw, special: true },
     OpMeta { op: Op::CredentialList, id: "credential.list", method: "GET", path: "/api/credential", route: "/api/credential", scope: Scope::G, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::CredentialCreate, id: "credential.create", method: "POST", path: "/api/credential", route: "/api/credential", scope: Scope::G, envelope: Envelope::Data, special: false },
     OpMeta { op: Op::CredentialUpdate, id: "credential.update", method: "PATCH", path: "/api/credential/{credentialID}", route: "/api/credential/{credentialID}", scope: Scope::G, envelope: Envelope::NoContent, special: false },
@@ -15854,21 +15838,12 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("mcp.resource.catalog"))
     }
-    /// `POST /api/experimental/client-mcp/token` — `experimental.mcp.client.token`: Create client MCP WebSocket token.
-    ///
-    /// Create a short-lived single-use ticket for opening a client MCP WebSocket connection from a browser.
-    ///
-    /// Scope `L`, envelope `Location`.
-    async fn experimental_mcp_client_token(&self, ctx: &RequestContext, req: ExperimentalMcpClientTokenRequest) -> Result<PtyTicketConnectToken, ApiError> {
-        let _ = (ctx, req);
-        Err(ApiError::not_implemented("experimental.mcp.client.token"))
-    }
     /// `GET /api/experimental/client-mcp` — `experimental.mcp.client`: Attach client MCP server.
     ///
     /// Upgrade to a WebSocket over which the client hosts an MCP server named after `name`; its tools stay available while the socket is open. One JSON-RPC message per text frame. Experimental: may change without compatibility guarantees.
     ///
-    /// Scope `L`, envelope `Raw`.
-    async fn experimental_mcp_client(&self, ctx: &RequestContext, req: ExperimentalMcpClientRequest) -> Result<bool, ApiError> {
+    /// Scope `H`, envelope `Raw`.
+    async fn experimental_mcp_client(&self, ctx: &RequestContext, req: crate::backend::McpClientAttachRequest) -> Result<crate::backend::McpClientAttachment, ApiError> {
         let _ = (ctx, req);
         Err(ApiError::not_implemented("experimental.mcp.client"))
     }
@@ -17266,21 +17241,6 @@ pub(crate) async fn dispatch(
             let req = McpResourceCatalogRequest {};
             let out = backend.mcp_resource_catalog(&call.ctx, req).await?;
             Ok(respond::location(&call.ctx, &out))
-        }
-        Op::ExperimentalMcpClientToken => {
-            let req = ExperimentalMcpClientTokenRequest {
-                name: crate::router::required(call.query_str("name", None)?, "name")?,
-            };
-            let out = backend.experimental_mcp_client_token(&call.ctx, req).await?;
-            Ok(respond::location(&call.ctx, &out))
-        }
-        Op::ExperimentalMcpClient => {
-            let req = ExperimentalMcpClientRequest {
-                name: crate::router::required(call.query_str("name", None)?, "name")?,
-                ticket: call.query_str("ticket", None)?,
-            };
-            let out = backend.experimental_mcp_client(&call.ctx, req).await?;
-            Ok(respond::bare(&out))
         }
         Op::CredentialList => {
             let req = CredentialListRequest {};

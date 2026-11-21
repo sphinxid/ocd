@@ -16,7 +16,7 @@ ocd reports version 2.3.1.
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 280 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 283 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
@@ -37,10 +37,12 @@ ocd reports version 2.3.1.
   - local model discovery for LM Studio, Ollama and vLLM against mock servers;
   - the opt-in part rows, and the opt-in MCP features: connection pooling, MCP Events with the watch tool, and
     automation event triggers;
-  - opt-in session warming: every keep-alive request of a warming cycle and what it stores.
+  - opt-in session warming: every keep-alive request of a warming cycle and what it stores;
+  - client-hosted MCP: a scripted client hosting tools over the WebSocket endpoint, the model calling them, stacked
+    clients, tickets, refusals and close codes.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 274 of the 280 scenarios are identical. The other six differ in ways that are expected or harmless:
+- **Result:** 277 of the 283 scenarios are identical. The other six differ in ways that are expected or harmless:
   - the intended renames;
   - the upstream test build's database file name;
   - two timing races that also vary between runs of upstream (one is the title rename racing a failed step);
@@ -92,6 +94,7 @@ ocd reports version 2.3.1.
 | Desktop browser attachment | The built-in `opencode.browser` plugin: the `experimental.browser` RPC (attach, state, commands and results, tunnels), its control events, the session permissions an attached desktop grants, the 45 `browser.*` Code Mode tools with file uploads and captures, and the 60 s request timeout. The `browser` skill is denied to every agent until a desktop attaches. The desktop's own proxy is part of the desktop app, not the server |
 | Editor integration (ACP) | `ocd acp`, including the file diffs on permission requests and completed edits, and following subagents and (2.3.1) background shells that outlive the turn (or its cancellation): their updates and asks, and the root's own turns their reports (2.3.0) or the shells' notices (2.3.1) wake, until a root turn ends with no child open and no shell notice pending; the next prompt takes over the children and shells |
 | MCP Events (2.3.0, opt-in) | `experimental.mcp_events` (or `OPENCODE_FLAGS=mcp_events`): connections declare the draft extension, `events/list` and `events/stream` (routed by subscription id, cancelled when dropped, failed after a minute of silence, rejected and terminated streams told apart), and `opencode_watch_mcp_event` (plugin `opencode.tools.mcp-events`): it lists the event types of connected servers, or watches one and wakes the session with a synthetic message that frames the event as information (fenced, capped data; a replayed event is admitted once), reopening a broken stream from its last cursor three times, saying when it stops, and ending with its session. The registry's subscriptions publish `experimental.mcp.event` and the internal `experimental.mcp.subscription.changed` as upstream's do; like 2.3.1, nothing in the server subscribes yet, so the event is never sent |
+| Client-hosted MCP (2.1.4, experimental) | `GET /api/experimental/client-mcp?name=` upgrades to a WebSocket over which a client hosts an MCP server, one JSON-RPC message per frame (binary frames read as UTF-8): ocd connects to it as the MCP client with the legacy `initialize` handshake, lists its tools, and offers them to the sessions of that location as `<name>_<tool>` (through Code Mode by default, calls carrying the session in `_meta`, a 10-minute call timeout) for as long as the socket stays open. Clients under one name stack: the newest serves the name, the previous one takes over (listing its tools again) when it closes; an attached tool shadows a configured server's tool of the same name; attached servers are never listed by `/api/mcp`. A failed handshake or first tool list closes the socket with `1011 "attach failed"`, a location shutdown (reload, `vcs.init`, eviction) with `1012 "location shut down"`. Browsers authenticate with a single-use 60 s ticket from `POST /api/experimental/client-mcp/token?name=` (`x-opencode-ticket: 1`, allowed origin), bound to the name and location; like upstream, a ticket presented for another name, location or PTY stays valid for its own (this also changed for PTY tickets). Not gated by a flag. Upstream's TUI uses it behind its `client-mcp` experiment to offer `tui_open_terminal` and `tui_write_terminal`; ocd's TUI does not |
 | CLI prompts | `ocd auth`, `ocd mcp auth` and `ocd session export` use the same prompts as upstream (pickers, search lists, forms), down to resizing and key handling. `--wizard` builds any command interactively with upstream's prompts, byte for byte |
 | Remote access | `ocd pair --remote` |
 | Scripted runs | `ocd run` as rewritten in 2.2.7: `--worktree`, `--archived`, waiting for the run's background jobs (not, after a cancel, for image or (2.3.1) Code Mode jobs the API can't cancel), retry notices, and SIGINT/SIGTERM cancelling the session and its jobs. Every command exits 130/143 on those signals |
@@ -124,7 +127,8 @@ ocd reports version 2.3.1.
 | Third-party packages for upstream's model runtime (`@opencode/ai`) | AI SDK packages do work |
 | Image previews in the TUI | `session.image_preview` and `prompt.image_preview` (off by default): ocd draws no images in the terminal |
 | Speech, video and transcription models | Upstream has these only as library code that nothing in the app calls. From 2.3.1 models.dev video models are kept in the catalog (listed with `GET /api/model?types=video`, never offered for sessions; a video model's ref sent to text, image or decision generation is a 422) and `@opencode/ai/providers/xai/videos` is a bundled package, like upstream; ocd generates no videos |
-| Experimental voice and client-hosted MCP endpoints | Listed in the API document like upstream's, but answer 500 `UnknownError` |
+| Experimental voice endpoints | Listed in the API document like upstream's, but answer 500 `UnknownError` |
+| The TUI's `client-mcp` experiment | Upstream's TUI (with `experimental["client-mcp"]` in its TUI config) hosts `tui_open_terminal` and `tui_write_terminal` over the client-hosted MCP endpoint, which ocd's server serves; ocd's TUI does not connect |
 | `experimental.codemode_vm` (2.3.0) | A deprecated, ignored key since 2.3.0, accepted and echoed like upstream (upstream always runs its bytecode VM; ocd runs its interpreter, tested against it) |
 | Opt-in features of 2.3.1 | Video generation (`experimental.video_generate`: both routes answer 403 like a release build, also with the flag on, since ocd has no video protocols) and the full Code Mode (`experimental.full_codemode`). Their config keys are accepted and echoed like 2.3.1 |
 | Other experimental features | `location_idle_timeout` and the new designs. Their config keys are accepted and do nothing |

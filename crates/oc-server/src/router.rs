@@ -373,7 +373,7 @@ async fn handle_op(app: Arc<App>, meta: &'static OpMeta, req: Request) -> Respon
         Ok(params) => params.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
         Err(_) => return ApiError::schema("Params", "Invalid path parameters").into_response(),
     };
-    let ws = if matches!(meta.op, Op::PtyConnect | Op::ExperimentalPersistentPtyConnect) {
+    let ws = if matches!(meta.op, Op::PtyConnect | Op::ExperimentalPersistentPtyConnect | Op::ExperimentalMcpClient) {
         axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, &()).await.ok()
     } else {
         None

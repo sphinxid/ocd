@@ -169,14 +169,50 @@ async fn initialize(
     events: mpsc::UnboundedReceiver<crate::transport::TransportEvent>,
     last_error: Arc<Mutex<Option<String>>>,
 ) -> Result<Opened, McpError> {
-    let (server, config) = (options.server, options.config);
+    let config = options.config;
+    handshake(
+        Handshake {
+            server: options.server,
+            directory: options.directory,
+            elicitation: options.elicitation.clone(),
+            client_info: options.client_info,
+            roots: options.roots,
+            events: options.events,
+            negotiation: config.protocol(),
+            startup: Duration::from_millis(config.startup_timeout_ms()),
+        },
+        transport,
+        events,
+        last_error,
+    )
+    .await
+}
+
+struct Handshake<'a> {
+    server: &'a str,
+    directory: &'a Path,
+    elicitation: Option<Arc<dyn ElicitationHandler>>,
+    client_info: &'a ClientInfo,
+    roots: bool,
+    events: bool,
+    negotiation: Option<crate::config::Protocol>,
+    startup: Duration,
+}
+
+async fn handshake(
+    options: Handshake<'_>,
+    transport: Arc<dyn Transport>,
+    events: mpsc::UnboundedReceiver<crate::transport::TransportEvent>,
+    last_error: Arc<Mutex<Option<String>>>,
+) -> Result<Opened, McpError> {
+    let server = options.server;
     let client = Client::new(
         transport.clone(),
         events,
         ClientConfig {
             server: server.to_string(),
             client_info: options.client_info.clone(),
-            negotiation: config.protocol(),
+            negotiation: options.negotiation,
             elicitation: options.elicitation.clone(),
             root_uri: file_url(options.directory),
             without_roots: !options.roots,
@@ -193,13 +229,31 @@ async fn initialize(
         *last_error.lock() = Some(described.clone());
         tracing::warn!(server = %name, error = %described, "mcp transport error");
     });
-    let timeout = Duration::from_millis(config.startup_timeout_ms());
-    match client.connect(timeout).await {
+    match client.connect(options.startup).await {
         Ok(()) => Ok(Opened { client }),
         Err(error) => {
             transport.close().await;
             Err(error)
         }
+    }
+}
+
+/// The execution timeout of an attached client's tool calls (`ATTACHED_EXECUTION_TIMEOUT`).
+pub const ATTACHED_EXECUTION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+fn connect_error(server: &str, error: &McpError, last_error: &Mutex<Option<String>>) -> ConnectError {
+    match error {
+        McpError::Unauthorized(message) | McpError::InsufficientScope(message) => {
+            ConnectError::NeedsAuth { server: server.to_string(), message: message.clone() }
+        }
+        McpError::UnsupportedProtocolVersion { message, supported, .. } => ConnectError::connect(
+            server,
+            format!(
+                "{message}; the server supports {}. Set \"protocol\" for this server to one of those or to \"legacy\".",
+                supported.join(", ")
+            ),
+        ),
+        other => ConnectError::Connect { server: server.to_string(), message: explain(other, last_error), answered: !other.repeats() },
     }
 }
 
@@ -292,28 +346,7 @@ impl Connection {
                 .await
             }
         };
-        let opened = match opened {
-            Ok(opened) => opened,
-            Err(error) => {
-                return Err(match &error {
-                    McpError::Unauthorized(message) | McpError::InsufficientScope(message) => {
-                        ConnectError::NeedsAuth { server: server.to_string(), message: message.clone() }
-                    }
-                    McpError::UnsupportedProtocolVersion { message, supported, .. } => ConnectError::connect(
-                        server,
-                        format!(
-                            "{message}; the server supports {}. Set \"protocol\" for this server to one of those or to \"legacy\".",
-                            supported.join(", ")
-                        ),
-                    ),
-                    other => ConnectError::Connect {
-                        server: server.to_string(),
-                        message: explain(other, &last_error),
-                        answered: !other.repeats(),
-                    },
-                });
-            }
-        };
+        let opened = opened.map_err(|error| connect_error(server, &error, &last_error))?;
         Ok(Connection {
             server: server.to_string(),
             client: opened.client,
@@ -321,6 +354,47 @@ impl Connection {
             session,
             catalog: Duration::from_millis(TimeoutConfig::catalog_ms(config.timeout())),
             execution: Duration::from_millis(TimeoutConfig::execution_ms(config.timeout())),
+            closed: Mutex::new(false),
+        })
+    }
+
+    /// `McpClient.connect` with an `attached` config: an MCP server a client hosts over a transport the client already
+    /// opened, such as a socket (`mcp/socket-client.ts`). Attached clients run ordinary SDK servers over the legacy
+    /// `initialize` handshake, with the default startup and catalog timeouts and a 10-minute execution timeout. The
+    /// connection answers `roots/list` and does not declare MCP Events.
+    pub async fn attach(
+        server: &str,
+        transport: Arc<dyn Transport>,
+        events: mpsc::UnboundedReceiver<crate::transport::TransportEvent>,
+        directory: &Path,
+        elicitation: Option<Arc<dyn ElicitationHandler>>,
+        client_info: &ClientInfo,
+    ) -> Result<Connection, ConnectError> {
+        let last_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let opened = handshake(
+            Handshake {
+                server,
+                directory,
+                elicitation,
+                client_info,
+                roots: true,
+                events: false,
+                negotiation: Some(crate::config::Protocol::Legacy),
+                startup: Duration::from_millis(TimeoutConfig::startup_ms(None)),
+            },
+            transport,
+            events,
+            last_error.clone(),
+        )
+        .await
+        .map_err(|error| connect_error(server, &error, &last_error))?;
+        Ok(Connection {
+            server: server.to_string(),
+            client: opened.client,
+            last_error,
+            session: Arc::new(Mutex::new(SessionState::default())),
+            catalog: Duration::from_millis(TimeoutConfig::catalog_ms(None)),
+            execution: ATTACHED_EXECUTION_TIMEOUT,
             closed: Mutex::new(false),
         })
     }

@@ -3,6 +3,7 @@
 //! at construction.
 
 pub mod http;
+pub mod socket;
 pub mod stdio;
 
 use std::sync::Arc;
@@ -41,6 +42,8 @@ pub struct SendOptions {
 pub enum TransportKind {
     Stdio,
     Http,
+    /// A socket a client opened to the server, over which the client hosts an MCP server.
+    Socket,
 }
 
 #[async_trait]

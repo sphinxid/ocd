@@ -4,6 +4,7 @@
 pub mod automations;
 pub mod backend;
 pub mod catalog;
+mod client_mcp;
 pub mod engine;
 pub mod file_watch;
 pub mod fs;

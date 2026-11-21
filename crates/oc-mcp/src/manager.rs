@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use tokio::sync::{broadcast, watch};
 
 use crate::config::{ServerConfig, apply_codemode_defaults};
-use crate::connection::Connection;
+use crate::connection::{ConnectError, Connection};
 use crate::error::McpError;
 use crate::link::{AuthProvider, Kind, Link, LinkEvents, LinkInput, Listed, Runner};
 use crate::oauth::fetch::Fetcher;
@@ -451,6 +451,54 @@ struct Inner {
     follows_lock: tokio::sync::Mutex<()>,
     /// Work tied to this Location's MCP service (see [`McpManager::spawn_scoped`]).
     scoped: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// Client-hosted MCP servers attached over a connection the client opened, by name (see [`McpManager::attach`]).
+    attached: Mutex<IndexMap<String, Vec<Arc<AttachedEntry>>>>,
+    /// Attached connections lock separately so a configured server of the same name never contends.
+    attached_locks: KeyedMutex,
+    next_attached: std::sync::atomic::AtomicU64,
+}
+
+/// A client-hosted MCP server attached over a connection the client opened. Internal: never listed, never reconciled
+/// against config, and removed entirely once its [`Attachment`] or connection closes. Connections attached under one
+/// name stack; the most recent live one serves the name's tools.
+struct AttachedEntry {
+    id: u64,
+    connection: Arc<Connection>,
+    tools: Mutex<Vec<Tool>>,
+}
+
+/// Bounds re-listing the tools of an attached connection that takes over the top of its stack
+/// (`FALLBACK_LIST_TIMEOUT`).
+pub const FALLBACK_LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A client-hosted MCP server attached with [`McpManager::attach`]. It serves its name's tools until it is closed or
+/// dropped, or its connection closes; then the most recent remaining connection under the name takes over.
+pub struct Attachment {
+    manager: Weak<Inner>,
+    name: String,
+    id: u64,
+    done: bool,
+}
+
+impl Attachment {
+    /// Detaches the connection and closes it, waiting for the fallback's tool list to settle.
+    pub async fn close(mut self) {
+        self.done = true;
+        if let Some(inner) = self.manager.upgrade() {
+            McpManager { inner }.detach_locked(&self.name, self.id).await;
+        }
+    }
+}
+
+impl Drop for Attachment {
+    fn drop(&mut self) {
+        if self.done {
+            return;
+        }
+        let (Some(inner), Ok(runtime)) = (self.manager.upgrade(), tokio::runtime::Handle::try_current()) else { return };
+        let (name, id) = (std::mem::take(&mut self.name), self.id);
+        runtime.spawn(async move { McpManager { inner }.detach_locked(&name, id).await });
+    }
 }
 
 /// How long `ToolsChanged` bursts settle before the session tool registry reads the tools again (`tool/mcp.ts`
@@ -487,6 +535,9 @@ impl McpManager {
             streams: Mutex::new(HashMap::new()),
             follows_lock: tokio::sync::Mutex::new(()),
             scoped: Mutex::new(Vec::new()),
+            attached: Mutex::new(IndexMap::new()),
+            attached_locks: KeyedMutex::default(),
+            next_attached: Default::default(),
         });
         // `tool/mcp.ts`: after the initial registration, `ToolsChanged` bursts settle for 100 ms before the
         // registry reads the tools again.
@@ -525,6 +576,11 @@ impl McpManager {
 
     fn closing(&self) -> bool {
         self.inner.closing.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// True once [`McpManager::shutdown`] began: the Location is going away.
+    pub fn is_closing(&self) -> bool {
+        self.closing()
     }
 
     fn publish(&self, event: McpEvent) {
@@ -911,10 +967,29 @@ impl McpManager {
         self.inner.registered.lock().get_or_insert_with(|| self.tools()).clone()
     }
 
-    /// All connected tools sorted by server, then name.
+    /// All connected tools sorted by server, then name. Attached clients contribute the tools of the top connection of
+    /// each name; like [`McpManager::call_tool`], an attached client's tool shadows a configured server's tool of the
+    /// same name.
     pub fn tools(&self) -> Vec<Tool> {
-        let mut tools: Vec<Tool> =
-            self.inner.entries.lock().iter().flat_map(|(name, e)| e.tools(name)).collect();
+        let clients: Vec<Tool> = self
+            .inner
+            .attached
+            .lock()
+            .values()
+            .filter_map(|stack| stack.last().map(|top| top.tools.lock().clone()))
+            .flatten()
+            .collect();
+        let shadowed: std::collections::HashSet<(&str, &str)> =
+            clients.iter().map(|t| (t.server.as_str(), t.name.as_str())).collect();
+        let mut tools: Vec<Tool> = self
+            .inner
+            .entries
+            .lock()
+            .iter()
+            .flat_map(|(name, e)| e.tools(name))
+            .filter(|t| !shadowed.contains(&(t.server.as_str(), t.name.as_str())))
+            .collect();
+        tools.extend(clients.iter().cloned());
         tools.sort_by(|a, b| locale_cmp(&a.server, &b.server).then_with(|| locale_cmp(&a.name, &b.name)));
         tools
     }
@@ -927,6 +1002,25 @@ impl McpManager {
         args: Option<Value>,
         session_id: Option<&str>,
     ) -> Result<ToolResult, ManagerError> {
+        // An attached client owns the tools it lists, even when a configured server shares its name, and owns its
+        // name outright when no configured server has it.
+        let client = self.inner.attached.lock().get(server).and_then(|stack| stack.last().cloned());
+        if let Some(client) = client
+            && (client.tools.lock().iter().any(|t| t.name == name) || self.entry(server).is_none())
+        {
+            let result = client.connection.call_tool(name, args, session_id).await.map_err(|error| ManagerError::ToolCall {
+                server: server.to_string(),
+                tool: name.to_string(),
+                message: format!("MCP tool \"{name}\" on client \"{server}\" failed: {error}"),
+            })?;
+            return Ok(ToolResult {
+                server: server.to_string(),
+                tool: name.to_string(),
+                is_error: result.is_error,
+                structured: result.structured,
+                content: result.content,
+            });
+        }
         let entry = self.require(server)?;
         entry.await_startup().await;
         let Some(connection) = entry.connection() else {
@@ -1400,6 +1494,8 @@ impl McpManager {
     /// the rest past a service restart's kill deadline and leave them orphaned.
     pub async fn shutdown(&self) {
         self.inner.closing.store(true, std::sync::atomic::Ordering::SeqCst);
+        let attached: Vec<Arc<AttachedEntry>> = self.inner.attached.lock().drain(..).flat_map(|(_, stack)| stack).collect();
+        futures::future::join_all(attached.iter().map(|entry| entry.connection.close())).await;
         for (_, stream) in self.inner.streams.lock().drain() {
             stream.abort();
         }
@@ -1415,10 +1511,145 @@ impl McpManager {
         .await;
     }
 
+    /// Attaches a client-hosted MCP server (`MCP.attach`): connects over `transport`, which the client already opened,
+    /// with the legacy handshake, then lists its tools. Its tools are named after `name` like any server's. Attaching a
+    /// name again stacks the new connection on top: it serves the name until it closes, then the most recent remaining
+    /// connection takes over. A failed connect or tool list closes the transport.
+    ///
+    /// The handshake runs outside the lock, so a stalled client never blocks detach or fallback for its name; the lock
+    /// only guards adding the finished connection to the stack.
+    pub async fn attach(
+        &self,
+        name: &str,
+        transport: Arc<dyn crate::transport::Transport>,
+        events: tokio::sync::mpsc::UnboundedReceiver<crate::transport::TransportEvent>,
+    ) -> Result<Attachment, ConnectError> {
+        if self.closing() {
+            transport.close().await;
+            return Err(ConnectError::connect(name, "Connection closed"));
+        }
+        let options = &self.inner.options;
+        let connection = Arc::new(
+            Connection::attach(name, transport, events, &options.directory, options.elicitation.clone(), &options.client_info)
+                .await?,
+        );
+        // Set before the first tool list, so a connection closing meanwhile is never added to the stack; once added,
+        // its close detaches it.
+        let state = Arc::new(AttachState::default());
+        {
+            let (state, weak, name) = (state.clone(), Arc::downgrade(&self.inner), name.to_string());
+            connection.on_close(move |_| {
+                state.closed.store(true, Ordering::SeqCst);
+                let Some(id) = *state.id.lock() else { return };
+                let (name, inner) = (name.clone(), weak.clone());
+                Callbacks(weak.clone()).run(Box::pin(async move {
+                    if let Some(inner) = inner.upgrade() {
+                        McpManager { inner }.detach_locked(&name, id).await;
+                    }
+                }));
+            });
+        }
+        let listed = match connection.tools().await {
+            Ok(listed) => listed,
+            Err(error) => {
+                connection.close().await;
+                return Err(ConnectError::connect(name, error.to_string()));
+            }
+        };
+        let _guard = self.inner.attached_locks.lock(name).await;
+        if state.closed.load(Ordering::SeqCst) || self.closing() {
+            connection.close().await;
+            return Err(ConnectError::connect(name, "Connection closed"));
+        }
+        let id = self.inner.next_attached.fetch_add(1, Ordering::SeqCst);
+        let entry = Arc::new(AttachedEntry { id, connection: connection.clone(), tools: Mutex::new(attached_tools(name, listed)) });
+        self.inner.attached.lock().entry(name.to_string()).or_default().push(entry.clone());
+        *state.id.lock() = Some(id);
+        {
+            let (weak, name, entry) = (Arc::downgrade(&self.inner), name.to_string(), Arc::downgrade(&entry));
+            connection.on_tools_changed(move || {
+                let (weak_inner, name, entry) = (weak.clone(), name.clone(), entry.clone());
+                Callbacks(weak.clone()).run(Box::pin(async move {
+                    let (Some(inner), Some(entry)) = (weak_inner.upgrade(), entry.upgrade()) else { return };
+                    McpManager { inner }.refresh_attached(&name, &entry).await;
+                }));
+            });
+        }
+        let count = entry.tools.lock().len();
+        tracing::info!(server = %name, tools = count, "mcp client attached");
+        self.publish(McpEvent::ToolsChanged { server: name.to_string() });
+        Ok(Attachment { manager: Arc::downgrade(&self.inner), name: name.to_string(), id, done: false })
+    }
+
+    /// Lists the tools of the top connection again after it reported a change. Bounded like fallback, so a connection
+    /// that stalls after announcing a change cannot hold the lock; a failed list publishes nothing.
+    async fn refresh_attached(&self, name: &str, entry: &Arc<AttachedEntry>) {
+        let _guard = self.inner.attached_locks.lock(name).await;
+        let top = self.inner.attached.lock().get(name).and_then(|stack| stack.last().cloned());
+        if !top.is_some_and(|top| Arc::ptr_eq(&top, entry)) {
+            return;
+        }
+        let Ok(Ok(listed)) = tokio::time::timeout(FALLBACK_LIST_TIMEOUT, entry.connection.tools()).await else { return };
+        *entry.tools.lock() = attached_tools(name, listed);
+        self.publish(McpEvent::ToolsChanged { server: name.to_string() });
+    }
+
+    async fn detach_locked(&self, name: &str, id: u64) {
+        let _guard = self.inner.attached_locks.lock(name).await;
+        self.detach(name, id).await;
+    }
+
+    async fn detach(&self, name: &str, id: u64) {
+        let (entry, top, next) = {
+            let mut attached = self.inner.attached.lock();
+            let Some(stack) = attached.get_mut(name) else { return };
+            let Some(position) = stack.iter().position(|e| e.id == id) else { return };
+            let top = position + 1 == stack.len();
+            // Unlocked reads must never pick a closing connection, so update the stack before closing it.
+            let entry = stack.remove(position);
+            let next = stack.last().cloned();
+            if next.is_none() {
+                attached.shift_remove(name);
+            }
+            (entry, top, next)
+        };
+        entry.connection.close().await;
+        let Some(next) = next else {
+            self.publish(McpEvent::ToolsChanged { server: name.to_string() });
+            return;
+        };
+        // Closing an idle connection changes nothing visible.
+        if !top {
+            return;
+        }
+        // Idle connections ignore tool list changes, so the one taking over lists its tools again. A short timeout keeps
+        // a half-open connection from holding the lock; it then keeps its stored tools.
+        let previous = next.tools.lock().clone();
+        if let Ok(Ok(listed)) = tokio::time::timeout(FALLBACK_LIST_TIMEOUT, next.connection.tools()).await {
+            *next.tools.lock() = attached_tools(name, listed);
+        }
+        // Readers may have seen the stored tools in the meantime, so compare against both.
+        let current = next.tools.lock().clone();
+        if *entry.tools.lock() != current || previous != current {
+            self.publish(McpEvent::ToolsChanged { server: name.to_string() });
+        }
+    }
+
     /// The `{server}` payload helper for bus bridges.
     pub fn event_payload(event: &McpEvent) -> Value {
         json!({"server": event.server()})
     }
+}
+
+#[derive(Default)]
+struct AttachState {
+    closed: AtomicBool,
+    id: Mutex<Option<u64>>,
+}
+
+/// `toAttachedTools`: an attached client's tools, tagged with its name and without a Code Mode setting of their own.
+fn attached_tools(name: &str, listed: Vec<serde_json::Map<String, Value>>) -> Vec<Tool> {
+    listed.into_iter().filter_map(|raw| Tool::from_raw(name, None, raw)).collect()
 }
 
 /// `mergeCatalogs`: resources by server, name, uri; templates by server, name, uriTemplate.

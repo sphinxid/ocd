@@ -14,6 +14,7 @@ pub mod error;
 pub mod fsread;
 pub mod generated;
 mod handlers;
+mod mcp_client;
 pub mod ids;
 pub mod location;
 pub mod pty;

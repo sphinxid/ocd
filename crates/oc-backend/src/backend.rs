@@ -1000,6 +1000,16 @@ impl Backend for Engine {
         m.disconnect(&req.server).await.map_err(|e| mcp_error(&req.server, e))
     }
 
+    async fn experimental_mcp_client(
+        &self,
+        ctx: &RequestContext,
+        req: oc_server::McpClientAttachRequest,
+    ) -> Result<oc_server::McpClientAttachment, ApiError> {
+        let loc = self.locations.get(&ctx.location.directory).await?;
+        let Some(m) = self.mcp(&loc).await else { return Err(unavailable("mcp")) };
+        Ok(crate::client_mcp::attach(m, req.name, loc.key.clone(), self.app.bus.subscribe()))
+    }
+
     // ---- credential ---------------------------------------------------------------------------
 
     async fn credential_list(&self, _ctx: &RequestContext, _req: CredentialListRequest) -> Result<Vec<CredentialEntry>, ApiError> {

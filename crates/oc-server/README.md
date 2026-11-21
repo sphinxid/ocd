@@ -56,9 +56,9 @@ server.shutdown().await;            // or server.wait().await
 
 Generated in `src/generated.rs`: **one async method per operationId** (snake_case of the dotted
 id, e.g. `session.revert.stage` → `session_revert_stage`,
-`experimental.persistentPty.read` → `experimental_persistent_pty_read`), 169 in
-total (173 operations minus 4 the server owns: `server.pair`, `server.connect`,
-`pty.connect.token`, `experimental.persistentPty.connectToken`).
+`experimental.persistentPty.read` → `experimental_persistent_pty_read`), 168 in
+total (173 operations minus 5 the server owns: `server.pair`, `server.connect`,
+`pty.connect.token`, `experimental.persistentPty.connectToken`, `experimental.mcp.client.token`).
 
 ```rust
 #[async_trait::async_trait]
@@ -183,7 +183,7 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
   {"_tag":"UnauthorizedError","message":"Authentication required"}` with `www-authenticate:
   Basic realm="Secure Area"` only when `sec-fetch-mode` is absent or `navigate`. Auth runs
   before routing (unknown `/api/*` and `/openapi.json` → 401). Exempt: `OPTIONS`,
-  `/auth/connect/{code}`, PTY `connect` URLs with a non-empty `ticket` (only once ready), and
+  `/auth/connect/{code}`, PTY and client MCP `connect` URLs with a non-empty `ticket` (only once ready), and
   web-UI paths. No password ⇒ unauthenticated mode.
 * **Pairing**: `POST /api/pair` → `{code, expires_in:300}` (16 random bytes base64url,
   single-use, 5 min, 1000 entries). `GET /auth/connect/{code}`: `Accept` containing `text/html`
@@ -203,7 +203,18 @@ deterministic). Regenerate with `python3 crates/oc-server/codegen/gen.py`.
 * **PTY tickets**: `POST …/connect-token` needs `x-opencode-ticket: 1` and an allowed/same-host
   Origin (else `403 ForbiddenError`), checks the PTY exists via `pty_get` /
   `experimental_persistent_pty_get`, issues a UUID v4 (60 s, single use, scope
-  `{ptyID, directory}` / `{ptyID}`).
+  `{pty:<id>, directory}` / `{pty:<id>}`). A ticket presented for another scope is refused and
+  stays valid for its own (`Cache.invalidateWhen`).
+* **Client-hosted MCP** (`mcp_client.rs`, experimental): `POST /api/experimental/client-mcp/token?name=`
+  checks the location, then `name` (`^[a-zA-Z0-9_-]+$`, not in the API document; a repeated key is
+  `Expected string`), then the ticket header and Origin (`403 "Invalid client MCP connect token request"`),
+  and issues a ticket scoped `{mcp:<name>, directory, workspace}` in the location envelope.
+  `GET /api/experimental/client-mcp?name=&ticket=` checks the query, the Origin (empty 403), the ticket
+  (empty 403), the location (404), then needs a WebSocket upgrade (empty 400), and calls
+  `experimental_mcp_client(ctx, McpClientAttachRequest{name}) -> McpClientAttachment{output, control}`:
+  `control.open()` once the socket is open, inbound frames to `control.deliver` (binary decoded as
+  UTF-8), `output` frames written in order until an `McpClientOutbound::Close{code, reason}` (or `1000`
+  when it ends), and `control.ended()` when the socket closes or the upgrade never completes.
 * **PTY WebSockets**: location PTY — replay as text frames of ≤ 65 536 UTF-16 units, then a
   binary `0x00{"cursor":n}` meta frame, live text frames, close `1000` at end; inbound text
   verbatim, binary strict-UTF-8; `PtyAttachment.shutdown` resolving closes it with `1012 "location shut down"`. Persistent PTY — `attached` JSON, replay binary,

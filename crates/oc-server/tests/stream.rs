@@ -375,3 +375,165 @@ async fn event_feed_filters_by_types() {
     }
     server.shutdown().await;
 }
+
+// ---- experimental client-hosted MCP -------------------------------------------------------------------------------
+
+async fn client_mcp_token(url: &str, query: &str, ticket_header: bool, origin: Option<&str>) -> reqwest::Response {
+    let mut req = reqwest::Client::new()
+        .post(format!("{url}/api/experimental/client-mcp/token?{query}"))
+        .header("authorization", basic(PASSWORD));
+    if ticket_header {
+        req = req.header("x-opencode-ticket", "1");
+    }
+    if let Some(origin) = origin {
+        req = req.header("origin", origin);
+    }
+    req.send().await.unwrap()
+}
+
+async fn client_mcp_ticket(url: &str, query: &str) -> String {
+    let res = client_mcp_token(url, query, true, None).await;
+    assert_eq!(res.status(), 200);
+    res.json::<Value>().await.unwrap()["data"]["ticket"].as_str().unwrap().to_string()
+}
+
+fn refused(err: tokio_tungstenite::tungstenite::Error) -> u16 {
+    match err {
+        tokio_tungstenite::tungstenite::Error::Http(response) => response.status().as_u16(),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// `client-mcp.test.ts` "accepts a single-use ticket instead of credentials" and the token route's checks (2.3.1).
+#[tokio::test]
+async fn client_mcp_tickets() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path().to_str().unwrap().to_string();
+    let mock = Mock::new();
+    let server = start(mock.clone(), &d).await;
+    let url = server.url().to_string();
+    let base = url.replacen("http://", "ws://", 1);
+
+    // Without the preflight-forcing header, or from a foreign origin, a ticket cannot be minted even with credentials.
+    let res = client_mcp_token(&url, "name=web", false, None).await;
+    assert_eq!(res.status(), 403);
+    assert_eq!(res.json::<Value>().await.unwrap(), json!({"_tag": "ForbiddenError", "message": "Invalid client MCP connect token request"}));
+    assert_eq!(client_mcp_token(&url, "name=web", true, Some("https://evil.example")).await.status(), 403);
+    let res = client_mcp_token(&url, "name=bad%20name", true, None).await;
+    assert_eq!(res.status(), 400);
+    assert_eq!(
+        res.json::<Value>().await.unwrap(),
+        json!({"_tag": "InvalidRequestError", "message": "Expected a string matching the RegExp ^[a-zA-Z0-9_-]+$\n  at [\"name\"]", "kind": "Query"})
+    );
+    // The query is checked before the header.
+    assert_eq!(client_mcp_token(&url, "", false, None).await.json::<Value>().await.unwrap()["message"], "Missing key\n  at [\"name\"]");
+    let res = client_mcp_token(&url, "name=web", true, None).await;
+    assert_eq!(res.status(), 200);
+    let v = res.json::<Value>().await.unwrap();
+    assert_eq!(v["location"]["directory"], d);
+    assert_eq!(v["data"]["expires_in"], 60);
+    assert_eq!(v["data"]["ticket"].as_str().unwrap().len(), 36);
+
+    // Neither credentials nor a ticket: 401.
+    assert_eq!(refused(tokio_tungstenite::connect_async(format!("{base}/api/experimental/client-mcp?name=web")).await.unwrap_err()), 401);
+    // A ticket for another name, or another directory, is refused and stays valid for its own.
+    let t = client_mcp_ticket(&url, "name=web").await;
+    let err = tokio_tungstenite::connect_async(format!("{base}/api/experimental/client-mcp?name=other&ticket={t}")).await.unwrap_err();
+    assert_eq!(refused(err), 403);
+    let other = format!("{base}/api/experimental/client-mcp?name=web&ticket={t}&location[directory]={}", enc(&format!("{d}/other")));
+    assert_eq!(refused(tokio_tungstenite::connect_async(other).await.unwrap_err()), 403);
+    // A PTY ticket is no client MCP ticket.
+    let pty = ticket(&url, "/api/pty/pty_1/connect-token").await;
+    let err = tokio_tungstenite::connect_async(format!("{base}/api/experimental/client-mcp?name=web&ticket={pty}")).await.unwrap_err();
+    assert_eq!(refused(err), 403);
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    *mock.mcp_client_output.lock() = Some(rx);
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("{base}/api/experimental/client-mcp?name=web&ticket={t}")).await.unwrap();
+    assert!(mock.calls.lock().iter().any(|c| c.0 == "experimental.mcp.client" && c.2.contains("name: \"web\"")));
+    // Used up.
+    let err = tokio_tungstenite::connect_async(format!("{base}/api/experimental/client-mcp?name=web&ticket={t}")).await.unwrap_err();
+    assert_eq!(refused(err), 403);
+
+    // One JSON-RPC message per frame both ways; binary frames are decoded as UTF-8.
+    tx.send(oc_server::McpClientOutbound::Text("{\"id\":0}".into())).unwrap();
+    assert_eq!(ws.next().await.unwrap().unwrap(), Message::Text("{\"id\":0}".into()));
+    ws.send(Message::Text("{\"a\":1}".into())).await.unwrap();
+    ws.send(Message::Binary(b"{\"b\":2}".to_vec().into())).await.unwrap();
+    for _ in 0..200 {
+        if mock.mcp_client_seen.lock().len() >= 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(*mock.mcp_client_seen.lock(), ["open", "deliver {\"a\":1}", "deliver {\"b\":2}"]);
+    tx.send(oc_server::McpClientOutbound::Close { code: 1011, reason: "attach failed".into() }).unwrap();
+    match ws.next().await.unwrap().unwrap() {
+        Message::Close(Some(f)) => {
+            assert_eq!(u16::from(f.code), 1011);
+            assert_eq!(f.reason.as_str(), "attach failed");
+        }
+        other => panic!("{other:?}"),
+    }
+    for _ in 0..200 {
+        if mock.mcp_client_seen.lock().last().map(String::as_str) == Some("ended") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(mock.mcp_client_seen.lock().last().map(String::as_str), Some("ended"));
+    server.shutdown().await;
+}
+
+/// The client route's checks, in upstream's order: the query, the origin, the ticket, the location, the upgrade.
+#[tokio::test]
+async fn client_mcp_connect_checks() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path().to_str().unwrap().to_string();
+    let mock = Mock::new();
+    let server = start(mock.clone(), &d).await;
+    let url = server.url().to_string();
+    let base = url.replacen("http://", "ws://", 1);
+    let http = reqwest::Client::new();
+    let get = |query: &str, origin: Option<&str>| {
+        let mut req = http.get(format!("{url}/api/experimental/client-mcp?{query}")).header("authorization", basic(PASSWORD));
+        if let Some(origin) = origin {
+            req = req.header("origin", origin);
+        }
+        req.send()
+    };
+    let res = get("name=bad%20name", Some("https://evil.example")).await.unwrap();
+    assert_eq!(res.status(), 400);
+    assert_eq!(res.json::<Value>().await.unwrap()["_tag"], "InvalidRequestError");
+    let res = get("name=web&name=x", None).await.unwrap();
+    assert_eq!(res.json::<Value>().await.unwrap()["message"], "Expected string\n  at [\"name\"]");
+    let res = get("name=web", Some("https://evil.example")).await.unwrap();
+    assert_eq!(res.status(), 403);
+    assert_eq!(res.text().await.unwrap(), "");
+    // An unknown ticket is refused even with credentials.
+    assert_eq!(get("name=web&ticket=bogus", None).await.unwrap().status(), 403);
+    // The location is resolved before the upgrade; without an upgrade: 400.
+    let res = get(&format!("name=web&location[directory]={}", enc("/nonexistent/x")), None).await.unwrap();
+    assert_eq!(res.status(), 404);
+    assert_eq!(res.json::<Value>().await.unwrap()["_tag"], "LocationNotFoundError");
+    let res = get("name=web", None).await.unwrap();
+    assert_eq!(res.status(), 400);
+    assert_eq!(res.text().await.unwrap(), "");
+    // An unknown ticket skips the credential check and is refused by the handler.
+    let err = tokio_tungstenite::connect_async(format!("{base}/api/experimental/client-mcp?name=web&ticket=bogus")).await.unwrap_err();
+    assert_eq!(refused(err), 403);
+    let mut req = format!("{base}/api/experimental/client-mcp?name=web&location[directory]={}", enc(&format!("{d}/missing")))
+        .into_client_request()
+        .unwrap();
+    req.headers_mut().insert("authorization", basic(PASSWORD).parse().unwrap());
+    match tokio_tungstenite::connect_async(req).await.unwrap_err() {
+        tokio_tungstenite::tungstenite::Error::Http(response) => {
+            assert_eq!(response.status(), 404);
+            let body: Value = serde_json::from_slice(response.body().as_deref().unwrap()).unwrap();
+            assert_eq!(body["_tag"], "LocationNotFoundError");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(!mock.calls.lock().iter().any(|c| c.0 == "experimental.mcp.client"));
+    server.shutdown().await;
+}

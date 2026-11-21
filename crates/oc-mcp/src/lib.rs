@@ -25,7 +25,7 @@ pub use config::{
 };
 pub use connection::{ConnectError, Connection};
 pub use error::McpError;
-pub use manager::{ManagerError, ManagerOptions, McpManager};
+pub use manager::{Attachment, ManagerError, ManagerOptions, McpManager};
 pub use pool::McpPool;
 pub use oauth::{AuthorizeHandle, McpCredentialStore, MemoryCredentialStore, StoredCredential};
 pub use protocol::ElicitationHandler;

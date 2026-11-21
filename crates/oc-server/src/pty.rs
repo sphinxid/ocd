@@ -76,11 +76,11 @@ pub fn decode_framed(data: &[u8]) -> Option<FramedInput<'_>> {
     }
 }
 
-fn close(code: u16, reason: &str) -> Message {
+pub(crate) fn close(code: u16, reason: &str) -> Message {
     Message::Close(Some(CloseFrame { code, reason: reason.into() }))
 }
 
-fn ticket(call: &Call) -> Option<&str> {
+pub(crate) fn ticket(call: &Call) -> Option<&str> {
     call.query_raw("ticket").filter(|t| !t.is_empty())
 }
 
@@ -92,11 +92,7 @@ pub(crate) async fn connect(app: &App, call: Call, ws: Option<WebSocketUpgrade>)
     let pty_id = call.path_str("ptyID", Some("^pty"))?;
     let location = call.ctx.location.clone();
     if let Some(t) = ticket(&call) {
-        let scope = TicketScope {
-            pty_id: pty_id.clone(),
-            directory: Some(location.directory.clone()),
-            workspace_id: location.workspace_id.clone(),
-        };
+        let scope = TicketScope::pty(&pty_id, Some(location.directory.clone()), location.workspace_id.clone());
         if !app.tickets.consume(t, &scope) {
             return Err(ApiError::Empty(StatusCode::FORBIDDEN));
         }
@@ -171,7 +167,7 @@ pub(crate) async fn persistent_connect(app: &App, call: Call, ws: Option<WebSock
     }
     let pty_id = call.path_str("ptyID", Some("^pty"))?;
     if let Some(t) = ticket(&call) {
-        let scope = TicketScope { pty_id: pty_id.clone(), directory: None, workspace_id: None };
+        let scope = TicketScope::pty(&pty_id, None, None);
         if !app.tickets.consume(t, &scope) {
             return Err(ApiError::Empty(StatusCode::FORBIDDEN));
         }

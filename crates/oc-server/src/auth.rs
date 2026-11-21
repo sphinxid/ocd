@@ -262,6 +262,12 @@ impl<V> TtlCache<V> {
         self.entries.insert(key, (Instant::now() + self.ttl, value));
     }
 
+    /// A live entry, left in place.
+    pub fn get(&mut self, key: &str) -> Option<&V> {
+        self.purge();
+        self.entries.get(key).map(|(_, v)| v)
+    }
+
     /// Remove and return a live entry (single use).
     pub fn take(&mut self, key: &str) -> Option<V> {
         self.purge();
@@ -296,16 +302,27 @@ impl Pairing {
     }
 }
 
-/// Scope stored with a PTY ticket; consumption must match exactly.
+/// Scope stored with a connect ticket; consumption must match exactly. A ticket authorizes one upgrade to one target:
+/// a PTY (`pty:<id>`), or a client MCP connection by client name (`mcp:<name>`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TicketScope {
-    pub pty_id: String,
+    pub target: String,
     /// `None` for persistent PTYs.
     pub directory: Option<String>,
     pub workspace_id: Option<String>,
 }
 
-/// PTY WebSocket tickets: UUID v4, single use, 60 s, capacity 10 000.
+impl TicketScope {
+    pub fn pty(pty_id: &str, directory: Option<String>, workspace_id: Option<String>) -> Self {
+        Self { target: format!("pty:{pty_id}"), directory, workspace_id }
+    }
+
+    pub fn mcp_client(name: &str, directory: Option<String>, workspace_id: Option<String>) -> Self {
+        Self { target: format!("mcp:{name}"), directory, workspace_id }
+    }
+}
+
+/// PTY and client MCP WebSocket tickets: UUID v4, single use, 60 s, capacity 10 000.
 pub(crate) struct Tickets {
     cache: parking_lot::Mutex<TtlCache<TicketScope>>,
 }
@@ -323,12 +340,14 @@ impl Tickets {
         ticket
     }
 
+    /// Removes the ticket when it is live and issued for exactly `scope` (`Cache.invalidateWhen`); a ticket presented
+    /// for another target or location stays valid for its own.
     pub fn consume(&self, ticket: &str, scope: &TicketScope) -> bool {
         let mut cache = self.cache.lock();
-        match cache.take(ticket) {
-            Some(stored) => stored == *scope,
-            None => false,
+        if cache.get(ticket) != Some(scope) {
+            return false;
         }
+        cache.take(ticket).is_some()
     }
 }
 
@@ -410,14 +429,18 @@ mod tests {
     #[test]
     fn tickets_match_scope() {
         let t = Tickets::new();
-        let scope = TicketScope { pty_id: "pty_1".into(), directory: Some("/d".into()), workspace_id: None };
+        let scope = TicketScope::pty("pty_1", Some("/d".into()), None);
         let k = t.issue(scope.clone());
         let other = TicketScope { directory: Some("/e".into()), ..scope.clone() };
         assert!(!t.consume(&k, &other));
-        // consumed even on mismatch (single use)
-        assert!(!t.consume(&k, &scope));
-        let k = t.issue(scope.clone());
+        // A mismatch leaves the ticket for its own scope; a match uses it up.
         assert!(t.consume(&k, &scope));
+        assert!(!t.consume(&k, &scope));
+        // Targets are distinct even when names collide across kinds.
+        let k = t.issue(TicketScope::mcp_client("web", Some("/d".into()), None));
+        assert!(!t.consume(&k, &TicketScope::mcp_client("other", Some("/d".into()), None)));
+        assert!(!t.consume(&k, &TicketScope::pty("web", Some("/d".into()), None)));
+        assert!(t.consume(&k, &TicketScope::mcp_client("web", Some("/d".into()), None)));
     }
 
     #[test]

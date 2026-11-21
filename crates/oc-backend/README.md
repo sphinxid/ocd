@@ -129,7 +129,11 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `mcp.resource.catalog`, `experimental.mcp.add/remove/connect/disconnect` (404
   `McpServerNotFoundError`); MCP prompts are slash commands `<server>:<prompt>` (arguments parsed
   like upstream, `MCP prompt not found: …` → 500 `CommandExecutionError`). Without a runner the
-  lists are empty and server operations 404.
+  lists are empty and server operations 404. `experimental.mcp.client` (`client_mcp.rs`) attaches a
+  client-hosted server to the location's registry once its socket opens (`McpManager::attach` over a
+  `SocketTransport`) and detaches it when the socket closes; the socket closes with `1011 "attach failed"`
+  when the handshake or first tool list fails (not when the client went away during it) and with
+  `1012 "location shut down"` when the location shuts down.
 * **pty** (`app.ptys`): a socket's attachment closes with `1012 "location shut down"` when its location shuts down
   (reload, `vcs.init`, debug eviction), and the location's PTYs end then (2.2.7);
   `pty.list/create/get/update/remove/connect`, default shell
@@ -323,7 +327,10 @@ over the `experimental.browser` routes: the grant and removal of the session all
 session deletion, the `browser.*` tools through Code Mode answered from the control events (outputs decoded
 with the operation schemas, captures saved, uploads sent as bytes, desktop failures, invalid results read as
 their schema decode error, unknown tabs, refused URLs), the request timeout with its `cancel` event, a desktop leaving mid-request, and tunnels
-to a loopback server ending with the attachment. `tests/aisdk.rs` configures oc-plugin's
+to a loopback server ending with the attachment. `tests/client_mcp.rs` serves the router over TCP and has fake
+clients host MCP servers over `/api/experimental/client-mcp` WebSockets: the handshake, the tools reaching the model
+through Code Mode with the session in `_meta` and gone after the socket closes, stacked clients and the fallback, the
+1011 and 1012 closes, and the refusals before the upgrade. `tests/aisdk.rs` configures oc-plugin's
 fixture AI SDK provider package (`aisdk:file://...`) and runs prompts through the AI SDK bridge:
 text, reasoning, a tool call and usage; plugin `aisdk.sdk` / `aisdk.language` and `session.http.*`
 hooks; a provider HTTP error and a package that fails to initialize. `tests/credential_events.rs` checks what

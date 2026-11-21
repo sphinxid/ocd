@@ -88,6 +88,9 @@ impl App {
     }
 }
 
+/// `MCP_CLIENT_PATH`.
+pub(crate) const MCP_CLIENT_PATH: &str = "/api/experimental/client-mcp";
+
 static PAIRING_PATH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^/auth/connect/[^/]+$").expect("regex"));
 static PTY_CONNECT_PATH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^/api/pty/[^/]+/connect$").expect("regex"));
 static PERSISTENT_CONNECT_PATH: LazyLock<Regex> =
@@ -97,8 +100,11 @@ pub(crate) fn is_pairing_connect(path: &str) -> bool {
     PAIRING_PATH.is_match(path)
 }
 
+/// A ticketed PTY or client MCP connect (`hasPtyConnectTicketURL`, `hasPersistentPtyConnectTicketURL`,
+/// `hasMcpClientTicketURL`): browsers cannot set headers on WebSocket upgrades, so these skip the credential check and
+/// their handlers consume and validate the ticket.
 pub(crate) fn has_pty_ticket(path: &str, query: &[(String, String)]) -> bool {
-    (PTY_CONNECT_PATH.is_match(path) || PERSISTENT_CONNECT_PATH.is_match(path))
+    (PTY_CONNECT_PATH.is_match(path) || PERSISTENT_CONNECT_PATH.is_match(path) || path == MCP_CLIENT_PATH)
         && query.iter().any(|(k, v)| k == "ticket" && !v.is_empty())
 }
 

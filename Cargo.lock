@@ -2426,6 +2426,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-tungstenite 0.29.0",
  "tokio-util",
  "tower",
  "tracing",

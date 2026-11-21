@@ -19,7 +19,7 @@ export PATH=$HOME/.cargo/bin:$PATH
 cargo build -p ocd                          # debug build is enough
 python3 scripts/parity.py --list            # scenarios and groups
 python3 scripts/parity.py -q                # everything (about 25 minutes with a debug build)
-python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude automation image artifact media api227 wire227 tools227 mcp227 run227 acp local api230 freeform230 auth230 subagent tls230 codemode231 api231 providers231 daemon231 partrows mcpopt231 warming231 console231
+python3 scripts/parity.py --group session   # one group: loop session permission form readonly errors cli plugin websocket stop todo wire22 goal background tools22 hg browser shell225 api225 session225 claude automation image artifact media api227 wire227 tools227 mcp227 run227 acp local api230 freeform230 auth230 subagent tls230 codemode231 api231 providers231 daemon231 partrows mcpopt231 warming231 console231 clientmcp231
 python3 scripts/parity.py 'loop_*' cli_run  # by name or glob
 ```
 
@@ -111,7 +111,7 @@ find VM differences: the VM's standard library is partly program code, so some e
 imports changed. ocd follows them (`crates/oc-codemode/tests/upstream_2_3_0.rs`) except the VM's lazy check of an
 iterator's `next`.
 
-## Scenarios (280)
+## Scenarios (283)
 
 | group | scenarios |
 |---|---|
@@ -164,8 +164,17 @@ iterator's `next`.
 | codemode230 | 2.3.0 Code Mode (`scripts/parity/codemode230.py`): `search` over the built-in and fake MCP tools (whole and partial words, plurals, a namespace filter), an unknown tool's suggestion and namespace calls naming up to three tools, a compact JSON result; streaming `fetch` against mock routes that send chunks 80 ms apart (a reader, `for await` with a streaming `TextDecoder`, a second whole-body read failing, the response's keys and `Headers`, `bodyUsed`), a redirect whose open body the mock sees discarded, and a body left open at the program's end that the mock sees cancelled |
 | codemode231 | 2.3.1 Code Mode (`scripts/parity/codemode231.py`): `Buffer` (text in each encoding, number reads and writes, views, Node's error codes, the `buffer` module, a Buffer returned and logged, a logging-only program with no `null` line); arguments of fake MCP calls crossing as host copies then JSON (a `toJSON` not run, functions left out, promises awaited, Dates/Sets/URLs/errors converted; an iterator, a symbol, `tools`, a Uint8Array and a Buffer refused; a rejected promise), `search("text")` and its input error's suggestion, the reworded diagnostics; a plugin (`crates/oc-plugin/tests/fixtures/codemode-rename-plugin`) renaming calls inside a program to another Code Mode tool (structured output returned) or to a direct or unknown tool (not available); a nested `worktree_remove` asking `edit`, whose `permission.asked` names the `execute` call as its source |
 | console231 | OpenCode Console opt-in features against a local mock Console signed in with a fake API key (`scripts/parity/console231.py`; the mock answers the config with the headers a scenario turns on, the event stream over a WebSocket or long polls, the watch and artifact routes, and records every request with its sign-in headers). `console_watches` (2.2.7, `experimental.console_watches` + `x-opencode-event-watches`): the `console_watch` tools through Code Mode (a target, an MCP event type with minutes, the list, an unwatch of another session's watch, both kinds at once, the event types) and the catalog's `console_watch` namespace; a teammate's review waking the session (the steer and the model request it resumes), another machine's event left unacknowledged, a lease end reconnecting at once, two shell calls that printed a pull request URL (2.3.1's shell result has `exitCode` where the watch reads `exit`: neither binary watches them), a deleted session's watches cancelled and its later event acknowledged, the upgrade's sign-in headers. `console_watches_poll`: a refused upgrade, long polls with Console's cursor, a CI failure waking the session. `console_watches_off`: no flag, or no header: no socket, no request, no tools. `console_artifacts` (2.3.1, `artifacts` + `x-opencode-artifacts`): the providers, a publish over HTTP (prepare, only missing blobs, the publish with the session), an update over the same slug, a read Console can't serve, a name another member took, `artifact_create` from a session, the list and a delete, `artifact.updated`. `console_artifacts_quiet`: without watches the publish names no session; without the header `local` stays the default |
+| clientmcp231 | Experimental client-hosted MCP (`scripts/parity/clientmcp231.py`; a scripted client over the harness's own WebSocket client, `scripts/parity/wsclient.py`): `clientmcp231_model_calls_client_tool`, a client named `tui` hosting `open_terminal` and `write_terminal` (the `initialize` it is sent, `/api/mcp` not listing it, the model calling both and a missing one through Code Mode with the session in `_meta`, the catalog update after it disconnects); `clientmcp231_stacked_clients`, two clients under one name (the newer, answering in binary frames, takes the calls; the older one after the newer disconnects); `clientmcp231_tickets_and_refusals`, the ticket route's checks and envelope, the socket's 401/403/400/404 refusals in order, a ticket presented for another name or directory staying valid for its own, a used one refused, a rejected `initialize` closing with 1011 and a reload with 1012 before the client attaches again |
 
 ## Results
+
+**Client-hosted MCP (debug build, 2026-11-20):** the new `clientmcp231` group (3 scenarios) against the opencode
+2.3.1 binary through the isolation guard: **3 identical** (two runs). The handshake opencode sends the client, the
+tool calls and their `_meta`, the stored parts, events and model requests, the stacking and fallback, and every
+refusal and close code match. Probing the binary first showed that a ticket presented for another name, location or
+PTY is not used up (2.3.1's `Cache.invalidateWhen`); ocd's PTY tickets were used up by any attempt and now behave the
+same. Rerun with this change: `mcpopt231` and `api231` identical, `mcp227` 4 of 5 (`mcp227_slow_server_misses_the_first_step`
+found the slow server already connected on a loaded machine, a timing difference of the debug build).
 
 **OpenCode Console opt-in features (debug build, 2026-11-20):** the new `console231` group (5 scenarios) against the
 opencode 2.3.1 binary with a local mock Console and a fake API key: **5 identical**. The watch tools, the catalog

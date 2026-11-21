@@ -287,6 +287,43 @@ pub struct PtyAttachment {
     pub shutdown: Option<futures::future::BoxFuture<'static, ()>>,
 }
 
+// ---- experimental.mcp.client --------------------------------------------------------------------
+
+/// `experimental.mcp.client` attach input: the name the client's MCP server is attached under (`^[a-zA-Z0-9_-]+$`,
+/// checked by the server), so the model sees its tools as `<name>_<tool>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpClientAttachRequest {
+    pub name: String,
+}
+
+/// What the server writes to a client MCP socket, in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpClientOutbound {
+    /// One JSON-RPC message.
+    Text(String),
+    /// Closes the socket; nothing is written after it.
+    Close { code: u16, reason: String },
+}
+
+/// Inbound side of a client MCP attachment.
+pub trait McpClientControl: Send + Sync {
+    /// The socket is open: the MCP handshake may start (frames sent before it queue on `output`).
+    fn open(&self);
+    /// One inbound frame (text frames verbatim; binary frames decoded as UTF-8).
+    fn deliver(&self, text: &str);
+    /// Called once when the socket closes (or never opens): the attachment ends with it.
+    fn ended(&self);
+}
+
+/// A client-hosted MCP server attached over a WebSocket the client opened. The location is resolved before the upgrade;
+/// the handshake runs once the socket is open, and the attachment lives as long as the socket.
+pub struct McpClientAttachment {
+    /// Frames for the client. Ends after a [`McpClientOutbound::Close`] (a failed attach: `1011 "attach failed"`; the
+    /// location shutting down: `1012 "location shut down"`); a stream that ends without one closes with `1000`.
+    pub output: BoxStream<'static, McpClientOutbound>,
+    pub control: Arc<dyn McpClientControl>,
+}
+
 // ---- persistentPty.connect ---------------------------------------------------------------------
 
 /// Attachment role.
