@@ -180,6 +180,9 @@ pub struct TranscriptCache {
     layout_from: Option<usize>,
     /// Every row is rendered and the line starts and marks are valid.
     complete: bool,
+    /// Line count and viewport height at the last complete frame, so a view scrolled up can be
+    /// compensated for lines appended below it (see `App::draw_transcript`).
+    pub(super) last_frame: Option<(usize, usize)>,
     sid: String,
     width: usize,
     /// Labels of every session ID a rendered row mentions, as of the last sync (`used` in
