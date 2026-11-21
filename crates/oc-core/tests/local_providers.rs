@@ -482,7 +482,9 @@ async fn vllm_reloads_layered_endpoint_and_bearer_settings() {
     let entries = vec![config(json!({"vllm": {"settings": {"baseURL": base}}})), config(json!({"vllm": {"settings": {"apiKey": "next-secret"}}}))];
     c.reconfigure("/loc", &entries);
     eventually(|| async { c.discovered("/loc", Kind::Vllm).and_then(|d| d.api_key) }, |k| k.as_deref() == Some("next-secret")).await;
-    let seen = configured.seen();
+    // The key changes with the config, before that round's requests: wait for the mock's log.
+    let bearer = |path: &'static str| move |seen: &Vec<Seen>| seen.iter().any(|s| s.authorization.as_deref() == Some("Bearer next-secret") && s.path == path);
+    let seen = eventually(|| async { configured.seen() }, |seen| bearer("/proxy/health")(seen) && bearer("/proxy/v1/models")(seen)).await;
     assert!(seen.iter().any(|s| s.authorization.as_deref() == Some("Bearer next-secret") && s.path == "/proxy/health"));
     assert!(seen.iter().any(|s| s.authorization.as_deref() == Some("Bearer next-secret") && s.path == "/proxy/v1/models"));
 }
