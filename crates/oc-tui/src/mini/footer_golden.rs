@@ -310,3 +310,24 @@ fn the_draft_keeps_its_caret_after_the_command_palette() {
     assert!(frames[0]["cursor"].is_array());
     assert_eq!(frames[2]["cursor"], frames[0]["cursor"]);
 }
+
+/// ocd's own: with text in the prompt, Home and End move to the line's start and end.
+#[test]
+fn home_and_end_move_within_the_prompt_line() {
+    let frames = run(&serde_json::json!({
+        "name": "home-end",
+        "agents": [{ "id": "build", "name": "Build", "mode": "primary", "hidden": false }],
+        "model": { "providerID": "mock", "modelID": "m1" },
+        "steps": [
+            { "text": "hello world" },
+            { "snap": "typed" },
+            { "key": "home" },
+            { "snap": "home" },
+            { "key": "end" },
+            { "snap": "end" },
+        ],
+    }));
+    let col = |i: usize| frames[i]["cursor"][0].as_u64().unwrap();
+    assert_eq!(col(0) - col(1), "hello world".len() as u64);
+    assert_eq!(col(2), col(0));
+}

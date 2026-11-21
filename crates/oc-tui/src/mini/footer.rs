@@ -1545,6 +1545,19 @@ impl Footer {
             self.handle_input_clear();
             return;
         }
+        // ocd's own: with text in the prompt, plain Home and End move to the current line's start and end.
+        if !visible
+            && !self.composer.area.plain_text().is_empty()
+            && matches!(s.name.as_str(), "home" | "end" | "kphome" | "kpend")
+            && !(s.ctrl || s.shift || s.meta || s.super_ || s.hyper)
+        {
+            if s.name.ends_with("home") {
+                self.composer.area.line_home();
+            } else {
+                self.composer.area.line_end();
+            }
+            return;
+        }
         if let Some(c) = s.is_char() {
             self.composer.area.insert_text(&c.to_string());
             self.with_composer(|c, f| c.content_changed(f));

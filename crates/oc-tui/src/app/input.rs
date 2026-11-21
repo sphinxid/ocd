@@ -290,6 +290,20 @@ impl App {
                     return;
                 }
             }
+            // ocd's own: with text in the prompt, plain Home and End move to the current line's start and end (as in
+            // most editors). An empty prompt leaves them to upstream's bindings (`session.first`/`session.last`).
+            if self.prompt_active()
+                && !self.editor.is_empty()
+                && matches!(s.name.as_str(), "home" | "end" | "kphome" | "kpend")
+                && !(s.ctrl || s.shift || s.meta || s.super_ || s.hyper)
+            {
+                if s.name.ends_with("home") {
+                    self.editor.home();
+                } else {
+                    self.editor.end();
+                }
+                return;
+            }
             if s.name == "!" && !self.editor.shell && self.editor.cursor == 0 && self.prompt_active() && s.is_char().is_some() {
                 self.editor.shell = true;
                 self.placeholder = rand::random_range(0..3);

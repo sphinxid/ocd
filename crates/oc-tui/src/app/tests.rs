@@ -1182,3 +1182,26 @@ fn wheel_scroll_speed_and_acceleration() {
     }
     assert!(pos(&app) > 30, "a fast streak moved {} lines", pos(&app));
 }
+
+/// ocd's own: with text in the prompt, Home and End move to the current line's start and end; an empty prompt leaves
+/// them to `session.first`/`session.last`.
+#[test]
+fn home_and_end_move_within_the_prompt_line_when_it_has_text() {
+    let mut a = app();
+    let sid = session(&mut a);
+    a.editor.insert("first line\nsecond");
+    render(&mut a, 100, 12);
+    a.on_key(Stroke::key("home"));
+    assert_eq!(a.editor.cursor, "first line\n".len());
+    a.on_key(Stroke::key("kpend"));
+    assert_eq!(a.editor.cursor, a.editor.text.len());
+    a.editor.cursor = 0;
+    a.on_key(Stroke::key("end"));
+    assert_eq!(a.editor.cursor, "first line".len());
+    assert_eq!(a.views.get(&sid).map_or(0, |v| v.scroll_from_bottom), 0, "the transcript stays put");
+    // Empty prompt: Home scrolls the transcript to the first message, as upstream.
+    a.editor.clear();
+    a.on_key(Stroke::key("home"));
+    assert!(a.views.get(&sid).is_some_and(|v| v.scroll_from_bottom > 0));
+    assert!(a.editor.is_empty());
+}
