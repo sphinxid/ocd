@@ -210,11 +210,17 @@ impl HostValue {
     }
 }
 
-/// What a host function call produces: a value now (a synchronous host function), or a future (a host `Promise`,
-/// which the program sees as a promise). `Err` values are thrown into the program.
+/// What a host function call produces. `Err` values are thrown into the program (or reject its promise).
 pub enum HostCall {
+    /// A value now.
     Ready(Result<HostValue, HostValue>),
+    /// Work still running, as a host `Promise`: the program gets a promise that settles with it.
     Pending(BoxFuture<'static, Result<HostValue, HostValue>>),
+    /// Work the caller waits for (upstream 2.3.1, #64363: a synchronous global that returns an Effect blocks, as
+    /// `fs.readFileSync` does): the program's current job stops until it ends, then gets its value or catches what it
+    /// failed with, as from `Ready`; nothing else in the program runs meanwhile. From an asynchronous host function
+    /// it is the same as `Pending`.
+    Block(BoxFuture<'static, Result<HostValue, HostValue>>),
 }
 
 /// A host function callable from the program.
@@ -231,6 +237,74 @@ pub trait HostFunction: Send + Sync {
     /// synchronous global's denied call throws, and the hook holds the program's current job.
     fn asynchronous(&self) -> bool {
         false
+    }
+    /// Whether the program may call it with `new`, as it would a class such as `Bun.Glob` (upstream 2.3.1
+    /// `Extension.constructible`, #64472): `new f(...)` calls it exactly as `f(...)` does, and the program gets what it
+    /// returns. Otherwise `new f(...)` is `TypeError: new f(...) is not supported; call f(...) without new instead.`
+    fn constructible(&self) -> bool {
+        false
+    }
+}
+
+/// A host function from a closure, with upstream's options (see [`HostFunction`]):
+///
+/// ```
+/// use oc_codemode::host::{HostCall, HostFn, HostValue};
+/// let glob = HostFn::new("Glob", 1, |args| HostCall::Ready(Ok(args.into_iter().next().unwrap_or(HostValue::Undefined))))
+///     .constructible()
+///     .into_value();
+/// ```
+pub struct HostFn<F> {
+    name: String,
+    length: usize,
+    asynchronous: bool,
+    constructible: bool,
+    f: F,
+}
+
+impl<F> HostFn<F>
+where
+    F: Fn(Vec<HostValue>) -> HostCall + Send + Sync + 'static,
+{
+    pub fn new(name: impl Into<String>, length: usize, f: F) -> Self {
+        HostFn { name: name.into(), length, asynchronous: false, constructible: false, f }
+    }
+    /// Marks it asynchronous (upstream `Extension.async`).
+    pub fn asynchronous(mut self) -> Self {
+        self.asynchronous = true;
+        self
+    }
+    /// Lets the program call it with `new` (upstream `Extension.constructible`).
+    pub fn constructible(mut self) -> Self {
+        self.constructible = true;
+        self
+    }
+    pub fn into_arc(self) -> Arc<dyn HostFunction> {
+        Arc::new(self)
+    }
+    pub fn into_value(self) -> HostValue {
+        HostValue::Function(Arc::new(self))
+    }
+}
+
+impl<F> HostFunction for HostFn<F>
+where
+    F: Fn(Vec<HostValue>) -> HostCall + Send + Sync,
+{
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn length(&self) -> usize {
+        self.length
+    }
+    fn call(&self, args: Vec<HostValue>) -> HostCall {
+        (self.f)(args)
+    }
+    fn asynchronous(&self) -> bool {
+        self.asynchronous
+    }
+    fn constructible(&self) -> bool {
+        self.constructible
     }
 }
 
@@ -294,10 +368,30 @@ pub fn host_fn(
     HostValue::Function(Arc::new(FnHostFunction { name: name.into(), length, f }))
 }
 
-/// Host functions a program calls directly as globals (upstream `Extension.make`).
+/// Host values a program reaches directly as globals (upstream `Extension.make`): functions, or objects of
+/// functions such as `fs` or `path`.
+///
+/// An implementation gives either `globals` (functions only) or `values` (any global: a [`HostValue::Function`], or
+/// an object such as a [`HostValue::Object`] whose functions, at any depth of its plain objects, are called the same
+/// way and named by their path, `fs.readFile`, in diagnostics and in the hooks' [`ExtensionInvocation::name`]; data
+/// inside it crosses as a copy). Each global must be a function or an object, else `CodeMode::new` fails with
+/// `Extension "<name>" global "<global>" must be a function or an object.`
+///
+/// A function among the globals, or inside a global object, never crosses back to the host: passed as an argument it
+/// is left out like the program's own functions. A function inside a value a host function returned does: passed back
+/// to any extension function, on its own or inside an argument, it arrives as the same `HostValue::Function` (the same
+/// `Arc`, so `Arc::ptr_eq` tells which it was; upstream 2.3.1 `takesFunctions`, #64472). Tools never receive
+/// functions.
 pub trait Extension: Send + Sync {
     fn name(&self) -> &str;
-    fn globals(&self) -> Vec<(String, Arc<dyn HostFunction>)>;
+    /// The extension's function globals.
+    fn globals(&self) -> Vec<(String, Arc<dyn HostFunction>)> {
+        Vec::new()
+    }
+    /// The extension's globals as values; by default its function [`Extension::globals`].
+    fn values(&self) -> Vec<(String, HostValue)> {
+        self.globals().into_iter().map(|(name, f)| (name, HostValue::Function(f))).collect()
+    }
 }
 
 /// A simple extension from a list of globals.
@@ -311,6 +405,21 @@ impl Extension for SimpleExtension {
         &self.name
     }
     fn globals(&self) -> Vec<(String, Arc<dyn HostFunction>)> {
+        self.globals.clone()
+    }
+}
+
+/// An extension from a list of global values, functions or objects (see [`Extension`]).
+pub struct GlobalsExtension {
+    pub name: String,
+    pub globals: Vec<(String, HostValue)>,
+}
+
+impl Extension for GlobalsExtension {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn values(&self) -> Vec<(String, HostValue)> {
         self.globals.clone()
     }
 }

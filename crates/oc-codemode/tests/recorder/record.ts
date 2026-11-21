@@ -734,9 +734,12 @@ export class ToolCallRecording {
 
 // --- Extension calls ---
 
-/** How a host function returned: a Promise or an Effect, a plain value, or a throw. */
-export const returnedKind = (result: unknown, threw: boolean): "value" | "throw" | "promise" =>
-  threw ? "throw" : Effect.isEffect(result) || result instanceof Promise ? "promise" : "value"
+/**
+ * How a host function returned: a Promise, an Effect (which a synchronous global's caller waits for, #64363), a plain
+ * value, or a throw.
+ */
+export const returnedKind = (result: unknown, threw: boolean): "value" | "throw" | "promise" | "effect" =>
+  threw ? "throw" : Effect.isEffect(result) ? "effect" : result instanceof Promise ? "promise" : "value"
 
 export class ExtensionCallRecording {
   private settled = false
@@ -817,7 +820,7 @@ export class ExtensionCallRecording {
     )
   }
 
-  returned(kind: "value" | "throw" | "promise"): void {
+  returned(kind: "value" | "throw" | "promise" | "effect"): void {
     this.event.returned = kind
   }
 

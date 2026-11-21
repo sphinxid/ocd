@@ -28,7 +28,11 @@ What the recording shows of the split:
   event also carries `json`, the argument as JSON after it crossed as a host copy (functions left out, promises
   awaited, a program's `toJSON` not run), which the replay's host compares with what ocd hands it.
 - Extension calls are recorded from `CodeMode.make`'s `extensionFunction` (globals) and from the language's wrapper of
-  a function inside a result (`global: false`). A host `Buffer` is recorded as `{"$buffer": base64}`.
+  a function inside a result (`global: false`). A host `Buffer` is recorded as `{"$buffer": base64}`. A function of an
+  object global is labelled by its path (`fs.readSync`). `returned` is `"effect"` when the host function returned an
+  Effect, which a synchronous global's caller waits for (#64363), and `"promise"` for a Promise; `extensions.test.jsonl`
+  was re-recorded with that kit change (nothing else in it changed), and the other files still say `"promise"` for
+  both (none of them has a synchronous global returning an Effect).
 - `via` is `"language"` for runs of the language runtime itself (`language.test.ts`, the snapshot tests); the replay
   skips those, as it skips `program` and `resume`.
 - A language result carries the run's `metadata`; the recording turns it into Code Mode's `toolCalls`.

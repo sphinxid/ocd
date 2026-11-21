@@ -6,7 +6,8 @@ host tools from a single `execute` tool call.
 
 Programs can only use the supported JavaScript built-ins (with Node's `Buffer` since 2.3.1), the `tools` tree, the
 `search(...)` discovery function (synchronous, and its result can also be awaited or chained like a Promise), and
-globals the host adds through extensions (core adds only `fetch`). `import`, `import()` and
+globals the host adds through extensions (core adds `fetch`, and with the opt-in `experimental.full_codemode` also
+`path`, see The `path` global). `import`, `import()` and
 `require` load those globals by Node module name (see Modules). Classes, getters/setters, BigInt, arbitrary symbols,
 timers, exports, `eval`/`Function`, and TypeScript syntax are rejected with the same diagnostics as upstream. The exact support matrix is upstream's `interpreter-support.md`; behaviour, diagnostics, and model-visible
 strings match upstream byte for byte (verified by replaying upstream's recorded test executions, see Tests).
@@ -27,6 +28,7 @@ strings match upstream byte for byte (verified by replaying upstream's recorded 
 | `codemode` | Public runtime API, limits, output bounding (`codemode.ts`, `interpreter/execute.ts`) |
 | `catalog`, `execute_tool`, `web` | Core glue: catalog summarization and instruction texts (`core/src/codemode/{catalog,instructions}.ts`), the `execute` tool's description/schema/result formatting/progress rows (`codemode/tool.ts`), and the `fetch` extension (`codemode/fetch.ts`) |
 | `openapi` | OpenAPI 3.x → tools adapter (`openapi/*.ts`; unused by core upstream) |
+| `path`, `glob` | The `full_codemode` `path` global (core's `codemode/path.ts`): Node's `path` module as Bun 1.4 gives it, both flavours, and Bun's glob matching for `matchesGlob` |
 
 Each execution runs on a dedicated thread (1 GiB stack, so deep recursion up to the 10 000-call limit is safe) with
 its own job queue. Program code runs only inside a job, each to completion: the program body is the first job,
@@ -34,7 +36,8 @@ promise reactions and resumed awaits are queued in V8's order, and an async body
 the program) is a Rust future that parks at an `await` and is polled again by the job that resumes it. Host work
 (tool calls, async extension globals such as `fetch`) runs as host futures polled on that thread inside the caller's
 tokio runtime context; they wake the interpreter through a thread-safe queue and settle their promise in a later
-turn, after the jobs already queued. `search(...)` and synchronous extension globals hold the current job. A program
+turn, after the jobs already queued. `search(...)` and synchronous extension globals hold the current job, also while
+host work they block on runs (`HostCall::Block`). A program
 stuck at an `await` with nothing queued and no host work running fails at once, pointing at that `await`. When the
 program returns, host work still running is dropped (tool `after` hooks see `Interrupted`), and all objects of the
 run are torn down to release reference cycles.
@@ -73,6 +76,13 @@ let json = result.to_json();                    // upstream CodeMode.Result shap
   defined.`) — returned as `CodeModeError::{Range, Type}`.
 - `CodeMode::execute(&self, code) -> ExecResult` is a `Send` future; dropping it interrupts the program.
   `execute_blocking` runs it on a private current-thread runtime.
+- Per-run extensions (2.3.1, #64482, upstream `execute(code, bindings, { extensions })`):
+  `runtime.select_extensions(&[ext])` is the same runtime (tools, limits and bindings shared) whose runs get only those
+  of its extensions, in the runtime's order (`&[]` for none); each must be one the runtime was made with, the same
+  `Arc`, else `CodeModeError::Type("Extension \"<name>\" isn't one this runtime was made with.")`.
+  `select_extensions_named(&["fetch"])` picks by name; `execute_with(code, &RunOptions { extensions: Some(..) })` is
+  `select_extensions(..)?.execute(code)`. Core makes one runtime with every extension and picks `fetch` alone, or
+  `fetch` and `path` with `full_codemode`.
 - `ExecResult::{Success { value, warnings, logs, truncated, tool_calls }, Failure { error, logs, truncated,
   tool_calls }}`; `Diagnostic { kind: DiagnosticKind, message, location: Option<Location { line, column }>,
   suggestions }` with the eleven upstream kinds (`ParseError`, `UnsupportedSyntax`, `UnknownTool`,
@@ -116,12 +126,30 @@ output from tool '<name>': <msg>`. Hooks also run around `search` (as tool `sear
 `max_tool_calls`. `ToolInvocation { id, name, input }`, `CallResult::{Success, Failure, Interrupted}`.
 `NoTools` is a host without tools.
 
-Extensions (`host::Extension`, `SimpleExtension`) expose `HostFunction`s as globals. The `extension_before` hook
-runs before the host function, so a denied call never reaches the host: a host function marked asynchronous
-(`HostFunction::asynchronous`, `host::host_fn_async`; upstream's `async` functions and `Extension.async`, e.g. `fetch`)
-always returns a promise, which a denial rejects, while a synchronous one throws. Values cross as `HostValue`
+Extensions (`host::Extension`) expose globals: `Extension::globals()` gives functions (`SimpleExtension`), and
+`Extension::values()` (default: those functions) any global value (`GlobalsExtension { name, globals: Vec<(String,
+HostValue)> }`). A global is a function or an object (else `CodeMode::new` fails with `Extension "<name>" global
+"<global>" must be a function or an object.`, upstream `Extension.make`); since 2.3.1 (#61151, #64472) an object
+global such as `fs` or `path` is a `HostValue::Object` whose functions, at any depth of its plain objects, are called
+like global functions and named by their path (`fs.promises.readFile`) in diagnostics and in
+`ExtensionInvocation::name`; the rest of it is copied in as data, once per run, into a plain object the program may
+change. Host functions are built with `host::HostFn::new(name, length, |args| ...)`, optionally `.asynchronous()`
+(upstream `Extension.async`) and `.constructible()` (upstream `Extension.constructible`: `new f(...)` calls it as
+`f(...)` does and gives what it returns; otherwise `TypeError: new f(...) is not supported; call f(...) without new
+instead.`), then `.into_value()`/`.into_arc()`; `host_fn`/`host_fn_async`/`FnHostFunction` remain. The
+`extension_before` hook runs before the host function, so a denied call never reaches the host: an asynchronous host
+function (`HostFunction::asynchronous`) always returns a promise, which a denial rejects, while a synchronous one
+throws. A host function answers `HostCall::Ready` (a value now), `HostCall::Pending` (a host promise: the program gets a
+promise) or, since 2.3.1 (#64363), `HostCall::Block` (host work a synchronous function's caller waits for, as for a
+synchronous global returning an Effect upstream: the program's job stops until it ends and then gets its value or
+catches what it failed with, nothing else in the program running meanwhile; from an asynchronous function it is a
+promise). Values cross as `HostValue`
 copies (plain data, Date, RegExp, URL, URLSearchParams, Headers, Map, Set, bytes, Node `Buffer`s, errors with
-name/message/cause/own fields, and nested host functions that become callable program functions). Arguments cross
+name/message/cause/own fields, and nested host functions that become callable program functions). A function inside a
+value a host function returned, passed back to any extension function (on its own or inside an argument), arrives as
+the same `HostValue::Function` (the same `Arc`, so the host can tell with `Arc::ptr_eq` which it was; 2.3.1 #64472,
+core's `takesFunctions`); a function among the globals or inside a global object never does, and is left out like the
+program's own functions, and tools never receive functions. Arguments cross
 as upstream 2.3.1's core translates them for every host function, tools included (#64487, #64513): a function
 anywhere is left out (an object's key skipped, an array item `null`, a Map or Set entry or a whole argument
 `undefined`), a promise is replaced by its value (a pending one is awaited first and the call made again: an
@@ -135,7 +163,7 @@ object, Sets as arrays, errors as `{name, message, ...own fields}`, Maps and Reg
 Buffer refused with `InvalidDataValue` `A Uint8Array cannot cross to a tool; pass text instead, ...`. `HostValue::Live` is a host object with
 accessors read from the host on every access (non-enumerable) and `Symbol.asyncIterator` methods (`HostKey`,
 `HostProperty`); `fetch` builds its streaming responses from it. A host function returns
-`HostCall::Ready` (synchronous) or `HostCall::Pending` (the program sees a promise).
+`HostCall::Ready`, `HostCall::Pending` or `HostCall::Block` (above).
 
 HTTP: `host::{HttpClient, HttpRequest, HttpResponse}`; `HttpClient::send_streaming` returns an
 `HttpStreamingResponse` once the head arrives, its body a `BodyStream` of chunks (the default buffers `send`);
@@ -231,10 +259,21 @@ execution is interrupted.
   mapper, non-coercing byte searches, `flatMap` holes, the host's `Number#toString` radix check, `fetch` refusing
   `file:` URLs, the fetch display method fallback, and recursion depth as 2.1.4 reports it.
 - `tests/extensions_replay.rs` (44 recordings from 2.2, 63 from 2.3.0 and 77 from 2.3.1; the `extension-skips*.txt`
-  lists hold the records a replay cannot rebuild, those 2.3.1 changed (5 and 8), and on 2.3.1 the constructible
-  globals and object-valued globals of the host API core does not use, 13 in all) and `tests/hooks.rs` (16
-  recordings per corpus) — extension host functions and call hooks, including hook ordering and denials. The 2.3.1
-  test262 run is byte-identical to 2.3.0's, which `tests/test262_sample.rs` replays.
+  lists hold the records a replay cannot rebuild and those 2.3.1 changed: 5, 14 and 6) and `tests/hooks.rs` (the
+  recordings with hooks of `codemode.test.ts` and `extensions.test.ts`) — extension host functions and call hooks,
+  including hook ordering and denials, object globals (a global the recording only calls by longer paths, `fs.readSync`,
+  is an object), constructible globals (one the program calls with `new`), and host work a synchronous global blocks on
+  (recorded as `"returned": "effect"` since this kit's 2.3.1 re-recording of `extensions.test.ts`). The 2.3.1 test262
+  run is byte-identical to 2.3.0's, which `tests/test262_sample.rs` replays.
+- `tests/extensions_2_3_1.rs` — the 2.3.1 extension API as the host sees it (upstream `extensions.test.ts`): a function
+  from a result passed back as the same `Arc` and never to a tool, globals and program functions left out, constructible
+  and blocking globals, object globals through `import`/`require` with the hooks named by path, per-run selection.
+- `tests/path_module.rs` — `path::Module` against Bun 1.4.4 on 8 100 generated calls of every function of both
+  flavours (`tests/fixtures/path/path-calls.json`, `tests/recorder/path-calls.ts`) and `matchesGlob` on 5 220
+  generated patterns (`glob-calls.json`, `glob-calls.ts`).
+- `tests/path_global.rs` — 106 programs using the `path` global through upstream 2.3.1's Code Mode with core's
+  `path.ts`, on a POSIX host and as on a Windows host (`tests/fixtures/path/path-2.3.1.json`,
+  `tests/recorder/path-cases.ts`), and core's own `tool-execute.test.ts` "path" tests.
 - `tests/test262_sample.rs` — a deterministic quarter (3 340 files) of upstream's test262 conformance runs with a port
   of its harness, recorded from 2.2.2 and from 2.3.0 (whose harness defines `assert` in a one-line program prelude
   over the host's `$assert`); all identical except 1 documented in `tests/fixtures/test262-skips.txt` (and
@@ -306,8 +345,8 @@ globals.`` (2.3.1's wording).
 - Modules and namespaces are cached per execution, so repeated imports see the same object.
 - A top-level `export` is a `ParseError`: `SyntaxError: Exports aren't available. Return the result instead.`; a nested
   one is `UnsupportedSyntax` when reached. `import.meta` parses and is `UnsupportedSyntax` (`MetaProperty`).
-- Upstream's object-valued extension globals (#61151 lets `Extension.make` take objects, e.g. an `fs` object whose
-  functions fire the hooks) are not part of this crate's host API, which only takes functions; core never uses them.
+- Object-valued extension globals (#61151, e.g. an `fs` object whose functions fire the hooks) load like any other
+  global, so `import { join } from "node:path"` works with the `path` global.
 
 ## Buffer (upstream 2.3.1, #64365)
 
@@ -328,6 +367,42 @@ stopping at `=`), hex stops at the first pair that is not one. `console.log` sho
 most), `String(buffer)` its UTF-8 text. A Buffer crosses to an extension as a `HostValue::Buffer` and one coming back
 is a Buffer again; a tool refuses it like any Uint8Array. `structuredClone` copies it as a plain Uint8Array, as
 upstream does. Every behaviour above is checked against upstream 2.3.1 (`tests/upstream_2_3_1.rs`).
+
+## The `path` global (upstream 2.3.1, #64476, `experimental.full_codemode` only)
+
+`path::extension(directory)` is core's `CodeModePath.extension` for a run in the session's `directory`: a global
+`path` (also `import`able and `require`able as `path`/`node:path`) holding Node's `path` module as Bun 1.4.4 gives it,
+the host's flavour (`Flavour::host()`: POSIX, or Win32 on Windows) with `path.posix` and `path.win32`. Only functions
+and separators cross (`posix`/`win32` point back at their module upstream, which a global can't hold, so each is a
+copy of its own functions without them): `resolve`, `normalize`, `isAbsolute`, `join`, `relative`,
+`toNamespacedPath`, `dirname`, `basename`, `extname`, `format`, `parse`, `sep`, `delimiter`, `_makeLong` and
+`matchesGlob`, in that order, named as Bun binds them (`bound join`, length 1; `resolve` length 0 and `relative`
+length 2 are core's own). There is no `process.cwd()`: the host's flavour's `resolve`/`relative` start from
+`directory`, and the other flavour, which can't read that directory as absolute, from its own root (`/` or `\`).
+Calls fire the extension hooks as `path.join`, `path.win32.resolve`, ... (core's progress rows list only `fetch`).
+
+`path::Module::new(flavour, cwd).call(name, &args)` is the module itself: a port of Node's `lib/path.js` on UTF-16
+units, with Bun's argument checks (`TypeError: The "paths[0]" property must be of type string, got number`, Node's
+`The "pattern" argument must be of type string. Received ...` for `matchesGlob`) and Bun's differences
+(`win32.toNamespacedPath` returns the resolved path, which for a relative path reads the server's working directory;
+`format` adds the dot to an `ext` without one). `matchesGlob` is Bun's glob (`glob::matches`): `*`, `**` (two stars
+only, as a whole segment or joined by `/**`), `?`, classes, braces expanded first, `@(..)`/`?(..)`/`+(..)`/`*(..)`/`!(..)`,
+leading `!` negation, escapes with `\b`, `\n`, `\r`, `\t` as control characters; `win32.matchesGlob` reads every
+backslash of the path and the pattern as `/`. `path::extension_for(flavour, directory)` and `extension_in(flavour,
+directory, cwd)` build it as another host would (tests run both flavours everywhere).
+
+Not reproduced: Bun 1.4.4 keeps state between `matchesGlob` calls of different flavours (a pattern just used by
+`win32.matchesGlob` can match as Win32 in `posix.matchesGlob`); here each call stands alone, as in a fresh process.
+About 1 in 5 000 generated nonsense patterns still differs (a run of six stars after `**/`).
+
+### What core's `full_codemode` takes from this crate
+
+- The `path` global: `oc_codemode::path::extension(session_directory)` in the runtime's extensions, given to the run
+  only with the flag (`select_extensions`, or a runtime made with it).
+- Object globals, constructible globals, functions passed back, `HostCall::Block` and per-run selection: the host API
+  above, for anything else core moves into Code Mode.
+- Background slow scripts (#64343) need nothing more from the runtime: core runs `execute` as a job and drops its
+  future to cancel it (dropping interrupts the program and its host work), and suspend/resume is not used by core.
 
 ## Unsupported JavaScript (same as upstream, same diagnostics)
 

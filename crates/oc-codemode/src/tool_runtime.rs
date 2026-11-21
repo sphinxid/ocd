@@ -772,7 +772,7 @@ pub fn start_tool(rt: &Rt, target: ToolTarget, args: Vec<HostValue>, made: Resol
 pub async fn run_search(rt: &Rt, args: Vec<Value>, site: Site) -> JsResult<Value> {
     let _ = site;
     let host_args = loop {
-        match crate::interp::extensions::cross_arguments(&args, "search")? {
+        match crate::interp::extensions::cross_arguments(&args, "search", false)? {
             Crossed::Ready(host_args) => break host_args,
             Crossed::Waiting(waiting) => {
                 for p in waiting {

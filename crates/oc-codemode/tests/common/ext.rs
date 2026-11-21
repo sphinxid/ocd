@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
-use oc_codemode::host::{HostCall, HostFunction, HostValue, SimpleExtension};
+use oc_codemode::host::{GlobalsExtension, HostCall, HostFunction, HostValue};
 use serde_json::Value as Json;
 
 pub type Events = Arc<Mutex<VecDeque<Json>>>;
@@ -17,6 +17,8 @@ pub struct Replay {
     pub events: Events,
     /// Upstream `Extension.isAsync` of the recorded function.
     pub asynchronous: bool,
+    /// Upstream `Extension.constructible` (not recorded: read from the program, see `replay_extensions`).
+    pub constructible: bool,
 }
 
 impl HostFunction for Replay {
@@ -28,6 +30,9 @@ impl HostFunction for Replay {
     }
     fn asynchronous(&self) -> bool {
         self.asynchronous
+    }
+    fn constructible(&self) -> bool {
+        self.constructible
     }
     fn call(&self, _args: Vec<HostValue>) -> HostCall {
         let event = {
@@ -47,6 +52,15 @@ impl HostFunction for Replay {
         };
         match e["returned"].as_str() {
             Some("promise") => HostCall::Pending(Box::pin(async move {
+                tokio::task::yield_now().await;
+                outcome
+            })),
+            // An Effect (recorded since 2.3.1): a synchronous global's caller waits for it (#64363).
+            Some("effect") if !self.asynchronous => HostCall::Block(Box::pin(async move {
+                tokio::task::yield_now().await;
+                outcome
+            })),
+            Some("effect") => HostCall::Pending(Box::pin(async move {
                 tokio::task::yield_now().await;
                 outcome
             })),
@@ -90,6 +104,7 @@ pub fn to_host(value: &Json, label: &str, events: &Events) -> HostValue {
                         length: 0,
                         events: events.clone(),
                         asynchronous,
+                        constructible: false,
                     }))
                 }
                 "$date" => HostValue::Date(match v.as_str() {
@@ -149,35 +164,79 @@ pub fn to_host(value: &Json, label: &str, events: &Events) -> HostValue {
 }
 
 
-/// Extensions whose globals replay the record's `extension` events.
+/// Extensions whose globals replay the record's `extension` events. A global the recording only calls by longer
+/// paths (`fs.readSync`) is an object of functions (2.3.1); a global the program calls with `new`, unless that is the
+/// recorded failure, is constructible.
 pub fn replay_extensions(record: &Json) -> Vec<Arc<dyn oc_codemode::host::Extension>> {
-    let events: Events = Arc::new(Mutex::new(
-        record["events"].as_array().unwrap().iter().filter(|e| e["type"] == "extension").cloned().collect(),
-    ));
+    let recorded: Vec<Json> =
+        record["events"].as_array().unwrap().iter().filter(|e| e["type"] == "extension").cloned().collect();
+    let events: Events = Arc::new(Mutex::new(recorded.iter().cloned().collect()));
+    let code = record["code"].as_str().unwrap_or("");
+    let failure = record["result"]["error"]["message"].as_str().unwrap_or("");
     let mut exts: Vec<Arc<dyn oc_codemode::host::Extension>> = Vec::new();
     for ext in record["extensions"].as_array().cloned().unwrap_or_default() {
+        let declared_async = |label: &str| match ext.get("async").and_then(|a| a.as_array()) {
+            Some(names) => names.iter().any(|n| n.as_str() == Some(label)),
+            // Recordings from before the field existed: core's `fetch` is the only async global.
+            None => ext["name"] == "web" && label == "fetch",
+        };
+        let function = |label: &str, name: &str, asynchronous: bool| -> Arc<dyn HostFunction> {
+            let constructible = label == name
+                && code.contains(&format!("new {name}("))
+                && !failure.contains(&format!("new {name}(...) is not supported"));
+            Arc::new(Replay {
+                label: label.to_string(),
+                name: name.to_string(),
+                length: 1,
+                events: events.clone(),
+                asynchronous,
+                constructible,
+            })
+        };
         let globals = ext["globals"]
             .as_array()
             .unwrap()
             .iter()
             .map(|g| {
                 let name = g.as_str().unwrap().to_string();
-                let asynchronous = match ext.get("async").and_then(|a| a.as_array()) {
-                    Some(names) => names.iter().any(|n| n.as_str() == Some(name.as_str())),
-                    // Recordings from before the field existed: core's `fetch` is the only async global.
-                    None => ext["name"] == "web" && name == "fetch",
-                };
-                let f: Arc<dyn HostFunction> = Arc::new(Replay {
-                    label: name.clone(),
-                    name: name.clone(),
-                    length: 1,
-                    events: events.clone(),
-                    asynchronous,
-                });
-                (name, f)
+                let prefix = format!("{name}.");
+                let members: Vec<&Json> = recorded
+                    .iter()
+                    .filter(|e| e["global"] == true && e["label"].as_str().is_some_and(|l| l.starts_with(&prefix)))
+                    .collect();
+                if members.is_empty() || recorded.iter().any(|e| e["label"] == name.as_str()) {
+                    return (name.clone(), HostValue::Function(function(&name, &name, declared_async(&name))));
+                }
+                // An object global: its functions at the recorded paths.
+                let mut object = HostValue::Object(Vec::new());
+                for e in members {
+                    let label = e["label"].as_str().unwrap();
+                    let asynchronous = e["async"].as_bool().unwrap_or(false);
+                    let path: Vec<&str> = label[prefix.len()..].split('.').collect();
+                    let leaf = path.last().unwrap().to_string();
+                    insert(&mut object, &path, HostValue::Function(function(label, &leaf, asynchronous)));
+                }
+                (name, object)
             })
             .collect();
-        exts.push(Arc::new(SimpleExtension { name: ext["name"].as_str().unwrap().into(), globals }));
+        exts.push(Arc::new(GlobalsExtension { name: ext["name"].as_str().unwrap().into(), globals }));
     }
     exts
+}
+
+// Puts `value` at `path` in a host object, making the objects on the way.
+fn insert(object: &mut HostValue, path: &[&str], value: HostValue) {
+    let HostValue::Object(fields) = object else { return };
+    let i = match fields.iter().position(|(k, _)| k == path[0]) {
+        Some(i) => i,
+        None => {
+            fields.push((path[0].to_string(), HostValue::Object(Vec::new())));
+            fields.len() - 1
+        }
+    };
+    if path.len() == 1 {
+        fields[i].1 = value;
+    } else {
+        insert(&mut fields[i].1, &path[1..], value);
+    }
 }

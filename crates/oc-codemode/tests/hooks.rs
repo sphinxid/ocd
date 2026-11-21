@@ -1,6 +1,7 @@
-//! Call hooks (upstream codemode.test.ts "CodeMode call hooks" and friends): replays recorded executions whose
-//! runtimes configured hooks, failing `before` hooks where upstream's did, and checks both the program result and
-//! the sequence of hook observations (`tool.after`/`extension.after` statuses).
+//! Call hooks (upstream codemode.test.ts "CodeMode call hooks" and friends, and the extensions.test.ts runs with
+//! hooks): replays recorded executions whose runtimes configured hooks, failing `before` hooks where upstream's did,
+//! and checks both the program result and the sequence of hook observations (`tool.after`/`extension.after`
+//! statuses).
 
 mod common;
 
@@ -88,7 +89,9 @@ async fn hook_executions_replay_2_3_1() {
 async fn replay_hooks_of(dir: std::path::PathBuf) {
     let mut total = 0;
     let mut failures = Vec::new();
-    for record in read_jsonl(&dir.join("codemode.test.jsonl")) {
+    let mut records = read_jsonl(&dir.join("codemode.test.jsonl"));
+    records.extend(read_jsonl(&dir.join("extensions.test.jsonl")));
+    for record in records {
         if record["hooks"].as_array().map(|h| h.is_empty()).unwrap_or(true)
             || record.get("result").is_none()
             || record["via"] != "codemode"
@@ -155,6 +158,7 @@ async fn replay_hooks_of(dir: std::path::PathBuf) {
             failures.push(format!("{}: hooks\n  expected {expected_log:?}\n  got      {ours_log:?}", record["test"]));
         }
     }
+    eprintln!("hook replays: {total}");
     assert!(total >= 16, "expected the recorded hook executions, found {total}");
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

@@ -30,12 +30,21 @@ pub enum Crossed {
 /// `hostGlobals`' `toHost` under core's translation, #64487/#64513): a function anywhere is left out, as
 /// `JSON.stringify` leaves it out (an object's key is skipped, an array's item is `null`, a Map's or Set's entry is
 /// `undefined`, and an argument is `undefined`), and a promise is replaced by its value once fulfilled. A program's
-/// `toJSON` is never run.
-pub fn cross_arguments(values: &[Value], label: &str) -> JsResult<Crossed> {
+/// `toJSON` is never run. With `back` (an extension function's call, which takes functions, #64472), a function that
+/// was inside a host result crosses back as its own host function instead.
+pub fn cross_arguments(values: &[Value], label: &str, back: bool) -> JsResult<Crossed> {
     let mut waiting = Vec::new();
     let mut args = Vec::with_capacity(values.len());
+    let rt = if back { super::current_rt() } else { None };
     for (i, v) in values.iter().enumerate() {
-        let copied = to_host(v, &format!("Argument {} to {label}", i + 1), 0, &mut HashSet::new(), &mut waiting)?;
+        let copied = to_host_with(
+            v,
+            &format!("Argument {} to {label}", i + 1),
+            0,
+            &mut HashSet::new(),
+            &mut waiting,
+            rt.as_ref(),
+        )?;
         args.push(copied.unwrap_or(HostValue::Undefined));
     }
     Ok(if waiting.is_empty() { Crossed::Ready(args) } else { Crossed::Waiting(waiting) })
@@ -50,8 +59,25 @@ pub fn to_host(
     seen: &mut HashSet<usize>,
     waiting: &mut Vec<Obj>,
 ) -> JsResult<Option<HostValue>> {
+    to_host_with(value, label, depth, seen, waiting, None)
+}
+
+// As `to_host`; with `back`, the run whose functions from host results cross back as themselves.
+fn to_host_with(
+    value: &Value,
+    label: &str,
+    depth: usize,
+    seen: &mut HashSet<usize>,
+    waiting: &mut Vec<Obj>,
+    back: Option<&Rt>,
+) -> JsResult<Option<HostValue>> {
     if depth > MAX_VALUE_DEPTH {
         return Err(type_error(format!("{label} exceeds the maximum value depth of {MAX_VALUE_DEPTH}.")));
+    }
+    if let (Some(rt), Value::Object(o)) = (back, value)
+        && let Some((_, f)) = rt.hosted.borrow().get(&o.addr())
+    {
+        return Ok(Some(HostValue::Function(f.clone())));
     }
     let o = match value {
         Value::Undefined => return Ok(Some(HostValue::Undefined)),
@@ -71,7 +97,7 @@ pub fn to_host(
                 return Ok(Some(HostValue::Undefined));
             };
             seen.insert(o.addr());
-            let copied = to_host(&result, label, depth + 1, seen, waiting);
+            let copied = to_host_with(&result, label, depth + 1, seen, waiting, back);
             seen.remove(&o.addr());
             return copied;
         }
@@ -85,7 +111,7 @@ pub fn to_host(
     };
     seen.insert(o.addr());
     let result = (|| -> JsResult<HostValue> {
-        let mut next = |item: &Value| to_host(item, label, depth + 1, seen, waiting);
+        let mut next = |item: &Value| to_host_with(item, label, depth + 1, seen, waiting, back);
         Ok(match o.kind() {
             ObjKind::Error(_) => {
                 let name = coerce_to_string(&get(&o, &PropKey::str("name"))?).to_rust();
@@ -168,18 +194,29 @@ pub fn to_host(
 
 /// A host value as program values.
 pub fn from_host(rt: &Rt, value: &HostValue, label: &str, depth: usize) -> JsResult<Value> {
+    from_host_with(rt, value, label, depth, false)
+}
+
+// As `from_host`; `installed` for a value among the globals, whose functions never cross back.
+fn from_host_with(rt: &Rt, value: &HostValue, label: &str, depth: usize, installed: bool) -> JsResult<Value> {
     if depth > MAX_VALUE_DEPTH {
         return Err(type_error(format!("{label} exceeds the maximum value depth of {MAX_VALUE_DEPTH}.")));
     }
     let b = &rt.builtins;
-    let next = |item: &HostValue, path: &str| from_host(rt, item, path, depth + 1);
+    let next = |item: &HostValue, path: &str| from_host_with(rt, item, path, depth + 1, installed);
     Ok(match value {
         HostValue::Undefined => Value::Undefined,
         HostValue::Null => Value::Null,
         HostValue::Bool(v) => Value::Bool(*v),
         HostValue::Number(n) => Value::Number(*n),
         HostValue::String(s) => Value::str(s),
-        HostValue::Function(f) => wrap(rt, f.clone(), label, None),
+        HostValue::Function(f) => {
+            let made = wrap(rt, f.clone(), label, None);
+            if !installed && let Value::Object(o) = &made {
+                rt.hosted.borrow_mut().insert(o.addr(), (o.clone(), f.clone()));
+            }
+            made
+        }
         HostValue::Unrepresentable(description) => {
             return Err(type_error(format!("{label} produced {description}, which the program cannot hold.")));
         }
@@ -290,13 +327,20 @@ pub fn wrap(rt: &Rt, f: Arc<dyn HostFunction>, label: &str, extension: Option<St
     let extension: Option<Rc<str>> = extension.map(|e| Rc::from(e.as_str()));
     let name = f.name().to_string();
     let length = f.length();
+    // A constructible host function: `new` calls it as a plain call does (#64472).
+    let construct: Option<super::function::NativeConstruct> = if f.constructible() {
+        let (f, label, extension) = (f.clone(), label.clone(), extension.clone());
+        Some(Rc::new(move |rt, site, values, _| call_host(rt, site, f.clone(), label.clone(), extension.clone(), values)))
+    } else {
+        None
+    };
     Value::Object(native(
         &rt.builtins.function,
         &name,
         length,
         NativeFn {
             call: Rc::new(move |rt, site, _, values| call_host(rt, site, f.clone(), label.clone(), extension.clone(), values)),
-            construct: None,
+            construct,
             callback: true,
         },
     ))
@@ -310,7 +354,7 @@ fn call_host(
     extension: Option<Rc<str>>,
     values: Vec<Value>,
 ) -> NResult {
-    let crossed = cross_arguments(&values, &label);
+    let crossed = cross_arguments(&values, &label, true);
     if f.asynchronous() {
         let promise = match rt.runner.new_promise(rt) {
             Ok(p) => p,
@@ -370,6 +414,7 @@ fn call_host(
                 Box::pin(async move { hooked.settle(HostCall::Pending(work)).await });
             NResult::Ready(pending(rt, work, label.to_string(), site.node))
         }
+        // A value now, or host work the job waits for (#64363).
         ready => {
             let settled = rt.runner.block_on(rt, hooked.settle(ready));
             NResult::Ready(match settled {
@@ -430,7 +475,7 @@ impl Hooked {
         let mut guard = ExtensionGuard { host: self.host.clone(), call: self.invocation };
         let result = match called {
             HostCall::Ready(r) => r,
-            HostCall::Pending(work) => work.await,
+            HostCall::Pending(work) | HostCall::Block(work) => work.await,
         };
         if let Some(call) = guard.call.take() {
             let observed = match &result {
@@ -475,13 +520,42 @@ fn settle_later(
 
 
 /// The global bindings of one run's extensions.
-pub fn extension_globals(rt: &Rt) -> Vec<(String, Value)> {
+pub fn extension_globals(rt: &Rt) -> JsResult<Vec<(String, Value)>> {
     let mut out = Vec::new();
     for extension in &rt.extensions {
-        for (name, f) in extension.globals() {
-            let value = wrap(rt, f, &name, Some(extension.name().to_string()));
+        for (name, value) in extension.values() {
+            let value = extension_value(rt, extension.name(), &name, &value)?;
             out.push((name, value));
         }
     }
-    out
+    Ok(out)
+}
+
+/// One extension global as a program value (upstream `extensionValue`): a function fires the extension hooks around
+/// its calls, at any depth of the global's plain objects, named by its path (`fs.readFile`); anything else is copied
+/// in. Nothing in a global crosses back to the host as itself.
+fn extension_value(rt: &Rt, extension: &str, label: &str, value: &HostValue) -> JsResult<Value> {
+    match value {
+        HostValue::Function(f) => Ok(wrap(rt, f.clone(), label, Some(extension.to_string()))),
+        HostValue::Object(fields) => {
+            let copied = Obj::ordinary(&rt.builtins.object);
+            for (key, item) in fields {
+                if key == "__proto__" {
+                    continue;
+                }
+                define_data(&copied, key.as_str(), extension_value(rt, extension, &format!("{label}.{key}"), item)?);
+            }
+            Ok(Value::Object(copied))
+        }
+        other => from_host_with(rt, other, label, 0, true),
+    }
+}
+
+/// Whether a host value can be an extension global: a function or an object.
+pub fn is_global_value(value: &HostValue) -> bool {
+    match value {
+        HostValue::Undefined | HostValue::Null | HostValue::Bool(_) | HostValue::Number(_) | HostValue::String(_) => false,
+        HostValue::Unrepresentable(what) => what != "a symbol" && what != "a bigint",
+        _ => true,
+    }
 }

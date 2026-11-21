@@ -131,12 +131,23 @@ impl ExecResult {
 #[doc(hidden)]
 pub type GlobalsFactory = Arc<dyn Fn(&crate::interp::Rt) -> Vec<(String, crate::value::Value)> + Send + Sync>;
 
+/// Options for one run (upstream `RunOptions`).
+#[derive(Clone, Default)]
+pub struct RunOptions {
+    /// Which of the runtime's extensions the run gets as globals; all of them when `None`. See
+    /// [`CodeMode::select_extensions`].
+    pub extensions: Option<Vec<Arc<dyn Extension>>>,
+}
+
 /// A reusable confined runtime over explicit tools.
 #[derive(Clone)]
 pub struct CodeMode {
     prepared: Arc<Prepared>,
     host: Arc<dyn Host>,
-    extensions: Vec<Arc<dyn Extension>>,
+    /// Every extension the runtime was made with.
+    extensions: Arc<Vec<Arc<dyn Extension>>>,
+    /// The ones its runs get (see `select_extensions`).
+    run_extensions: Arc<Vec<Arc<dyn Extension>>>,
     limits: ResolvedLimits,
     globals: Option<GlobalsFactory>,
     /// Read-only JSON values bound in the program's outer global scope (upstream `execute(code, bindings)`).
@@ -162,7 +173,13 @@ impl CodeMode {
         };
         let mut bound: Vec<String> = GLOBAL_NAMES.iter().map(|s| s.to_string()).collect();
         for extension in &extensions {
-            for (name, _) in extension.globals() {
+            for (name, value) in extension.values() {
+                if !crate::interp::extensions::is_global_value(&value) {
+                    return Err(CodeModeError::Type(format!(
+                        "Extension \"{}\" global \"{name}\" must be a function or an object.",
+                        extension.name()
+                    )));
+                }
                 if bound.contains(&name) {
                     return Err(CodeModeError::Type(format!(
                         "Extension \"{}\" global \"{name}\" is already defined.",
@@ -172,7 +189,52 @@ impl CodeMode {
                 bound.push(name);
             }
         }
-        Ok(CodeMode { prepared: Arc::new(prepared), host, extensions, limits: resolved, globals: None, bindings: Arc::new(Vec::new()) })
+        let extensions = Arc::new(extensions);
+        Ok(CodeMode {
+            prepared: Arc::new(prepared),
+            host,
+            run_extensions: extensions.clone(),
+            extensions,
+            limits: resolved,
+            globals: None,
+            bindings: Arc::new(Vec::new()),
+        })
+    }
+
+    /// The same runtime with only some of its extensions as globals in its runs (upstream 2.3.1 `RunOptions.extensions`,
+    /// #64482); all of them by default. Each must be one the runtime was made with (the same `Arc`), else
+    /// `Extension "<name>" isn't one this runtime was made with.` They keep the runtime's order, whatever order they
+    /// are given in. Tools, limits and bindings are shared.
+    pub fn select_extensions(&self, selected: &[Arc<dyn Extension>]) -> Result<CodeMode, CodeModeError> {
+        for extension in selected {
+            if !self.extensions.iter().any(|known| Arc::ptr_eq(known, extension)) {
+                return Err(CodeModeError::Type(format!(
+                    "Extension \"{}\" isn't one this runtime was made with.",
+                    extension.name()
+                )));
+            }
+        }
+        let picked = self.extensions.iter().filter(|known| selected.iter().any(|e| Arc::ptr_eq(known, e))).cloned();
+        Ok(CodeMode { run_extensions: Arc::new(picked.collect()), ..self.clone() })
+    }
+
+    /// As [`CodeMode::select_extensions`], naming the extensions (each name must be one of the runtime's).
+    pub fn select_extensions_named(&self, names: &[&str]) -> Result<CodeMode, CodeModeError> {
+        if let Some(missing) = names.iter().find(|name| !self.extensions.iter().any(|e| e.name() == **name)) {
+            return Err(CodeModeError::Type(format!("Extension \"{missing}\" isn't one this runtime was made with.")));
+        }
+        let picked = self.extensions.iter().filter(|e| names.contains(&e.name())).cloned();
+        Ok(CodeMode { run_extensions: Arc::new(picked.collect()), ..self.clone() })
+    }
+
+    /// Runs one program with options for this run (upstream `Runtime.execute(code, bindings, options)`): the same as
+    /// `select_extensions(..)?.execute(code)`.
+    pub async fn execute_with(&self, code: &str, options: &RunOptions) -> Result<ExecResult, CodeModeError> {
+        let runtime = match &options.extensions {
+            Some(selected) => self.select_extensions(selected)?,
+            None => self.clone(),
+        };
+        Ok(runtime.execute(code).await)
     }
 
     /// Adds host-defined program globals (like upstream `executeProgram`'s `globals`); used by test harnesses.
@@ -251,6 +313,7 @@ impl CodeMode {
         // Break reference cycles so every object of this run is released.
         if let Some(rt) = crate::interp::current_rt() {
             rt.runner.teardown();
+            rt.hosted.borrow_mut().clear();
         }
         set_rt(None);
         crate::interp::teardown_envs();
@@ -271,11 +334,12 @@ impl CodeMode {
             templates: RefCell::new(HashMap::new()),
             global: RefCell::new(None),
             interrupt: Interrupt { deadline, cancelled: cancelled.clone(), counter: Cell::new(0), fired: Cell::new(false) },
-            extensions: self.extensions.clone(),
+            extensions: self.run_extensions.as_ref().clone(),
             var_names: RefCell::new(HashMap::new()),
             arguments_use: RefCell::new(HashMap::new()),
             modules: RefCell::new(HashMap::new()),
             namespaces: RefCell::new(HashMap::new()),
+            hosted: RefCell::new(HashMap::new()),
         });
         set_rt(Some(rt.clone()));
         let logs = |rt: &Rc<Interp>| {
@@ -300,7 +364,13 @@ impl CodeMode {
             let value = crate::data::from_json_value(&rt, value);
             global.set_binding(Rc::from(name.as_str()), Binding { mutable: false, value, initialized: true });
         }
-        for (name, value) in crate::interp::extensions::extension_globals(&rt) {
+        let extension_globals = match crate::interp::extensions::extension_globals(&rt) {
+            Ok(values) => values,
+            Err(e) => {
+                return ExecResult::Failure { error: normalize_error(&e), logs: None, truncated: false, tool_calls: Vec::new() };
+            }
+        };
+        for (name, value) in extension_globals {
             global.set_binding(Rc::from(name.as_str()), Binding { mutable: false, value, initialized: true });
         }
         if let Some(factory) = &self.globals {

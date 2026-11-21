@@ -1,15 +1,7 @@
-# Recorded opencode 2.3.1 extension executions a replay cannot reproduce, or that use extension host API ocd's host
-# interface does not have (core uses none of it). Format: <test file>\t<seq>\t<reason>.
-extensions.test.ts	11	`Extension.constructible` (#64472): ocd's host functions cannot be called with `new` (core uses none)
-extensions.test.ts	13	`Extension.constructible` (#64472), as seq 11
-extensions.test.ts	14	`Extension.constructible` (#64472): the diagnostic names the constructed result, which ocd never makes
-extensions.test.ts	15	`Extension.constructible` (#64472), as seq 11
-extensions.test.ts	16	`Extension.constructible` (#64472), as seq 11
-extensions.test.ts	17	`Extension.constructible` (#64472), as seq 11
+# Recorded opencode 2.3.1 extension executions a replay cannot reproduce. Format: <test file>\t<seq>\t<reason>.
 extensions.test.ts	42	host array whose own `map` is overridden, with holes: HostValue arrays have no holes (2.3.0 corpus seq 33)
 extensions.test.ts	44	host array of length 2^32 - 1: recorded only up to the encoding budget (2.3.0 corpus seq 35)
 extensions.test.ts	46	a Proxy over an ArrayBuffer: recorded as a plain ArrayBuffer (2.3.0 corpus seq 37)
 extensions.test.ts	53	a host object whose getter throws while it is copied: getters are not recorded (2.3.0 corpus seq 44)
 extensions.test.ts	54	a function whose name and length change between reads: recorded without its getters (2.3.0 corpus seq 45)
-extensions.test.ts	58	an object-valued extension global (`fs.readSync`): ocd's host API takes only functions (core uses none)
 suspend.test.ts	2	a loop of sync extension calls stopped by a 100 ms timeout: how many calls run first is timing

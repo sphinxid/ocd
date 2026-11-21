@@ -2509,7 +2509,7 @@ pub(crate) fn tool_call(rt: &Rt, path: Vec<Rc<str>>, args: Vec<Value>, node: Opt
     let label = path.iter().fold(String::from("tools"), |at, key| crate::tool_runtime::member(&at, key));
     let promise = rt.runner.new_promise(rt)?;
     let made = rt.runner.resolving(&promise, node);
-    match super::extensions::cross_arguments(&args, &label) {
+    match super::extensions::cross_arguments(&args, &label, false) {
         Err(error) => made.reject(rt, error),
         Ok(super::extensions::Crossed::Ready(host_args)) => {
             let path: Vec<String> = path.iter().map(|s| s.to_string()).collect();

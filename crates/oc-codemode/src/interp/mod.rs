@@ -281,6 +281,9 @@ pub struct Interp {
     pub modules: RefCell<HashMap<String, Value>>,
     /// Module namespaces (`import * as`, `import()`) by Node module name.
     pub namespaces: RefCell<HashMap<String, Obj>>,
+    /// The host function behind each program function made for a function inside a host result, by the program
+    /// function's address (held, so the address stays its own), so passing it back hands the host its own function.
+    pub hosted: RefCell<HashMap<usize, (Obj, Arc<dyn crate::host::HostFunction>)>>,
 }
 
 pub type Rt = Rc<Interp>;
