@@ -146,11 +146,15 @@ fn runtime(
     snapshot: &Snapshot,
     host: Arc<dyn Host>,
     checks: Option<(oc_codemode::web::Authorize, oc_codemode::web::CheckRedirect)>,
+    path: Option<String>,
 ) -> CodeMode {
     let (authorize, redirect) = checks.unzip();
     let client = Arc::new(oc_codemode::web::ReqwestClient::manual());
-    let extension = oc_codemode::web::extension_checked(client, authorize, redirect);
-    CodeMode::new(entries(snapshot), host, vec![extension], ExecutionLimits::default())
+    let mut extensions = vec![oc_codemode::web::extension_checked(client, authorize, redirect)];
+    // `codemode/path.ts` (2.3.1 #64476): with `full_codemode`, the host's `path` module, `resolve` and `relative`
+    // starting from the session's directory. Its calls show no progress rows (only `fetch`'s do).
+    extensions.extend(path.map(oc_codemode::path::extension));
+    CodeMode::new(entries(snapshot), host, extensions, ExecutionLimits::default())
         .expect("CodeMode tool names are validated at registration")
 }
 
@@ -235,7 +239,7 @@ pub fn catalog_inventory(snapshot: &Snapshot) -> Vec<catalog::CatalogEntry> {
         .collect();
     let namespaces: Vec<(String, Option<String>)> =
         snapshot.namespaces.iter().map(|n| (n.name.clone(), Some(n.description.clone()))).collect();
-    let descriptions = runtime(snapshot, Arc::new(CatalogOnly), None).catalog();
+    let descriptions = runtime(snapshot, Arc::new(CatalogOnly), None, None).catalog();
     catalog::inventory(&descriptions, &namespaces, &pinned)
 }
 
@@ -479,6 +483,18 @@ pub async fn execute(snapshot: &Snapshot, input: Value, ctx: ToolContext) -> Res
 
 /// [`execute`] with plugin hooks around every nested tool call.
 pub async fn execute_with(snapshot: &Snapshot, input: Value, ctx: ToolContext, hooks: Arc<dyn ExecuteHooks>) -> Result<ToolResult, ToolError> {
+    execute_in(snapshot, input, ctx, hooks, None).await
+}
+
+/// [`execute_with`] where, with `full_codemode`, programs also get the experimental `path` global resolving against
+/// `path` (the session's directory).
+pub async fn execute_in(
+    snapshot: &Snapshot,
+    input: Value,
+    ctx: ToolContext,
+    hooks: Arc<dyn ExecuteHooks>,
+    path: Option<String>,
+) -> Result<ToolResult, ToolError> {
     let Some(code) = input.get("code").and_then(|c| c.as_str()).map(String::from) else {
         return Err(ToolError::new(
             "The execute tool was called with invalid arguments: expected { code: string }.".to_string(),
@@ -505,7 +521,7 @@ pub async fn execute_with(snapshot: &Snapshot, input: Value, ctx: ToolContext, h
         stop: stop.clone(),
         this: this.clone(),
     });
-    let runtime = runtime(snapshot, host.clone(), Some((fetch_authorize(ctx.clone(), stop.clone()), fetch_redirect_check(ctx.clone()))));
+    let runtime = runtime(snapshot, host.clone(), Some((fetch_authorize(ctx.clone(), stop.clone()), fetch_redirect_check(ctx.clone()))), path);
     let cancel = ctx.cancel.clone();
     // The program's calls stop showing on this call's row once it ends, however it ends.
     struct Unnest(Arc<ExecuteHost>);
@@ -639,7 +655,8 @@ pub async fn check(
 }
 
 /// The `execute` tool over a request snapshot, so it runs through the same hooks and normalization as direct tools.
-pub struct ExecuteTool(pub Snapshot, pub Arc<dyn ExecuteHooks>);
+/// The flag is `full_codemode`, which gives programs the `path` global for the call's directory.
+pub struct ExecuteTool(pub Snapshot, pub Arc<dyn ExecuteHooks>, pub bool);
 
 #[async_trait::async_trait]
 impl Tool for ExecuteTool {
@@ -652,6 +669,7 @@ impl Tool for ExecuteTool {
         })
     }
     async fn execute(&self, input: Value, ctx: ToolContext) -> Result<ToolResult, ToolError> {
-        execute_with(&self.0, input, ctx, self.1.clone()).await
+        let path = self.2.then(|| ctx.directory.to_string_lossy().into_owned());
+        execute_in(&self.0, input, ctx, self.1.clone(), path).await
     }
 }

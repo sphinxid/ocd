@@ -97,6 +97,11 @@ pub(crate) fn agent_model(catalog: &oc_ai::catalog::Catalog, agent: &Agent) -> O
         .then(|| m.clone())
 }
 
+/// `Flag.enabled("full_codemode")` at a location: opt-in only, never turned on by `all` or `all_flags`.
+pub fn full_codemode(entries: &[oc_config::schema::Entry]) -> bool {
+    oc_config::flag::enabled(entries, "full_codemode")
+}
+
 fn agent_not_found(id: &str) -> anyhow::Error {
     crate::errors::StepFailed(SessionError::new("unknown", format!("Agent not found: \"{id}\""))).into()
 }
@@ -639,6 +644,17 @@ impl Engine {
                 }
             }
         }
+        // `experimental.full_codemode` (opt-in only): shell, read, edit, write, patch and websearch register as Code
+        // Mode tools, and grep, glob and webfetch don't register at all.
+        if full_codemode(&location.entries) {
+            for (id, tool) in registry.list() {
+                if oc_tools::tools::code_mode::HIDDEN.contains(&id.as_str()) && tool.options().namespace.is_none() {
+                    registry.remove(&id);
+                } else if let Some(variant) = oc_tools::tools::code_mode::variant(&tool) {
+                    let _ = registry.add(variant);
+                }
+            }
+        }
         // `opencode.tool.automation` adds its tools only while `experimental.automations` is on.
         if crate::automation::settings_of(&location.entries).enabled
             && self.app.plugins.enabled(key).is_none_or(|enabled| enabled.iter().any(|e| e == crate::automation::PLUGIN_ID))
@@ -947,6 +963,7 @@ impl Engine {
             message_id: assistant.into(),
             project: loaded.sel.location.project.clone(),
             mcp: loaded.sel.mcp.clone(),
+            full_codemode: full_codemode(entries),
             skills: Arc::new(
                 loaded
                     .sel
@@ -1508,6 +1525,7 @@ impl Engine {
             mcp: Some(env.mcp.clone()),
             location: Some(env.location.key.clone()),
             engine: Some(self.me.clone()),
+            blocking_parent: None,
         });
         let ctx = ToolContext {
             session_id: session.id.clone(),
@@ -1551,6 +1569,21 @@ struct LocalTools {
     project: crate::project::Resolved,
     skills: Arc<Vec<oc_tools::host::SkillInfo>>,
     mcp: Arc<oc_mcp::manager::McpManager>,
+    /// `experimental.full_codemode` at the session's location: slow `execute` calls move to the background.
+    full_codemode: bool,
+}
+
+impl LocalTools {
+    fn host(&self, blocking_parent: Option<String>) -> Arc<dyn oc_tools::ToolHost> {
+        Arc::new(crate::host::CoreHost {
+            app: self.engine.app.clone(),
+            skills: self.skills.clone(),
+            mcp: Some(self.mcp.clone()),
+            location: Some(self.key.clone()),
+            engine: Some(Arc::downgrade(&self.engine)),
+            blocking_parent,
+        })
+    }
 }
 
 #[async_trait]
@@ -1558,13 +1591,7 @@ impl ToolRunner for LocalTools {
     async fn run(&self, call: ToolCall, progress: step::Progress, cancel: CancellationToken, stop: oc_tools::Stop) -> ToolRun {
         // A tool call can arrive during a reload; its permission check reads the session's agent.
         self.engine.app.plugins.await_activation(&self.key).await;
-        let host: Arc<dyn oc_tools::ToolHost> = Arc::new(crate::host::CoreHost {
-            app: self.engine.app.clone(),
-            skills: self.skills.clone(),
-            mcp: Some(self.mcp.clone()),
-            location: Some(self.key.clone()),
-            engine: Some(Arc::downgrade(&self.engine)),
-        });
+        let host = self.host(None);
         let ctx = ToolContext {
             session_id: self.session.id.clone(),
             message_id: self.message_id.clone(),
@@ -1604,8 +1631,21 @@ impl ToolRunner for LocalTools {
                 } else {
                     let real = requested.unwrap_or(name);
                     if real == oc_codemode::execute_tool::NAME && execute_enabled {
-                        let tool = crate::codemode::ExecuteTool(self.snapshot.clone(), hooks.clone());
-                        oc_tools::registry::execute_tool(&tool, &real, input, ctx, hooks.as_ref()).await
+                        let tool = crate::codemode::ExecuteTool(self.snapshot.clone(), hooks.clone(), self.full_codemode);
+                        if self.full_codemode {
+                            // `CodeModeJob.Current`: only a session drain hands a slow script to the background.
+                            let id = crate::codemode_job::id();
+                            let mut ctx = ctx;
+                            ctx.host = self.host(Some(id.clone()));
+                            let output = crate::codemode_job::Output { max_lines, max_bytes, data: data.clone() };
+                            let hooks = hooks.clone();
+                            let execute: crate::codemode_job::Execute = Box::new(move |ctx| {
+                                Box::pin(async move { oc_tools::registry::execute_tool(&tool, &real, input, ctx, hooks.as_ref()).await })
+                            });
+                            crate::codemode_job::run(self.engine.app.clone(), id, ctx, output, execute).await
+                        } else {
+                            oc_tools::registry::execute_tool(&tool, &real, input, ctx, hooks.as_ref()).await
+                        }
                     } else if let Some(tool) = self.snapshot.direct_tool(&real) {
                         oc_tools::registry::execute_tool(tool.as_ref(), &real, input, ctx, hooks.as_ref()).await
                     } else {

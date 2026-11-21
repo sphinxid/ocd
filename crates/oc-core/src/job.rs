@@ -79,7 +79,9 @@ pub struct SubagentOutboxReport {
 /// `ownerSessionID`: the parent session for a subagent.
 fn owner_session(recovery: &JobRecovery) -> &str {
     match recovery {
-        JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } => session_id,
+        JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } | JobRecovery::Codemode { session_id, .. } => {
+            session_id
+        }
         JobRecovery::Subagent { parent_session_id, .. } => parent_session_id,
     }
 }
@@ -93,6 +95,7 @@ fn recovery_title<'a>(job: &'a Active, recovery: &'a JobRecovery) -> &'a str {
         JobRecovery::Shell { command, .. } => command,
         JobRecovery::Subagent { description, .. } => description,
         JobRecovery::Image { path, .. } => path,
+        JobRecovery::Codemode { .. } => crate::codemode_job::TITLE,
     }
 }
 
@@ -101,6 +104,7 @@ fn recovery_kind(recovery: &JobRecovery) -> &'static str {
         JobRecovery::Shell { .. } => "shell",
         JobRecovery::Subagent { .. } => "subagent",
         JobRecovery::Image { .. } => "image",
+        JobRecovery::Codemode { .. } => "codemode",
     }
 }
 
@@ -114,7 +118,9 @@ fn matches_session(job: &Active, session: &str) -> bool {
         Some(JobRecovery::Subagent { parent_session_id, child_session_id, .. }) => {
             parent_session_id == session || child_session_id == session
         }
-        Some(JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. }) => session_id == session,
+        Some(
+            JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } | JobRecovery::Codemode { session_id, .. },
+        ) => session_id == session,
     }
 }
 
@@ -358,6 +364,14 @@ impl Jobs {
     }
 
     pub async fn block(&self, id: &str, session: &str) -> Option<JobBlockResult> {
+        self.block_under(id, session, None).await
+    }
+
+    /// [`Jobs::block`] from work running inside the job `parent` (`Job.BlockingParent`, 2.3.1 #64343): a
+    /// session-wide background request releases the outer blocker, while nested waits keep their own deadlines, so
+    /// only a wait on the parent itself counts the session as blocking.
+    pub async fn block_under(&self, id: &str, session: &str, parent: Option<&str>) -> Option<JobBlockResult> {
+        let tracks_session = parent.is_none_or(|parent| parent == id);
         let (done, bg, generation) = {
             let mut jobs = self.jobs.lock();
             let job = jobs.get_mut(id)?;
@@ -370,7 +384,9 @@ impl Jobs {
             if job.is_bg {
                 return Some(JobBlockResult::Backgrounded(job.info.clone()));
             }
-            *job.blocking.entry(session.to_string()).or_default() += 1;
+            if tracks_session {
+                *job.blocking.entry(session.to_string()).or_default() += 1;
+            }
             (job.done.subscribe(), job.backgrounded.subscribe(), job.generation)
         };
         let outcome = tokio::select! {
@@ -378,7 +394,7 @@ impl Jobs {
             info = await_some(bg) => JobBlockResult::Backgrounded(info),
         };
         let mut jobs = self.jobs.lock();
-        if let Some(job) = jobs.get_mut(id) {
+        if let Some(job) = jobs.get_mut(id).filter(|_| tracks_session) {
             if job.info.status == JobStatus::Running && !job.is_bg {
                 if let Some(c) = job.blocking.get_mut(session) {
                     *c -= 1;
@@ -678,7 +694,9 @@ impl Jobs {
 fn decode_recovery(text: &str) -> Option<JobRecovery> {
     let recovery: JobRecovery = serde_json::from_str(text).ok()?;
     let ids: Vec<&str> = match &recovery {
-        JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } => vec![session_id],
+        JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } | JobRecovery::Codemode { session_id, .. } => {
+            vec![session_id]
+        }
         JobRecovery::Subagent { parent_session_id, child_session_id, .. } => vec![parent_session_id, child_session_id],
     };
     ids.iter().all(|id| id.starts_with("ses")).then_some(recovery)
@@ -763,6 +781,7 @@ pub fn format_body(body: &str, child_session_id: &str, background: &[Value]) -> 
             let session = field(item, "sessionID");
             let elsewhere = if session != child_session_id { format!(", in {session}") } else { String::new() };
             match item.get("kind").and_then(Value::as_str) {
+                Some("codemode") => format!("- Code Mode script ({}{elsewhere})", field(item, "jobID")),
                 Some("shell") => format!("- shell ({}{elsewhere}): {}", field(item, "shellID"), clean(&field(item, "command"))),
                 Some("image") => format!("- image ({}{elsewhere}): {}", field(item, "model"), field(item, "path")),
                 _ => format!(
@@ -870,6 +889,9 @@ pub fn outstanding(app: &crate::app::App, session_id: &str, active: &[String]) -
         .into_iter()
         .filter(|r| descends(owner_session(r)))
         .map(|r| match r {
+            JobRecovery::Codemode { session_id, job_id } => {
+                json!({ "kind": "codemode", "sessionID": session_id, "jobID": job_id })
+            }
             JobRecovery::Shell { session_id, shell_id, command } => {
                 json!({ "kind": "shell", "sessionID": session_id, "shellID": shell_id, "command": command })
             }
@@ -1041,6 +1063,8 @@ mod completion_tests {
             json!({"kind": "image", "sessionID": "ses_child", "path": "/tmp/chart.png", "model": "openai/gpt-image-1"}),
             json!({"kind": "image", "sessionID": "ses_other", "path": "/tmp/other.png", "model": "acme/image"}),
             json!({"kind": "subagent", "sessionID": "ses_child", "childSessionID": "ses_grandchild", "agent": "explore", "description": "Audit\n routes"}),
+            json!({"kind": "codemode", "sessionID": "ses_child", "jobID": "cm_1"}),
+            json!({"kind": "codemode", "sessionID": "ses_grandchild", "jobID": "cm_2"}),
         ];
         assert_eq!(
             format_body("Report body", "ses_child", &items),
@@ -1053,6 +1077,8 @@ mod completion_tests {
                 "- image (openai/gpt-image-1): /tmp/chart.png",
                 "- image (acme/image, in ses_other): /tmp/other.png",
                 "- subagent (explore, sessionID: ses_grandchild): Audit routes",
+                "- Code Mode script (cm_1)",
+                "- Code Mode script (cm_2, in ses_grandchild)",
             ]
             .join("\n")
         );

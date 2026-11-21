@@ -72,7 +72,8 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   sessions through the same `move` with steer delivery.
 * **job**: `experimental.job.list` (`GET /api/experimental/job`, 2.2.7): `app.jobs.background_jobs()` filtered by
   `oc_core::job::list_background` (kind, status, owning session, `descendants` through the parent chain); an unknown
-  `sessionID` is a 404 `SessionNotFoundError`.
+  `sessionID` is a 404 `SessionNotFoundError`. A background Code Mode script (`full_codemode`, 2.3.1) is listed as
+  `Job.CodeMode` (`{kind: "codemode", id, sessionID, status, title: "Code Mode script", time}`).
 * **generate**: `session.generate` (`runner.session_generate`: `{text, tokens, cost}`, the usage recorded as
   `session.usage.recorded` with source `generate`; NotFound → 404, else 503
   `{service:"session generation"}`), `experimental.generate.text` and its deprecated alias

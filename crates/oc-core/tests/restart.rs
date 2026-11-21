@@ -91,21 +91,51 @@ async fn pending_background_jobs_are_settled() {
         json!({"kind": "shell", "sessionID": parent.id, "shellID": "sh_1", "command": "sleep 100"}),
         1,
     );
+    // Code Mode scripts (2.3.1, #64343): one interrupted by the restart, one whose result was not delivered yet.
+    insert(
+        "msg_cm_run",
+        "cm_run",
+        &parent.id,
+        None,
+        "codemode",
+        "Code Mode script",
+        "running",
+        None,
+        json!({"kind": "codemode", "sessionID": parent.id, "jobID": "cm_run"}),
+        3,
+    );
+    insert(
+        "msg_cm_done",
+        "cm_done",
+        &parent.id,
+        None,
+        "codemode",
+        "Code Mode script",
+        "completed",
+        Some("result: done"),
+        json!({"kind": "codemode", "sessionID": parent.id, "jobID": "cm_done"}),
+        4,
+    );
     let pending = app.jobs.pending_background();
-    assert_eq!(pending.iter().map(|v| v["notificationID"].as_str().unwrap()).collect::<Vec<_>>(), ["msg_shell", "msg_sub"]);
+    assert_eq!(
+        pending.iter().map(|v| v["notificationID"].as_str().unwrap()).collect::<Vec<_>>(),
+        ["msg_shell", "msg_sub", "msg_cm_run", "msg_cm_done"]
+    );
     assert_eq!(pending[1], json!({"id": child.id, "notificationID": "msg_sub", "status": "completed", "output": "all done",
         "recovery": {"kind": "subagent", "parentSessionID": parent.id, "childSessionID": child.id, "agent": "general", "description": "do work"}}));
 
     engine.resume_suspended().await.unwrap();
 
     let texts = synthetic_texts(&app, &parent.id);
-    assert_eq!(texts.len(), 2, "{texts:#?}");
+    assert_eq!(texts.len(), 4, "{texts:#?}");
     assert_eq!(
         texts[0],
         "<shell id=\"job_1\" state=\"cancelled\" command=\"sleep 100\">\nCommand cancelled because the server restarted\n</shell>"
     );
+    assert_eq!(texts[1], "<codemode id=\"cm_run\" state=\"cancelled\">\nInterrupted by server restart.\n</codemode>");
+    assert_eq!(texts[2], "<codemode id=\"cm_done\" state=\"completed\">\nresult: done\n</codemode>");
     assert_eq!(
-        texts[1],
+        texts[3],
         format!("<subagent sessionID=\"{}\" state=\"completed\" description=\"do work\">\nall done\n</subagent>", child.id)
     );
     assert!(app.jobs.pending_background().is_empty());

@@ -19,6 +19,8 @@ use crate::shell::{parse, select};
 use crate::tool::{DefinitionContext, ErrorCause, Tool, ToolContext, ToolDefinition, ToolError, ToolOptions, ToolResult, decode, meta};
 
 pub const DEFAULT_TIMEOUT_MS: u64 = 2 * 60 * 1_000;
+/// The default timeout of a `tools.shell` call in a Code Mode program (`full_codemode`, 2.3.1 #64335).
+pub const CODE_MODE_TIMEOUT_MS: u64 = 10 * 60 * 1_000;
 /// How long a call the user interrupted waits for its stopped command to exit before settling with the output so
 /// far (`INTERRUPT_WAIT`).
 pub const INTERRUPT_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
@@ -36,6 +38,12 @@ fn os_name() -> &'static str {
 
 /// Tool description; `shell` is `ShellSelect.name(compatShell)` after the session hook.
 pub fn description(shell: Option<&str>) -> String {
+    description_for(shell, false)
+}
+
+/// [`description`] for the direct tool or, with `code_mode`, for `tools.shell` (`full_codemode`), which has no
+/// background parameter.
+pub fn description_for(shell: Option<&str>, code_mode: bool) -> String {
     let mut parts = vec!["Execute a shell command and return its output.".to_string()];
     if let Some(shell) = shell {
         parts.push(format!("Commands run on {} using {shell}.", os_name()));
@@ -47,12 +55,34 @@ pub fn description(shell: Option<&str>) -> String {
             "When output is large, the full result is saved to a file and a truncated preview is returned.",
             "Rely on automatic truncation unless filtering the output is more useful.",
             "Commands still running after their timeout move to the background.",
-            "Background commands return immediately, and you will be notified when they complete.",
-            "The current session ID is available in the OPENCODE_SESSION_ID environment variable.",
         ]
         .map(String::from),
     );
+    // Code Mode has no background parameter.
+    if !code_mode {
+        parts.push("Background commands return immediately, and you will be notified when they complete.".into());
+    }
+    parts.push("The current session ID is available in the OPENCODE_SESSION_ID environment variable.".into());
     parts.join(" ")
+}
+
+/// The input and output schemas of `tools.shell` (`CodeModeInput`): no `background`, and the timeout's default is
+/// [`CODE_MODE_TIMEOUT_MS`].
+pub fn code_mode_definition() -> ToolDefinition {
+    let mut definition = super::definition("shell", description_for(None, true), include_str!("../../schemas/shell.json"));
+    if let Some(properties) = definition.input_schema.get_mut("properties").and_then(Value::as_object_mut) {
+        properties.shift_remove("background");
+        if let Some(timeout) = properties.get_mut("timeout") {
+            timeout["description"] = json!(timeout_description(CODE_MODE_TIMEOUT_MS));
+        }
+    }
+    definition
+}
+
+fn timeout_description(foreground: u64) -> String {
+    format!(
+        "Optional timeout in milliseconds (default {foreground}). When it expires, a foreground command moves to the background and a background command is stopped."
+    )
 }
 
 /// A finished command's result as its call or job reports it (`Output`).

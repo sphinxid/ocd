@@ -1,5 +1,6 @@
 //! Built-in tool implementations (`core/src/tool/plugin/*`).
 
+pub mod code_mode;
 pub mod edit;
 pub mod glob;
 pub mod grep;

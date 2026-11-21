@@ -29,6 +29,8 @@ struct MockHost {
     allows: Mutex<bool>,
     /// The jobs cancelled, in order.
     cancelled_jobs: Mutex<Vec<String>>,
+    /// The timeout of every shell command, as `shell.create.before` sees it.
+    shell_timeouts: Mutex<Vec<u64>>,
 }
 
 #[async_trait]
@@ -40,6 +42,11 @@ impl ToolHost for MockHost {
     async fn permission_allows(&self, request: PermissionRequest) -> bool {
         let denied = self.denied_resource.lock().clone();
         *self.allows.lock() && !request.resources.iter().any(|r| Some(r) == denied.as_ref())
+    }
+
+    async fn shell_create_before(&self, invocation: &mut crate::host::ShellInvocation) -> Result<(), String> {
+        self.shell_timeouts.lock().push(invocation.timeout);
+        Ok(())
     }
 
     async fn job_cancel(&self, id: &str) -> Result<(), String> {
@@ -941,4 +948,40 @@ impl crate::websearch::WebSearchStore for NullStore {
     async fn api_key(&self, _integration_id: &str) -> Option<String> {
         None
     }
+}
+
+/// tool-shell.test.ts (2.3.1, #64284/#64335): with `full_codemode`, `tools.shell` waits 10 minutes by default, takes
+/// no `background`, and a shorter timeout still moves the command to the background.
+#[cfg(unix)]
+#[tokio::test]
+async fn code_mode_shell_has_the_long_default_and_no_background() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let mut ctx = context(dir.path(), host.clone());
+    ctx.config = Arc::new(ToolConfig { shell: Some("/bin/sh".into()), ..ToolConfig::default() });
+    let service = crate::shell::service::ShellService::new(dir.path().join(".data"), None);
+    let shell: Arc<dyn Tool> = Arc::new(tools::shell::ShellTool::new(service.clone()));
+    let tool = tools::code_mode::variant(&shell).unwrap();
+    let options = tool.options();
+    assert!(options.codemode && options.pinned);
+    let ok = run(tool.as_ref(), json!({"command": "printf body; exit 7"}), ctx.clone()).await.unwrap();
+    let output = ok.output.unwrap();
+    assert_eq!((output["output"].clone(), output["exitCode"].clone()), (json!("body"), json!(7)));
+    let ok = run(tool.as_ref(), json!({"command": "printf started; sleep 1; printf ' done'", "timeout": 10}), ctx.clone()).await.unwrap();
+    let output = ok.output.unwrap();
+    assert!(output["output"].as_str().unwrap().contains("did not finish within its timeout of 0.01 seconds"), "{output}");
+    assert!(output["shellID"].as_str().unwrap().starts_with("sh_"), "{output}");
+    assert_eq!(output["exitCode"], json!(null));
+    let ok = run(tool.as_ref(), json!({"command": "printf zero", "timeout": 0}), ctx.clone()).await.unwrap();
+    assert_eq!(ok.output.unwrap()["output"], json!("zero"));
+    assert_eq!(*host.shell_timeouts.lock(), [600_000, 10, 600_000]);
+    // A `background` key is not part of the input: the command runs in the foreground.
+    let ok = run(tool.as_ref(), json!({"command": "printf fore", "background": true}), ctx.clone()).await.unwrap();
+    let output = ok.output.unwrap();
+    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["exitCode", "output", "wallTimeSeconds"]);
+    assert_eq!(output["output"], json!("fore"));
+    assert_eq!(host.shell_timeouts.lock().last(), Some(&600_000));
+    // Without the flag the direct tool keeps its 2-minute default.
+    run(shell.as_ref(), json!({"command": "printf direct"}), ctx.clone()).await.unwrap();
+    assert_eq!(host.shell_timeouts.lock().last(), Some(&120_000));
 }

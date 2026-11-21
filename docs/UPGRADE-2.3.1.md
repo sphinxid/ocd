@@ -34,7 +34,8 @@ is checked against an upstream 2.3.1 build from the tag and against upstream's o
   schemas; `experimental.full_codemode` (opt-in only), `video_generate`; `background_compaction` and
   `shell_timeout_background` removed.
 
-Not ported: `full_codemode` (opt-in and marked work in progress upstream), video generation itself (its routes answer
+Ported later: `full_codemode` (opt-in and marked work in progress upstream; see COMPATIBILITY's Code Mode row).
+Not ported: video generation itself (its routes answer
 403 as in a release build; video models stay in the catalog), the Console artifact provider, automation event
 triggers and MCP Events.
 

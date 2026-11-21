@@ -22,6 +22,9 @@ pub struct CoreHost {
     pub location: Option<String>,
     /// The engine, for generation calls tools make at the session's location (`Generate.image`).
     pub engine: Option<std::sync::Weak<crate::runner::Engine>>,
+    /// The background Code Mode job the tools run inside (`Job.BlockingParent`): their own waits don't hold the
+    /// session.
+    pub blocking_parent: Option<String>,
 }
 
 #[async_trait]
@@ -271,7 +274,7 @@ impl ToolHost for CoreHost {
     }
 
     async fn job_block(&self, id: &str, session_id: &str) -> Result<Option<JobBlockResult>, String> {
-        Ok(self.app.jobs.block(id, session_id).await)
+        Ok(self.app.jobs.block_under(id, session_id, self.blocking_parent.as_deref()).await)
     }
 
     async fn job_background(&self, id: &str) -> Result<Option<JobInfo>, String> {

@@ -171,6 +171,14 @@ pub struct ProviderSummary {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum JobRecovery {
+    /// A Code Mode script moved to the background (`full_codemode`, 2.3.1 #64343).
+    #[serde(rename = "codemode")]
+    Codemode {
+        #[serde(rename = "sessionID")]
+        session_id: String,
+        #[serde(rename = "jobID")]
+        job_id: String,
+    },
     #[serde(rename = "shell")]
     Shell {
         #[serde(rename = "sessionID")]

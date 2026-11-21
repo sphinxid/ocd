@@ -294,6 +294,20 @@ impl Engine {
         self.app.jobs.complete_background(&bg.notification_id);
     }
 
+    /// `recoverToolJob` for a Code Mode script (`CodeModeJob.notice`): one still running was interrupted by the
+    /// restart; a settled one replays its result.
+    async fn recover_codemode(&self, bg: &Background) {
+        let JobRecovery::Codemode { session_id, .. } = &bg.recovery else { return };
+        let (description, text, metadata) = crate::codemode_job::notice(&bg.id, bg.status, bg.output.as_deref(), bg.error.as_deref());
+        // Restart notices must not revive idle owners of background tools.
+        let _ = self
+            .app
+            .sessions
+            .synthetic(session_id, Some(bg.notification_id.clone()), text, Some(description), Some(metadata), None)
+            .await;
+        self.app.jobs.complete_background(&bg.notification_id);
+    }
+
     /// `deliverSubagentSafe`: replay a formatted report. A deleted parent acknowledges the row; a conflicting
     /// notification ID keeps it for the next boot; any other failure is logged and keeps it too.
     async fn deliver_subagent_safe(&self, notices: &Notices, bg_nid: &str, recovery: &JobRecovery, status: JobStatus, output: Option<String>, error: Option<String>) {
@@ -403,6 +417,7 @@ impl Engine {
             match bg.recovery {
                 JobRecovery::Shell { .. } => self.recover_shell_job(bg, notices, &mut reattached).await,
                 JobRecovery::Image { .. } => self.recover_image(bg).await,
+                JobRecovery::Codemode { .. } => self.recover_codemode(bg).await,
                 JobRecovery::Subagent { .. } => {}
             }
         }

@@ -641,13 +641,13 @@ impl Engine {
         if goal.boot() != self.goals.boot {
             return settle(db, bus, session_id, &goal, "paused", "The server restarted while the goal was active");
         }
-        // The session's own running subagent or image job wakes it with its notice, and the hook runs again then.
+        // The session's own running subagent, image or script wakes it with its notice, and the hook runs again then.
         // A grandchild reports to its own parent, so it would never wake this session.
         let own = |work: &Value, kinds: &[&str]| {
             work.get("kind").and_then(Value::as_str).is_some_and(|k| kinds.contains(&k))
                 && work.get("sessionID").and_then(Value::as_str) == Some(session_id)
         };
-        if background.iter().any(|w| own(w, &["subagent", "image"])) {
+        if background.iter().any(|w| own(w, &["subagent", "image", "codemode"])) {
             return Ok(());
         }
         if goal.rounds() >= goal.max_rounds() {

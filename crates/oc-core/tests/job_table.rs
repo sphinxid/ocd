@@ -484,3 +484,55 @@ async fn excludes_settling_and_consumed_work_from_running_background_snapshots()
     jobs.complete_background(&nid);
     assert!(jobs.running_background().is_empty());
 }
+
+/// `Job.BlockingParent` (2.3.1, #64343): a wait inside a background Code Mode script does not hold the session, so a
+/// session-wide background request moves the script and leaves the nested job waiting with its own deadline; the
+/// script's row is a `codemode` job titled after the script.
+#[tokio::test]
+async fn a_session_wide_background_request_moves_the_script_and_not_its_nested_waits() {
+    let db = Database::memory().unwrap();
+    let jobs = Arc::new(Jobs::new(db.clone()));
+    let session = "ses_codemode_parent";
+    let script = jobs.start(
+        "cm_script".into(),
+        "codemode".into(),
+        Some("Code Mode script".into()),
+        Some(JobRecovery::Codemode { session_id: session.into(), job_id: "cm_script".into() }),
+        Box::pin(futures::future::pending()),
+    );
+    let nested = jobs.start(
+        "sh_nested".into(),
+        "shell".into(),
+        None,
+        Some(shell(session, "sh_nested", "sleep 100")),
+        Box::pin(futures::future::pending()),
+    );
+    let waits = [(script.id.clone(), None), (nested.id.clone(), Some(script.id.clone()))].map(|(id, parent)| {
+        let jobs = jobs.clone();
+        tokio::spawn(async move { jobs.block_under(&id, session, parent.as_deref()).await })
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    let moved = jobs.background_all(session, None);
+    assert_eq!(moved.iter().map(|j| j.id.as_str()).collect::<Vec<_>>(), ["cm_script"]);
+    let [script_wait, nested_wait] = waits;
+    assert!(matches!(script_wait.await.unwrap(), Some(oc_tools::host::JobBlockResult::Backgrounded(_))));
+    assert!(!nested_wait.is_finished());
+    assert_eq!(
+        rows(&db),
+        [(
+            moved[0].notification_id.clone().unwrap(),
+            "cm_script".into(),
+            session.into(),
+            None,
+            "codemode".into(),
+            Some("Code Mode script".into()),
+            "running".into()
+        )]
+    );
+    assert_eq!(
+        find(&jobs.pending_background(), "cm_script").unwrap()["recovery"],
+        json!({ "kind": "codemode", "sessionID": session, "jobID": "cm_script" })
+    );
+    jobs.cancel(&nested.id);
+    assert!(matches!(nested_wait.await.unwrap(), Some(oc_tools::host::JobBlockResult::Finished(_))));
+}

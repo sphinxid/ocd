@@ -1596,7 +1596,7 @@ fn tool_context(h: &H, session: &str, call: &str) -> ToolContext {
         stop: Default::default(),
         progress: Arc::new(|_| {}),
         config: Arc::new(oc_tools::tool::ToolConfig::default()),
-        host: Arc::new(oc_core::host::CoreHost { app: h.app.clone(), skills: Arc::new(Vec::new()), mcp: None, location: None, engine: None }),
+        host: Arc::new(oc_core::host::CoreHost { app: h.app.clone(), skills: Arc::new(Vec::new()), mcp: None, location: None, engine: None, blocking_parent: None }),
     }
 }
 

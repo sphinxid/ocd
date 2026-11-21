@@ -214,3 +214,42 @@ async fn a_program_that_only_logs_has_no_null_line() {
     assert_eq!(output(&snapshot, "return null", hooks.clone()).await, "null");
     assert_eq!(output(&snapshot, r#"console.log("x"); return 1"#, hooks).await, "1\n\nLogs:\nx");
 }
+
+/// The output of `code` run as an `execute` call whose `path` global (or none) resolves from `directory`.
+async fn path_output(code: &str, directory: Option<&std::path::Path>) -> Value {
+    let snapshot = Registry::new().snapshot(&[]);
+    let mut ctx = context();
+    if let Some(directory) = directory {
+        ctx.directory = directory.to_path_buf();
+    }
+    let path = directory.map(|d| d.to_string_lossy().into_owned());
+    let result = codemode::execute_in(&snapshot, json!({ "code": code }), ctx, Arc::new(oc_tools::registry::NoHooks), path).await.unwrap();
+    let text = result.output.unwrap()["output"].as_str().unwrap().to_string();
+    serde_json::from_str(&text).unwrap_or(Value::String(text))
+}
+
+// tool-execute.test.ts "path" (2.3.1, #64476): only with `full_codemode` (core passes the session's directory)
+// programs get Node's `path`, the host's flavour resolving from the session's directory.
+#[tokio::test]
+async fn path_is_the_hosts_path_module_resolving_against_the_sessions_directory() {
+    assert_eq!(path_output("return [typeof path]", None).await, json!(["undefined"]));
+    let directory = if cfg!(windows) { std::path::PathBuf::from(r"C:\session\dir") } else { std::path::PathBuf::from("/session/dir") };
+    let sep = std::path::MAIN_SEPARATOR_STR;
+    let out = path_output(
+        r#"return [typeof path, path.resolve("a", "b"), path.relative("a", "c"), path.join("out", "..", "x.txt"), path.basename("/a/b.ts", ".ts"), path.posix.join("a", "b"), path.win32.join("a", "b"), path.sep]"#,
+        Some(&directory),
+    )
+    .await;
+    let resolved = directory.join("a").join("b").to_string_lossy().into_owned();
+    assert_eq!(out, json!(["object", resolved, format!("..{sep}c"), "x.txt", "b", "a/b", "a\\b", sep]));
+    // The other platform's flavour resolves from its own root, not the server's working directory.
+    let (other, root) = if cfg!(windows) { ("posix", "/a") } else { ("win32", "\\a") };
+    assert_eq!(path_output(&format!(r#"return [path.{other}.resolve("a")]"#), Some(&directory)).await, json!([root]));
+    // Importable by its Node module names.
+    let imported = path_output(
+        "import { join } from \"node:path\"\nconst posix = require(\"path\").posix\nreturn [join(\"a\", \"b\"), posix.dirname(\"a/b\")]",
+        Some(&directory),
+    )
+    .await;
+    assert_eq!(imported, json!([format!("a{sep}b"), "a"]));
+}

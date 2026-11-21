@@ -94,6 +94,16 @@ and `docs/PORTING.md`; tell it to continue from the existing code in its crate.
 - Output limit formula, media rules, history lowering: spec 03 §2.8.6–2.8.7.
 
 ## Session log
+- 2026-11-20: OPT-IN FULL CODE MODE, CORE (`experimental.full_codemode`, 2.3.1 #64281/#64284/#64335/#64343/#64364/
+  #64368/#64372/#64386/#64475/#64476/#64497): `oc_tools::tools::code_mode` (the Code Mode registrations of shell, read,
+  edit, write, patch and websearch; shell without `background` and with a 10-minute default; read's attachment
+  description), `Engine::base_registry` swapping them in and dropping grep/glob/webfetch while the flag is on,
+  `oc_core::codemode_job` (a session's `execute` runs as a `codemode` job: receipt after 10 s or a session-wide
+  background request, `<codemode>` result message with saved file results, `Job.BlockingParent` through
+  `CoreHost::blocking_parent`/`Jobs::block_under`, restart recovery, job list, `outstanding`, goal), and the `path`
+  global for a session's `execute` (`codemode::execute_in` with the runtime's `oc_codemode::path::extension`). Tests:
+  `tests/full_codemode.rs`, `job_table.rs`, `restart.rs`, `codemode_231.rs` (path), oc-tools
+  `code_mode_shell_has_the_long_default_and_no_background`; parity group `fcm231` (5 scenarios) identical against 2.3.1.
 - 2026-11-20: OPENCODE CONSOLE WATCHES AND ARTIFACT PROVIDER PORTED (`opencode-watches.ts` 2.2.7, `opencode-artifacts.ts`
   2.3.1 #63929): `oc_core::console_watches` (the `console_watch` Code Mode tools, one shared event connection per
   workspace over WebSocket or long polls, synthetic-steer wakes with the 5-in-10-minutes and 20-since-prompt limits,
