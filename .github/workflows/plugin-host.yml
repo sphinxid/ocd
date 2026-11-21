@@ -66,6 +66,12 @@ jobs:
         run: |
           if ! git diff --quiet -- crates/oc-plugin/host/dist/host.js; then
             git diff --stat -- crates/oc-plugin/host/dist/host.js
+            # The first differing lines, as an annotation readable without the log.
+            msg="$(git diff --no-color -U0 -- crates/oc-plugin/host/dist/host.js | grep -E '^[-+@]' | grep -v -E '^(---|\+\+\+) ' | head -n 30 | cut -c1-200)"
+            msg="${msg//'%'/'%25'}"
+            msg="${msg//$'\r'/'%0D'}"
+            msg="${msg//$'\n'/'%0A'}"
+            echo "::warning title=host.js differences::$msg"
             echo "::error file=crates/oc-plugin/host/dist/host.js::The committed host.js differs from a rebuild at upstream $UPSTREAM_COMMIT with bun $BUN_VERSION. Run scripts/build-plugin-host.sh against that checkout and commit the result."
             exit 1
           fi
