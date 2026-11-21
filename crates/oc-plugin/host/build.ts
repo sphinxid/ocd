@@ -28,7 +28,13 @@ const { discoverPluginRuntimeSpecifiers, pluginRuntimeLoaderCode } = await impor
   path.join(pluginPackage, "src", "runtime-modules.ts")
 )
 const entries: Map<string, string> = discoverPluginRuntimeSpecifiers(path.join(pluginPackage, "src"))
-const runtimeEntries = new Map([...entries].filter(([specifier]) => !specifier.startsWith("@opencode/plugin/tui")))
+// Sorted: the discovery walks directories with `Bun.Glob`, whose order is the filesystem's, so an unsorted table
+// would make the bundle depend on the machine it is built on. The order of this lazy table changes no behaviour.
+const runtimeEntries = new Map(
+  [...entries]
+    .filter(([specifier]) => !specifier.startsWith("@opencode/plugin/tui"))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+)
 const runtimeModulesSource = [
   "export const resolveHostPackageRoots = () => []",
   "const modules = {",
