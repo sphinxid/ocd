@@ -447,6 +447,31 @@ fn streaming_events_update_view() {
     assert!(contains(&lines, "esc again to interrupt"));
 }
 
+// session-tabs.tsx: the routed session's tab opens from the first route, so `--session` starts with its tab (and
+// the tab bar) like a session opened from the list.
+#[test]
+fn session_started_on_gets_its_tab() {
+    let mut a = app();
+    a.config.set("tabs", Some(json!({"mode": "on"})));
+    let sid = session(&mut a);
+    a.open_initial_tab();
+    assert_eq!(a.tabs, [sid.clone()]);
+    let lines = render(&mut a, 100, 30);
+    assert!(lines[0].contains("Fix parser bug"), "{}", lines.join("\n"));
+    // Tabs off, or no session route: nothing opens.
+    let mut a = app();
+    session(&mut a);
+    a.open_initial_tab();
+    assert!(a.tabs.is_empty());
+    a.config.set("tabs", Some(json!({"mode": "on"})));
+    a.route = Route::Home;
+    a.open_initial_tab();
+    assert!(a.tabs.is_empty());
+    a.route = Route::Session("dummy".into());
+    a.open_initial_tab();
+    assert!(a.tabs.is_empty());
+}
+
 #[test]
 fn vertical_rail_and_tab_menu() {
     let mut a = app();

@@ -997,3 +997,102 @@ fn bundled_snapshot_normalizes() {
     let decoded: Vec<oc_ai::catalog::ModelInfo> = serde_json::from_str(&encoded).unwrap();
     assert_eq!(&decoded, &anthropic.models);
 }
+
+/// Polls of a task running beside `work` on a single-threaded runtime, i.e. how often `work` let the runtime run
+/// something else before it finished.
+fn polls_beside<T>(work: impl std::future::Future<Output = T>) -> (T, usize) {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let polls = Arc::new(AtomicUsize::new(0));
+        let done = Arc::new(AtomicBool::new(false));
+        let ticker = tokio::spawn({
+            let (polls, done) = (polls.clone(), done.clone());
+            async move {
+                while !done.load(Ordering::SeqCst) {
+                    polls.fetch_add(1, Ordering::SeqCst);
+                    tokio::task::yield_now().await;
+                }
+            }
+        });
+        let value = work.await;
+        done.store(true, Ordering::SeqCst);
+        ticker.await.unwrap();
+        (value, polls.load(Ordering::SeqCst))
+    })
+}
+
+// The catalog is megabytes of JSON. Decoded on a runtime worker it held up the server's other requests (seconds
+// in a debug build): a TUI opened with `--session` showed an empty transcript until a location's boot had its
+// models. Decoding and normalizing run on the blocking pool, so the runtime keeps serving meanwhile.
+#[test]
+fn decodes_the_catalog_off_the_runtime_workers() {
+    // From the cache.
+    let (catalog, polls) = polls_beside(async {
+        let cache = Arc::new(MemoryCache::default());
+        write_cache(&cache, &fixture(), now()).await;
+        ModelsDev::new(options(false, true), cache, MockHttp::new(&fixture(), 200)).get().await.unwrap()
+    });
+    assert_eq!(catalog.iter().map(|s| s.info.id.as_str()).collect::<Vec<_>>(), ["acme"]);
+    assert!(polls > 0, "the cached catalog was decoded on the runtime's thread");
+    // The bundled snapshot.
+    let (catalog, polls) = polls_beside(async {
+        ModelsDev::new(options(false, true), Arc::new(MemoryCache::default()), MockHttp::new(&fixture(), 200)).get().await.unwrap()
+    });
+    assert!(catalog.iter().any(|s| s.info.id == "anthropic"));
+    assert!(polls > 0, "the bundled snapshot was decoded on the runtime's thread");
+    // A fetched catalog.
+    let (catalog, polls) = polls_beside(async {
+        ModelsDev::new(options(true, false), Arc::new(MemoryCache::default()), MockHttp::new(&fixture(), 200)).get().await.unwrap()
+    });
+    assert_eq!(catalog.iter().map(|s| s.info.id.as_str()).collect::<Vec<_>>(), ["acme"]);
+    assert!(polls > 0, "the fetched catalog was decoded on the runtime's thread");
+}
+
+/// A cache that tells when the catalog is read.
+struct ReadSignal(MemoryCache, Arc<tokio::sync::Notify>);
+
+#[async_trait]
+impl CatalogCache for ReadSignal {
+    async fn get(&self, key: &str) -> Option<Value> {
+        let value = self.0.get(key).await;
+        if key == DEFAULT_CACHE_KEY {
+            self.1.notify_one();
+        }
+        value
+    }
+    async fn set(&self, key: &str, value: Value) -> Result<(), String> {
+        self.0.set(key, value).await
+    }
+    async fn remove(&self, key: &str) {
+        self.0.remove(key).await
+    }
+}
+
+// With decoding off the runtime's thread, a refresh can replace the catalog while a read still decodes the previous
+// one: that read must not memoize what it decoded.
+#[test]
+fn a_read_spanning_a_refresh_is_not_memoized() {
+    let mut newer = fixture();
+    newer["acme"]["name"] = json!("Acme Two");
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let read = Arc::new(tokio::sync::Notify::new());
+        let cache = Arc::new(ReadSignal(MemoryCache::default(), read.clone()));
+        write_cache(&cache.0, &fixture(), now()).await;
+        let service = Arc::new(ModelsDev::new(options(false, true), cache.clone(), MockHttp::new(&fixture(), 200)));
+        // Once the read has the cached text, a refresh stores a newer catalog and invalidates.
+        let refresh = tokio::spawn({
+            let (service, newer) = (service.clone(), newer.clone());
+            async move {
+                read.notified().await;
+                write_cache(&cache.0, &newer, now()).await;
+                service.invalidate();
+            }
+        });
+        let catalog = service.get().await.unwrap();
+        refresh.await.unwrap();
+        assert_eq!(catalog[0].info.name, "Acme Two");
+        assert_eq!(service.get().await.unwrap()[0].info.name, "Acme Two");
+    });
+}

@@ -872,6 +872,16 @@ impl App {
         });
     }
 
+    /// The session the TUI starts on (`--session`) gets its tab at mount, like a session navigated to: upstream's
+    /// tab effect follows the route from the start, not only its changes.
+    pub fn open_initial_tab(&mut self) {
+        if let Route::Session(id) = self.route.clone()
+            && id != "dummy"
+        {
+            self.open_tab(&id);
+        }
+    }
+
     pub fn open_tab(&mut self, id: &str) {
         if !self.config.tabs_enabled() {
             return;

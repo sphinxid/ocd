@@ -298,6 +298,7 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
         }
     });
 
+    app.open_initial_tab();
     app.start_migration_poll();
     app.start_update_watch();
 

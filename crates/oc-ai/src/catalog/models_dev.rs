@@ -1023,6 +1023,30 @@ pub fn bundled() -> Arc<Vec<Snapshot>> {
         .clone()
 }
 
+/// Runs catalog decoding or normalizing on the blocking pool. The catalog is megabytes of JSON: on a runtime
+/// worker that work (seconds in a debug build) stalls the server's other requests, such as a TUI's first reads of
+/// the session it opens, until a location's boot has its models. `None` when the runtime shuts down meanwhile.
+async fn off_worker<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let span = tracing::Span::current();
+    match tokio::task::spawn_blocking(move || span.in_scope(work)).await {
+        Ok(value) => Some(value),
+        Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+        Err(_) => None,
+    }
+}
+
+const CANCELLED: &str = "models.dev catalog work cancelled";
+
+/// [`decode_catalog`] off the runtime's workers.
+async fn decode_off_worker(text: String) -> Result<Object, ModelsDevError> {
+    off_worker(move || decode_catalog(&text)).await.unwrap_or_else(|| Err(CANCELLED.into())).map_err(ModelsDevError)
+}
+
+/// [`normalize`] off the runtime's workers.
+async fn normalize_off_worker(catalog: Object) -> Result<Vec<Snapshot>, ModelsDevError> {
+    off_worker(move || normalize(&catalog)).await.ok_or_else(|| ModelsDevError(CANCELLED.into()))
+}
+
 // ---------------------------------------------------------------------------------------------
 // Cache + HTTP abstractions
 // ---------------------------------------------------------------------------------------------
@@ -1203,6 +1227,8 @@ pub struct ModelsDev {
     key: String,
     meta_key: String,
     memo: parking_lot::Mutex<Option<Arc<Vec<Snapshot>>>>,
+    /// Bumped (under `memo`) by every [`ModelsDev::invalidate`], so a read that began before one is not memoized.
+    generation: std::sync::atomic::AtomicU64,
     populating: tokio::sync::Mutex<()>,
     lock: tokio::sync::Mutex<()>,
     /// The startup cleanup of the v1 cache rows (done once, before the first read).
@@ -1224,6 +1250,7 @@ impl ModelsDev {
             key,
             meta_key,
             memo: parking_lot::Mutex::new(None),
+            generation: std::sync::atomic::AtomicU64::new(0),
             populating: tokio::sync::Mutex::new(()),
             lock: tokio::sync::Mutex::new(()),
             started: tokio::sync::OnceCell::new(),
@@ -1264,7 +1291,7 @@ impl ModelsDev {
 
     async fn load_from_cache(&self) -> Option<Cached> {
         let value = self.cache.get(&self.key).await?;
-        let decoded = (|| {
+        let decoded = off_worker(move || {
             let o = value.as_object()?;
             o.get("updatedAt")?.as_f64()?;
             match o.get("digest") {
@@ -1273,7 +1300,8 @@ impl ModelsDev {
             }
             let catalog = decode_catalog(o.get("body")?.as_str()?).ok()?;
             Some(Cached { catalog })
-        })();
+        })
+        .await?;
         if decoded.is_none() {
             self.cache.remove(&self.key).await;
             self.cache.remove(&self.meta_key).await;
@@ -1355,7 +1383,7 @@ impl ModelsDev {
 
     async fn fetch_and_write(&self) -> Result<Object, ModelsDevError> {
         let response = self.fetch_api(None).await?;
-        let catalog = decode_catalog(&response.body).map_err(ModelsDevError)?;
+        let catalog = decode_off_worker(response.body.clone()).await?;
         self.write_cache(&response.body, response.etag.as_deref(), None).await;
         Ok(catalog)
     }
@@ -1363,18 +1391,18 @@ impl ModelsDev {
     async fn populate(&self) -> Result<Vec<Snapshot>, ModelsDevError> {
         if let Some(file) = &self.options.file {
             if let Ok(text) = tokio::fs::read_to_string(file).await {
-                if let Ok(catalog) = decode_catalog(&text) {
-                    return Ok(normalize(&catalog));
+                if let Some(Ok(snapshots)) = off_worker(move || decode_snapshot(&text)).await {
+                    return Ok(snapshots);
                 }
             }
         }
         if self.options.file.is_none() {
             if let Some(cached) = self.load_from_cache().await {
-                return Ok(normalize(&cached.catalog));
+                return normalize_off_worker(cached.catalog).await;
             }
         }
         if self.options.snapshot {
-            return Ok(bundled().as_ref().clone());
+            return off_worker(|| bundled().as_ref().clone()).await.ok_or_else(|| ModelsDevError(CANCELLED.into()));
         }
         if !self.options.fetch {
             return Ok(vec![]);
@@ -1382,10 +1410,10 @@ impl ModelsDev {
         let _guard = self.lock.lock().await;
         if self.options.file.is_none() {
             if let Some(stored) = self.load_from_cache().await {
-                return Ok(normalize(&stored.catalog));
+                return normalize_off_worker(stored.catalog).await;
             }
         }
-        Ok(normalize(&self.fetch_and_write().await?))
+        normalize_off_worker(self.fetch_and_write().await?).await
     }
 
     /// The memoized catalog (single-flight; failures are not memoized).
@@ -1396,17 +1424,26 @@ impl ModelsDev {
             return Ok(value);
         }
         let _flight = self.populating.lock().await;
-        if let Some(value) = self.memo.lock().clone() {
-            return Ok(value);
+        loop {
+            if let Some(value) = self.memo.lock().clone() {
+                return Ok(value);
+            }
+            let generation = self.generation.load(std::sync::atomic::Ordering::SeqCst);
+            let value = Arc::new(self.populate().await?);
+            let mut memo = self.memo.lock();
+            if self.generation.load(std::sync::atomic::Ordering::SeqCst) == generation {
+                *memo = Some(value.clone());
+                return Ok(value);
+            }
+            // A refresh replaced the catalog while this read decoded the previous one: read it again.
         }
-        let value = Arc::new(self.populate().await?);
-        *self.memo.lock() = Some(value.clone());
-        Ok(value)
     }
 
     /// Drop the memoized catalog.
     pub fn invalidate(&self) {
-        *self.memo.lock() = None;
+        let mut memo = self.memo.lock();
+        *memo = None;
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// `refresh(force)`: skip a fresh check (< 5 min) unless forced, revalidate with the stored `ETag`,
@@ -1444,7 +1481,7 @@ impl ModelsDev {
                 return Ok(false);
             }
             let Some(response) = response else { return Ok(false) };
-            decode_catalog(&response.body).map_err(ModelsDevError)?;
+            decode_off_worker(response.body.clone()).await?;
             self.write_cache(&response.body, response.etag.as_deref(), digest).await;
             self.invalidate();
             let _ = self.events.send(());

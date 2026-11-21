@@ -4,7 +4,7 @@ usage:
   tui_capture.py --bin target/debug/ocd --work DIR --script turns.json [--cols 100] [--rows 30]
                  [--key 2:hello] [--key 3:<CR>] [--snap 5] [--snap 9.5] [--duration 30] [--mini] [--config JSON]
                  [--seed-session ses_…:TITLE] [--project-config JSON]
-                 [--seed-prompt ses_…:JSON] [--session ses_…] [--file NAME:BASE64]
+                 [--seed-prompt ses_…:JSON] [--session ses_…] [--no-standalone] [--file NAME:BASE64]
                  [--env K=V] [--terminal kitty|sixel|plain] [--pixels WxH]
 
 Everything runs isolated: DIR/project holds `opencode.json` (provider `mock` → the mock on a free port),
@@ -136,6 +136,8 @@ def main():
     ap.add_argument("--seed-prompt", action="append", default=[], metavar="ID:JSON",
                     help="send this prompt to a seeded session and wait for the turn to finish")
     ap.add_argument("--session", default=None, help="open the TUI on this session (`--session`)")
+    ap.add_argument("--no-standalone", action="store_true",
+                    help="leave out `--standalone` (the background service stays disabled, so the TUI still runs its own server)")
     ap.add_argument("--file", action="append", default=[], metavar="NAME:BASE64", help="a project file")
     ap.add_argument("--env", action="append", default=[], metavar="K=V", help="set a variable for the TUI")
     ap.add_argument("--terminal", default=None, choices=["kitty", "sixel", "plain"],
@@ -190,15 +192,17 @@ def main():
                 while time.time() < deadline:
                     time.sleep(0.5)
                     _, _, msgs = server.request("GET", f"/api/session/{sid}/message?order=asc")
-                    items = msgs if isinstance(msgs, list) else (msgs or {}).get("items", msgs) if isinstance(msgs, dict) else []
+                    # The list answers `{"data": [...], "cursor": ...}`.
+                    items = msgs if isinstance(msgs, list) else (msgs.get("data") or msgs.get("items") or []) if isinstance(msgs, dict) else []
                     last = items[-1] if isinstance(items, list) and items else {}
-                    if last.get("type") == "assistant" and (last.get("time") or {}).get("completed") and last.get("finish") != "tool-calls":
+                    # A finished turn ends with an `idle` message.
+                    if last.get("type") == "idle" or (last.get("type") == "assistant" and (last.get("time") or {}).get("completed") and last.get("finish") != "tool-calls"):
                         break
         finally:
             server.close()
     env.update(dict(kv.split("=", 1) for kv in a.env))
     pixels = tuple(int(v) for v in a.pixels.split("x")) if a.pixels else (0, 0)
-    args = [os.path.abspath(a.bin)] + (["mini"] if a.mini else []) + ["--standalone"] + (["--session", a.session] if a.session else [])
+    args = [os.path.abspath(a.bin)] + (["mini"] if a.mini else []) + ([] if a.no_standalone else ["--standalone"]) + (["--session", a.session] if a.session else [])
     # Our own pty (not `script`): every byte is timestamped as it is read.
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", a.rows, a.cols, pixels[0], pixels[1]))
