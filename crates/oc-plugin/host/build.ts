@@ -32,7 +32,7 @@ const runtimeEntries = new Map([...entries].filter(([specifier]) => !specifier.s
 const runtimeModulesSource = [
   "export const resolveHostPackageRoots = () => []",
   "const modules = {",
-  ...[...runtimeEntries.keys()].map(
+  ...[...runtimeEntries.keys()].sort().map(
     (specifier) => `  ${JSON.stringify(specifier)}: ${pluginRuntimeLoaderCode(specifier, runtimeEntries)},`,
   ),
   "}",

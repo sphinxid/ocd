@@ -47,15 +47,15 @@ The build works out its version from the git tags, the same way the release work
 
 | Checkout | `ocd --version` |
 |---|---|
-| Exactly at tag `v0.2.2` | `ocd v0.2.2+<commit> (opencode 2.2.5)`, the same as that release's binary |
-| Three commits after `v0.2.2` | `ocd v0.2.2+3.<commit> (opencode 2.2.5)` |
-| No `v*` tag | `ocd v20261027.124153+<commit> (opencode 2.2.5)`: the build time in UTC |
+| Exactly at tag `v0.4.1` | `ocd v0.4.1+<commit> (opencode 2.3.1)`, the same as that release's binary |
+| Three commits after `v0.4.1` | `ocd v0.4.1+3.<commit> (opencode 2.3.1)` |
+| No `v*` tag | `ocd v20261027.124153+<commit> (opencode 2.3.1)`: the build time in UTC |
 | Not a git checkout | The build time and a random hash |
 
 - **Fetch tags first:** run `git fetch --tags` so the latest tag is there.
 - **Set it yourself:** build with `OCD_BUILD_VERSION`, for example
   `OCD_BUILD_VERSION=1.0.0+$(git rev-parse --short HEAD) cargo build --release -p ocd`.
-- **Tag format:** release tags must be `vMAJOR.MINOR.PATCH`, such as `v0.2.2`. `ocd upgrade` and the update check
+- **Tag format:** release tags must be `vMAJOR.MINOR.PATCH`, such as `v0.4.1`. `ocd upgrade` and the update check
   ignore anything else.
 
 ## Include the web UI
@@ -63,13 +63,13 @@ The build works out its version from the git tags, the same way the release work
 The web UI is upstream's web app, about 24 MB, so it isn't committed. Without it, `ocd serve` answers 404 for web
 pages, the same as an upstream build made with `--skip-web-ui`. The TUI and CLI don't need it.
 
-To include it, build it from an upstream checkout at `v2.2.5` with Bun 1.4.4, then rebuild ocd. The archive is
-embedded at compile time. If `node` is on your `PATH`, it must be Node 22.12 or newer (or 20.19+), because the
-app's bundler runs under it.
+To include it, build it from the pinned upstream commit `c769de8` (tag `v2.3.1`) with Bun 1.4.4, then
+rebuild ocd. The archive is embedded at compile time. If `node` is on your `PATH`, it must be Node 22.12 or
+newer (or 20.19+), because the app's bundler runs under it.
 
 ```sh
 git clone https://github.com/anomalyco/opencode.git ../opencode
-(cd ../opencode && git checkout v2.2.5 && bun install)
+(cd ../opencode && git checkout c769de8 && bun install)
 BUN=bun scripts/build-web-ui.sh ../opencode     # writes crates/ocd/web-ui/app-archive.bin
 cargo build --release -p ocd
 ```
@@ -83,12 +83,21 @@ At runtime ocd looks for the web UI in this order:
 ## Rebuild the plugin helper
 
 `crates/oc-plugin/host/dist/host.js` is committed, so building ocd never needs Bun. If you change the helper's
-TypeScript (`crates/oc-plugin/host/src/`), rebuild the bundle with Bun 1.4.4. You need an upstream checkout at
-`v2.2.5` with `bun install` run:
+TypeScript (`crates/oc-plugin/host/src/`), rebuild the bundle with Bun 1.4.4 from the pinned upstream commit
+`c769de8` (tag `v2.3.1`) with `bun install` run:
 
 ```sh
 BUN=/path/to/bun-1.4.4 scripts/build-plugin-host.sh ../opencode
 ```
+
+The same checkout and Bun version rebuild the committed bundle byte for byte, so you can check that it matches:
+
+```sh
+BUN=/path/to/bun-1.4.4 scripts/check-plugin-host.sh ../opencode
+```
+
+CI runs that check on every change to the helper or its build script and on every pull request; a rebuilt file
+that differs from the committed one fails the job.
 
 ## Testing
 
@@ -100,7 +109,7 @@ Some tests need the upstream checkout, the upstream binary or Bun 1.4.4. They fi
 by `OCD_SCRATCH`, and are skipped when it isn't set:
 
 ```
-$OCD_SCRATCH/src/opencode                         upstream checkout (tag v2.2.5, `bun install` done)
+$OCD_SCRATCH/src/opencode                         upstream checkout (tag v2.3.1, `bun install` done)
 $OCD_SCRATCH/up-dist/cli-linux-x64/bin/opencode   upstream binary built from that checkout
 $OCD_SCRATCH/bun144/bun-linux-x64/bun             Bun 1.4.4
 ```

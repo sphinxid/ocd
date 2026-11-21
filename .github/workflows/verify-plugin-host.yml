@@ -1,0 +1,71 @@
+name: Verify plugin host
+
+# `crates/oc-plugin/host/dist/host.js` is committed and embedded with `include_str!`, but it is
+# generated from `crates/oc-plugin/host/src/` and upstream's plugin package by Bun. A change to
+# either source, or a forgotten rebuild, silently ships JavaScript that no type checker covers.
+# This job rebuilds the bundle from the pinned upstream commit and fails if it differs from the
+# committed file.
+on:
+  pull_request:
+    paths:
+      - "crates/oc-plugin/host/**"
+      - "scripts/build-plugin-host.sh"
+      - "scripts/check-plugin-host.sh"
+      - ".github/workflows/verify-plugin-host.yml"
+  push:
+    branches: [main, "ci/**"]
+    paths:
+      - "crates/oc-plugin/host/**"
+      - "scripts/build-plugin-host.sh"
+      - "scripts/check-plugin-host.sh"
+      - ".github/workflows/verify-plugin-host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push supersedes a running check of the same branch.
+concurrency:
+  group: verify-plugin-host-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The upstream opencode commit ocd replicates (tag v2.3.1), and the bun it builds with. Keep
+  # these in step with release.yml.
+  UPSTREAM_REPO: https://github.com/anomalyco/opencode.git
+  UPSTREAM_COMMIT: c769de83007e3584b5b395176c9fcde2d3231e88
+  BUN_VERSION: "1.4.4"
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install bun
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bun.zip" \
+            "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"
+          unzip -q "$RUNNER_TEMP/bun.zip" -d "$RUNNER_TEMP"
+          export PATH="$RUNNER_TEMP/bun-linux-x64:$PATH"
+          test "$(bun --version)" = "$BUN_VERSION" || {
+            echo "expected Bun $BUN_VERSION, got $(bun --version)" >&2
+            exit 1
+          }
+          echo "$RUNNER_TEMP/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: Check out upstream opencode
+        shell: bash
+        run: |
+          git init -q "$RUNNER_TEMP/opencode"
+          cd "$RUNNER_TEMP/opencode"
+          git fetch -q --depth 1 "$UPSTREAM_REPO" "$UPSTREAM_COMMIT"
+          git checkout -q FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$UPSTREAM_COMMIT" || {
+            echo "checked out $(git rev-parse HEAD), expected $UPSTREAM_COMMIT" >&2
+            exit 1
+          }
+          bun install
+      - name: Check the committed bundle
+        shell: bash
+        run: scripts/check-plugin-host.sh "$RUNNER_TEMP/opencode"

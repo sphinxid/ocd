@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # Rebuilds the ocd plugin sidecar bundle (crates/oc-plugin/host/dist/host.js).
 #
-# Usage: scripts/build-plugin-host.sh <upstream-opencode-checkout>
+# Usage: scripts/build-plugin-host.sh <upstream-opencode-checkout> [out-dir]
 #   (or set OPENCODE_UPSTREAM). The checkout must be upstream's v2.3.1 tag with its
 #   dependencies installed (`bun install` at its root). BUN selects the bun binary used to
-#   bundle (default: `bun` on PATH; upstream v2.3.1 pins bun 1.4.4).
+#   bundle (default: `bun` on PATH; upstream v2.3.1 pins bun 1.4.4). Without OUT-DIR the
+#   bundle is written to crates/oc-plugin/host/dist.
 #
 # The bundle is committed; building ocd itself never needs bun or the upstream checkout.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 upstream="${1:-${OPENCODE_UPSTREAM:-}}"
+outdir="${2:-}"
 bun="${BUN:-bun}"
 
 if [ -z "$upstream" ]; then
-  echo "usage: $0 <upstream-opencode-checkout>" >&2
+  echo "usage: $0 <upstream-opencode-checkout> [out-dir]" >&2
   exit 2
 fi
 if [ ! -f "$upstream/packages/plugin/package.json" ]; then
@@ -27,5 +29,6 @@ if [ ! -d "$upstream/node_modules" ]; then
 fi
 
 host="$root/crates/oc-plugin/host"
-echo "bundling with $("$bun" --version) against $upstream"
-"$bun" "$host/build.ts" "$upstream" "$host/dist"
+outdir="${outdir:-$host/dist}"
+echo "bundling with $("$bun" --version) against $upstream into $outdir"
+"$bun" "$host/build.ts" "$upstream" "$outdir"

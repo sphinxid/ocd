@@ -8,7 +8,8 @@
   `docs/PARITY.md`). `python3 scripts/parity.py --list` lists scenarios.
 - `build-web-ui.sh <upstream-checkout> [output]`: builds upstream's web app and packs it into the archive ocd embeds
   (`crates/ocd/web-ui/app-archive.bin`, ~24 MB, not committed; rebuild ocd afterwards). See `crates/ocd/README.md`
-  ("Web UI"). `build-plugin-host.sh` rebuilds the committed plugin sidecar bundle.
+  ("Web UI"). `build-plugin-host.sh` rebuilds the committed plugin sidecar bundle; `check-plugin-host.sh`
+  rebuilds it into a temporary directory and compares it byte for byte, which is what CI runs.
 - `why-stopped.sh [SESSION_ID] [DB]`: read-only look at why a session's run ended. Without an ID it lists recent
   sessions with their last outcome; with one it shows the last steps (finish reason, tool errors, step errors),
   compactions and the `RUN ENDED` row, newest first. Needs `sqlite3`.
