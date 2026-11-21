@@ -17,7 +17,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use std::collections::HashSet;
 
-static SLINE_BLANK: SLine = SLine { segs: Vec::new(), bg: None, click: None };
+static SLINE_BLANK: SLine = SLine { segs: Vec::new(), bg: None, click: None, image: None };
 
 fn pad(n: usize) -> Seg {
     Seg::new(" ".repeat(n), Style::default())
@@ -44,8 +44,10 @@ impl App {
         }
         self.size = (area.width, area.height);
         self.hits.clear();
+        self.image_hits.clear();
         self.dialog_hits.clear();
         self.dialog_rect = None;
+        self.gfx.set_term(area.width, area.height);
         let t = self.theme().clone();
         let buf = f.buffer_mut();
         fill(buf, area, t.background.base.tui_or_reset());
@@ -74,9 +76,11 @@ impl App {
             // The embedded terminal draws its own cursor.
             look = None;
         }
+        self.prepare_image_dialog();
         if let Some(mut d) = self.dialogs.pop() {
             let kb = self.keybinds.clone();
             let (rect, hits, c) = dialog::render(buf, area, &mut d, &t, &kb);
+            let image = matches!(d.body, dialog::Body::Image(_));
             let dt = t.dialog();
             look = c.map(|_| {
                 let color = match &d.body {
@@ -92,17 +96,29 @@ impl App {
             self.dialog_hits = hits;
             self.dialog_rect = Some(rect);
             cursor = c;
+            if image {
+                self.draw_image_dialog(buf, rect, area);
+            }
         }
         self.cursor_look = look;
         self.draw_reconnecting(buf, area, &t);
         self.draw_migration(buf, area, &t);
         let spinner = self.spinner_frame();
         replace_spinners(buf, spinner);
-        self.last_frame = Some(buf.clone());
+        let mut last = buf.clone();
+        if !self.gfx.placements().is_empty() {
+            // Selections copy an image's cells as blanks.
+            for cell in last.content.iter_mut().filter(|c| c.symbol() == crate::graphics::frame::MARKER) {
+                cell.set_symbol(" ");
+            }
+        }
+        self.last_frame = Some(last);
         self.draw_selection(buf);
         if let Some((x, y)) = cursor {
             f.set_cursor_position((x, y));
         }
+        self.frame_cursor = cursor;
+        self.fetch_wanted_images();
     }
 
     fn draw_plugin(&mut self, buf: &mut Buffer, area: Rect, t: &Theme, name: &str) {
@@ -233,6 +249,24 @@ impl App {
         let bar = Seg::new("┃", Style::default().fg(hl.tui()).bg(t.background.base.tui_or_reset()));
         let mut out = Vec::new();
         out.push(SLine::new(vec![bar.clone()]).with_bg(Some(bg)));
+        // `prompt.image_preview`: the attached images above the input, then one blank row.
+        if let Some(strip) = self.prompt_strip(inner as u16) {
+            let mut strip = (*strip).clone();
+            for b in &mut strip.boxes {
+                b.0 += (1 + padx) as u16;
+            }
+            if let Some(m) = &mut strip.more {
+                m.0 += (1 + padx) as u16;
+            }
+            let strip = std::sync::Arc::new(strip);
+            for row in 0..strip.height {
+                let mut l = SLine::new(vec![bar.clone()]).with_bg(Some(bg));
+                l.image = Some(crate::ui::images::ImageRow { strip: strip.clone(), row });
+                out.push(l);
+            }
+            out.push(SLine::new(vec![bar.clone()]).with_bg(Some(bg)));
+        }
+        let top = out.len() as u16;
         let max_h = 6.max(term_h / 3);
         let syntax = &self.syntax;
         let chip_style = |k: ChipKind| -> Style {
@@ -249,7 +283,7 @@ impl App {
             let ph = self.placeholder_text(width);
             let line = vec![bar.clone(), pad(padx), s(ph, t.text.muted)];
             out.push(SLine::new(line).with_bg(Some(bg)));
-            cursor = Some(((1 + padx) as u16, 1));
+            cursor = Some(((1 + padx) as u16, top));
         } else {
             let rows = self.editor.render(inner, fg(text_c), &chip_style);
             let (crow, ccol) = self.editor.cursor_pos(inner);
@@ -259,7 +293,7 @@ impl App {
                 segs.extend(r.iter().cloned());
                 out.push(SLine::new(segs).with_bg(Some(bg)));
                 if i == crow {
-                    cursor = Some(((1 + padx + ccol.min(inner)) as u16, (1 + i - start) as u16));
+                    cursor = Some(((1 + padx + ccol.min(inner)) as u16, top + (i - start) as u16));
                 }
             }
         }
@@ -561,6 +595,10 @@ impl App {
             // The footer's live work count opens the composer.
             let hits = draw_lines(buf, row, &[ln], 0, "");
             self.hits.extend(hits);
+        }
+        let rows: Vec<(usize, crate::ui::images::ImageRow)> = lines.iter().take(area.height as usize).enumerate().filter_map(|(i, l)| l.image.clone().map(|r| (i, r))).collect();
+        if !rows.is_empty() {
+            self.draw_strip_rows(buf, area, &rows, area);
         }
         // The footer's `◎ goal` item opens the goal dialog.
         if let Some(last) = lines.last()
@@ -886,8 +924,10 @@ impl App {
             // the window is addressed from the bottom (it lies entirely in the rendered part).
             self.transcript_lines = usize::MAX / 2;
             let lines = self.tcache.window_bottom(from_bottom, h, slack);
+            let rows: Vec<(usize, crate::ui::images::ImageRow)> = lines.iter().enumerate().filter_map(|(i, l)| l.image.clone().map(|r| (i, r))).collect();
             let hits = draw_line_iter(buf, area, lines.into_iter(), SPINNER_FRAMES[0]);
             self.hits.extend(hits);
+            self.draw_strip_rows(buf, area, &rows, area);
             return;
         }
         let total = self.tcache.len() + slack;
@@ -899,9 +939,11 @@ impl App {
         }
         let offset = max - from_bottom;
         let visible = total.saturating_sub(offset).min(h);
+        let rows: Vec<(usize, crate::ui::images::ImageRow)> = self.tcache.iter_from(offset).take(visible).enumerate().filter_map(|(i, l)| l.image.clone().map(|r| (i, r))).collect();
         let lines = self.tcache.iter_from(offset).chain(std::iter::repeat(&SLINE_BLANK)).take(visible);
         let hits = draw_line_iter(buf, area, lines, SPINNER_FRAMES[0]);
         self.hits.extend(hits);
+        self.draw_strip_rows(buf, area, &rows, area);
     }
 
     fn draw_sidebar(&mut self, buf: &mut Buffer, area: Rect, t: &Theme, sid: &str) {

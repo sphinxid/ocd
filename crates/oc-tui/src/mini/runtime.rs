@@ -131,6 +131,12 @@ impl Sink for Sink2<'_> {
     fn commit(&mut self, c: Commit) {
         self.split.enqueue(c);
     }
+    fn graphics(&self) -> Option<(crate::graphics::Caps, (u16, u16), usize)> {
+        let (w, h) = (self.split.term_width as u16, self.split.term_height as u16);
+        let mut caps = self.split.caps.clone();
+        caps.resize(w, h);
+        Some((caps, (w, h), self.split.split_height() as usize))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -227,12 +233,14 @@ pub struct Runtime {
     fatal: Option<String>,
 }
 
-/// Query the terminal palette (OSC 10/11 and 256 OSC 4 entries, terminated by DA1).
+/// Query the terminal palette (OSC 10/11 and 256 OSC 4 entries, terminated by DA1), after `extra` queries (the
+/// graphics capabilities, applied to `caps`).
 #[cfg(unix)]
-fn probe_palette(timeout_ms: u64) -> Option<crate::theme::TerminalColors> {
+fn probe_palette(timeout_ms: u64, caps: &mut crate::graphics::Caps) -> Option<crate::theme::TerminalColors> {
     use std::os::fd::AsRawFd;
     let mut out = std::io::stdout();
-    let mut q = String::from("\x1b]10;?\x07\x1b]11;?\x07");
+    let mut q = caps.queries();
+    q.push_str("\x1b]10;?\x07\x1b]11;?\x07");
     for i in 0..256 {
         q.push_str(&format!("\x1b]4;{i};?\x07"));
     }
@@ -265,6 +273,7 @@ fn probe_palette(timeout_ms: u64) -> Option<crate::theme::TerminalColors> {
             break;
         }
     }
+    caps.apply_replies(&data);
     let text = String::from_utf8_lossy(&data);
     let mut colors = crate::theme::TerminalColors { palette: vec![None; 256], ..Default::default() };
     let re = regex::Regex::new(r"\x1b\](4;(\d+)|10|11);([^\x07\x1b]+)(?:\x07|\x1b\\)").unwrap();
@@ -289,7 +298,7 @@ fn probe_palette(timeout_ms: u64) -> Option<crate::theme::TerminalColors> {
 }
 
 #[cfg(not(unix))]
-fn probe_palette(_timeout_ms: u64) -> Option<crate::theme::TerminalColors> {
+fn probe_palette(_timeout_ms: u64, _caps: &mut crate::graphics::Caps) -> Option<crate::theme::TerminalColors> {
     None
 }
 
@@ -448,13 +457,15 @@ impl Runtime {
         if height != self.split.footer_height() {
             if self.split.has_pending() {
                 let (buf, cursor) = self.footer.render(now);
-                self.split.render(&buf, cursor);
+                self.split.footer_images.next = self.footer.placed_images();
+        self.split.render(&buf, cursor);
             }
             self.split.set_footer_height(height);
         }
         let mut sink = Sink2 { split: &mut self.split };
         self.footer.drain(&mut sink);
         let (buf, cursor) = self.footer.render(now);
+        self.split.footer_images.next = self.footer.placed_images();
         self.split.render(&buf, cursor);
         self.write_out();
     }
@@ -822,6 +833,7 @@ impl Runtime {
         let mut sink = Sink2 { split: &mut self.split };
         self.footer.idle(&mut sink);
         let (buf, cursor) = self.footer.render(Instant::now());
+        self.split.footer_images.next = self.footer.placed_images();
         self.split.render(&buf, cursor);
         self.footer.reset_for_replay(true);
         self.split.reset_for_replay(true);
@@ -1044,7 +1056,8 @@ impl Runtime {
             }
             FooterAction::ClearScreen => {
                 let (buf, cursor) = self.footer.render(Instant::now());
-                self.split.render(&buf, cursor);
+                self.split.footer_images.next = self.footer.placed_images();
+        self.split.render(&buf, cursor);
                 self.split.reset_for_replay(false);
             }
             FooterAction::Paste => {}
@@ -1615,7 +1628,8 @@ impl Runtime {
             CEvent::Resize(w, h) => {
                 if self.split.has_pending() {
                     let (buf, cursor) = self.footer.render(now);
-                    self.split.render(&buf, cursor);
+                    self.split.footer_images.next = self.footer.placed_images();
+        self.split.render(&buf, cursor);
                 }
                 self.split.resize(w as u32, h as u32);
                 self.footer.resize(w as usize, h as usize);
@@ -1814,6 +1828,7 @@ impl Runtime {
         self.footer.idle(&mut sink);
         let now = Instant::now();
         let (buf, cursor) = self.footer.render(now);
+        self.split.footer_images.next = self.footer.placed_images();
         self.split.render(&buf, cursor);
         let show = self.shown && !self.session_id.is_empty();
         if show && self.footer.settings.splash {
@@ -1824,6 +1839,7 @@ impl Runtime {
             let c = splash::exit_splash(self.split.width(), title.as_deref(), &self.session_id, self.footer.settings.mono, true, &self.footer.theme.splash);
             self.split.enqueue(c);
             let (buf, _) = self.footer.render(now);
+            self.split.footer_images.next = vec![];
             self.split.render(&buf, None);
             self.wrote_exit = true;
         }
@@ -1866,7 +1882,8 @@ pub async fn run_mini(opts: TuiOptions, mini: MiniOptions) -> anyhow::Result<i32
     crate::restore::arm(crate::restore::PASTE);
     enable_raw_mode()?;
     let cursor_row = crossterm::cursor::position().map(|(_, r)| r as u32 + 1).unwrap_or(0);
-    let colors = if settings.mono { None } else { probe_palette(1000) };
+    let mut caps = crate::graphics::Caps::from_env(&|k| std::env::var(k).ok());
+    let colors = if settings.mono { None } else { probe_palette(1000, &mut caps) };
     let kitty = !settings.mono && crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
     let mut out = std::io::stdout();
     out.write_all(b"\x1b[?2004h")?;
@@ -1878,6 +1895,8 @@ pub async fn run_mini(opts: TuiOptions, mini: MiniOptions) -> anyhow::Result<i32
     let (w, h) = crossterm::terminal::size().unwrap_or((80, 24));
     let (theme, _, _) = resolve_theme(&config, &directory, colors.as_ref(), settings.mono);
     let mut split = Split::new(w as u32, h as u32, FOOTER_HEIGHT as u32, cursor_row);
+    caps.measured = (w as u16, h as u16);
+    split.caps = caps;
     let animations = config.animations();
     let label = {
         let home = super::util::home_dir();
@@ -1916,6 +1935,7 @@ pub async fn run_mini(opts: TuiOptions, mini: MiniOptions) -> anyhow::Result<i32
             startup,
             directory: directory.clone(),
             image_preview: config.bool("session.image_preview").unwrap_or(false),
+            prompt_image_preview: config.bool("prompt.image_preview").unwrap_or(false),
         },
         w as usize,
         h as usize,

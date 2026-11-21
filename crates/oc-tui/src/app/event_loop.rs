@@ -63,7 +63,7 @@ where
     B::Error: Send + Sync + 'static,
 {
     fn draw(&mut self, app: &mut App) -> anyhow::Result<()> {
-        self.term.draw(|f| app.draw(f))?;
+        super::images::draw_frame(self.term, app, &mut |_| {})?;
         if let Some(f) = &mut self.after {
             f(app);
         }

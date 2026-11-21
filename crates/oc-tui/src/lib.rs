@@ -8,6 +8,7 @@ pub mod app;
 pub mod attention;
 pub mod clipboard;
 pub mod config;
+pub mod graphics;
 pub mod keymap;
 pub mod mini;
 mod restore;
@@ -136,6 +137,7 @@ fn external_editor(app: &mut App, screen: &Screen, term: &mut Term) {
         fail(app, e.to_string());
         return;
     }
+    graphics_leave(app);
     screen.leave();
     let mut parts = cmd.split(' ').filter(|s| !s.is_empty());
     let program = parts.next().unwrap_or_default().to_string();
@@ -143,6 +145,7 @@ fn external_editor(app: &mut App, screen: &Screen, term: &mut Term) {
     let status = std::process::Command::new(&program).args(&args).arg(&path).current_dir(app.location_dir()).status();
     let _ = screen.enter();
     let _ = term.clear();
+    app.gfx.invalidate();
     match status {
         Ok(s) if s.success() => {
             if let Ok(text) = std::fs::read_to_string(&path)
@@ -176,18 +179,30 @@ fn external_editor(app: &mut App, screen: &Screen, term: &mut Term) {
 #[cfg(unix)]
 fn suspend(app: &mut App, screen: &Screen, term: &mut Term) {
     app.suspend_requested = false;
+    graphics_leave(app);
     screen.leave();
     unsafe {
         libc::raise(libc::SIGTSTP);
     }
     let _ = screen.enter();
     let _ = term.clear();
+    app.gfx.invalidate();
     app.dirty = true;
 }
 
 #[cfg(not(unix))]
 fn suspend(app: &mut App, _: &Screen, _: &mut Term) {
     app.suspend_requested = false;
+}
+
+/// Free the Kitty images on screen before leaving it (`writeShutdownImage`).
+fn graphics_leave(app: &mut App) {
+    let bytes = app.gfx.shutdown();
+    if !bytes.is_empty() {
+        let mut out = std::io::stdout();
+        let _ = out.write_all(bytes.as_bytes());
+        let _ = out.flush();
+    }
 }
 
 /// The full-screen terminal's steps of the event loop.
@@ -201,7 +216,9 @@ struct TermHooks<'a> {
 
 impl app::event_loop::Hooks for TermHooks<'_> {
     fn draw(&mut self, app: &mut App) -> anyhow::Result<()> {
-        self.term.draw(|f| app.draw(f))?;
+        app::images::draw_frame(self.term, app, &mut |bytes| {
+            let _ = std::io::stdout().write_all(bytes.as_bytes());
+        })?;
         let seq = self.cursor.update(app.cursor_look);
         if !seq.is_empty() {
             let mut out = std::io::stdout();
@@ -242,10 +259,13 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
         let _ = out.write_all(app::program_status::QUERY.as_bytes());
         let _ = out.flush();
     }
-    // Theme mode + palette probe before the input reader starts.
-    let palette = terminal::probe(1000);
+    // Theme mode + palette probe before the input reader starts, with the graphics capability queries.
+    let mut caps = graphics::Caps::from_env(&|k| std::env::var(k).ok());
+    let (palette, replies) = terminal::probe_with(1000, &caps.queries());
+    caps.apply_replies(&replies);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppMsg>();
     let mut app = App::new(opts, config, tx.clone());
+    app.gfx.caps = caps;
     if let Ok(custom) = theme::discover(std::path::Path::new(&app.opts.directory)) {
         app.themes.set_custom(custom);
     }
@@ -290,6 +310,7 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
         let _ = out.write_all(app::program_status::ProgramStatus::clear().as_bytes());
         let _ = out.flush();
     }
+    graphics_leave(&mut app);
     screen.leave();
     if let Err(e) = result {
         tracing::error!(cause = %e, "tui failed");

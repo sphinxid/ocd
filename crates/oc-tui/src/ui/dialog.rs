@@ -592,6 +592,8 @@ pub enum Body {
     GoUpsell(Box<super::go_upsell::GoUpsell>),
     /// A string form field with options and a typed answer (`StringChoiceField`).
     Choice(Box<super::choice::ChoiceField>),
+    /// `DialogImagePreview`: the app draws the image over the blank rows.
+    Image(Box<super::images::ImagePreview>),
 }
 
 /// One dialog on the host stack.
@@ -861,6 +863,20 @@ pub fn handle_key(d: &mut Dialog, s: &Stroke, kb: &Keybinds) -> Outcome {
             super::choice::ChoiceKey::Submit(v) => Outcome::Submit(serde_json::to_string(&v).unwrap_or_default()),
             super::choice::ChoiceKey::None => Outcome::Handled,
         },
+        // `Keymap.createLayer({ mode: "modal", commands: [left, right] })`.
+        Body::Image(p) => match name {
+            "escape" => Outcome::Close,
+            "c" if s.ctrl => Outcome::Close,
+            "left" if !s.ctrl && !s.meta => {
+                p.step(-1);
+                Outcome::Handled
+            }
+            "right" if !s.ctrl && !s.meta => {
+                p.step(1);
+                Outcome::Handled
+            }
+            _ => Outcome::Handled,
+        },
         Body::Text(td) if td.buttons.is_some() && matches!(name, "left" | "right" | "tab" | "return") => {
             let b = td.buttons.as_mut().unwrap();
             match name {
@@ -1086,6 +1102,7 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
             v
         }
         Body::Text(td) => text_lines(td, wu, area, narrow, t),
+        Body::Image(p) => image_lines(p, wu, area, t),
         Body::Choice(c) => {
             let (lines, at) = super::choice::lines(c, wu, area.height as usize, narrow, t);
             cursor = at;
@@ -1127,6 +1144,35 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
     }
     let cursor = cursor.map(|(cx, cy)| (x + cx, inner_rect.y + cy));
     (panel, hits, cursor)
+}
+
+/// `DialogImagePreview` in the legacy layout: the header, blank rows for the image, then `← previous`, the label
+/// and `next →` spread across the row (`justifyContent: space-between`).
+fn image_lines(p: &super::images::ImagePreview, w: usize, area: Rect, t: &Theme) -> Vec<SLine> {
+    let inner = w.saturating_sub(DIALOG_INSET * 2);
+    let mut v = vec![header(&format!("Image {} of {}", p.index + 1, p.uris.len()), "esc", t, w), SLine::blank()];
+    for _ in 0..super::images::preview_image_rows(area.height) {
+        v.push(SLine::blank());
+    }
+    v.push(SLine::blank());
+    let many = p.uris.len() > 1;
+    let prev = if many { "← previous" } else { "" };
+    let next = if many { "next →" } else { "" };
+    let label_c = if p.failed { t.text.feedback.error.base } else { t.text.muted };
+    let label = locale::take_width(&p.label(), inner.saturating_sub(sw(prev) + sw(next)));
+    let free = inner.saturating_sub(sw(prev) + sw(&label) + sw(next));
+    let left_gap = free.div_ceil(2);
+    let right_gap = free - left_gap;
+    v.push(SLine::new(vec![
+        pad(DIALOG_INSET),
+        seg(prev, fg(t.text.muted)).on_click(Click::Custom("act:prev".into())),
+        pad(left_gap),
+        seg(label, fg(label_c)),
+        pad(right_gap),
+        seg(next, fg(t.text.muted)).on_click(Click::Custom("act:next".into())),
+    ]));
+    v.push(SLine::blank());
+    v
 }
 
 fn text_lines(td: &mut TextDialog, w: usize, area: Rect, narrow: bool, t: &Theme) -> Vec<SLine> {

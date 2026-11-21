@@ -87,6 +87,10 @@ pub trait Host {
 pub struct Composer {
     pub area: TextArea,
     pub shell: bool,
+    /// `prompt.image_preview`.
+    pub image_preview: bool,
+    /// The image boxes the last render drew: `(source, x, y, width, height)` in footer cells.
+    pub placed: Vec<(String, u16, u16, u16, u16)>,
     history: PromptHistory,
     draft: RunPrompt,
     /// The draft's caret while the prompt is not shown (`draftCursor`, 2.3.0 #63260).
@@ -165,6 +169,8 @@ impl Composer {
         Composer {
             area: TextArea::new(),
             shell: false,
+            image_preview: false,
+            placed: Vec::new(),
             history: create_prompt_history(history),
             draft: RunPrompt::default(),
             stash: RunPrompt::default(),
@@ -343,7 +349,31 @@ impl Composer {
     /// `layout()`.
     pub fn layout(&self, host: &dyn Host, term_width: usize) -> PromptLayout {
         let options = if self.visible() { self.options(host, term_width).len().max(1) } else { 0 };
-        footer_prompt_layout(host.term_height(), self.lines, options, self.status_rows, false)
+        let images = self.image_preview && !host.mono() && !self.shell && !self.images().is_empty();
+        footer_prompt_layout(host.term_height(), self.lines, options, self.status_rows, images)
+    }
+
+    /// `images()`: the draft's inline images (`deduplicatePromptImages(attachments())` filtered to `data:image/`).
+    pub fn images(&self) -> Vec<String> {
+        let mut seen: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+        let files: Vec<&PromptPart> = self.parts.iter().filter(|p| matches!(p, PromptPart::File { .. })).collect();
+        let dedupe = files.len() >= 2;
+        files
+            .into_iter()
+            .filter_map(|p| match p {
+                PromptPart::File { url, filename, description, source, .. } => {
+                    let mention = source.as_ref().map(|(_, m)| m.value.as_str()).unwrap_or("");
+                    if dedupe && url.starts_with("data:image/") && !mention.is_empty() {
+                        let meta = serde_json::to_string(&(filename, description, mention)).unwrap_or_default();
+                        if !seen.entry(meta).or_default().insert(url.clone()) {
+                            return None;
+                        }
+                    }
+                    url.starts_with("data:image/").then(|| url.clone())
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     fn menu_limit(&self, host: &dyn Host, term_width: usize) -> usize {
@@ -898,6 +928,29 @@ impl Composer {
         let (crow, ccol) = self.area.visual_cursor(inner);
         let scroll = if crow >= visible { crow + 1 - visible } else { 0 };
         let top = y + l.padding;
+        self.placed.clear();
+        if l.images > 0 {
+            // The previews' row above the textarea: up to three boxes `images * 2` wide, then `+N more`.
+            let images = self.images();
+            let more = (images.len() > 3).then(|| format!("+{} more", images.len() - 3));
+            let mut basis: Vec<f64> = vec![l.images as f64 * 2.0; images.len().min(3)];
+            if let Some(m) = &more {
+                basis.push(super::cell::str_width(m) as f64);
+            }
+            let boxes = crate::ui::images::row_layout(&basis, 1.0, inner as f64);
+            for r in 0..l.images {
+                buf.draw_chunks(0, (top + r) as i32, &[StyledChunk::plain(if mono { "|" } else { "┃" }, rail)], 1);
+            }
+            for (i, uri) in images.iter().take(3).enumerate() {
+                let (bx, bw) = boxes[i];
+                self.placed.push((uri.clone(), 2 + bx, top as u16, bw, l.images as u16));
+            }
+            if let Some(m) = more {
+                let (bx, bw) = boxes[boxes.len() - 1];
+                buf.draw_chunks(2 + bx as i32, top as i32, &[StyledChunk::plain(&m, muted)], bw as usize);
+            }
+        }
+        let top = top + l.images;
         for r in 0..visible {
             buf.draw_chunks(0, (top + r) as i32, &[StyledChunk::plain(if mono { "|" } else { "┃" }, rail)], 1);
         }

@@ -159,8 +159,34 @@ The modules below cover the main session and home screens and all dialogs. They 
   into a `data:` URI. A blob the server no longer has (404 `FileNotFoundError`) is left out with the warning "An
   image in this message is no longer stored, so it can't be restored" (or "`N` images ... they can't be
   restored"); a fork fails instead (error toast, no fork); any other failed read toasts the error and changes
-  nothing. Not ported: transcript and prompt image previews (`session.image_preview`, `prompt.image_preview`; ocd
-  draws no terminal images, so no "No preview" placeholder either).
+  nothing.
+- **Image previews** (`graphics/`, `app/images.rs`, `ui/images.rs`; OpenTUI 0.8.4's `<image>` and its native
+  renderer): with `session.image_preview` a user message's images (deduplicated like `deduplicateVisibleImages`)
+  sit above its text and a finished tool's image results (inline `data:image/` or `media:` refs, fetched once by
+  hash) below the tool, or below an exploration group's header for its tools; a collapsed activity row shows none.
+  A strip has a blank row above and below, up to three boxes `h * 2` columns wide (`h = clamp(rows / 4, 4, 8)`,
+  shrinking in proportion when the row is narrow, one column apart) and `+N more`; images fill their box
+  (`fit: "cover"`), a source that can't be read says `No preview`. With `prompt.image_preview` the prompt's inline
+  images show the same way above the input, followed by a blank row. Clicking an image (or `+N more` in the
+  prompt), or `prompt.images.view` (`<leader>i`, enabled while the prompt holds images), opens `DialogImagePreview`:
+  centered, 116 columns, `Image i of n`, the image fitted into `rows - 8` rows, `← previous`/`next →` (also the
+  arrow keys, wrapping around) and the image's mention, `Image i` or `No preview` (error color) between them.
+  Protocols (`graphics/caps.rs`): the startup probe also sends XTVERSION, the Kitty graphics query (not inside
+  tmux or screen) and `CSI 14 t`; a reply naming `i=31337` or the name kitty/ghostty selects Kitty, DA1 attribute
+  4 or foot 1.2+/WezTerm 2020-06-20+ selects Sixel (which also needs the pixel size), tmux draws text unless
+  `OPENTUI_IMAGE_PROTOCOL` (`auto`/`kitty`/`sixel`/`blocks`) forces a protocol (then wrapped in tmux passthrough),
+  `OPENTUI_GRAPHICS=0` turns detection off, and over SSH only the replies count. Images are drawn into the frame
+  like OpenTUI's `drawImage` (clipped to the transcript or prompt, the source rectangle cut to match), their cells
+  reserved: quadrant characters for text, otherwise blank cells left out of the cell diff. Kitty
+  (`graphics/kitty.rs`) sends each placement's image once (a PNG as is, `f=100`, else RGB/RGBA, 3072-byte chunks,
+  `q=2`), with ids `salt + placement id`, placed with its source rectangle, `C=1` and a z under text; a moved
+  placement is re-placed, a dialog over part of it splits it into uncovered runs (ids from `0x80000000`), images
+  that leave are freed (`d=I`), and leaving the screen frees all. Sixel (`graphics/sixel.rs`) is OpenTUI's Wu
+  quantizer and band encoder, byte for byte, painted again when it moves, changes or is uncovered. Escapes go out
+  before the frame's cell diff (`app::images::draw_frame`); a resize or a cleared screen resends everything. Mini
+  mode writes image entries into scrollback (caption, then the image fitted to the width and the rows above the
+  footer, never larger than its pixels; sent after its last row with the cursor saved, as text when it can't be
+  addressed) and places the prompt's previews (`fit: "fit"`, 3-4 rows) in the footer.
 - **Missing sessions** (2.2.5 #60459, `data.ts` `markDeleted`): a `SessionNotFound` answer to a session, message,
   inbox, permission or form read, like `session.deleted`, removes the session from the store and remembers it
   (the last 512); a read that started before the deletion drops its answer. `session.created`, a local create and a
@@ -402,6 +428,7 @@ Long sessions must not slow the TUI down: the cost of a frame and of an event do
 | `config` | `cli.json` (JSONC) with resolved defaults and atomic, comment-preserving writes |
 | `state` | `model.json`, `session.json`, `prompt-history.jsonl`, `prompt-stash.jsonl`, `frecency.jsonl`, and the keyed `<state>/<channel>/tui/<key>.json` store, all at the upstream paths |
 | `ui` | text and wrapping primitives, markdown rendering, syntect highlighting, unified and split diffs, the transcript row model and renderers, the prompt editor with chips, dialogs, form and permission helpers, the logo and epilogue |
-| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `migration` (v1 import badge and status poller), `busy` (busy status line: turn tracking, phase derivation, rendering), `event_loop` (input-first batching, frame cap), `tcache` (incremental, lazy transcript rendering) |
+| `app` | app state, command registry, key, mouse and paste dispatch, prompt submission, and the screen layout. Submodules: `tabs` (rail, strip and menu), `diffview`, `stats`, `terminal` (PTY pane), `composer` (subagent/shell drawer), `workspace` (open, worktrees and pair dialogs), `selection` (drag-select copy), `migration` (v1 import badge and status poller), `busy` (busy status line: turn tracking, phase derivation, rendering), `event_loop` (input-first batching, frame cap), `tcache` (incremental, lazy transcript rendering), `images` (image previews and the preview dialog) |
+| `graphics` | terminal images: capability detection, decoding, frame placement, and the Kitty, Sixel and quadrant-text encoders (OpenTUI 0.8.4) |
 | `mini` | `ocd mini`: a port of upstream's mini frontend (split-footer renderer, footer, panels, docks, scrollback rendering, transport, subagents, splash), one file per upstream module |
 | `clipboard`, `attention`, `terminal` | clipboard (OSC 52 plus host tools), notifications and sounds, terminal palette probe (OSC 4/10/11) |

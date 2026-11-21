@@ -7,6 +7,7 @@ pub mod form;
 pub mod go_art;
 pub mod go_upsell;
 pub mod highlight;
+pub mod images;
 pub mod markdown;
 pub mod prompt;
 pub mod tab_pulse;

@@ -37,7 +37,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-static BLANK: SLine = SLine { segs: Vec::new(), bg: None, click: None };
+static BLANK: SLine = SLine { segs: Vec::new(), bg: None, click: None, image: None };
 
 /// Counters for tests and benchmarks.
 #[derive(Clone, Copy, Debug, Default)]
@@ -352,6 +352,9 @@ impl App {
             usage: self.usage_info(),
             models_key: self.models_key(),
             links: None,
+            image_height: self.session_image_height(),
+            tool_images: std::cell::Cell::new(true),
+            images_outside: std::cell::Cell::new(false),
         }
     }
 
@@ -361,6 +364,8 @@ impl App {
         sid.hash(&mut h);
         width.hash(&mut h);
         self.size.0.hash(&mut h);
+        // Transcript image strips are a quarter of the terminal height.
+        self.session_image_height().hash(&mut h);
         self.themes.epoch.hash(&mut h);
         self.style_epoch.hash(&mut h);
         (self.themes.effective_mode() == crate::theme::Mode::Light).hash(&mut h);

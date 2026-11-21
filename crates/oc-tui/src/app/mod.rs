@@ -14,6 +14,7 @@ pub mod input;
 pub mod migration;
 pub mod execute;
 pub mod highlights;
+pub mod images;
 pub mod integration;
 pub mod location;
 pub mod media;
@@ -308,6 +309,14 @@ pub struct App {
     pub pending_actions: std::collections::HashSet<String>,
     /// Bytes of `media:` refs read so far (`createMediaCache`).
     pub media: std::sync::Arc<media::MediaCache>,
+    /// Terminal images: capabilities, this frame's placements and what the terminal shows.
+    pub gfx: crate::graphics::Graphics,
+    /// Decoded images by source URI.
+    pub images: crate::graphics::store::Store,
+    /// The image boxes of this frame: their strip's images and the box's index (`image.preview:<n>` clicks).
+    pub image_hits: Vec<(Vec<String>, Vec<Option<String>>, usize)>,
+    /// Where the last frame put the terminal cursor (`None`: hidden).
+    pub frame_cursor: Option<(u16, u16)>,
     pub epilogue: Option<String>,
     pub default_model: Option<ModelRef>,
     pub prompt_sent: bool,
@@ -460,6 +469,10 @@ impl App {
             drafts: HashMap::new(),
             pending_actions: Default::default(),
             media: Default::default(),
+            gfx: crate::graphics::Graphics::new(crate::graphics::Caps::from_env(&|k| std::env::var(k).ok())),
+            images: Default::default(),
+            image_hits: Vec::new(),
+            frame_cursor: None,
             cursor_look: None,
             rail_fx: HashMap::new(),
             strip_fx: HashMap::new(),
@@ -1564,3 +1577,5 @@ mod catchup231_tests;
 mod perf;
 #[cfg(test)]
 mod media_tests;
+#[cfg(test)]
+mod images_tests;

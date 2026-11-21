@@ -2775,6 +2775,7 @@ dependencies = [
  "dirs",
  "fancy-regex 0.16.2",
  "futures",
+ "image",
  "indexmap",
  "libc",
  "oc-codemode",

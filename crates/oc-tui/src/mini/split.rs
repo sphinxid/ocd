@@ -125,6 +125,12 @@ pub struct Split {
     cursor_visible: bool,
     cursor_style: Option<u8>,
     cursor_color: Option<(u8, u8, u8)>,
+    /// Terminal graphics capabilities (images in scrollback and the footer).
+    pub caps: crate::graphics::Caps,
+    /// `kittyHistoryNextImageId`: scrollback images get ids above every live one.
+    kitty_history: Option<u32>,
+    /// Images placed in the footer: the live frame's state.
+    pub footer_images: FooterImages,
 }
 
 /// `moveToSplitOutputCursor`.
@@ -158,10 +164,20 @@ fn emit_attrs(out: &mut String, a: u8) {
 
 /// Write cells `[0, end)` of row `y` with SGR runs (reset before each style change).
 fn write_cells(out: &mut String, buf: &Buffer, y: u16, end: usize) {
+    write_cells_with(out, buf, y, end, &|_, _| false);
+}
+
+/// [`write_cells`] with the cells `image(x, y)` covers written as plain blanks (a Kitty image shows there).
+fn write_cells_with(out: &mut String, buf: &Buffer, y: u16, end: usize, image: &dyn Fn(u16, u16) -> bool) {
     let mut cur: Option<(Color, Color, u8)> = None;
     for x in 0..end {
         let cell = buf.get(x as u16, y);
         if cell.glyph == Glyph::Cont {
+            continue;
+        }
+        if image(x as u16, y) {
+            out.push_str("\x1b[0m ");
+            cur = None;
             continue;
         }
         // Never-drawn cells keep OpenTUI's cleared foreground (white) when serialized.
@@ -201,7 +217,13 @@ impl Split {
             cursor_visible: false,
             cursor_style: None,
             cursor_color: None,
+            caps: crate::graphics::Caps::from_env(&|_| None),
+            kitty_history: None,
+            footer_images: FooterImages::default(),
         };
+        let salt = FooterImages::salt();
+        s.footer_images.salt = salt;
+        s.kitty_history = Some(salt + crate::graphics::kitty::IMAGE_ID_MASK + 1);
         let seed = if cursor_row == 0 { 0 } else { cursor_row.max(1).min(height.max(1)) };
         s.reset_scrollback(seed);
         s
@@ -310,6 +332,26 @@ impl Split {
         let starts_mid_line = previous_column > 0 && c.start_on_new_line;
         let starts_wrapped_line = previous_column >= width;
         let previous_footer_top = (previous_surface + 1).max(1);
+        // `prepareSnapshotImages`: native images, or the text fallback drawn into the snapshot.
+        let protocol = crate::graphics::snapshot::prepare(&self.caps, &c.images, columns, c.start_on_new_line, previous_column, pinned);
+        let fallback;
+        let snap = if protocol.is_none() && !c.images.is_empty() {
+            fallback = blocks_fallback(snap, &c.images);
+            &fallback
+        } else {
+            snap
+        };
+        let history = match protocol {
+            Some(crate::graphics::Protocol::Kitty) => match self.kitty_history {
+                Some(first) => {
+                    self.kitty_history = first.checked_add(c.images.len() as u32);
+                    Some(first - 1)
+                }
+                None => None,
+            },
+            _ => None,
+        };
+        let protocol = if protocol == Some(crate::graphics::Protocol::Kitty) && history.is_none() { None } else { protocol };
         let widths = row_widths(snap, columns as usize);
         let mut ends_last_row = c.trailing_newline;
         if has_content {
@@ -348,9 +390,14 @@ impl Split {
             }
             // `writeSnapshotCommit`.
             out.push_str("\x1b[0m\x1b[K");
+            let kitty = protocol == Some(crate::graphics::Protocol::Kitty);
+            let covered = |x: u16, y: u16| kitty && c.images.iter().any(|i| x >= i.x && x < i.x + i.width && y >= i.y && y < i.y + i.height);
             for y in 0..snap.height {
-                write_cells(out, snap, y, widths[y as usize]);
+                write_cells_with(out, snap, y, widths[y as usize], &covered);
                 out.push_str("\x1b[0m");
+                if let Some(p) = protocol {
+                    crate::graphics::snapshot::after_row(out, &self.caps, &c.images, y, p, history.unwrap_or(0));
+                }
                 let last = y + 1 >= snap.height;
                 if !last || ends_last_row {
                     out.push_str("\r\n\x1b[K");
@@ -368,9 +415,20 @@ impl Split {
         redraw
     }
 
-    /// Paint the footer at the current offset: changed rows only, or every row when forced.
+    /// Paint the footer at the current offset: changed rows only, or every row when forced. Images placed in the
+    /// footer follow its rows: a Kitty image is placed again when it or the footer moved, a Sixel painted again
+    /// when a row it covers was written.
     fn paint_footer(&mut self, out: &mut String, footer: &Buffer, force: bool) {
+        let shown = self.footer_images.layout(&self.caps, (self.term_width as u16, self.term_height as u16));
+        let fallback;
+        let footer = if shown.is_empty() {
+            footer
+        } else {
+            fallback = self.footer_images.apply(footer, &shown);
+            &fallback
+        };
         let top = self.render_offset + 1;
+        let mut written = vec![false; footer.height as usize];
         let force = force || self.force_full || self.current.as_ref().is_none_or(|(t, b)| *t != top || b.width != footer.width || b.height != footer.height);
         for y in 0..footer.height.min(self.split_height as u16) {
             if !force
@@ -382,9 +440,11 @@ impl Split {
             let _ = write!(out, "\x1b[{};1H", top + y as u32);
             write_cells(out, footer, y, footer.width as usize);
             out.push_str("\x1b[0m");
+            written[y as usize] = true;
         }
         self.current = Some((top, footer.clone()));
         self.force_full = false;
+        self.footer_images.emit(out, &self.caps, shown, top, &written);
     }
 
     fn place_cursor(&mut self, out: &mut String, cursor: Option<CursorReq>) {
@@ -533,6 +593,9 @@ impl Split {
     /// Leave split-footer mode (`screenMode = "main-screen"`): clear the footer rows and leave the
     /// cursor on the footer's top line.
     pub fn leave(&mut self) {
+        let mut images = String::new();
+        self.footer_images.clear(&mut images, &self.caps);
+        self.emit(&images);
         let top = self.transition.map(|t| t.source_top_line).unwrap_or(self.render_offset + 1);
         let s = format!("\x1b[?2026h\x1b[r\x1b[{top};1H\x1b[J\x1b[?25h{CURSOR_RESET}\x1b[?25h\x1b[?2026l");
         self.emit(&s);
@@ -540,6 +603,187 @@ impl Split {
 
     pub fn take_output(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.out)
+    }
+}
+
+/// The images of a snapshot drawn as quadrant characters (`materializeImageFallbacks`).
+fn blocks_fallback(snap: &Buffer, images: &[crate::graphics::snapshot::SnapImage]) -> Buffer {
+    let mut out = snap.clone();
+    for im in images {
+        for cy in 0..im.height {
+            for cx in 0..im.width {
+                let (x, y) = (im.x + cx, im.y + cy);
+                if x >= out.width || y >= out.height {
+                    continue;
+                }
+                let (ch, fg, bg) = crate::graphics::snapshot::block_cell(im, cx, cy);
+                let i = y as usize * out.width as usize + x as usize;
+                let under = out.cells[i].bg;
+                let mix = |c: [u8; 4]| if c[3] == 255 { Color::rgb(c[0], c[1], c[2]) } else { super::cell::blend(Color::rgba(c[0], c[1], c[2], c[3]), under) };
+                out.cells[i] = super::cell::Cell { glyph: Glyph::Text(ch.to_string()), fg: mix(fg), bg: mix(bg), attrs: 0 };
+            }
+        }
+    }
+    out
+}
+
+/// An image box in the footer (`fit: "fit"`), in footer cells.
+#[derive(Clone, Debug)]
+pub struct FooterImage {
+    pub picture: std::sync::Arc<crate::graphics::Picture>,
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
+/// A fitted footer image and how it shows.
+#[derive(Clone, Debug)]
+pub struct Shown {
+    handle: u32,
+    protocol: crate::graphics::Protocol,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+    pixel_width: u32,
+    pixel_height: u32,
+    picture: Option<std::sync::Arc<crate::graphics::Picture>>,
+}
+
+impl PartialEq for Shown {
+    fn eq(&self, o: &Self) -> bool {
+        (self.handle, self.protocol, self.x, self.y, self.width, self.height, self.pixel_width, self.pixel_height)
+            == (o.handle, o.protocol, o.x, o.y, o.width, o.height, o.pixel_width, o.pixel_height)
+    }
+}
+
+/// Images in the footer (the prompt's previews): what the terminal shows and what to send when they change.
+#[derive(Default)]
+pub struct FooterImages {
+    pub salt: u32,
+    /// The images the next frame shows.
+    pub next: Vec<FooterImage>,
+    /// What the terminal shows, with the footer's top line.
+    committed: Vec<Shown>,
+    committed_top: u32,
+}
+
+impl FooterImages {
+    /// Fit each box's image (`renderSelf` with `fit: "fit"`) and pick its protocol.
+    fn layout(&self, caps: &crate::graphics::Caps, term: (u16, u16)) -> Vec<Shown> {
+        let mut g = crate::graphics::Graphics::new(caps.clone());
+        g.term = term;
+        self.next
+            .iter()
+            .filter_map(|b| {
+                let p = &b.picture;
+                let (fw, fh) = g.fitted_size(crate::graphics::Fit::Fit, b.width as u32, b.height as u32, p.width, p.height);
+                if fw == 0 || fh == 0 {
+                    return None;
+                }
+                let res = caps.resolution.filter(|_| term.0 > 0 && term.1 > 0);
+                let px = |cells: u32, total: u16, r: Option<u32>| r.map(|r| ((cells as f64 * r as f64 / total as f64).round() as u32).max(1)).unwrap_or(0);
+                let (pw, ph) = (px(fw, term.0, res.map(|r| r.0)), px(fh, term.1, res.map(|r| r.1)));
+                Some(Shown {
+                    handle: p.handle,
+                    protocol: caps.resolve(crate::graphics::Requested::Auto, (pw, ph)),
+                    x: b.x + ((b.width as u32 - fw) / 2) as u16,
+                    y: b.y + ((b.height as u32 - fh) / 2) as u16,
+                    width: fw as u16,
+                    height: fh as u16,
+                    pixel_width: pw,
+                    pixel_height: ph,
+                    picture: Some(p.clone()),
+                })
+            })
+            .collect()
+    }
+
+    /// The footer with the images' cells: quadrants for text images, blanks under native ones.
+    fn apply(&self, footer: &Buffer, shown: &[Shown]) -> Buffer {
+        let mut out = footer.clone();
+        for s in shown {
+            let Some(p) = &s.picture else { continue };
+            for cy in 0..s.height {
+                for cx in 0..s.width {
+                    let (x, y) = (s.x + cx, s.y + cy);
+                    if x >= out.width || y >= out.height {
+                        continue;
+                    }
+                    let i = y as usize * out.width as usize + x as usize;
+                    out.cells[i] = if s.protocol == crate::graphics::Protocol::Blocks {
+                        let src = (0, 0, p.width, p.height);
+                        let (ch, fg, bg) = crate::graphics::blocks::quadrant(crate::graphics::blocks::samples(p, src, s.width as u32, s.height as u32, cx as u32, cy as u32));
+                        let under = out.cells[i].bg;
+                        let mix = |c: [u8; 4]| if c[3] == 255 { Color::rgb(c[0], c[1], c[2]) } else { super::cell::blend(Color::rgba(c[0], c[1], c[2], c[3]), under) };
+                        super::cell::Cell { glyph: Glyph::Text(ch.to_string()), fg: mix(fg), bg: mix(bg), attrs: 0 }
+                    } else {
+                        let default = Color { r: 0, g: 0, b: 0, a: 255, intent: Intent::Default };
+                        super::cell::Cell { glyph: Glyph::Text(" ".into()), fg: default, bg: default, attrs: 0 }
+                    };
+                }
+            }
+        }
+        out
+    }
+
+    /// Send what changed after the footer's rows were painted at line `top`.
+    fn emit(&mut self, out: &mut String, caps: &crate::graphics::Caps, shown: Vec<Shown>, top: u32, written: &[bool]) {
+        use crate::graphics::{Protocol, kitty, resize, sixel};
+        let tmux = caps.tmux();
+        let moved = top != self.committed_top;
+        let kitty_now: Vec<&Shown> = shown.iter().filter(|s| s.protocol == Protocol::Kitty).collect();
+        let kitty_before: Vec<&Shown> = self.committed.iter().filter(|s| s.protocol == Protocol::Kitty).collect();
+        if moved || kitty_now != kitty_before {
+            for (i, _) in self.committed.iter().enumerate().filter(|(_, s)| s.protocol == Protocol::Kitty) {
+                kitty::delete(out, self.salt + i as u32 + 1, None, true, tmux);
+            }
+            for (i, s) in shown.iter().enumerate().filter(|(_, s)| s.protocol == Protocol::Kitty) {
+                let Some(p) = &s.picture else { continue };
+                let id = self.salt + i as u32 + 1;
+                let pixels = s.pixel_width as u64 * s.pixel_height as u64;
+                let downscale = pixels > 0 && p.width as u64 * p.height as u64 >= pixels * 4;
+                let (sw, sh) = if downscale {
+                    kitty::transmit(out, &resize::area(p, s.pixel_width, s.pixel_height), id, tmux);
+                    (s.pixel_width, s.pixel_height)
+                } else {
+                    kitty::transmit(out, p, id, tmux);
+                    (p.width, p.height)
+                };
+                let place = kitty::Place { x: s.x as u32, y: top - 1 + s.y as u32, width: s.width as u32, height: s.height as u32, source_x: 0, source_y: 0, source_width: sw, source_height: sh };
+                kitty::placement(out, id, i as u32 + 1, place, kitty::placement_z(i as u32 + 1), tmux);
+            }
+        }
+        for s in shown.iter().filter(|s| s.protocol == Protocol::Sixel) {
+            let repainted = (s.y..s.y + s.height).any(|y| written.get(y as usize).copied().unwrap_or(false));
+            if !repainted && !moved && self.committed.contains(s) {
+                continue;
+            }
+            let Some(p) = &s.picture else { continue };
+            let resized = ((s.pixel_width, s.pixel_height) != (p.width, p.height)).then(|| resize::area(p, s.pixel_width, s.pixel_height));
+            if let Some(payload) = sixel::encode(resized.as_ref().unwrap_or(p)) {
+                let _ = write!(out, "\x1b[{};{}H", top + s.y as u32, s.x as u32 + 1);
+                sixel::framed(out, &payload, tmux);
+            }
+        }
+        self.committed = shown;
+        self.committed_top = top;
+    }
+
+    /// Free the Kitty images (leaving the screen).
+    fn clear(&mut self, out: &mut String, caps: &crate::graphics::Caps) {
+        for (i, s) in self.committed.iter().enumerate() {
+            if s.protocol == crate::graphics::Protocol::Kitty {
+                crate::graphics::kitty::delete(out, self.salt + i as u32 + 1, None, true, caps.tmux());
+            }
+        }
+        self.committed.clear();
+    }
+
+    fn salt() -> u32 {
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0) as u64 ^ (std::process::id() as u64) << 7;
+        1 + (seed % (u32::MAX - crate::graphics::kitty::IMAGE_ID_MASK - 2) as u64 / 2) as u32
     }
 }
 
@@ -552,7 +796,72 @@ mod tests {
         for (y, r) in rows.iter().enumerate() {
             buf.draw_chunks(0, y as i32, &[super::super::cell::StyledChunk::plain(*r, Color::WHITE)], width as usize);
         }
-        Commit { buf, row_columns: width as usize, start_on_new_line: sonl, trailing_newline: tnl }
+        Commit { buf, row_columns: width as usize, start_on_new_line: sonl, trailing_newline: tnl, images: vec![] }
+    }
+
+    fn picture() -> std::sync::Arc<crate::graphics::Picture> {
+        std::sync::Arc::new(crate::graphics::decode::decode(include_bytes!("../graphics/testdata/landscape.png")).unwrap())
+    }
+
+    fn image_commit() -> Commit {
+        let mut c = commit(&["› shot.png", " ", " "], 20, true, false);
+        for y in 1..3 {
+            for x in 0..4 {
+                c.buf.cells[y * 20 + x].glyph = Glyph::Text(" ".into());
+            }
+        }
+        c.images = vec![crate::graphics::snapshot::SnapImage { picture: picture(), x: 0, y: 1, width: 4, height: 2, pixel_width: 40, pixel_height: 40 }];
+        c
+    }
+
+    #[test]
+    fn scrollback_images_go_out_after_their_last_row() {
+        let mut s = Split::new(20, 10, 4, 1);
+        s.caps.apply_replies(b"\x1b_Gi=31337;OK\x1b\\\x1b[4;200;200t");
+        s.enqueue(image_commit());
+        s.render(&Buffer::new(20, 4), None);
+        let out = String::from_utf8(s.take_output()).unwrap();
+        // The image's cells are plain blanks; after its last row the cursor goes back up to its first row.
+        assert!(out.contains("\x1b[0m \x1b[0m \x1b[0m \x1b[0m "), "{out:?}");
+        let id = s.footer_images.salt + crate::graphics::kitty::IMAGE_ID_MASK + 1;
+        assert!(out.contains(&format!("\x1b[s\x1b[1A\r\x1b_Ga=t,f=100,i={id},m=0,q=2;")), "{out:?}");
+        assert!(out.contains(&format!("\x1b_Ga=p,i={id},p=1,c=4,r=2,C=1,z=-1073741823,q=2\x1b\\\x1b[u")), "{out:?}");
+        // The next commit's images take the next ids.
+        s.enqueue(image_commit());
+        s.render(&Buffer::new(20, 4), None);
+        let out = String::from_utf8(s.take_output()).unwrap();
+        assert!(out.contains(&format!("i={},", id + 1)), "{out:?}");
+    }
+
+    #[test]
+    fn scrollback_images_without_graphics_are_text() {
+        let mut s = Split::new(20, 10, 4, 1);
+        s.enqueue(image_commit());
+        s.render(&Buffer::new(20, 4), None);
+        let out = String::from_utf8(s.take_output()).unwrap();
+        assert!(!out.contains("\x1b_G") && !out.contains("\x1bP0;1;0q"), "{out:?}");
+        assert!(crate::graphics::blocks::QUADRANTS[1..].iter().any(|q| out.contains(*q)), "{out:?}");
+    }
+
+    #[test]
+    fn footer_images_follow_the_footer() {
+        let mut s = Split::new(20, 10, 4, 10);
+        s.caps.apply_replies(b"\x1b[?62;4c\x1b[4;200;200t");
+        let footer = Buffer::new(20, 4);
+        s.footer_images.next = vec![FooterImage { picture: picture(), x: 2, y: 0, width: 6, height: 3 }];
+        s.render(&footer, None);
+        let out = String::from_utf8(s.take_output()).unwrap();
+        // 96 x 48 fitted in 6 x 3 cells of 10 x 20 pixels: 6 x 2 cells at the box's top, a 60 x 40 sixel.
+        let top = s.footer_top();
+        assert!(out.contains(&format!("\x1b[{top};3H\x1bP0;1;0q\"1;1;60;40")), "{out:?}");
+        // Unchanged: nothing more.
+        s.render(&footer, None);
+        let out = String::from_utf8(s.take_output()).unwrap();
+        assert!(!out.contains("\x1bP0;1;0q"), "{out:?}");
+        s.footer_images.next = vec![];
+        s.render(&footer, None);
+        let out = String::from_utf8(s.take_output()).unwrap();
+        assert!(!out.contains("\x1bP0;1;0q"), "{out:?}");
     }
 
     #[test]

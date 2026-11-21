@@ -162,6 +162,7 @@ fn run(case: &Value) -> Vec<Value> {
             startup: case["startup"].as_object().map(|s| (s["version"].as_str().unwrap().into(), s["detail"].as_str().unwrap().into())),
             directory: "/project".into(),
             image_preview: false,
+            prompt_image_preview: false,
         },
         width,
         height,

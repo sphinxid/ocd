@@ -39,18 +39,25 @@ pub fn parse_replies(data: &str) -> TerminalColors {
 }
 
 /// Query the terminal palette. Must be called in raw mode before the input reader starts.
-#[cfg(unix)]
 pub fn probe(timeout_ms: u64) -> Option<TerminalColors> {
+    probe_with(timeout_ms, "").0
+}
+
+/// [`probe`], sending `extra` queries first (graphics capabilities); also returns every reply byte.
+#[cfg(unix)]
+pub fn probe_with(timeout_ms: u64, extra: &str) -> (Option<TerminalColors>, Vec<u8>) {
     use std::io::{Read, Write};
     use std::os::fd::AsRawFd;
     let mut out = std::io::stdout();
-    let mut q = String::from("\x1b]10;?\x07\x1b]11;?\x07");
+    let mut q = String::from(extra);
+    q.push_str("\x1b]10;?\x07\x1b]11;?\x07");
     for i in 0..16 {
         q.push_str(&format!("\x1b]4;{i};?\x07"));
     }
     q.push_str("\x1b[c");
-    out.write_all(q.as_bytes()).ok()?;
-    out.flush().ok()?;
+    if out.write_all(q.as_bytes()).and_then(|_| out.flush()).is_err() {
+        return (None, vec![]);
+    }
     let stdin = std::io::stdin();
     let fd = stdin.as_raw_fd();
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
@@ -67,7 +74,7 @@ pub fn probe(timeout_ms: u64) -> Option<TerminalColors> {
             break;
         }
         let mut buf = [0u8; 4096];
-        let n = stdin.lock().read(&mut buf).ok()?;
+        let Ok(n) = stdin.lock().read(&mut buf) else { break };
         if n == 0 {
             break;
         }
@@ -79,14 +86,14 @@ pub fn probe(timeout_ms: u64) -> Option<TerminalColors> {
     let text = String::from_utf8_lossy(&data);
     let colors = parse_replies(&text);
     if colors.default_background.is_none() && colors.palette.iter().all(|p| p.is_none()) {
-        return None;
+        return (None, data);
     }
-    Some(colors)
+    (Some(colors), data)
 }
 
 #[cfg(not(unix))]
-pub fn probe(_timeout_ms: u64) -> Option<TerminalColors> {
-    None
+pub fn probe_with(_timeout_ms: u64, _extra: &str) -> (Option<TerminalColors>, Vec<u8>) {
+    (None, vec![])
 }
 
 #[cfg(test)]

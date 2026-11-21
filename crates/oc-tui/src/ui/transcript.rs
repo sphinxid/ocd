@@ -392,6 +392,12 @@ pub struct RCtx<'a> {
     pub models_key: String,
     /// Session links in assistant text and compaction summaries.
     pub links: Option<&'a crate::ui::markdown::SessionLinks<'a>>,
+    /// Rows of a transcript image strip (`session.image_preview`), 0 when previews are off.
+    pub image_height: u16,
+    /// `ToolPart`'s `images` prop: false for the tools listed inside an expanded exploration group.
+    pub tool_images: std::cell::Cell<bool>,
+    /// `Group`'s `imagesOutside`: the group's tool images are shown by an enclosing group.
+    pub images_outside: std::cell::Cell<bool>,
 }
 
 impl RCtx<'_> {
@@ -1278,8 +1284,59 @@ fn render_part(ctx: &RCtx, r: &PartRef) -> Vec<SLine> {
             }
             out
         }
-        Content::Tool(t) => render_tool(ctx, m, t),
+        Content::Tool(t) => {
+            let mut out = render_tool(ctx, m, t);
+            if ctx.tool_images.get() {
+                out.extend(tool_images(ctx, &[t]));
+            }
+            out
+        }
     }
+}
+
+/// `inlineToolImages`: the image files of finished tool results, inline (an emptied `data:` URI is a payload the
+/// store dropped) or stored as `media:` refs.
+pub fn inline_tool_images(t: &ToolPart) -> Vec<String> {
+    if t.state.status == "streaming" || t.state.status == "running" {
+        return vec![];
+    }
+    t.state
+        .content
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter(|c| c.kind == "file" && c.mime.as_deref().is_some_and(|m| m.starts_with("image/")))
+        .filter_map(|c| c.uri.clone())
+        .filter(|u| (u.starts_with("data:image/") && !u.ends_with(',')) || crate::app::media::media_hash(u).is_some())
+        .collect()
+}
+
+/// `ToolImages` / `SessionImages` (`paddingLeft 3`, `paddingRight 2`).
+fn tool_images(ctx: &RCtx, tools: &[&ToolPart]) -> Vec<SLine> {
+    if ctx.image_height == 0 {
+        return vec![];
+    }
+    let uris: Vec<String> = tools.iter().flat_map(|t| inline_tool_images(t)).collect();
+    crate::ui::images::session_lines(uris, ctx.image_height, 3, ctx.width.saturating_sub(5) as u16, &[], None, None)
+}
+
+/// The images of a user message (`UserMessage`'s `images`): its image files, deduplicated like
+/// `deduplicateVisibleImages`.
+pub fn user_images(files: &[FileAttachment]) -> Vec<String> {
+    let mut seen: HashMap<String, HashSet<String>> = HashMap::new();
+    files
+        .iter()
+        .filter(|f| {
+            let mime = f.mime.as_deref().unwrap_or("");
+            let inline = f.source.as_ref().and_then(|s| s.get("type")).and_then(|t| t.as_str()) == Some("inline");
+            let Some(mention) = f.mention.as_ref().map(|m| m.text.as_str()).filter(|t| mime.starts_with("image/") && inline && !t.is_empty()) else { return true };
+            let meta = serde_json::to_string(&(mime, &f.name, &f.description, mention)).unwrap_or_default();
+            let payload = f.uri.clone().or_else(|| f.data.clone()).unwrap_or_default();
+            seen.entry(meta).or_default().insert(payload)
+        })
+        .filter(|f| f.mime.as_deref().is_some_and(|m| m.starts_with("image/")))
+        .map(|f| f.uri.clone().unwrap_or_else(|| format!("data:{};base64,{}", f.mime.as_deref().unwrap_or(""), f.data.as_deref().unwrap_or(""))))
+        .collect()
 }
 
 /// Index of the input message of the turn that contains `idx` (scanning back to the last `idle`).
@@ -1573,7 +1630,10 @@ fn render_message(ctx: &RCtx, id: &str, light: bool) -> Vec<SLine> {
                 }
             }
             out.push(SLine::new(vec![bar[0].clone()]));
-            out.into_iter().map(|l| l.with_bg(Some(bg)).on_click(Some(click.clone()))).collect()
+            let out = out.into_iter().map(|l| l.with_bg(Some(bg)).on_click(Some(click.clone())));
+            // `SessionImages` (`paddingLeft 2` inside the bordered box) above the text.
+            let images = if ctx.image_height > 0 { user_images(&files) } else { vec![] };
+            crate::ui::images::session_lines(images, ctx.image_height, 3, w.saturating_sub(5) as u16, &[bar[0].clone()], Some(bg), None).into_iter().chain(out).collect()
         }
         "shell" => {
             let error = match m.status.as_deref() {
@@ -1684,15 +1744,21 @@ fn group_lines(ctx: &RCtx, kind: GroupKind, children: &[Node], completed: bool, 
     let mut out = Vec::new();
     let render_children = |mode: &str| -> Vec<SLine> {
         let mut v = Vec::new();
+        let (outside, tool_images) = (ctx.images_outside.get(), ctx.tool_images.get());
         for n in children {
             match n {
                 Node::Group { kind: k, children: c, .. } => {
+                    ctx.images_outside.set(outside || mode == "tool");
+                    ctx.tool_images.set(true);
                     v.extend(group_lines(ctx, *k, c, true, &[], level + 1, light));
+                    ctx.images_outside.set(outside);
+                    ctx.tool_images.set(tool_images);
                 }
                 Node::Entry(e) => {
                     if is_pending(e) {
                         continue;
                     }
+                    ctx.tool_images.set(mode != "tool");
                     if mode == "thought" {
                         if let Entry::Part(r) = e
                             && let Some(m) = ctx.message(&r.message)
@@ -1711,6 +1777,7 @@ fn group_lines(ctx: &RCtx, kind: GroupKind, children: &[Node], completed: bool, 
                     } else {
                         v.extend(render_entry(ctx, e, light));
                     }
+                    ctx.tool_images.set(tool_images);
                 }
             }
         }
@@ -1858,6 +1925,9 @@ fn group_lines(ctx: &RCtx, kind: GroupKind, children: &[Node], completed: bool, 
                 if expanded {
                     out.extend(render_children("tool"));
                 }
+            }
+            if !ctx.images_outside.get() {
+                out.extend(tool_images(ctx, &tools));
             }
         }
         GroupKind::Instructions => {

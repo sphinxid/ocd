@@ -84,11 +84,13 @@ pub struct SLine {
     pub segs: Vec<Seg>,
     pub bg: Option<Color>,
     pub click: Option<Click>,
+    /// A row of an image strip (`SessionImages`): the images are drawn over the row's cells.
+    pub image: Option<crate::ui::images::ImageRow>,
 }
 
 impl SLine {
     pub fn new(segs: Vec<Seg>) -> SLine {
-        SLine { segs, bg: None, click: None }
+        SLine { segs, bg: None, click: None, image: None }
     }
     pub fn blank() -> SLine {
         SLine::default()

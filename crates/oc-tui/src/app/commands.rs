@@ -751,9 +751,7 @@ impl App {
             "diff.open" => self.open_diff(),
             "stats.open" => self.open_stats(),
             "session.move" => self.open_worktrees_dialog(),
-            "prompt.images.view" => {
-                self.toast(Toast::new("warning", "This view is not available in this build"));
-            }
+            "prompt.images.view" => return self.view_prompt_images(),
             "prompt.skills" => {
                 let skills = self.loc().and_then(|l| l.skills.clone()).unwrap_or_default();
                 let longest = skills.iter().map(|s| s.name.len()).max().unwrap_or(0);

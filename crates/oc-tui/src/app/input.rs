@@ -1700,6 +1700,12 @@ impl App {
     }
 
     fn dialog_action(&mut self, purpose: &str, id: &str, v: Option<String>) {
+        if purpose == crate::ui::images::PREVIEW_PURPOSE {
+            if let Some(Body::Image(p)) = self.dialogs.last_mut().map(|d| &mut d.body) {
+                p.step(if id == "prev" { -1 } else { 1 });
+            }
+            return;
+        }
         match (purpose, id) {
             ("go-upsell", _) => self.go_upsell_action(id),
             ("plugins", _) => self.plugins_action(id, v),
@@ -2410,6 +2416,13 @@ impl App {
                 self.run_command(&command, None);
             }
             self.dirty = true;
+            return;
+        }
+        if let Click::Custom(x) = &c
+            && let Some(n) = x.strip_prefix(crate::ui::images::CLICK)
+        {
+            let n = n.to_string();
+            self.image_click(&n);
             return;
         }
         if let Click::Custom(x) = &c

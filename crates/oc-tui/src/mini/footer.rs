@@ -90,9 +90,13 @@ pub struct FooterOptions {
     pub startup: Option<(String, String)>,
     pub directory: String,
     pub image_preview: bool,
+    /// `prompt.image_preview`.
+    pub prompt_image_preview: bool,
 }
 
 pub struct Footer {
+    /// Decoded prompt images (`mini-prompt-image-N`).
+    images: crate::graphics::store::Store,
     pub closed: bool,
     pub destroyed: bool,
     queue: Vec<StreamCommit>,
@@ -225,7 +229,12 @@ impl Footer {
             animations: o.animations,
             cursor_style: o.cursor_style,
             directory: o.directory,
-            composer: Composer::new(&o.history),
+            images: Default::default(),
+            composer: {
+                let mut c = Composer::new(&o.history);
+                c.image_preview = o.prompt_image_preview;
+                c
+            },
             panel: None,
             permission: None,
             form: None,
@@ -853,6 +862,15 @@ impl Footer {
 
     fn prompt_layout(&self) -> PromptLayout {
         self.composer.layout(self, self.term_width)
+    }
+
+    /// The prompt's image previews of the last render, decoded (boxes in footer cells, `fit: "fit"`).
+    pub fn placed_images(&mut self) -> Vec<super::split::FooterImage> {
+        let placed = self.composer.placed.clone();
+        placed
+            .into_iter()
+            .filter_map(|(uri, x, y, width, height)| Some(super::split::FooterImage { picture: self.images.ready(&uri)?, x, y, width, height }))
+            .collect()
     }
 
     /// `onRows`: `promptRows + statusRows - 1` (status rows only with the statusline shown).
@@ -1660,6 +1678,12 @@ impl Footer {
                     let placeholder = self.composer.placeholder(self.state.first, mono);
                     let (cx, cy) = self.composer.render(&mut buf, y, width, &l, rail, theme.text, theme.muted, mono, &placeholder);
                     cursor = Some((cx, cy));
+                    // A preview that can't be decoded says so (`<text fg={muted}>No preview</text>`).
+                    for (uri, x, py, w, _) in self.composer.placed.clone() {
+                        if self.images.failed(&uri) {
+                            buf.draw_chunks(x as i32, py as i32, &[StyledChunk::plain("No preview", theme.muted)], w as usize);
+                        }
+                    }
                     let text_rows = self.composer.shown_rows(&l);
                     y += l.padding * 2 + text_rows + l.images;
                     if self.composer.visible() {

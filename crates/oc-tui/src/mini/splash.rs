@@ -82,7 +82,7 @@ pub fn entry_splash(width: usize, version: &str, detail: Option<&str>, mono: boo
     let l = entry_splash_layout(width, version, detail, mono);
     let mut buf = Buffer::new(width as u16, 2);
     buf.draw_chunks(0, 1, &[StyledChunk::plain(l.label, theme.right), StyledChunk::plain(l.metadata, theme.left)], width);
-    Commit { buf, row_columns: width, start_on_new_line: true, trailing_newline: false }
+    Commit { buf, row_columns: width, start_on_new_line: true, trailing_newline: false, images: vec![] }
 }
 
 /// `title()`: collapse whitespace, fall back to `Untitled session`, truncate to 50.
@@ -152,7 +152,7 @@ pub fn exit_splash(width: usize, title: Option<&str>, session_id: &str, mono: bo
     for (i, r) in rows.iter().take(command_height).enumerate() {
         buf.draw_chunks(cx as i32, (cy + i) as i32, &r.chunks, cw);
     }
-    Commit { buf, row_columns: width, start_on_new_line: true, trailing_newline: false }
+    Commit { buf, row_columns: width, start_on_new_line: true, trailing_newline: false, images: vec![] }
 }
 
 #[cfg(test)]

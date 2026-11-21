@@ -20,6 +20,8 @@ pub struct Commit {
     pub row_columns: usize,
     pub start_on_new_line: bool,
     pub trailing_newline: bool,
+    /// Images over cells of `buf` (a scrollback image entry).
+    pub images: Vec<crate::graphics::snapshot::SnapImage>,
 }
 
 /// Where commits go: the split-footer renderer.
@@ -28,6 +30,10 @@ pub trait Sink {
     /// `getPendingSplitTailColumn()`: the output column after everything queued so far.
     fn tail_column(&self) -> usize;
     fn commit(&mut self, c: Commit);
+    /// Image geometry: the graphics capabilities, the terminal size and the footer's height.
+    fn graphics(&self) -> Option<(crate::graphics::Caps, (u16, u16), usize)> {
+        None
+    }
 }
 
 /// `entryGroupKey(commit)`.
@@ -201,7 +207,7 @@ impl ScrollbackStream {
             return;
         }
         let w = sink.width().max(1);
-        sink.commit(Commit { buf: Buffer::new(w as u16, 1), row_columns: w, start_on_new_line: true, trailing_newline: true });
+        sink.commit(Commit { buf: Buffer::new(w as u16, 1), row_columns: w, start_on_new_line: true, trailing_newline: true, images: vec![] });
         self.wrote = false;
     }
 
@@ -266,7 +272,7 @@ impl ScrollbackStream {
                 out.cells[i] = buf.cells[y * w as usize + x].clone();
             }
         }
-        sink.commit(Commit { buf: out, row_columns: w as usize, start_on_new_line: a.commits == 0 && a.start_on_new_line, trailing_newline: trailing });
+        sink.commit(Commit { buf: out, row_columns: w as usize, start_on_new_line: a.commits == 0 && a.start_on_new_line, trailing_newline: trailing, images: vec![] });
         a.commits += 1;
     }
 
@@ -368,6 +374,11 @@ impl ScrollbackStream {
             self.tail = Some(commit);
             return;
         }
+        if commit.image.is_some() && self.image_preview && !self.mono {
+            self.write_image(sink, &commit);
+            self.tail = Some(commit);
+            return;
+        }
         let body = entry_body(&commit, BodyOptions { shell_output: Some(self.shell_output), mono: self.mono });
         if body == EntryBody::None {
             if entry_done(&commit) {
@@ -419,6 +430,54 @@ impl ScrollbackStream {
         self.append(sink, commit);
     }
 
+    /// `writeImage(commit)`: the caption (the entry's text, plus `No preview` when the image can't be decoded), then
+    /// the image fitted at the left edge into the terminal width and the rows above the footer, never larger than
+    /// its own pixels.
+    fn write_image(&mut self, sink: &mut dyn Sink, commit: &StreamCommit) {
+        let body = entry_body(commit, BodyOptions { shell_output: None, mono: self.mono });
+        let EntryBody::Text(text) = &body else { return };
+        let picture = commit.image.as_deref().and_then(crate::graphics::decode::data_uri_bytes).and_then(|b| crate::graphics::decode::decode(&b).ok()).map(std::sync::Arc::new);
+        let width = sink.width().max(1);
+        let (fg, attrs) = entry_look(commit, &self.theme.entry);
+        let caption = text_rows(&format!("{text}{}", if picture.is_some() { "" } else { "\nNo preview" }), fg, attrs, width, 0);
+        let mut images = vec![];
+        if let Some(p) = &picture
+            && let Some((caps, term, footer)) = sink.graphics()
+        {
+            let (w, h) = scrollback_image_size(&caps, term, footer, width, caption.height as usize, p.width, p.height);
+            if w > 0 && h > 0 {
+                let pixels = |cells: u32, total: u32, px: Option<u32>| px.map(|px| ((cells as f64 * px as f64 / total.max(1) as f64).round() as u32).max(1)).unwrap_or(0);
+                let res = caps.resolution.filter(|_| term.0 > 0 && term.1 > 0);
+                images.push(crate::graphics::snapshot::SnapImage {
+                    picture: p.clone(),
+                    x: 0,
+                    y: caption.height,
+                    width: w as u16,
+                    height: h as u16,
+                    pixel_width: pixels(w, term.0 as u32, res.map(|r| r.0)),
+                    pixel_height: pixels(h, term.1 as u32, res.map(|r| r.1)),
+                });
+            }
+        }
+        let rows = caption.height + images.first().map(|i| i.height).unwrap_or(0);
+        let mut buf = Buffer::new(width as u16, rows);
+        blit(&mut buf, &caption, 0, 0);
+        for im in &images {
+            for y in im.y..im.y + im.height {
+                for x in im.x..(im.x + im.width).min(buf.width) {
+                    let i = y as usize * buf.width as usize + x as usize;
+                    buf.cells[i].glyph = Glyph::Text(" ".into());
+                }
+            }
+        }
+        let spaced = separator_rows(self.rendered.as_ref(), commit, &body);
+        let spaced = if spaced > 0 { spaced } else if self.rendered.is_none() && self.wrote { 1 } else { 0 };
+        self.write_spacer(sink, spaced);
+        let flags = entry_flags(commit);
+        sink.commit(Commit { buf, row_columns: width, start_on_new_line: flags.start_on_new_line, trailing_newline: flags.trailing_newline, images });
+        self.mark_rendered(Some(commit.clone()));
+    }
+
     /// `entryWriter({commit, body, theme, opts})`: a static snapshot.
     fn entry_writer(&self, sink: &dyn Sink, commit: &StreamCommit, body: &EntryBody) -> Commit {
         let width = sink.width().max(1);
@@ -426,7 +485,7 @@ impl ScrollbackStream {
         let tail = sink.tail_column();
         let first = if !flags.start_on_new_line && tail > 0 && tail < width { tail } else { 0 };
         let buf = render_entry(commit, body, &self.theme, width, first, self.mono, true);
-        Commit { buf, row_columns: width, start_on_new_line: flags.start_on_new_line, trailing_newline: flags.trailing_newline }
+        Commit { buf, row_columns: width, start_on_new_line: flags.start_on_new_line, trailing_newline: flags.trailing_newline, images: vec![] }
     }
 }
 
@@ -443,6 +502,25 @@ fn static_body(commit: &StreamCommit, body: EntryBody, spaced: usize) -> EntryBo
         Some(rest) => EntryBody::Text(rest.to_string()),
         None => body,
     }
+}
+
+/// The fitted size of a scrollback image (`writeImage`'s `getFittedSize`): at most the terminal width and the
+/// rows above the footer and caption, and (with a known pixel size) no more cells than the image has pixels.
+#[allow(clippy::too_many_arguments)]
+pub fn scrollback_image_size(caps: &crate::graphics::Caps, term: (u16, u16), footer: usize, width: usize, caption: usize, image_w: u32, image_h: u32) -> (u32, u32) {
+    let res = caps.resolution.filter(|_| term.0 > 0 && term.1 > 0);
+    let target_w = match res {
+        Some((rw, _)) => (width as u64).min(((image_w as u64 * term.0 as u64) / rw.max(1) as u64).max(1)),
+        None => width as u64,
+    };
+    let rows = (term.1 as i64 - footer as i64 - caption as i64).max(0) as u64;
+    let target_h = match res {
+        Some((_, rh)) => rows.min(((image_h as u64 * term.1 as u64) / rh.max(1) as u64).max(1)),
+        None => rows,
+    };
+    let mut g = crate::graphics::Graphics::new(caps.clone());
+    g.term = term;
+    g.fitted_size(crate::graphics::Fit::Fit, target_w as u32, target_h as u32, image_w, image_h)
 }
 
 /// `RunEntryContent`: render one entry body at `width`.
@@ -505,7 +583,7 @@ pub fn turn_summary(width: usize, agent: &str, model: &str, duration: &str, them
     if let Some(l) = lines.first() {
         buf.draw_chunks(0, 0, &l.chunks, width);
     }
-    Commit { buf, row_columns: width.max(1), start_on_new_line: true, trailing_newline: false }
+    Commit { buf, row_columns: width.max(1), start_on_new_line: true, trailing_newline: false, images: vec![] }
 }
 
 /// Blit helper re-export for writers.
@@ -559,3 +637,7 @@ pub fn tail_after_commit(commit: &Commit, tail: usize, width: usize) -> usize {
 #[cfg(test)]
 #[path = "scrollback_golden.rs"]
 mod golden;
+
+#[cfg(test)]
+#[path = "scrollback_image_tests.rs"]
+mod image_tests;

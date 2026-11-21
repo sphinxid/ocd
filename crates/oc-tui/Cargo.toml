@@ -27,6 +27,7 @@ indexmap.workspace = true
 regex.workspace = true
 fancy-regex = "0.16"
 base64.workspace = true
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 dirs.workspace = true
 rand.workspace = true
 once_cell.workspace = true
