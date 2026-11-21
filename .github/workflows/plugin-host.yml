@@ -66,8 +66,28 @@ jobs:
         run: |
           if ! git diff --quiet -- crates/oc-plugin/host/dist/host.js; then
             git diff --stat -- crates/oc-plugin/host/dist/host.js
-            # The first differing lines, as an annotation readable without the log.
-            msg="$(git diff --no-color -U0 -- crates/oc-plugin/host/dist/host.js | grep -E '^[-+@]' | grep -v -E '^(---|\+\+\+) ' | head -n 30 | cut -c1-200)"
+            # Where they differ, as an annotation readable without the log (the bundle has very long lines).
+            git show HEAD:crates/oc-plugin/host/dist/host.js > "$RUNNER_TEMP/committed.js"
+            python3 - "$RUNNER_TEMP/committed.js" crates/oc-plugin/host/dist/host.js > "$RUNNER_TEMP/summary.txt" <<'PY' || true
+          import sys
+          a = open(sys.argv[1], encoding="utf-8", errors="replace").read().split("\n")
+          b = open(sys.argv[2], encoding="utf-8", errors="replace").read().split("\n")
+          print(f"committed {len(a)} lines, rebuilt {len(b)} lines")
+          shown = 0
+          for i in range(max(len(a), len(b))):
+              x = a[i] if i < len(a) else ""
+              y = b[i] if i < len(b) else ""
+              if x == y:
+                  continue
+              c = next((k for k in range(min(len(x), len(y))) if x[k] != y[k]), min(len(x), len(y)))
+              print(f"line {i + 1}, column {c + 1}:")
+              print("  committed: " + x[max(0, c - 60):c + 100])
+              print("  rebuilt:   " + y[max(0, c - 60):c + 100])
+              shown += 1
+              if shown == 8:
+                  break
+          PY
+            msg="$(head -c 6000 "$RUNNER_TEMP/summary.txt")"
             msg="${msg//'%'/'%25'}"
             msg="${msg//$'\r'/'%0D'}"
             msg="${msg//$'\n'/'%0A'}"
