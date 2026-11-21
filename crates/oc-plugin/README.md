@@ -219,7 +219,8 @@ Behavior that matches upstream verbatim:
   `Invalid tool definition <id>: input must be a schema` for an `input` that is neither an object nor a function.
   A tool registered without `input` (or with `null`) takes `{}` (core/src/tool.ts `commit`). These are returned in
   `errors` and logged as `Skipping invalid tool registration`. The committed `host/dist/host.js` must be rebuilt
-  (`scripts/build-plugin-host.sh`) for source changes in `host/src` to take effect.
+  (`scripts/build-plugin-host.sh`) for source changes in `host/src` to take effect; the `Plugin helper` workflow
+  rebuilds it from the upstream pin and fails when the committed file differs (docs/BUILDING.md, Upstream pin).
 
 ## Hooks: where the core must call `trigger_hook`
 

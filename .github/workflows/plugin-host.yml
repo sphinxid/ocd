@@ -1,0 +1,72 @@
+name: Plugin helper
+
+# The plugin helper bundle (crates/oc-plugin/host/dist/host.js) is committed and embedded in the binary. This
+# rebuilds it from the upstream commit and bun pinned in release.yml and fails if the result differs from the
+# committed file, so the bundle always matches its sources.
+on:
+  push:
+    branches: [main, "ci/**"]
+    paths:
+      - "crates/oc-plugin/host/**"
+      - "scripts/build-plugin-host.sh"
+      - ".github/workflows/plugin-host.yml"
+      - ".github/workflows/release.yml"
+  pull_request:
+    paths:
+      - "crates/oc-plugin/host/**"
+      - "scripts/build-plugin-host.sh"
+      - ".github/workflows/plugin-host.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read the upstream pin
+        shell: bash
+        run: |
+          pin() { sed -n "s/^  $1: *\"\{0,1\}\([^\" ]*\)\"\{0,1\}.*/\1/p" .github/workflows/release.yml | head -n 1; }
+          for key in UPSTREAM_REPO UPSTREAM_COMMIT BUN_VERSION; do
+            value="$(pin "$key")"
+            if [ -z "$value" ]; then
+              echo "::error::$key is missing from .github/workflows/release.yml"
+              exit 1
+            fi
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done
+      - name: Install bun
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bun.zip" \
+            "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"
+          unzip -q "$RUNNER_TEMP/bun.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: Check out upstream opencode
+        shell: bash
+        run: |
+          git init -q "$RUNNER_TEMP/opencode"
+          cd "$RUNNER_TEMP/opencode"
+          git fetch -q --depth 1 "$UPSTREAM_REPO" "$UPSTREAM_COMMIT"
+          git checkout -q FETCH_HEAD
+          bun install --frozen-lockfile
+      - name: Rebuild host.js
+        shell: bash
+        run: scripts/build-plugin-host.sh "$RUNNER_TEMP/opencode"
+      - name: Compare with the committed bundle
+        shell: bash
+        run: |
+          if ! git diff --quiet -- crates/oc-plugin/host/dist/host.js; then
+            git diff --stat -- crates/oc-plugin/host/dist/host.js
+            echo "::error file=crates/oc-plugin/host/dist/host.js::The committed host.js differs from a rebuild at upstream $UPSTREAM_COMMIT with bun $BUN_VERSION. Run scripts/build-plugin-host.sh against that checkout and commit the result."
+            exit 1
+          fi
+          echo "host.js matches a rebuild at upstream $UPSTREAM_COMMIT with bun $BUN_VERSION"
