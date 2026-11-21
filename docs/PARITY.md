@@ -111,7 +111,7 @@ find VM differences: the VM's standard library is partly program code, so some e
 imports changed. ocd follows them (`crates/oc-codemode/tests/upstream_2_3_0.rs`) except the VM's lazy check of an
 iterator's `next`.
 
-## Scenarios (283)
+## Scenarios (288)
 
 | group | scenarios |
 |---|---|
@@ -382,6 +382,12 @@ until it completes, nothing of the root's answer to the report, and nothing afte
 `plugin_skill_files` is identical too: like 2.2.7, the files a third-party plugin passes to `add(skill, files)` are
 dropped (only the Console plugin attaches files, which ocd now keeps through the plugin transform and serves from
 the `skill` and `read` tools).
+
+**Run with full Code Mode, client-hosted MCP and image previews (debug build, 2026-11-21):** all 288 scenarios against the
+local v2.3.1 build: **282 of 288 identical** (the full run, then `tools227_codemode`, `tools227_session_move`,
+`hg_changes`, `hg_nested` and `subagent_run_waits_for_report`, which raced while another build loaded the machine,
+identical in 3 of 3 reruns). Left: the six known `cli_help`, `cli_inventory`, `stop_retry_exhausted`, `loop_http_400`,
+`loop_tool_error` and `readonly_fs`.
 
 **Run with the opt-in features of 2.2.6–2.3.1 (debug build, 2026-11-20):** all 280 scenarios against the local v2.3.1
 build after the MCP pooling, MCP Events and automation event triggers, part-row writer, session warming and Console

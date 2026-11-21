@@ -40,7 +40,7 @@ unchanged (59 migrations), so 2.2.7, 2.3.0 and ocd keep reading each other's dat
   `shell_timeout_background`; `codemode_vm` deprecated and ignored.
 
 Not ported, as in upstream's release builds these are off or not used: MCP Events and the watch tool
-(`mcp_events`), shell timeouts moving to the background (`shell_timeout_background`), video generation (library
+(`mcp_events`, ported after 2.3.1), shell timeouts moving to the background (`shell_timeout_background`), video generation (library
 code nothing calls). Shell commands in upstream's process daemon, which let them survive a server restart, are not
 ported either (see [COMPATIBILITY.md](COMPATIBILITY.md#not-implemented-yet)).
 

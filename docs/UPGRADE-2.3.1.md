@@ -18,7 +18,7 @@ is checked against an upstream 2.3.1 build from the tag and against upstream's o
   open each other's databases.
 - **Automations** replace the experimental schedules (`experimental.automations`, old name `schedules`): at, every
   and cron triggers, prompt and code actions, runs leased across processes, the automation API, tools and
-  `/automation`. Event triggers need MCP Events, which ocd does not port.
+  `/automation`. Event triggers need MCP Events (ported later, see below).
 - **On by default**: background compaction (`compaction.background`); a shell command that outlives its timeout
   moves to the background; the read tool's new output shapes and limits; `CLAUDE.md` used where no `AGENTS.md`
   exists (turned off by `OPENCODE_DISABLE_CLAUDE_CODE` or `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT`); grep keeping
@@ -34,10 +34,10 @@ is checked against an upstream 2.3.1 build from the tag and against upstream's o
   schemas; `experimental.full_codemode` (opt-in only), `video_generate`; `background_compaction` and
   `shell_timeout_background` removed.
 
-Ported later: `full_codemode` (opt-in and marked work in progress upstream; see COMPATIBILITY's Code Mode row).
-Not ported: video generation itself (its routes answer
-403 as in a release build; video models stay in the catalog), the Console artifact provider, automation event
-triggers and MCP Events.
+Ported later (all opt-in upstream): `full_codemode` (marked work in progress upstream; see COMPATIBILITY's Code Mode
+row), MCP Events with automation event triggers, the Console artifact provider and watches, the MCP pool, the
+`part_rows` writer, session warming, client-hosted MCP and the TUI's image previews. Not ported: video generation
+itself (its routes answer 403 as in a release build; video models stay in the catalog).
 
 ## Batches
 

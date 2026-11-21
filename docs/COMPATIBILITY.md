@@ -16,7 +16,7 @@ ocd reports version 2.3.1.
 
 ## How it is compared
 
-- **Side by side:** both binaries run the same 283 scenarios, and `scripts/parity.py` diffs their outputs. Results
+- **Side by side:** both binaries run the same 288 scenarios, and `scripts/parity.py` diffs their outputs. Results
   are in [PARITY.md](PARITY.md). The scenarios cover:
   - the agent loop, sessions, permissions and forms;
   - the read-only endpoints and 74 error cases;
@@ -42,7 +42,7 @@ ocd reports version 2.3.1.
     clients, tickets, refusals and close codes.
 - **Model requests:** every request ocd sends to the model is compared too: system prompt, tool definitions,
   headers and prompt-cache markers.
-- **Result:** 277 of the 283 scenarios are identical. The other six differ in ways that are expected or harmless:
+- **Result:** 282 of the 288 scenarios are identical. The other six differ in ways that are expected or harmless:
   - the intended renames;
   - the upstream test build's database file name;
   - two timing races that also vary between runs of upstream (one is the title rename racing a failed step);
