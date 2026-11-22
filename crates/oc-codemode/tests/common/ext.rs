@@ -219,7 +219,7 @@ pub fn replay_extensions(record: &Json) -> Vec<Arc<dyn oc_codemode::host::Extens
                 (name, object)
             })
             .collect();
-        exts.push(Arc::new(GlobalsExtension { name: ext["name"].as_str().unwrap().into(), globals }));
+        exts.push(Arc::new(GlobalsExtension { name: ext["name"].as_str().unwrap().into(), globals, modules: Vec::new() }));
     }
     exts
 }

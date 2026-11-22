@@ -392,6 +392,11 @@ pub trait Extension: Send + Sync {
     fn values(&self) -> Vec<(String, HostValue)> {
         self.globals().into_iter().map(|(name, f)| (name, HostValue::Function(f))).collect()
     }
+    /// Module names that load one of these globals, beyond its own name (upstream 2.3.2 `Extension.modules`,
+    /// #64516): `("bun", "Bun")` makes `import { file } from "bun"` load `Bun`.
+    fn modules(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
 
 /// A simple extension from a list of globals.
@@ -413,6 +418,8 @@ impl Extension for SimpleExtension {
 pub struct GlobalsExtension {
     pub name: String,
     pub globals: Vec<(String, HostValue)>,
+    /// Module names that load one of these globals (see [`Extension::modules`]).
+    pub modules: Vec<(String, String)>,
 }
 
 impl Extension for GlobalsExtension {
@@ -421,6 +428,9 @@ impl Extension for GlobalsExtension {
     }
     fn values(&self) -> Vec<(String, HostValue)> {
         self.globals.clone()
+    }
+    fn modules(&self) -> Vec<(String, String)> {
+        self.modules.clone()
     }
 }
 

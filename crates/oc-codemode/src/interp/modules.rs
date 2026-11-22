@@ -38,13 +38,26 @@ fn pick(rt: &Rt, names: &[&str]) -> Value {
     Value::Object(module)
 }
 
-/// `resolveModule`: the global of that name, else one of the aliases; `undefined` when there is none.
+/// The global a run's extensions name for a module (`{ bun: "Bun" }`); a later extension's name wins over an
+/// earlier one's (upstream 2.3.2 `Object.assign({}, ...picked.map((e) => e.modules ?? {}))`).
+fn hosted(rt: &Rt, name: &str) -> Option<String> {
+    rt.extensions.iter().rev().find_map(|extension| extension.modules().into_iter().find(|(module, _)| module == name).map(|(_, global)| global))
+}
+
+/// `resolveModule`: the global of that name, else the global an extension names for it, else one of the aliases;
+/// `undefined` when there is none.
 fn resolve_module(rt: &Rt, specifier: &str) -> JsResult<Value> {
     let name = module_name(specifier);
     let value = global(rt, name);
-    // `global(name) ?? aliases[name]?.(global)`
+    // `global(name) ?? (named === undefined ? undefined : global(named)) ?? aliases[name]?.(global)`
     if !matches!(value, Value::Undefined | Value::Null) {
         return Ok(value);
+    }
+    if let Some(named) = hosted(rt, name) {
+        let value = global(rt, &named);
+        if !matches!(value, Value::Undefined | Value::Null) {
+            return Ok(value);
+        }
     }
     Ok(match name {
         "fs/promises" => match global(rt, "fs") {

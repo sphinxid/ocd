@@ -492,7 +492,8 @@ async fn webfetch_drops_the_fragment_and_rejects_credentials() {
     let request = host.requests.lock()[0].clone();
     assert_eq!(request.resources, vec![format!("http://127.0.0.1:{port}/")]);
     assert_eq!(request.metadata.as_ref().unwrap()["url"], json!(url));
-    assert_eq!(ok.output.as_ref().unwrap()["url"], json!(url));
+    // 2.3.2 (#64534): the structured output no longer repeats the `url` and `format` it was called with.
+    assert_eq!(ok.output.as_ref().unwrap(), &json!({"contentType": "text/plain", "output": "ok"}));
 
     // A redirect target is checked without its fragment.
     run(&tool, json!({"url": format!("http://127.0.0.1:{port}/hop"), "format": "text"}), ctx.clone()).await.unwrap();

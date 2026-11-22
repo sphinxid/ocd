@@ -21,7 +21,7 @@ fn runtime(extensions: Vec<Arc<dyn Extension>>) -> CodeMode {
 }
 
 fn globals(name: &str, globals: Vec<(&str, HostValue)>) -> Arc<dyn Extension> {
-    Arc::new(GlobalsExtension { name: name.into(), globals: globals.into_iter().map(|(k, v)| (k.to_string(), v)).collect() })
+    Arc::new(GlobalsExtension { name: name.into(), globals: globals.into_iter().map(|(k, v)| (k.to_string(), v)).collect(), modules: Vec::new() })
 }
 
 fn value(result: ExecResult) -> Json {

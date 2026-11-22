@@ -48,8 +48,8 @@ The build works out its version from the git tags, the same way the release work
 | Checkout | `ocd --version` |
 |---|---|
 | Exactly at tag `v0.4.1` | `ocd v0.4.1+<commit> (opencode 2.3.1)`, the same as that release's binary |
-| Three commits after `v0.4.1` | `ocd v0.4.1+3.<commit> (opencode 2.3.1)` |
-| No `v*` tag | `ocd v20261121.124153+<commit> (opencode 2.3.1)`: the build time in UTC |
+| Three commits after `v0.4.1` | `ocd v0.4.1+3.<commit> (opencode 2.3.2)` |
+| No `v*` tag | `ocd v20261121.124153+<commit> (opencode 2.3.2)`: the build time in UTC |
 | Not a git checkout | The build time and a random hash |
 
 - **Fetch tags first:** run `git fetch --tags` so the latest tag is there.
@@ -69,7 +69,7 @@ app's bundler runs under it.
 
 ```sh
 git clone https://github.com/anomalyco/opencode.git ../opencode
-(cd ../opencode && git checkout c769de83007e3584b5b395176c9fcde2d3231e88 && bun install --frozen-lockfile)
+(cd ../opencode && git checkout c0ad18b402eb2827fc1ee71c171b1177b3fc02d1 && bun install --frozen-lockfile)
 BUN=bun scripts/build-web-ui.sh ../opencode     # writes crates/ocd/web-ui/app-archive.bin
 cargo build --release -p ocd
 ```
@@ -97,7 +97,7 @@ if the result differs from the committed file by a byte.
 ## Upstream pin
 
 `.github/workflows/release.yml` is the one place that names the upstream version ocd tracks: `UPSTREAM_COMMIT`
-(currently `c769de8`, tag `v2.3.1`) and `BUN_VERSION` (currently 1.4.4). The release builds its web UI from them,
+(currently `c0ad18b`, tag `v2.3.2`) and `BUN_VERSION` (currently 1.4.4). The release builds its web UI from them,
 the `Plugin helper` workflow checks the committed `host.js` against them and `scripts/build-plugin-host.sh` reads
 them too. Moving to a new upstream release means changing them there and rebuilding `host.js`.
 
@@ -111,7 +111,7 @@ Some tests need the upstream checkout, the upstream binary or Bun 1.4.4. They fi
 by `OCD_SCRATCH`, and are skipped when it isn't set:
 
 ```
-$OCD_SCRATCH/src/opencode-2.3.1                   upstream checkout at the pin (`bun install` done)
+$OCD_SCRATCH/src/opencode-2.3.2                   upstream checkout at the pin (`bun install` done)
 $OCD_SCRATCH/up-dist/cli-linux-x64/bin/opencode   upstream binary built from that checkout
 $OCD_SCRATCH/bun144/bun-linux-x64/bun             Bun 1.4.4
 ```

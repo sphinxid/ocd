@@ -62,7 +62,7 @@ pub fn extension_in(host: Flavour, directory: impl Into<String>, cwd: impl Into<
     let HostValue::Object(mut fields) = flavour(host) else { unreachable!() };
     fields.push(("posix".into(), flavour(Flavour::Posix)));
     fields.push(("win32".into(), flavour(Flavour::Win32)));
-    Arc::new(GlobalsExtension { name: "path".into(), globals: vec![("path".into(), HostValue::Object(fields))] })
+    Arc::new(GlobalsExtension { name: "path".into(), modules: Vec::new(), globals: vec![("path".into(), HostValue::Object(fields))] })
 }
 
 // The server's working directory, which Bun's `win32.resolve` falls back to.

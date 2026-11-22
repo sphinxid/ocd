@@ -535,15 +535,18 @@ fn lower_messages(request: &LLMRequest, adapter: &Adapter) -> Result<Vec<Value>,
     Ok(input)
 }
 
-/// `lowerConversation`: `model`, `input`, `instructions?`.
+/// `lowerConversation`: `model` and `input`. The system prompt leads `input` as a developer message (2.3.2):
+/// GPT-6.2 models never cache top-level `instructions`.
 pub fn lower_conversation(request: &LLMRequest, adapter: &Adapter) -> Result<Fields, AIError> {
-    let instructions = shared::join_text(request.system.iter().map(|p| p.text.as_str()));
+    let system = shared::join_text(request.system.iter().map(|p| p.text.as_str()));
+    let mut input = Vec::new();
+    if !system.is_empty() {
+        input.push(json!({"type": "message", "role": "developer", "content": system}));
+    }
+    input.extend(lower_messages(request, adapter)?);
     let mut f = Fields::new();
     f.insert("model".into(), Some(json!(request.model.id)));
-    f.insert("input".into(), Some(Value::Array(lower_messages(request, adapter)?)));
-    if !instructions.is_empty() {
-        f.insert("instructions".into(), Some(json!(instructions)));
-    }
+    f.insert("input".into(), Some(Value::Array(input)));
     Ok(f)
 }
 

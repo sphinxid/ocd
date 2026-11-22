@@ -19,7 +19,7 @@ async fn prepares_body() {
     assert_eq!(compiled.prepared.url, "https://api.openai.test/v1/responses");
     assert_eq!(
         compiled.prepared.body,
-        r#"{"model":"gpt-4.1-mini","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hello."}]}],"instructions":"You are concise.","stream":true,"max_output_tokens":20,"temperature":0,"store":false,"include":["reasoning.encrypted_content"]}"#
+        r#"{"model":"gpt-4.1-mini","input":[{"type":"message","role":"developer","content":"You are concise."},{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hello."}]}],"stream":true,"max_output_tokens":20,"temperature":0,"store":false,"include":["reasoning.encrypted_content"]}"#
     );
 }
 

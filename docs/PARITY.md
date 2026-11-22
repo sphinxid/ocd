@@ -1,9 +1,10 @@
 # Differential parity: upstream opencode v2 vs ocd
 
-Upstream reference: since the 2.3.1 catch-up, a local build of `anomalyco/opencode` at tag `v2.3.1` (commit
-`c769de8`, built in `packages/cli` with `OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui`;
-reports `0.0.0-detached-<timestamp>`, channel `detached`). Port: `target/debug/ocd` (workspace version 2.3.1,
-channel `latest`). From 2026-11-17 to 2026-11-18 the reference was the same kind of build at tag `v2.3.0` (commit
+Upstream reference: since the 2.3.2 catch-up, a local build of `anomalyco/opencode` at tag `v2.3.2` (commit
+`c0ad18b`, built in `packages/cli` with `OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui`;
+reports `0.0.0-detached-<timestamp>`, channel `detached`). Port: `target/debug/ocd` (workspace version 2.3.2,
+channel `latest`). From 2026-11-18 to 2026-11-21 the reference was the same kind of build at tag `v2.3.1` (commit
+`c769de8`); from 2026-11-17 to 2026-11-18 the reference was the same kind of build at tag `v2.3.0` (commit
 `a6b15d3`); from 2026-11-11 to 2026-11-16 the reference was the same kind of build at tag `v2.2.7` (commit
 `fedc6f2`); from 2026-11-07 to 2026-11-10 the reference was the same kind of build at tag `v2.2.5` (commit
 `9bbb8ce`); from 2026-10-30 to 2026-11-06 the reference was the same kind of build at tag `v2.2.2`
@@ -382,6 +383,13 @@ until it completes, nothing of the root's answer to the report, and nothing afte
 `plugin_skill_files` is identical too: like 2.2.7, the files a third-party plugin passes to `add(skill, files)` are
 dropped (only the Console plugin attaches files, which ocd now keeps through the plugin transform and serves from
 the `skill` and `read` tools).
+
+**Run after the 2.3.2 catch-up (debug build, 2026-11-22):** all 288 scenarios against the local v2.3.2 build:
+**282 of 288 identical**. The full run showed nine more until the harness masked the port's new version `2.3.2`
+like the earlier ones (the built-in report skill and the User-Agent carry it); `subagent_run_waits_for_report` then
+differed once in three reruns, by when the `waiting for 1 background job` line prints relative to the next step,
+a timing race. Left: the six known `cli_help`, `cli_inventory`, `stop_retry_exhausted`, `loop_http_400`,
+`loop_tool_error` and `readonly_fs`.
 
 **Run with full Code Mode, client-hosted MCP and image previews (debug build, 2026-11-21):** all 288 scenarios against the
 local v2.3.1 build: **282 of 288 identical** (the full run, then `tools227_codemode`, `tools227_session_move`,

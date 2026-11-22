@@ -259,7 +259,7 @@ impl Tool for WebFetchTool {
         let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
         let output = convert(content, &content_type, &format);
         Ok(ToolResult::text(output.clone())
-            .with_output(json!({"url": input.url, "contentType": content_type, "format": format, "output": output}))
+            .with_output(json!({"contentType": content_type, "output": output}))
             .with_metadata(meta(vec![("contentType", json!(content_type))])))
     }
 }
