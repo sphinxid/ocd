@@ -279,6 +279,9 @@ fn decode_options(request: &LLMRequest) -> Options {
 
 /// Ordered Gemini body fields.
 pub fn body_fields(request: &LLMRequest) -> Result<Fields, AIError> {
+    // Upstream `Protocol.make` flattens tool namespaces once before `body.from` for protocols without native ones.
+    let flat_request = shared::flatten_request(request);
+    let request = &flat_request;
     let (tools, flattened) = flatten_tool_request(request);
     let has_tools = !tools.is_empty();
     let g = request.generation_options();

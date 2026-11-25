@@ -182,6 +182,9 @@ fn opt(request: &LLMRequest, key: &str, check: fn(&Value) -> bool) -> Result<Opt
 
 /// Ordered Mistral body fields.
 pub fn body_fields(request: &LLMRequest) -> Result<IndexMap<String, Option<Value>>, AIError> {
+    // Upstream `Protocol.make` flattens tool namespaces once before `body.from` for protocols without native ones.
+    let flat_request = shared::flatten_request(request);
+    let request = &flat_request;
     let safe_prompt = opt(request, "safePrompt", Value::is_boolean)?;
     let image_limit = opt(request, "documentImageLimit", Value::is_number)?;
     let page_limit = opt(request, "documentPageLimit", Value::is_number)?;

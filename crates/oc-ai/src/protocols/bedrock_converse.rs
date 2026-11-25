@@ -177,9 +177,11 @@ fn remove_empty_keys(value: &Value) -> Value {
     }
 }
 
+/// Converse rejects replayed names over 64 characters; `flatten_request` already fixed invalid characters.
+/// `name.slice(0, 64)` counts UTF-16 code units.
 fn tool_name(name: &str) -> String {
-    let s: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).take(64).collect();
-    if s.is_empty() { "_".into() } else { s }
+    let units: Vec<u16> = name.encode_utf16().take(64).collect();
+    String::from_utf16_lossy(&units)
 }
 
 fn meta_str(pm: Option<&ProviderMetadata>, key: &str, field: &str) -> Option<String> {
@@ -422,6 +424,9 @@ fn effort_fields(model_id: &str, effort: &str) -> (&'static str, Value) {
 
 /// Ordered Bedrock Converse body.
 pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
+    // Upstream `Protocol.make` flattens tool namespaces once before `body.from` for protocols without native ones.
+    let flat_request = shared::flatten_request(request);
+    let request = &flat_request;
     let tool_choice = match &request.tool_choice {
         None => None,
         Some(c) => match match_tool_choice(NAME, c)? {

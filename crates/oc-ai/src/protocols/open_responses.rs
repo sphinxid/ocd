@@ -626,6 +626,9 @@ pub fn allowed_tool_choice(options: &ResponsesOptions, custom: &IndexMap<String,
 
 /// `fromRequestWithAdapter`.
 pub fn body_fields(request: &LLMRequest, adapter: &Adapter) -> Result<Fields, AIError> {
+    // Upstream `Protocol.make` flattens tool namespaces once before `body.from` for protocols without native ones.
+    let flat_request = shared::flatten_request(request);
+    let request = &flat_request;
     let (tools, projected) = flatten_tool_request(request);
     let mut f = lower_conversation(&projected, adapter)?;
     let options = options::resolve(request);

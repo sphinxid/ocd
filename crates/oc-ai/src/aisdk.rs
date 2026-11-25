@@ -237,7 +237,7 @@ pub fn call_options(request: &LLMRequest, package: &str, model_id: &str, option_
     put(&mut out, "frequencyPenalty", generation.frequency_penalty.map(num));
     put(&mut out, "seed", generation.seed.map(num));
     out.insert("tools".into(), Value::Array(tools.iter().map(tool).collect()));
-    put(&mut out, "toolChoice", tool_choice(request));
+    put(&mut out, "toolChoice", tool_choice(&flattened));
     put(&mut out, "headers", request.http.as_ref().and_then(|h| h.headers.as_ref()).map(|h| json!(h)));
     put(&mut out, "providerOptions", request_provider_options(request.provider_options.as_ref(), package, model_id, option_key));
     Ok(Value::Object(out))

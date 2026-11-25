@@ -22,6 +22,9 @@ fn invalid_option() -> AIError {
 }
 
 pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
+    // Upstream `Protocol.make` flattens tool namespaces once before `body.from` for protocols without native ones.
+    let flat_request = shared::flatten_request(request);
+    let request = &flat_request;
     let thinking_opt = match request.po("thinking") {
         None => None,
         Some(v) => {

@@ -9,6 +9,7 @@ use crate::types::{
     ToolDefinition, ToolEntry, ToolResultPart, ToolResultValue,
 };
 use indexmap::IndexMap;
+use std::collections::HashSet;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
@@ -307,27 +308,94 @@ pub fn flatten_tools(tools: &[ToolEntry]) -> Vec<ToolDefinition> {
     map.into_values().collect()
 }
 
-/// `flattenToolRequest`: rewrite namespaced history parts and flatten tools.
-pub fn flatten_tool_request(request: &LLMRequest) -> (Vec<ToolDefinition>, LLMRequest) {
+/// `flattenRequest`: the request as a protocol without native namespaces sees it. Tools, past calls and a forced
+/// choice all use flattened names. Every adapter of such a protocol applies it before lowering (upstream's
+/// `Protocol.make` does it once before `body.from`); it is a no-op on a request it already flattened.
+/// (ocd has no mid-conversation tool updates, so there are no `Message.tools` markers to flatten.)
+pub fn flatten_request(request: &LLMRequest) -> LLMRequest {
+    let declared: HashSet<String> = flatten_tools(&request.tools).into_iter().map(|tool| tool.name).collect();
     let mut req = request.clone();
     for message in &mut req.messages {
+        if !matches!(message.role, Role::Assistant | Role::Tool) {
+            continue;
+        }
         for part in &mut message.content {
             match part {
-                ContentPart::ToolCall(call) => {
-                    if let Some(ns) = call.namespace.take() {
-                        call.name = format!("{ns}_{}", call.name);
-                    }
-                }
-                ContentPart::ToolResult(result) => {
-                    if let Some(ns) = result.namespace.take() {
-                        result.name = format!("{ns}_{}", result.name);
-                    }
-                }
+                ContentPart::ToolCall(call) => flatten_tool_name(&mut call.name, &mut call.namespace, &declared),
+                ContentPart::ToolResult(result) => flatten_tool_name(&mut result.name, &mut result.namespace, &declared),
                 _ => {}
             }
         }
     }
-    (flatten_tools(&request.tools), req)
+    req.tools = flatten_tools(&request.tools).into_iter().map(ToolEntry::Tool).collect();
+    req.tool_choice = flatten_tool_choice(request.tool_choice.as_ref(), &request.tools, &declared);
+    req
+}
+
+/// The flattened tool definitions and the flattened request (`flattenToolRequest`, deprecated upstream in favour of
+/// [`flatten_request`]).
+pub fn flatten_tool_request(request: &LLMRequest) -> (Vec<ToolDefinition>, LLMRequest) {
+    let flat = flatten_request(request);
+    (flatten_tools(&flat.tools), flat)
+}
+
+/// `flattenToolName`: models sometimes call names no tool declares, such as a Code Mode path like `a.b.c`. Several
+/// providers (OpenAI Chat Completions, Bedrock Converse) reject those characters when the call is replayed, so
+/// replace them. A declared name is kept as is, so a provider that accepts it sees calls under the tool's own name.
+fn flatten_tool_name(name: &mut String, namespace: &mut Option<String>, declared: &HashSet<String>) {
+    let flat = match namespace.take() {
+        Some(ns) => format!("{ns}_{name}"),
+        None => name.clone(),
+    };
+    *name = if declared.contains(&flat) { flat } else { provider_safe_name(&flat) };
+}
+
+/// `name.replace(/[^a-zA-Z0-9_-]/g, "_") || "_"`, per UTF-16 code unit as in JavaScript.
+pub fn provider_safe_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+            out.push(c);
+        } else {
+            for _ in 0..c.len_utf16() {
+                out.push('_');
+            }
+        }
+    }
+    if out.is_empty() { "_".into() } else { out }
+}
+
+/// `flattenToolChoice`: a forced choice names a namespaced tool by its path (`crm.lookup`); point it at the
+/// flattened definition.
+fn flatten_tool_choice(choice: Option<&ToolChoice>, tools: &[ToolEntry], declared: &HashSet<String>) -> Option<ToolChoice> {
+    let choice = choice?;
+    let Some(name) = choice.name.as_ref().filter(|_| choice.kind == ToolChoiceType::Tool) else { return Some(choice.clone()) };
+    if declared.contains(name) {
+        return Some(choice.clone());
+    }
+    fn paths(tools: &[ToolEntry], path: &[String], out: &mut Vec<(String, String)>) {
+        for tool in tools {
+            match tool {
+                ToolEntry::Namespace(ns) => {
+                    let mut next = path.to_vec();
+                    next.push(ns.name.clone());
+                    paths(&ns.tools, &next, out);
+                }
+                ToolEntry::Tool(def) if !path.is_empty() => {
+                    let full: Vec<&str> = path.iter().map(String::as_str).chain(std::iter::once(def.name.as_str())).collect();
+                    out.push((full.join("."), full.join("_")));
+                }
+                ToolEntry::Tool(_) => {}
+            }
+        }
+    }
+    let mut all = vec![];
+    paths(tools, &[], &mut all);
+    // `new Map(entries).get(name)`: the last entry of a repeated path wins.
+    match all.into_iter().rev().find(|(path, _)| path == name) {
+        Some((_, flat)) => Some(ToolChoice { name: Some(flat), ..choice.clone() }),
+        None => Some(choice.clone()),
+    }
 }
 
 /// Resolved tool choice.

@@ -513,6 +513,9 @@ fn has_tool_history(messages: &[Message]) -> bool {
 
 /// Build the ordered OpenAI Chat body fields.
 pub fn body_fields(request: &LLMRequest, opts: &ChatOptions) -> Result<Fields, AIError> {
+    // Upstream `Protocol.make` flattens tool namespaces once before `body.from` for protocols without native ones.
+    let flat_request = shared::flatten_request(request);
+    let request = &flat_request;
     let compat = request.compat();
     if let Some(field) = &compat.reasoning_field {
         if RESERVED_REASONING_FIELDS.contains(&field.as_str()) {

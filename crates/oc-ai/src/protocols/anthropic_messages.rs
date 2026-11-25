@@ -849,6 +849,9 @@ fn lower_tool_choice(choice: &ToolChoice) -> Result<Value, AIError> {
 
 /// Lower a request into ordered body fields.
 pub fn body_fields(request: &LLMRequest) -> Result<Fields, AIError> {
+    // Upstream `Protocol.make` flattens tool namespaces once before `body.from` for protocols without native ones.
+    let flat_request = shared::flatten_request(request);
+    let request = &flat_request;
     let options = decode_options(request.provider_options.as_ref())?;
     let (messages_after_updates, effort) =
         resolve_effort_updates(request, options.effort.clone().or_else(|| options.output_effort.clone()));

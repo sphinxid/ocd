@@ -144,6 +144,9 @@ fn lenient_str(request: &LLMRequest, key: &str) -> Option<Value> {
 }
 
 pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
+    // Upstream `Protocol.make` flattens tool namespaces once before `body.from` for protocols without native ones.
+    let flat_request = shared::flatten_request(request);
+    let request = &flat_request;
     let (tools, flattened) = flatten_tool_request(request);
     if tools.iter().any(|t| t.native.is_some()) {
         return Err(AIError::invalid_request("Google Interactions hosted tools are not supported"));
