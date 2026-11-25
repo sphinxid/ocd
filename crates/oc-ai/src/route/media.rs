@@ -337,6 +337,8 @@ pub struct MediaCall {
     pub body: Option<(Vec<u8>, Option<String>)>,
     /// The client certificate of a submit to the model's host (never of polls or downloads).
     pub tls: Option<crate::types::ClientTls>,
+    /// Header, chunk and whole-request limits (`RequestExecutor.withTimeout`); unset phases use the defaults.
+    pub timeouts: super::transport::Timeouts,
 }
 
 /// `makeTransport(...).submit`: POST the protocol body to the rendered endpoint with the merged HTTP options.
@@ -385,7 +387,14 @@ pub async fn prepare<R>(
     if let Some((_, Some(content_type))) = &encoded {
         headers.insert("content-type".into(), content_type.clone());
     }
-    Ok(MediaCall { method: "POST".into(), url, headers, body: encoded.map(|(b, _)| (b, None)), tls: http.and_then(|h| h.tls.clone()) })
+    Ok(MediaCall {
+        method: "POST".into(),
+        url,
+        headers,
+        body: encoded.map(|(b, _)| (b, None)),
+        tls: http.and_then(|h| h.tls.clone()),
+        timeouts: super::transport::Timeouts::from_http(http),
+    })
 }
 
 fn reqwest_message(error: &reqwest::Error) -> String {
@@ -415,7 +424,18 @@ pub async fn execute(client: &reqwest::Client, call: &MediaCall) -> Result<Media
     if let Some((body, _)) = &call.body {
         builder = builder.body(body.clone());
     }
-    let response = builder.send().await.map_err(|e| {
+    let started = tokio::time::Instant::now();
+    let send = builder.send();
+    let response = match call.timeouts.header {
+        Some(limit) => match tokio::time::timeout(limit, send).await {
+            Ok(response) => response,
+            Err(_) => {
+                return Err(AIError::transport(TransportOperation::Request, "Timed out waiting for response headers", Some("Timeout"), Some(&call.url)));
+            }
+        },
+        None => send.await,
+    };
+    let response = response.map_err(|e| {
         let mut error = super::transport::send_error(&e, &call.url);
         error.cause = None;
         error
@@ -429,32 +449,78 @@ pub async fn execute(client: &reqwest::Client, call: &MediaCall) -> Result<Media
     for (name, value) in response.headers() {
         headers.insert(name.as_str().to_lowercase(), String::from_utf8_lossy(value.as_bytes()).into_owned());
     }
+    let http = HttpContext { url: url.clone(), status, headers: headers.clone() };
     if status >= 400 {
-        let text = response.text().await.ok();
+        let text = read_body(response, &call.timeouts, started, &http).await.ok().map(|b| String::from_utf8_lossy(&b).into_owned());
         let message = http_status_message(status, text.as_deref());
         return Err(http_failure(message, Some(&url), Some(status), &headers, text));
     }
-    let http = HttpContext { url: url.clone(), status, headers };
-    let body = response.bytes().await.map_err(|e| {
-        AIError::transport(
-            TransportOperation::Read,
-            format!("Connection lost while reading the response: {}", reqwest_message(&e)),
-            Some("TransportError"),
-            Some(&url),
-        )
-        .with_http(Some(http.clone()))
-    })?;
+    let body = read_body(response, &call.timeouts, started, &http).await?;
     Ok(MediaResponse { http, body })
 }
 
-/// `Media.download`: GET a `url` asset through the executor.
+/// Reads a whole response body behind the chunk and whole-request limits (`withBodyTimeouts`), so a body that stalls
+/// fails cleanly.
+async fn read_body(
+    mut response: reqwest::Response,
+    timeouts: &super::transport::Timeouts,
+    started: tokio::time::Instant,
+    http: &HttpContext,
+) -> Result<bytes::Bytes, AIError> {
+    let timeout = |message: &str| {
+        AIError::transport(TransportOperation::Read, message, Some("Timeout"), Some(&http.url)).with_http(Some(http.clone()))
+    };
+    let deadline = timeouts.total.map(|t| started + t);
+    let mut body = bytes::BytesMut::new();
+    loop {
+        let next = async {
+            match timeouts.chunk {
+                Some(limit) => tokio::time::timeout(limit, response.chunk()).await.map_err(|_| timeout("Timed out waiting for response data")),
+                None => Ok(response.chunk().await),
+            }
+        };
+        let item = match deadline {
+            Some(deadline) => tokio::select! {
+                _ = tokio::time::sleep_until(deadline) => return Err(timeout("Timed out waiting for the response to complete")),
+                item = next => item?,
+            },
+            None => next.await?,
+        };
+        match item {
+            Ok(Some(chunk)) => body.extend_from_slice(&chunk),
+            Ok(None) => return Ok(body.freeze()),
+            Err(e) => {
+                return Err(AIError::transport(
+                    TransportOperation::Read,
+                    format!("Connection lost while reading the response: {}", reqwest_message(&e)),
+                    Some("TransportError"),
+                    Some(&http.url),
+                )
+                .with_http(Some(http.clone())));
+            }
+        }
+    }
+}
+
+/// `Media.download`: GET a `url` asset through the executor, with the default limits.
 pub async fn download(client: &reqwest::Client, url: &str, headers: Option<&IndexMap<String, String>>) -> Result<Vec<u8>, AIError> {
+    download_with(client, url, headers, super::transport::Timeouts::from_http(None)).await
+}
+
+/// [`download`] under a request's limits (`RequestExecutor.withTimeout(execute, timeout)`).
+pub async fn download_with(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Option<&IndexMap<String, String>>,
+    timeouts: super::transport::Timeouts,
+) -> Result<Vec<u8>, AIError> {
     let call = MediaCall {
         method: "GET".into(),
         url: url.to_string(),
         headers: headers.map(super::normalize_headers).unwrap_or_default(),
         body: None,
         tls: None,
+        timeouts,
     };
     let response = execute(client, &call).await?;
     Ok(response.body.to_vec())

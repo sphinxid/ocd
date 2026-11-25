@@ -1,5 +1,6 @@
 //! Ports of the protocol tests opencode 2.4.1 added (packages/ai/test): tool namespaces flattened once for protocols
-//! without native ones (#65621) and undeclared replayed tool names in provider-safe form (#65292).
+//! without native ones (#65621), undeclared replayed tool names in provider-safe form (#65292), and HTTP timeouts on
+//! every request (#64692).
 
 use oc_ai::testing::compile_body;
 use oc_ai::*;
@@ -121,3 +122,92 @@ async fn bedrock_truncates_replayed_names_after_the_shared_sanitizing() {
     assert_eq!(name, format!("a_{}", "b".repeat(62)));
 }
 
+// ---- HTTP timeouts on every request (#64692) ----
+
+/// A server that accepts connections and answers `head` (nothing when `None`), then keeps the connection open.
+async fn stalling(head: Option<&'static str>) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                if let Some(head) = head {
+                    let _ = socket.write_all(head.as_bytes()).await;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                drop(socket);
+            });
+        }
+    });
+    base
+}
+
+fn timeouts(header_ms: f64, chunk_ms: f64, total_ms: Option<f64>) -> oc_ai::route::transport::Timeouts {
+    oc_ai::route::transport::Timeouts::from_http(Some(&HttpOptions {
+        timeout: total_ms.map(HttpTimeout::Millis),
+        header_timeout: Some(HttpTimeout::Millis(header_ms)),
+        chunk_timeout: Some(HttpTimeout::Millis(chunk_ms)),
+        ..Default::default()
+    }))
+}
+
+fn timed_out(error: &AIError, operation: &str, message: &str) {
+    let ErrorKind::Transport { code, operation: op, .. } = &error.kind else { panic!("{error:?}") };
+    assert_eq!(code.as_deref(), Some("Timeout"), "{error:?}");
+    assert_eq!(format!("{op:?}").to_lowercase(), operation, "{error:?}");
+    assert_eq!(error.message, message);
+}
+
+#[tokio::test]
+async fn media_requests_time_out_waiting_for_headers_and_between_chunks() {
+    let client = oc_util::http::client();
+    let silent = stalling(None).await;
+    let error = oc_ai::route::media::download_with(&client, &format!("{silent}/a.png"), None, timeouts(200.0, 60_000.0, None))
+        .await
+        .unwrap_err();
+    timed_out(&error, "request", "Timed out waiting for response headers");
+    let partial = stalling(Some("HTTP/1.1 200 OK\r\ncontent-type: image/png\r\ncontent-length: 100\r\n\r\nPNG")).await;
+    let error = oc_ai::route::media::download_with(&client, &format!("{partial}/a.png"), None, timeouts(60_000.0, 200.0, None))
+        .await
+        .unwrap_err();
+    timed_out(&error, "read", "Timed out waiting for response data");
+    assert_eq!(error.http.as_ref().map(|h| h.status), Some(200));
+    let error = oc_ai::route::media::download_with(&client, &format!("{partial}/a.png"), None, timeouts(60_000.0, 60_000.0, Some(300.0)))
+        .await
+        .unwrap_err();
+    timed_out(&error, "read", "Timed out waiting for the response to complete");
+    // Unset phases take the defaults: 5 minutes for headers, 15 between chunks, no whole-request limit.
+    let defaults = oc_ai::route::transport::Timeouts::from_http(None);
+    assert_eq!(defaults.header, Some(std::time::Duration::from_secs(300)));
+    assert_eq!(defaults.chunk, Some(std::time::Duration::from_secs(900)));
+    assert_eq!(defaults.total, None);
+}
+
+/// "applies provider timeouts to resolved image, video, and decision models" (model-resolver.test.ts)
+#[test]
+fn applies_provider_timeouts_to_resolved_image_and_decision_models() {
+    use oc_ai::catalog::resolve::{resolve_media, MediaModel, MediaType};
+    use oc_ai::catalog::{ModelInfo, ProviderInfo};
+    let settings = json!({"apiKey": "secret", "timeout": 12_000, "headerTimeout": 3_000, "chunkTimeout": 4_000});
+    let mut provider = ProviderInfo::empty("timed");
+    provider.activation = oc_ai::catalog::types::Activation::Enabled;
+    provider.settings = settings.as_object().cloned();
+    let expected = (Some(HttpTimeout::Millis(12_000.0)), Some(HttpTimeout::Millis(3_000.0)), Some(HttpTimeout::Millis(4_000.0)));
+    for (kind, package, id) in [
+        (MediaType::Image, "@opencode/ai/providers/openai/images", "gpt-image-2"),
+        (MediaType::Decision, "@opencode/ai/providers/google/decisions", "gemini-2.5-flash"),
+    ] {
+        let mut model = ModelInfo::default_for("timed", id);
+        model.kind = Some(if kind == MediaType::Image { "image" } else { "decision" }.into());
+        model.package = Some(package.into());
+        let http = match resolve_media(Some(&provider), &model, kind, None, None, &Default::default()).unwrap() {
+            MediaModel::Image(m) => m.http,
+            MediaModel::Decision(m) => m.http,
+        };
+        let http = http.unwrap();
+        assert_eq!((http.timeout, http.header_timeout, http.chunk_timeout), expected, "{package}");
+    }
+}

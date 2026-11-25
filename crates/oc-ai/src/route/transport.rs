@@ -166,7 +166,12 @@ pub struct Timeouts {
 
 impl Timeouts {
     pub fn from_request(request: &LLMRequest) -> Self {
-        let http = request.http.as_ref();
+        Self::from_http(request.http.as_ref())
+    }
+
+    /// The limits `RequestExecutor` applies to every request (opencode 2.4.1): the configured ones, else 300 s for
+    /// response headers and 900 s between response chunks; the whole-request budget has no default.
+    pub fn from_http(http: Option<&crate::types::HttpOptions>) -> Self {
         let total = http.and_then(|h| h.timeout).and_then(|t| t.millis()).map(|ms| Duration::from_millis(ms as u64));
         let header = duration(http.and_then(|h| h.header_timeout), DEFAULT_HTTP_TIMEOUT_MS);
         let header = match (header, total) {

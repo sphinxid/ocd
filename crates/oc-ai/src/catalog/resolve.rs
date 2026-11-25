@@ -596,12 +596,14 @@ pub fn from_catalog_media(
         package: if package.is_empty() { "unknown".into() } else { package.clone() },
         detail: cause.message,
     };
-    // The model's client certificate rides on its HTTP options: the submit (and a protocol's prepare POST) presents
-    // it, polls and downloads don't.
+    // The provider's timeouts and client certificate ride on the model's HTTP options (2.4.1: timeouts apply to every
+    // request of the model). The submit (and a protocol's prepare POST) presents the certificate, polls and downloads
+    // don't.
     let tls = crate::types::ClientTls::from_settings(configured.get("tls"));
-    let with_tls = |http: Option<HttpOptions>| match &tls {
-        Some(tls) => HttpOptions::merge(&[http.as_ref(), Some(&HttpOptions { tls: Some(tls.clone()), ..Default::default() })]),
-        None => http,
+    let provider_timeouts = super::types::timeouts(&configured);
+    let with_tls = |http: Option<HttpOptions>| {
+        let overlay = HttpOptions { tls: tls.clone(), ..provider_timeouts.clone() };
+        HttpOptions::merge(&[http.as_ref(), Some(&overlay)])
     };
     match kind {
         MediaType::Image => match crate::providers::media::image_model(&specifier, &resolved.model_id, &settings) {

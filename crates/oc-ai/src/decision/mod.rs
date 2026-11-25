@@ -242,7 +242,10 @@ pub async fn generate(client: &reqwest::Client, request: DecisionRequest) -> Res
             if let DecisionPart::Media { media: asset, .. } = part
                 && let crate::media::MediaSource::Url { url, media_type, .. } = &asset.source
             {
-                let data = media::download(client, url, None).await?;
+                // Inputs download under the request's own limits (`mergeTransport(request.model.transport, request)`).
+                let http = HttpOptions::merge(&[request.model.http.as_ref(), request.http.as_ref()]);
+                let timeouts = crate::route::transport::Timeouts::from_http(http.as_ref());
+                let data = media::download_with(client, url, None, timeouts).await?;
                 *asset = MediaAsset::bytes(data, media_type.as_deref());
             }
         }
