@@ -1,4 +1,4 @@
-migrations 62: last=20261116213417_automation_active_index
+migrations 64: last=20261120004954_machine-key
   mig 20260127222353_familiar_lady_ursula
   mig 20260211171708_add_project_commands
   mig 20260213144116_wakeful_the_professor
@@ -61,6 +61,8 @@ migrations 62: last=20261116213417_automation_active_index
   mig 20261116043204_automation
   mig 20261116181958_automation_event_position
   mig 20261116213417_automation_active_index
+  mig 20261119211416_machine
+  mig 20261120004954_machine-key
 table account
   col ('access_token', 'TEXT', 1, None, 0)
   col ('email', 'TEXT', 1, None, 0)
@@ -180,6 +182,10 @@ table kv
   col ('time_created', 'INTEGER', 1, None, 0)
   col ('time_updated', 'INTEGER', 1, None, 0)
   col ('value', 'TEXT', 1, None, 0)
+table machine
+  col ('id', 'TEXT', 0, None, 1)
+  col ('key', 'TEXT', 0, None, 0)
+  col ('time_created', 'INTEGER', 1, None, 0)
 table migration
   col ('id', 'TEXT', 0, None, 1)
   col ('time_completed', 'INTEGER', 1, None, 0)
@@ -303,6 +309,7 @@ index event_aggregate_type_seq_idx: CREATE INDEX `event_aggregate_type_seq_idx` 
 index job_child_session_idx: CREATE INDEX `job_child_session_idx` ON `job` (`child_session_id`)
 index job_id_idx: CREATE INDEX `job_id_idx` ON `job` (`id`)
 index job_session_idx: CREATE INDEX `job_session_idx` ON `job` (`session_id`)
+index machine_key_idx: CREATE UNIQUE INDEX `machine_key_idx` ON `machine` (`key`)
 index permission_project_action_resource_idx: CREATE UNIQUE INDEX `permission_project_action_resource_idx` ON `permission` (`project_id`,`action`,`resource`)
 index session_inbox_session_delivery_seq_idx: CREATE INDEX `session_inbox_session_delivery_seq_idx` ON `session_inbox` (`session_id`,`delivery`,`enqueued_seq`)
 index session_inbox_session_enqueued_seq_idx: CREATE UNIQUE INDEX `session_inbox_session_enqueued_seq_idx` ON `session_inbox` (`session_id`,`enqueued_seq`)

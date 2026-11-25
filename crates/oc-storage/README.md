@@ -23,7 +23,8 @@ session's location:
 
 - `media`: `experimental.media_blob`. On, inline images in user files and tool results go to `blob` and rows hold
   `media:<sha256>` refs; `blob_ref` keeps each blob alive while a message names it.
-- `part_rows`: `experimental.part_rows` (off by default, off for events published outside any location). Off, every
+- `part_rows`: `experimental.part_rows` (on by default since 2.4.1, also for events published outside any location;
+  `false` turns it off). Off, every
   assistant event rewrites the whole message: inline in its row, or into the `session_part` rows the message already
   has (written with the flag on, by a fork, or by upstream), touching only the rows that changed. On, the part events
   write single rows: `session.text.started`, `reasoning.started` and `tool.input.started` append a row after the
@@ -39,7 +40,7 @@ whatever the flag was when each event was written.
 
 ## Tests
 
-`tests/projector.rs` (event projection), `tests/stored.rs` (migrations and schema against upstream 2.3.1's, part rows a
+`tests/projector.rs` (event projection), `tests/stored.rs` (migrations and schema against upstream 2.4.1's, part rows a
 newer release wrote, media blobs), `tests/native.rs` (pre-v2.1 native data), `tests/part_rows.rs` (the part-row writer:
 upstream's `session-projector.test.ts` and `session-store.test.ts` cases with `part_rows: true`, envelope updates,
 forks, reverts and deletes, the flag switched mid-session).

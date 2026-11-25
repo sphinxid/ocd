@@ -63,9 +63,9 @@ synchronously with `open(file, "a", 0o600)`; then `chmod 0600` on the DB and on 
   PRAGMA synchronous = NORMAL
   PRAGMA busy_timeout = 5000
   PRAGMA cache_size = -64000
-  PRAGMA wal_checkpoint(PASSIVE)
   PRAGMA foreign_keys = ON
   ```
+  (2.4.1 #64532 dropped the `PRAGMA wal_checkpoint(PASSIVE)` that ran before `foreign_keys`.)
 - Then the migration step runs under a per-file semaphore (`database.ts:48-49,56-66`).
 - **One connection per process**, guarded by a semaphore (all statements serialized)
   (`core/src/database/sqlite.ts:66-73`).

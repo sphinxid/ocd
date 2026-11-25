@@ -60,3 +60,5 @@
 20261116043204_automation
 20261116181958_automation_event_position
 20261116213417_automation_active_index
+20261119211416_machine
+20261120004954_machine-key

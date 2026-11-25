@@ -94,6 +94,11 @@ CREATE TABLE `kv` (
           `time_created` integer NOT NULL,
           `time_updated` integer NOT NULL
         );
+CREATE TABLE `machine` (
+          `id` text PRIMARY KEY,
+          `key` text,
+          `time_created` integer NOT NULL
+        );
 CREATE TABLE `permission` (
           `id` text PRIMARY KEY,
           `project_id` text NOT NULL,
@@ -264,6 +269,7 @@ CREATE INDEX `event_aggregate_type_seq_idx` ON `event` (`aggregate_id`,`type`,`s
 CREATE INDEX `job_session_idx` ON `job` (`session_id`);
 CREATE INDEX `job_child_session_idx` ON `job` (`child_session_id`);
 CREATE INDEX `job_id_idx` ON `job` (`id`);
+CREATE UNIQUE INDEX `machine_key_idx` ON `machine` (`key`);
 CREATE UNIQUE INDEX `permission_project_action_resource_idx` ON `permission` (`project_id`,`action`,`resource`);
 CREATE INDEX `blob_ref_hash_idx` ON `blob_ref` (`hash`);
 CREATE INDEX `blob_ref_session_seq_idx` ON `blob_ref` (`session_id`,`seq`);

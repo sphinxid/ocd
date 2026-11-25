@@ -155,9 +155,9 @@ fn a_database_migrated_from_2_1_4_matches_a_fresh_database() {
         })
         .unwrap()
     };
-    assert_eq!(ids(&migrated).len(), 62);
+    assert_eq!(ids(&migrated).len(), 64);
     assert_eq!(ids(&migrated), ids(&fresh));
-    assert_eq!(ids(&fresh).last().unwrap(), "20261116213417_automation_active_index");
+    assert_eq!(ids(&fresh).last().unwrap(), "20261120004954_machine-key");
 
     let mut expected = tables(&fresh);
     expected.retain(|t| t != "migration");
@@ -193,8 +193,8 @@ fn py_opt(s: &Option<String>) -> String {
     s.as_deref().map(py_str).unwrap_or_else(|| "None".into())
 }
 
-/// The schema dump `tests/fixtures/schema-2.3.1.txt` holds, taken from a 2.1.4 database that the real
-/// opencode 2.3.1 binary migrated: migration ids, every table's columns and foreign keys, every index.
+/// The schema dump `tests/fixtures/schema-2.4.1.txt` holds, taken from a 2.1.4 database that the real
+/// opencode 2.4.1 binary migrated: migration ids, every table's columns and foreign keys, every index.
 fn schema_dump(db: &Database) -> String {
     db.with(|c| {
         let mut out = Vec::new();
@@ -234,11 +234,11 @@ fn schema_dump(db: &Database) -> String {
     .unwrap()
 }
 
-/// A 2.1.4 database migrated by ocd, and a fresh one, have exactly the schema the real 2.3.1 binary gives a
+/// A 2.1.4 database migrated by ocd, and a fresh one, have exactly the schema the real 2.4.1 binary gives a
 /// migrated 2.1.4 database.
 #[test]
-fn schema_matches_the_one_the_2_3_1_binary_migrates_to() {
-    let expected = include_str!("fixtures/schema-2.3.1.txt");
+fn schema_matches_the_one_the_2_4_1_binary_migrates_to() {
+    let expected = include_str!("fixtures/schema-2.4.1.txt");
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("opencode.db");
     {
@@ -988,7 +988,7 @@ fn a_fresh_database_imports_legacy_credentials() {
         .unwrap();
     assert_eq!(rows, [("openai".to_string(), "OAuth".to_string())]);
     let n: i64 = db.with(|c| c.query_row("SELECT count(*) FROM migration", [], |r| r.get(0))).unwrap();
-    assert_eq!(n, 62);
+    assert_eq!(n, 64);
 }
 
 /// `database-migration.test.ts` "leaves legacy credentials out of in-memory databases" (2.3.1): only a database file
@@ -1124,6 +1124,47 @@ fn the_automation_table_has_no_session_foreign_key() {
         .unwrap();
     assert_eq!(sql, r#"CREATE INDEX `automation_active_idx` ON `automation` (`next_due_at`) WHERE "automation"."status" = 'active'"#);
     assert!(columns(&db, "automation").iter().any(|c| c.0 == "event_position" && c.1 == "TEXT"));
+}
+
+/// 2.4.1's machine migrations (`20261119211416_machine`, `20261120004954_machine-key`) run whatever the `machines`
+/// flag says: a database as opencode 2.3.2 left it (62 migrations) gets the `machine` table with a unique `key`, and
+/// matches a fresh one.
+#[test]
+fn a_2_3_2_database_gets_the_machine_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("opencode.db");
+    {
+        let fresh = Database::memory().unwrap();
+        let sql: Vec<String> = fresh
+            .with(|c| {
+                let mut s = c.prepare(
+                    "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT IN ('machine', 'machine_key_idx', 'migration')",
+                )?;
+                let r = s.query_map([], |r| r.get(0))?.collect();
+                r
+            })
+            .unwrap();
+        let c = rusqlite::Connection::open(&path).unwrap();
+        for statement in sql {
+            c.execute_batch(&statement).unwrap();
+        }
+        c.execute_batch("CREATE TABLE \"migration\" (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)").unwrap();
+        for id in oc_storage::migrate::ids().into_iter().filter(|id| !id.starts_with("202611192") && !id.starts_with("202611200")) {
+            c.execute("INSERT INTO migration (id, time_completed) VALUES (?, 0)", [id]).unwrap();
+        }
+        let n: i64 = c.query_row("SELECT count(*) FROM migration", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 62);
+    }
+    let db = Database::open(&path, dir.path()).unwrap();
+    assert_eq!(schema_dump(&db), schema_dump(&Database::memory().unwrap()));
+    let mut cols = columns(&db, "machine");
+    cols.sort();
+    assert_eq!(cols.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(), ["id", "key", "time_created"]);
+    db.with(|c| c.execute("INSERT INTO machine (id, time_created, key) VALUES ('gpu', 1, 'k')", [])).unwrap();
+    let duplicate = db.with(|c| c.execute("INSERT INTO machine (id, time_created, key) VALUES ('cpu', 2, 'k')", []));
+    assert!(duplicate.is_err());
+    // A machine without a key yet (the key column is nullable) is allowed more than once.
+    db.with(|c| c.execute_batch("INSERT INTO machine (id, time_created) VALUES ('a', 3), ('b', 4)")).unwrap();
 }
 
 /// "bootstraps a fresh database when the legacy credential file is malformed": a file that is not a JSON object

@@ -53,7 +53,7 @@ impl Database {
              PRAGMA busy_timeout = 5000;
              PRAGMA cache_size = -64000;",
         )?;
-        let _ = conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()));
+        // 2.4.1 (#64532): no `PRAGMA wal_checkpoint(PASSIVE)` on open.
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         let db = Database { conn: Arc::new(Mutex::new(conn)), path: path.to_path_buf() };
         // 2.3.1: only a database file the user opens imports their legacy `auth.json`; an in-memory one belongs to
