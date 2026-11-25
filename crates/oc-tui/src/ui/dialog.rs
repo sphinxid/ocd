@@ -281,6 +281,26 @@ pub struct Select {
     pub center: bool,
     /// Only the selected row shows its footer (`/usage`: shared spend would look counted twice).
     pub footer_active_only: bool,
+    /// `<box minHeight>` around a `grow` select (2.4.1, #64983): the rows from the title to the bottom padding fill
+    /// at least this height, the list taking the extra rows so the footer stays at the bottom.
+    pub min_rows: Option<MinRows>,
+}
+
+/// A select dialog's minimum height.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MinRows {
+    Fixed(usize),
+    /// `DialogWorkspaces`' `fullHeight`: `max(8, min(16, rows - floor(rows / 4) - 2))` of the terminal's rows.
+    Workspaces,
+}
+
+impl MinRows {
+    pub fn rows(self, term_h: usize) -> usize {
+        match self {
+            MinRows::Fixed(n) => n,
+            MinRows::Workspaces => term_h.saturating_sub(term_h / 4).saturating_sub(2).clamp(8, 16),
+        }
+    }
 }
 
 /// Display row of a select list.
@@ -445,8 +465,6 @@ pub struct PromptDialog {
     pub busy: Option<String>,
     /// Extra footer actions `(title, keybind id)` after "submit".
     pub actions: Vec<(String, String)>,
-    /// The description is an (empty) box: it still takes a row above the input.
-    pub description_gap: bool,
 }
 
 impl PromptDialog {
@@ -1018,7 +1036,7 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
                     v.push(ins(SLine::new(l)));
                 }
             }
-            if !p.description.is_empty() || p.description_gap {
+            if !p.description.is_empty() {
                 v.push(SLine::blank());
             }
             let iw = inner;
@@ -1445,12 +1463,20 @@ fn select_lines(sel: &mut Select, w: usize, term_h: usize, term_w: usize, size: 
         sel.scroll = sel.scroll.min(rows.len().saturating_sub(list_h));
         out.extend(rows.into_iter().skip(sel.scroll).take(list_h).map(|(l, _)| l));
     }
-    out.push(SLine::blank());
     // Footer row (`DialogFooter` at the list inset); without one, an empty box keeps the gap.
     let footer = sel.footer(kb);
-    if !footer.is_empty() {
-        out.extend(footer_lines(&footer, w.saturating_sub(li * 2), term_w < 60, t).into_iter().map(|l| l.prefixed(&[pad(li)])));
+    let footer: Vec<SLine> = if footer.is_empty() {
+        vec![]
+    } else {
+        footer_lines(&footer, w.saturating_sub(li * 2), term_w < 60, t).into_iter().map(|l| l.prefixed(&[pad(li)])).collect()
+    };
+    // A growing list keeps the footer at the bottom of its minimum height.
+    if let Some(min) = sel.min_rows {
+        let total = out.len() + 1 + footer.len() + 1;
+        out.extend(std::iter::repeat_n(SLine::blank(), min.rows(term_h).saturating_sub(total)));
     }
+    out.push(SLine::blank());
+    out.extend(footer);
     out.push(SLine::blank());
     out
 }

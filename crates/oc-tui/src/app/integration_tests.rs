@@ -54,9 +54,22 @@ fn keeps_popular_integrations_first_and_sorts_the_rest_alphabetically() {
         integration("custom-z", "Zebra", json!({})),
         integration("anthropic", "Anthropic", json!({})),
         integration("opencode", "OpenCode Zen", json!({})),
-        integration("opencode-go", "OpenCode Go", json!({})),
+        integration(
+            "opencode-go",
+            "OpenCode Go",
+            json!({ "connections": [{ "type": "credential", "id": "go", "label": "Go", "method": "key" }] }),
+        ),
     ];
     assert_eq!(ids(&integration_options(&list)), ["opencode", "opencode-go", "openai", "anthropic", "mistral", "custom-z"]);
+}
+
+#[test]
+fn hides_opencode_go_until_a_go_key_is_saved() {
+    let list = vec![
+        integration("opencode", "OpenCode Zen", json!({})),
+        integration("opencode-go", "OpenCode Go", json!({ "connections": [{ "type": "env", "name": "OPENCODE_API_KEY" }] })),
+    ];
+    assert_eq!(ids(&integration_options(&list)), ["opencode"]);
 }
 
 #[test]
@@ -96,11 +109,30 @@ fn counts_several_connections() {
 // ---- connected-provider.test.ts ---------------------------------------------------------------
 
 #[test]
-fn has_connected_provider_needs_a_connection() {
-    assert!(!has_connected_provider(&[]));
-    assert!(!has_connected_provider(&[json!({ "connections": [] })]));
-    assert!(has_connected_provider(&[json!({ "connections": [{ "type": "credential", "method": "key", "id": "cred_1", "label": "Work" }] })]));
-    assert!(has_connected_provider(&[json!({ "connections": [{ "type": "env", "name": "OPENAI_API_KEY" }] })]));
+fn has_connected_provider_needs_a_connection_or_a_configured_provider() {
+    use crate::api::types::{ModelInfo, ProviderInfo};
+    let model = |provider: &str, status: &str| ModelInfo { provider_id: provider.into(), status: status.into(), ..Default::default() };
+    let provider = |id: &str| ProviderInfo { id: id.into(), ..Default::default() };
+    let (opencode, ollama) = (model("opencode", "active"), model("ollama", "active"));
+    let providers = [provider("opencode"), provider("ollama")];
+    let cases: Vec<(&str, Vec<Value>, Vec<ProviderInfo>, Vec<ModelInfo>, bool)> = vec![
+        ("nothing listed", vec![], vec![], vec![], false),
+        ("only OpenCode's keyless models", vec![json!({ "connections": [] })], providers.to_vec(), vec![opencode.clone()], false),
+        (
+            "a stored credential",
+            vec![json!({ "connections": [{ "type": "credential", "method": "key", "id": "cred_1", "label": "Work" }] })],
+            vec![],
+            vec![],
+            true,
+        ),
+        ("a detected environment variable", vec![json!({ "connections": [{ "type": "env", "name": "OPENAI_API_KEY" }] })], vec![], vec![], true),
+        ("a provider declared only in config", vec![], providers.to_vec(), vec![opencode.clone(), ollama.clone()], true),
+        ("only deprecated models", vec![], providers.to_vec(), vec![model("ollama", "deprecated")], false),
+        ("models of a provider that is not listed", vec![], vec![provider("opencode")], vec![ollama.clone()], false),
+    ];
+    for (name, integrations, providers, models, expected) in cases {
+        assert_eq!(has_connected_provider(&integrations, &providers, &models), expected, "{name}");
+    }
 }
 
 // ---- OpenTUI word wrap ---------------------------------------------------------------------------
@@ -297,15 +329,17 @@ fn methods_list_api_keys_last_and_a_single_method_opens_directly() {
 }
 
 #[test]
-fn text_fields_keep_an_empty_description_row_and_validate() {
+fn text_fields_without_a_description_have_no_empty_row_and_validate() {
     let mut a = app();
     let azure = json!({ "id": "azure", "name": "Azure", "methods": [{ "type": "key", "label": "API key", "form": [{ "key": "resourceName", "placeholder": "e.g. my-models", "required": true, "title": "Enter Azure Resource Name", "type": "string" }] }], "connections": [] });
     a.store.location_mut("/work/proj").integrations = Some(vec![azure]);
     a.open_integrations(false, Some("azure".into()), true);
     let lines = render(&mut a, 100, 30);
     let y = lines.iter().position(|l| l.contains("Enter Azure Resource Name")).unwrap();
-    assert!(inner(&lines[y + 1]).is_empty() && inner(&lines[y + 2]).is_empty(), "{}", lines.join("\n"));
-    assert_eq!(inner(&lines[y + 3]), "e.g. my-models");
+    // 2.4.1 (#64944): without a description or an error there is no description box, so no extra row.
+    assert!(inner(&lines[y + 1]).is_empty(), "{}", lines.join("\n"));
+    assert_eq!(inner(&lines[y + 2]), "e.g. my-models");
+    assert_eq!(inner(&lines[y + 4]), "submit enter");
     a.on_key(Stroke::key("return"));
     let lines = render(&mut a, 100, 30);
     assert_eq!(inner(&lines[y + 2]), "Answer required");
@@ -377,6 +411,11 @@ fn the_sidebar_offers_the_getting_started_card_until_something_connects() {
     let mut a = app();
     super::tests::session(&mut a);
     a.store.location_mut("/work/proj").integrations = Some(catalog().into_iter().take(1).collect());
+    // 2.4.1: it waits for the providers and models too.
+    a.store.location_mut("/work/proj").providers = None;
+    assert!(!render(&mut a, 170, 40).join("\n").contains("Getting started"));
+    a.store.location_mut("/work/proj").providers = Some(vec![]);
+    a.store.location_mut("/work/proj").models = Some(vec![]);
     let lines = render(&mut a, 170, 40);
     let joined = lines.join("\n");
     // Upstream 2.1.4: the card ends two rows above the location, with its notes wrapped in the sidebar.
@@ -386,8 +425,14 @@ fn the_sidebar_offers_the_getting_started_card_until_something_connects() {
     assert_eq!(trimmed[2..4], ["OpenCode includes free models so", "you can start immediately."], "{joined}");
     assert_eq!(trimmed[5..8], ["Connect from 75+ providers to", "use other models, including", "Claude, GPT, Gemini etc"], "{joined}");
     assert!(lines[y + 9].trim_end().ends_with("Connect provider        /connect"), "{joined}");
-    // Under 22 rows, or once dismissed, it is gone.
+    // Under 22 rows, with a provider declared only in config (2.4.1), or once dismissed, it is gone.
     assert!(!render(&mut a, 170, 21).join("\n").contains("Getting started"));
+    use crate::api::types::{ModelInfo, ProviderInfo};
+    a.store.location_mut("/work/proj").providers = Some(vec![ProviderInfo { id: "ollama".into(), ..Default::default() }]);
+    a.store.location_mut("/work/proj").models =
+        Some(vec![ModelInfo { id: "llama".into(), provider_id: "ollama".into(), status: "active".into(), ..Default::default() }]);
+    assert!(!render(&mut a, 170, 40).join("\n").contains("Getting started"));
+    a.store.location_mut("/work/proj").providers = Some(vec![]);
     a.onboarding_click("dismiss");
     assert!(!render(&mut a, 170, 40).join("\n").contains("Getting started"));
     let _ = std::fs::remove_dir_all(&a.keyed.dir);

@@ -2,6 +2,7 @@
 //! (`src/routes/session/composer/*`).
 
 use super::{App, Route, Toast};
+use crate::api::types::JobInfo;
 use crate::keymap::{Match, Stroke};
 use crate::theme::Theme;
 use crate::ui::text::*;
@@ -21,8 +22,63 @@ pub struct SubagentEntry {
     pub agent: String,
     pub title: String,
     pub running: bool,
+    /// Running jobs in its tree (2.4.1): a subagent stays active while any of them runs.
+    pub jobs: Vec<String>,
     pub current: bool,
     pub prefix: String,
+}
+
+impl SubagentEntry {
+    /// Running itself, or owning a running job.
+    pub fn active(&self) -> bool {
+        self.running || !self.jobs.is_empty()
+    }
+}
+
+/// `ownedJobs`: the running jobs in a session's tree. A subagent job belongs to the child it runs, which may sit
+/// below a parent whose info is not loaded.
+pub fn owned_jobs<'a>(jobs: &[&'a JobInfo], session: &str, parent: impl Fn(&str) -> Option<String>) -> Vec<&'a JobInfo> {
+    jobs.iter()
+        .filter(|job| {
+            let subagent = job.kind == "subagent";
+            let mut seen = std::collections::HashSet::new();
+            let mut current = if subagent { job.child_session_id.clone() } else { Some(job.session_id.clone()) };
+            while let Some(c) = current {
+                if c == session {
+                    return true;
+                }
+                if !seen.insert(c.clone()) {
+                    return false;
+                }
+                // A subagent job runs in the direct child of the session that started it.
+                current = parent(&c).or_else(|| (subagent && job.child_session_id.as_deref() == Some(c.as_str())).then(|| job.session_id.clone()));
+            }
+            false
+        })
+        .copied()
+        .collect()
+}
+
+/// `busyCounts`: what a session has running, for the picker and the prompt footer.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BusyCounts {
+    pub scripts: usize,
+    pub subagents: usize,
+    pub shells: usize,
+}
+
+/// `busyTab`: the tab the picker opens on when nothing asks for one: the first that has something running, else
+/// Subagents.
+pub fn busy_tab(counts: BusyCounts) -> &'static str {
+    if counts.scripts > 0 {
+        "scripts"
+    } else if counts.subagents > 0 {
+        "subagents"
+    } else if counts.shells > 0 {
+        "shell"
+    } else {
+        "subagents"
+    }
 }
 
 /// `sessionFamily`: depth-first walk of the family tree under the root with tree prefixes.
@@ -86,9 +142,33 @@ impl App {
         self.composer.clone().unwrap_or(Composer { tab: "subagents".into(), selected: 0 })
     }
 
+    /// The parent of a session in loaded session info.
+    fn parent_of(&self, id: &str) -> Option<String> {
+        self.store.session(id).and_then(|s| s.parent_id.clone())
+    }
+
+    /// `busyCounts({ sessionID })`: running Code Mode scripts the session owns, subagents in its family that run or
+    /// own a running job, and its running shell commands (the location's in-flight shells).
+    pub fn busy_counts(&self, sid: &str) -> BusyCounts {
+        let jobs = self.store.jobs_for(sid);
+        let scripts = jobs.iter().filter(|j| j.kind == "codemode" && j.session_id == sid).count();
+        let subagents = self
+            .store
+            .family_of(sid)
+            .iter()
+            .filter(|id| *id != sid && (self.store.is_running(id) || !owned_jobs(&jobs, id, |s| self.parent_of(s)).is_empty()))
+            .count();
+        let shells = self
+            .loc()
+            .map(|l| l.shells.iter().filter(|sh| sh.metadata.as_ref().and_then(|m| m.get("sessionID")).and_then(|v| v.as_str()) == Some(sid)).count())
+            .unwrap_or(0);
+        BusyCounts { scripts, subagents, shells }
+    }
+
     pub fn subagent_entries(&self) -> Vec<SubagentEntry> {
         let Some(sid) = self.session_id() else { return vec![] };
         let sessions: Vec<(String, Option<String>)> = self.store.session_list().iter().map(|s| (s.id.clone(), s.parent_id.clone())).collect();
+        let tree = self.store.jobs_for(&self.store.root(sid));
         let re = regex::Regex::new(r"@(\w+) subagent").unwrap();
         session_family(&sessions, sid)
             .into_iter()
@@ -109,9 +189,10 @@ impl App {
                     None => title,
                 };
                 let running = self.store.is_running(&id);
-                Some(SubagentEntry { current: id == sid, id, agent, title, running, prefix })
+                let jobs = owned_jobs(&tree, &id, |s| self.parent_of(s)).into_iter().map(|j| j.id.clone()).collect();
+                Some(SubagentEntry { current: id == sid, id, agent, title, running, jobs, prefix })
             })
-            .filter(|e| if self.subagents_active { e.running } else { !e.running })
+            .filter(|e| self.subagents_active == e.active())
             .collect()
     }
 
@@ -144,6 +225,8 @@ impl App {
 
     /// `session.child.first` with a tab: open the composer on that tab (never closes it).
     pub fn open_composer_tab(&mut self, tab: &str) {
+        // A tab the picker lacks (Scripts, opt-in) opens it on its first tab.
+        let tab = if self.composer_tabs().iter().any(|(id, _)| *id == tab) { tab } else { "subagents" };
         if self.composer.as_ref().is_some_and(|c| c.tab == tab) {
             return;
         }
@@ -166,12 +249,16 @@ impl App {
         self.dirty = true;
     }
 
+    /// Without a tab: close an open picker, else open it on the first busy tab (2.4.1, #64972).
     pub fn toggle_composer(&mut self) {
         if self.composer.is_some() {
             self.composer = None;
         } else {
-            let selected = self.subagent_entries().iter().position(|e| e.current).unwrap_or(0);
-            self.composer = Some(Composer { tab: "subagents".into(), selected });
+            let requested = self.session_id().map(|sid| busy_tab(self.busy_counts(sid))).unwrap_or("subagents");
+            // Without the Scripts tab (opt-in) the picker opens on its first tab.
+            let tab = if self.composer_tabs().iter().any(|(id, _)| *id == requested) { requested } else { "subagents" };
+            let selected = if tab == "subagents" { self.subagent_entries().iter().position(|e| e.current).unwrap_or(0) } else { 0 };
+            self.composer = Some(Composer { tab: tab.into(), selected });
         }
         self.dirty = true;
     }
@@ -270,9 +357,17 @@ impl App {
         if !kill.is_empty() && is(kill) {
             match st.tab.as_str() {
                 "subagents" => {
-                    if let Some(e) = self.subagent_entries().get(st.selected).filter(|e| e.running).cloned() {
-                        let c = self.client.clone();
-                        self.call(async move { c.interrupt(&e.id, false).await }, |_, _| {});
+                    // A running subagent is interrupted, and the jobs in its tree are cancelled.
+                    if let Some(e) = self.subagent_entries().get(st.selected).cloned() {
+                        if e.running {
+                            let c = self.client.clone();
+                            let id = e.id.clone();
+                            self.call(async move { c.interrupt(&id, false).await }, |_, _| {});
+                        }
+                        for job in e.jobs {
+                            let c = self.client.clone();
+                            self.call(async move { c.job_cancel(&job).await }, |_, _| {});
+                        }
                     }
                 }
                 _ => {
@@ -404,7 +499,7 @@ impl App {
                 for (i, e) in entries.iter().enumerate() {
                     list.push(row(format!("{}{}: {}", e.prefix, e.agent, e.title), if e.running { Some("Running") } else { None }, i == st.selected, e.current));
                 }
-                if entries.get(st.selected).is_some_and(|e| e.running) {
+                if entries.get(st.selected).is_some_and(|e| e.active()) {
                     hints.push(("interrupt".into(), kb.shortcut("composer.subagent.interrupt")));
                 }
                 hints.push((format!("show {}", if self.subagents_active { "inactive" } else { "active" }), "ctrl+a".into()));

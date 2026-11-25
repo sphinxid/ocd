@@ -128,7 +128,8 @@ fn models_open_on_the_current_model_in_server_order() {
     let loc = a.store.location_mut("/work/proj");
     loc.models =
         Some(vec![model("mock", "m1", "Mock One", false), model("opencode", "pickle", "Big Pickle", true), model("opencode", "zeta", "Zeta Free", true), model("opencode", "alpha", "Alpha", false)]);
-    loc.providers = Some(vec![ProviderInfo { id: "mock".into(), name: "Mock".into(), ..Default::default() }]);
+    // 2.4.1 (#65793): a listed provider with models beyond OpenCode's counts as connected, so only OpenCode is listed.
+    loc.providers = Some(vec![ProviderInfo { id: "opencode".into(), name: "OpenCode".into(), ..Default::default() }]);
     a.default_model = Some(ModelRef { provider_id: "mock".into(), id: "m1".into(), variant: None });
     a.run_command("model.list", None);
     let lines = render(&mut a, 100, 30);
@@ -144,6 +145,7 @@ fn models_open_on_the_current_model_in_server_order() {
     // A connection groups by provider (opencode first) and offers favorites.
     a.close_dialog();
     a.store.location_mut("/work/proj").integrations = Some(vec![json!({ "id": "mock", "connections": [{ "id": "c1" }] })]);
+    a.store.location_mut("/work/proj").providers = Some(vec![ProviderInfo { id: "mock".into(), name: "Mock".into(), ..Default::default() }]);
     a.run_command("model.list", None);
     let lines = render(&mut a, 100, 40);
     let joined = lines.join("\n");

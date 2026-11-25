@@ -37,9 +37,11 @@ fn arr(v: &Value, k: &str) -> Vec<Value> {
     v.get(k).and_then(|x| x.as_array()).cloned().unwrap_or_default()
 }
 
-/// `integrationOptions`: the popular integrations first, then by name and ID.
+/// `integrationOptions`: the popular integrations first, then by name and ID. OpenCode Go connects through OpenCode,
+/// so it is only listed for people who already saved a Go key (2.4.1, #65466).
 pub fn integration_options(list: &[Value]) -> Vec<Value> {
-    let mut out = list.to_vec();
+    let mut out: Vec<Value> =
+        list.iter().filter(|i| s(i, "id") != "opencode-go" || !credential_connections(i).is_empty()).cloned().collect();
     out.sort_by(|a, b| {
         priority(s(a, "id"))
             .cmp(&priority(s(b, "id")))
@@ -86,9 +88,19 @@ pub fn connection_summary(i: &Value) -> String {
     }
 }
 
-/// `hasConnectedProvider`: some integration has a connection (a credential or an environment variable).
-pub fn has_connected_provider(list: &[Value]) -> bool {
-    list.iter().any(|i| !arr(i, "connections").is_empty())
+/// `hasConnectedProvider`: any stored or detected connection (a credential or an environment variable), or a listed
+/// provider with models beyond the keyless OpenCode catalog, such as one declared only in config (2.4.1, #65793).
+pub fn has_connected_provider(
+    integrations: &[Value],
+    providers: &[crate::api::types::ProviderInfo],
+    models: &[crate::api::types::ModelInfo],
+) -> bool {
+    if integrations.iter().any(|i| !arr(i, "connections").is_empty()) {
+        return true;
+    }
+    models
+        .iter()
+        .any(|m| m.provider_id != "opencode" && m.status != "deprecated" && providers.iter().any(|p| p.id == m.provider_id))
 }
 
 fn status_of(c: &Value) -> Option<&Value> {
@@ -717,9 +729,8 @@ impl App {
                 let placeholder = if form::kind(&f) == "string" { s(&f, "placeholder").to_string() } else { String::new() };
                 let initial = f.get("default").map(js_string).unwrap_or_default();
                 let mut p = PromptDialog::new(&title, &placeholder, &initial);
+                // Without a description or an error there is no description box, so no row (2.4.1, #64944).
                 p.description = self.text_field_description(&f, None);
-                // The description box is there even when empty, so it keeps a row.
-                p.description_gap = true;
                 Dialog::new(PURPOSE, Body::Prompt(p))
             }
         };
@@ -1291,9 +1302,11 @@ impl App {
         if self.size.1 < 22 {
             return false;
         }
-        let Some(list) = self.loc().and_then(|l| l.integrations.as_ref()) else { return false };
+        // Every list has loaded (`integration`, `provider`, `model`).
+        let Some(loc) = self.loc() else { return false };
+        let (Some(list), Some(providers), Some(models)) = (&loc.integrations, &loc.providers, &loc.models) else { return false };
         let dismissed = self.keyed.get(ONBOARDING).and_then(|v| v.get("dismissed").and_then(|d| d.as_bool())) == Some(true);
-        !dismissed && !has_connected_provider(list)
+        !dismissed && !has_connected_provider(list, providers, models)
     }
 
     /// The card's rows for a sidebar content width of `w`: a raised band (padding 1/2) with the

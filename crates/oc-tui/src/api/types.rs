@@ -659,6 +659,23 @@ pub struct ShellInfo {
     pub metadata: Option<Value>,
 }
 
+/// `JobInfo` (experimental background jobs): the fields the TUI reads.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct JobInfo {
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(rename = "sessionID", default)]
+    pub session_id: String,
+    /// A subagent job's child session.
+    #[serde(rename = "childSessionID", default, skip_serializing_if = "Option::is_none")]
+    pub child_session_id: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
 /// Envelope for location-scoped responses.
 #[derive(Clone, Debug, Deserialize)]
 pub struct LocationEnvelope<T> {

@@ -151,7 +151,7 @@ impl App {
         v.push(variant);
         v.push(cmd("agent.cycle.reverse", "Agent cycle reverse", "Agent").hidden());
         let connected = self.has_connected_provider();
-        v.push(cmd("provider.connect", "Connect an integration", "Integration").slash("connect").suggested(!connected));
+        v.push(cmd("provider.connect", "Connect an integration", "Integration").slash("connect").aliases(&["login", "auth"]).suggested(!connected));
         v.push(cmd("opencode.settings", "Open settings", "System").slash("settings").suggested(true));
         v.push(cmd("opencode.status", "View status", "System").slash("status"));
         if self.opts.updater.is_some() {
@@ -616,7 +616,7 @@ impl App {
                     return false;
                 }
                 match args.as_deref() {
-                    Some(tab @ ("shell" | "subagents")) => self.open_composer_tab(tab),
+                    Some(tab @ ("shell" | "subagents" | "scripts")) => self.open_composer_tab(tab),
                     _ => self.toggle_composer(),
                 }
             }
@@ -1053,11 +1053,15 @@ impl App {
         self.open_dialog(Dialog::select("palette", s, Size::Medium));
     }
 
-    /// `hasConnectedProvider`: some integration has a connection.
+    /// `useConnected`: `hasConnectedProvider` over the location's integrations, providers and models (each empty
+    /// until loaded).
     pub fn has_connected_provider(&self) -> bool {
-        self.loc()
-            .and_then(|l| l.integrations.as_ref())
-            .is_some_and(|list| list.iter().any(|i| i.get("connections").and_then(|c| c.as_array()).is_some_and(|a| !a.is_empty())))
+        let Some(l) = self.loc() else { return false };
+        super::integration::has_connected_provider(
+            l.integrations.as_deref().unwrap_or_default(),
+            l.providers.as_deref().unwrap_or_default(),
+            l.models.as_deref().unwrap_or_default(),
+        )
     }
 
     /// Open the model picker (`DialogModel`). Since 2.2.7 it has no usage action and does not reload the limits.

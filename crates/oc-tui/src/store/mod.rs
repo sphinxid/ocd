@@ -32,6 +32,8 @@ pub enum Effect {
     LocationSync,
     Catalog(String, Catalog),
     MessageGet(String, String),
+    /// `data.job.sync(rootID)`: list the running jobs of a session tree (started by [`Store::job_sync_start`]).
+    JobSync(String),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -80,6 +82,18 @@ pub struct Store {
     /// marks oldest first (an entry re-marked later is stale there).
     deleted_at: HashMap<String, u64>,
     deleted_order: std::collections::VecDeque<(String, u64)>,
+    /// `store.job`: running background jobs, for the session trees that synced them, in the order they arrived.
+    /// Settled jobs are removed.
+    pub jobs: Vec<JobInfo>,
+    /// `store.jobTree`: job IDs the server listed for each synced tree root (it filters descendants itself), plus IDs
+    /// that events added for owners known to be in the tree. Loaded session info only reaches direct children, so
+    /// walking parents alone would drop a grandchild's jobs.
+    pub job_tree: HashMap<String, HashSet<String>>,
+    /// `jobUpdates`: job events that arrive while a tree's list is in flight, applied over its response (the latest
+    /// info, or `None` once settled). A tree is in flight while it has an entry.
+    job_updates: HashMap<String, Vec<(String, Option<JobInfo>)>>,
+    /// Trees invalidated while their list was in flight: they list again once it settles.
+    job_stale: HashSet<String>,
 }
 
 /// `DELETED_SESSION_LIMIT`.
@@ -244,6 +258,7 @@ impl Store {
     }
 
     pub fn remove_session(&mut self, id: &str) {
+        self.remove_job_tree(id);
         for item in self.pending.get(id).cloned().unwrap_or_default() {
             self.outbox.remove(&item.id);
         }
@@ -265,6 +280,140 @@ impl Store {
         for r in empty {
             self.family.remove(&r);
         }
+    }
+
+    // ---- background jobs (`data.job`) -------------------------------------------------------------
+
+    /// `withinTree`: whether a session is the ancestor or one of its descendants, by the parents in loaded session
+    /// info.
+    fn within_tree(&self, session: &str, ancestor: &str) -> bool {
+        let mut seen = HashSet::new();
+        let mut current = Some(session.to_string());
+        while let Some(c) = current {
+            if c == ancestor {
+                return true;
+            }
+            if !seen.insert(c.clone()) {
+                return false;
+            }
+            current = self.sessions.get(&c).and_then(|s| s.parent_id.clone());
+        }
+        false
+    }
+
+    /// `jobWithin`: a subagent job's session is the parent of the child it runs, so either can place it in a tree.
+    fn job_within(&self, job: &JobInfo, ancestor: &str) -> bool {
+        self.within_tree(&job.session_id, ancestor)
+            || (job.kind == "subagent" && job.child_session_id.as_deref().is_some_and(|c| self.within_tree(c, ancestor)))
+    }
+
+    /// `data.job.list(sessionID)`: running jobs owned by the session or any session below it: a synced tree's listed
+    /// members, plus jobs whose owner loaded session info places below it.
+    pub fn jobs_for(&self, session: &str) -> Vec<&JobInfo> {
+        let members = self.job_tree.get(session);
+        self.jobs.iter().filter(|j| members.is_some_and(|m| m.contains(&j.id)) || self.job_within(j, session)).collect()
+    }
+
+    /// Start `data.job.sync(rootID)` unless the tree is listed already or its list is in flight (which it joins).
+    /// `true`: the caller requests the list and hands the answer to [`Store::apply_job_list`].
+    pub fn job_sync_start(&mut self, root: &str) -> bool {
+        if self.job_updates.contains_key(root) || self.loaded.contains(&format!("job:{root}")) {
+            return false;
+        }
+        self.job_updates.insert(root.to_string(), vec![]);
+        true
+    }
+
+    /// `data.job.invalidate(rootID)`: the next sync lists again (after the one in flight, if any).
+    pub fn job_invalidate(&mut self, root: &str) {
+        self.loaded.remove(&format!("job:{root}"));
+        if self.job_updates.contains_key(root) {
+            self.job_stale.insert(root.to_string());
+        }
+    }
+
+    /// The answer to a tree's job list (`None`: the request failed). Events that arrived meanwhile win over it.
+    /// `true`: the tree was invalidated while the list was in flight, so it lists again.
+    pub fn apply_job_list(&mut self, root: &str, list: Option<Vec<JobInfo>>) -> bool {
+        // A tree forgotten meanwhile (its session was deleted) drops the answer.
+        let Some(updates) = self.job_updates.remove(root) else { return false };
+        let stale = self.job_stale.remove(root);
+        let Some(list) = list else { return stale };
+        let listed: HashSet<String> = list.iter().map(|j| j.id.clone()).collect();
+        let mut next: Vec<JobInfo> = list;
+        for (id, info) in updates {
+            match info {
+                None => next.retain(|j| j.id != id),
+                Some(info) => {
+                    if listed.contains(&id) || self.job_within(&info, root) {
+                        match next.iter_mut().find(|j| j.id == id) {
+                            Some(j) => *j = info,
+                            None => next.push(info),
+                        }
+                    }
+                }
+            }
+        }
+        let previous = self.job_tree.get(root).cloned().unwrap_or_default();
+        let keep: HashSet<&str> = next.iter().map(|j| j.id.as_str()).collect();
+        let drop: HashSet<String> = self
+            .jobs
+            .iter()
+            .filter(|j| !keep.contains(j.id.as_str()) && (previous.contains(&j.id) || self.job_within(j, root)))
+            .map(|j| j.id.clone())
+            .collect();
+        self.jobs.retain(|j| !drop.contains(&j.id));
+        let members: HashSet<String> = next.iter().map(|j| j.id.clone()).collect();
+        for job in next {
+            match self.jobs.iter_mut().find(|j| j.id == job.id) {
+                Some(j) => *j = job,
+                None => self.jobs.push(job),
+            }
+        }
+        self.job_tree.insert(root.to_string(), members);
+        if !stale {
+            self.loaded.insert(format!("job:{root}"));
+        }
+        stale
+    }
+
+    /// `experimental.job.updated`: a running job joins the trees it is within; a settled one leaves the store.
+    fn apply_job(&mut self, info: JobInfo) {
+        let running = info.status == "running";
+        for updates in self.job_updates.values_mut() {
+            let value = running.then(|| info.clone());
+            match updates.iter_mut().find(|(id, _)| *id == info.id) {
+                Some(entry) => entry.1 = value,
+                None => updates.push((info.id.clone(), value)),
+            }
+        }
+        if !running {
+            if !self.jobs.iter().any(|j| j.id == info.id) {
+                return;
+            }
+            self.jobs.retain(|j| j.id != info.id);
+            for members in self.job_tree.values_mut() {
+                members.remove(&info.id);
+            }
+            return;
+        }
+        let roots: Vec<String> = self.job_tree.keys().filter(|root| self.job_within(&info, root)).cloned().collect();
+        for root in roots {
+            self.job_tree.get_mut(&root).map(|m| m.insert(info.id.clone()));
+        }
+        match self.jobs.iter_mut().find(|j| j.id == info.id) {
+            Some(j) => *j = info,
+            None => self.jobs.push(info),
+        }
+    }
+
+    /// `removeJobTree`: a deleted root forgets its tree and the jobs listed for it.
+    fn remove_job_tree(&mut self, root: &str) {
+        self.job_updates.remove(root);
+        self.job_stale.remove(root);
+        self.loaded.remove(&format!("job:{root}"));
+        let Some(members) = self.job_tree.remove(root) else { return };
+        self.jobs.retain(|j| !members.contains(&j.id));
     }
 
     /// Clear heavy cached data for a session (retention eviction).
@@ -491,6 +640,20 @@ impl Store {
                 fx.push(Effect::ActiveSync);
                 fx.push(Effect::LocationSync);
                 fx.push(Effect::Catalog(self.directory.clone(), Catalog::Vcs));
+                // Synced job trees list again, pruning jobs that settled while away.
+                let mut roots: Vec<String> = self.job_tree.keys().cloned().collect();
+                roots.sort();
+                for root in roots {
+                    self.job_invalidate(&root);
+                    if self.job_sync_start(&root) {
+                        fx.push(Effect::JobSync(root));
+                    }
+                }
+            }
+            "experimental.job.updated" => {
+                if let Some(info) = d.get("info").and_then(|i| serde_json::from_value::<JobInfo>(i.clone()).ok()) {
+                    self.apply_job(info);
+                }
             }
             "session.created" => {
                 self.clear_deleted(&sid);
@@ -1438,5 +1601,105 @@ mod tests {
             assert!(!s.is_missing(gone), "{gone}");
         }
         assert!(s.is_missing("ses_3") && s.is_missing("ses_5") && s.is_missing("ses_x"));
+    }
+
+    // ---- `solid-job.test.ts` (2.4.1, #64956) ------------------------------------------------------------------------
+
+    fn job(id: &str, status: &str, session: &str) -> JobInfo {
+        JobInfo { id: id.into(), kind: "codemode".into(), session_id: session.into(), status: status.into(), ..Default::default() }
+    }
+
+    fn job_update(s: &mut Store, info: &JobInfo) -> Vec<Effect> {
+        s.apply(&ev("experimental.job.updated", json!({ "info": serde_json::to_value(info).unwrap() })))
+    }
+
+    fn job_ids(s: &Store) -> Vec<String> {
+        s.jobs_for("ses_root").into_iter().map(|j| j.id.clone()).collect()
+    }
+
+    #[test]
+    fn lists_a_trees_running_jobs_and_follows_job_events() {
+        let mut s = Store::new("/project");
+        job_update(&mut s, &job("job_stale", "running", "ses_root"));
+        assert!(s.job_sync_start("ses_root"));
+        // A second sync joins the one in flight.
+        assert!(!s.job_sync_start("ses_root"));
+        assert!(!s.apply_job_list("ses_root", Some(vec![job("job_listed", "running", "ses_root"), job("job_grandchild", "running", "ses_grandchild")])));
+        // The grandchild's session isn't loaded: the server listed it for the tree.
+        assert_eq!(job_ids(&s), ["job_listed", "job_grandchild"]);
+        assert!(!s.job_sync_start("ses_root"));
+
+        job_update(&mut s, &job("job_live", "running", "ses_root"));
+        assert_eq!(job_ids(&s), ["job_listed", "job_grandchild", "job_live"]);
+        job_update(&mut s, &job("job_grandchild", "completed", "ses_grandchild"));
+        job_update(&mut s, &job("job_listed", "cancelled", "ses_root"));
+        assert_eq!(job_ids(&s), ["job_live"]);
+    }
+
+    #[test]
+    fn applies_job_events_that_arrive_while_the_list_is_in_flight() {
+        let mut s = Store::new("/project");
+        assert!(s.job_sync_start("ses_root"));
+        job_update(&mut s, &job("job_started", "running", "ses_root"));
+        job_update(&mut s, &job("job_settled", "completed", "ses_root"));
+        s.apply_job_list("ses_root", Some(vec![job("job_settled", "running", "ses_root")]));
+        assert_eq!(job_ids(&s), ["job_started"]);
+    }
+
+    #[test]
+    fn re_lists_on_reconnect_and_forgets_a_deleted_tree() {
+        let mut s = Store::new("/project");
+        assert!(s.job_sync_start("ses_root"));
+        s.apply_job_list("ses_root", Some(vec![job("job_a", "running", "ses_root"), job("job_b", "running", "ses_root")]));
+        assert_eq!(job_ids(&s), ["job_a", "job_b"]);
+
+        let fx = s.apply(&ev("server.connected", json!({})));
+        assert!(fx.contains(&Effect::JobSync("ses_root".into())));
+        // The reconnect's list is in flight, so another sync joins it.
+        assert!(!s.job_sync_start("ses_root"));
+        assert!(!s.apply_job_list("ses_root", Some(vec![job("job_b", "running", "ses_root")])));
+        assert_eq!(job_ids(&s), ["job_b"]);
+
+        s.apply(&ev("session.deleted", json!({ "sessionID": "ses_root" })));
+        assert!(job_ids(&s).is_empty());
+        let fx = s.apply(&ev("server.connected", json!({})));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::JobSync(_))));
+    }
+
+    #[test]
+    fn a_tree_invalidated_while_listing_lists_again_and_a_failed_list_changes_nothing() {
+        let mut s = Store::new("/project");
+        assert!(s.job_sync_start("ses_root"));
+        s.apply_job_list("ses_root", Some(vec![job("job_a", "running", "ses_root")]));
+        s.job_invalidate("ses_root");
+        assert!(s.job_sync_start("ses_root"));
+        // A reconnect lands while the list is in flight: once it settles, the tree lists again.
+        s.job_invalidate("ses_root");
+        assert!(s.apply_job_list("ses_root", Some(vec![])));
+        assert!(job_ids(&s).is_empty());
+        assert!(s.job_sync_start("ses_root"));
+        assert!(!s.apply_job_list("ses_root", None));
+        // A failed list can be tried again.
+        assert!(s.job_sync_start("ses_root"));
+        // A tree deleted while its list is in flight drops the answer.
+        s.mark_deleted("ses_root");
+        assert!(!s.apply_job_list("ses_root", Some(vec![job("job_late", "running", "ses_root")])));
+        assert!(s.jobs.is_empty() && s.job_tree.is_empty());
+    }
+
+    #[test]
+    fn job_events_place_jobs_by_loaded_parents_and_subagent_children() {
+        let mut s = Store::new("/project");
+        s.remember(SessionInfo { id: "ses_root".into(), ..Default::default() });
+        s.remember(SessionInfo { id: "ses_child".into(), parent_id: Some("ses_root".into()), ..Default::default() });
+        assert!(s.job_sync_start("ses_root"));
+        s.apply_job_list("ses_root", Some(vec![]));
+        job_update(&mut s, &job("job_child", "running", "ses_child"));
+        job_update(&mut s, &job("job_other", "running", "ses_other"));
+        let sub = JobInfo { kind: "subagent".into(), child_session_id: Some("ses_child".into()), ..job("job_sub", "running", "ses_elsewhere") };
+        job_update(&mut s, &sub);
+        assert_eq!(job_ids(&s), ["job_child", "job_sub"]);
+        assert!(s.job_tree["ses_root"].contains("job_child") && !s.job_tree["ses_root"].contains("job_other"));
+        assert_eq!(s.jobs_for("ses_other").len(), 1);
     }
 }

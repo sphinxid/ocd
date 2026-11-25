@@ -935,6 +935,7 @@ impl App {
                     });
                 }
                 Effect::LocationSync => self.sync_location(),
+                Effect::JobSync(root) => self.list_jobs(root),
                 Effect::Catalog(dir, cat) => self.fetch_catalog(&dir, cat),
                 Effect::MessageGet(sid, mid) => {
                     let c = self.client.clone();
@@ -953,6 +954,34 @@ impl App {
                 }
             }
         }
+    }
+
+    /// `data.job.sync(rootID)`: the running jobs of a session tree (the session route syncs its root's tree once the
+    /// session is loaded). A failed list is not retried until the next sync.
+    pub fn sync_jobs(&mut self, root: &str) {
+        if self.store.job_sync_start(root) {
+            self.list_jobs(root.to_string());
+        }
+    }
+
+    /// Request a tree's job list started by [`Store::job_sync_start`].
+    fn list_jobs(&mut self, root: String) {
+        let c = self.client.clone();
+        let sid = root.clone();
+        self.spawn(async move { c.job_list_running(&sid).await }, move |app, r| {
+            let again = match r {
+                Ok(list) => app.store.apply_job_list(&root, Some(list)),
+                Err(e) => {
+                    let again = app.store.apply_job_list(&root, None);
+                    app.evict_missing(&e);
+                    again
+                }
+            };
+            if again {
+                app.sync_jobs(&root);
+            }
+            app.dirty = true;
+        });
     }
 
     /// `evictMissing`: a `SessionNotFound` answer marks the session deleted. `true` when it did.
@@ -977,10 +1006,16 @@ impl App {
             };
             // A session deleted while this was in flight stays deleted.
             if !app.store.deleted_since(&info.id, started) {
+                let id = info.id.clone();
                 app.store.outbox.remove(&info.id);
                 app.store.remember(info);
                 if app.session_id().is_some() {
                     app.epilogue_update();
+                }
+                // The route's session is synced: its tree's jobs follow.
+                if app.session_id() == Some(id.as_str()) {
+                    let root = app.store.root(&id);
+                    app.sync_jobs(&root);
                 }
                 app.dirty = true;
             }
@@ -1043,6 +1078,10 @@ impl App {
         }
         if !self.store.loaded.contains(&format!("session:{id}")) {
             self.fetch_session(id);
+        } else {
+            // The route's session is loaded: sync its tree's jobs (`data.job.sync(data.session.root(sessionID))`).
+            let root = self.store.root(id);
+            self.sync_jobs(&root);
         }
         if !self.store.loaded.contains(&format!("session.message:{id}")) {
             self.store.loaded.insert(format!("session.message:{id}"));
@@ -1589,3 +1628,5 @@ mod perf;
 mod media_tests;
 #[cfg(test)]
 mod images_tests;
+#[cfg(test)]
+mod catchup241_tests;

@@ -190,7 +190,8 @@ fn favorites_lead_the_unconnected_model_list_from_the_snapshot_at_open() {
     };
     let loc = a.store.location_mut("/work/proj");
     loc.models = Some(vec![model("a", "Alpha"), model("b", "Beta"), model("c", "Gamma")]);
-    loc.providers = Some(vec![ProviderInfo { id: "mock".into(), name: "Mock".into(), ..Default::default() }]);
+    // 2.4.1 (#65793): a listed provider with models counts as connected, so this one is not listed.
+    loc.providers = Some(vec![]);
     a.models.set_favorite("mock", "c", true);
     a.run_command("model.list", None);
     assert_eq!(titles(&mut a), ["Gamma", "Alpha", "Beta"]);

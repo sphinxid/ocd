@@ -493,17 +493,12 @@ impl App {
         } else if self.builtin_active("opencode.prompt.footer") {
             let status = self.usage_status();
             let sid = self.session_id().map(|x| x.to_string());
-            let subagents = sid.as_ref().map(|s| self.store.family_of(s).iter().filter(|id| *id != s && self.store.is_running(id)).count()).unwrap_or(0);
-            // Running shell commands of this session (the location's in-flight shells).
-            let shells = sid
-                .as_ref()
-                .map(|s| {
-                    self.loc()
-                        .map(|l| l.shells.iter().filter(|sh| sh.metadata.as_ref().and_then(|m| m.get("sessionID")).and_then(|v| v.as_str()) == Some(s.as_str())).count())
-                        .unwrap_or(0)
-                })
-                .unwrap_or(0);
-            let live = subagents > 0 || shells > 0;
+            // `busyCounts` (2.4.1): a subagent that owns a running job counts too.
+            let counts = sid.as_ref().map(|s| self.busy_counts(s)).unwrap_or_default();
+            let label = |n: usize, what: &str| (n > 0).then(|| format!("{n} {what}{}", if n == 1 { "" } else { "s" }));
+            let items: Vec<String> =
+                [label(counts.scripts, "script"), label(counts.subagents, "subagent"), label(counts.shells, "shell")].into_iter().flatten().collect();
+            let live = !items.is_empty();
             let goal = if sid.is_some() { self.goal_item(t) } else { None };
             let command = kb.shortcut("command.palette.show");
             let (usage_ok, shortcuts_ok) = if status.is_empty() {
@@ -523,21 +518,13 @@ impl App {
             };
             if goal.is_some() || live || !status.is_empty() {
                 if live {
-                    // A click opens the composer on the subagents tab, or the shell tab when only shells run (2.3.0).
-                    let click = Click::Custom(format!("{LIVE_CLICK}{}", if subagents > 0 { "subagents" } else { "shell" }));
+                    // A click opens the composer on the first busy tab (`busyTab`).
+                    let click = Click::Custom(format!("{LIVE_CLICK}{}", super::composer::busy_tab(counts)));
                     let key = kb.shortcut("session.child.first");
                     if !key.is_empty() {
                         right.push(s(format!("{key} "), t.text.base).on_click(click.clone()));
                     }
-                    if subagents > 0 {
-                        right.push(s(format!("{subagents} subagent{}", if subagents == 1 { "" } else { "s" }), t.text.muted).on_click(click.clone()));
-                    }
-                    if subagents > 0 && shells > 0 {
-                        right.push(s(" · ", t.text.muted).on_click(click.clone()));
-                    }
-                    if shells > 0 {
-                        right.push(s(format!("{shells} shell{}", if shells == 1 { "" } else { "s" }), t.text.muted).on_click(click));
-                    }
+                    right.push(s(items.join(" · "), t.text.muted).on_click(click));
                 }
                 if let Some(g) = goal.clone() {
                     if live {

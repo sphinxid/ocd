@@ -582,6 +582,24 @@ impl Client {
         self.list("/api/shell", dir).await
     }
 
+    /// `experimental.job.list({ sessionID, descendants: true, status: "running" })`: the running jobs of a session
+    /// tree.
+    pub async fn job_list_running(&self, session: &str) -> anyhow::Result<Vec<JobInfo>> {
+        let env: DataEnvelope<Vec<JobInfo>> = self
+            .json(self.request(Method::GET, "/api/experimental/job").query(&[
+                ("sessionID", session),
+                ("status", "running"),
+                ("descendants", "true"),
+            ]))
+            .await?;
+        Ok(env.data)
+    }
+
+    /// `experimental.job.cancel({ id })`.
+    pub async fn job_cancel(&self, id: &str) -> anyhow::Result<()> {
+        self.empty(self.request(Method::POST, &format!("/api/experimental/job/{}/cancel", urlencode(id)))).await
+    }
+
     pub async fn shell_remove(&self, shell: &str, dir: Option<&str>) -> anyhow::Result<()> {
         self.empty(self.loc(self.request(Method::DELETE, &format!("/api/shell/{shell}")), dir)).await
     }

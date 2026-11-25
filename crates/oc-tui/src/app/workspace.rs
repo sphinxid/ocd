@@ -361,6 +361,7 @@ impl App {
     /// The Worktrees dialog for a project (also the missing-folder screen's "Choose directory").
     pub fn open_worktrees_dialog_for(&mut self, project: String) {
         let mut s = Select::new("Worktrees", vec![]);
+        s.min_rows = Some(crate::ui::dialog::MinRows::Workspaces);
         s.flat = true;
         s.empty = Some("Loading worktrees…".into());
         s.no_match = Some("No worktrees found".into());
@@ -423,6 +424,10 @@ impl App {
                     sel.empty = Some("No worktrees available".into());
                 }
                 Err(e) => {
+                    // `showError` (an error before any worktrees loaded): the error view's minimum is 5 rows.
+                    if sel.options.is_empty() {
+                        sel.min_rows = Some(crate::ui::dialog::MinRows::Fixed(5));
+                    }
                     sel.empty = Some(format!("Could not load worktrees · {} · Close and reopen Worktrees to try again.", crate::api::error_message(&e)));
                 }
             }
