@@ -689,7 +689,7 @@ impl Backend for Engine {
         }
     }
 
-    // ---- automations (`automation.*`, experimental.automations) ----
+    // ---- automations (`automation.*`, the top-level `automations` setting) ----
 
     async fn experimental_automation_create(
         &self,
@@ -751,6 +751,26 @@ impl Backend for Engine {
 
     async fn experimental_blob_get(&self, _ctx: &RequestContext, req: ExperimentalBlobGetRequest) -> Result<oc_server::BlobFile, ApiError> {
         self.blob_read(&req.id).await
+    }
+
+    // ---- machines (2.4.1 `handlers/machine.ts`; not ported, answered as with the `machines` flag off) ----
+
+    async fn experimental_machine_link(&self, _ctx: &RequestContext, _req: ExperimentalMachineLinkRequest) -> Result<bool, ApiError> {
+        // Without the flag (or for anything but a WebSocket upgrade) the link answers like an unknown route: an
+        // empty 404, after the server's auth.
+        Err(ApiError::Empty(axum::http::StatusCode::NOT_FOUND))
+    }
+
+    async fn experimental_machine_list(&self, _ctx: &RequestContext, _req: ExperimentalMachineListRequest) -> Result<Vec<MachineInfo>, ApiError> {
+        Err(ApiError::forbidden(crate::automations::MACHINES_DISABLED))
+    }
+
+    async fn experimental_machine_add(&self, _ctx: &RequestContext, _req: ExperimentalMachineAddRequest) -> Result<MachineInvite, ApiError> {
+        Err(ApiError::forbidden(crate::automations::MACHINES_DISABLED))
+    }
+
+    async fn experimental_machine_remove(&self, _ctx: &RequestContext, _req: ExperimentalMachineRemoveRequest) -> Result<(), ApiError> {
+        Err(ApiError::forbidden(crate::automations::MACHINES_DISABLED))
     }
 
     async fn plugin_gui(&self, ctx: &RequestContext, req: PluginGuiRequest) -> Result<PluginGuiBundle, ApiError> {

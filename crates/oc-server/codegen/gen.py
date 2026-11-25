@@ -103,7 +103,7 @@ ERROR_STATUS = {
     "ServiceUnavailableError": 503, "PluginNotFoundError": 404, "ModelNotFoundError": 404,
     "UnsupportedModelError": 422, "ProviderRequestError": 502, "AutomationNotFoundError": 404,
     "PtyFeatureUnsupportedError": 501, "ArtifactNotFoundError": 404,
-    "VideoNotFoundError": 404, "BlobNotFoundError": 404,
+    "VideoNotFoundError": 404, "BlobNotFoundError": 404, "MachineNotFoundError": 404,
 }
 
 # Scope per operation (spec 06 §1.1 / §7). Operations with a `location` query parameter are L.
