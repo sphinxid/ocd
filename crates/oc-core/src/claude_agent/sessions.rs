@@ -21,10 +21,10 @@ use super::sync::{self, Record};
 
 pub const HANDOVER: Duration = Duration::from_millis(10_000);
 pub const IDLE: Duration = Duration::from_millis(5 * 60_000);
-const START: Duration = Duration::from_secs(30);
+const START: Duration = Duration::from_secs(60);
 
 /// Claude Code features that duplicate opencode's. opencode's version wins.
-pub const ISOLATION_ENV: [(&str, &str); 10] = [
+pub const ISOLATION_ENV: [(&str, &str); 11] = [
     ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
     ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
     ("DISABLE_AUTO_COMPACT", "1"),
@@ -38,6 +38,9 @@ pub const ISOLATION_ENV: [(&str, &str); 10] = [
     // OpenCode changes the system prompt and tools mid-session (agent switches, instruction edits). Without this,
     // the agent CLI replays thinking bound to the old prompt and the API rejects the request (2.3.0).
     ("CLAUDE_CODE_POLISHED_DEWDROP", "drop"),
+    // The SDK's default `sdk-ts` label uses the 5-hour plan limit about 1.8x faster (2.4.1). It replaces any label
+    // inherited from the shell.
+    ("CLAUDE_CODE_ENTRYPOINT", "opencode"),
 ];
 
 /// Removed from the environment: `CLAUDE_CODE_SIMPLE` skips OAuth, `CLAUDE_CODE_EFFORT_LEVEL` would
@@ -527,7 +530,7 @@ async fn open(ctx: &Context, entry: &Arc<Entry>, request: &Request, cancel: &Can
     let probe = tokio::select! {
         ready = tokio::time::timeout(START, live.session.ready()) => match ready {
             Ok(ready) => ready,
-            Err(_) => Err("claude did not start within 30 seconds".into()),
+            Err(_) => Err("claude did not start within 60 seconds".into()),
         },
         _ = cancel.cancelled() => Err(CANCELLED.into()),
     };

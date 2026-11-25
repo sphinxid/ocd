@@ -144,7 +144,7 @@ impl OAuthMethod for ConsoleDevice {
     }
 
     fn info(&self) -> OAuthMethodInfo {
-        OAuthMethodInfo::new(METHOD_ID, "OpenCode Console account").with_form(form())
+        OAuthMethodInfo::new(METHOD_ID, "OpenCode account").with_form(form())
     }
 
     async fn authorize(&self, answer: FormAnswer, _scope: CancellationToken) -> FlowResult<AuthorizeResult> {

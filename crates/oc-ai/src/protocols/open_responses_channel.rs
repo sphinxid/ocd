@@ -397,6 +397,14 @@ fn comparable(value: &Value) -> Value {
         }
         return Value::Object(out);
     }
+    if kind == Some("custom_tool_call") {
+        let mut out = Object::new();
+        copy(&mut out, o, "type");
+        copy(&mut out, o, "call_id");
+        copy(&mut out, o, "name");
+        copy(&mut out, o, "input");
+        return Value::Object(out);
+    }
     if kind == Some("reasoning") {
         let mut out = Object::new();
         copy(&mut out, o, "type");
@@ -590,6 +598,34 @@ mod tests {
         let r = create_request(&json!({"model": "m", "stream": true, "input": [], "stream_options": {}, "background": false, "store": false})).unwrap();
         assert_eq!(encode(&Value::Object(r)), r#"{"type":"response.create","model":"m","input":[],"store":false}"#);
         assert_eq!(create_request(&json!([1])).unwrap_err().message, "Open Responses WebSocket body must be a JSON object");
+    }
+
+    #[test]
+    fn continues_a_custom_tool_call_from_completed_response_output() {
+        let user = json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Run it."}]});
+        let first_request = json!({"type": "response.create", "model": "gpt-6-astra", "store": false, "input": [user]});
+        let mut first = driver(first_request.clone(), None);
+        let create = first.create(None).unwrap();
+        let completed = json!({"type": "response.completed", "response": {"id": "resp_1", "output": [
+            {"type": "custom_tool_call", "id": "ctc_1", "status": "completed", "call_id": "call_1", "name": "run", "input": "ls"}
+        ]}});
+        first.observe(&create, &json!({"type": "response.created", "response": {"id": "resp_1"}}).to_string()).unwrap();
+        let checkpoint = match first.observe(&create, &completed.to_string()).unwrap() {
+            ChannelObservation::Completed { checkpoint, .. } => checkpoint.unwrap(),
+            other => panic!("{other:?}"),
+        };
+        let output = json!({"type": "custom_tool_call_output", "call_id": "call_1", "output": "a.txt"});
+        let mut second = driver(
+            json!({"type": "response.create", "model": "gpt-6-astra", "store": false, "input": [
+                user, {"type": "custom_tool_call", "call_id": "call_1", "name": "run", "input": "ls"}, output
+            ]}),
+            None,
+        );
+        let create = second.create(Some(&checkpoint)).unwrap();
+        assert_eq!(create.mode, ChannelMode::Incremental);
+        let message: Value = serde_json::from_str(&create.message).unwrap();
+        assert_eq!(message["previous_response_id"], "resp_1");
+        assert_eq!(message["input"], json!([output]));
     }
 
     #[test]

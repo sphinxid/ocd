@@ -286,7 +286,7 @@ fn a_configured_base_url_keeps_requests_uncompressed() {
 
 fn caps_setup<'a>() -> Box<dyn CatalogPlugin + 'a> {
     providers(|e| {
-        for id in ["gpt-5.5", "gpt-5.6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-7"] {
+        for id in ["gpt-5.5", "gpt-5.6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-7", "gpt-7-astra"] {
             e.update_model("openai", id, |m| m.limit = FULL);
         }
         e.update_model("openai", "gpt-6.1-sol-fast", |m| {
@@ -320,6 +320,8 @@ fn caps_openai_models_under_every_chatgpt_method() {
         assert_eq!(limit("gpt-6.1-sol"), current, "{method}");
         assert_eq!(limit("gpt-6.1-sol-fast"), current, "{method}");
         assert_eq!(limit("gpt-7"), current, "{method}");
+        assert_eq!(limit("gpt-6.2-astra"), legacy, "{method}");
+        assert_eq!(limit("gpt-7-astra"), legacy, "{method}");
         assert_eq!(limit("gpt-6.2-mini"), legacy, "{method}");
     }
 }

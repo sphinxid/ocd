@@ -274,7 +274,7 @@ struct CatalogData {
 /// Signed out, only free OpenCode models are enabled. Clients default to the first available model,
 /// so these free models stay ahead of each new free launch instead of letting release order pick
 /// the default (`model.ts` `PREFERRED_FREE`).
-pub const PREFERRED_FREE: &[&str] = &["big-pickle", "deepseek-v4.1-flash-free", "glm-5.3-flash-free", "muse-spark-1.3-contributor-free"];
+pub const PREFERRED_FREE: &[&str] = &["big-pickle", "deepseek-v4.1-flash-free", "muse-spark-1.3-contributor-free"];
 
 fn is_free(model: &ModelInfo) -> bool {
     !model.cost.iter().any(|c| c.input > 0.0)

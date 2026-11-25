@@ -298,6 +298,9 @@ async fn exchange(
     .await
 }
 
+/// What a refresh fails with when OpenAI rejects the refresh token (`invalid_grant`).
+pub const REFRESH_REJECTED: &str = "This ChatGPT sign-in has expired or was revoked. Connect again.";
+
 /// `refresh(value)`: requires `metadata.clientID`.
 pub async fn refresh(ctx: &FlowContext, token_url: &str, value: &OAuthValue) -> FlowResult<OAuthValue> {
     let metadata = value.metadata.as_ref();
@@ -311,17 +314,26 @@ pub async fn refresh(ctx: &FlowContext, token_url: &str, value: &OAuthValue) -> 
     let (Some(client_id), true) = (client_id, scopes_ok) else {
         return Err(FlowError::new("This ChatGPT connection has no registered client ID. Connect again."));
     };
-    let tokens = post_form(
-        ctx,
-        token_url,
-        &[
-            ("grant_type", "refresh_token"),
-            ("client_id", client_id),
-            ("refresh_token", &value.refresh),
-            ("resource", RESOURCE),
-        ],
-    )
-    .await?;
+    let body = pkce::form_encode(&[
+        ("grant_type", "refresh_token"),
+        ("client_id", client_id),
+        ("refresh_token", &value.refresh),
+        ("resource", RESOURCE),
+    ]);
+    // OpenAI answers invalid_grant when the refresh token expired or was revoked (`request(..., rejected)`).
+    let response = form_headers(ctx, ctx.http.post(token_url)).body(body).send().await.map_err(crate::credentials::http::transport)?;
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        let invalid_grant = serde_json::from_str::<Value>(&text)
+            .ok()
+            .is_some_and(|v| v.as_object().and_then(|o| o.get("error")).and_then(Value::as_str) == Some("invalid_grant"));
+        if invalid_grant {
+            return Err(FlowError::new(REFRESH_REJECTED));
+        }
+        return Err(FlowError::new(format!("Request failed: {}", status.as_u16())));
+    }
+    let tokens: Value = response.json().await.map_err(crate::credentials::http::transport)?;
     let scopes: Option<Vec<String>> =
         scopes.and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect());
     credential(&tokens, client_id, scopes)

@@ -29,7 +29,7 @@ async fn catalog_is_built_once_per_location_without_copilot() {
     unsafe {
         std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1");
         std::env::set_var("OPENCODE_TEST_HOME", home.path());
-        for name in ["GITHUB_TOKEN", "OPENCODE_API_KEY"] {
+        for name in ["GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "OPENCODE_API_KEY"] {
             std::env::remove_var(name);
         }
     }

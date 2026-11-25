@@ -433,6 +433,8 @@ const CONTENT_POLICY_CODES: &[&str] = &[
     "responsibleaipolicyviolation",
     "content_policy_violation",
     "image_content_policy_violation",
+    // OpenAI's cybersecurity safeguard, as an HTTP 400 or a mid-stream error frame.
+    "cyber_policy",
     "refusal",
     "datainspectionfailed",
     "moderation_blocked",
@@ -468,7 +470,7 @@ fn quota_text(text: &str) -> bool {
         || LIMIT_EXHAUSTED_TEXT.find_iter(text).any(|m| !RATE_BEFORE.is_match(&text[..m.start()]))
 }
 static CONTENT_POLICY_TEXT: Lazy<Regex> = Lazy::new(|| {
-    re(r"(?i)violating our usage policy|blocked by content filtering policy|content[-_\s]?policy|rejected (?:as a result of our|by the) safety system|detected potentially unsafe or sensitive content")
+    re(r"(?i)violating our usage policy|blocked by content filtering policy|content[-_\s]?policy|rejected (?:as a result of our|by the) safety system|detected potentially unsafe or sensitive content|rejected in accordance with our terms of use")
 });
 static SERVER_ERROR_TEXT: Lazy<Regex> = Lazy::new(|| {
     re(r"(?i)\b(?:try again|(?:please |you can )?retry (?:the |this |your )?request|try (?:the |this |your )?request again|(?:currently |temporarily )?at capacity|overloaded|temporarily unavailable|service[-_\s]?unavailable|(?:server|internal)[-_\s]?error|server (?:is )?busy|provider returned (?:an )?error|resource[-_\s]?exhausted|upstream (?:connect|connection|request)|request buffer limit while retrying upstream)\b")

@@ -74,7 +74,7 @@ impl OpenCodeTool {
             ),
             Kind2::Models => (
                 "models",
-                "Search the models available to use. Use this to turn a model name the user mentions into an exact reference for a tool that takes a model. Check your own provider first.",
+                "Search the models available to use. Use this to turn a model name the user mentions into an exact reference for a tool that takes a model. Check your own provider first. Prefer the standard offering unless the user explicitly requests another tier. Use the listed pricing to compare costs when available; missing pricing does not mean free.",
                 include_str!("../../schemas/opencode_models.json"),
                 false,
             ),
@@ -132,20 +132,15 @@ pub fn models_page(
             .then_with(|| js::locale_compare(&l.provider_id, &r.provider_id))
             .then_with(|| r.released.partial_cmp(&l.released).unwrap_or(std::cmp::Ordering::Equal))
     });
-    if !all {
-        let mut seen: Vec<(String, String)> = Vec::new();
-        matching.retain(|m| match &m.family {
-            None => true,
-            Some(f) => {
-                let key = (m.provider_id.clone(), f.clone());
-                if seen.contains(&key) {
-                    false
-                } else {
-                    seen.push(key);
-                    true
-                }
-            }
-        });
+    // When browsing, hide older versions only: a family's same-day siblings, like free and paid offerings,
+    // stay listed. A search lists every match, so a version the user names is never hidden.
+    if !all && terms.is_empty() {
+        let newest = |m: &ModelSummary| {
+            matching.iter().find(|o| o.provider_id == m.provider_id && o.family == m.family).map(|o| o.released)
+        };
+        let keep: Vec<bool> = matching.iter().map(|m| m.family.is_none() || newest(m) == Some(m.released)).collect();
+        let mut keep = keep.into_iter();
+        matching.retain(|_| keep.next().unwrap_or(true));
     }
     let total = matching.len();
     let page: Vec<&ModelSummary> = matching.iter().skip(offset).take(limit).collect();
@@ -370,6 +365,63 @@ mod tests {
         let out = models_page(models.clone(), &names, None, Some("GPT"), Some("openai"), true, 0, 1);
         assert_eq!(out["total"], json!(2));
         assert_eq!(out["next"], json!(1));
+    }
+
+    // "groups available models by provider with paging" (tool-opencode.test.ts).
+    #[test]
+    fn models_groups_by_provider_with_paging() {
+        let named = |p: &str, id: &str, name: &str, family: Option<&str>, released: f64| ModelSummary {
+            name: name.into(),
+            ..model(p, id, family, released)
+        };
+        let mut alpha = named("test", "alpha", "Alpha", None, 300.0);
+        alpha.variants = vec!["fast".into()];
+        alpha.status = "beta".into();
+        let models = vec![
+            alpha,
+            named("other", "beta", "Beta", None, 200.0),
+            named("other", "gamma", "Gamma Flash", Some("gamma"), 100.0),
+            // Same family and release day as gamma, like a free and a paid offering of one model.
+            named("other", "gamma-free", "Gamma Flash Free", Some("gamma"), 100.0),
+            named("other", "gamma-old", "Gamma Flash Old", Some("gamma"), 50.0),
+        ];
+        let names = vec![("other".to_string(), "Other Provider".to_string())];
+        let run = |query: Option<&str>, provider: Option<&str>, all: bool, offset: usize, limit: usize| {
+            models_page(models.clone(), &names, Some("test"), query, provider, all, offset, limit)
+        };
+        let ids = |out: &Value| -> Vec<Vec<String>> {
+            out["providers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["models"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap().to_string()).collect())
+                .collect()
+        };
+        let out = run(None, None, false, 0, 20);
+        assert_eq!(out["total"], json!(4));
+        assert_eq!(out["providers"][0]["name"], json!("test"));
+        assert_eq!(out["providers"][1]["name"], json!("Other Provider"));
+        assert_eq!(ids(&out), vec![vec!["test/alpha"], vec!["other/beta", "other/gamma", "other/gamma-free"]]);
+        assert_eq!(out["next"], Value::Null);
+        let out = run(None, None, false, 0, 2);
+        assert_eq!((ids(&out), out["total"].clone(), out["next"].clone()), (vec![vec!["test/alpha".to_string()], vec!["other/beta".to_string()]], json!(4), json!(2)));
+        let out = run(None, None, false, 2, 2);
+        assert_eq!((ids(&out), out["next"].clone()), (vec![vec!["other/gamma".to_string(), "other/gamma-free".to_string()]], Value::Null));
+        assert_eq!(run(None, Some("other provider"), false, 0, 20)["total"], json!(3));
+        assert_eq!(run(None, Some("test"), false, 0, 20)["total"], json!(1));
+        // Every word of the query must appear somewhere in the reference or display name, ignoring case.
+        let out = run(Some("GAMMA"), None, false, 0, 20);
+        assert_eq!((ids(&out), out["total"].clone()), (vec![vec!["other/gamma".to_string(), "other/gamma-free".to_string(), "other/gamma-old".to_string()]], json!(3)));
+        assert_eq!(run(Some("test/"), None, false, 0, 20)["total"], json!(1));
+        assert_eq!(run(Some("other flash"), None, false, 0, 20)["total"], json!(3));
+        assert_eq!(run(Some("gamma beta"), None, false, 0, 20), json!({"providers": [], "total": 0, "next": null}));
+        // Browsing hides older versions of a family unless `all` is set; same-day siblings stay. Searches list every match.
+        let out = run(None, None, true, 0, 20);
+        assert_eq!(out["total"], json!(5));
+        assert_eq!(ids(&out)[1], vec!["other/beta", "other/gamma", "other/gamma-free", "other/gamma-old"]);
+        let out = run(Some("old"), None, false, 0, 20);
+        assert_eq!(ids(&out), vec![vec!["other/gamma-old"]]);
+        assert_eq!(run(Some("alpha"), Some("other"), false, 0, 20), json!({"providers": [], "total": 0, "next": null}));
     }
 
     #[test]

@@ -93,6 +93,7 @@ async fn setup(api: &Arc<Api>, base: &str) -> Env {
         std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1");
         std::env::set_var("OPENCODE_TEST_HOME", home.path());
         std::env::remove_var("GITHUB_TOKEN");
+        std::env::remove_var("COPILOT_GITHUB_TOKEN");
     }
     let root = home.path();
     let global = Arc::new(oc_util::Global {

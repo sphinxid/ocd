@@ -61,6 +61,9 @@ pub fn from_ai(e: &AIError) -> SessionError {
     if body.contains("subscription_sharing_usage_limit_exceeded") {
         return SessionError { kind: "provider.chatgpt-limit".into(), ..error };
     }
+    if body.contains("subscription_sharing_workplace_individual_usage_limit_exceeded") {
+        return SessionError { kind: "provider.chatgpt-workspace-limit".into(), ..error };
+    }
     // Names the network as the problem, so a DNS outage doesn't read like a broken model or provider.
     if let ErrorKind::Transport { url, .. } = &e.kind
         && crate::retry::is_unreachable(e)
@@ -297,13 +300,14 @@ mod tests {
         }
     }
 
-    // "explains ChatGPT token-sharing failures": 2.2.7's workspace limit.
+    // "types the ChatGPT workspace usage limit" (2.4.1) and "explains ChatGPT token-sharing failures".
     #[test]
     fn workspace_individual_limit() {
-        let mut error = AIError::new(ErrorKind::RateLimit { retry_after_ms: None, rate_limit: None }, "Request failed");
-        error.body = Some(json!({"error": {"code": "subscription_sharing_workplace_individual_usage_limit_exceeded"}}).to_string());
+        let mut error = AIError::new(ErrorKind::RateLimit { retry_after_ms: None, rate_limit: None }, "Too many requests");
+        error.body = Some(json!({"error": {"code": "subscription_sharing_workplace_individual_usage_limit_exceeded", "message": "Limit"}}).to_string());
         let e = from_ai(&error);
-        assert_eq!(e.kind, "provider.rate-limit");
+        assert_eq!(e.kind, "provider.chatgpt-workspace-limit");
+        assert!(e.message.contains("workspace admin"));
         assert_eq!(e.message, "You've reached the usage limit your ChatGPT workspace admin set for you. Ask them to raise it in the OpenAI Admin Console.");
         assert!(oc_ai::catalog::openai::token_sharing_forbids_retry(error.body.as_deref()));
     }

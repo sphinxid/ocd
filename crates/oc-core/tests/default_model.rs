@@ -16,7 +16,7 @@ fn models(home: &std::path::Path) -> Arc<Models> {
     unsafe {
         std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1");
         std::env::set_var("OPENCODE_TEST_HOME", home);
-        for name in ["OPENAI_API_KEY", "OPENCODE_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN"] {
+        for name in ["OPENAI_API_KEY", "OPENCODE_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"] {
             std::env::remove_var(name);
         }
     }

@@ -134,10 +134,11 @@ pub fn codex_eligible(api_id: &str) -> bool {
 }
 
 /// The input cap of a ChatGPT plan model (`cap`): 500k for gpt-6.1 and later and for ids that are not
-/// `gpt-N`, else 272k.
+/// `gpt-N`, else 272k. Astra models stay at 272k in every version.
 pub fn input_cap(api_id: &str) -> i64 {
     match gpt_version(api_id) {
         None => CURRENT_INPUT,
+        Some(_) if api_id.contains("-astra") => LEGACY_INPUT,
         Some((major, minor)) if major > 6.0 || (major == 6.0 && minor >= 1.0) => CURRENT_INPUT,
         Some(_) => LEGACY_INPUT,
     }

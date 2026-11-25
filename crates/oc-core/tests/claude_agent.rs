@@ -276,7 +276,7 @@ async fn probe_reports_version_account_and_context_windows() {
         ("MAX_MCP_OUTPUT_TOKENS", "200000"),
         // 2.3.0: earlier thinking is dropped when the prompt or tools change mid-session.
         ("CLAUDE_CODE_POLISHED_DEWDROP", "drop"),
-        ("CLAUDE_CODE_ENTRYPOINT", "sdk-ts"),
+        ("CLAUDE_CODE_ENTRYPOINT", "opencode"),
         ("CLAUDE_AGENT_SDK_VERSION", "0.3.301"),
         ("CLAUDE_CODE_SDK_READS_SESSION_STATE", "1"),
     ] {
@@ -452,7 +452,7 @@ async fn failures_become_stream_errors() {
     let (first, parts) = request(Some("ses_e"), vec![user("hi")], vec![]);
     registry.run(&ctx, first, CancellationToken::new()).await.unwrap();
     let error = parts.lock().iter().find(|p| p["type"] == "error").cloned().unwrap();
-    assert_eq!(error["error"]["message"], json!("Credit balance is too low Check your Claude plan and extra-usage settings."));
+    assert_eq!(error["error"]["message"], json!("Credit balance is too low"));
     assert!(!kinds(&parts).contains(&"finish".to_string()));
     registry.close().await;
 }
@@ -566,23 +566,23 @@ fn a_recorded_failed_turn_ends_in_an_error_after_its_text() {
 }
 
 #[test]
-fn a_recorded_billing_failure_is_an_error_not_answer_text() {
-    let messages = claude_messages("billing-error");
+fn a_recorded_api_error_is_an_error_not_answer_text() {
+    let messages = claude_messages("api-error");
     let assistant = messages.iter().find(|m| m["type"] == "assistant" && m.get("error").is_some()).unwrap();
     let result = messages.iter().find(|m| m["type"] == "result").unwrap();
     let mut convert = Converter::new(vec![]);
     assert!(convert.convert(assistant).is_empty());
     let parts = convert.convert(result);
     assert_eq!(parts.len(), 1);
-    assert!(parts[0]["error"]["message"].as_str().unwrap().contains("extra usage"));
+    assert!(parts[0]["error"]["message"].as_str().unwrap().contains("claude-does-not-exist"));
 }
 
 #[test]
 fn rejected_windows_give_their_reset_date_and_allowed_ones_do_not_fail() {
     let info = json!({ "type": "rate_limit_event", "uuid": "u", "session_id": "s", "rate_limit_info": { "status": "rejected", "rateLimitType": "seven_day_sonnet", "resetsAt": 1792800000 } });
     let text_result = claude_messages("text").into_iter().find(|m| m["type"] == "result").unwrap();
-    let billing = claude_messages("billing-error");
-    let assistant = billing.iter().find(|m| m["type"] == "assistant" && m.get("error").is_some()).unwrap();
+    let recorded = claude_messages("api-error");
+    let assistant = recorded.iter().find(|m| m["type"] == "assistant" && m.get("error").is_some()).unwrap();
     let mut convert = Converter::new(vec![]);
     assert!(convert.convert(&info).is_empty());
     let mut limited = assistant.clone();

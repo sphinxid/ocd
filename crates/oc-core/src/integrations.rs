@@ -184,8 +184,11 @@ pub fn register(integrations: &Integrations, environment: &Environment) {
     // opencode.provider.databricks (databricks.ts:7-10)
     integrations.register_method("databricks", env(&["DATABRICKS_TOKEN"]));
 
-    // opencode.provider.github.copilot (github-copilot.ts:212-215): no API key method.
+    // opencode.provider.github.copilot (github-copilot.ts:254-261): no API key method. models.dev lists
+    // GITHUB_TOKEN, which git and Actions usually set without Copilot access. GitHub's Copilot CLI reads a
+    // dedicated token from COPILOT_GITHUB_TOKEN first.
     integrations.remove_method("github-copilot", &key(None, None));
+    integrations.register_method("github-copilot", env(&["COPILOT_GITHUB_TOKEN"]));
 
     // opencode.provider.google.vertex (google-vertex.ts:116-160)
     let (projects, locations) = vertex_choices(environment);
@@ -235,7 +238,7 @@ pub fn register(integrations: &Integrations, environment: &Environment) {
     integrations.register_method("neon", env(&["NEON_AI_GATEWAY_TOKEN"]));
 
     // opencode.provider.opencode (opencode.ts:248-254)
-    integrations.update("opencode", |r| r.name = "OpenCode Console".into());
+    integrations.update("opencode", |r| r.name = "OpenCode".into());
     integrations.register_method("opencode", key(Some("API key (service account)"), None));
 
     // opencode.provider.snowflake.cortex (snowflake-cortex.ts:82-91)
@@ -487,7 +490,7 @@ mod tests {
         assert_eq!(
             methods(&integrations, "github-copilot"),
             json!([
-                {"type": "env", "names": ["GITHUB_TOKEN"]},
+                {"type": "env", "names": ["COPILOT_GITHUB_TOKEN"]},
                 {"id": "device", "type": "oauth", "label": "Login with GitHub Copilot", "form": [
                     {"key": "deploymentType", "options": [
                         {"description": "Public", "label": "GitHub.com", "value": "github.com"},

@@ -17,6 +17,26 @@ fn classify(message: &str, status: Option<u16>, body: &Value) -> oc_ai::AIError 
 }
 
 #[test]
+fn classifies_openai_cyber_policy_refusals_before_and_during_a_stream() {
+    let message =
+        "This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request.";
+    let http = json!({ "error": { "message": message, "type": "invalid_request_error", "param": null, "code": "cyber_policy" } });
+    let frame = json!({ "type": "error", "sequence_number": 1, "code": "cyber_policy", "message": message, "param": null });
+    assert_eq!(classify(message, Some(400), &http).tag(), "ContentPolicy");
+    assert_eq!(classify(&format!("cyber_policy: {message}"), None, &frame).tag(), "ContentPolicy");
+}
+
+#[test]
+fn classifies_gemini_terms_of_use_refusals_as_policy_rejections_not_authentication_failures() {
+    let message = "Request rejected in accordance with our terms of use and policies.";
+    let gemini = json!({ "error": { "code": 403, "message": message, "status": "PERMISSION_DENIED" } });
+    let upstream = format!("Upstream request failed: [403] {message}");
+    let zen = json!({ "error": { "type": "server_error", "message": upstream } });
+    assert_eq!(classify(message, Some(403), &gemini).tag(), "ContentPolicy");
+    assert_eq!(classify(&upstream, Some(403), &zen).tag(), "ContentPolicy");
+}
+
+#[test]
 fn classifies_alibaba_model_studio_data_inspection_failures() {
     let alibaba = json!({
         "request_id": "1537ecc9-6873-93f7-9865-6fe4eb1d7851",

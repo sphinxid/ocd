@@ -164,8 +164,7 @@ impl Failure {
             (true, Some(at)) => format!(" Resets at {}.", iso(at)),
             _ => String::new(),
         };
-        let billing = if code == Some("billing_error") { " Check your Claude plan and extra-usage settings." } else { "" };
-        let text = format!("{limit}{reset}{billing}");
+        let text = format!("{limit}{reset}");
         if !text.is_empty() {
             return Some(text);
         }
@@ -427,7 +426,7 @@ mod tests {
         f.check(&json!({ "type": "assistant", "parent_tool_use_id": null, "error": "billing_error", "message": {} }));
         assert_eq!(
             f.check(&result(json!({ "is_error": true, "result": "Credit balance is too low" }))).as_deref(),
-            Some("Credit balance is too low Check your Claude plan and extra-usage settings.")
+            Some("Credit balance is too low")
         );
         let mut f = Failure::default();
         assert_eq!(f.check(&result(json!({ "is_error": true }))).as_deref(), Some("Claude Code could not finish its reply"));

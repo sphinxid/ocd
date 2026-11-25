@@ -312,6 +312,35 @@ async fn chatgpt_token_sharing_loopback_flow() {
     scope.cancel();
 }
 
+// "asks to connect again only when OpenAI rejects the refresh token" (2.4.1).
+#[tokio::test]
+async fn chatgpt_refresh_asks_to_connect_again_only_on_invalid_grant() {
+    let server = mock(|request, _| match request.path.as_str() {
+        "/expired" => json_response(400, json!({"error": "invalid_grant"})),
+        "/invalid" => json_response(400, json!({"error": "invalid_request"})),
+        "/error" => Response::new(500, "unavailable"),
+        _ => Response::new(404, ""),
+    })
+    .await;
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("clientID".into(), json!("oaiapp_issued"));
+    let value = OAuthValue {
+        method_id: "chatgpt-token-sharing".into(),
+        refresh: "refresh-token".into(),
+        access: "access".into(),
+        expires: 1,
+        metadata: Some(metadata),
+    };
+    for (path, message) in [
+        ("/expired", "This ChatGPT sign-in has expired or was revoked. Connect again."),
+        ("/invalid", "Request failed: 400"),
+        ("/error", "Request failed: 500"),
+    ] {
+        let error = flows::chatgpt::refresh(&ctx(), &format!("{}{path}", server.base), &value).await.unwrap_err();
+        assert_eq!(error.message, message, "{path}");
+    }
+}
+
 #[tokio::test]
 async fn chatgpt_refresh_requires_client_id() {
     let server = mock(|_, _| json_response(200, json!({"access_token":"a2","refresh_token":"r2"}))).await;
