@@ -13,8 +13,9 @@ use spec::{Cmd, FlagDef};
 /// What the command line resolved to.
 #[derive(Debug)]
 pub enum Outcome {
-    /// Print help for `path` (stdout), then the errors (stderr). Exit 1 when errors exist.
-    Help { path: Vec<String>, errors: Vec<CliError> },
+    /// Print help for `path` (stdout), then the errors (stderr). Exit 1 when errors exist. `requested`: the
+    /// `--help` action, which succeeds; any other help (`ShowHelp`) fails the process, as the log records.
+    Help { path: Vec<String>, errors: Vec<CliError>, requested: bool },
     Version,
     Completions(&'static str),
     /// `--wizard` from the command at `path` (run by [`run_wizard`]).
@@ -62,6 +63,53 @@ impl Settings {
     pub fn dump(&self) -> String {
         serde_json::json!({ "server": self.server, "standalone": self.standalone }).to_string()
     }
+}
+
+impl Outcome {
+    /// Whether the process fails after this outcome is emitted (`CliError.ShowHelp` or another error), which
+    /// the log records; `--help`, `--version` and completions succeed.
+    pub fn fails(&self) -> bool {
+        match self {
+            Outcome::Help { requested, errors, .. } => !*requested || !errors.is_empty(),
+            Outcome::Fatal(_) => true,
+            _ => false,
+        }
+    }
+}
+
+/// How the log records a `CliError.ShowHelp` failure (`Cause.pretty` of the failed effect).
+pub const SHOW_HELP_CAUSE: &str = "Cause([Fail(~effect/cli/CliError/ShowHelp: Help requested)])";
+
+/// A handler answered with help (`new CliError.ShowHelp(...)`): the help and its errors are printed, and the
+/// process exits 1.
+#[derive(Debug)]
+pub struct ShowHelp;
+
+impl std::fmt::Display for ShowHelp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Help requested")
+    }
+}
+
+impl std::error::Error for ShowHelp {}
+
+/// Print the help for `path` with `errors` from inside a handler, then fail with [`ShowHelp`].
+pub fn show_help(path: &[&str], errors: Vec<CliError>) -> anyhow::Error {
+    let root = spec::root();
+    emit(&root, &Outcome::Help { path: path.iter().map(|s| s.to_string()).collect(), errors, requested: false });
+    ShowHelp.into()
+}
+
+/// The arguments as the log records them (`loggedArgs`, `index.ts`): `service set <key> <value>` and
+/// `service set env <name> <value>` carry secrets such as the password or a provider key, so everything after the
+/// key (or the variable name) is `<redacted>`. Flags and their values may come first, so the pair is found anywhere.
+pub fn logged_args(args: &[String]) -> Vec<String> {
+    let set = (0..args.len()).find(|&i| args[i] == "service" && args.get(i + 1).is_some_and(|a| a == "set"));
+    let kept = match set {
+        None => args.len(),
+        Some(i) => i + if args.get(i + 2).is_some_and(|a| a == "env") { 4 } else { 3 },
+    };
+    args.iter().enumerate().map(|(i, a)| if i < kept { a.clone() } else { "<redacted>".to_string() }).collect()
 }
 
 impl Invocation {
@@ -136,7 +184,7 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
         let mut errors = scan.errors.clone();
         errors.extend(out_of_scope);
         errors.extend(parsed.all_errors());
-        return Outcome::Help { path, errors };
+        return Outcome::Help { path, errors, requested: false };
     }
 
     let present = |name: &str| scan.flags.get(name).is_some_and(|v| !v.is_empty());
@@ -153,10 +201,10 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
         }
         let value = match decode(action) {
             Ok(v) => v,
-            Err(e) => return Outcome::Help { path, errors: vec![e] },
+            Err(e) => return Outcome::Help { path, errors: vec![e], requested: false },
         };
         return match action {
-            "help" => Outcome::Help { path, errors: vec![] },
+            "help" => Outcome::Help { path, errors: vec![], requested: true },
             "version" => Outcome::Version,
             "wizard" => Outcome::Wizard { path },
             _ => match value {
@@ -175,7 +223,7 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
     }
 
     if !parsed.errors.is_empty() {
-        return Outcome::Help { path, errors: parsed.errors.clone() };
+        return Outcome::Help { path, errors: parsed.errors.clone(), requested: false };
     }
     let mut command = root;
     for name in path.iter().skip(1) {
@@ -184,11 +232,11 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
     let leaf = parsed.leaf();
     let input = match parse::decode(command, leaf) {
         Ok(i) => i,
-        Err(e) => return Outcome::Help { path, errors: vec![e] },
+        Err(e) => return Outcome::Help { path, errors: vec![e], requested: false },
     };
     // A group without a `$` handler and no subcommand: ShowHelp without errors.
     if !command.handler {
-        return Outcome::Help { path, errors: vec![] };
+        return Outcome::Help { path, errors: vec![], requested: false };
     }
 
     let setting = decode;
@@ -198,12 +246,12 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
             _ => None,
         },
         Ok(_) => None,
-        Err(e) => return Outcome::Help { path, errors: vec![e] },
+        Err(e) => return Outcome::Help { path, errors: vec![e], requested: false },
     };
     let print_logs = match setting("print-logs") {
         Ok(V::Bool(b)) => b,
         Ok(_) => false,
-        Err(e) => return Outcome::Help { path, errors: vec![e] },
+        Err(e) => return Outcome::Help { path, errors: vec![e], requested: false },
     };
     // The server settings the command declares (`Effect.serviceOption(Server|Standalone)`).
     let mut settings = Settings::default();
@@ -212,7 +260,7 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
         match setting("standalone") {
             Ok(V::Bool(b)) => settings.standalone = Some(b),
             Ok(_) => {}
-            Err(e) => return Outcome::Help { path, errors: vec![e] },
+            Err(e) => return Outcome::Help { path, errors: vec![e], requested: false },
         }
     }
     if active.iter().any(|f| f.name == "server") {
@@ -223,7 +271,7 @@ pub fn resolve(root: &Cmd, args: &[String]) -> Outcome {
                 }
             }
             Ok(_) => {}
-            Err(e) => return Outcome::Help { path, errors: vec![e] },
+            Err(e) => return Outcome::Help { path, errors: vec![e], requested: false },
         }
     }
     let name = path[1..].join(" ");
@@ -290,7 +338,7 @@ pub fn emit(root: &Cmd, outcome: &Outcome) -> i32 {
     use std::io::Write;
     let c = colors();
     match outcome {
-        Outcome::Help { path, errors } => {
+        Outcome::Help { path, errors, .. } => {
             let text = help::render(root, path, &path_globals(root, path), c);
             let mut out = std::io::stdout().lock();
             let _ = writeln!(out, "{text}");
@@ -347,6 +395,87 @@ mod tests {
 
     fn run(args: &[&str]) -> Outcome {
         resolve(&spec::root(), &args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    // `service.test.ts`: "service set keeps the value out of the CLI log"
+    #[test]
+    fn service_set_values_stay_out_of_the_log() {
+        let strings = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for (args, logged) in [
+            (vec!["service", "set", "password", "not-in-log"], vec!["service", "set", "password", "<redacted>"]),
+            (vec!["service", "set", "env", "PROVIDER_KEY", "not-in-log"], vec!["service", "set", "env", "PROVIDER_KEY", "<redacted>"]),
+            (
+                vec!["--server", "http://127.0.0.1:9", "service", "set", "password", "not-in-log"],
+                vec!["--server", "http://127.0.0.1:9", "service", "set", "password", "<redacted>"],
+            ),
+            (vec!["service", "set", "password", "a", "b"], vec!["service", "set", "password", "<redacted>", "<redacted>"]),
+            (vec!["service", "get", "password"], vec!["service", "get", "password"]),
+            (vec!["run", "service", "set"], vec!["run", "service", "set"]),
+        ] {
+            assert_eq!(logged_args(&strings(&args)), strings(&logged), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn help_outcomes_fail_unless_requested() {
+        assert!(!run(&["--help"]).fails());
+        assert!(!run(&["--version"]).fails());
+        assert!(run(&["auth"]).fails());
+        assert!(run(&["--nope"]).fails());
+        assert!(!run(&["models"]).fails());
+    }
+
+    // `login-alias.test.ts`
+    #[test]
+    fn login_is_hidden_from_root_help_but_parses_like_auth_login() {
+        let root = spec::root();
+        let plain = help::Colors { on: false };
+        let render = |path: &[&str]| {
+            let path: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+            help::render(&root, &path, &path_globals(&root, &path), plain)
+        };
+        let top = render(&["ocd"]);
+        assert!(top.lines().any(|l| l.trim_start().starts_with("auth ")), "{top}");
+        assert!(!top.lines().any(|l| l.trim_start().starts_with("login ")), "{top}");
+        let (login, auth) = (render(&["ocd", "login"]), render(&["ocd", "auth", "login"]));
+        assert!(login.contains("ocd login [flags] [<target>]"), "{login}");
+        let sections = |h: &str| h[h.find("ARGUMENTS").unwrap()..].to_string();
+        assert_eq!(sections(&login), sections(&auth));
+
+        let url = "http://127.0.0.1:4096";
+        let args = ["openai", "--method", "api", "--answer", "key=value", "--server", url];
+        let parse = |prefix: &[&str]| match run(&[prefix, &args[..]].concat()) {
+            Outcome::Run(inv) => inv,
+            other => panic!("{other:?}"),
+        };
+        let (login, auth) = (parse(&["login"]), parse(&["auth", "login"]));
+        assert_eq!((login.name.as_str(), auth.name.as_str()), ("login", "auth login"));
+        assert_eq!(login.input.dump(), auth.input.dump());
+        assert_eq!(login.settings, Settings { server: Some(url.into()), standalone: Some(false) });
+        assert_eq!(login.settings, auth.settings);
+    }
+
+    #[test]
+    fn hidden_commands_stay_out_of_typo_suggestions() {
+        let mut root = spec::root();
+        // The root takes a directory argument, so a typo there is a directory: check under a group.
+        let auth = root.subcommands.iter_mut().find(|c| c.name == "auth").unwrap();
+        auth.subcommands.iter_mut().find(|c| c.name == "logout").unwrap().hidden = true;
+        let args: Vec<String> = ["auth", "logot"].iter().map(|s| s.to_string()).collect();
+        match resolve(&root, &args) {
+            Outcome::Help { errors, .. } => match &errors[0] {
+                CliError::UnknownSubcommand { suggestions, .. } => {
+                    assert!(!suggestions.iter().any(|s| s == "logout"), "{suggestions:?}")
+                }
+                other => panic!("{other:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+        let auth = root.subcommands.iter().find(|c| c.name == "auth").unwrap();
+        let path = vec!["ocd".to_string(), "auth".to_string()];
+        let text = help::render(&root, &path, &path_globals(&root, &path), help::Colors { on: false });
+        assert!(!text.contains("logout"), "{text}");
+        assert!(auth.find("logout").is_some());
     }
 
     #[test]

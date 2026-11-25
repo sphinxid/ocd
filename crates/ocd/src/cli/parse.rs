@@ -101,6 +101,8 @@ pub enum CliError {
     UnexpectedArgument { arguments: Vec<String> },
     InvalidValue { option: String, value: String, expected: String, argument: bool },
     UnknownSubcommand { subcommand: String, parent: Vec<String>, suggestions: Vec<String> },
+    /// `CliError.ValidationError` raised by a handler.
+    Validation { message: String },
 }
 
 impl CliError {
@@ -111,6 +113,7 @@ impl CliError {
             CliError::UnexpectedArgument { .. } => "UnexpectedArgument",
             CliError::InvalidValue { .. } => "InvalidValue",
             CliError::UnknownSubcommand { .. } => "UnknownSubcommand",
+            CliError::Validation { .. } => "ValidationError",
         }
     }
 
@@ -128,6 +131,7 @@ impl CliError {
                 base + &suggestion_text(suggestions)
             }
             CliError::MissingArgument { argument } => format!("Missing required argument: {argument}"),
+            CliError::Validation { message } => message.clone(),
             CliError::UnexpectedArgument { arguments } => {
                 let label = if arguments.len() == 1 { "argument" } else { "arguments" };
                 let list: Vec<String> = arguments.iter().map(|a| serde_json::to_string(a).unwrap()).collect();
@@ -607,7 +611,8 @@ pub fn parse_args(tokens: &[Tok], trailing: &[String], command: &Cmd, parent_pat
             let expects_args = command.args().next().is_some();
             if !expects_args && !command.subcommands.is_empty() {
                 let mut keys = vec![];
-                for s in &command.subcommands {
+                // Unlisted subcommands are left out so a typo cannot reveal them.
+                for s in command.listed() {
                     keys.push(s.name.to_string());
                     if let Some(a) = s.alias {
                         keys.push(a.to_string());

@@ -90,7 +90,8 @@ pub fn render(root: &Cmd, path: &[String], globals: &[FlagDef], c: Colors) -> St
         out.push(String::new());
     }
     let mut usage = if path.is_empty() { cmd.name.to_string() } else { path.join(" ") };
-    if !cmd.subcommands.is_empty() {
+    // Unlisted subcommands still parse but stay out of help: an all-unlisted tree looks like a leaf.
+    if cmd.listed().next().is_some() {
         usage.push_str(" <subcommand>");
     }
     usage.push_str(" [flags]");
@@ -136,11 +137,10 @@ pub fn render(root: &Cmd, path: &[String], globals: &[FlagDef], c: Colors) -> St
         out.push(table(&globals.iter().map(|f| flag_row(f, c)).collect::<Vec<_>>(), None));
         out.push(String::new());
     }
-    if !cmd.subcommands.is_empty() {
+    if cmd.listed().next().is_some() {
         out.push(c.bold("SUBCOMMANDS"));
         let rows: Vec<(String, String)> = cmd
-            .subcommands
-            .iter()
+            .listed()
             .map(|s| {
                 let name = match s.alias {
                     Some(a) => format!("{}, {a}", s.name),

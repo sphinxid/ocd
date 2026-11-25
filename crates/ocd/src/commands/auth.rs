@@ -390,8 +390,13 @@ fn priority(id: &str) -> usize {
     PRIORITY.iter().position(|p| *p == id).unwrap_or(PRIORITY.len())
 }
 
+/// `loginChoices`: OpenCode Go connects through OpenCode, so it is only offered to people who already saved a Go key.
 pub fn login_choices(integrations: &[Value]) -> Vec<ui::IntegrationChoice> {
-    let mut list: Vec<&Value> = integrations.iter().filter(|i| !connect_methods(i).is_empty()).collect();
+    let mut list: Vec<&Value> = integrations
+        .iter()
+        .filter(|i| !connect_methods(i).is_empty())
+        .filter(|i| s(i, "id") != "opencode-go" || !connections(i, "credential").is_empty())
+        .collect();
     let mcp = |i: &Value| i.pointer("/metadata/source").and_then(Value::as_str) == Some("mcp");
     list.sort_by(|a, b| {
         (mcp(b) as i32)
@@ -1006,6 +1011,54 @@ mod tests {
         let methods = vec![json!({"type": "oauth", "id": "o", "label": "Browser"}), json!({"type": "key"})];
         assert_eq!(s(&resolve_method(&methods, "KEY").unwrap(), "type"), "key");
         assert_eq!(resolve_method(&methods, "zz").unwrap_err().to_string(), "Authentication method not found: zz. Available: o, key");
+    }
+
+    fn integration(id: &str, name: &str, extra: Value) -> Value {
+        let mut v = json!({"id": id, "name": name, "methods": [{"type": "key"}], "connections": []});
+        for (k, x) in extra.as_object().cloned().unwrap_or_default() {
+            v[k] = x;
+        }
+        v
+    }
+
+    // `auth-login-choices.test.ts`
+    #[test]
+    fn groups_the_cli_choices_like_connect_while_keeping_stable_login_ids() {
+        let choices = login_choices(&[
+            integration("mistral", "Mistral", json!({})),
+            integration("openai", "OpenAI", json!({})),
+            integration("linear", "Linear", json!({"metadata": {"source": "mcp"}})),
+            integration("github", "GitHub", json!({"metadata": {"source": "mcp"}})),
+            integration("opencode", "OpenCode Console", json!({})),
+            integration(
+                "opencode-go",
+                "OpenCode Go",
+                json!({"connections": [{"type": "credential", "id": "go", "label": "Go", "method": "key"}]}),
+            ),
+            integration("unused", "Unused", json!({"methods": [{"type": "env", "names": ["UNUSED_KEY"]}]})),
+        ]);
+        let got: Vec<(&str, &str, &str, bool)> =
+            choices.iter().map(|c| (c.value.as_str(), c.label.as_str(), c.category.as_str(), c.connected)).collect();
+        assert_eq!(
+            got,
+            [
+                ("github", "GitHub", "MCP", false),
+                ("linear", "Linear", "MCP", false),
+                ("opencode-go", "OpenCode Go", "Popular", true),
+                ("opencode", "OpenCode Console", "Popular", false),
+                ("openai", "OpenAI", "Popular", false),
+                ("mistral", "Mistral", "Services", false),
+            ]
+        );
+    }
+
+    #[test]
+    fn hides_opencode_go_until_a_go_key_is_saved() {
+        let choices = login_choices(&[
+            integration("opencode", "OpenCode Console", json!({})),
+            integration("opencode-go", "OpenCode Go", json!({"connections": [{"type": "env", "name": "OPENCODE_API_KEY"}]})),
+        ]);
+        assert_eq!(choices.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(), ["opencode"]);
     }
 
     #[test]

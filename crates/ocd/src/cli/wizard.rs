@@ -83,7 +83,7 @@ fn command_at_path<'a>(root: &'a Cmd, path: &[String]) -> &'a Cmd {
 
 /// `hasWizardSteps`.
 fn has_wizard_steps(cmd: &Cmd) -> bool {
-    !cmd.subcommands.is_empty() || !cmd.params.is_empty()
+    cmd.listed().next().is_some() || !cmd.params.is_empty()
 }
 
 impl Wizard<'_> {
@@ -116,7 +116,8 @@ impl Wizard<'_> {
     /// `promptCommand`: a command with subcommands has no parameters of its own here (its `contextConfig`
     /// is empty), so it only asks for the subcommand.
     fn command(&mut self, cmd: &Cmd, section: &str) -> Result<(), Stop> {
-        let leaf = cmd.subcommands.is_empty();
+        let visible: Vec<&Cmd> = cmd.listed().collect();
+        let leaf = visible.is_empty();
         let params: &[Param] = if leaf { &cmd.params } else { &[] };
         let flags: Vec<&FlagDef> = params.iter().filter_map(|p| if let Param::Flag(f) = p { Some(f) } else { None }).collect();
         let args: Vec<&ArgDef> = params.iter().filter_map(|p| if let Param::Arg(a) = p { Some(a) } else { None }).collect();
@@ -143,13 +144,12 @@ impl Wizard<'_> {
         if leaf {
             return Ok(());
         }
-        let choices = cmd
-            .subcommands
+        let choices = visible
             .iter()
             .map(|c| Choice { title: c.name.into(), description: Some(c.description.into()), disabled: false })
             .collect();
         let index = prompt::run(&Select::new(Some("Command"), choices, &self.theme), self.term)?;
-        let child = &cmd.subcommands[index];
+        let child = visible[index];
         self.term.log("");
         self.line.push(word(child.name));
         if has_wizard_steps(child) {

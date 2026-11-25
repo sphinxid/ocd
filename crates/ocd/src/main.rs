@@ -82,24 +82,36 @@ fn main() {
         },
         other => other,
     };
-    let inv = match outcome {
-        Outcome::Run(inv) => inv,
-        other => std::process::exit(cli::emit(&root, &other)),
+    // Every invocation is logged, a parse failure or `--help` too (upstream logs before parsing); `service set`
+    // values stay out of the log.
+    let logged = serde_json::to_string(&cli::logged_args(&argv)).unwrap_or_default();
+    let (log_level, print_logs, role) = match &outcome {
+        Outcome::Run(inv) => (inv.log_level.as_deref(), inv.print_logs, if inv.name == "serve" { "server" } else { "cli" }),
+        _ => (None, false, "cli"),
     };
-    if inv.print_logs {
+    if print_logs {
         unsafe { std::env::set_var("OPENCODE_PRINT_LOGS", "1") };
     }
-    let role = if inv.name == "serve" { "server" } else { "cli" };
-    oc_util::log::init(&global.log_file(oc_util::version::CHANNEL), role, inv.log_level.as_deref());
+    oc_util::log::init(&global.log_file(oc_util::version::CHANNEL), role, log_level);
     oc_util::panic::install();
     tracing::info!(
         version = oc_util::version::VERSION,
         build = BUILD.unwrap_or(""),
         channel = oc_util::version::CHANNEL,
         local = oc_util::version::local(),
-        args = %serde_json::to_string(&argv).unwrap_or_default(),
+        args = %logged,
         "cli starting"
     );
+    let inv = match outcome {
+        Outcome::Run(inv) => inv,
+        other => {
+            let code = cli::emit(&root, &other);
+            if other.fails() {
+                tracing::error!(cause = cli::SHOW_HELP_CAUSE, args = %logged, "cli process failed");
+            }
+            std::process::exit(code)
+        }
+    };
 
     // `serve --service` loads the service's saved environment itself (723a2f689): Desktop, systemd and
     // direct launches start it without the variables a CLI-spawned service inherits. Upstream merges it
@@ -135,8 +147,13 @@ fn main() {
         signals::finish_deferred().await;
         match dispatched {
             Ok(code) => code,
+            // A handler that answered with help (`CliError.ShowHelp`) has printed it already.
+            Err(e) if e.downcast_ref::<cli::ShowHelp>().is_some() => {
+                tracing::error!(cause = cli::SHOW_HELP_CAUSE, args = %logged, "cli process failed");
+                1
+            }
             Err(e) => {
-                tracing::error!(cause = %e, args = %serde_json::to_string(&argv).unwrap_or_default(), "cli process failed");
+                tracing::error!(cause = %e, args = %logged, "cli process failed");
                 if e.downcast_ref::<remote_tunnel::Inspected>().is_some() {
                     term::write_stderr(&format!("{e}\n"));
                 } else {

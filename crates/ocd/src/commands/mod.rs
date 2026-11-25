@@ -68,7 +68,7 @@ pub async fn dispatch(global: &Global, inv: &Invocation) -> anyhow::Result<i32> 
         "session export" => session::export(global, input).await,
         "session import" => session::import(global, input).await,
         "auth list" => auth::list(global, input).await,
-        "auth login" => auth::login(global, input).await,
+        "auth login" | "login" => auth::login(global, input).await,
         "auth logout" => auth::logout(global, input).await,
         "auth switch" => auth::switch(global, input).await,
         "auth export" => auth::export(global, input).await,
@@ -166,6 +166,11 @@ fn service_hooks(options: service::EnsureOptions) -> oc_tui::ServiceHooks {
 /// `$` — the TUI (`handlers/default.ts`).
 async fn default_command(global: &Global, input: &Input) -> anyhow::Result<i32> {
     if let Some(dir) = input.str("directory") {
+        // `ocd login` reads as a mistyped command more often than a directory, so answer with help, not ENOENT.
+        if !std::fs::metadata(&dir).is_ok_and(|m| m.is_dir()) {
+            let message = format!("No directory or command named \"{dir}\"");
+            return Err(crate::cli::show_help(&[crate::cli::spec::CLI_NAME], vec![crate::cli::parse::CliError::Validation { message }]));
+        }
         std::env::set_current_dir(&dir).map_err(|e| anyhow::anyhow!("{e}: chdir '{dir}'"))?;
     }
     let requested = input.str("server");

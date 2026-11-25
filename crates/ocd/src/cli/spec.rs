@@ -84,6 +84,9 @@ pub struct Cmd {
     pub handler: bool,
     /// `Command.withGlobalFlags`: settings accepted anywhere on this command and its descendants.
     pub globals: Vec<FlagDef>,
+    /// `Command.unlisted` (`hidden` in `Spec.make`): still parses, but stays out of its parent's help,
+    /// completions, typo suggestions and wizard.
+    pub hidden: bool,
 }
 
 impl Cmd {
@@ -102,8 +105,16 @@ impl Cmd {
     pub fn find(&self, name: &str) -> Option<&Cmd> {
         self.subcommands.iter().find(|c| c.name == name || c.alias == Some(name))
     }
+    /// The subcommands help, completions, typo suggestions and the wizard show.
+    pub fn listed(&self) -> impl Iterator<Item = &Cmd> {
+        self.subcommands.iter().filter(|c| !c.hidden)
+    }
     fn globals(mut self, g: Vec<FlagDef>) -> Cmd {
         self.globals = g;
+        self
+    }
+    fn hidden(mut self) -> Cmd {
+        self.hidden = true;
         self
     }
 }
@@ -156,10 +167,10 @@ fn arg(key: &'static str, name: &'static str, description: &'static str, mode: A
 }
 
 fn cmd(name: &'static str, description: &'static str, params: Vec<Param>) -> Cmd {
-    Cmd { name, alias: None, description, params, subcommands: vec![], handler: true, globals: vec![] }
+    Cmd { name, alias: None, description, params, subcommands: vec![], handler: true, globals: vec![], hidden: false }
 }
 fn group(name: &'static str, description: &'static str, subcommands: Vec<Cmd>) -> Cmd {
-    Cmd { name, alias: None, description, params: vec![], subcommands, handler: false, globals: vec![] }
+    Cmd { name, alias: None, description, params: vec![], subcommands, handler: false, globals: vec![], hidden: false }
 }
 
 /// `Standalone` (`GlobalFlag.Setting("standalone")`).
@@ -187,6 +198,17 @@ fn permission_params() -> Vec<Param> {
         boolean("auto", "auto").desc("Auto-approve permissions that are not explicitly denied").p(),
         boolean("yolo", "yolo").hidden().p(),
         boolean("dangerouslySkipPermissions", "dangerously-skip-permissions").hidden().p(),
+    ]
+}
+
+/// `LoginParams`: `auth login` and the hidden top-level `login` shortcut.
+fn login_params() -> Vec<Param> {
+    vec![
+        arg("target", "target", "Integration ID, name, or well-known provider URL", ArgMode::Optional),
+        string("method", "method").desc("Authentication method ID").p(),
+        flag("answer", "answer", Prim::Str, Arity::Many { max: Some(100) })
+            .desc("Provider form answer (key=value; repeat for multiple fields)")
+            .p(),
     ]
 }
 
@@ -321,20 +343,7 @@ pub fn root() -> Cmd {
             "manage integrations and credentials",
             vec![
                 cmd("list", "list integrations and credentials", vec![format(&["default", "json"], "default")]),
-                cmd(
-                    "login",
-                    "connect an integration",
-                    with(
-                        vec![],
-                        vec![
-                            arg("target", "target", "Integration ID, name, or well-known provider URL", ArgMode::Optional),
-                            string("method", "method").desc("Authentication method ID").p(),
-                            flag("answer", "answer", Prim::Str, Arity::Many { max: Some(100) })
-                                .desc("Provider form answer (key=value; repeat for multiple fields)")
-                                .p(),
-                        ],
-                    ),
-                ),
+                cmd("login", "connect an integration", login_params()),
                 cmd(
                     "logout",
                     "log out of a saved account",
@@ -391,6 +400,7 @@ pub fn root() -> Cmd {
             ],
         )
         .globals(server_flags()),
+        cmd("login", "Connect an integration (alias for auth login)", login_params()).hidden().globals(server_flags()),
         group(
             "mcp",
             "Manage MCP (Model Context Protocol) servers",
