@@ -960,10 +960,10 @@ fn put(m: &mut Map<String, Value>, k: &str, v: Option<&Value>) {
 }
 
 /// `terminalOutcome(event)`
-/// After a cancel, whether every job still pending is one the API can't cancel (image and, 2.3.1, Code Mode jobs):
-/// waiting on them would only hold the exit.
+/// After a cancel, whether every job still pending is one the API can't cancel (image, video and, 2.3.1, Code Mode
+/// jobs): waiting on them would only hold the exit.
 fn only_uncancellable(jobs: &[Value]) -> bool {
-    !jobs.is_empty() && jobs.iter().all(|j| matches!(j.get("kind").and_then(Value::as_str), Some("image" | "codemode")))
+    !jobs.is_empty() && jobs.iter().all(|j| matches!(j.get("kind").and_then(Value::as_str), Some("image" | "video" | "codemode")))
 }
 
 fn terminal_outcome(event: &Value) -> Option<Outcome> {
@@ -1916,6 +1916,10 @@ mod tests {
         assert!(only_uncancellable(&[job("image")]));
         assert!(only_uncancellable(&[job("codemode"), job("image")]));
         assert!(!only_uncancellable(&[job("codemode"), job("shell")]));
+        // 2.4.1 (#63666): nor on video jobs.
+        assert!(only_uncancellable(&[job("video")]));
+        assert!(only_uncancellable(&[job("video"), job("image"), job("codemode")]));
+        assert!(!only_uncancellable(&[job("video"), job("subagent")]));
         assert!(!only_uncancellable(&[job("subagent")]));
         assert!(!only_uncancellable(&[]));
     }

@@ -559,6 +559,11 @@ fn with_completed_diffs(mut update: Value, tool_name: &str, input: &Value, metad
     if s(&update, "sessionUpdate") != "tool_call_update" {
         return update;
     }
+    // A script lists each change it made, some without a diff, and the same file more than once; rebuilding them from
+    // the file on disk would show its final text for every change.
+    if canonical(tool_name) == "execute" {
+        return update;
+    }
     let hunks = if canonical(tool_name) == "patch" { patch_hunks(input) } else { vec![] };
     let diffs: Vec<Value> = decode_files(metadata).iter().filter_map(|f| completed_diff(f, &hunks, cwd)).collect();
     if diffs.is_empty() {
@@ -2876,6 +2881,20 @@ mod tests {
         let bad = json!({"files": [metadata["files"][0].clone(), {"file": "x", "patch": "", "status": "renamed", "additions": 0, "deletions": 0}]});
         assert_eq!(with_completed_diffs(with_update("tool_call_update", json!({"content": []})), "edit", &json!({}), Some(&bad), &cwd)["content"], json!([]));
         assert_eq!(with_completed_diffs(json!({"sessionUpdate": "tool_call"}), "edit", &json!({}), Some(&metadata), &cwd), json!({"sessionUpdate": "tool_call"}));
+    }
+
+    // `completed-diffs.test.ts`
+    #[test]
+    fn leaves_a_scripts_changes_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().display().to_string();
+        std::fs::write(dir.path().join("a.txt"), "a\nb\nc\n").unwrap();
+        let update = json!({"sessionUpdate": "tool_call_update", "toolCallId": "call_1", "status": "completed"});
+        let metadata = json!({"files": [
+            {"file": "a.txt", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -1 +1,2 @@\n a\n+b\n"},
+            {"file": "a.txt", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -1,2 +1,3 @@\n a\n b\n+c\n"},
+        ]});
+        assert_eq!(with_completed_diffs(update.clone(), "execute", &json!({"code": "1"}), Some(&metadata), &cwd), update);
     }
 
     /// Recorded from upstream 2.1.4's permission requests for the same patch and for an edit.
