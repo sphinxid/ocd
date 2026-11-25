@@ -141,6 +141,9 @@ pub struct Route {
     /// `Gemini.transport`: SSE that continues responses Gemini splits across requests
     /// (`continuationToken` checkpoints, `CONTINUATION` finishes, resumed dropped connections).
     pub continuation: bool,
+    /// `GoogleInteractions.transport`: SSE that continues Interactions responses split across requests
+    /// (`continuation_token` checkpoints, `requires_continuation` hops, resumed dropped connections).
+    pub interactions_continuation: bool,
 }
 
 impl fmt::Debug for Route {
@@ -171,6 +174,7 @@ impl Route {
             stream: None,
             channel: None,
             continuation: false,
+            interactions_continuation: false,
         }
     }
 
@@ -233,6 +237,12 @@ impl Route {
     /// Use the Gemini continuation transport.
     pub fn continuation(mut self) -> Self {
         self.continuation = true;
+        self
+    }
+
+    /// Use the Google Interactions continuation transport.
+    pub fn interactions_continuation(mut self) -> Self {
+        self.interactions_continuation = true;
         self
     }
 

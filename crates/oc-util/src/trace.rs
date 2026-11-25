@@ -107,6 +107,18 @@ pub fn inherit<F: Future>(f: F) -> impl Future<Output = F::Output> {
     CURRENT.scope(RefCell::new(current()), f)
 }
 
+/// The context [`span`] runs its future in: a new span of the current trace.
+pub fn child() -> Context {
+    let trace_id = current().map(|c| c.trace_id).unwrap_or_else(|| TRACE_ID.as_str().into());
+    Context { trace_id, parent_span_id: Some(hex(16).into()) }
+}
+
+/// `f` in a span context captured earlier ([`current`], [`child`]): a stream that sends a later request of the same
+/// call (a continued response) keeps the call's span, whichever task polls it.
+pub fn within<F: Future>(context: Option<Context>, f: F) -> impl Future<Output = F::Output> {
+    CURRENT.scope(RefCell::new(context), f)
+}
+
 /// One `http.client` span: fresh span ID, under the current trace and span (see [`current`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientSpan {

@@ -245,6 +245,16 @@ fn lower_messages(request: &LLMRequest) -> Result<Vec<Value>, AIError> {
     Ok(contents)
 }
 
+/// The lenient `safetySettings` provider option (`GeminiGenerateContent.SafetySetting` array): `{category, threshold}`
+/// strings, or absent when malformed.
+pub fn safety_settings(request: &LLMRequest) -> Option<Value> {
+    request
+        .po("safetySettings")
+        .and_then(Value::as_array)
+        .filter(|a| a.iter().all(|s| s.get("category").map(Value::is_string).unwrap_or(false) && s.get("threshold").map(Value::is_string).unwrap_or(false)))
+        .map(|a| Value::Array(a.iter().map(|s| json!({"category": s["category"].clone(), "threshold": s["threshold"].clone()})).collect()))
+}
+
 /// Lenient Gemini provider options.
 struct Options {
     cached_content: Option<Value>,
@@ -255,11 +265,7 @@ struct Options {
 
 fn decode_options(request: &LLMRequest) -> Options {
     let cached_content = request.po("cachedContent").filter(|v| v.is_string()).cloned();
-    let safety_settings = request
-        .po("safetySettings")
-        .and_then(Value::as_array)
-        .filter(|a| a.iter().all(|s| s.get("category").map(Value::is_string).unwrap_or(false) && s.get("threshold").map(Value::is_string).unwrap_or(false)))
-        .map(|a| Value::Array(a.iter().map(|s| json!({"category": s["category"].clone(), "threshold": s["threshold"].clone()})).collect()));
+    let safety_settings = safety_settings(request);
     let service_tier = request.po("serviceTier").filter(|v| v.is_string()).cloned();
     let thinking_config = request.po("thinkingConfig").and_then(Value::as_object).map(|tc| {
         let mut out = Object::new();
@@ -863,10 +869,11 @@ impl StreamParser for GeminiParser {
         Ok(self.finish())
     }
     /// Usage is cumulative within one request, so the next request of the same response counts from zero.
-    fn next_request(&mut self) {
+    fn next_request(&mut self) -> Result<Vec<LLMEvent>, AIError> {
         self.finish_reason = None;
         self.prompt_feedback = None;
         let usage = self.usage.take().unwrap_or_else(|| json!({}));
         self.continued_usage.get_or_insert_with(Vec::new).push(usage);
+        Ok(vec![])
     }
 }

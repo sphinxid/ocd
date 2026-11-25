@@ -441,3 +441,17 @@ fn unknown_packages_have_no_variants_and_key_order_is_upstream() {
         r#"[{"id":"low","settings":{"thinking":{"type":"enabled","budgetTokens":16000},"effort":"low"}}]"#
     );
 }
+
+/// "only adds Google Interactions thinking toggles for toggle-only models" (2.4.1)
+#[test]
+fn only_adds_google_interactions_thinking_toggles_for_toggle_only_models() {
+    let package = "@opencode/ai/providers/google/interactions";
+    assert_eq!(
+        run(&m(package, "gemma-4-31b-it"), &[Support::Toggle]),
+        json!([
+            {"id": "none", "settings": {"thinkingLevel": "minimal"}},
+            {"id": "thinking", "settings": {"thinkingLevel": "high", "thinkingSummaries": "auto"}}
+        ])
+    );
+    assert_eq!(run(&m(package, "gemini-2.5-flash"), &[Support::Toggle, budget(Some(0.0), Some(24_576.0))]), json!([]));
+}

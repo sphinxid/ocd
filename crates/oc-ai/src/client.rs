@@ -100,8 +100,11 @@ impl StreamDriver {
 
     /// The transport starts another request for the same response: the parser keeps its state
     /// (`NextRequest`), the next response body gets a fresh framer.
-    pub fn next_request(&mut self) {
-        self.parser.next_request();
+    pub fn next_request(&mut self) -> Result<Vec<LLMEvent>, AIError> {
+        let mut out = vec![];
+        let events = self.parser.next_request().map_err(|e| e.with_http(self.http.clone()))?;
+        self.check(events, &mut out)?;
+        Ok(out)
     }
 
     /// Feed one already-framed frame (WebSocket text frames).
@@ -296,6 +299,9 @@ impl Client {
         if compiled.request.model.route.continuation {
             return self.continued_stream(compiled, cancel, hook).await;
         }
+        if compiled.request.model.route.interactions_continuation {
+            return self.interactions_stream(compiled, cancel, hook).await;
+        }
         let timeouts = Timeouts::from_request(&compiled.request);
         let url = compiled.prepared.url.clone();
         let started = tokio::time::Instant::now();
@@ -338,11 +344,14 @@ impl Client {
         let timeouts = Timeouts::from_request(&compiled.request);
         let url = compiled.prepared.url.clone();
         let started = tokio::time::Instant::now();
+        // Every request of the response is a child of one span (`Effect.fn` around the transport), whichever task
+        // polls the stream.
+        let context = Some(oc_util::trace::child());
         let first = tokio::select! {
             _ = cancel.cancelled() => {
                 return Err(AIError::transport(TransportOperation::Request, "Request aborted", Some("Aborted"), Some(&url)));
             }
-            result = transport::execute_with(&self.http, &compiled.prepared, timeouts, hook.as_deref()) => result?,
+            result = oc_util::trace::within(context.clone(), transport::execute_with(&self.http, &compiled.prepared, timeouts, hook.as_deref())) => result?,
         };
         let mut driver = StreamDriver::new(&compiled.request);
         driver.http = Some(first.http.clone());
@@ -384,19 +393,22 @@ impl Client {
                     if end { break; }
                 }
                 if token.is_some() && (finish_reason.is_none() || finish_reason.as_deref() == Some(CONTINUATION)) {
-                    driver.next_request();
+                    match driver.next_request() {
+                        Ok(events) => for e in events { yield Ok(e); },
+                        Err(e) => { yield Err(e); return; }
+                    }
                     let mut body = compiled.body.clone();
                     if let Some(o) = body.as_object_mut() {
                         o.insert("continuationToken".into(), serde_json::Value::String(token.unwrap_or_default()));
                     }
-                    let prepared = match client.prepare(&compiled.request, body).await {
+                    let prepared = match oc_util::trace::within(context.clone(), client.prepare(&compiled.request, body)).await {
                         Ok(prepared) => prepared,
                         Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
                     };
                     started = tokio::time::Instant::now();
                     let next = tokio::select! {
                         _ = cancel.cancelled() => Err(AIError::transport(TransportOperation::Request, "Request aborted", Some("Aborted"), Some(&prepared.url))),
-                        result = transport::execute_with(&client.http, &prepared, timeouts, hook.as_deref()) => result,
+                        result = oc_util::trace::within(context.clone(), transport::execute_with(&client.http, &prepared, timeouts, hook.as_deref())) => result,
                     };
                     match next {
                         Ok(next) => { execution = next; continue; }
@@ -408,6 +420,131 @@ impl Client {
                     yield Err(AIError::invalid_output(&label, "Gemini continued the response without a token").with_http(driver.http.clone()));
                     return;
                 }
+                break;
+            }
+            let (events, failure) = driver.finish_events();
+            for e in events { yield Ok(e); }
+            if let Some(e) = failure { yield Err(e); }
+        };
+        Ok(Box::pin(stream))
+    }
+
+    /// `GoogleInteractions.transport`: SSE that continues Interactions responses split across requests. Status
+    /// updates and completions carry `continuation_token` checkpoints, and a request that stops early finishes with
+    /// `requires_continuation`. The transport resends the body with the latest token (a stored interaction resumes
+    /// from its owner instead of the input), which also resumes a request that dropped (not timed out) at a
+    /// checkpoint with no later output. Three reconnects at one checkpoint without progress end the response.
+    #[allow(clippy::result_large_err)]
+    async fn interactions_stream(&self, compiled: Compiled, cancel: CancellationToken, hook: Option<Arc<dyn HttpHook>>) -> Result<LLMStream, AIError> {
+        use crate::protocols::google_interactions::{continuation_body, Checkpoint, CONTINUATION, MAX_STREAM_RECONNECTS_WITHOUT_PROGRESS};
+        struct Resume {
+            token: String,
+            owner: Option<String>,
+            reconnects_without_progress: u32,
+            last_error: Option<AIError>,
+        }
+        let timeouts = Timeouts::from_request(&compiled.request);
+        let url = compiled.prepared.url.clone();
+        let started = tokio::time::Instant::now();
+        // Every request of the response is a child of one span (`Effect.fn` around the transport), whichever task
+        // polls the stream.
+        let context = Some(oc_util::trace::child());
+        let first = tokio::select! {
+            _ = cancel.cancelled() => {
+                return Err(AIError::transport(TransportOperation::Request, "Request aborted", Some("Aborted"), Some(&url)));
+            }
+            result = oc_util::trace::within(context.clone(), transport::execute_with(&self.http, &compiled.prepared, timeouts, hook.as_deref())) => result?,
+        };
+        let mut driver = StreamDriver::new(&compiled.request);
+        driver.http = Some(first.http.clone());
+        let label = route_label(&compiled.request);
+        let client = self.clone();
+        let stream = async_stream::stream! {
+            let mut execution = first;
+            let mut started = started;
+            let mut resume: Option<Resume> = None;
+            loop {
+                let mut framer = Framer::new(&compiled.request.model.route.framing);
+                let mut body = body_stream(execution, timeouts, started, cancel.clone());
+                let mut seen = Checkpoint::new(resume.as_ref().map(|r| r.token.clone()));
+                let mut dropped: Option<AIError> = None;
+                'read: loop {
+                    let (frames, end) = match body.next().await {
+                        None => match framer.finish() {
+                            Ok(frames) => (frames, true),
+                            Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
+                        },
+                        // A connection failure may resume; a timeout keeps its meaning and ends the response.
+                        Some(Err(e)) if matches!(&e.kind, crate::error::ErrorKind::Transport { code, .. } if !matches!(code.as_deref(), Some("Timeout" | "Aborted"))) => {
+                            dropped = Some(e);
+                            break;
+                        }
+                        Some(Err(e)) => { yield Err(e.with_http(driver.http.clone())); return; }
+                        Some(Ok(bytes)) => match framer.push(&bytes) {
+                            Ok(frames) => (frames, false),
+                            Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
+                        },
+                    };
+                    for frame in frames {
+                        seen.observe(&frame);
+                        match driver.push_frame(frame) {
+                            Ok(events) => for e in events { yield Ok(e); },
+                            Err(e) => { yield Err(e); return; }
+                        }
+                        // `takeUntil(interaction.completed)`: nothing after the completion belongs to this response.
+                        if seen.terminal { break 'read; }
+                    }
+                    if end { break; }
+                }
+                let needs_continuation = seen.status.as_deref() == Some(CONTINUATION);
+                let resumable = needs_continuation || (!seen.terminal && matches!(seen.status.as_deref(), None | Some("in_progress")));
+                let new_token = seen.token.as_deref() != resume.as_ref().map(|r| r.token.as_str());
+                // An interrupted tool call may carry arguments across the checkpoint. Don't finalize it on EOF.
+                if let Some(token) = seen.token.clone().filter(|_| {
+                    resumable
+                        && !seen.content_since_token
+                        && (seen.terminal || seen.pending_tools.is_empty())
+                        && (!needs_continuation || new_token)
+                }) {
+                    let reconnects_without_progress = if new_token { 0 } else { resume.as_ref().map_or(0, |r| r.reconnects_without_progress) + 1 };
+                    let last_error = dropped.take().or_else(|| if new_token { None } else { resume.as_mut().and_then(|r| r.last_error.take()) });
+                    if reconnects_without_progress > MAX_STREAM_RECONNECTS_WITHOUT_PROGRESS {
+                        // Without a dropped connection to report, the route's incomplete-stream check reports the end.
+                        if let Some(last) = last_error {
+                            let mut error = AIError::incomplete_stream(&label, last.message.clone()).with_cause(&last.message);
+                            error.http = last.http.clone();
+                            yield Err(error);
+                            return;
+                        }
+                        break;
+                    }
+                    match driver.next_request() {
+                        Ok(events) => for e in events { yield Ok(e); },
+                        Err(e) => { yield Err(e); return; }
+                    }
+                    let owner = if new_token { seen.owner.clone() } else { resume.as_ref().and_then(|r| r.owner.clone()) };
+                    let body = continuation_body(&compiled.body, &token, owner.as_deref());
+                    resume = Some(Resume { token, owner, reconnects_without_progress, last_error });
+                    let prepared = match oc_util::trace::within(context.clone(), client.prepare(&compiled.request, body)).await {
+                        Ok(prepared) => prepared,
+                        Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
+                    };
+                    started = tokio::time::Instant::now();
+                    let next = tokio::select! {
+                        _ = cancel.cancelled() => Err(AIError::transport(TransportOperation::Request, "Request aborted", Some("Aborted"), Some(&prepared.url))),
+                        result = oc_util::trace::within(context.clone(), transport::execute_with(&client.http, &prepared, timeouts, hook.as_deref())) => result,
+                    };
+                    match next {
+                        Ok(next) => { execution = next; continue; }
+                        Err(e) => { yield Err(e.with_http(driver.http.clone())); return; }
+                    }
+                }
+                if let Some(e) = dropped { yield Err(e.with_http(driver.http.clone())); return; }
+                if seen.terminal && needs_continuation && seen.token.is_none() {
+                    yield Err(AIError::invalid_output(&label, "Google Interactions continued without a token").with_http(driver.http.clone()));
+                    return;
+                }
+                // No safe checkpoint. Leave EOF for the route's incomplete-stream check.
                 break;
             }
             let (events, failure) = driver.finish_events();

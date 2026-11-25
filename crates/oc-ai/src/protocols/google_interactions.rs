@@ -16,7 +16,25 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub const ADAPTER: &str = "google-interactions";
+/// The status of an interaction that continues in another request.
+pub const CONTINUATION: &str = "requires_continuation";
+/// Reconnects at one checkpoint before giving up. Matches Google's GenAI SDKs (Python, JS, and Go).
+pub const MAX_STREAM_RECONNECTS_WITHOUT_PROGRESS: u32 = 3;
 pub const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+
+// https://aistudio.google.com/docs/document-processing#office-documents
+const OFFICE_DOCUMENT_MIME_TYPES: [&str; 10] = [
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+    "application/vnd.oasis.opendocument.text",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.oasis.opendocument.presentation",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.oasis.opendocument.spreadsheet",
+];
 
 fn media_content(asset: &MediaAsset) -> Result<Value, AIError> {
     let media_type = asset.media_type();
@@ -25,7 +43,7 @@ fn media_content(asset: &MediaAsset) -> Result<Value, AIError> {
         MediaKind::Image => "image",
         MediaKind::Audio => "audio",
         MediaKind::Video => "video",
-        _ if media_type == "application/pdf" || media_type == "text/csv" => "document",
+        _ if media_type == "application/pdf" || media_type == "text/csv" || OFFICE_DOCUMENT_MIME_TYPES.contains(&media_type.as_str()) => "document",
         _ => return Err(AIError::invalid_request(format!("Google Interactions does not support {media_type} document input"))),
     };
     if let Some(url) = super::gemini::http_video_url(asset) {
@@ -189,6 +207,22 @@ pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
         if request.system.is_empty() { None } else { Some(json!(shared::join_text(request.system.iter().map(|p| p.text.as_str())))) },
     );
     f.insert("service_tier".into(), lenient_str(request, "serviceTier"));
+    // Gemini's `safetySettings` provider option, spelled the Interactions way.
+    f.insert(
+        "safety_settings".into(),
+        super::gemini::safety_settings(request).and_then(|v| v.as_array().cloned()).map(|settings| {
+            Value::Array(
+                settings
+                    .iter()
+                    .map(|s| {
+                        let category = s["category"].as_str().unwrap_or_default();
+                        let category = category.strip_prefix("HARM_CATEGORY_").unwrap_or(category);
+                        json!({"type": category.to_lowercase(), "threshold": s["threshold"].as_str().unwrap_or_default().to_lowercase()})
+                    })
+                    .collect(),
+            )
+        }),
+    );
     f.insert(
         "tools".into(),
         if tools.is_empty() {
@@ -201,6 +235,132 @@ pub fn body(request: &LLMRequest) -> Result<Value, AIError> {
     );
     f.insert("generation_config".into(), Some(Value::Object(gc)));
     Ok(Value::Object(f.into_iter().filter_map(|(k, v)| v.map(|v| (k, v))).collect()))
+}
+
+/// What `GoogleInteractions.transport` tracks over one request's frames to decide whether it may continue the
+/// response from a checkpoint.
+#[derive(Debug, Default)]
+pub struct Checkpoint {
+    /// The latest `continuation_token`, starting from the one the request resumed from.
+    pub token: Option<String>,
+    /// The interaction that owns the request (`interaction_id` / `interaction.id`).
+    pub owner: Option<String>,
+    pub status: Option<String>,
+    /// Output arrived after the latest token, so resuming from it would replay that output.
+    pub content_since_token: bool,
+    /// `interaction.completed` arrived.
+    pub terminal: bool,
+    /// Function calls started and not yet stopped.
+    pub pending_tools: std::collections::BTreeSet<i64>,
+}
+
+impl Checkpoint {
+    pub fn new(token: Option<String>) -> Self {
+        Self { token, ..Default::default() }
+    }
+
+    /// Observe one frame. A frame that does not decode changes nothing (the parser fails on it).
+    pub fn observe(&mut self, frame: &Frame) {
+        let parsed;
+        let event = match frame {
+            Frame::Json(value) => value,
+            Frame::Text(text) => match serde_json::from_str::<Value>(text) {
+                Ok(value) => {
+                    parsed = value;
+                    &parsed
+                }
+                Err(_) => return,
+            },
+        };
+        let text = |v: Option<&Value>| v.and_then(Value::as_str).map(String::from);
+        let non_empty = |v: Option<&Value>| match v {
+            Some(Value::Array(items)) => !items.is_empty(),
+            Some(Value::String(s)) => !s.is_empty(),
+            _ => false,
+        };
+        let index = event.get("index").and_then(Value::as_i64);
+        match event.get("event_type").and_then(Value::as_str) {
+            Some("interaction.created") => self.owner = text(event.get("interaction").and_then(|i| i.get("id"))),
+            Some("interaction.status_update") => {
+                self.status = text(event.get("status"));
+                if let Some(owner) = text(event.get("interaction_id")) {
+                    self.owner = Some(owner);
+                }
+                if let Some(token) = text(event.get("continuation_token")).filter(|t| !t.is_empty())
+                    && self.token.as_ref() != Some(&token)
+                {
+                    self.token = Some(token);
+                    self.content_since_token = false;
+                }
+            }
+            Some("interaction.completed") => {
+                self.terminal = true;
+                let interaction = event.get("interaction");
+                self.status = text(interaction.and_then(|i| i.get("status")));
+                if let Some(owner) = text(interaction.and_then(|i| i.get("id"))) {
+                    self.owner = Some(owner);
+                }
+                if let Some(token) = text(interaction.and_then(|i| i.get("continuation_token"))).filter(|t| !t.is_empty()) {
+                    self.token = Some(token);
+                    self.content_since_token = false;
+                }
+            }
+            Some("step.start") => {
+                let Some(index) = index else { return };
+                let step = event.get("step");
+                if step.and_then(|s| s.get("type")).and_then(Value::as_str) == Some("function_call") {
+                    self.pending_tools.insert(index);
+                }
+                if self.pending_tools.contains(&index)
+                    || non_empty(step.and_then(|s| s.get("content")))
+                    || non_empty(step.and_then(|s| s.get("summary")))
+                    || non_empty(step.and_then(|s| s.get("signature")))
+                {
+                    self.content_since_token = true;
+                }
+            }
+            Some("step.delta") => self.content_since_token = true,
+            Some("step.stop") => {
+                if index.is_some_and(|i| self.pending_tools.remove(&i)) {
+                    self.content_since_token = true;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The next request of a continued response: `{...body, continuation_token, ...(store && owner ? {input: undefined,
+/// previous_interaction_id: owner} : {})}`. The body object holds every key `fromRequest` writes, unset ones too, so
+/// `previous_interaction_id` keeps its slot after `store` and `continuation_token` goes last.
+pub fn continuation_body(body: &Value, token: &str, owner: Option<&str>) -> Value {
+    const ORDER: [&str; 10] = [
+        "model",
+        "input",
+        "stream",
+        "store",
+        "previous_interaction_id",
+        "system_instruction",
+        "service_tier",
+        "safety_settings",
+        "tools",
+        "generation_config",
+    ];
+    let mut next = body.as_object().cloned().unwrap_or_default();
+    next.shift_remove("continuation_token");
+    if let (Some(true), Some(owner)) = (next.get("store").and_then(Value::as_bool), owner) {
+        next.shift_remove("input");
+        next.insert("previous_interaction_id".into(), json!(owner));
+    }
+    let mut out = Object::new();
+    for key in ORDER {
+        if let Some(value) = next.shift_remove(key) {
+            out.insert(key.into(), value);
+        }
+    }
+    out.extend(next);
+    out.insert("continuation_token".into(), json!(token));
+    Value::Object(out)
 }
 
 pub struct GoogleInteractions;
@@ -217,6 +377,10 @@ impl Protocol for GoogleInteractions {
             label: route_label(request),
             key: request.metadata_key(),
             lifecycle: Lifecycle::new(),
+            hop: 0,
+            has_tool_calls: false,
+            usage: None,
+            continued_usage: vec![],
             steps: BTreeMap::new(),
             tools: ToolStream::new(ADAPTER),
         })
@@ -231,7 +395,9 @@ pub fn protocol() -> Arc<dyn Protocol> {
 }
 
 pub fn route() -> Route {
-    Route::new(ADAPTER, protocol(), Endpoint::new(Some(DEFAULT_BASE_URL), "/interactions"), Framing::Sse).initial_provider("google", Some("google"))
+    Route::new(ADAPTER, protocol(), Endpoint::new(Some(DEFAULT_BASE_URL), "/interactions"), Framing::Sse)
+        .initial_provider("google", Some("google"))
+        .interactions_continuation()
 }
 
 /// `google-vertex-interactions` route (base URL configured by the factory).
@@ -240,6 +406,7 @@ pub fn vertex_route() -> Route {
     endpoint.query.insert("alt".into(), "sse".into());
     Route::new("google-vertex-interactions", protocol(), endpoint, Framing::Sse)
         .initial_provider("google-vertex", Some("vertex"))
+        .interactions_continuation()
         .headers_fn(|request| {
             let mut h = Headers::new();
             if let Some(tier) = request.po_str("serviceTier") {
@@ -258,32 +425,66 @@ pub fn vertex_base_url(location: &str, project: Option<String>, api_key: bool) -
     Ok(format!("https://{host}/v1beta1/projects/{}/locations/{location}", super::gemini::require_project(project)?))
 }
 
-fn map_usage(usage: &Value, key: &str) -> Usage {
-    let u = |k: &str| crate::json::get_u64(usage, k);
-    let input = u("total_input_tokens");
-    let cached = u("total_cached_tokens");
-    let reasoning = u("total_thought_tokens");
-    let output = u("total_output_tokens").map(|o| o + reasoning.unwrap_or(0));
+/// `mapUsage(usage, key, continued)`: a response continued across requests bills its input once per request, so the
+/// logical call keeps the first request's input and sums the output; the per-request totals stay in provider metadata.
+fn map_usage(usage: Option<&Value>, key: &str, continued: &[Option<Value>]) -> Option<Usage> {
+    if usage.is_none() && continued.iter().all(Option::is_none) {
+        return None;
+    }
+    let first = if continued.is_empty() { usage } else { continued[0].as_ref() };
+    let hops: Vec<Option<&Value>> = continued.iter().map(Option::as_ref).chain(std::iter::once(usage)).collect();
+    let field = |hop: Option<&Value>, k: &str| hop.and_then(|h| crate::json::get_u64(h, k));
+    let sum = |k: &str| shared::sum_tokens(&hops.iter().map(|hop| field(*hop, k)).collect::<Vec<_>>());
+    let input = field(first, "total_input_tokens");
+    let cached = field(first, "total_cached_tokens");
+    let reasoning = sum("total_thought_tokens");
+    let text = sum("total_output_tokens");
+    let output = if continued.is_empty() { text.map(|t| t + reasoning.unwrap_or(0)) } else { shared::sum_tokens(&[text, reasoning]) };
+    let metadata = if continued.is_empty() {
+        usage.cloned().unwrap_or_else(|| json!({}))
+    } else {
+        // Keep re-billed input in provider metadata, separate from the logical call's input.
+        let mut o = Object::new();
+        let mut put = |k: &str, v: Option<u64>| {
+            if let Some(v) = v {
+                o.insert(k.into(), json!(v));
+            }
+        };
+        put("total_input_tokens", sum("total_input_tokens"));
+        put("total_cached_tokens", sum("total_cached_tokens"));
+        put("total_output_tokens", text);
+        put("total_thought_tokens", reasoning);
+        put("total_tokens", sum("total_tokens"));
+        o.insert("requests".into(), json!(hops.len()));
+        Value::Object(o)
+    };
     let mut pm = Object::new();
-    pm.insert(key.into(), usage.clone());
-    Usage {
-        context_tokens: u("raw_prompt_token").or(input),
+    pm.insert(key.into(), metadata);
+    Some(Usage {
+        context_tokens: field(first, "raw_prompt_token").or(input),
         input_tokens: input,
         output_tokens: output,
         non_cached_input_tokens: shared::subtract_tokens(input, cached),
         cache_read_input_tokens: cached,
         cache_write_input_tokens: None,
         reasoning_tokens: reasoning,
-        total_tokens: u("total_tokens"),
+        total_tokens: if continued.is_empty() { field(usage, "total_tokens") } else { shared::total_tokens(input, output, None) },
         cost: None,
         provider_metadata: Some(pm),
-    }
+    })
 }
 
 struct Parser {
     label: String,
     key: String,
     lifecycle: Lifecycle,
+    /// Requests started before the current one for this response.
+    hop: usize,
+    has_tool_calls: bool,
+    /// The current request's latest usage (`interaction.status_update` or a continued `interaction.completed`).
+    usage: Option<Value>,
+    /// The usage of each earlier request of the response.
+    continued_usage: Vec<Option<Value>>,
     steps: BTreeMap<i64, Value>,
     tools: ToolStream,
 }
@@ -297,6 +498,11 @@ impl Parser {
         }
         o.insert(self.key.clone(), Value::Object(inner));
         o
+    }
+
+    /// `blockID`: block ids of a continued request carry its hop, so they never collide with an earlier request's.
+    fn block_id(&self, index: i64) -> String {
+        if self.hop == 0 { index.to_string() } else { format!("{}:{index}", self.hop) }
     }
 
     fn err(message: impl Into<String>, body: &Value) -> AIError {
@@ -313,7 +519,7 @@ impl Parser {
                 let index = index.ok_or_else(invalid)?;
                 let step = event.get("step").filter(|s| s.get("type").map(Value::is_string).unwrap_or(false)).ok_or_else(invalid)?.clone();
                 self.lifecycle.step_start(&mut events);
-                let id = index.to_string();
+                let id = self.block_id(index);
                 match step["type"].as_str().unwrap() {
                     "thought" => {
                         let meta = self.meta(&step);
@@ -355,6 +561,7 @@ impl Parser {
                     }
                     other => return Err(Self::err(format!("Unsupported Interactions step: {other}"), &step)),
                 }
+                self.has_tool_calls |= step["type"] == "function_call";
                 self.steps.insert(index, step);
             }
             "step.delta" => {
@@ -364,7 +571,7 @@ impl Parser {
                     return Err(Self::err("Interactions delta without step.start", &delta));
                 };
                 let step_type = step.get("type").and_then(Value::as_str).unwrap_or("");
-                let id = index.to_string();
+                let id = self.block_id(index);
                 let dtype = delta["type"].as_str().unwrap();
                 // A known delta must have its fields; an unknown one fails explicitly below, so new
                 // output modalities never disappear from a successful response.
@@ -410,7 +617,7 @@ impl Parser {
                 let Some(step) = self.steps.get(&index).cloned() else {
                     return Err(AIError::invalid_output(ADAPTER, "Interactions step.stop without step.start"));
                 };
-                let id = index.to_string();
+                let id = self.block_id(index);
                 match step.get("type").and_then(Value::as_str) {
                     Some("thought") => {
                         let meta = self.meta(&step);
@@ -424,7 +631,12 @@ impl Parser {
             }
             // Google may add stream event types: unknown ones are ignored, while a malformed known
             // one still fails.
-            "interaction.created" | "interaction.status_update" => {}
+            "interaction.status_update" => {
+                if let Some(usage) = event.get("usage").filter(|u| u.is_object()) {
+                    self.usage = Some(usage.clone());
+                }
+            }
+            "interaction.created" => {}
             "error" => {
                 let raw = encode(event);
                 // `{code?, error_type?, message?}`: a malformed field reads as absent.
@@ -456,6 +668,12 @@ impl Parser {
                     }
                     Some(_) => return Err(invalid()),
                 };
+                if status == CONTINUATION {
+                    if let Some(usage) = interaction.get("usage").filter(|u| u.is_object()) {
+                        self.usage = Some(usage.clone());
+                    }
+                    return Ok(Step::events(events));
+                }
                 if status == "failed" || status == "cancelled" {
                     let messages: Vec<&str> = errors
                         .iter()
@@ -472,7 +690,7 @@ impl Parser {
                         encode(event),
                     ));
                 }
-                let has_tool_calls = self.steps.values().any(|s| s.get("type").and_then(Value::as_str) == Some("function_call"));
+                let has_tool_calls = self.has_tool_calls;
                 let normalized = match status {
                     "completed" if has_tool_calls => FinishReason::ToolCalls,
                     "completed" => FinishReason::Stop,
@@ -481,7 +699,8 @@ impl Parser {
                     other => return Err(Self::err(format!("Unexpected terminal Interactions status: {other}"), event)),
                 };
                 self.tools.finish_all(&mut events)?;
-                let usage = interaction.get("usage").filter(|u| u.is_object()).map(|u| map_usage(u, &self.key));
+                let usage = interaction.get("usage").filter(|u| u.is_object()).or(self.usage.as_ref());
+                let usage = map_usage(usage, &self.key, &self.continued_usage);
                 let mut inner = Object::new();
                 if let Some(id) = interaction.get("id") {
                     inner.insert("interactionId".into(), id.clone());
@@ -501,6 +720,27 @@ impl StreamParser for Parser {
     fn step(&mut self, frame: &Frame) -> Result<Step, AIError> {
         let event = decode_json_frame(ADAPTER, &self.label, frame)?;
         self.handle(&event)
+    }
+    /// `NextRequest`: a request boundary, without another logical step or finish. Pending tool calls finish, open
+    /// blocks end, and the next request numbers its blocks under a new hop.
+    fn next_request(&mut self) -> Result<Vec<LLMEvent>, AIError> {
+        let mut events = vec![];
+        self.tools.finish_all(&mut events)?;
+        for (index, step) in std::mem::take(&mut self.steps) {
+            let id = self.block_id(index);
+            match step.get("type").and_then(Value::as_str) {
+                Some("thought") => {
+                    let meta = self.meta(&step);
+                    self.lifecycle.reasoning_end(&mut events, &id, Some(meta), None);
+                }
+                Some("model_output") => self.lifecycle.text_end(&mut events, &id, None, None),
+                _ => {}
+            }
+        }
+        self.hop += 1;
+        self.tools = ToolStream::new(ADAPTER);
+        self.continued_usage.push(self.usage.take());
+        Ok(events)
     }
 }
 

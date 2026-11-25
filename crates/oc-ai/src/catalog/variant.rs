@@ -77,8 +77,15 @@ fn encrypted_reasoning() -> Value {
 /// `Variant.resolve(model, supports)`; pass `&[Support::effort()]` for the upstream default argument.
 pub fn resolve(model: &ModelInfo, supports: &[Support]) -> Variants {
     let Some(protocol) = model.package.as_deref().and_then(protocol_for) else { return vec![] };
-    let toggle_variants =
-        if supports.iter().any(|s| matches!(s, Support::Toggle)) { protocol(model, &Support::Toggle) } else { vec![] };
+    let toggle_variants = if !supports.iter().any(|s| matches!(s, Support::Toggle)) {
+        vec![]
+    } else if google_interactions_toggle_only(model, supports) {
+        // Toggle-only Interactions models (Gemma 4) switch thinking with levels. Budget models such as Gemini 2.5
+        // do not accept "minimal" as an off switch.
+        toggle(settings(json!({"thinkingLevel": "minimal"})), settings(json!({"thinkingLevel": "high", "thinkingSummaries": "auto"})))
+    } else {
+        protocol(model, &Support::Toggle)
+    };
     let effort = supports.iter().find(|s| s.kind() == 0);
     let budget = supports.iter().find(|s| s.kind() == 2);
     let main = match (effort, budget) {
@@ -203,6 +210,12 @@ fn openai_responses(_: &ModelInfo, support: &Support) -> Variants {
 fn open_responses(_: &ModelInfo, support: &Support) -> Variants {
     let Support::Effort { values } = support else { return vec![] };
     efforts(&values.clone().unwrap_or_else(|| strs(EFFORTS)), responses_effort)
+}
+
+/// `googleInteractions(model, {type: "toggle"}, supports)` with every support a toggle.
+fn google_interactions_toggle_only(model: &ModelInfo, supports: &[Support]) -> bool {
+    matches!(model.package.as_deref(), Some("@opencode/ai/providers/google/interactions" | "@opencode/ai/providers/google-vertex/interactions"))
+        && supports.iter().all(|s| matches!(s, Support::Toggle))
 }
 
 fn google_interactions(_: &ModelInfo, support: &Support) -> Variants {
