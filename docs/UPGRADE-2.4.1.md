@@ -1,0 +1,73 @@
+# Catching up with opencode 2.4.1
+
+[← Compatibility](COMPATIBILITY.md)
+
+Status: planned (2026-11-25), in progress. ocd tracks opencode 2.3.2 ([UPGRADE-2.3.2.md](UPGRADE-2.3.2.md)) until
+this is done. Upstream released 2.4.0 (commit `44aed4f`) and 2.4.1 (commit `6f05140`) on Nov 23.
+
+How it was planned: five read-only reviews of the tree diff `v2.3.2..v2.4.1` (354 commits, about 210 of them in
+areas ocd ports), one each for core, Code Mode and automations, providers and MCP, the TUI and CLI, and machines.
+Each review checked every change against ocd's code. The desktop app, the web app, the stats site, Nix and upstream's
+own Rust client (`packages/cli-rs`, a client of the TypeScript server that does not ship yet) are out of scope.
+Only released behaviour counts, so a feature that is on only in local and dev builds is opt-in for ocd.
+
+## What changes upstream
+
+- **On by default now**: automations (a top-level `automations` setting, default `true`, replaces the experimental
+  flag), MCP Events (the beta wire; the `mcp_events` flag is gone), video generation (`generate_video` while a
+  connected provider has a video model), assistant parts written as `session_part` rows, and the TUI's new designs
+  with a new `opencode` theme (the old palette ships as `opencode-classic`; `experimental["new-designs"]: false`
+  keeps the old layout).
+- **Flags**: `automations`, `video_generate` and `mcp_events` are removed, and so is the `schedules` alias. New:
+  `recommended_api`, `model_speeds`, `machines`, `home_memory`, `project_overlay`, `sqlite_fts`, and `opencode_api`
+  (never on in a release build). `todo` is opt-in only; `full_codemode` is no longer opt-in only, so
+  `OPENCODE_FLAGS=all` and `experimental.all_flags` turn it on.
+- **Database**: two migrations (`machine`, `machine-key`), applied whatever the flags say.
+- **API**: 173 → 178 operations (machine list, add, remove and link; job cancel) and 518 → 528 schemas, none
+  removed; a new `experimental.job.updated` event.
+- **Code Mode**: the language moved to the npm package `psychoscript` 0.2.1 and gained getters and setters, classes,
+  V8-style `stack`s, locale-aware `localeCompare` and Date formatting, and more Buffer and base64 options. The
+  automation tools move to their own `automation` namespace; `execute` reports the files a script changed; a
+  top-level call to a Code Mode tool runs inside `execute`.
+- **Automations**: a fixed shell command as an action, scheduled code gets the session's Code Mode tools, plugins
+  can create, list and delete automations.
+- **Providers**: Google Interactions continuation, safety settings and Office documents; timeouts on every request
+  (media, embeddings, downloads); tool namespaces flattened once for every protocol; ChatGPT plan model lists from
+  models.dev, sign-out revoking the token, a clear message when a refresh is rejected; `COPILOT_GITHUB_TOKEN`; the
+  local agent CLI provider's `configDir` folders, rotation and web search; MCP negotiating the newest protocol.
+- **Session and tools**: background results as `<background-result>` blocks, `<system-update>` in place of the
+  old reminder tags, small fields before large output in tool results, shell asking permission for commands it can't
+  analyse, edit and patch refusing non-UTF-8 files, a compaction tail that stays within `keep.tokens`, config
+  reloads only when a config input changes, plugins on `@latest`, a range or a branch updating themselves.
+- **TUI and CLI**: `/login` and `/auth`, a hidden `login` command, running scripts in the composer picker, script
+  diffs under `execute`, OpenTUI 0.9.4's Markdown engine.
+- **Machines** (flag `machines`, off in release builds): only the home side ships; there is no worker yet.
+
+## Batches
+
+| # | Batch | Days |
+|---|---|---|
+| R0 | Foundation: flag registry and resolution, the `automations` setting, `part_rows` by default, the two migrations, OpenAPI, skipping plugin generations 2.4.1 rejected, `<system-update>` | 4 |
+| R1 | Session and tools: compaction tail, goal reminder, `<background-result>`, tool-input repair, result field order, shell changes, UTF-8 refusal, config reload inputs, job cancel and `job.updated`, the rest of the core fixes | 8 |
+| R2 | Automations and the Code Mode surface: namespace, shell action, scheduled code tools, plugin automation API, execute file diffs, catalog limits | 13 |
+| R3 | MCP: newest protocol by default, the MCP Events beta without a flag, `list_mcp_events` | 10 |
+| R4 | Providers: small fixes, tool-name flattening, Google Interactions, timeouts, catalog refresh, sign-out revoke | 14 |
+| R5 | The local agent CLI provider's `configDir`, rotation, renamed models and web search | 11 |
+| R6 | Video generation | 15 |
+| R7 | TUI and CLI small changes, job tracking and script diffs in the TUI | 6 |
+| R8 | New designs | 20 |
+| R9 | OpenTUI 0.9.4 rendering differences | 3.5 |
+| R10 | Code Mode language (psychoscript 0.2.1) and a re-recorded corpus | 26–31 |
+| R11 | Machines as a release build shows them with the flag off (403 routes, `ocd machine` commands) | 2 |
+| R12 | Version, web UI, plugin helper, side-by-side checks | 3 |
+
+Order: R0, then R1, R4, R7 and R11 side by side; then R2 with R3 (2.4.1 turns both on at once) and R9; then R8
+(themes first, since the default palette changes even with the new designs turned off) and R6; then R10 and R5.
+
+Opt-in features (about 28 days: the rest of `full_codemode`, `sqlite_fts`, `home_memory`, `project_overlay`,
+`model_speeds`, `recommended_api`, Console watch fixes) come after, on request. The full machines feature (about
+24–30 days) waits until upstream ships a worker.
+
+## Checks
+
+Filled in as batches land.
