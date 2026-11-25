@@ -518,8 +518,8 @@ fn converts_legacy_prefixed_integration_use_statements() {
 
 #[test]
 fn accepts_experimental_artifacts() {
-    let (encoded, d) = normalized(json!({ "experimental": { "schedules": true, "artifacts": true, "subagent_depth": 2 } }));
-    assert_eq!(encoded["experimental"], json!({ "schedules": true, "artifacts": true, "subagent_depth": 2 }));
+    let (encoded, d) = normalized(json!({ "experimental": { "artifacts": true, "subagent_depth": 2 } }));
+    assert_eq!(encoded["experimental"], json!({ "artifacts": true, "subagent_depth": 2 }));
     assert!(d.is_empty());
     let (encoded, d) = normalized(json!({ "experimental": { "artifacts": "yes" } }));
     assert!(encoded.get("experimental").is_none());
@@ -1190,21 +1190,23 @@ fn v2_3_0_provider_tls_and_freeform() {
     }
 }
 
-/// 2.3.1 `experimental` keys (`normalization.test.ts`): every registered flag as a boolean, `all_flags`,
-/// `part_rows`, the deprecated `codemode_vm` (the retired `codemodeVm` alias is ignored) and `schedules` (the old
-/// name of `automations`, after the registry), in the schema's key order. The retired `background_compaction` and
-/// `shell_timeout_background` are dropped without a diagnostic, like any unknown key.
+/// 2.4.1 `experimental` keys (`normalization.test.ts`): every registered flag as a boolean, `all_flags`,
+/// `video_generate` (a boolean or `{model}` like `image_generate`), `part_rows` and the deprecated `codemode_vm`
+/// (the retired `codemodeVm` alias is ignored), in the schema's key order. The retired `background_compaction` and
+/// `shell_timeout_background` are dropped without a diagnostic, like any unknown key; ocd keeps the staged
+/// `mcp_events` (dropped by 2.4.1) right after the registry.
 #[test]
-fn v2_3_1_experimental_keys() {
+fn v2_4_1_experimental_keys() {
     let (encoded, d) = normalized(json!({ "experimental": {
         "subagent_depth": 0, "image_generate": { "model": "openai/gpt-image-2" }, "part_rows": true, "codemodeVm": true,
-        "schedules": true, "full_codemode": true, "mcp_events": true, "console_watches": false,
-        "shell_timeout_background": true, "video_generate": false, "artifacts": true, "automations": false,
+        "sqlite_fts": true, "opencode_api": false, "project_overlay": true, "home_memory": false, "machines": true,
+        "full_codemode": true, "model_speeds": false, "recommended_api": true, "mcp_events": true, "console_watches": false,
+        "shell_timeout_background": true, "video_generate": { "model": "xai/grok-imagine-video" }, "artifacts": true,
         "media_blob": true, "background_compaction": true, "todo": true, "all_flags": true, "codemode_vm": false,
         "portable_shell_scanner": true,
     } }));
     assert!(d.is_empty(), "{d:?}");
-    let expected = r#"{"portable_shell_scanner":true,"codemode_vm":false,"all_flags":true,"todo":true,"media_blob":true,"automations":false,"artifacts":true,"video_generate":false,"console_watches":false,"mcp_events":true,"full_codemode":true,"schedules":true,"part_rows":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-2"}},"subagent_depth":0}"#;
+    let expected = r#"{"portable_shell_scanner":true,"codemode_vm":false,"all_flags":true,"todo":true,"media_blob":true,"artifacts":true,"console_watches":false,"recommended_api":true,"model_speeds":false,"full_codemode":true,"machines":true,"home_memory":false,"project_overlay":true,"opencode_api":false,"sqlite_fts":true,"mcp_events":true,"video_generate":{"model":{"providerID":"xai","model":"grok-imagine-video"}},"part_rows":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-2"}},"subagent_depth":0}"#;
     assert_eq!(serde_json::to_string(&encoded["experimental"]).unwrap(), expected);
     let info = Info::decode(&encoded).unwrap();
     assert_eq!(serde_json::to_string(&info.experimental).unwrap(), expected);
@@ -1216,10 +1218,44 @@ fn v2_3_1_experimental_keys() {
     assert!(encoded.get("experimental").is_none());
     assert!(d.is_empty(), "{d:?}");
 
-    // "normalizes every registered flag as a boolean".
-    let (encoded, d) = normalized(json!({ "experimental": { "todo": true, "media_blob": false, "automations": "yes", "full_codemode": true } }));
+    // "normalizes flag booleans and keeps automations at the top level" (2.4.1, #65296).
+    let (encoded, d) = normalized(json!({
+        "automations": false,
+        "experimental": {
+            "todo": true, "media_blob": false, "artifacts": "yes", "full_codemode": true, "automations": false,
+            "schedules": false,
+        },
+    }));
+    assert_eq!(encoded["automations"], json!(false));
     assert_eq!(encoded["experimental"], json!({ "todo": true, "media_blob": false, "full_codemode": true }));
-    assert_eq!(d.iter().map(|x| (x.kind.as_str(), x.log_path())).collect::<Vec<_>>(), [("invalid", "$.experimental.automations".to_string())]);
+    assert_eq!(
+        d.iter().map(|x| (x.kind.as_str(), x.log_path())).collect::<Vec<_>>(),
+        [
+            ("removed", "$.experimental.automations".to_string()),
+            ("removed", "$.experimental.schedules".to_string()),
+            ("invalid", "$.experimental.artifacts".to_string()),
+        ]
+    );
+    assert_eq!(d[0].message, "Use the top-level automations setting. Automations are enabled by default.");
+    assert_eq!(normalized(json!({ "experimental": { "automations": false, "schedules": false } })).0, json!({}));
+    // A malformed old key is still only reported as removed.
+    let (encoded, d) = normalized(json!({ "experimental": { "automations": "yes", "schedules": true } }));
+    assert_eq!(encoded, json!({}));
+    assert_eq!(paths(&d, DiagnosticKind::Removed), pv(&[&["experimental", "automations"], &["experimental", "schedules"]]));
+    assert!(paths(&d, DiagnosticKind::Invalid).is_empty());
+    // The top-level setting is a boolean, between `timezone` and `snapshots`.
+    let (encoded, d) = normalized(json!({ "snapshots": true, "automations": true, "timezone": "UTC" }));
+    assert!(d.is_empty(), "{d:?}");
+    assert_eq!(serde_json::to_string(&encoded).unwrap(), r#"{"timezone":"UTC","automations":true,"snapshots":true}"#);
+    assert_eq!(Info::decode(&encoded).unwrap().automations, Some(true));
+    let (encoded, d) = normalized(json!({ "automations": "yes" }));
+    assert!(encoded.get("automations").is_none());
+    assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["automations"]]));
+    // `video_generate` takes the same shapes as `image_generate`.
+    assert_eq!(normalized(json!({ "experimental": { "video_generate": false } })).0["experimental"], json!({ "video_generate": false }));
+    let (encoded, d) = normalized(json!({ "experimental": { "video_generate": "yes" } }));
+    assert!(encoded.get("experimental").is_none());
+    assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["experimental", "video_generate"]]));
 
     assert_eq!(normalized(json!({ "experimental": { "all_flags": false } })).0["experimental"], json!({ "all_flags": false }));
     let (encoded, d) = normalized(json!({ "experimental": { "all_flags": "yes" } }));
@@ -1227,7 +1263,7 @@ fn v2_3_1_experimental_keys() {
     assert_eq!(d.iter().map(|x| (x.kind.as_str(), x.log_path())).collect::<Vec<_>>(), [("invalid", "$.experimental.all_flags".to_string())]);
 }
 
-/// 2.2.2 config keys: `timezone`, `experimental.{media_blob,image_generate,schedules}`, prompt-cache settings,
+/// 2.2.2 config keys: `timezone`, `experimental.{media_blob,image_generate}` (`schedules` is removed in 2.4.1), prompt-cache settings,
 /// variant settings without `cache`, `models.<m>.type`, and v1 MCP `codemode`.
 #[test]
 fn v2_2_config_keys() {
@@ -1236,7 +1272,7 @@ fn v2_2_config_keys() {
         "timezone": "America/Los_Angeles",
         "experimental": {
             "media_blob": true,
-            "image_generate": { "model": "openai/gpt-image-1" }, "schedules": true, "subagent_depth": 2,
+            "image_generate": { "model": "openai/gpt-image-1" }, "subagent_depth": 2,
         },
         "providers": { "custom": {
             "settings": { "cache": { "ttl": "1h" }, "transport": "http", "baseURL": "https://x" },
@@ -1253,7 +1289,7 @@ fn v2_2_config_keys() {
     assert_eq!(encoded["timezone"], "America/Los_Angeles");
     assert_eq!(
         serde_json::to_string(&encoded["experimental"]).unwrap(),
-        r#"{"media_blob":true,"schedules":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-1"}},"subagent_depth":2}"#
+        r#"{"media_blob":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-1"}},"subagent_depth":2}"#
     );
     let custom = &encoded["providers"]["custom"];
     assert_eq!(serde_json::to_string(&custom["settings"]).unwrap(), r#"{"cache":{"ttl":"1h"},"transport":"http","baseURL":"https://x"}"#);
@@ -1273,9 +1309,9 @@ fn v2_2_config_keys() {
         assert!(encoded["providers"].get("bad").is_none());
         assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["providers", "bad"]]));
     }
-    let (encoded, d) = normalized(json!({ "experimental": { "schedules": "yes", "media_blob": true } }));
+    let (encoded, d) = normalized(json!({ "experimental": { "subagent_depth": "yes", "media_blob": true } }));
     assert_eq!(encoded["experimental"], json!({ "media_blob": true }));
-    assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["experimental", "schedules"]]));
+    assert_eq!(paths(&d, DiagnosticKind::Invalid), pv(&[&["experimental", "subagent_depth"]]));
 
     // v1 MCP servers carry `codemode` through the migration, after `disabled` and before `timeout`.
     let (encoded, _) = normalized(json!({ "mcp": {

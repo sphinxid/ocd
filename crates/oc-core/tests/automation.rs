@@ -216,7 +216,7 @@ fn write_config(dir: &Path, config: Value) {
 fn config(automations: bool, extra: Value) -> Value {
     let mut config = json!({
         "timezone": "America/New_York",
-        "experimental": {"automations": automations},
+        "automations": automations,
         "agent": {"helper": {"mode": "subagent"}, "internal": {"mode": "subagent", "hidden": true}},
     });
     for (k, v) in extra.as_object().unwrap() {
@@ -832,7 +832,7 @@ async fn rejects_creation_when_automations_are_off() {
     let s = h.session_in("disabled", None).await;
     let created = h.create(json!({"sessionID": s, "name": "x", "trigger": at("in 1 minute"), "action": prompt("x")})).await;
     assert_eq!(created, Err(AutomationError::Disabled));
-    assert_eq!(AutomationError::Disabled.message(), "Automations are disabled; set experimental.automations in config");
+    assert_eq!(AutomationError::Disabled.message(), "Automations are disabled. Set automations to true in config to enable them.");
     assert!(h.automations.list(&ListInput::default()).is_empty());
 }
 
@@ -1758,4 +1758,26 @@ async fn tools_treat_another_projects_automation_as_missing() {
         assert!(error.model_message().contains(&format!("Automation not found: {aut}")), "{}", error.model_message());
     }
     subset(&h.get(&aut), json!({"status": "active", "sessionID": other}));
+}
+
+/// 2.4.1 (#65296): automations follow the top-level `automations` of the highest-priority document that sets it;
+/// `experimental.automations` and `experimental.schedules` are removed and no longer count. Unset, ocd keeps them off
+/// for now (`DEFAULT_ENABLED`; 2.4.1 turns them on), and `OPENCODE_FLAGS` no longer names them.
+#[test]
+fn the_top_level_automations_setting_turns_automations_on() {
+    let doc = |text: &str| oc_config::Entry::Document {
+        path: None,
+        info: oc_config::load::parse_info(text, "test").unwrap(),
+        integration: None,
+        wellknown: None,
+    };
+    let enabled = |entries: &[oc_config::Entry]| oc_core::automation::settings_of(entries).enabled;
+    assert!(!oc_core::automation::DEFAULT_ENABLED);
+    assert_eq!(enabled(&[]), oc_core::automation::DEFAULT_ENABLED);
+    assert!(enabled(&[doc(r#"{"automations": true}"#)]));
+    assert!(!enabled(&[doc(r#"{"automations": true}"#), doc(r#"{"automations": false}"#)]));
+    // A project document that does not set it leaves the global one in effect.
+    assert!(enabled(&[doc(r#"{"automations": true}"#), doc(r#"{"timezone": "UTC", "experimental": {}}"#)]));
+    assert!(!enabled(&[doc(r#"{"experimental": {"automations": true, "schedules": true}}"#)]));
+    assert!(enabled(&[doc(r#"{"automations": true, "experimental": {"automations": false}}"#)]));
 }

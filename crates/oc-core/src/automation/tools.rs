@@ -1,7 +1,7 @@
 //! The automation tools (`core/src/tool/plugin/automation.ts`, plugin `opencode.tool.automation`):
 //! `automation_create`, `automation_list`, `automation_pause`, `automation_resume` and `automation_delete` in the
 //! `opencode` namespace, through Code Mode. They act only on automations in the calling session's project, and each
-//! call rechecks `experimental.automations` where that session lives, since a request keeps the tools it started
+//! call rechecks config where that session lives, since a request keeps the tools it started
 //! with after a config reload.
 
 use std::sync::{Arc, LazyLock};
@@ -190,7 +190,7 @@ fn changed(verb: &str, info: Value) -> ToolResult {
 }
 
 impl AutomationTool {
-    /// `caller(sessionID)`: the calling session, while `experimental.automations` is on where it lives.
+    /// `caller(sessionID)`: the calling session, while automations are enabled where it lives.
     async fn caller(&self, session_id: &str) -> Result<SessionInfo, AutomationError> {
         let session = self.automations.session(session_id)?;
         let on = self.automations.enabled(&session.location.directory).await.unwrap_or(false);

@@ -1,4 +1,4 @@
-//! `experimental.full_codemode` (2.3.1, opt-in only): the built-in tools Code Mode programs call (`tools.shell`,
+//! `experimental.full_codemode` (2.3.1): the built-in tools Code Mode programs call (`tools.shell`,
 //! `read`, `edit`, `write`, `patch`, `websearch`, the first five pinned), grep, glob and webfetch hidden, and slow
 //! scripts moved to the background as `codemode` jobs whose result arrives as a `<codemode>` message
 //! (`tool-shell.test.ts`, `tool-read.test.ts`, `tool-search.test.ts`, `tool-webfetch.test.ts`,
@@ -162,7 +162,7 @@ async fn full_codemode_end_to_end() {
         dir
     };
     let on = project("on", Some(true));
-    // `all_flags` turns every flag on except the opt-in-only `full_codemode`.
+    // `all_flags` turns every flag on, `full_codemode` too since 2.4.1, but the flag's own `false` wins.
     let off = project("off", Some(false));
     let default = project("default", None);
 

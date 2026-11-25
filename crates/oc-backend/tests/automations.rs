@@ -1,4 +1,4 @@
-//! The automation HTTP API with `experimental.automations` on (`server/src/handlers/automation.ts`, upstream's
+//! The automation HTTP API with automations enabled (top-level `automations: true`) (`server/src/handlers/automation.ts`, upstream's
 //! `server/test/automation.test.ts`), `/automation`, and automations running through the session API. Bodies were
 //! checked against the 2.3.1 binary (parity group `automation`).
 
@@ -27,8 +27,8 @@ fn api() -> Api {
     let tmp = tempfile::tempdir().unwrap();
     let root = oc_util::fs::canonicalize(tmp.path()).unwrap();
     let cwd = root.join("enabled");
-    write(&cwd, json!({ "experimental": { "automations": true, "mcp_events": true }, "permission": { "*": "allow" } }));
-    write(&root.join("ask"), json!({ "experimental": { "automations": true }, "permission": { "*": "allow", "execute": "ask" } }));
+    write(&cwd, json!({ "automations": true, "experimental": { "mcp_events": true }, "permission": { "*": "allow" } }));
+    write(&root.join("ask"), json!({ "automations": true, "permission": { "*": "allow", "execute": "ask" } }));
     let app = oc_core::app::App::new(global(&root.join("g")), oc_storage::Database::memory().unwrap(), "1.2.3");
     let runner = oc_core::runner::Engine::new(app.clone(), &oc_core::services::default_services(&app));
     let engine = oc_backend::Engine::with_runner(runner);
@@ -147,13 +147,13 @@ async fn manages_automations_when_enabled_and_honors_automations_false() {
     assert_eq!(a.list(&format!("?sessionID={session}")).await.1, json!({ "data": [] }));
 
     // Turn off the directory that still owns the standalone automation. Even unfiltered lists must hide it.
-    write(&enabled, json!({ "experimental": { "automations": false } }));
+    write(&enabled, json!({ "automations": false }));
     a.engine.runner.as_ref().unwrap().reload_location(&enabled.display().to_string()).await.unwrap();
     assert_eq!(a.list("").await.1, json!({ "data": [] }));
     let (status, body) = a.req("GET", &format!("/api/experimental/automation/{}", standalone["id"].as_str().unwrap()), None).await;
     assert_eq!((status, tag(&body)), (403, "ForbiddenError"));
     let (status, body) = a.create(json!({ "sessionID": session, "name": "x", "trigger": hourly(), "action": { "type": "prompt", "prompt": "ping" } })).await;
-    assert_eq!((status, body), (403, json!({ "_tag": "ForbiddenError", "message": "Automations are disabled; set experimental.automations in config" })));
+    assert_eq!((status, body), (403, json!({ "_tag": "ForbiddenError", "message": "Automations are disabled. Set automations to true in config to enable them." })));
     assert_eq!(tag(&a.list(&format!("?sessionID={session}")).await.1), "ForbiddenError");
 
     // A code action that would need an interactive approval is refused over stateless HTTP instead of hanging.
@@ -168,7 +168,7 @@ async fn manages_automations_when_enabled_and_honors_automations_false() {
 async fn an_automation_whose_folder_is_gone_stays_manageable() {
     let a = api();
     let worktree = a.root.join("worktree");
-    write(&worktree, json!({ "experimental": { "automations": true } }));
+    write(&worktree, json!({ "automations": true }));
     let session = a.session_at(&worktree).await;
     let (status, created) = a
         .create(json!({ "name": "gone", "directory": worktree, "trigger": hourly(), "action": { "type": "prompt", "prompt": "x", "to": { "session": session } } }))
@@ -176,7 +176,7 @@ async fn an_automation_whose_folder_is_gone_stays_manageable() {
     assert_eq!(status, 200, "{created}");
     let id = created["data"]["id"].as_str().unwrap().to_string();
     std::fs::remove_dir_all(&worktree).unwrap();
-    write(&a.cwd, json!({ "experimental": { "automations": false } }));
+    write(&a.cwd, json!({ "automations": false }));
     a.engine.runner.as_ref().unwrap().reload_location(&a.cwd.display().to_string()).await.unwrap();
     assert_eq!(ids(&a.list("").await.1), vec![id.clone()]);
     assert_eq!(ids(&a.list(&format!("?directory={}", enc(&worktree.display().to_string()))).await.1), vec![id.clone()]);
@@ -194,7 +194,7 @@ async fn the_automation_command_follows_the_flag() {
     assert!(names.contains(&"automation"), "{names:?}");
     let command = commands["data"].as_array().unwrap().iter().find(|c| c["name"] == "automation").unwrap();
     assert_eq!(command["description"], "create an automation, or list, pause, resume and delete this project's automations");
-    write(&a.cwd, json!({ "experimental": { "automations": false } }));
+    write(&a.cwd, json!({ "automations": false }));
     a.engine.runner.as_ref().unwrap().reload_location(&a.cwd.display().to_string()).await.unwrap();
     // The server drops its location services when it sees the reload's `config.updated` on the bus, in a task of its
     // own (as for a config file change), so the command list follows shortly after rather than at once.

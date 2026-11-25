@@ -1,5 +1,6 @@
 //! Automations (`core/src/automation.ts`, `automation/sql.ts`, `schema/src/automation.ts`), opencode 2.3.1's
-//! replacement for scheduled prompts, behind `experimental.automations` (old name `schedules`).
+//! replacement for scheduled prompts, behind the top-level `automations` setting (2.4.1; `experimental.automations`
+//! and its old name `schedules` before).
 //!
 //! An automation belongs to a project. On a timer (`at` once, `every` interval or `cron`, each in a zone) it either
 //! sends a prompt (`{type: "prompt"}`) to an existing session or to a new child of its creating session with a
@@ -57,7 +58,13 @@ const MAX_CODE_FAILURES: i64 = 3;
 const TICK_CONCURRENCY: usize = 4;
 
 /// `Automation.DisabledError`'s message.
-pub const DISABLED: &str = "Automations are disabled; set experimental.automations in config";
+pub const DISABLED: &str = "Automations are disabled. Set automations to true in config to enable them.";
+
+/// What an unset top-level `automations` means. 2.4.1 (#65296) reads `Config.latest(entries, "automations") ?? true`:
+/// automations are on unless a config turns them off. ocd keeps them off until set to `true` while its automations
+/// are still 2.3.2's (no `session.rename`/`move`, shell action, denylist, ...).
+// TODO(2.4.1 automations batch): flip to `true` once automations match 2.4.1.
+pub const DEFAULT_ENABLED: bool = false;
 
 /// The `/automation` command template (`plugin/command/automation.txt`).
 pub const COMMAND_TEMPLATE: &str = include_str!("../../../../assets/prompt/command/automation.txt");
@@ -658,7 +665,7 @@ impl Automations {
         Ok(settings_of(&location.entries))
     }
 
-    /// `enabled(directory)`: whether `experimental.automations` is on in the config of `directory`; `Err` when the
+    /// `enabled(directory)`: whether automations are enabled in the config of `directory`; `Err` when the
     /// folder is gone.
     pub async fn enabled(&self, directory: &str) -> Result<bool, AutomationError> {
         self.settings(directory).await.map(|s| s.enabled)
@@ -1814,10 +1821,11 @@ pub fn is_absolute(input: &str) -> bool {
     std::path::Path::new(input).is_absolute() || (cfg!(windows) && (input.starts_with('/') || input.starts_with('\\')))
 }
 
-/// The location settings from its config entries: the `automations` and `mcp_events` flags and `timezone`.
+/// The location settings from its config entries: the top-level `automations` setting (see [`DEFAULT_ENABLED`]), the
+/// staged `mcp_events` flag and `timezone`.
 pub fn settings_of(entries: &[oc_config::Entry]) -> Settings {
     Settings {
-        enabled: oc_config::flag::enabled(entries, "automations"),
+        enabled: oc_config::fold::latest(entries, |i| i.automations.as_ref()).copied().unwrap_or(DEFAULT_ENABLED),
         events: oc_config::flag::enabled(entries, "mcp_events"),
         timezone: oc_config::fold::latest(entries, |i| i.timezone.as_ref()).cloned(),
     }

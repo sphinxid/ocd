@@ -34,6 +34,8 @@ async fn todowrite_is_absent_unless_experimental_todo_is_enabled() {
         ("unset", None, false),
         ("off", Some(serde_json::json!({ "todo": false })), false),
         ("other", Some(serde_json::json!({ "subagent_depth": 2 })), false),
+        // 2.4.1: `todo` is opt-in only, so `all_flags` (like `OPENCODE_FLAGS=all`) leaves it off.
+        ("all", Some(serde_json::json!({ "all_flags": true })), false),
         ("on", Some(serde_json::json!({ "todo": true })), true),
     ] {
         let project = root.path().join(name);

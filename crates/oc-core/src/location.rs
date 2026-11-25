@@ -84,8 +84,9 @@ impl Location {
         let (sources, entries) = loader.entries().await.map_err(|e| anyhow::anyhow!("{e}"))?;
         let media = oc_config::flag::enabled(&entries, "media_blob");
         bus.set_media_blob(&[&key, &directory.display().to_string()], media);
-        // `partRowsEnabled`: `experimental.part_rows` of the highest-priority document that sets `experimental`.
-        let part_rows = oc_config::fold::experimental(&entries).and_then(|e| e.part_rows) == Some(true);
+        // `partRowsEnabled`: `experimental.part_rows` of the highest-priority document that sets `experimental`; on
+        // unless that says `false` (2.4.1 #65039).
+        let part_rows = oc_config::fold::experimental(&entries).and_then(|e| e.part_rows) != Some(false);
         bus.set_part_rows(&[&key, &directory.display().to_string()], part_rows);
         Ok(Location { key, directory, project, entries, sources, remote_instructions: Default::default(), closed: Default::default() })
     }

@@ -52,7 +52,7 @@ pub struct Engine {
     pub goals: crate::goal::Goals,
     /// Background summaries held per session (`compaction.background`).
     pub(crate) precomputed: Mutex<HashMap<String, crate::compaction::Precomputed>>,
-    /// Automations (`experimental.automations`).
+    /// Automations (the top-level `automations` setting).
     pub automations: Arc<crate::automation::Automations>,
     /// Tools tests register in every location after the built-ins (a stand-in for a plugin's tool transform).
     #[doc(hidden)]
@@ -97,7 +97,8 @@ pub(crate) fn agent_model(catalog: &oc_ai::catalog::Catalog, agent: &Agent) -> O
         .then(|| m.clone())
 }
 
-/// `Flag.enabled("full_codemode")` at a location: opt-in only, never turned on by `all` or `all_flags`.
+/// `Flag.enabled("full_codemode")` at a location: off in a release build unless named or turned on by `all` or
+/// `all_flags` (no longer opt-in only since 2.4.1).
 pub fn full_codemode(entries: &[oc_config::schema::Entry]) -> bool {
     oc_config::flag::enabled(entries, "full_codemode")
 }
@@ -644,8 +645,8 @@ impl Engine {
                 }
             }
         }
-        // `experimental.full_codemode` (opt-in only): shell, read, edit, write, patch and websearch register as Code
-        // Mode tools, and grep, glob and webfetch don't register at all.
+        // `experimental.full_codemode` (off in releases unless turned on): shell, read, edit, write, patch and
+        // websearch register as Code Mode tools, and grep, glob and webfetch don't register at all.
         if full_codemode(&location.entries) {
             for (id, tool) in registry.list() {
                 if oc_tools::tools::code_mode::HIDDEN.contains(&id.as_str()) && tool.options().namespace.is_none() {
@@ -655,7 +656,7 @@ impl Engine {
                 }
             }
         }
-        // `opencode.tool.automation` adds its tools only while `experimental.automations` is on.
+        // `opencode.tool.automation` adds its tools only while automations are enabled.
         if crate::automation::settings_of(&location.entries).enabled
             && self.app.plugins.enabled(key).is_none_or(|enabled| enabled.iter().any(|e| e == crate::automation::PLUGIN_ID))
         {

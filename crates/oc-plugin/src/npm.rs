@@ -20,6 +20,11 @@ use crate::protocol::Installed;
 const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const STAGING_RETENTION: Duration = Duration::from_secs(60 * 60);
 
+/// A generation directory's name: digits only (`/^\d+$/`).
+fn is_generation(name: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit())
+}
+
 /// A parsed package spec (the subset of npm-package-arg upstream accepts).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
@@ -202,10 +207,17 @@ impl Npm {
     }
 
     /// Numeric generations, ascending.
+    /// The completed generations of `dir`, oldest first: numeric children, except one that 2.4.1's plugin
+    /// auto-update rejected after it failed to load (a `<generation>.rejected` marker next to it, #65056).
     pub fn generations(dir: &Path) -> Vec<u128> {
-        let mut out: Vec<u128> = std::fs::read_dir(dir)
-            .map(|r| r.flatten().filter_map(|e| e.file_name().to_str().and_then(|n| n.parse().ok())).collect())
+        let names: Vec<String> = std::fs::read_dir(dir)
+            .map(|r| r.flatten().filter_map(|e| e.file_name().into_string().ok()).collect())
             .unwrap_or_default();
+        let mut out: Vec<u128> = names
+            .iter()
+            .filter(|n| is_generation(n) && !names.contains(&format!("{n}.rejected")))
+            .filter_map(|n| n.parse().ok())
+            .collect();
         out.sort();
         out
     }
@@ -453,8 +465,9 @@ impl Npm {
         let Ok(read) = std::fs::read_dir(dir) else { return };
         for entry in read.flatten() {
             let Some(name) = entry.file_name().to_str().map(String::from) else { continue };
-            let (timestamp, max_age) = if let Ok(n) = name.parse::<u128>() {
-                (Some(n), RETENTION)
+            let generation = name.strip_suffix(".rejected").unwrap_or(&name);
+            let (timestamp, max_age) = if is_generation(generation) {
+                (generation.parse::<u128>().ok(), RETENTION)
             } else if let Some(rest) = name.strip_prefix(".staging-") {
                 (rest.split('-').next().and_then(|n| n.parse().ok()), STAGING_RETENTION)
             } else {
@@ -464,7 +477,9 @@ impl Npm {
             if keep.contains(&name) || now.saturating_sub(timestamp) <= max_age.as_millis() {
                 continue;
             }
-            if let Err(error) = std::fs::remove_dir_all(entry.path()) {
+            let path = entry.path();
+            let removed = if path.is_dir() { std::fs::remove_dir_all(&path) } else { std::fs::remove_file(&path) };
+            if let Err(error) = removed {
                 tracing::warn!(dir = %dir.display(), name, %error, "failed to remove stale npm generation");
             }
         }
@@ -514,6 +529,33 @@ mod tests {
         let mut left: Vec<String> = std::fs::read_dir(root).unwrap().flatten().map(|e| e.file_name().into_string().unwrap()).collect();
         left.sort();
         assert_eq!(left, ["2", "3", "notes"]);
+    }
+
+    /// 2.4.1 (#65056): a generation with a `<generation>.rejected` marker is skipped, so the one before it is
+    /// current again; stale markers are collected like generations.
+    #[test]
+    fn skips_rejected_generations() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let old = now_ms() - RETENTION.as_millis() - 1_000;
+        let gens = [old - 2, old - 1, old, now_ms()];
+        for g in gens {
+            std::fs::create_dir(root.join(g.to_string())).unwrap();
+        }
+        std::fs::write(root.join(format!("{}.rejected", gens[3])), "").unwrap();
+        std::fs::write(root.join(format!("{}.rejected", gens[0])), "").unwrap();
+        std::fs::create_dir(root.join("+5")).unwrap();
+        assert_eq!(Npm::generations(root), vec![gens[1], gens[2]]);
+        assert_eq!(Npm::current(root), Some(root.join(gens[2].to_string())));
+        Npm::collect(root);
+        let mut left: Vec<String> = std::fs::read_dir(root).unwrap().flatten().map(|e| e.file_name().into_string().unwrap()).collect();
+        left.sort();
+        let mut expected = vec!["+5".to_string(), gens[1].to_string(), gens[2].to_string(), gens[3].to_string(), format!("{}.rejected", gens[3])];
+        expected.sort();
+        assert_eq!(left, expected);
+        // Only the marker hides a generation: without it the newest is current again.
+        std::fs::remove_file(root.join(format!("{}.rejected", gens[3]))).unwrap();
+        assert_eq!(Npm::current(root), Some(root.join(gens[3].to_string())));
     }
 
     #[test]

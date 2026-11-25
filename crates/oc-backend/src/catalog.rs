@@ -38,7 +38,7 @@ pub enum CommandDef {
     Mcp(oc_mcp::Prompt),
     /// `/goal` (the built-in `opencode.goal` plugin).
     Goal,
-    /// `/automation` (the built-in `opencode.tool.automation` plugin, while `experimental.automations` is on).
+    /// `/automation` (the built-in `opencode.tool.automation` plugin, while automations are enabled).
     Automation,
     Config(Command),
     /// A plugin command: its `execute` function handle in the plugin host.

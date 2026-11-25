@@ -345,7 +345,7 @@ You are an AI agent running in OpenCode, a coding agent harness. Help the user a
 
 # Harness
 - Responses are rendered as GitHub-flavored Markdown.
-- `<system-reminder>` blocks are harness instructions, not user-authored content. Read and follow them.
+- `<system-update>` blocks are harness instructions, not user-authored content. Read and follow them.
 - Prefer parallelizing independent tool calls.
 ${OPENCODE_TOOL_GUIDANCE}
 
@@ -437,19 +437,19 @@ settings nor the selected variant set `textVerbosity` → set `options.textVerbo
 
 `dir = path.join(home, ".opencode", "plan")`. Templates (verbatim; `${directory}` substituted):
 ```
-<system-reminder>
+<system-update>
 You are in Plan mode. Discuss the plan with the user directly in the conversation. Do not create or update plan files unless the user explicitly asks you to; when they do, write them only in:
 ${directory}
 
 Do not modify any other files or ask a subagent to do so.
 
 You remain in Plan mode until the user switches agents. If the user asks you to implement changes, do not do so. Tell them they need to switch agents.
-</system-reminder>
+</system-update>
 ```
 ```
-<system-reminder>
+<system-update>
 You are NO LONGER in Plan mode. The previous Plan restrictions no longer apply. Any Plan mode instructions from earlier in this conversation are no longer active.
-</system-reminder>
+</system-update>
 ```
 
 #### 2.8.6 `prepare(kind, input, shape)` (`model-request.ts:236-418`)

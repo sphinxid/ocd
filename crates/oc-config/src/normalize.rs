@@ -20,6 +20,8 @@ use oc_schema::types::PermissionRule;
 pub enum DiagnosticKind {
     Conflict,
     Invalid,
+    /// 2.4.1: a setting that no longer exists, dropped with a pointer to its replacement (logged as a warning).
+    Removed,
     Unsupported,
 }
 
@@ -28,6 +30,7 @@ impl DiagnosticKind {
         match self {
             DiagnosticKind::Conflict => "conflict",
             DiagnosticKind::Invalid => "invalid",
+            DiagnosticKind::Removed => "removed",
             DiagnosticKind::Unsupported => "unsupported",
         }
     }
@@ -57,6 +60,8 @@ pub const MSG_CONFLICT: &str = "retained native value over legacy value";
 pub const MSG_UNSUPPORTED: &str = "omitted unsupported legacy setting";
 pub const MSG_UNSUPPORTED_MODEL: &str = "omitted unsupported legacy model reference";
 pub const MSG_UNSUPPORTED_VARIANT: &str = "omitted unsupported legacy model variant";
+/// 2.4.1 (#65296): `experimental.automations` and `experimental.schedules` became the top-level `automations`.
+pub const MSG_REMOVED_AUTOMATIONS: &str = "Use the top-level automations setting. Automations are enabled by default.";
 pub const MSG_ENABLED_ONLY_MCP: &str = "omitted enabled-only legacy MCP entry";
 
 /// Result of [`normalize`].
@@ -424,7 +429,7 @@ pub fn normalize(input: &Value) -> NormalizeResult {
     }
 
     type Atomic = fn(&Value, Vec<String>, &mut Diags) -> Option<Value>;
-    let native_atomic: [(&str, Atomic); 13] = [
+    let native_atomic: [(&str, Atomic); 14] = [
         ("$schema", |v, p, d| decode_encoded::<String>(v, p, d)),
         ("shell", |v, p, d| decode_encoded::<String>(v, p, d)),
         ("default_agent", |v, p, d| decode_encoded::<String>(v, p, d)),
@@ -432,6 +437,7 @@ pub fn normalize(input: &Value) -> NormalizeResult {
         ("enterprise", |v, p, d| decode_encoded::<Enterprise>(v, p, d)),
         ("username", |v, p, d| decode_encoded::<String>(v, p, d)),
         ("timezone", |v, p, d| decode_encoded::<String>(v, p, d)),
+        ("automations", |v, p, d| decode_encoded::<bool>(v, p, d)),
         ("snapshots", |v, p, d| decode_encoded::<bool>(v, p, d)),
         ("media", |v, p, d| decode_encoded::<Media>(v, p, d)),
         ("tool_output", |v, p, d| decode_encoded::<ToolOutput>(v, p, d)),
@@ -704,20 +710,42 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                 for key in UNSUPPORTED_EXPERIMENTAL {
                     unsupported_if_present(e, key, p(&["experimental", key]), d);
                 }
-                // 2.3.1: every `ConfigExperimental.Info` field in schema order (`policies` merges into top-level
+                // 2.4.1 (#65296): the automations flag and its old name are gone; the top-level `automations` replaces
+                // them, so their values are dropped with a warning.
+                for key in ["automations", "schedules"] {
+                    if e.contains_key(key) {
+                        d.push(Diagnostic {
+                            kind: DiagnosticKind::Removed,
+                            path: p(&["experimental", key]),
+                            message: MSG_REMOVED_AUTOMATIONS,
+                        });
+                    }
+                }
+                // 2.4.1: every `ConfigExperimental.Info` field in schema order (`policies` merges into top-level
                 // `policies` in normalize_policies). `codemode_vm` is a deprecated, ignored key; the retired
-                // `codemodeVm` alias is no longer read. `schedules` is the deprecated name of `automations`, after
-                // the registry; the retired `background_compaction` and `shell_timeout_background` are dropped.
+                // `codemodeVm` alias and retired flags (`background_compaction`, `shell_timeout_background`) are
+                // dropped without a word. 2.4.1 drops `mcp_events` too; ocd keeps it, right after the registry, as
+                // a staged flag (`crate::flag::STAGED`) until MCP Events are ported as 2.4.1 ships them.
                 let booleans = ["portable_shell_scanner", "codemode_vm", "all_flags"]
                     .into_iter()
                     .chain(crate::flag::REGISTRY.iter().map(|(key, _)| *key))
-                    .chain(["schedules", "part_rows"]);
+                    .chain(crate::flag::STAGED.iter().copied());
                 for key in booleans {
                     if let Some(v) = e.get(key)
                         && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", key]), d)
                     {
                         result.insert(key.into(), value);
                     }
+                }
+                if let Some(v) = e.get("video_generate")
+                    && let Some(value) = decode_encoded::<crate::schema::VideoGenerate>(v, p(&["experimental", "video_generate"]), d)
+                {
+                    result.insert("video_generate".into(), value);
+                }
+                if let Some(v) = e.get("part_rows")
+                    && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", "part_rows"]), d)
+                {
+                    result.insert("part_rows".into(), value);
                 }
                 if let Some(v) = e.get("image_generate")
                     && let Some(value) = decode_encoded::<crate::schema::ImageGenerate>(v, p(&["experimental", "image_generate"]), d)

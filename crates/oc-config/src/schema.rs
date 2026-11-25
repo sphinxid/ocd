@@ -1739,43 +1739,59 @@ pub struct Experimental {
     /// Deprecated: ignored because Code Mode always runs on the VM.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codemode_vm: Option<bool>,
-    /// Turn every feature flag on regardless of the build channel, like `OPENCODE_FLAGS=all`, except opt-in-only
-    /// flags (see [`crate::flag`]).
+    /// Enable all flags except opt-in-only flags on any build channel, like OPENCODE_FLAGS=all (see [`crate::flag`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub all_flags: Option<bool>,
-    /// Flag: enable the experimental todowrite tool.
+    /// Opt-in-only flag: the experimental todowrite tool.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub todo: Option<bool>,
     /// Flag: store new session media once in a deduplicated blob table.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_blob: Option<bool>,
-    /// Flag: automations, prompts or Code Mode actions on a timer (accepted; not ported yet).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub automations: Option<bool>,
     /// Flag: experimental artifacts backed by pluggable providers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artifacts: Option<bool>,
-    /// Flag: the experimental video generation API (accepted; not ported).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub video_generate: Option<bool>,
     /// Flag: OpenCode Console watches (`oc_core::console_watches`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub console_watches: Option<bool>,
-    /// Flag: experimental MCP Events, a draft MCP extension (accepted; not ported).
+    /// Flag: models.dev's recommended API per model (2.4.1; accepted, not ported yet).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp_events: Option<bool>,
-    /// Opt-in-only flag: the full Code Mode work in progress (accepted; not ported).
+    pub recommended_api: Option<bool>,
+    /// Flag: service tiers as model speeds (2.4.1; accepted, not ported yet).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_speeds: Option<bool>,
+    /// Flag: the full Code Mode work in progress.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_codemode: Option<bool>,
-    /// Deprecated: use experimental.automations (read as its old name).
+    /// Flag: machine-qualified tool paths (2.4.1; accepted, not ported yet).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub schedules: Option<bool>,
+    pub machines: Option<bool>,
+    /// Flag: the home folder's memory workspace (2.4.1; accepted, not ported yet).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub home_memory: Option<bool>,
+    /// Flag: the per-project personal config dir (2.4.1; accepted, not ported yet).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_overlay: Option<bool>,
+    /// Opt-in-only, local-only flag: `opencode:///api/...` from Code Mode (2.4.1; never on in an ocd build).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opencode_api: Option<bool>,
+    /// Flag: the SQLite full-text index of sessions (2.4.1; accepted, not ported yet).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sqlite_fts: Option<bool>,
+    /// Staged flag (not in 2.4.1's schema, see [`crate::flag::STAGED`]): ocd's MCP Events, which 2.4.1 turns on
+    /// for everyone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_events: Option<bool>,
+    /// Settings for the generate_video tool: `false` turns the tool off, `{model}` sets its preferred model
+    /// (accepted; video generation is not ported yet).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_generate: Option<VideoGenerate>,
     /// Write each assistant part as its own session_part row instead of rewriting the whole message on every event.
-    /// Defaults to false (read where an event projects: the session's location).
+    /// Defaults to true; `false` falls back to whole-message writes (read where an event projects: the session's
+    /// location).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_rows: Option<bool>,
-    /// Settings for the experimental_image_generate tool: `false` turns the tool off, `{model}` sets its preferred
-    /// model.
+    /// Settings for the image generation tool: `false` turns the tool off, `{model}` sets its preferred model.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_generate: Option<ImageGenerate>,
     /// Maximum subagent nesting depth. Defaults to 1.
@@ -1791,18 +1807,22 @@ pub struct Experimental {
 }
 
 impl Experimental {
-    /// The value of a flag of the registry, or of a flag's old name (`experimental.<key>`).
+    /// The value of a flag of the registry, or of a staged flag (`experimental.<key>`).
     pub fn flag(&self, key: &str) -> Option<bool> {
         match key {
             "todo" => self.todo,
             "media_blob" => self.media_blob,
-            "automations" => self.automations,
             "artifacts" => self.artifacts,
-            "video_generate" => self.video_generate,
             "console_watches" => self.console_watches,
-            "mcp_events" => self.mcp_events,
+            "recommended_api" => self.recommended_api,
+            "model_speeds" => self.model_speeds,
             "full_codemode" => self.full_codemode,
-            "schedules" => self.schedules,
+            "machines" => self.machines,
+            "home_memory" => self.home_memory,
+            "project_overlay" => self.project_overlay,
+            "opencode_api" => self.opencode_api,
+            "sqlite_fts" => self.sqlite_fts,
+            "mcp_events" => self.mcp_events,
             _ => None,
         }
     }
@@ -1817,13 +1837,18 @@ impl Decode for Experimental {
             all_flags: opt(o, "all_flags")?,
             todo: opt(o, "todo")?,
             media_blob: opt(o, "media_blob")?,
-            automations: opt(o, "automations")?,
             artifacts: opt(o, "artifacts")?,
-            video_generate: opt(o, "video_generate")?,
             console_watches: opt(o, "console_watches")?,
-            mcp_events: opt(o, "mcp_events")?,
+            recommended_api: opt(o, "recommended_api")?,
+            model_speeds: opt(o, "model_speeds")?,
             full_codemode: opt(o, "full_codemode")?,
-            schedules: opt(o, "schedules")?,
+            machines: opt(o, "machines")?,
+            home_memory: opt(o, "home_memory")?,
+            project_overlay: opt(o, "project_overlay")?,
+            opencode_api: opt(o, "opencode_api")?,
+            sqlite_fts: opt(o, "sqlite_fts")?,
+            mcp_events: opt(o, "mcp_events")?,
+            video_generate: opt(o, "video_generate")?,
             part_rows: opt(o, "part_rows")?,
             image_generate: opt(o, "image_generate")?,
             subagent_depth: opt_with(o, "subagent_depth", non_negative_int)?,
@@ -1854,6 +1879,10 @@ impl Decode for ImageGenerate {
         Some(ImageGenerate::Settings { model: opt(o, "model")? })
     }
 }
+
+/// `experimental.video_generate` (2.4.1): `boolean | {model?: Config.ModelSelection}`, the same shape as
+/// `image_generate`.
+pub type VideoGenerate = ImageGenerate;
 
 /// `Schema.Union([Schema.DurationFromString, Schema.Literal(false)])`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -1902,6 +1931,11 @@ pub struct Info {
     /// IANA time zone for schedules, e.g. America/Los_Angeles. Defaults to the server's local zone
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
+    /// Run prompts, shell commands or Code Mode actions on a timer, on a cron schedule, or on push events from
+    /// connected MCP servers. Defaults to true; set false to disable (2.4.1; ocd reads it through
+    /// `oc_core::automation::settings_of`, which keeps automations off until set to true for now).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub automations: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<Ruleset>,
     /// Ordered policies controlling access to providers, tools, and integrations
@@ -1960,6 +1994,7 @@ impl Decode for Info {
             enterprise: opt(o, "enterprise")?,
             username: opt(o, "username")?,
             timezone: opt(o, "timezone")?,
+            automations: opt(o, "automations")?,
             permissions: opt(o, "permissions")?,
             policies: opt(o, "policies")?,
             agents: opt(o, "agents")?,

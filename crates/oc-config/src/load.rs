@@ -88,11 +88,11 @@ pub fn parse_info(text: &str, source: &str) -> Option<Info> {
         return None;
     };
     let result = normalize(&input);
-    // Every reload repeats the routine notes on a config that loads. A rejected config or a dropped malformed
-    // setting is the user's to fix, so those stay warnings (2.2.7).
+    // Every reload repeats routine notes. Rejected configs and dropped malformed or removed settings need a warning
+    // (2.4.1).
     let rejected = !matches!(result, NormalizeResult::Normalized { .. });
     for d in result.diagnostics() {
-        let log = if rejected || d.kind.as_str() == "invalid" { warn } else { debug };
+        let log = if rejected || matches!(d.kind.as_str(), "invalid" | "removed") { warn } else { debug };
         log(source, &d.log_path(), d.kind.as_str(), d.message);
     }
     let NormalizeResult::Normalized { encoded, .. } = result else { return None };

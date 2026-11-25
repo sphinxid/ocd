@@ -106,7 +106,7 @@ pub const BUILTIN_PLUGINS: [&str; 94] = [
     "opencode.tool.question",
     "opencode.tool.read",
     "opencode.tool.artifact",
-    // 2.3.1: replaces `opencode.tool.schedule`; its tools and `/automation` need `experimental.automations`.
+    // 2.3.1: replaces `opencode.tool.schedule`; its tools and `/automation` need automations enabled (top-level `automations`, 2.4.1).
     "opencode.tool.automation",
     "opencode.tool.shell",
     "opencode.tool.skill",

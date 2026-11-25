@@ -10,7 +10,8 @@ mod common;
 use common::*;
 use serde_json::{Value, json};
 
-const AUTOMATIONS_OFF: &str = "Automations are disabled; set experimental.automations in config";
+/// Automations stay off in ocd until the top-level `automations` is set (`oc_core::automation::DEFAULT_ENABLED`).
+const AUTOMATIONS_OFF: &str = "Automations are disabled. Set automations to true in config to enable them.";
 const VIDEO_OFF: &str = "Video generation is disabled; enable experimental.video_generate";
 const MISSING_SESSION: &str = "ses_ffffffffffffZZZZZZZZZZZZZZ";
 const MISSING_AUTOMATION: &str = "aut_ffffffffffffZZZZZZZZZZZZZZ";

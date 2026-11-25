@@ -1,4 +1,4 @@
-//! The built-in tools under `experimental.full_codemode` (2.3.1, opt-in only): `shell`, `read`, `edit`, `write`,
+//! The built-in tools under `experimental.full_codemode` (2.3.1): `shell`, `read`, `edit`, `write`,
 //! `patch` and `websearch` move into Code Mode, where programs call them as `tools.<name>`, and `grep`, `glob` and
 //! `webfetch` are hidden (programs use their own code and the `fetch` global). Each plugin registers its tool with
 //! the Code Mode options, so the change is made here, over the registered tool (#64284, #64335, #64364, #64368,

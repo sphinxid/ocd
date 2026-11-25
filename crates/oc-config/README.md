@@ -20,7 +20,7 @@ agent/provider registries. It uses the functions below to do that work.
   `Cost`/`CostSetting`/`Limit`, `Experimental` (incl. 2.2.2's `media_blob`, `image_generate`/`ImageGenerate`,
   `schedules` (since 2.3.1 the deprecated old name of `automations`) and 2.2.5's `artifacts`, accepted and normalized;
   `image_generate` drives the image tool, see `fold::image_generate`)/`Policy`, `UpdatePolicy`,
-  `Share`, `Patch`; `Info.timezone`.
+  `Share`, `Patch`; `Info.timezone`, `Info.automations` (2.4.1).
 - 2.2.7 keys, accepted, normalized and echoed in upstream's key order: `experimental.all_flags`,
   `console_watches`, `part_rows`; MCP `pool` on local and remote servers;
   `warming.interval: "auto"` (`WarmingInterval`); provider and model `cache.warming` (`CacheWarming`:
@@ -40,6 +40,12 @@ agent/provider registries. It uses the functions below to do that work.
   ported, the full Code Mode is read by core), and `schedules` moved after the registry as the deprecated old name of
   `automations`. The retired `background_compaction` and `shell_timeout_background` are dropped from the
   decoded and echoed config without a diagnostic, like any unknown key.
+- 2.4.1 keys: the top-level `automations` (boolean, after `timezone`); `experimental.automations` and
+  `experimental.schedules` are dropped with a `removed` diagnostic (logged as a warning, like `invalid`);
+  `experimental.video_generate` is a tool setting (`VideoGenerate`, the shape of `image_generate`) after the
+  registry; the new flags `recommended_api`, `model_speeds`, `machines`, `home_memory`, `project_overlay`,
+  `opencode_api`, `sqlite_fts`; `part_rows` defaults to on. ocd keeps `experimental.mcp_events` (2.4.1 drops it)
+  as a staged flag until MCP Events are ported as 2.4.1 ships them.
 - `Compaction.buffer` is a `CompactionBuffer`: `Tokens(u64)` or `Percent(String)` (`Config.Compaction.Percent`,
   `^([1-9]\d?(\.\d+)?)%$`, kept as written); `tokens(window)` is `Math.round(window * pct / 100)`. The legacy
   `reserved` key stays a token count.
@@ -121,13 +127,16 @@ agent/provider registries. It uses the functions below to do that work.
 - `update_shell(dir, Option<&str>)` implements `PATCH /api/experimental/config`. It edits the
   JSONC text while preserving comments.
 
-### `flag`: the 2.3.1 flag registry (`core/src/flag.ts`, `schema/src/config/flag.ts`)
-- `REGISTRY` (`todo`, `media_blob`, `automations`, `artifacts`, `video_generate`, `console_watches`, `mcp_events`,
-  `full_codemode`), `resolve(entries, channel, overrides)` → per key `{enabled, source}`: `OPENCODE_FLAGS`
-  (`key`, `-key`, `all`), then `experimental.<key>` of the latest `experimental` document, then `all_flags: true`
-  of the latest document that sets it, then on only for the `local` and `dev` channels. `OPT_IN_ONLY`
-  (`full_codemode`) skips `all` and `all_flags` and is off on every channel; `ALIASES` (`schedules` → `automations`)
-  reads the old name below the new one, in `OPENCODE_FLAGS` and in config.
+### `flag`: the 2.4.1 flag registry (`core/src/flag/resolve.ts`, `schema/src/config/flag.ts`)
+- `REGISTRY` (`todo`, `media_blob`, `artifacts`, `console_watches`, `recommended_api`, `model_speeds`,
+  `full_codemode`, `machines`, `home_memory`, `project_overlay`, `opencode_api`, `sqlite_fts`),
+  `resolve(entries, channel, overrides)` → per key `{enabled, source}`: `OPENCODE_FLAGS` (`key`, `-key`, `all`),
+  then `experimental.<key>` of the latest `experimental` document, then `all_flags: true` of the latest document
+  that sets it, then on only for the `local` and `dev` channels. `OPT_IN_ONLY` (`todo`, `opencode_api`) skips `all`
+  and `all_flags` and is off by default on every channel; `LOCAL_ONLY` (`opencode_api`) is off outside `local` and
+  `dev` whatever is set. `schema_description(key)` is the config schema's annotation.
+- `STAGED` (`mcp_events`): a flag 2.4.1 removed because the feature is on by default there; resolved like a
+  registry flag by `resolve_key`/`enabled` but not listed, until ocd ports the feature's 2.4.1 behaviour.
 - `enabled(entries, key)` with this build's channel and the process's `OPENCODE_FLAGS`; every gate in oc-core reads
   it.
 

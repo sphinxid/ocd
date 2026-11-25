@@ -99,8 +99,9 @@ impl Bus {
     }
 
     /// Records a loaded location's `experimental.part_rows` (`partRowsEnabled` reads the config in scope where an
-    /// event projects): assistant parts of sessions in that directory are written as `session_part` rows. A location
-    /// that never loaded, and an event published outside any location, write whole messages.
+    /// event projects): assistant parts of sessions in that directory are written as `session_part` rows unless its
+    /// config sets `part_rows: false` (2.4.1 #65039). A location that never loaded, and an event published outside
+    /// any location (no config in scope), write part rows too.
     pub fn set_part_rows(&self, directories: &[&str], on: bool) {
         let mut part_rows = self.part_rows.write();
         for d in directories {
@@ -110,7 +111,7 @@ impl Bus {
 
     /// Whether a location (by directory) writes assistant parts as `session_part` rows.
     pub fn part_rows(&self, directory: &str) -> bool {
-        self.part_rows.read().get(directory).copied().unwrap_or(false)
+        self.part_rows.read().get(directory).copied().unwrap_or(true)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -193,7 +194,7 @@ impl Bus {
             }
             _ => before.as_ref().is_some_and(|l| self.media_blob(&l.directory)),
         };
-        let part_rows = !unlocated() && before.as_ref().is_some_and(|l| self.part_rows(&l.directory));
+        let part_rows = unlocated() || before.as_ref().is_none_or(|l| self.part_rows(&l.directory));
         let ids: Vec<String> = events.iter().map(|e| e.id.clone().unwrap_or_else(oc_schema::id::event)).collect();
         let created = oc_schema::id::now_ms();
         let committing: Vec<Committing> = events

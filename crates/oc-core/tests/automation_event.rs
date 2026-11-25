@@ -165,7 +165,8 @@ async fn harness() -> H {
     let dir = root.join("project");
     std::fs::create_dir_all(&dir).unwrap();
     let config = json!({
-        "experimental": {"automations": true, "mcp_events": true},
+        "automations": true,
+        "experimental": {"mcp_events": true},
         "agent": {"helper": {"mode": "subagent"}},
         "mcp": {"servers": {"ci": {"type": "remote", "url": server.url, "oauth": false}}},
     });
