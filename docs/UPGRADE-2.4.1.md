@@ -94,5 +94,9 @@ Filled in as batches land.
   rebuild in R12.
 - **R7** (done): the CLI help, the hidden `login` command, log redaction, the TUI's `/login` and `/auth`, and job
   tracking.
+- **R9** (done): Markdown and reasoning in the TUI and mini follow OpenTUI 0.9.4's engine. Pty captures against 2.4.1
+  with `experimental["new-designs"]: false` show identical text; colours differ only by the new palette (R8). Tests
+  include 2.4.1's own frames and OpenTUI's conformance rows. Not changed: link URLs are always shown (upstream hides
+  them on terminals with OSC 8), and wrapping outside Markdown still breaks only at spaces.
 - **R11** (done): 22 CLI cases and the machine routes match a 2.4.1 release build with the `machines` flag off.
   ocd keeps answering 403 when the flag is on (see COMPATIBILITY.md).
