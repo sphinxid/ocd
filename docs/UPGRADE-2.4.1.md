@@ -80,6 +80,15 @@ Filled in as batches land.
   commands and job cancel are identical. Tool repair, result field order and background results match on everything
   R1 changed; what still differs belongs to R2 (the Code Mode catalog) and R6 (`generate_video`). Not ported:
   `session_search`'s field order, because ocd has no such tool.
+- **R2** (done): automations are on by default and the `automation` namespace, shell actions, scheduled code with
+  Code Mode tools, script diffs (core and TUI), the catalog limits and the `opencode://` refusal follow 2.4.1. The
+  plugin side of `experimental.automation` waits for the plugin helper rebuild in R12. The opt-in `full_codemode`
+  parts (native description overrides, the model policy in the Code Mode catalog, Bun services for automation code)
+  are not ported.
+- **R3** (done): MCP negotiates `auto` by default with the legacy fallback, the MCP Events beta is on without a flag,
+  `list_mcp_events` replaces `watch_mcp_event`, and event watches are held while automations are off. The new
+  `mcp241` parity scenarios are identical; the remaining automation and MCP differences are the media tool names (R6).
+  Not ported: mirroring `Mcp-Param` headers on tool calls (event streams do).
 - **R4** (done): the recorded request bodies for flattening, Google Interactions continuation and the catalog refresh
   are checked against 2.4.1 (`scripts/parity/wire241.py`). Token revocation on sign-out waits for the plugin helper
   rebuild in R12.
