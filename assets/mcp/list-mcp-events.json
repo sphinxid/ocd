@@ -1,0 +1,76 @@
+{
+ "name": "opencode_list_mcp_events",
+ "inputSchema": {
+  "type": "object",
+  "properties": {
+   "server": {
+    "type": "string",
+    "description": "MCP server name as configured"
+   }
+  },
+  "required": [
+   "server"
+  ],
+  "additionalProperties": false
+ },
+ "outputSchema": {
+  "type": "object",
+  "properties": {
+   "events": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "server": {
+       "type": "string"
+      },
+      "event": {
+       "type": "string"
+      },
+      "description": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "args": {
+       "anyOf": [
+        {
+         "type": "object",
+         "description": "JSON Schema of the trigger's args"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "data": {
+       "anyOf": [
+        {
+         "type": "object",
+         "description": "JSON Schema of the data each event carries"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
+     },
+     "required": [
+      "server",
+      "event"
+     ],
+     "additionalProperties": false
+    }
+   }
+  },
+  "required": [
+   "events"
+  ],
+  "additionalProperties": false
+ }
+}

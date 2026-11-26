@@ -1666,7 +1666,7 @@ impl Automations {
         let input = AssertInput {
             id: None,
             session_id: owner.id.clone(),
-            action: crate::mcp_events::ACTION.into(),
+            action: crate::mcp_events::WATCH_ACTION.into(),
             resources: vec![server.to_string()],
             save: None,
             metadata: None,
@@ -1674,7 +1674,7 @@ impl Automations {
             agent: Some(agent.id.clone()),
         };
         let allow = vec![oc_schema::types::PermissionRule {
-            action: crate::mcp_events::ACTION.into(),
+            action: crate::mcp_events::WATCH_ACTION.into(),
             resource: server.to_string(),
             effect: oc_schema::types::Effect::Allow,
         }];

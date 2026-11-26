@@ -680,11 +680,9 @@ impl Engine {
             let _ = registry.namespace(crate::automation::tools::namespace());
             crate::plugins::insert_tools(&mut registry, crate::automation::PLUGIN_ID, crate::automation::tools::tools(&self.automations));
         }
-        // `opencode.tools.mcp-events` adds `watch_mcp_event` only while the `mcp_events` flag is on.
-        if oc_config::flag::enabled(&location.entries, "mcp_events")
-            && self.app.plugins.enabled(key).is_none_or(|enabled| enabled.iter().any(|e| e == crate::mcp_events::PLUGIN_ID))
-        {
-            let tool: Arc<dyn oc_tools::Tool> = crate::mcp_events::WatchMcpEvent::new(self.app.clone(), mcp.clone());
+        // `opencode.tools.mcp-events` always adds `list_mcp_events`.
+        if self.app.plugins.enabled(key).is_none_or(|enabled| enabled.iter().any(|e| e == crate::mcp_events::PLUGIN_ID)) {
+            let tool: Arc<dyn oc_tools::Tool> = crate::mcp_events::ListMcpEvents::new(mcp.clone());
             crate::plugins::insert_tools(&mut registry, crate::mcp_events::PLUGIN_ID, vec![tool]);
         }
         // The OpenCode Console plugin's `console_watch` tools, while the location watches (`opencode-watches.ts`).
