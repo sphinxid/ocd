@@ -58,7 +58,7 @@ pub struct Summary {
     pub namespaces: Vec<NamespaceSummary>,
 }
 
-const DESCRIPTION_LIMIT: usize = 500;
+const DESCRIPTION_LIMIT: usize = 2_000;
 const CHARACTERS_PER_TOKEN: f64 = 4.0;
 /// Inline budget in "tokens" (characters / 4, rounded).
 pub const INLINE_BUDGET: usize = 2_000;
@@ -80,6 +80,10 @@ fn js_lt(a: &str, b: &str) -> std::cmp::Ordering {
 
 fn js_trim(s: &str) -> &str {
     s.trim_matches(|c: char| (c as u32) < 0x10000 && crate::number::is_js_whitespace(c as u16))
+}
+
+fn js_trim_end(s: &str) -> &str {
+    s.trim_end_matches(|c: char| (c as u32) < 0x10000 && crate::number::is_js_whitespace(c as u16))
 }
 
 fn utf16_prefix(s: &str, units: usize) -> String {
@@ -122,8 +126,17 @@ fn flatten(entries: &[CatalogEntry], path: &[String], tools: &mut Vec<FlatTool>,
     }
 }
 
-/// `listing(entry)`: the tool's signature and the first line of its description, cut to 117 characters plus `...`.
+/// `listing(entry)`: the tool's signature and the first line of its description, cut to 1997 UTF-16 units plus
+/// `...`. A pinned tool shows its whole description, each further line as a `    // ` comment (2.4.1, #65493).
 fn listing(tool: &FlatTool) -> Listing {
+    if tool.pinned {
+        let mut lines = js_trim(&tool.description).split('\n');
+        let first = lines.next().unwrap_or("");
+        let suffix = if first.is_empty() { String::new() } else { format!(" // {}", js_trim_end(first)) };
+        let mut out = vec![format!("  - {}{}", tool.signature, suffix)];
+        out.extend(lines.map(|line| js_trim_end(&format!("    // {line}")).to_string()));
+        return Listing { path: tool.path.clone(), line: out.join("\n") };
+    }
     let first_line = js_trim(tool.description.split('\n').next().unwrap_or("")).to_string();
     let description =
         if utf16_len(&first_line) > DESCRIPTION_LIMIT { format!("{}...", utf16_prefix(&first_line, DESCRIPTION_LIMIT - 3)) } else { first_line };
@@ -249,7 +262,7 @@ fn search_note() -> String {
 
 pub const EMPTY_CATALOG: &str = "No Code Mode tools are currently available. Later Code Mode catalog updates may add or remove tools. Do not call `execute` unless there is at least one available Code Mode tool.";
 pub const REMOVED_CATALOG: &str =
-    "Code Mode tools are no longer available. Do not use any previously listed Code Mode tools.";
+    "The `execute` tool is no longer available. Permitted tools are now available as direct tool calls.";
 
 /// Every tool is listed.
 fn complete(catalog: &Summary) -> bool {
@@ -463,6 +476,39 @@ mod tests {
 
     fn tool(name: &str, sig: &str, desc: &str) -> CatalogEntry {
         CatalogEntry::Tool(CatalogTool { name: name.into(), description: desc.into(), signature: sig.into(), pinned: None })
+    }
+
+    fn alpha(description: &str, pinned: bool) -> Vec<CatalogEntry> {
+        vec![CatalogEntry::Namespace(CatalogNamespace {
+            name: "alpha".into(),
+            description: None,
+            tools: vec![CatalogEntry::Tool(CatalogTool {
+                name: "one".into(),
+                description: description.into(),
+                signature: "tools.alpha.one(): Promise<void>".into(),
+                pinned: Some(pinned),
+            })],
+        })]
+    }
+
+    /// `codemode/catalog.test.ts` "limits inline descriptions to 2,000 characters" (2.4.1, #65493).
+    #[test]
+    fn limits_inline_descriptions_to_2000_characters() {
+        let listing = lookup(&alpha(&"x".repeat(2_001), false))("alpha.one").unwrap();
+        let description = listing.line.split(" // ").nth(1).unwrap();
+        assert_eq!(description.len(), 2_000);
+        assert!(description.ends_with("..."));
+    }
+
+    /// "shows pinned tools' full descriptions"
+    #[test]
+    fn shows_pinned_tools_full_descriptions() {
+        let long = "x".repeat(2_001);
+        let summary = summarize(&alpha(&format!("Summary  \n\n  indented {long}\nLast\n"), true), Some(0));
+        assert_eq!(
+            summary.namespaces[0].entries[0].line,
+            format!("  - tools.alpha.one(): Promise<void> // Summary\n    //\n    //   indented {long}\n    // Last")
+        );
     }
 
     #[test]

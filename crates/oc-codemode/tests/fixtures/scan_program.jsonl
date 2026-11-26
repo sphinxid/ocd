@@ -1,0 +1,22 @@
+{"code":"return await (await fetch(args)).text()","result":{"tools":[],"globals":[["fetch",[{"member":null,"resultMembers":[null]}]]],"modules":[]}}
+{"code":"const f = fetch; return f","result":{"tools":[],"globals":[["fetch",[{"member":null,"resultMembers":[null]}]]],"modules":[]}}
+{"code":"function fetch() {}; return fetch()","result":{"tools":[],"globals":[],"modules":[]}}
+{"code":"const r = await fetch('https://x'); return r.status","result":{"tools":[],"globals":[["fetch",[{"member":null,"resultMembers":[null]}]]],"modules":[]}}
+{"code":"return Bun.file('a').text()","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":["text"]}]]],"modules":[]}}
+{"code":"const f = Bun.file('a'); return await f.text()","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":["text"]}]]],"modules":[]}}
+{"code":"const f = Bun.file('a'); await f.write('x')","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":["write"]}]]],"modules":[]}}
+{"code":"const f = Bun.file('a'); return f","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":[null]}]]],"modules":[]}}
+{"code":"Bun.file('a').slice(0, 2).text()","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":["text"]}]]],"modules":[]}}
+{"code":"Bun.file('a').slice(0, 2).writer()","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":["writer"]}]]],"modules":[]}}
+{"code":"await Bun.write('a', 'x')","result":{"tools":[],"globals":[["Bun",[{"member":"write","resultMembers":[]}]]],"modules":[]}}
+{"code":"const g = new Bun.Glob('*'); return g","result":{"tools":[],"globals":[["Bun",[{"member":"Glob","resultMembers":[null]}]]],"modules":[]}}
+{"code":"return Bun","result":{"tools":[],"globals":[["Bun",[{"member":null,"resultMembers":[null]}]]],"modules":[]}}
+{"code":"Bun.file('a')","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":[]}]]],"modules":[]}}
+{"code":"const x = await Bun.file('a')?.json(); return x","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":["json"]}]]],"modules":[]}}
+{"code":"import { file } from 'bun'; return file('a')","result":{"tools":[],"globals":[],"modules":["bun"]}}
+{"code":"const b = require('bun'); return b","result":{"tools":[],"globals":[],"modules":["bun"]}}
+{"code":"const p = require('node:path'); return p.join('a')","result":{"tools":[],"globals":[],"modules":["path"]}}
+{"code":"const f = Bun.file('a'); const g = () => f.delete(); return g","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":["delete"]}]]],"modules":[]}}
+{"code":"const t = await tools.slack.read({}); return await fetch(t.url)","result":{"tools":["slack.read"],"globals":[["fetch",[{"member":null,"resultMembers":[null]}]]],"modules":[]}}
+{"code":"{ const Bun = {}; Bun.write() }","result":{"tools":[],"globals":[],"modules":[]}}
+{"code":"return Bun['file']('a').bytes()","result":{"tools":[],"globals":[["Bun",[{"member":"file","resultMembers":["bytes"]}]]],"modules":[]}}

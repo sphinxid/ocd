@@ -27,6 +27,6 @@
 {"code":"const fs = require(\"fs\"); return await tools.slack.read_thread({})","result":{"_id":"Result","_tag":"Success","value":["slack.read_thread"]}}
 {"code":"require()","result":{"_id":"Result","_tag":"Success","value":[]}}
 {"code":"import tools from \"tools\"","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Automation code must call tools directly as tools.<name>(...), not import or require them. (line 1, col 1)","location":{"line":1,"column":1}}}}
-{"code":"import * as tools from \"url\"\ntools.x()","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Automation code must call tools directly as tools.<name>(...), not alias or pass the tools object. (line 1, col 13)","location":{"line":1,"column":13}}}}
+{"code":"import * as tools from \"url\"\ntools.x()","result":{"_id":"Result","_tag":"Success","value":[]}}
 {"code":"const m = await import(tools.a.b())","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Automation code must call tools directly as tools.<name>(...), not import or require them. (line 1, col 17)","location":{"line":1,"column":17}}}}
 {"code":"import { URL } from \"url\"\nawait tools.a.b({})","result":{"_id":"Result","_tag":"Success","value":["a.b"]}}

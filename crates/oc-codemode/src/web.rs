@@ -51,14 +51,44 @@ pub fn extension_checked(
     authorize: Option<Authorize>,
     check_redirect: Option<CheckRedirect>,
 ) -> Arc<dyn crate::host::Extension> {
-    let fetch = Fetch { client, authorize, check_redirect };
+    extension_api(client, authorize, check_redirect, None)
+}
+
+/// [`extension_checked`] where an `opencode:///api/...` request fails with `api_refusal` (the session's
+/// `CodeModeApi.disabled` in a release build), or [`OPENCODE_UNAVAILABLE`] without one.
+pub fn extension_api(
+    client: Arc<dyn HttpClient>,
+    authorize: Option<Authorize>,
+    check_redirect: Option<CheckRedirect>,
+    api_refusal: Option<String>,
+) -> Arc<dyn crate::host::Extension> {
+    let fetch = Fetch { client, authorize, check_redirect, api_refusal };
     Arc::new(SimpleExtension { name: "fetch".into(), globals: vec![("fetch".into(), Arc::new(fetch) as Arc<dyn HostFunction>)] })
+}
+
+/// `CodeModeApi.unavailable`: an `opencode://` request where no OpenCode API is provided.
+pub const OPENCODE_UNAVAILABLE: &str = "opencode:// URLs are unavailable in this environment.";
+/// `CodeModeApi.disabled`: what a session's `opencode://` request gets while the local-only `opencode_api` flag is
+/// off, as in every release build (2.4.1, #65725).
+pub const OPENCODE_DISABLED: &str =
+    "opencode:// URLs are off. In a local or dev build, enable them with OPENCODE_FLAGS=opencode_api or \"experimental\": { \"opencode_api\": true }.";
+
+/// `CodeModeApi.path(raw)`'s check: only `opencode:///api/...` is accepted, with no host and nothing outside `/api/`.
+fn opencode_path_error(raw: &str, parsed: Option<&url::Url>) -> Option<HostValue> {
+    let valid = raw.starts_with("opencode:///") && parsed.is_some_and(|u| u.path().starts_with("/api/"));
+    (!valid).then(|| {
+        HostValue::error(
+            "TypeError",
+            format!("Invalid opencode URI \"{raw}\": use opencode:///api/..., for example \"opencode:///api/session\"."),
+        )
+    })
 }
 
 struct Fetch {
     client: Arc<dyn HttpClient>,
     authorize: Option<Authorize>,
     check_redirect: Option<CheckRedirect>,
+    api_refusal: Option<String>,
 }
 
 /// Rules match the URL, so `https://user@evil.com` would slip past a rule for `https://evil.com/*`.
@@ -93,6 +123,12 @@ impl HostFunction for Fetch {
             return HostCall::Pending(Box::pin(async {
                 Err(HostValue::error("TypeError", "fetch cannot be used with credentials in the URL."))
             }));
+        }
+        // `fetchOpencode`: no permission check; ocd has no in-process OpenCode API, so a valid URL is refused.
+        if parsed.as_ref().is_some_and(|u| u.scheme() == "opencode") {
+            let error = opencode_path_error(&url, parsed.as_ref())
+                .unwrap_or_else(|| HostValue::error("Error", self.api_refusal.as_deref().unwrap_or(OPENCODE_UNAVAILABLE)));
+            return HostCall::Pending(Box::pin(async move { Err(error) }));
         }
         let client = self.client.clone();
         let authorize = self.authorize.clone();
@@ -176,7 +212,7 @@ fn redirected(request: HttpRequest, status: u16, from: &str, to: &url::Url) -> H
     }
 }
 pub fn fetch_function(client: Arc<dyn HttpClient>) -> Arc<dyn HostFunction> {
-    Arc::new(Fetch { client, authorize: None, check_redirect: None })
+    Arc::new(Fetch { client, authorize: None, check_redirect: None, api_refusal: None })
 }
 
 fn string_of(value: &HostValue) -> String {

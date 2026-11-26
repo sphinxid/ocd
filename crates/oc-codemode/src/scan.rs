@@ -1,4 +1,5 @@
-//! `CodeMode.scanTools` (`packages/codemode/src/scan.ts`): the `tools.<path>` a program calls, found statically.
+//! `CodeMode.scanTools` and `CodeMode.scanProgram` (`packages/codemode/src/scan.ts`): the `tools.<path>` a program
+//! calls, the globals it references and the modules it loads, found statically.
 //!
 //! The walk runs over the parser's ESTree JSON (the same node shapes and key order acorn produces), so children
 //! are visited in acorn's `Object.entries` order like upstream. The program is parsed like `execute` parses it, so a
@@ -19,6 +20,49 @@ const STACK_SIZE: usize = 1 << 30;
 /// dynamic bracket access (`tools[name]`), aliasing/passing `tools` rather than calling `tools.<path>(...)`, or
 /// loading `tools` as a module (`import`/`require`, or one whose name is computed).
 pub fn scan_tools(code: &str) -> Result<Vec<String>, Diagnostic> {
+    scan_program(code, &[], &[]).map(|scanned| scanned.tools)
+}
+
+/// What [`scan_program`] finds (`ProgramScan`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProgramScan {
+    pub tools: Vec<String>,
+    /// The unshadowed references to each requested global, by global, in first-seen order.
+    pub globals: Vec<(String, Vec<GlobalUse>)>,
+    /// The literal modules the program loads (`import`, `require`), by module name.
+    pub modules: Vec<String>,
+}
+
+impl ProgramScan {
+    pub fn global(&self, name: &str) -> Option<&[GlobalUse]> {
+        self.globals.iter().find(|(n, _)| n == name).map(|(_, uses)| uses.as_slice())
+    }
+
+    pub fn has_module(&self, name: &str) -> bool {
+        self.modules.iter().any(|m| m == name)
+    }
+}
+
+/// One reference to a global (`GlobalUse`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlobalUse {
+    /// The member read on the global (`Bun.file` → `file`), when static.
+    pub member: Option<String>,
+    /// The first non-forwarding member used on a call's result, for each place it is used; `None` means the value
+    /// escaped or was used dynamically.
+    pub result_members: Vec<Option<String>>,
+}
+
+/// A use's result members: fixed, or those of the variable the result was bound to, which later references add to.
+enum Members {
+    Fixed(Vec<Option<String>>),
+    Binding(usize, String),
+}
+
+/// `scanProgram(code, globals, forwardingMembers)` (2.4.1, #65236): static tool calls, references to `globals`, and
+/// literal module loads. A member in `forwarding` (`slice`) passes its call's result on, so the member read after it
+/// counts instead.
+pub fn scan_program(code: &str, globals: &[&str], forwarding: &[&str]) -> Result<ProgramScan, Diagnostic> {
     if code.trim_matches(|c: char| (c as u32) < 0x10000 && crate::number::is_js_whitespace(c as u16)).is_empty() {
         return Err(Diagnostic::new(DiagnosticKind::ParseError, "Code cannot be empty."));
     }
@@ -31,17 +75,54 @@ pub fn scan_tools(code: &str) -> Result<Vec<String>, Diagnostic> {
         Ok(Ok(result)) => result?,
         _ => return Err(Diagnostic::new(DiagnosticKind::ExecutionFailure, "The interpreter failed unexpectedly.")),
     };
-    let mut scanner = Scanner { found: Vec::new(), seen: HashSet::new(), scopes: vec![collect_scope(&tree, true)], ancestors: Vec::new() };
-    match scanner.visit(&tree) {
-        Some(diagnostic) => Err(diagnostic),
-        None => Ok(scanner.found),
+    let mut scanner = Scanner {
+        globals,
+        forwarding,
+        tools: Vec::new(),
+        seen: HashSet::new(),
+        referenced: Vec::new(),
+        local_uses: std::collections::HashMap::new(),
+        modules: Vec::new(),
+        scopes: vec![(0, collect_scope(&tree, true))],
+        next_scope: 1,
+        ancestors: Vec::new(),
+    };
+    if let Some(diagnostic) = scanner.visit(&tree) {
+        return Err(diagnostic);
     }
+    let local_uses = std::mem::take(&mut scanner.local_uses);
+    let globals = scanner
+        .referenced
+        .into_iter()
+        .map(|(name, uses)| {
+            let uses = uses
+                .into_iter()
+                .map(|(member, members)| GlobalUse {
+                    member,
+                    result_members: match members {
+                        Members::Fixed(members) => members,
+                        Members::Binding(scope, name) => local_uses.get(&(scope, name)).cloned().unwrap_or_default(),
+                    },
+                })
+                .collect();
+            (name, uses)
+        })
+        .collect();
+    Ok(ProgramScan { tools: scanner.tools, globals, modules: scanner.modules })
 }
 
-struct Scanner<'a> {
-    found: Vec<String>,
+struct Scanner<'a, 'g> {
+    globals: &'g [&'g str],
+    forwarding: &'g [&'g str],
+    tools: Vec<String>,
     seen: HashSet<String>,
-    scopes: Vec<HashSet<String>>,
+    referenced: Vec<(String, Vec<(Option<String>, Members)>)>,
+    /// The result members each local binding is used with, by `(scope, name)`: a binding may be referenced in a
+    /// closure before its initializer appears in the walk.
+    local_uses: std::collections::HashMap<(usize, String), Vec<Option<String>>>,
+    modules: Vec<String>,
+    scopes: Vec<(usize, HashSet<String>)>,
+    next_scope: usize,
     ancestors: Vec<&'a Value>,
 }
 
@@ -75,36 +156,106 @@ fn fail(node: &Value, message: &str) -> Diagnostic {
     }
 }
 
-impl<'a> Scanner<'a> {
-    fn shadowed(&self) -> bool {
-        self.scopes.iter().any(|scope| scope.contains("tools"))
+/// `memberName(node)`: a member expression's static name.
+fn member_name(node: &Value) -> Option<String> {
+    let computed = node.get("computed").and_then(Value::as_bool).unwrap_or(false);
+    let property = field(node, "property")?;
+    if !computed && kind(property) == "Identifier" {
+        return property.get("name").and_then(Value::as_str).map(String::from);
+    }
+    if computed && kind(property) == "Literal" {
+        return property.get("value").and_then(Value::as_str).map(String::from);
+    }
+    None
+}
+
+/// `valueUse(value, ancestors, index)`: skips wrappers that leave the wrapped value available for another access.
+fn value_use<'a>(mut value: &'a Value, ancestors: &[&'a Value], mut index: isize) -> (&'a Value, Option<&'a Value>, isize) {
+    while index >= 0 {
+        let parent = ancestors[index as usize];
+        if (kind(parent) == "AwaitExpression" && same(field(parent, "argument"), value))
+            || (kind(parent) == "ChainExpression" && same(field(parent, "expression"), value))
+        {
+            value = parent;
+            index -= 1;
+            continue;
+        }
+        return (value, Some(parent), index);
+    }
+    (value, None, index)
+}
+
+/// `resultMember(value, ancestors, index, forwardingMembers)`
+fn result_member<'a>(value: &'a Value, ancestors: &[&'a Value], index: isize, forwarding: &[&str]) -> Option<String> {
+    let (value, parent, index) = value_use(value, ancestors, index);
+    let parent = parent.filter(|p| kind(p) == "MemberExpression" && same(field(p, "object"), value))?;
+    let name = member_name(parent)?;
+    if !forwarding.contains(&name.as_str()) {
+        return Some(name);
+    }
+    let call = (index >= 1).then(|| ancestors[(index - 1) as usize])?;
+    if kind(call) == "CallExpression" && same(field(call, "callee"), parent) {
+        return result_member(call, ancestors, index - 2, forwarding);
+    }
+    None
+}
+
+impl<'a> Scanner<'a, '_> {
+    /// The innermost scope declaring `name` (`scopes.findLast`).
+    fn scope_of(&self, name: &str) -> Option<usize> {
+        self.scopes.iter().rev().find(|(_, scope)| scope.contains(name)).map(|(id, _)| *id)
     }
 
     fn visit(&mut self, node: &'a Value) -> Option<Diagnostic> {
-        if kind(node) == "Identifier" && node.get("name").and_then(Value::as_str) == Some("tools") && !self.shadowed() {
-            if !is_reference_position(node, self.ancestors.last().copied()) {
-                return None;
+        let name = (kind(node) == "Identifier").then(|| node.get("name").and_then(Value::as_str)).flatten();
+        if let Some(name) = name
+            && (!self.globals.is_empty() || name == "tools")
+            && is_reference_position(node, self.ancestors.last().copied())
+        {
+            let scope = self.scope_of(name);
+            if let Some(scope) = scope
+                && !self.globals.is_empty()
+            {
+                let member = result_member(node, &self.ancestors, self.ancestors.len() as isize - 1, self.forwarding);
+                self.local_uses.entry((scope, name.to_string())).or_default().push(member);
             }
-            return match read_static_tool_call(node, &self.ancestors) {
-                Err((at, reason)) => Some(fail(at, reason)),
-                Ok(path) => {
-                    if self.seen.insert(path.clone()) {
-                        self.found.push(path);
+            if scope.is_none() && name == "tools" {
+                return match read_static_tool_call(node, &self.ancestors) {
+                    Err((at, reason)) => Some(fail(at, reason)),
+                    Ok(path) => {
+                        if self.seen.insert(path.clone()) {
+                            self.tools.push(path);
+                        }
+                        None
                     }
-                    None
+                };
+            }
+            if scope.is_none() && self.globals.contains(&name) {
+                let use_ = self.global_use(node);
+                match self.referenced.iter_mut().find(|(n, _)| n == name) {
+                    Some((_, uses)) => uses.push(use_),
+                    None => self.referenced.push((name.to_string(), vec![use_])),
                 }
-            };
+            }
         }
         // `import`/`require` of "tools" would reach tools the scan never sees.
-        if let Some(loaded) = loaded_module(node)
-            && loaded.is_none_or(|name| crate::interp::modules::module_name(name) == "tools")
-        {
-            return Some(fail(node, LOADED));
+        if let Some(loaded) = loaded_module(node) {
+            let name = loaded.map(crate::interp::modules::module_name);
+            match name {
+                None => return Some(fail(node, LOADED)),
+                Some(name) if name == "tools" => return Some(fail(node, LOADED)),
+                Some(name) => {
+                    if !self.modules.iter().any(|m| *m == name) {
+                        self.modules.push(name.to_string());
+                    }
+                }
+            }
         }
         let pushed = enter_node_scope(node);
         let had = pushed.is_some();
         if let Some(scope) = pushed {
-            self.scopes.push(scope);
+            self.scopes.push((self.next_scope, scope));
+            self.next_scope += 1;
         }
         self.ancestors.push(node);
         let error = self.visit_children(node);
@@ -113,6 +264,33 @@ impl<'a> Scanner<'a> {
             self.scopes.pop();
         }
         error
+    }
+
+    /// One unshadowed reference to a requested global: its member, and what its call's result is used for.
+    fn global_use(&self, node: &'a Value) -> (Option<String>, Members) {
+        let len = self.ancestors.len() as isize;
+        let property = self.ancestors.last().copied();
+        let member = property.filter(|p| kind(p) == "MemberExpression" && same(field(p, "object"), node)).and_then(member_name);
+        let call = (len >= 2).then(|| self.ancestors[(len - 2) as usize]);
+        let is_call = property.is_some_and(|p| call.is_some_and(|c| kind(c) == "CallExpression" && same(field(c, "callee"), p)));
+        if member.is_none() || !is_call {
+            return (member, Members::Fixed(vec![None]));
+        }
+        let call = call.unwrap();
+        let (value, parent, index) = value_use(call, &self.ancestors, len - 3);
+        if parent.is_some_and(|p| kind(p) == "ExpressionStatement") {
+            return (member, Members::Fixed(Vec::new()));
+        }
+        if let Some(parent) = parent
+            && kind(parent) == "VariableDeclarator"
+            && same(field(parent, "init"), value)
+            && let Some(id) = field(parent, "id").filter(|id| kind(id) == "Identifier")
+            && let Some(name) = id.get("name").and_then(Value::as_str)
+            && let Some(binding) = self.scope_of(name)
+        {
+            return (member, Members::Binding(binding, name.to_string()));
+        }
+        (member, Members::Fixed(vec![result_member(value, &self.ancestors, index, self.forwarding)]))
     }
 
     fn visit_children(&mut self, node: &'a Value) -> Option<Diagnostic> {
@@ -147,6 +325,7 @@ fn is_reference_position(node: &Value, parent: Option<&Value>) -> bool {
     let Some(parent) = parent else { return true };
     let computed = parent.get("computed").and_then(Value::as_bool).unwrap_or(false);
     match kind(parent) {
+        "ImportSpecifier" | "ImportDefaultSpecifier" | "ImportNamespaceSpecifier" => return false,
         "MemberExpression" if same(field(parent, "property"), node) && !computed => return false,
         "Property" if same(field(parent, "key"), node) && !computed && !parent.get("shorthand").and_then(Value::as_bool).unwrap_or(false) => {
             return false;
@@ -197,24 +376,12 @@ fn read_static_tool_call<'a>(root: &'a Value, ancestors: &[&'a Value]) -> Result
         if kind(parent) != "MemberExpression" || !same(field(parent, "object"), current) {
             break;
         }
-        let computed = parent.get("computed").and_then(Value::as_bool).unwrap_or(false);
-        let property = field(parent, "property").unwrap_or(&Value::Null);
-        if !computed && kind(property) == "Identifier" {
-            segments.push(property.get("name").and_then(Value::as_str).unwrap_or_default().to_string());
-            current = parent;
-            index -= 1;
-            continue;
-        }
-        if computed
-            && kind(property) == "Literal"
-            && let Some(s) = property.get("value").and_then(Value::as_str)
-        {
-            segments.push(s.to_string());
-            current = parent;
-            index -= 1;
-            continue;
-        }
-        return Err((property, DYNAMIC));
+        let Some(member) = member_name(parent) else {
+            return Err((field(parent, "property").unwrap_or(parent), DYNAMIC));
+        };
+        segments.push(member);
+        current = parent;
+        index -= 1;
     }
     let call = if index >= 0 { Some(ancestors[index as usize]) } else { None };
     if segments.is_empty() || !call.is_some_and(|c| kind(c) == "CallExpression" && same(field(c, "callee"), current)) {
@@ -283,6 +450,13 @@ fn collect_scope(container: &Value, include_var: bool) -> HashSet<String> {
     let body = container.get("body").and_then(Value::as_array).cloned().unwrap_or_default();
     for statement in &body {
         match kind(statement) {
+            "ImportDeclaration" => {
+                for specifier in statement.get("specifiers").and_then(Value::as_array).into_iter().flatten() {
+                    if let Some(name) = field(specifier, "local").and_then(|l| l.get("name")).and_then(Value::as_str) {
+                        names.insert(name.to_string());
+                    }
+                }
+            }
             "FunctionDeclaration" | "ClassDeclaration" => {
                 if let Some(name) = field(statement, "id").and_then(|id| id.get("name")).and_then(Value::as_str) {
                     names.insert(name.to_string());

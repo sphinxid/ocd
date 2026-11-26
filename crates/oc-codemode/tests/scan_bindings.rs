@@ -28,8 +28,8 @@ async fn binds_outer_globals_that_programs_can_read_or_shadow() {
     }
 }
 
-/// Every case of `fixtures/scan_tools.jsonl` (captured from upstream 2.3.1's `CodeMode.scanTools`) gives the same
-/// paths or diagnostic. Classes are outside the interpreter's subset, and their bodies are not scanned.
+/// Every case of `fixtures/scan_tools.jsonl` (captured from upstream 2.3.1's `CodeMode.scanTools`, re-recorded on
+/// 2.4.1, where an import's bindings shadow `tools`) gives the same paths or diagnostic. Classes are outside the interpreter's subset, and their bodies are not scanned.
 #[test]
 fn scan_tools_matches_upstream() {
     for line in include_str!("fixtures/scan_tools.jsonl").lines() {
@@ -53,4 +53,27 @@ fn scan_tools_results() {
     assert_eq!(scan_tools("return await tools.a.b({}) && tools.c({})").unwrap(), vec!["a.b", "c"]);
     assert!(scan_tools("return tools").is_err());
     assert!(scan_tools("var tools = 1; return tools").unwrap().is_empty());
+}
+
+/// `fixtures/scan_program.jsonl`: 2.4.1's `CodeMode.scanProgram(code, ["fetch", "Bun"], ["slice"])`, which automations
+/// read to authorize `fetch` and Bun's file APIs (#65236).
+#[test]
+fn scan_program_matches_upstream() {
+    for line in include_str!("fixtures/scan_program.jsonl").lines() {
+        let case: serde_json::Value = serde_json::from_str(line).unwrap();
+        let code = case["code"].as_str().unwrap();
+        let got = match oc_codemode::scan::scan_program(code, &["fetch", "Bun"], &["slice"]) {
+            Err(d) => json!({ "failure": d.message }),
+            Ok(scanned) => json!({
+                "tools": scanned.tools,
+                "globals": scanned
+                    .globals
+                    .iter()
+                    .map(|(name, uses)| json!([name, uses.iter().map(|u| json!({ "member": u.member, "resultMembers": u.result_members })).collect::<Vec<_>>()]))
+                    .collect::<Vec<_>>(),
+                "modules": scanned.modules,
+            }),
+        };
+        assert_eq!(got, case["result"], "{code}");
+    }
 }

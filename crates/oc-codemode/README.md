@@ -184,7 +184,11 @@ check_redirect)` follows redirects itself (give it `ReqwestClient::manual()`): u
 refusing non-http(s) targets and targets with credentials, discarding each redirect's body, checking each target
 (without its fragment) with `check_redirect(next, args, url)`, and rewriting the request as a browser does (303, or 301/302 after a POST, become a
 GET without body or content headers; another origin loses `authorization`, `cookie` and `proxy-authorization`). The
-response's `url` is the last target as written and `redirected` whether any hop was followed. `ProgressRows::interrupt_running` settles the rows of calls still running as errors when an
+response's `url` is the last target as written and `redirected` whether any hop was followed.
+`web::extension_api(client, authorize, check_redirect, refusal)` adds 2.4.1's `opencode:` URLs (#65725): only
+`opencode:///api/...` passes (`TypeError: Invalid opencode URI "…": use opencode:///api/...`), with no permission
+check, and is then refused with `refusal` (core passes `OPENCODE_DISABLED`, a release build's text) or
+`OPENCODE_UNAVAILABLE` (no OpenCode API, as for an automation's program); ocd has no in-process API to send it to. `ProgressRows::interrupt_running` settles the rows of calls still running as errors when an
 execution is interrupted.
 
 ### The `execute` tool and catalog instructions
@@ -198,7 +202,7 @@ execution is interrupted.
   `{ output, toolCalls, error?, files }` structure; `ProgressRows` tracks `{ tool, status, input? }` progress rows
   from the host hooks (fetch rows show `{ method, url }`); `display_input`, `fetch_display`, `output_file`.
 - `catalog::inventory(&catalog, &namespaces, &pinned)` builds the catalog tree; `catalog::summarize(&inventory,
-  None)` applies the 2 000-token inline budget (inline descriptions cut at 500 UTF-16 units since 2.3.1, #64341) (chars/4 rounded; every namespace line shown; pinned listings always
+  None)` applies the 2 000-token inline budget (inline descriptions cut at 2 000 UTF-16 units since 2.4.1, #65493; 500 in 2.3.1; a pinned tool shows its whole description, each further line as a `    // ` comment) (chars/4 rounded; every namespace line shown; pinned listings always
   shown; remaining listings round-robin per namespace in path order, a namespace stopping at its first listing that
   does not fit). The stored summary is `{total, namespaces: [{name, description?, tools: [every path], entries}]}`
   (2.2.7); a 2.2.5 summary does not decode, so core restates the whole catalog. `catalog::render(&summary)` produces
@@ -420,6 +424,10 @@ TypeScript syntax. Unsupported syntax is reported lazily (when reached) as `Unsu
   order, or the diagnostic for dynamic bracket access, aliasing/passing `tools`, loading `tools` (or a computed
   module name) with `import`/`require`, a syntax error or empty code (cases captured from upstream 2.3.1 in
   `tests/fixtures/scan_tools.jsonl`). The diagnostics say "Automation code must …" as in 2.3.1.
+- `scan::scan_program(code, globals, forwarding)` is 2.4.1's `CodeMode.scanProgram` (#65236): the tools, plus each
+  unshadowed reference to one of `globals` (its member, and the members later read on a call's result, through
+  `forwarding` members such as `slice`; `None` when the value escapes) and the literal modules loaded. Core reads it
+  for `fetch` and `Bun` to authorize an automation's extension permissions. Import specifiers declare bindings.
 - `CodeMode::with_bindings(vec![(name, json)])` binds read-only JSON globals (upstream `execute(code, bindings)`),
   which top-level declarations may shadow.
 - `parser::validate_regexp(pattern, flags)` exposes acorn's regular expression validation.
