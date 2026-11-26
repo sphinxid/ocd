@@ -23,6 +23,7 @@ complete -c ocd -n '__fish_use_subcommand' -f -a 'run' -d 'Run OpenCode with a m
 complete -c ocd -n '__fish_use_subcommand' -f -a 'session' -d 'Manage sessions'
 complete -c ocd -n '__fish_use_subcommand' -f -a 'service' -d 'Manage the background server'
 complete -c ocd -n '__fish_use_subcommand' -f -a 'reload' -d 'Reload configuration'
+complete -c ocd -n '__fish_use_subcommand' -f -a 'machine' -d 'Manage remote machines'
 complete -c ocd -n '__fish_use_subcommand' -f -a 'pair' -d 'Print one-time links to connect a browser or app'
 complete -c ocd -n '__fish_use_subcommand' -f -a 'serve' -d 'Start the v2 API and web server'
 complete -c ocd -n '__fish_use_subcommand; and not __fish_contains_opt standalone no-standalone' -l standalone -d 'Run with a private server instead of the background service'
@@ -270,6 +271,19 @@ complete -c ocd -n '__fish_seen_subcommand_from service; and __fish_seen_subcomm
 complete -c ocd -n '__fish_seen_subcommand_from service; and __fish_seen_subcommand_from set' -f
 complete -c ocd -n '__fish_seen_subcommand_from service; and __fish_seen_subcommand_from unset' -f
 complete -c ocd -n '__fish_seen_subcommand_from reload' -f
+complete -c ocd -n '__fish_seen_subcommand_from machine; and not __fish_seen_subcommand_from add list remove' -f
+complete -c ocd -n '__fish_seen_subcommand_from machine; and not __fish_seen_subcommand_from add list remove' -f -a 'add' -d 'Add a machine and print a one-time join string'
+complete -c ocd -n '__fish_seen_subcommand_from machine; and not __fish_seen_subcommand_from add list remove' -f -a 'list' -d 'List machines'
+complete -c ocd -n '__fish_seen_subcommand_from machine; and not __fish_seen_subcommand_from add list remove' -f -a 'remove' -d 'Remove a machine'
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from add' -f
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from add; and begin; not __fish_contains_opt url; or contains -- (commandline -poc)[-1] --url; end' -l url -d 'Use an external HTTP(S) server URL in the join string' -r -f
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from add; and not __fish_contains_opt replace no-replace' -l replace -d 'Replace the key of an already-paired machine'
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from add; and not __fish_contains_opt replace no-replace' -l no-replace -d 'Disable replace'
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from add; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt url' -f -a '--url' -d 'Use an external HTTP(S) server URL in the join string'
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from add; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt replace no-replace' -f -a '--replace' -d 'Replace the key of an already-paired machine'
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from add; and not string match -q -- "-*" (commandline -ct); and not __fish_contains_opt replace no-replace' -f -a '--no-replace' -d 'Disable replace'
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from list' -f
+complete -c ocd -n '__fish_seen_subcommand_from machine; and __fish_seen_subcommand_from remove' -f
 complete -c ocd -n '__fish_seen_subcommand_from pair' -f
 complete -c ocd -n '__fish_seen_subcommand_from pair; and begin; not __fish_contains_opt url; or contains -- (commandline -poc)[-1] --url; end' -l url -d 'Use an external HTTP(S) server URL in pairing links' -r -f
 complete -c ocd -n '__fish_seen_subcommand_from pair; and not __fish_contains_opt remote no-remote' -l remote -d 'Pair through the OpenTunnel remote address, enabling remote access if needed (exposes the server to the internet)'

@@ -1,6 +1,7 @@
 //! Command handlers (`cli/src/commands/handlers/**`).
 
 pub mod auth;
+pub mod machine;
 pub mod mcp;
 pub mod plugin;
 pub mod session;
@@ -16,6 +17,7 @@ use crate::client::{Client, Req};
 use crate::connection::{self, Args, Mismatch};
 use crate::service::{self, Pty, ServiceConfig};
 use crate::term::{EOL, write_stderr, write_stdout};
+use machine::is_loopback;
 
 /// Server params (`--server`, `--standalone`) of an input.
 pub fn server_args<'a>(input: &Input) -> Args<'a> {
@@ -48,6 +50,9 @@ pub async fn dispatch(global: &Global, inv: &Invocation) -> anyhow::Result<i32> 
         "reload" => reload(global, input).await,
         "api" => api(global, input).await,
         "pair" => pair(global, input).await,
+        "machine add" => machine::add(global, input).await,
+        "machine list" => machine::list(global, input).await,
+        "machine remove" => machine::remove(global, input).await,
         "stats" => stats::run(global, input).await,
         "acp" => crate::acp::run(global, input).await,
         "upgrade" => upgrade::upgrade(global, input).await,
@@ -601,10 +606,6 @@ async fn api(global: &Global, input: &Input) -> anyhow::Result<i32> {
         return Ok(1);
     }
     Ok(0)
-}
-
-fn is_loopback(hostname: &str) -> bool {
-    hostname == "localhost" || hostname.ends_with(".localhost") || hostname.starts_with("127.") || hostname == "[::1]"
 }
 
 /// `uqr.renderUnicodeCompact(data, {border: 2})`: two modules per character (`▀ ▄ █`).

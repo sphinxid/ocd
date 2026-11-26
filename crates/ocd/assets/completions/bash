@@ -209,6 +209,10 @@ _ocd()
         _ocd_reload "$i"
         return
         ;;
+      machine)
+        _ocd_machine "$i"
+        return
+        ;;
       pair)
         _ocd_pair "$i"
         return
@@ -245,7 +249,7 @@ _ocd()
     return
   fi
 
-  COMPREPLY=( $(compgen -W 'upgrade update uninstall acp api debug auth mcp plugin models stats mini run session service reload pair serve' -- "$cur") )
+  COMPREPLY=( $(compgen -W 'upgrade update uninstall acp api debug auth mcp plugin models stats mini run session service reload machine pair serve' -- "$cur") )
 }
 
 _ocd_upgrade()
@@ -1236,6 +1240,88 @@ _ocd_service_unset()
 }
 
 _ocd_reload()
+{
+  local cur prev words cword i
+  local _command_index="$1"
+  _init_completion -n "$COMP_WORDBREAKS" || return
+
+}
+
+_ocd_machine()
+{
+  local cur prev words cword i
+  local _command_index="$1"
+  _init_completion -n "$COMP_WORDBREAKS" || return
+
+  # Subcommand dispatch
+  local cmd _skip_next=0
+  for ((i = _command_index + 1; i < cword; i++)); do
+    if (( _skip_next )); then
+      _skip_next=0
+      continue
+    fi
+    case "${words[i]}" in
+      add)
+        _ocd_machine_add "$i"
+        return
+        ;;
+      list)
+        _ocd_machine_list "$i"
+        return
+        ;;
+      remove)
+        _ocd_machine_remove "$i"
+        return
+        ;;
+    esac
+  done
+
+  # Complete flags (filtered) and subcommands
+  if [[ "$cur" == -* ]]; then
+    return
+  fi
+
+  COMPREPLY=( $(compgen -W 'add list remove' -- "$cur") )
+}
+
+_ocd_machine_add()
+{
+  local cur prev words cword i
+  local _command_index="$1"
+  _init_completion -n "$COMP_WORDBREAKS" || return
+
+  # Flag value completions
+  case "$prev" in
+  esac
+
+  local _used_0="" _used_1=""
+  for ((i = 1; i < cword; i++)); do
+    case "${words[i]%%=*}" in
+      --url) _used_0=1 ;;
+      --replace|--no-replace) _used_1=1 ;;
+    esac
+  done
+  local _filtered_flags=""
+  [[ -n "$_used_0" ]] || _filtered_flags+=" --url"
+  [[ -n "$_used_1" ]] || _filtered_flags+=" --replace --no-replace"
+
+  # Complete flags (filtered) and subcommands
+  if [[ "$cur" == -* ]]; then
+    COMPREPLY=( $(compgen -W "$_filtered_flags" -- "$cur") )
+    return
+  fi
+
+}
+
+_ocd_machine_list()
+{
+  local cur prev words cword i
+  local _command_index="$1"
+  _init_completion -n "$COMP_WORDBREAKS" || return
+
+}
+
+_ocd_machine_remove()
 {
   local cur prev words cword i
   local _command_index="$1"

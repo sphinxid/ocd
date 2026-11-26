@@ -489,6 +489,10 @@ mod tests {
             vec!["run", "hello", "--server", url],
             vec!["debug", "--server", url, "agents"],
             vec!["mcp", "--server", url, "auth", "linear"],
+            // machine.test.ts "accept the global --server flag in any position"
+            vec!["machine", "list", "--server", url],
+            vec!["machine", "--server", url, "add", "gpu"],
+            vec!["--server", url, "machine", "remove", "gpu"],
         ] {
             match run(&args) {
                 Outcome::Run(inv) => assert_eq!(inv.settings, Settings { server: Some(url.into()), standalone: Some(false) }, "{args:?}"),

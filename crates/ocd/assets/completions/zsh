@@ -30,6 +30,7 @@ _ocd() {
     'session:Manage sessions'
     'service:Manage the background server'
     'reload:Reload configuration'
+    'machine:Manage remote machines'
     'pair:Print one-time links to connect a browser or app'
     'serve:Start the v2 API and web server'
   )
@@ -111,6 +112,9 @@ _ocd() {
           ;;
         reload)
           _ocd_reload
+          ;;
+        machine)
+          _ocd_machine
           ;;
         pair)
           _ocd_pair
@@ -768,6 +772,67 @@ _ocd_service_unset() {
 }
 
 _ocd_reload() {
+}
+
+_ocd_machine() {
+  local context state state_descr line
+  typeset -A opt_args
+
+  local -a commands
+  commands=(
+    'add:Add a machine and print a one-time join string'
+    'list:List machines'
+    'remove:Remove a machine'
+  )
+
+  local -a specs
+  specs=(
+    '1:command:->command'
+    '*::arg:->args'
+  )
+
+  _arguments -C "${specs[@]}"
+
+  case "$state" in
+    command)
+      _describe -t commands 'commands' commands
+      ;;
+    args)
+      case "$words[1]" in
+        add)
+          _ocd_machine_add
+          ;;
+        list)
+          _ocd_machine_list
+          ;;
+        remove)
+          _ocd_machine_remove
+          ;;
+      esac
+      ;;
+  esac
+}
+
+_ocd_machine_add() {
+  local -a specs
+  specs=(
+    '(--url)--url[Use an external HTTP(S) server URL in the join string]:value:'
+    '(--replace --no-replace)--replace[Replace the key of an already-paired machine]'
+    '(--replace --no-replace)--no-replace[Disable replace]'
+    ':Name of the machine:'
+  )
+  _arguments "${specs[@]}"
+}
+
+_ocd_machine_list() {
+}
+
+_ocd_machine_remove() {
+  local -a specs
+  specs=(
+    ':Name of the machine:'
+  )
+  _arguments "${specs[@]}"
 }
 
 _ocd_pair() {

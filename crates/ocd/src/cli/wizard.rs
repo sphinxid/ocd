@@ -223,7 +223,7 @@ impl Wizard<'_> {
                 word(choices[prompt::run(&Select::new(Some(message), options, &self.theme), self.term)?])
             }
             Prim::Int(_) => word(&prompt::js_number(prompt::run(&Number::int(message, &self.theme), self.term)?)),
-            Prim::Str | Prim::NonEmpty | Prim::KeyValue | Prim::PairUrl => {
+            Prim::Str | Prim::NonEmpty | Prim::KeyValue | Prim::ServerUrl => {
                 word(&prompt::run(&Text::new(message, TextKind::Text, &self.theme), self.term)?)
             }
         })

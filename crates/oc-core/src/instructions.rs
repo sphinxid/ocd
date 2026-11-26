@@ -368,6 +368,55 @@ pub fn skill_source(mut skills: Vec<SkillSummary>) -> Source {
     }
 }
 
+/// `MachineInstructions` (2.4.1 `machine/instructions.ts`): the machines a tool path can name, behind the `machines`
+/// flag. ocd has no machines (it answers the machine routes as a release build with the flag off), so the source always
+/// reads `removed` and adds nothing to a prompt. It still renders what upstream stored, so a session an upstream server
+/// with machines on listed them in replays the same text, and is told once that they are gone.
+pub fn machine_source() -> Source {
+    fn render(names: &[String]) -> String {
+        let first = names.first().map(String::as_str).unwrap_or("undefined");
+        [
+            format!("Other machines are available: {}.", names.join(", ")),
+            format!(
+                "Name one in a path, as in {first}:/work/file, for the read, write, edit and patch tools, and as the shell tool's workdir to run a command there. A machine path is absolute or starts with ~/ for that machine's home. grep and glob cannot search another machine; run a search command there with the shell tool instead. A machine may be offline; the tool says so when it is."
+            ),
+        ]
+        .join("\n")
+    }
+    let decode = |v: &Value| serde_json::from_value::<Vec<String>>(v.clone()).ok();
+    Source {
+        key: "core/machines".into(),
+        read: Read::Removed,
+        initial: Box::new(move |v| decode(v).map(|names| render(&names))),
+        changed: Box::new(move |p, c| {
+            let current = decode(c)?;
+            let Some(previous) = decode(p) else { return Some(render(&current)) };
+            let (added, removed, _) = diff_by_key(&previous, &current, |n| n.clone(), |_, _| false);
+            if added.is_empty() && removed.is_empty() {
+                return Some(format!(
+                    "The available machines have changed. This list supersedes the previous available machines list.\n{}",
+                    render(&current)
+                ));
+            }
+            let mut lines = Vec::new();
+            if !added.is_empty() {
+                lines.push("New machines are available in addition to those previously listed:".to_string());
+                lines.push(added.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", "));
+            }
+            if !removed.is_empty() {
+                lines.push(format!(
+                    "The following machines are no longer available and must not be used: {}.",
+                    removed.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+                ));
+            }
+            Some(lines.join("\n"))
+        }),
+        removed: Box::new(move |p| {
+            decode(p).map(|_| "Other machines are no longer available. Do not use any previously listed machine.".into())
+        }),
+    }
+}
+
 fn js_stringify_pretty(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -434,6 +483,41 @@ mod tests {
             .join("\n")
         );
     }
+    // 2.4.1 machine/instructions.ts with the `machines` flag off (ocd has no machines): nothing is added to a new
+    // session's prompt, and machines an upstream server listed are rendered as stored and then removed once.
+    #[test]
+    fn machine_instructions_add_nothing_and_remove_what_upstream_listed() {
+        use serde_json::json;
+        let sources = vec![machine_source()];
+        assert!(matches!(sources[0].read, Read::Removed));
+        let fresh = diff(&sources, None).unwrap();
+        assert!(fresh.delta.is_empty() && fresh.blobs.is_empty());
+        let unrelated: Map<String, Value> = [("core/date".to_string(), json!("h"))].into_iter().collect();
+        assert!(diff(&sources, Some(&unrelated)).unwrap().delta.is_empty());
+
+        let names = json!(["gpu", "laptop"]);
+        assert_eq!(
+            render_initial(&sources, &[("core/machines".to_string(), names.clone())].into_iter().collect()),
+            "Other machines are available: gpu, laptop.\nName one in a path, as in gpu:/work/file, for the read, write, edit and patch tools, and as the shell tool's workdir to run a command there. A machine path is absolute or starts with ~/ for that machine's home. grep and glob cannot search another machine; run a search command there with the shell tool instead. A machine may be offline; the tool says so when it is."
+        );
+        let previous: Map<String, Value> = [("core/machines".to_string(), json!("hash"))].into_iter().collect();
+        assert_eq!(diff(&sources, Some(&previous)).unwrap().delta.get("core/machines"), Some(&json!(REMOVED)));
+        let stored: Map<String, Value> = [("core/machines".to_string(), names.clone())].into_iter().collect();
+        assert_eq!(
+            render_update(&sources, &stored, &[("core/machines".to_string(), None)]),
+            "Other machines are no longer available. Do not use any previously listed machine."
+        );
+        let source = &sources[0];
+        assert_eq!(
+            (source.changed)(&names, &json!(["gpu", "worker"])).unwrap(),
+            "New machines are available in addition to those previously listed:\nworker\nThe following machines are no longer available and must not be used: laptop."
+        );
+        assert!((source.changed)(&names, &json!(["laptop", "gpu"])).unwrap().starts_with(
+            "The available machines have changed. This list supersedes the previous available machines list.\nOther machines are available: laptop, gpu."
+        ));
+        assert_eq!((source.removed)(&json!({ "not": "names" })), None);
+    }
+
     // mcp-instructions.test.ts "lists Code Mode servers as direct tools when the agent cannot use execute".
     #[test]
     fn mcp_servers_are_direct_when_execute_is_denied() {

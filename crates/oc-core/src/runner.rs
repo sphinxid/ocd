@@ -735,6 +735,7 @@ impl Engine {
         let discovery = discovery.map(|files| console.into_iter().chain(files).collect());
         let mut list = vec![
             instructions::skill_source(skills),
+            instructions::machine_source(),
             instructions::discovery_source(discovery),
             instructions::date_source(),
             instructions::environment_source(

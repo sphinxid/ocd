@@ -175,7 +175,7 @@ fn is_bool_literal(v: &str) -> bool {
 pub fn type_name(prim: Prim) -> &'static str {
     match prim {
         Prim::Bool => "boolean",
-        Prim::Str | Prim::NonEmpty | Prim::PairUrl => "string",
+        Prim::Str | Prim::NonEmpty | Prim::ServerUrl => "string",
         Prim::Int(_) => "integer",
         Prim::Choice(_) => "choice",
         Prim::KeyValue => "key=value",
@@ -264,20 +264,26 @@ pub fn parse_prim(prim: Prim, value: &str) -> Result<PVal, String> {
             m.insert(k.to_string(), v.to_string());
             Ok(PVal::Map(m))
         }
-        Prim::PairUrl => {
-            const MSG: &str = "Expected an HTTP(S) server URL without credentials, query parameters, or a fragment";
-            let url = url::Url::parse(value).map_err(|_| MSG.to_string())?;
-            let bad = !matches!(url.scheme(), "http" | "https")
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.query().is_some_and(|q| !q.is_empty())
-                || url.fragment().is_some_and(|f| !f.is_empty());
-            if bad {
-                return Err(MSG.into());
-            }
-            Ok(PVal::Str(url.as_str().trim_end_matches('/').to_string()))
-        }
+        Prim::ServerUrl => parse_server_url(value)
+            .map(PVal::Str)
+            .map_err(|_| "Expected an HTTP(S) server URL without credentials, query parameters, or a fragment".to_string()),
     }
+}
+
+/// `parseServerURL` (`services/service-urls.ts`): an HTTP(S) URL without credentials, query or fragment, with its
+/// trailing slashes removed.
+pub fn parse_server_url(value: &str) -> Result<String, &'static str> {
+    const INVALID: &str = "Invalid server URL";
+    let url = url::Url::parse(value).map_err(|_| INVALID)?;
+    let bad = !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some_and(|q| !q.is_empty())
+        || url.fragment().is_some_and(|f| !f.is_empty());
+    if bad {
+        return Err(INVALID);
+    }
+    Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
 // ---------------------------------------------------------------------------------------------

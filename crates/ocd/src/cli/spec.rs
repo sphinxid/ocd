@@ -13,8 +13,8 @@ pub enum Prim {
     KeyValue,
     /// `Flag.String` + `Schema.NonEmptyString`.
     NonEmpty,
-    /// `pair --url` (`Flag.mapTryCatch` URL validation).
-    PairUrl,
+    /// `serverURLFlag`: `pair --url` and `machine add --url` (`Flag.mapTryCatch(parseServerURL)`).
+    ServerUrl,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -191,6 +191,11 @@ fn server_flags() -> Vec<FlagDef> {
 /// `ServerParams`: the root (default TUI) keeps them as its own flags.
 fn server_params() -> Vec<Param> {
     server_flags().into_iter().map(FlagDef::p).collect()
+}
+
+/// `serverURLFlag(description)`: `--url`, an HTTP(S) server URL without credentials, query or fragment.
+fn server_url_flag(description: &'static str) -> Param {
+    flag("url", "url", Prim::ServerUrl, Arity::Optional).desc(description).p()
 }
 
 fn permission_params() -> Vec<Param> {
@@ -621,8 +626,22 @@ pub fn root() -> Cmd {
             ],
         ),
         cmd("reload", "Reload configuration", vec![]).globals(server_flags()),
+        group(
+            "machine",
+            "Manage remote machines",
+            vec![
+                cmd("add", "Add a machine and print a one-time join string", vec![
+                    arg("name", "name", "Name of the machine", ArgMode::Required),
+                    server_url_flag("Use an external HTTP(S) server URL in the join string"),
+                    boolean("replace", "replace").desc("Replace the key of an already-paired machine").p(),
+                ]),
+                cmd("list", "List machines", vec![]),
+                cmd("remove", "Remove a machine", vec![arg("name", "name", "Name of the machine", ArgMode::Required)]),
+            ],
+        )
+        .globals(server_flags()),
         cmd("pair", "Print one-time links to connect a browser or app", vec![
-            flag("url", "url", Prim::PairUrl, Arity::Optional).desc("Use an external HTTP(S) server URL in pairing links").p(),
+            server_url_flag("Use an external HTTP(S) server URL in pairing links"),
             boolean("remote", "remote")
                 .desc("Pair through the OpenTunnel remote address, enabling remote access if needed (exposes the server to the internet)")
                 .p(),

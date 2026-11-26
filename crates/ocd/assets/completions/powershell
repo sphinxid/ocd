@@ -27,6 +27,7 @@ $global:_ocd_Completions[''] = @{
     @{ name = 'session'; description = 'Manage sessions' }
     @{ name = 'service'; description = 'Manage the background server' }
     @{ name = 'reload'; description = 'Reload configuration' }
+    @{ name = 'machine'; description = 'Manage remote machines' }
     @{ name = 'pair'; description = 'Print one-time links to connect a browser or app' }
     @{ name = 'serve'; description = 'Start the v2 API and web server' }
   )
@@ -429,6 +430,37 @@ $global:_ocd_Completions['reload'] = @{
   subcommands = @()
   flags = @()
   arguments = @()
+}
+$global:_ocd_Completions['machine'] = @{
+  subcommands = @(
+    @{ name = 'add'; description = 'Add a machine and print a one-time join string' }
+    @{ name = 'list'; description = 'List machines' }
+    @{ name = 'remove'; description = 'Remove a machine' }
+  )
+  flags = @()
+  arguments = @()
+}
+$global:_ocd_Completions['machine add'] = @{
+  subcommands = @()
+  flags = @(
+    @{ name = 'url'; forms = @('--url'); takesValue = $true; values = @(); pathType = $null; description = 'Use an external HTTP(S) server URL in the join string' }
+    @{ name = 'replace'; forms = @('--replace'); takesValue = $false; negation = '--no-replace'; values = @(); pathType = $null; description = 'Replace the key of an already-paired machine' }
+  )
+  arguments = @(
+    @{ name = 'name'; variadic = $false; values = @(); pathType = $null; description = 'Name of the machine' }
+  )
+}
+$global:_ocd_Completions['machine list'] = @{
+  subcommands = @()
+  flags = @()
+  arguments = @()
+}
+$global:_ocd_Completions['machine remove'] = @{
+  subcommands = @()
+  flags = @()
+  arguments = @(
+    @{ name = 'name'; variadic = $false; values = @(); pathType = $null; description = 'Name of the machine' }
+  )
 }
 $global:_ocd_Completions['pair'] = @{
   subcommands = @()

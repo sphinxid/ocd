@@ -64,14 +64,16 @@ parse errors match the upstream binary with `opencode` read as `ocd` (side-by-si
   commands without subcommand, ~70 parse-error cases (stdout, stderr, exit code), and the `--server`/`--standalone`
   scope matrix of `cli/test/server-connection.test.ts`; since 4.1.0 also repeated flags and global flags' own parse
   errors (help, then `ERROR`, exit 1). A defect's stack trace is cut to its first line (it names the capturing
-  machine's paths).
+  machine's paths). The `machine` group (2.4.1) was added from the 2.4.1 binary's output: its help and parse errors,
+  and its entry in the root help and the completion scripts.
 * `parse.json`: the decoded handler input (`JSON.stringify(input)` incl. Effect `Option` encoding) and the
   server settings the handler sees (`{"server", "standalone"}`, `null` outside their scope) for ~110 valid
   command lines, including the `--worktree` matrix of upstream's `cli/test/flag.test.ts`. The binary prints the same
   with the internal `OPENCODE_CLI_PARSE_DUMP=1`.
 * `assets/completions/{bash,zsh,fish,powershell}` are the framework's generated scripts, embedded verbatim
   (`sh` prints bash, `pwsh` powershell).
-* `wizard.json`: 27 `--wizard` transcripts of the upstream 2.2.2 binary, those for `run` recaptured from 2.2.7 and two
+* `wizard.json`: 27 `--wizard` transcripts of the upstream 2.2.2 binary, those for `run` recaptured from 2.2.7 (and
+  `narrow-select` and `run-session-list`, whose command list scrolls past `machine`, from 2.4.1) and two
   more for its optional-value `--worktree` (raw terminal output on a pty, or with
   piped stdin and stdout) for the key chunks they list, normalized (`opencode` read as `ocd`, version, ocd's
   `upgrade` description); the command's own output after `Run this command?` and Bun's stack trace after an
