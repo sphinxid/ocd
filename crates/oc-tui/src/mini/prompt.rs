@@ -98,6 +98,9 @@ pub struct Composer {
     stash: RunPrompt,
     parts: Vec<PromptPart>,
     marks: Vec<(u32, usize)>,
+    /// Each chip mark's part (the extmark's `data`): undo restores a deleted chip's mark after its part left
+    /// `parts`, and the mark brings the part back.
+    mark_data: std::collections::HashMap<u32, PromptPart>,
     pub mode: MenuMode,
     at: usize,
     pub query: String,
@@ -176,6 +179,7 @@ impl Composer {
             stash: RunPrompt::default(),
             parts: Vec::new(),
             marks: Vec::new(),
+            mark_data: std::collections::HashMap::new(),
             mode: MenuMode::Off,
             at: 0,
             query: String::new(),
@@ -409,8 +413,14 @@ impl Composer {
             if m.type_id != MARK_TYPE {
                 continue;
             }
-            let Some(&(_, idx)) = self.marks.iter().find(|(id, _)| *id == m.id) else { continue };
-            let Some(part) = self.parts.get(idx) else { continue };
+            // Undo restores a deleted chip's mark, with its part as data, after the part left `parts`.
+            let idx = self.marks.iter().find(|(id, _)| *id == m.id).map(|(_, idx)| *idx);
+            let Some(part) = (match idx {
+                Some(idx) => self.parts.get(idx),
+                None => self.mark_data.get(&m.id),
+            }) else {
+                continue;
+            };
             let text = self.area.get_text_range(m.start, m.end);
             let prev = match part {
                 PromptPart::Agent { name, source } => source.as_ref().map(|s| s.value.clone()).unwrap_or(format!("@{name}")),
@@ -426,6 +436,10 @@ impl Composer {
                 PromptPart::File { source: Some(s), .. } => s.1 = MentionRange { start: m.start, end: m.end, value: text },
                 _ => {}
             }
+            let Some(idx) = idx else {
+                next.push(Some(copy));
+                continue;
+            };
             tracked += 1;
             next[idx] = Some(copy);
         }
@@ -453,6 +467,7 @@ impl Composer {
             };
             let Some((start, end)) = range else { continue };
             let id = self.area.create_mark(start, end, true, MARK_TYPE);
+            self.mark_data.insert(id, item.clone());
             self.marks.push((id, idx));
         }
     }
@@ -683,6 +698,7 @@ impl Composer {
                     }
                 }
                 let id = self.area.create_mark(start_offset, end_offset, true, MARK_TYPE);
+                self.mark_data.insert(id, part.clone());
                 self.marks.push((id, self.parts.len()));
                 self.parts.push(part);
                 self.hide();
@@ -975,5 +991,34 @@ impl Composer {
     /// Rows the textarea shows at layout `l`.
     pub fn shown_rows(&self, l: &PromptLayout) -> usize {
         l.textarea.min(self.visual_rows().max(1)).max(TEXTAREA_MIN_ROWS)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `footer.view.test.tsx` "an undone chip deletion keeps the chip's file": undo restores a deleted chip's mark
+    /// after its part left the prompt, and the part comes back with it.
+    #[test]
+    fn an_undone_chip_deletion_keeps_the_chips_file() {
+        let file = PromptPart::File {
+            url: "file:///src/main.ts".into(),
+            filename: Some("main.ts".into()),
+            mime: None,
+            description: None,
+            source: Some(("src/main.ts".into(), MentionRange { start: 8, end: 20, value: "@src/main.ts".into() })),
+        };
+        let mut c = Composer::new(&[]);
+        c.restore(&RunPrompt { text: "inspect @src/main.ts please".into(), parts: vec![file.clone()], ..Default::default() }, None);
+        assert_eq!(c.current().parts, [file.clone()]);
+        c.area.delete_line();
+        let cleared = c.current();
+        assert_eq!(cleared.text, "");
+        assert!(cleared.parts.is_empty());
+        c.area.undo();
+        let restored = c.current();
+        assert_eq!(restored.text, "inspect @src/main.ts please");
+        assert_eq!(restored.parts, [file]);
     }
 }

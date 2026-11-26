@@ -64,11 +64,43 @@ pub fn append_prompt(prompt: &PromptInfo, following: &PromptInfo) -> PromptInfo 
     }
 }
 
-/// `usePromptRestore`: a sent prompt as the composer edits it (`projectedPromptInput`, pasted ranges dropped).
+/// `usePromptRestore`: a sent prompt as the composer edits it (`projectedPromptInput`, pasted ranges dropped, mention
+/// ranges in cells).
 pub fn restored_prompt(m: &Message) -> PromptInfo {
     let mut p = super::go_upsell::projected_prompt(m);
     p.pasted.clear();
+    mentions_to_cells(&mut p);
     p
+}
+
+/// `promptMentionsToCells` (2.4.1): the web composer stores mention ranges as string (UTF-16) indexes and the TUI as
+/// cells; the two differ after a tab or a wide character. A range that does not cover its text in cells but does as
+/// string indexes is converted to cells.
+pub fn mentions_to_cells(p: &mut PromptInfo) {
+    let units: Vec<u16> = p.text.encode_utf16().collect();
+    let slice = |a: usize, b: usize| (a <= b && b <= units.len()).then(|| String::from_utf16_lossy(&units[a..b]));
+    let cells = |index: usize| slice(0, index.min(units.len())).map(|s| measure_edit_text(&s)).unwrap_or(0);
+    let convert = |item: &mut Value| {
+        let Some(m) = item.get_mut("mention").filter(|m| m.is_object()) else { return };
+        let Some(text) = m.get("text").and_then(Value::as_str).filter(|t| !t.is_empty()).map(str::to_string) else { return };
+        let (Some(start), Some(end)) = (m.get("start").and_then(Value::as_u64), m.get("end").and_then(Value::as_u64)) else { return };
+        let (start, end) = (start as usize, end as usize);
+        if slice(start, end).as_deref() != Some(text.as_str()) {
+            return;
+        }
+        let needle: Vec<u16> = text.encode_utf16().collect();
+        let in_cells = (0..units.len().saturating_sub(needle.len()) + 1).filter(|at| units[*at..].starts_with(&needle)).any(|at| cells(at) == start);
+        if in_cells {
+            return;
+        }
+        m["start"] = json!(cells(start));
+        m["end"] = json!(cells(end));
+    };
+    p.files.iter_mut().for_each(convert);
+    p.agents.iter_mut().for_each(convert);
+    if let Some(skills) = p.skills.as_mut() {
+        skills.iter_mut().for_each(convert);
+    }
 }
 
 impl App {
@@ -271,5 +303,21 @@ mod tests {
         assert_eq!(out.files[0]["mention"], json!({ "start": 4, "end": 9, "text": "@b.ts" }));
         // Wide characters count by display width.
         assert_eq!(measure_edit_text("漢字\n\n"), 6);
+    }
+
+    /// `mention.test.ts` "promptMentionsToCells": a web composer's string-index range becomes cells; a range already
+    /// in cells, or one that does not cover its text, stays.
+    #[test]
+    fn web_mention_ranges_become_cells() {
+        let mut p = PromptInfo { text: "中文 @a.ts and \t@b.ts".into(), ..Default::default() };
+        p.files = vec![json!({"mention": {"start": 3, "end": 8, "text": "@a.ts"}}), json!({"mention": {"start": 14, "end": 19, "text": "@b.ts"}})];
+        p.agents = vec![json!({"mention": {"start": 5, "end": 10, "text": "@a.ts"}}), json!({"mention": {"start": 0, "end": 2, "text": "@x"}})];
+        mentions_to_cells(&mut p);
+        let at = |v: &Value| (v["mention"]["start"].as_u64().unwrap(), v["mention"]["end"].as_u64().unwrap());
+        assert_eq!(at(&p.files[0]), (5, 10));
+        let tab = measure_edit_text("中文 @a.ts and \t") as u64;
+        assert_eq!(at(&p.files[1]), (tab, tab + 5));
+        assert_eq!(at(&p.agents[0]), (5, 10));
+        assert_eq!(at(&p.agents[1]), (0, 2));
     }
 }
