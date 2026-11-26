@@ -345,7 +345,17 @@ pub(crate) fn api_router(app: Arc<App>) -> Router {
         })
         .fallback(not_found),
     );
-    router.fallback(not_found).with_state(app)
+    // axum adds `Allow` to a known path's answer for another method, outside any layer of the route; upstream answers
+    // that like an unknown route, so the header goes in a layer around the whole router.
+    let router = router.fallback(not_found).with_state(app);
+    Router::new().fallback_service(router).layer(axum::middleware::map_response(strip_allow))
+}
+
+async fn strip_allow(mut response: Response) -> Response {
+    if response.status() == StatusCode::NOT_FOUND {
+        response.headers_mut().remove(header::ALLOW);
+    }
+    response
 }
 
 /// Resolve the location for the operation's scope (spec 06 §1.1); runs before param decoding
