@@ -179,10 +179,10 @@ async fn shell_commands_kept_by_the_daemon_are_taken_back() {
     fake.exit(1, Some(0), None);
     fake.output(2, "bg\n");
     fake.exit(2, Some(0), None);
-    until(|| synthetic_texts(&app, &sid).iter().filter(|t| t.starts_with("<shell ")).count() == 2).await;
-    let texts: Vec<String> = synthetic_texts(&app, &sid).into_iter().filter(|t| t.starts_with("<shell ")).collect();
-    assert!(texts.contains(&format!("<shell id=\"{}\" state=\"completed\" command=\"sleep 60; echo fg\">\nfg\n\n</shell>", foreground.id)), "{texts:#?}");
-    assert!(texts.contains(&format!("<shell id=\"{}\" state=\"completed\" command=\"sleep 60; echo bg\">\nbg\n\n</shell>", background.id)), "{texts:#?}");
+    until(|| synthetic_texts(&app, &sid).iter().filter(|t| t.starts_with("<background-result kind=\"shell\" ")).count() == 2).await;
+    let texts: Vec<String> = synthetic_texts(&app, &sid).into_iter().filter(|t| t.starts_with("<background-result kind=\"shell\" ")).collect();
+    assert!(texts.contains(&format!("<background-result kind=\"shell\" id=\"{}\" state=\"completed\" command=\"sleep 60; echo fg\">\nfg\n\n</background-result>", foreground.id)), "{texts:#?}");
+    assert!(texts.contains(&format!("<background-result kind=\"shell\" id=\"{}\" state=\"completed\" command=\"sleep 60; echo bg\">\nbg\n\n</background-result>", background.id)), "{texts:#?}");
     until(|| app.jobs.pending_background().is_empty()).await;
     std::fs::remove_dir_all(&root).ok();
 }

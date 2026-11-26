@@ -359,7 +359,7 @@ async fn full_codemode_end_to_end() {
         wait_until("the result step", || mock.requests.lock().len() >= requests + 3).await;
         idle(&app, &id).await;
         assert!(app.jobs.pending_background().is_empty());
-        let notice = format!("<codemode id=\"{job}\" state=\"completed\">\nresult: done\n</codemode>");
+        let notice = format!("<background-result kind=\"codemode\" id=\"{job}\" state=\"completed\">\nresult: done\n</background-result>");
         let last = mock.requests.lock().last().unwrap().to_string();
         let escaped = serde_json::to_string(&notice).unwrap();
         assert!(last.contains(escaped.trim_matches('"')), "{last}");
@@ -368,7 +368,7 @@ async fn full_codemode_end_to_end() {
             _ => None,
         });
         let (metadata, description) = synthetic.expect("the <codemode> message");
-        assert_eq!(description.as_deref(), Some("Code Mode script"));
+        assert_eq!(description.as_deref(), Some("Script"));
         assert_eq!(serde_json::to_value(metadata).unwrap(), json!({ "source": "codemode", "jobID": job, "state": "completed" }));
     }
 
@@ -392,7 +392,7 @@ async fn full_codemode_end_to_end() {
         .unwrap()
         .into_iter()
         .find_map(|(_, m)| match m {
-            Message::Synthetic { text, .. } if text.starts_with("<codemode") => Some(text),
+            Message::Synthetic { text, .. } if text.starts_with("<background-result kind=\"codemode\"") => Some(text),
             _ => None,
         })
         .unwrap();

@@ -128,7 +128,12 @@ pub struct Jobs {
     db: Database,
     jobs: Mutex<IndexMap<String, Active>>,
     generation: Mutex<u64>,
+    /// Told the listed shape of a job with a recovery that started in the background, moved there, or ended
+    /// (`experimental.job.updated`, 2.4.1): clients follow listed jobs through it instead of polling the list.
+    updated: parking_lot::RwLock<Option<UpdatedFn>>,
 }
+
+pub type UpdatedFn = Arc<dyn Fn(ListedJob) + Send + Sync>;
 
 fn now() -> u64 {
     oc_schema::id::now_ms()
@@ -147,7 +152,7 @@ async fn await_some(mut rx: watch::Receiver<Option<JobInfo>>) -> JobInfo {
 
 impl Jobs {
     pub fn new(db: Database) -> Self {
-        Jobs { db, jobs: Mutex::new(IndexMap::new()), generation: Mutex::new(0) }
+        Jobs { db, jobs: Mutex::new(IndexMap::new()), generation: Mutex::new(0), updated: Default::default() }
     }
 
     /// `persistBackground`: upsert on `notification_id`; a conflict only updates the status, output, error,
@@ -183,6 +188,20 @@ impl Jobs {
         });
         if let Err(e) = result {
             tracing::error!(error = %e, notificationID = nid.as_str(), "failed to persist background job");
+        }
+    }
+
+    /// Subscribes to job updates (see [`Jobs::updated`]); a later subscription replaces the earlier one.
+    pub fn on_updated(&self, f: UpdatedFn) {
+        *self.updated.write() = Some(f);
+    }
+
+    /// `updated(listed(info, recovery))`: only jobs with a recovery are listed.
+    fn publish_updated(&self, listed: Option<ListedJob>) {
+        let Some(listed) = listed else { return };
+        let f = self.updated.read().clone();
+        if let Some(f) = f {
+            f(listed);
         }
     }
 
@@ -282,8 +301,10 @@ impl Jobs {
         if job.is_bg {
             self.persist(&job);
         }
+        let started = job.is_bg.then(|| listed(&job.info, &job.recovery)).flatten();
         jobs.insert(id.clone(), job);
         drop(jobs);
+        self.publish_updated(started);
         let this = self.clone();
         let base = info.clone();
         // The job's fiber is forked from the caller's and keeps its trace (a tool's job: the drain's).
@@ -330,6 +351,7 @@ impl Jobs {
         job.blocking.clear();
         terminal(&mut job.info);
         let snapshot = job.info.clone();
+        let ended = listed(&snapshot, &job.recovery);
         if job.consumed {
             // A consumed job's notification row is gone; persisting here would resurrect it.
             jobs.shift_remove(id);
@@ -340,6 +362,7 @@ impl Jobs {
         }
         drop(jobs);
         let _ = done.send_replace(Some(snapshot));
+        self.publish_updated(ended);
     }
     pub async fn wait(&self, id: &str) -> Option<JobInfo> {
         let (rx, generation, recoverable) = {
@@ -427,11 +450,15 @@ impl Jobs {
         }
         self.mark_background(job);
         let _ = job.backgrounded.send_replace(Some(job.info.clone()));
-        Some(job.info.clone())
+        let (info, moved) = (job.info.clone(), listed(&job.info, &job.recovery));
+        drop(jobs);
+        self.publish_updated(moved);
+        Some(info)
     }
 
     pub fn background_all(&self, session: &str, kind: Option<&str>) -> Vec<JobInfo> {
         let mut out = Vec::new();
+        let mut moved = Vec::new();
         let mut jobs = self.jobs.lock();
         for job in jobs.values_mut() {
             if job.info.status != JobStatus::Running || job.is_bg || kind.is_some_and(|k| job.info.kind != k) || !job.blocking.contains_key(session) {
@@ -440,6 +467,11 @@ impl Jobs {
             self.mark_background(job);
             let _ = job.backgrounded.send_replace(Some(job.info.clone()));
             out.push(job.info.clone());
+            moved.push(listed(&job.info, &job.recovery));
+        }
+        drop(jobs);
+        for listed in moved {
+            self.publish_updated(listed);
         }
         out
     }
@@ -468,8 +500,10 @@ impl Jobs {
             self.persist(job);
         }
         let (done, cancel) = (job.done.clone(), job.cancel.clone());
+        let ended = listed(&info, &job.recovery);
         drop(jobs);
         let _ = done.send_replace(Some(info.clone()));
+        self.publish_updated(ended);
         cancel.cancel();
         self.consume(id, generation);
         Some(info)
@@ -702,6 +736,18 @@ fn decode_recovery(text: &str) -> Option<JobRecovery> {
     ids.iter().all(|id| id.starts_with("ses")).then_some(recovery)
 }
 
+/// `JobList.item(info, recovery)`: the listed shape of one live job; none without a recovery.
+fn listed(info: &JobInfo, recovery: &Option<JobRecovery>) -> Option<ListedJob> {
+    Some(ListedJob {
+        id: info.id.clone(),
+        status: info.status,
+        title: info.title.clone(),
+        started: info.started_at,
+        completed: info.completed_at,
+        recovery: recovery.clone()?,
+    })
+}
+
 /// A background job as `experimental.job.list` reports it (`JobList.Item`, the schema's `Job.Info`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListedJob {
@@ -721,6 +767,41 @@ impl ListedJob {
     /// The owning session: a subagent's parent.
     pub fn session_id(&self) -> &str {
         owner_session(&self.recovery)
+    }
+
+    /// The listed shape as JSON (`Job.Info`, in the schema's key order).
+    pub fn to_value(&self) -> Value {
+        let mut out = serde_json::Map::new();
+        out.insert("kind".into(), Value::from(self.kind()));
+        out.insert("id".into(), Value::from(self.id.clone()));
+        out.insert("sessionID".into(), Value::from(self.session_id()));
+        out.insert("status".into(), Value::from(self.status.as_str()));
+        if let Some(title) = &self.title {
+            out.insert("title".into(), Value::from(title.clone()));
+        }
+        let mut time = serde_json::Map::new();
+        time.insert("started".into(), Value::from(self.started));
+        if let Some(completed) = self.completed {
+            time.insert("completed".into(), Value::from(completed));
+        }
+        out.insert("time".into(), Value::Object(time));
+        match &self.recovery {
+            JobRecovery::Shell { shell_id, command, .. } => {
+                out.insert("shellID".into(), Value::from(shell_id.clone()));
+                out.insert("command".into(), Value::from(command.clone()));
+            }
+            JobRecovery::Subagent { child_session_id, agent, description, .. } => {
+                out.insert("childSessionID".into(), Value::from(child_session_id.clone()));
+                out.insert("agent".into(), Value::from(agent.clone()));
+                out.insert("description".into(), Value::from(description.clone()));
+            }
+            JobRecovery::Image { path, model, .. } => {
+                out.insert("path".into(), Value::from(path.clone()));
+                out.insert("model".into(), Value::from(model.clone()));
+            }
+            JobRecovery::Codemode { .. } => {}
+        }
+        Value::Object(out)
     }
 }
 
@@ -796,7 +877,7 @@ pub fn format_body(body: &str, child_session_id: &str, background: &[Value]) -> 
     format!("{body}{STILL_RUNNING}{}", lines.join("\n"))
 }
 
-/// The `<subagent>` notice `SubagentCompletion.deliver` admits in the parent.
+/// The `<background-result kind="subagent">` notice `SubagentCompletion.deliver` admits in the parent.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubagentNotice {
     pub id: Option<String>,
@@ -837,7 +918,10 @@ pub fn subagent_notice(
     Some(SubagentNotice {
         id: notification_id,
         session_id: parent_session_id.clone(),
-        text: format!("<subagent sessionID=\"{child_session_id}\" state=\"{state}\" description=\"{description}\">\n{body}\n</subagent>"),
+        text: oc_tools::background_result::render(
+            &format!("kind=\"subagent\" sessionID=\"{child_session_id}\" state=\"{state}\" description=\"{description}\""),
+            &body,
+        ),
         description: description.clone(),
         metadata,
     })
@@ -1104,32 +1188,32 @@ mod completion_tests {
         let running = subagent_notice(JobStatus::Completed, Some("All green".into()), None, Some("msg_n".into()), &snapshot).unwrap();
         assert_eq!(
             running.text,
-            "<subagent sessionID=\"ses_deliver_child\" state=\"running\" description=\"Deliver report\">\nAll green\n\nBackground work still running:\n- shell (shell_1): bun test\n</subagent>"
+            "<background-result kind=\"subagent\" sessionID=\"ses_deliver_child\" state=\"running\" description=\"Deliver report\">\nAll green\n\nBackground work still running:\n- shell (shell_1): bun test\n</background-result>"
         );
         assert_eq!(running.metadata["state"], "completed");
         assert_eq!((running.id.as_deref(), running.session_id.as_str()), (Some("msg_n"), "ses_deliver_parent"));
-        assert_eq!(text(JobStatus::Error, None, Some("boom")).unwrap(), "<subagent sessionID=\"ses_deliver_child\" state=\"error\" description=\"Deliver report\">\nboom\n</subagent>");
+        assert_eq!(text(JobStatus::Error, None, Some("boom")).unwrap(), "<background-result kind=\"subagent\" sessionID=\"ses_deliver_child\" state=\"error\" description=\"Deliver report\">\nboom\n</background-result>");
         assert_eq!(
             text(JobStatus::Cancelled, None, None).unwrap(),
-            "<subagent sessionID=\"ses_deliver_child\" state=\"cancelled\" description=\"Deliver report\">\nSubagent cancelled\n</subagent>"
+            "<background-result kind=\"subagent\" sessionID=\"ses_deliver_child\" state=\"cancelled\" description=\"Deliver report\">\nSubagent cancelled\n</background-result>"
         );
         // A running job has nothing to report.
         assert!(text(JobStatus::Running, None, None).is_none());
-        assert_eq!(text(JobStatus::Completed, Some("All done"), None).unwrap(), "<subagent sessionID=\"ses_deliver_child\" state=\"completed\" description=\"Deliver report\">\nAll done\n</subagent>");
+        assert_eq!(text(JobStatus::Completed, Some("All done"), None).unwrap(), "<background-result kind=\"subagent\" sessionID=\"ses_deliver_child\" state=\"completed\" description=\"Deliver report\">\nAll done\n</background-result>");
         // An older row without the snapshot replays its recorded status and keeps its full body.
         let old = "All green\n\nBackground work still running:\n- shell (shell_1): bun test";
         assert_eq!(
             text(JobStatus::Completed, Some(old), None).unwrap(),
-            format!("<subagent sessionID=\"ses_deliver_child\" state=\"completed\" description=\"Deliver report\">\n{old}\n</subagent>")
+            format!("<background-result kind=\"subagent\" sessionID=\"ses_deliver_child\" state=\"completed\" description=\"Deliver report\">\n{old}\n</background-result>")
         );
         let output = "Subagent cancelled\n\nBackground work still running:\n- shell (shell_1): bun test";
         assert_eq!(
             text(JobStatus::Cancelled, Some(output), None).unwrap(),
-            format!("<subagent sessionID=\"ses_deliver_child\" state=\"cancelled\" description=\"Deliver report\">\n{output}\n</subagent>")
+            format!("<background-result kind=\"subagent\" sessionID=\"ses_deliver_child\" state=\"cancelled\" description=\"Deliver report\">\n{output}\n</background-result>")
         );
         assert_eq!(
             text(JobStatus::Cancelled, None, Some("Cancel failed")).unwrap(),
-            "<subagent sessionID=\"ses_deliver_child\" state=\"cancelled\" description=\"Deliver report\">\nCancel failed\n</subagent>"
+            "<background-result kind=\"subagent\" sessionID=\"ses_deliver_child\" state=\"cancelled\" description=\"Deliver report\">\nCancel failed\n</background-result>"
         );
     }
 }

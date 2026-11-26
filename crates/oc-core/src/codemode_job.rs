@@ -27,7 +27,7 @@ pub fn id() -> String {
     oc_schema::id::ascending("cm")
 }
 
-/// The `<codemode>` notice of a settled (or, after a restart, interrupted) script: `(description, text, metadata)`.
+/// The `<background-result kind="codemode">` notice of a settled (or, after a restart, interrupted) script: `(description, text, metadata)`.
 pub fn notice(id: &str, status: JobStatus, output: Option<&str>, error: Option<&str>) -> (String, String, Metadata) {
     let state = if status == JobStatus::Running { "cancelled" } else { status.as_str() };
     let body = if status == JobStatus::Running { "Interrupted by server restart." } else { output.or(error).unwrap_or(state) };
@@ -35,7 +35,8 @@ pub fn notice(id: &str, status: JobStatus, output: Option<&str>, error: Option<&
     metadata.insert("source".into(), json!("codemode"));
     metadata.insert("jobID".into(), json!(id));
     metadata.insert("state".into(), json!(state));
-    (TITLE.into(), format!("<codemode id=\"{id}\" state=\"{state}\">\n{body}\n</codemode>"), metadata)
+    // The notice's description is the short "Script" (2.4.1, #64741); the job keeps its longer title.
+    ("Script".into(), oc_tools::background_result::render(&format!("kind=\"codemode\" id=\"{id}\" state=\"{state}\""), body), metadata)
 }
 
 /// The receipt a backgrounded script's call returns.
@@ -119,9 +120,11 @@ pub async fn run(app: Arc<App>, id: String, ctx: ToolContext, output: Output, ex
         let mut job_ctx = ctx.clone();
         let progress = ctx.progress.clone();
         let attached = attached.clone();
-        job_ctx.progress = Arc::new(move |update: Metadata| {
+        job_ctx.progress = Arc::new(move |mut update: Metadata| {
             let detached = attached.detached.lock();
             if !*detached {
+                // The background flag tells clients this script can move to the background (2.4.1).
+                update.insert("background".into(), Value::Bool(true));
                 progress(update);
             }
         });
@@ -146,6 +149,9 @@ pub async fn run(app: Arc<App>, id: String, ctx: ToolContext, output: Output, ex
             }
         }
     });
+    let mut started = Metadata::new();
+    started.insert("background".into(), Value::Bool(true));
+    ctx.progress(started);
     app.jobs.start_input(crate::job::StartInput {
         id: id.clone(),
         kind: KIND.into(),
@@ -262,16 +268,16 @@ mod tests {
     #[test]
     fn notices() {
         let (description, text, metadata) = notice("cm_1", JobStatus::Completed, Some("result: done"), None);
-        assert_eq!(description, "Code Mode script");
-        assert_eq!(text, "<codemode id=\"cm_1\" state=\"completed\">\nresult: done\n</codemode>");
+        assert_eq!(description, "Script");
+        assert_eq!(text, "<background-result kind=\"codemode\" id=\"cm_1\" state=\"completed\">\nresult: done\n</background-result>");
         assert_eq!(serde_json::to_value(metadata).unwrap(), json!({ "source": "codemode", "jobID": "cm_1", "state": "completed" }));
         // A failed script reports its error; one still running at a restart was interrupted by it.
-        assert_eq!(notice("cm_2", JobStatus::Error, None, Some("boom")).1, "<codemode id=\"cm_2\" state=\"error\">\nboom\n</codemode>");
+        assert_eq!(notice("cm_2", JobStatus::Error, None, Some("boom")).1, "<background-result kind=\"codemode\" id=\"cm_2\" state=\"error\">\nboom\n</background-result>");
         assert_eq!(
             notice("cm_3", JobStatus::Running, Some("partial"), None).1,
-            "<codemode id=\"cm_3\" state=\"cancelled\">\nInterrupted by server restart.\n</codemode>"
+            "<background-result kind=\"codemode\" id=\"cm_3\" state=\"cancelled\">\nInterrupted by server restart.\n</background-result>"
         );
-        assert_eq!(notice("cm_4", JobStatus::Cancelled, None, None).1, "<codemode id=\"cm_4\" state=\"cancelled\">\ncancelled\n</codemode>");
+        assert_eq!(notice("cm_4", JobStatus::Cancelled, None, None).1, "<background-result kind=\"codemode\" id=\"cm_4\" state=\"cancelled\">\ncancelled\n</background-result>");
         let receipt = receipt("cm_5");
         assert_eq!(receipt.output, Some(json!({ "output": "Script cm_5 is still running; its result will arrive in this session.", "toolCalls": [], "files": [] })));
         assert_eq!(serde_json::to_value(receipt.metadata).unwrap(), json!({ "jobID": "cm_5" }));

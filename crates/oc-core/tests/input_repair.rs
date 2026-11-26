@@ -72,7 +72,8 @@ async fn repairs_tool_input_unless_removed() {
     }
 
     // Each prompt runs: read with coercible strings and an extra key, read with an invalid path, a call to
-    // `bash` (run as `shell`, #60687), then text.
+    // `bash` (run as `shell`, #60687), one to `Bash` (2.4.1), a top-level call to a Code Mode tool (2.4.1, #65494),
+    // then text.
     let calls = Arc::new(AtomicUsize::new(0));
     let file = Arc::new(parking_lot::Mutex::new(String::new()));
     let (c2, f2) = (calls.clone(), file.clone());
@@ -80,7 +81,7 @@ async fn repairs_tool_input_unless_removed() {
         "/v1/chat/completions",
         post(move |body: axum::Json<Value>| {
             let is_title = body.0.to_string().contains("You name conversations");
-            let n = if is_title { usize::MAX } else { c2.fetch_add(1, Ordering::SeqCst) % 4 };
+            let n = if is_title { usize::MAX } else { c2.fetch_add(1, Ordering::SeqCst) % 6 };
             let file = f2.lock().clone();
             async move {
                 match n {
@@ -88,6 +89,8 @@ async fn repairs_tool_input_unless_removed() {
                     0 => tool_call("call_ok", "read", &json!({"path": file, "offset": "2", "limit": "1", "extra": true}).to_string()),
                     1 => tool_call("call_bad", "read", &json!({"path": 5, "limit": "3", "bogus": 1}).to_string()),
                     2 => tool_call("call_bash", "bash", &json!({"command": "echo aliased", "timeout": "5000"}).to_string()),
+                    3 => tool_call("call_bash_upper", "Bash", &json!({"command": "echo upper"}).to_string()),
+                    4 => tool_call("call_code_mode", "opencode.worktree_list", "{}"),
                     _ => text("Done."),
                 }
             }
@@ -146,7 +149,7 @@ async fn repairs_tool_input_unless_removed() {
 
     // Repaired: the read runs with offset 2 / limit 1, and the stored inputs stay as the model sent them.
     let (path, parts) = &results[0];
-    assert_eq!(parts.len(), 3, "{parts:#?}");
+    assert_eq!(parts.len(), 5, "{parts:#?}");
     assert_eq!(parts[0].0, json!({"path": path, "offset": "2", "limit": "1", "extra": true}));
     assert!(parts[0].1.contains("2: two") && !parts[0].1.contains("one"), "{}", parts[0].1);
     assert_eq!(parts[1].0, json!({"path": 5, "limit": "3", "bogus": 1}));
@@ -158,18 +161,29 @@ async fn repairs_tool_input_unless_removed() {
     // `bash` ran as `shell` with the repaired timeout, and the result says so.
     assert_eq!(parts[2].0, json!({"command": "echo aliased", "timeout": "5000"}));
     assert!(parts[2].1.contains("aliased"), "{}", parts[2].1);
-    let note = json!({"type": "text", "text": "There is no \"bash\" tool, so this ran as \"shell\". Call \"shell\" directly."});
-    assert!(parts[2].1.ends_with(&format!(",{note}]")), "{}", parts[2].1);
+    // The note comes first, so it survives when a long result is cut (2.4.1, #65494).
+    let note = json!({"type": "text", "text": "<tool-repair>\nThere is no \"bash\" tool, so this ran as \"shell\". Call \"shell\" next time.\n</tool-repair>"});
+    assert!(parts[2].1.starts_with(&format!("[{note},")), "{}", parts[2].1);
+    let note = json!({"type": "text", "text": "<tool-repair>\nThere is no \"Bash\" tool, so this ran as \"shell\". Call \"shell\" next time.\n</tool-repair>"});
+    assert!(parts[3].1.starts_with(&format!("[{note},")) && parts[3].1.contains("upper"), "{}", parts[3].1);
+    // A top-level call to a Code Mode tool runs as a Code Mode call, recorded as the model sent it, with a note
+    // first whether it succeeds or fails.
+    assert_eq!(parts[4].0, json!({}));
+    let note = "<tool-repair>\nopencode.worktree_list is a Code Mode tool, so this ran inside execute as tools.opencode.worktree_list(input). Call it there next time.\n</tool-repair>";
+    assert!(parts[4].1.starts_with(&format!("[{}", json!({"type": "text", "text": note}))) || parts[4].1.starts_with(&format!("{note}\n\n")), "{}", parts[4].1);
 
     // Removed: the same calls fail validation with the model's own arguments.
     let (path, parts) = &results[1];
-    assert_eq!(parts.len(), 3, "{parts:#?}");
+    assert_eq!(parts.len(), 5, "{parts:#?}");
     assert!(parts[0].1.starts_with("Invalid arguments for tool \"read\":\n- offset: Expected number\n- limit: Expected number\n"), "{}", parts[0].1);
     // The path as a JSON string (escaped backslashes on Windows).
     assert!(parts[0].1.contains(&format!("\"path\": {},\n  \"offset\": \"2\",\n  \"limit\": \"1\",\n  \"extra\": true", json!(path))), "{}", parts[0].1);
     assert!(parts[1].1.contains("\"bogus\": 1"), "{}", parts[1].1);
     // Without the repair plugin there is no alias either.
     assert_eq!(parts[2].1, "No tool named \"bash\" is currently available. Please use a tool from the available tool list.");
+    assert_eq!(parts[3].1, "No tool named \"Bash\" is currently available. Please use a tool from the available tool list.");
+    // The Code Mode tool still runs, with no note.
+    assert!(!parts[4].1.contains("tool-repair") && !parts[4].1.contains("No tool named"), "{}", parts[4].1);
     std::fs::remove_dir_all(&root).ok();
 }
 

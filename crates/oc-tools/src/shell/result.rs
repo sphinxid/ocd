@@ -216,7 +216,10 @@ pub fn notification(shell_id: &str, job_id: Option<&str>, command: &str, state: 
         }
     }
     Notification {
-        text: format!("<shell id=\"{}\" state=\"{state}\" command=\"{command}\">\n{text}\n</shell>", job_id.unwrap_or(shell_id)),
+        text: crate::background_result::render(
+            &format!("kind=\"shell\" id=\"{}\" state=\"{state}\" command=\"{command}\"", job_id.unwrap_or(shell_id)),
+            text,
+        ),
         metadata: meta,
     }
 }
@@ -481,7 +484,7 @@ mod tests {
         assert!(notice(&out(Some(0), None, false), None).is_none());
         assert_eq!((signal_name(15), signal_name(9), signal_number("SIGTERM")), ("SIGTERM".to_string(), "SIGKILL".to_string(), Some(15)));
         let n = notification("sh_1", Some("sh_1"), "ls", "completed", "out", None);
-        assert_eq!(n.text, "<shell id=\"sh_1\" state=\"completed\" command=\"ls\">\nout\n</shell>");
+        assert_eq!(n.text, "<background-result kind=\"shell\" id=\"sh_1\" state=\"completed\" command=\"ls\">\nout\n</background-result>");
     }
     // shell-result.test.ts (2.3.0): `ShellResult.interrupted`.
     fn stopped_info(status: ShellStatus) -> ShellInfo {

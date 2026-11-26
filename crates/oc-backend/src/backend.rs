@@ -243,6 +243,13 @@ impl Backend for Engine {
         Ok(jobs.into_iter().map(crate::util::job_info).collect())
     }
 
+    /// `job.cancel` (2.4.1): cancels a running job, interrupting the work it started; a finished or unknown job is
+    /// left alone.
+    async fn experimental_job_cancel(&self, _ctx: &RequestContext, req: ExperimentalJobCancelRequest) -> Result<(), ApiError> {
+        self.app.jobs.cancel(&req.id);
+        Ok(())
+    }
+
     async fn session_revert_stage(&self, _ctx: &RequestContext, req: SessionRevertStageRequest) -> Result<SessionRevert, ApiError> {
         self.revert_stage(&req.session_id, &req.body.message_id, req.body.files).await
     }

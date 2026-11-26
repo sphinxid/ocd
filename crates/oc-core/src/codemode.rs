@@ -82,6 +82,17 @@ pub(crate) fn qualified_name(tool: &dyn Tool) -> String {
     }
 }
 
+/// `CodeModeTool.find(inventory, name)`: the snapshot's Code Mode tool with registry ID `name`, else the one whose
+/// path is `name`.
+pub(crate) fn find(snapshot: &Snapshot, name: &str) -> Option<(String, Arc<dyn Tool>)> {
+    snapshot
+        .codemode
+        .iter()
+        .find(|(id, _)| id == name)
+        .or_else(|| snapshot.codemode.iter().find(|(_, tool)| qualified_name(tool.as_ref()) == name))
+        .cloned()
+}
+
 #[derive(Default)]
 struct Node {
     tool: Option<(String, Arc<dyn Tool>)>,

@@ -130,13 +130,13 @@ async fn pending_background_jobs_are_settled() {
     assert_eq!(texts.len(), 4, "{texts:#?}");
     assert_eq!(
         texts[0],
-        "<shell id=\"job_1\" state=\"cancelled\" command=\"sleep 100\">\nCommand cancelled because the server restarted\n</shell>"
+        "<background-result kind=\"shell\" id=\"job_1\" state=\"cancelled\" command=\"sleep 100\">\nCommand cancelled because the server restarted\n</background-result>"
     );
-    assert_eq!(texts[1], "<codemode id=\"cm_run\" state=\"cancelled\">\nInterrupted by server restart.\n</codemode>");
-    assert_eq!(texts[2], "<codemode id=\"cm_done\" state=\"completed\">\nresult: done\n</codemode>");
+    assert_eq!(texts[1], "<background-result kind=\"codemode\" id=\"cm_run\" state=\"cancelled\">\nInterrupted by server restart.\n</background-result>");
+    assert_eq!(texts[2], "<background-result kind=\"codemode\" id=\"cm_done\" state=\"completed\">\nresult: done\n</background-result>");
     assert_eq!(
         texts[3],
-        format!("<subagent sessionID=\"{}\" state=\"completed\" description=\"do work\">\nall done\n</subagent>", child.id)
+        format!("<background-result kind=\"subagent\" sessionID=\"{}\" state=\"completed\" description=\"do work\">\nall done\n</background-result>", child.id)
     );
     assert!(app.jobs.pending_background().is_empty());
     std::fs::remove_dir_all(&root).ok();

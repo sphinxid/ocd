@@ -1551,7 +1551,8 @@ impl Engine {
             plan: (agent == "plan").then(|| PlanHooks { dir: crate::agent::plan_dir(&self.app.global.home).display().to_string() }),
             plugins: self.app.plugins.clone(),
             key: env.location.key.clone(),
-            aliased: Default::default(),
+            notes: Default::default(),
+            in_program: Default::default(),
         });
         crate::codemode::check(&snapshot, code, bindings, limits, ctx, hooks).await
     }
@@ -1612,27 +1613,64 @@ impl ToolRunner for LocalTools {
         };
         let data = self.engine.app.global.data.clone();
         let (max_lines, max_bytes) = (self.config.tool_output_max_lines.unwrap_or(2000), self.config.tool_output_max_bytes.unwrap_or(51200));
-        let hooks: Arc<dyn oc_tools::registry::ExecuteHooks> = Arc::new(CoreHooks {
+        let core_hooks = Arc::new(CoreHooks {
             snapshot: self.snapshot.clone(),
             repair: self.engine.app.plugins.builtin_enabled(&self.key, oc_tools::repair::PLUGIN_ID),
             plan: (self.agent == "plan").then(|| PlanHooks { dir: crate::agent::plan_dir(&self.engine.app.global.home).display().to_string() }),
             plugins: self.engine.app.plugins.clone(),
             key: self.key.clone(),
-            aliased: Default::default(),
+            notes: Default::default(),
+            in_program: Default::default(),
         });
+        let hooks: Arc<dyn oc_tools::registry::ExecuteHooks> = core_hooks.clone();
         // `Snapshot.execute` (core/src/tool.ts): before hook, availability for this request, then the tool.
         let (mut name, mut input) = (call.name.clone(), call.input);
         let execute_enabled = self.snapshot.execute_enabled;
+        let misplaced = core_hooks.misplaced(&name);
+        // A Code Mode tool called by its path is repaired against that tool's schema (an alias is renamed, then
+        // repaired, in the before hook).
+        if let Some(note) = misplaced.as_ref().filter(|note| !note.aliased) {
+            self.snapshot.repair_input(&note.tool, &mut input);
+        }
         let result = match hooks.before(&mut name, &mut input, &ctx).await {
             Err(e) => Err(e),
             Ok(()) => {
+                if let Some(note) = misplaced
+                    && input.is_object()
+                {
+                    core_hooks.notes.lock().insert(ctx.call_id.clone(), note);
+                }
                 let requested = self.advertised.get(&name).cloned();
                 let known = self.snapshot.direct_tool(&name).is_some() || (execute_enabled && name == oc_codemode::execute_tool::NAME);
                 if requested.is_none() && known {
                     Err(oc_tools::ToolError::new(format!("Tool is not available for this request: {name}")))
                 } else {
                     let real = requested.unwrap_or(name);
-                    if real == oc_codemode::execute_tool::NAME && execute_enabled {
+                    // A tool this request only offers inside Code Mode, called by the model at the top level or renamed
+                    // there by a plugin, runs as a Code Mode call when the request offered execute (2.4.1, #65494).
+                    let found = (execute_enabled
+                        && real != oc_codemode::execute_tool::NAME
+                        && self.snapshot.direct_tool(&real).is_none()
+                        && self.advertised.values().any(|n| n == oc_codemode::execute_tool::NAME))
+                    .then(|| crate::codemode::find(&self.snapshot, &real))
+                    .flatten();
+                    if let Some((id, tool)) = found {
+                        core_hooks.in_program.lock().insert(ctx.call_id.clone());
+                        if self.full_codemode {
+                            // Like an execute program, it moves to the background when it runs long.
+                            let job = crate::codemode_job::id();
+                            let mut ctx = ctx;
+                            ctx.host = self.host(Some(job.clone()));
+                            let output = crate::codemode_job::Output { max_lines, max_bytes, data: data.clone() };
+                            let hooks = hooks.clone();
+                            let execute: crate::codemode_job::Execute = Box::new(move |ctx| {
+                                Box::pin(async move { oc_tools::registry::execute_tool(tool.as_ref(), &id, input, ctx, hooks.as_ref()).await })
+                            });
+                            crate::codemode_job::run(self.engine.app.clone(), job, ctx, output, execute).await
+                        } else {
+                            oc_tools::registry::execute_tool(tool.as_ref(), &id, input, ctx, hooks.as_ref()).await
+                        }
+                    } else if real == oc_codemode::execute_tool::NAME && execute_enabled {
                         let tool = crate::codemode::ExecuteTool(self.snapshot.clone(), hooks.clone(), self.full_codemode);
                         if self.full_codemode {
                             // `CodeModeJob.Current`: only a session drain hands a slow script to the background.
@@ -1717,8 +1755,61 @@ struct CoreHooks {
     plan: Option<PlanHooks>,
     plugins: Arc<crate::plugins::Plugins>,
     key: String,
-    /// Calls the repair plugin ran under an alias (`bash` -> `shell`): call id -> the name the model called.
-    aliased: parking_lot::Mutex<HashMap<String, String>>,
+    /// The repair plugin's notes for calls that ran under another tool or inside Code Mode, by call id.
+    notes: parking_lot::Mutex<HashMap<String, Misplaced>>,
+    /// Top-level calls that ran as Code Mode calls.
+    in_program: parking_lot::Mutex<std::collections::HashSet<String>>,
+}
+
+/// A top-level call to a name that is not one of the request's direct tools but resolves to a registered tool
+/// (`plugin/tool-input-repair.ts` `notes`, 2.4.1 #65494): another harness's name for it, or a Code Mode tool's path
+/// or registry ID.
+struct Misplaced {
+    /// The name the model called.
+    called: String,
+    /// The registered tool's ID.
+    tool: String,
+    /// The expression a program calls the tool by.
+    expression: String,
+    aliased: bool,
+}
+
+impl Misplaced {
+    /// The `<tool-repair>` note, or `None` for a call to a tool's own name that ran as a direct call.
+    fn note(&self, in_program: bool) -> Option<String> {
+        let text = if !in_program {
+            if !self.aliased {
+                return None;
+            }
+            format!("There is no \"{}\" tool, so this ran as \"{}\". Call \"{}\" next time.", self.called, self.tool, self.tool)
+        } else if self.aliased {
+            format!("There is no \"{}\" tool, so this ran inside execute as {}(input). Call it there next time.", self.called, self.expression)
+        } else {
+            format!("{} is a Code Mode tool, so this ran inside execute as {}(input). Call it there next time.", self.called, self.expression)
+        };
+        Some(format!("<tool-repair>\n{text}\n</tool-repair>"))
+    }
+}
+
+impl CoreHooks {
+    /// What the repair plugin's `execute.before` notes for a top-level call to `name`: the registered tool it is
+    /// another harness's name for, or the registered tool with that ID or Code Mode path.
+    fn misplaced(&self, name: &str) -> Option<Misplaced> {
+        if !self.repair || name == oc_codemode::execute_tool::NAME || self.snapshot.direct_tool(name).is_some() {
+            return None;
+        }
+        let aliased = self.snapshot.alias(name);
+        let (id, tool) = self.snapshot.registered.iter().find(|(id, tool)| match aliased {
+            Some(target) => id == target,
+            None => id == name || crate::codemode::qualified_name(tool.as_ref()) == name,
+        })?;
+        Some(Misplaced {
+            called: name.to_string(),
+            tool: id.clone(),
+            expression: oc_codemode::tool_runtime::tool_expression(&crate::codemode::qualified_name(tool.as_ref())),
+            aliased: aliased.is_some(),
+        })
+    }
 }
 
 #[async_trait]
@@ -1726,7 +1817,7 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
     async fn before(&self, tool: &mut String, input: &mut serde_json::Value, ctx: &ToolContext) -> Result<(), oc_tools::ToolError> {
         if self.repair {
             if let Some(target) = self.snapshot.alias(tool) {
-                self.aliased.lock().insert(ctx.call_id.clone(), std::mem::replace(tool, target.to_string()));
+                *tool = target.to_string();
             }
             self.snapshot.repair_input(tool, input);
         }
@@ -1771,17 +1862,18 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
         result: &mut Result<oc_tools::ToolResult, oc_tools::ToolError>,
         ctx: &ToolContext,
     ) {
-        // The repair plugin is the first internal plugin: tell the model which tool an aliased call ran as.
-        let called = self.aliased.lock().remove(&ctx.call_id);
-        if let Some(called) = called {
-            let note = format!("There is no \"{called}\" tool, so this ran as \"{tool}\". Call \"{tool}\" directly.");
+        // The repair plugin is the first internal plugin: tell the model how to call a misplaced call's tool next
+        // time. First, so the note survives when a long result is cut at the tool output limit.
+        let misplaced = self.notes.lock().remove(&ctx.call_id);
+        let in_program = self.in_program.lock().remove(&ctx.call_id);
+        if let Some(note) = misplaced.and_then(|m| m.note(in_program)) {
             match result {
                 Ok(r) => {
-                    let mut content = oc_tools::registry::normalize_content(std::mem::take(&mut r.content), r.output.as_ref());
-                    content.push(oc_schema::ToolContent::Text { text: note });
+                    let mut content = vec![oc_schema::ToolContent::Text { text: note }];
+                    content.extend(oc_tools::registry::normalize_content(std::mem::take(&mut r.content), r.output.as_ref()));
                     r.content = content;
                 }
-                Err(e) if e.kind == ToolErrorKind::Failure => e.message = format!("{}\n\n{note}", e.message),
+                Err(e) if e.kind == ToolErrorKind::Failure => e.message = format!("{note}\n\n{}", e.message),
                 Err(_) => {}
             }
         }

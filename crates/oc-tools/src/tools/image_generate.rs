@@ -39,10 +39,10 @@ fn extension(mime: &str) -> Option<&'static str> {
     }
 }
 
-/// `ImageNotice.text`: the completion notice of a background image job, tagged with its job ID like `<shell id=…>`
-/// notices.
+/// `ImageNotice.text`: the completion notice of a background image job, tagged with its job ID like
+/// `<background-result kind="shell" id=…>` notices.
 pub fn notice(id: &str, state: &str, body: &str) -> String {
-    format!("<image id=\"{id}\" state=\"{state}\">\n{body}\n</image>")
+    crate::background_result::render(&format!("kind=\"image\" id=\"{id}\" state=\"{state}\""), body)
 }
 
 /// The preferred model from `experimental.image_generate.model`.
@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn notices() {
-        assert_eq!(notice("image_1", "completed", "done"), "<image id=\"image_1\" state=\"completed\">\ndone\n</image>");
+        assert_eq!(notice("image_1", "completed", "done"), "<background-result kind=\"image\" id=\"image_1\" state=\"completed\">\ndone\n</background-result>");
     }
 
     // ---- the tool against a fake host (`test/tool-image-generate.test.ts`) ----
@@ -628,7 +628,7 @@ mod tests {
         );
         assert_eq!(
             notice_of(&fake, &result).await,
-            format!("<image id=\"{id}\" state=\"completed\">\nImage request finished. Saved image: {} (test/painter).\nUse the read tool on this path to view the image.\n</image>", file.display())
+            format!("<background-result kind=\"image\" id=\"{id}\" state=\"completed\">\nImage request finished. Saved image: {} (test/painter).\nUse the read tool on this path to view the image.\n</background-result>", file.display())
         );
         assert_eq!(base64::engine::general_purpose::STANDARD.encode(std::fs::read(&file).unwrap()), PNG);
         assert_eq!(
@@ -683,7 +683,7 @@ mod tests {
         let id = result.output.as_ref().unwrap()["id"].as_str().unwrap().to_string();
         assert_eq!(
             notice_of(&fake, &result).await,
-            format!("<image id=\"{id}\" state=\"error\">\nImage request failed for {}: The prompt was rejected\n</image>", dir.path().join("out").display())
+            format!("<background-result kind=\"image\" id=\"{id}\" state=\"error\">\nImage request failed for {}: The prompt was rejected\n</background-result>", dir.path().join("out").display())
         );
         assert!(!dir.path().join("out.png").exists());
     }

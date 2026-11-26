@@ -282,7 +282,7 @@ impl Snapshot {
     /// Tool names models carry over from other harnesses (`plugin/tool-input-repair.ts` `aliases`), used only when
     /// no registered tool has the called name: the registered tool the call runs as.
     pub fn alias(&self, name: &str) -> Option<&'static str> {
-        const ALIASES: &[(&str, &str)] = &[("bash", "shell")];
+        const ALIASES: &[(&str, &str)] = &[("bash", "shell"), ("Bash", "shell")];
         if name == "execute" || self.registered.iter().any(|(n, _)| n == name) {
             return None;
         }

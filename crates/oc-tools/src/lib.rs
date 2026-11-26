@@ -2,6 +2,7 @@
 //!
 //! See `README.md` for the integration API (`Tool`, `ToolContext`, `ToolHost`, `Registry`).
 
+pub mod background_result;
 pub mod file_access;
 pub mod file_diff;
 pub mod file_mutation;

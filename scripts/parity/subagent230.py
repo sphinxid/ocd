@@ -52,7 +52,7 @@ def reports(ctx, sid):
     """The `<subagent>` notices delivered to the parent so far (unrecorded reads)."""
     _, _, data = ctx.server.request("GET", f"/api/session/{sid}/message", headers={"x-opencode-directory": ctx.project})
     items = data.get("data", data) if isinstance(data, dict) else data
-    return [m for m in items or [] if isinstance(m, dict) and m.get("type") == "synthetic" and "<subagent " in str(m.get("text"))]
+    return [m for m in items or [] if isinstance(m, dict) and m.get("type") == "synthetic" and '<background-result kind="subagent" ' in str(m.get("text"))]
 
 
 def wait_reports(ctx, sid, count, timeout=60):

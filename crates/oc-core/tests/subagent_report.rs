@@ -152,7 +152,7 @@ impl Harness {
 
 /// The parent's usual script: launch on its prompt, acknowledge the launch and every report.
 fn parent(req: &Request, launch: &Value) -> Reply {
-    if req.last.contains("<subagent ") || req.last.contains("\"tool\"") {
+    if req.last.contains(r#"<background-result kind=\"subagent\" "#) || req.last.contains("\"tool\"") {
         return Reply::Text("parent ack".into());
     }
     Reply::Tool("subagent", launch.clone())
@@ -261,7 +261,7 @@ async fn subagent_reports() {
     assert_eq!(
         launched,
         [
-            format!("The subagent is working in the background (sessionID: {child}). You will receive a <subagent> message when it goes idle, and again after each later round of work."),
+            format!("The subagent is working in the background (sessionID: {child}). You will receive a <background-result kind=\"subagent\"> message when it goes idle, and again after each later round of work."),
             "DO NOT sleep, poll, proactively check on its progress, or duplicate this subagent's work.".into(),
             "Work on non-overlapping tasks, or briefly tell the user what you launched and end your response.".into(),
             "To send it follow-ups or change its instructions while it runs, call subagent again with this sessionID.".into(),
@@ -269,7 +269,7 @@ async fn subagent_reports() {
         .join("\n")
     );
     assert_eq!(reports.len(), 1);
-    assert_eq!(reports[0].1, format!("<subagent sessionID=\"{child}\" state=\"completed\" description=\"check things\">\nchild done\n</subagent>"));
+    assert_eq!(reports[0].1, format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"completed\" description=\"check things\">\nchild done\n</background-result>"));
     assert_eq!(reports[0].2, json!({"source": "subagent", "childID": child, "agent": "General", "state": "completed"}));
     let info = h.app.sessions.get(&child).unwrap();
     assert_eq!((info.parent_id.as_deref(), info.title.as_deref(), info.agent.as_deref()), (Some(p.as_str()), Some("check things"), Some("general")));
@@ -303,7 +303,7 @@ async fn subagent_reports() {
         if req.child {
             return Reply::Text(a.lock().pop().unwrap_or("extra").into());
         }
-        if req.last.contains("<subagent ") && !*f.lock() {
+        if req.last.contains(r#"<background-result kind=\"subagent\" "#) && !*f.lock() {
             *f.lock() = true;
             let sid = req.last.split("sessionID=\\\"").nth(1).and_then(|r| r.split("\\\"").next()).unwrap().to_string();
             return Reply::Tool("subagent", json!({"agent": "general", "description": "review", "prompt": "follow-up task", "sessionID": sid}));
@@ -333,7 +333,7 @@ async fn subagent_reports() {
         if !req.child {
             return parent(req, &args);
         }
-        if req.last.contains("<shell ") {
+        if req.last.contains(r#"<background-result kind=\"shell\" "#) {
             Reply::Text("Tests green".into())
         } else if req.last.contains("\"tool\"") {
             Reply::Text("Started tests".into())
@@ -344,13 +344,13 @@ async fn subagent_reports() {
     h.prompt(&p, "start").await;
     let first = h.wait_reports(&p, 1).await;
     let child = h.child_of(&p);
-    assert!(first[0].1.starts_with(&format!("<subagent sessionID=\"{child}\" state=\"running\" description=\"run tests\">\nStarted tests\n\nBackground work still running:\n- shell (")), "{}", first[0].1);
-    assert!(first[0].1.contains(&format!("): {command}\n</subagent>")), "{}", first[0].1);
+    assert!(first[0].1.starts_with(&format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"running\" description=\"run tests\">\nStarted tests\n\nBackground work still running:\n- shell (")), "{}", first[0].1);
+    assert!(first[0].1.contains(&format!("): {command}\n</background-result>")), "{}", first[0].1);
     assert_eq!(first[0].2["state"], "completed");
     std::fs::write(&release, "go").unwrap();
     let second = h.wait_reports(&p, 2).await;
     assert_ne!(second[1].0, first[0].0);
-    assert_eq!(second[1].1, format!("<subagent sessionID=\"{child}\" state=\"completed\" description=\"run tests\">\nTests green\n</subagent>"));
+    assert_eq!(second[1].1, format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"completed\" description=\"run tests\">\nTests green\n</background-result>"));
     h.idle(&child).await;
     assert!(h.app.jobs.pending_background().is_empty());
 
@@ -367,7 +367,7 @@ async fn subagent_reports() {
         // The grandchild's history holds its own prompt; the child's holds its launch of the grandchild.
         let grandchild = req.raw.contains("review the grandchild fixture") && !req.raw.contains("review the child fixture");
         if grandchild {
-            if req.last.contains("<shell ") {
+            if req.last.contains(r#"<background-result kind=\"shell\" "#) {
                 Reply::Text("grandchild finished".into())
             } else if req.last.contains("\"tool\"") {
                 Reply::Text("grandchild started tests".into())
@@ -376,7 +376,7 @@ async fn subagent_reports() {
             }
         } else if req.last.contains("grandchild finished") {
             Reply::Text("child saw grandchild finish".into())
-        } else if req.last.contains("<subagent ") {
+        } else if req.last.contains(r#"<background-result kind=\"subagent\" "#) {
             Reply::Text("child saw first grandchild report".into())
         } else if req.last.contains("\"tool\"") {
             Reply::Text("child launched grandchild".into())
@@ -408,7 +408,7 @@ async fn subagent_reports() {
     assert!(child_reports.iter().all(|r| r.2["childID"] == grandchild));
     assert!(root_reports.iter().any(|r| r.1.contains("child saw grandchild finish")));
     assert!(root_reports.iter().all(|r| r.2["childID"] == child));
-    assert!(!root_reports.iter().any(|r| r.1.contains(&format!("<subagent sessionID=\"{grandchild}\""))));
+    assert!(!root_reports.iter().any(|r| r.1.contains(&format!("<background-result kind=\"subagent\" sessionID=\"{grandchild}\""))));
     h.idle(&child).await;
     h.idle(&grandchild).await;
     assert!(h.app.jobs.pending_background().is_empty());
@@ -432,7 +432,7 @@ async fn subagent_reports() {
     assert_eq!(h.job_rows(&p)[0].1, "running");
     h.app.coordinator().interrupt(&child, Some(Reason::User), true).await;
     let reports = h.wait_reports(&p, 1).await;
-    assert_eq!(reports[0].1, format!("<subagent sessionID=\"{child}\" state=\"cancelled\" description=\"slow work\">\nSubagent cancelled\n</subagent>"));
+    assert_eq!(reports[0].1, format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"cancelled\" description=\"slow work\">\nSubagent cancelled\n</background-result>"));
     assert_eq!(reports[0].2["state"], "cancelled");
     gate.notify_waiters();
     assert!(!h.suspended(&child));
@@ -444,7 +444,7 @@ async fn subagent_reports() {
     h.respond(|req| if req.child || req.last.contains("direct work") { Reply::Text("direct answer".into()) } else { Reply::Text("parent ack".into()) });
     h.prompt(&child, "direct work").await;
     let reports = h.wait_reports(&p, 1).await;
-    assert_eq!(reports[0].1, format!("<subagent sessionID=\"{child}\" state=\"completed\" description=\"Direct child\">\ndirect answer\n</subagent>"));
+    assert_eq!(reports[0].1, format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"completed\" description=\"Direct child\">\ndirect answer\n</background-result>"));
     assert_eq!(reports[0].2, json!({"source": "subagent", "childID": child, "agent": "general", "state": "completed"}));
     assert!(h.job_rows(&p).is_empty());
     // A control-only period (nothing new from the model) stays quiet.
@@ -546,7 +546,7 @@ async fn settlement_cases(h: &Harness) {
     claim(&h.app, &child, 0);
     settle(h, &report, &child, Outcome::Failed("provider exploded".into())).await.unwrap();
     let reports = h.wait_reports(&p, 1).await;
-    assert_eq!(reports[0].1, format!("<subagent sessionID=\"{child}\" state=\"error\" description=\"Failing child\">\nprovider exploded\n</subagent>"));
+    assert_eq!(reports[0].1, format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"error\" description=\"Failing child\">\nprovider exploded\n</background-result>"));
     assert!(!h.suspended(&child));
     assert!(h.job_rows(&p).is_empty());
 
@@ -695,7 +695,7 @@ async fn restart_cases(h: &Harness) {
     h.idle(&child).await;
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].0, "msg_resumed_row");
-    assert_eq!(reports[0].1, format!("<subagent sessionID=\"{child}\" state=\"completed\" description=\"Resumed child\">\nresumed answer\n</subagent>"));
+    assert_eq!(reports[0].1, format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"completed\" description=\"Resumed child\">\nresumed answer\n</background-result>"));
     let notices: Vec<String> = h.messages(&child).into_iter().filter_map(|m| match m { Message::Synthetic { text, .. } => Some(text), _ => None }).collect();
     assert_eq!(notices, vec![oc_core::restart::RESTART_TEXT.to_string()]);
     assert!(h.job_rows(&p).is_empty());
@@ -719,7 +719,7 @@ async fn restart_cases(h: &Harness) {
     assert_eq!(reports[0].0, "msg_outbox_row");
     assert_eq!(
         reports[0].1,
-        format!("<subagent sessionID=\"{child}\" state=\"running\" description=\"Finished child\">\nstored answer\n\nBackground work still running:\n- shell (sh_1): sleep 9\n</subagent>")
+        format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"running\" description=\"Finished child\">\nstored answer\n\nBackground work still running:\n- shell (sh_1): sleep 9\n</background-result>")
     );
     assert!(h.messages(&child).is_empty());
     assert!(h.job_rows(&p).is_empty());
@@ -731,7 +731,7 @@ async fn restart_cases(h: &Harness) {
     insert_row(&h.app, "msg_older_row", &recovery(&p, &child, "Older child"), "completed", Some(body), None);
     h.engine.resume_suspended().await.unwrap();
     let reports = h.wait_reports(&p, 1).await;
-    assert_eq!(reports[0].1, format!("<subagent sessionID=\"{child}\" state=\"completed\" description=\"Older child\">\n{body}\n</subagent>"));
+    assert_eq!(reports[0].1, format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"completed\" description=\"Older child\">\n{body}\n</background-result>"));
 
     // "resumes a directly driven child after execution teardown": a claimed child without a job resumes like a root
     // and reports with a fresh notification ID.
@@ -739,7 +739,7 @@ async fn restart_cases(h: &Harness) {
     let child = h.session("Direct child", Some(&p)).await;
     h.app.sessions.prompt(&child, PromptInput { text: "direct work".into(), ..Default::default() }).await.unwrap();
     claim(&h.app, &child, 0);
-    h.respond(|req| if req.last.contains("<subagent ") { Reply::Text("parent ack".into()) } else { Reply::Text("direct resumed".into()) });
+    h.respond(|req| if req.last.contains(r#"<background-result kind=\"subagent\" "#) { Reply::Text("parent ack".into()) } else { Reply::Text("direct resumed".into()) });
     assert_eq!(h.engine.resume_suspended().await.unwrap(), 1);
     let reports = h.wait_reports(&p, 1).await;
     assert!(reports[0].1.contains("direct resumed"), "{}", reports[0].1);
@@ -764,7 +764,7 @@ async fn restart_cases(h: &Harness) {
     let reports = h.wait_reports(&p, 1).await;
     assert_eq!(
         reports[0].1,
-        format!("<subagent sessionID=\"{child}\" state=\"error\" description=\"Exhausted\">\nExecution was interrupted repeatedly and will not be resumed automatically.\n</subagent>")
+        format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"error\" description=\"Exhausted\">\nExecution was interrupted repeatedly and will not be resumed automatically.\n</background-result>")
     );
     assert!(!h.suspended(&child));
     assert!(h.job_rows(&p).is_empty());
@@ -776,7 +776,7 @@ async fn restart_cases(h: &Harness) {
     insert_row(&h.app, "msg_cancelled_row", &recovery(&p, &child, "Cancelled"), "cancelled", None, None);
     assert_eq!(h.engine.resume_suspended().await.unwrap(), 0);
     let reports = h.wait_reports(&p, 1).await;
-    assert_eq!(reports[0].1, format!("<subagent sessionID=\"{child}\" state=\"cancelled\" description=\"Cancelled\">\nSubagent cancelled\n</subagent>"));
+    assert_eq!(reports[0].1, format!("<background-result kind=\"subagent\" sessionID=\"{child}\" state=\"cancelled\" description=\"Cancelled\">\nSubagent cancelled\n</background-result>"));
     assert!(!h.suspended(&child));
     assert!(h.messages(&child).is_empty());
 

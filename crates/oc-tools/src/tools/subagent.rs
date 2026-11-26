@@ -9,7 +9,7 @@ use crate::host::JobRecovery;
 use crate::tool::{DefinitionContext, ErrorCause, Tool, ToolContext, ToolDefinition, ToolError, ToolOptions, ToolResult, decode, meta};
 use crate::util::js;
 
-pub const DESCRIPTION: &str = "Spawns an agent in a child session to work on the specified task.\nSubagents always run in the background: the call returns immediately with a sessionID, and you receive a `<subagent>` message each time the child goes idle, including after later work.\nKeep working on non-overlapping tasks, or briefly tell the user what you launched and end your response. Do not sleep, poll, or proactively check on the child's progress.\nNew child sessions start with fresh context, so include all relevant context and instructions when you don't pass a sessionID.\nPass the returned sessionID to continue that specific child conversation. A follow-up to a running child joins its current run.";
+pub const DESCRIPTION: &str = "Spawns an agent in a child session to work on the specified task.\nSubagents always run in the background: the call returns immediately with a sessionID, and you receive a `<background-result kind=\"subagent\">` message each time the child goes idle, including after later work.\nKeep working on non-overlapping tasks, or briefly tell the user what you launched and end your response. Do not sleep, poll, or proactively check on the child's progress.\nNew child sessions start with fresh context, so include all relevant context and instructions when you don't pass a sessionID.\nPass the returned sessionID to continue that specific child conversation. A follow-up to a running child joins its current run.";
 
 /// Description after the session hook (`Available subagents:` list, sorted by id).
 pub fn description(subagents: Option<&[crate::tool::SubagentSummary]>) -> String {
@@ -29,7 +29,7 @@ pub fn description(subagents: Option<&[crate::tool::SubagentSummary]>) -> String
 
 pub fn background_text(session_id: &str) -> String {
     [
-        format!("The subagent is working in the background (sessionID: {session_id}). You will receive a <subagent> message when it goes idle, and again after each later round of work."),
+        format!("The subagent is working in the background (sessionID: {session_id}). You will receive a <background-result kind=\"subagent\"> message when it goes idle, and again after each later round of work."),
         "DO NOT sleep, poll, proactively check on its progress, or duplicate this subagent's work.".into(),
         "Work on non-overlapping tasks, or briefly tell the user what you launched and end your response.".into(),
         "To send it follow-ups or change its instructions while it runs, call subagent again with this sessionID.".into(),

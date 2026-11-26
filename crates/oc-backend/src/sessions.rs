@@ -42,6 +42,14 @@ pub fn decode_message(row: &store::MessageRow) -> Result<api::SessionMessageInfo
     serde_json::from_value(json).map_err(|e| ApiError::unknown(format!("failed to decode session message {}: {e}", row.id)))
 }
 
+/// [`decode_message`] for message reads, which show a running local tool call's latest progress metadata
+/// (`LiveToolMetadata.overlay`, 2.4.1).
+fn decode_live_message(row: &store::MessageRow) -> Result<api::SessionMessageInfo, ApiError> {
+    let mut json = row.json().ok_or_else(|| ApiError::unknown(format!("failed to decode session message {}", row.id)))?;
+    oc_core::live_tool_metadata::overlay(&mut json);
+    serde_json::from_value(json).map_err(|e| ApiError::unknown(format!("failed to decode session message {}: {e}", row.id)))
+}
+
 /// Encodes a value whose user `files` may keep `media:` refs (`Session.Message.MediaInfo`,
 /// `Session.Inbox.MediaUser`): decoded as the plain type with the refs set aside, then each ref file written as a
 /// `Prompt.MediaFileAttachment` with its blob's size and dimensions (`SessionBlob.describe`).
@@ -83,7 +91,8 @@ fn encode_with_refs<T: serde::de::DeserializeOwned + serde::Serialize>(
 
 /// A message row read with its refs kept, as `Session.Message.MediaInfo`.
 pub fn decode_media_message(row: &store::MessageRow, meta: &store::MediaMeta) -> Result<Value, ApiError> {
-    let json = row.json().ok_or_else(|| ApiError::unknown(format!("failed to decode session message {}", row.id)))?;
+    let mut json = row.json().ok_or_else(|| ApiError::unknown(format!("failed to decode session message {}", row.id)))?;
+    oc_core::live_tool_metadata::overlay(&mut json);
     if row.kind != "user" {
         let typed: api::SessionMessageInfo = serde_json::from_value(json)
             .map_err(|e| ApiError::unknown(format!("failed to decode session message {}: {e}", row.id)))?;
@@ -642,7 +651,7 @@ impl Engine {
     pub fn message_get(&self, id: &str, message_id: &str) -> Result<api::SessionMessageInfo, ApiError> {
         self.session(id)?;
         match store::message(&self.app.db, message_id).map_err(defect)? {
-            Some((sid, row)) if sid == id => decode_message(&row),
+            Some((sid, row)) if sid == id => decode_live_message(&row),
             _ => Err(ApiError::message_not_found(id, message_id)),
         }
     }
@@ -653,7 +662,7 @@ impl Engine {
         let kind = req.r#type.and_then(|t| serde_json::to_value(t).ok().and_then(|v| v.as_str().map(str::to_string)));
         let cursor = req.cursor.as_ref().map(|c| (c.id.as_str(), c.direction));
         let rows = store::messages(&self.app.db, &req.session_id, Some(req.limit), asc, kind.as_deref(), cursor).map_err(defect)?;
-        rows.iter().map(decode_message).collect()
+        rows.iter().map(decode_live_message).collect()
     }
 
     pub fn context(&self, id: &str) -> Result<Vec<api::SessionMessageInfo>, ApiError> {

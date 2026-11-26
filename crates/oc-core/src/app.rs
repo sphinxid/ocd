@@ -149,11 +149,16 @@ impl App {
             agents: agents.clone(),
             plugins: plugins.clone(),
         })));
+        let jobs = Arc::new(crate::job::Jobs::new(db.clone()));
+        let updates = bus.clone();
+        jobs.on_updated(Arc::new(move |listed| {
+            updates.publish("experimental.job.updated", serde_json::json!({ "info": listed.to_value() }), None);
+        }));
         Arc::new(App {
             plugins,
             global,
             sessions: Sessions::new(bus.clone(), version.clone()),
-            jobs: Arc::new(crate::job::Jobs::new(db.clone())),
+            jobs,
             forms: crate::form::Forms::new(bus.clone()),
             ptys: crate::pty::Ptys::new(bus.clone()),
             environments: Default::default(),

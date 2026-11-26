@@ -546,6 +546,7 @@ impl Publisher {
                 return Ok(false);
             }
             t.settled = true;
+            crate::live_tool_metadata::clear(&self.assistant_message_id, Some(id));
             let child = t.progress.as_ref().and_then(|p| p.get("sessionID")).and_then(Value::as_str).map(str::to_string);
             let error = match child {
                 Some(c) if t.name == "subagent" && error.kind == "aborted" => {
@@ -631,6 +632,7 @@ impl Publisher {
                 _ => return Err(die(format!("Tool progress outside running call: {id}"))),
             }
         }
+        crate::live_tool_metadata::set(&self.assistant_message_id, id, update.clone());
         self.bus.publish_session_ephemeral(
             &self.session_id,
             "session.tool.progress",
@@ -653,6 +655,7 @@ impl Publisher {
                 return Err(die(format!("Duplicate tool execution: {id}")));
             }
             t.settled = true;
+            crate::live_tool_metadata::clear(&self.assistant_message_id, Some(id));
             t.provider_executed
         };
         if content.is_empty() {
@@ -829,6 +832,7 @@ impl Publisher {
                         return Err(die(format!("Duplicate tool result: {id}")));
                     }
                     t.settled = true;
+                    crate::live_tool_metadata::clear(&self.assistant_message_id, Some(id));
                     (*provider_executed == Some(true) || t.provider_executed, t.progress.clone())
                 };
                 let native = self.native(provider_metadata);

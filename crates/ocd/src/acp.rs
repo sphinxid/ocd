@@ -3101,7 +3101,7 @@ mod tests {
         if job {
             metadata["jobID"] = json!(shell);
         }
-        ev("session.inbox.enqueued", json!({"sessionID": sid, "inboxID": inbox, "item": {"type": "synthetic", "payload": {"text": format!("<shell id=\"{shell}\" state=\"completed\">"), "metadata": metadata}, "delivery": "steer"}}))
+        ev("session.inbox.enqueued", json!({"sessionID": sid, "inboxID": inbox, "item": {"type": "synthetic", "payload": {"text": format!("<background-result kind=\"shell\" id=\"{shell}\" state=\"completed\">"), "metadata": metadata}, "delivery": "steer"}}))
     }
 
     fn delivered(sid: &str, inbox: &str) -> Value {

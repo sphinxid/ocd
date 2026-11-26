@@ -274,7 +274,7 @@ impl Engine {
         self.app.jobs.complete_background(&bg.notification_id);
     }
 
-    /// `recoverImage`: an image job pending at the restart becomes its `<image>` notice.
+    /// `recoverImage`: an image job pending at the restart becomes its `<background-result kind="image">` notice.
     async fn recover_image(&self, bg: &Background) {
         let JobRecovery::Image { session_id, path, model } = &bg.recovery else { return };
         let body = match bg.status {
@@ -284,7 +284,7 @@ impl Engine {
             _ => format!("Image request for {path} was cancelled."),
         };
         let state = if bg.status == JobStatus::Running { "cancelled" } else { bg.status.as_str() };
-        let text = format!("<image id=\"{}\" state=\"{state}\">\n{body}\n</image>", bg.id);
+        let text = oc_tools::tools::image_generate::notice(&bg.id, state, &body);
         let metadata = json!({ "source": "experimental_image_generate", "jobID": bg.id, "state": state, "path": path });
         let _ = self
             .app

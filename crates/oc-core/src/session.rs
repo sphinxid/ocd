@@ -287,7 +287,22 @@ impl Sessions {
 
     pub fn switch_agent(&self, session_id: &str, agent: &str) -> Result<(), SessionError> {
         let s = self.get(session_id)?;
-        if s.agent.as_deref() == Some(agent) {
+        // Without a stored agent the session runs as its location's default, which its last step records (2.4.1).
+        let current = match &s.agent {
+            Some(stored) => Some(stored.clone()),
+            None => self
+                .bus
+                .db()
+                .with(|c| Ok(crate::subagent_report::last_assistant_after(c, session_id, None)))
+                .ok()
+                .and_then(Result::ok)
+                .flatten()
+                .and_then(|m| match m {
+                    oc_schema::Message::Assistant(a) => Some(a.agent),
+                    _ => None,
+                }),
+        };
+        if current.as_deref() == Some(agent) {
             return Ok(());
         }
         self.bus.commit_one(SessionEvent::AgentSelected {
