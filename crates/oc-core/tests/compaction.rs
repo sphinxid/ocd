@@ -429,8 +429,8 @@ fn split_conversation_boundaries() {
     // Everything fits: keep only the latest exchange.
     let msgs = vec![user("u1", "q1"), assistant("a1", "r1"), user("u2", "q2"), assistant("a2", "r2")];
     assert_eq!(split_conversation(&msgs, 15_000), Some(Split { keep_id: Some("u2".into()) }));
-    // Nothing fits: the newest entry is still kept, from its exchange's user message.
-    assert_eq!(split_conversation(&msgs, 0), Some(Split { keep_id: Some("u2".into()) }));
+    // Nothing fits: `keep: 0` retains nothing.
+    assert_eq!(split_conversation(&msgs, 0), Some(Split { keep_id: None }));
 
     // One exchange, nothing older: summarize it all and keep nothing.
     let one = vec![user("u1", "q1"), assistant("a1", "r1")];
@@ -443,7 +443,7 @@ fn split_conversation_boundaries() {
     let after = vec![compaction("c", "S", ""), user("u1", "q1"), assistant("a1", "r1")];
     assert_eq!(split_conversation(&after, 15_000), Some(Split { keep_id: None }));
 
-    // Keep budget: the boundary moves back to the user message at or before the first kept entry.
+    // Keep budget: the tail starts at any message, one token more per message for the separator.
     let big = "x".repeat(4_000); // 1,000 tokens
     let msgs = vec![
         user("u1", &big),
@@ -454,10 +454,50 @@ fn split_conversation_boundaries() {
         user("u3", "q3"),
         assistant("a4", "r4"),
     ];
-    // keep 1,100 tokens: a2 (1,002 tokens with label) does not fit together with the rest → dropped = 4 (a3);
-    // the user boundary at or before it is u2 (entry 2).
+    // keep 1,100 tokens: a2 (1,003 tokens with label) fits together with the short rest; u2 does not.
     let split = split_conversation(&msgs, 1_100).unwrap();
-    assert_eq!(split, Split { keep_id: Some("u2".into()) });
+    assert_eq!(split, Split { keep_id: Some("a2".into()) });
+    // keep 1,000: a2 no longer fits, so the tail starts at a3 rather than snapping back to a user message.
+    let split = split_conversation(&msgs, 1_000).unwrap();
+    assert_eq!(split, Split { keep_id: Some("a3".into()) });
+}
+
+/// The text history rebuilds for a summary that keeps the messages from `keep_id` on.
+fn kept_text(messages: &[Message], keep_id: &str) -> String {
+    let start = messages.iter().position(|m| m.id() == keep_id).unwrap();
+    messages[start..].iter().map(message_to_text).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+#[test]
+fn long_run_without_user_messages_keeps_only_the_newest_messages_within_keep() {
+    // An earlier request, then one request followed by 60 tool steps of about 330 estimated tokens each with a
+    // synthetic note after every fifth: about 20k tokens since the only user message, past the 15k allowance.
+    let mut messages = vec![user("u0", "Earlier question"), user("u1", "Run the migration")];
+    for index in 0..60 {
+        messages.push(msg(json!({
+            "type": "assistant", "id": format!("a{index}"), "time": {"created": 0, "completed": 0}, "agent": "build",
+            "model": {"id": "summary-model", "providerID": "test"},
+            "content": [{"type": "tool", "id": format!("call_{index}"), "name": "read",
+                "state": {"status": "completed", "input": {"index": index}, "content": [{"type": "text", "text": "x".repeat(1_250)}]},
+                "time": {"created": 0}}]
+        })));
+        if index % 5 == 4 {
+            messages.push(msg(json!({"type": "synthetic", "id": format!("s{index}"), "time": {"created": 0}, "text": format!("Step {index} checked")})));
+        }
+    }
+    let split = split_conversation(&messages, 15_000).unwrap();
+    let keep_id = split.keep_id.unwrap();
+    assert!(messages.iter().position(|m| m.id() == keep_id).unwrap() > 1);
+    let recent = kept_text(&messages, &keep_id);
+    assert!(token_estimate(&recent) <= 15_000, "{}", token_estimate(&recent));
+    assert!(token_estimate(&recent) > 14_000, "{}", token_estimate(&recent));
+    assert!(!recent.contains("Run the migration"));
+}
+
+#[test]
+fn keeps_no_tail_when_the_newest_message_alone_exceeds_keep() {
+    let messages = vec![user("u0", "Earlier question"), user("u1", &format!("Latest {}", "x".repeat(80_000)))];
+    assert_eq!(split_conversation(&messages, 15_000), Some(Split { keep_id: None }));
 }
 
 // ------------------------------------------------------------------------------------------

@@ -11,7 +11,12 @@ pub struct Input<'a> {
     /// Source label (config file path or virtual label) used in warnings.
     pub source: &'a str,
     pub env: Option<&'a HashMap<String, String>>,
+    /// Collects the resolved path of every `{file:path}` the text reads (2.4.1).
+    pub references: Option<&'a References>,
 }
+
+/// The resolved paths `{file:}` references read.
+pub type References = std::sync::Mutex<std::collections::BTreeSet<PathBuf>>;
 
 /// Apply `{env:VAR}` and `{file:path}` substitutions to config text.
 ///
@@ -59,13 +64,15 @@ fn substitute_files(input: &Input, text: &str) -> String {
             continue;
         }
         let raw = &token["{file:".len()..token.len() - 1];
+        // `path.resolve(configDir, expandedPath)`.
         let resolved: PathBuf = if let Some(rest) = raw.strip_prefix("~/") {
-            crate::global::os_home().join(rest)
-        } else if Path::new(raw).is_absolute() {
-            PathBuf::from(raw)
+            normalize(&crate::global::os_home().join(rest))
         } else {
             normalize(&input.dir.join(raw))
         };
+        if let Some(references) = input.references {
+            references.lock().unwrap_or_else(|e| e.into_inner()).insert(resolved.clone());
+        }
         // Like a missing {env:VAR}, a missing or unreadable file substitutes empty so one stale secret
         // reference cannot take down every Location that loads this config.
         let content = match std::fs::read(&resolved) {
@@ -115,7 +122,7 @@ mod tests {
 
     fn run(text: &str, env: &[(&str, &str)]) -> String {
         let env: HashMap<String, String> = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        substitute(Input { text, dir: Path::new("/"), source: "test", env: Some(&env) })
+        substitute(Input { text, dir: Path::new("/"), source: "test", env: Some(&env), references: None })
     }
 
     // config.test.ts "keeps env values unescaped when the config already parses"
@@ -137,12 +144,28 @@ mod tests {
         );
     }
 
+    /// config.test.ts (2.4.1, #62158): every `{file:}` the text reads is collected, resolved like `path.resolve`.
+    #[test]
+    fn collects_resolved_file_references() {
+        let dir = std::env::temp_dir().join(format!("oc-variable-refs-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("secret.txt"), "s").unwrap();
+        let absolute = format!("{}/sub/../secret.txt", dir.display()).replace('\\', "/");
+        let text = format!("{{ \"a\": \"{{file:secret.txt}}\", \"b\": \"{{file:{absolute}}}\", \"c\": \"{{file:missing}}\" }}");
+        let references = References::default();
+        let out = substitute(Input { text: &text, dir: &dir, source: "test", env: None, references: Some(&references) });
+        assert_eq!(out, "{ \"a\": \"s\", \"b\": \"s\", \"c\": \"\" }");
+        let collected: Vec<PathBuf> = references.into_inner().unwrap().into_iter().collect();
+        assert_eq!(collected, vec![normalize(&dir.join("missing")), normalize(&dir.join("secret.txt"))]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn missing_and_unreadable_files_substitute_empty() {
         let dir = std::env::temp_dir().join(format!("oc-variable-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let text = "{\n  // {file:nope}\n  \"a\": \"x{file:nope.txt}\", \"b\": \"{file:.}\"\n}";
-        let out = substitute(Input { text, dir: &dir, source: "test", env: None });
+        let out = substitute(Input { text, dir: &dir, source: "test", env: None, references: None });
         assert_eq!(out, "{\n  // {file:nope}\n  \"a\": \"x\", \"b\": \"\"\n}");
         std::fs::remove_dir_all(&dir).ok();
     }

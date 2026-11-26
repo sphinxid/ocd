@@ -18,6 +18,8 @@ pub struct Location {
     pub project: Resolved,
     pub entries: Vec<Entry>,
     pub sources: oc_config::discovery::Sources,
+    /// Paths whose changes reload the config (`ConfigWatch.inputs`, 2.4.1).
+    pub inputs: oc_config::discovery::Inputs,
     /// The last fetched copy of each configured instruction URL (`ConfigInstructionPlugin` `remote`).
     pub remote_instructions: parking_lot::Mutex<std::collections::HashMap<String, crate::instructions::File>>,
     /// Set once the location is shut down (`LocationLifecycle.isClosed`): steps that borrowed it hand off to a
@@ -81,14 +83,23 @@ impl Location {
         if let Some(wellknown) = wellknown {
             loader = loader.with_wellknown(wellknown);
         }
-        let (sources, entries) = loader.entries().await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (sources, entries, inputs) = loader.entries_with_inputs().await.map_err(|e| anyhow::anyhow!("{e}"))?;
         let media = oc_config::flag::enabled(&entries, "media_blob");
         bus.set_media_blob(&[&key, &directory.display().to_string()], media);
         // `partRowsEnabled`: `experimental.part_rows` of the highest-priority document that sets `experimental`; on
         // unless that says `false` (2.4.1 #65039).
         let part_rows = oc_config::fold::experimental(&entries).and_then(|e| e.part_rows) != Some(false);
         bus.set_part_rows(&[&key, &directory.display().to_string()], part_rows);
-        Ok(Location { key, directory, project, entries, sources, remote_instructions: Default::default(), closed: Default::default() })
+        Ok(Location {
+            key,
+            directory,
+            project,
+            entries,
+            sources,
+            inputs,
+            remote_instructions: Default::default(),
+            closed: Default::default(),
+        })
     }
 
     /// `ConfigInstructionPlugin.reconfigure`: fetch the configured instruction URLs, keeping the
@@ -285,6 +296,7 @@ mod tests {
             project: Resolved { id: "global".into(), previous: None, directory: "/p".into(), canonical: "/p".into(), vcs: None },
             entries: vec![Entry::Document { integration: None, path: None, info, wellknown: None }],
             sources: Default::default(),
+            inputs: Default::default(),
             remote_instructions: Default::default(),
             closed: Default::default(),
         };

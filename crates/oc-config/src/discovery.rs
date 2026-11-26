@@ -316,6 +316,47 @@ impl Sources {
     }
 }
 
+/// `ConfigWatch.inputs`: paths whose content or presence feeds the loaded config (2.4.1, #62158); other writes
+/// under watched roots do not reload it. Compared without case everywhere: macOS volumes usually are too, and a
+/// false match only costs a reload.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Inputs(std::collections::HashSet<String>);
+
+fn input_key(file: &Path) -> String {
+    lexical(file).to_string_lossy().to_lowercase()
+}
+
+impl Inputs {
+    pub fn contains(&self, file: &Path) -> bool {
+        self.0.contains(&input_key(file))
+    }
+}
+
+/// The roots (system, global, project), their config file names, the direct, compatibility and explicit files, and
+/// every file the load read with each one's real path.
+pub fn inputs(sources: &Sources, references: &std::collections::BTreeSet<PathBuf>) -> Inputs {
+    let roots: Vec<&Path> = sources
+        .system
+        .iter()
+        .map(|s| s.path.as_path())
+        .chain(sources.global.as_deref())
+        .chain(sources.project.iter().map(|r| r.path.as_path()))
+        .collect();
+    let real = references.iter().map(|file| oc_util::fs::canonicalize(file).unwrap_or_else(|_| file.clone()));
+    let paths: Vec<PathBuf> = roots
+        .iter()
+        .map(|root| root.to_path_buf())
+        .chain(roots.iter().flat_map(|root| NAMES.iter().map(move |name| root.join(name))))
+        .chain(sources.direct.iter().cloned())
+        .chain(sources.claude.iter().cloned())
+        .chain(sources.agents.iter().cloned())
+        .chain(sources.explicit.iter().cloned())
+        .chain(references.iter().cloned())
+        .chain(real)
+        .collect();
+    Inputs(paths.iter().map(|p| input_key(p)).collect())
+}
+
 /// Directories never descended into by scans and recursive watches (`FSUtil.ignoredDirectories`).
 pub const IGNORED_DIRECTORIES: [&str; 5] = ["node_modules", ".git", ".venv", "venv", "__pycache__"];
 

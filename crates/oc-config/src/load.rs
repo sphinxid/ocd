@@ -114,21 +114,40 @@ pub fn read_safe(path: &Path) -> Result<Option<String>, LoadError> {
     }
 }
 
+/// The config inputs a load read: every readable config file and every path a `{file:}` reference resolved to
+/// (2.4.1, #62158).
+pub use oc_util::variable::References;
+
 /// `loadFile`: read → `{env:}`/`{file:}` substitution → parseInfo → Document.
 pub fn load_file(path: &Path) -> Result<Option<Entry>, LoadError> {
+    load_file_with(path, &References::default())
+}
+
+/// [`load_file`] recording what it read in `references`.
+pub fn load_file_with(path: &Path, references: &References) -> Result<Option<Entry>, LoadError> {
     let Some(text) = read_safe(path)? else { return Ok(None) };
+    references.lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_path_buf());
     let source = path.to_string_lossy().to_string();
     let dir = path.parent().unwrap_or(Path::new("/"));
-    let substituted =
-        oc_util::variable::substitute(oc_util::variable::Input { text: &text, dir, source: &source, env: None });
+    let substituted = oc_util::variable::substitute(oc_util::variable::Input {
+        text: &text,
+        dir,
+        source: &source,
+        env: None,
+        references: Some(references),
+    });
     Ok(parse_info(&substituted, &source).map(|info| Entry::Document { path: Some(path.to_path_buf()), info, integration: None, wellknown: None }))
 }
 
 /// `loadDirectory`: `opencode.json`, `opencode.jsonc`, then `Directory`.
 pub fn load_directory(directory: &Path) -> Result<Vec<Entry>, LoadError> {
+    load_directory_with(directory, &References::default())
+}
+
+fn load_directory_with(directory: &Path, references: &References) -> Result<Vec<Entry>, LoadError> {
     let mut out = Vec::new();
     for name in NAMES {
-        if let Some(entry) = load_file(&directory.join(name))? {
+        if let Some(entry) = load_file_with(&directory.join(name), references)? {
             out.push(entry);
         }
     }
@@ -139,6 +158,10 @@ pub fn load_directory(directory: &Path) -> Result<Vec<Entry>, LoadError> {
 /// `Config.loadPreferences`: a macOS MDM managed preferences plist converted with
 /// `plutil -convert json -o - <plist>` (10 s), MDM payload metadata stripped.
 pub async fn load_preferences(plist: &Path) -> Vec<Entry> {
+    load_preferences_with(plist, &References::default()).await
+}
+
+async fn load_preferences_with(plist: &Path, references: &References) -> Vec<Entry> {
     let source = plist.to_string_lossy().to_string();
     let run = tokio::process::Command::new("plutil")
         .args(["-convert", "json", "-o", "-"])
@@ -154,9 +177,16 @@ pub async fn load_preferences(plist: &Path) -> Vec<Entry> {
             return vec![];
         }
     };
+    references.lock().unwrap_or_else(|e| e.into_inner()).insert(plist.to_path_buf());
     let text = crate::discovery::strip_preference_metadata(&String::from_utf8_lossy(&output));
     let dir = plist.parent().unwrap_or(Path::new("/"));
-    let text = oc_util::variable::substitute(oc_util::variable::Input { text: &text, dir, source: &source, env: None });
+    let text = oc_util::variable::substitute(oc_util::variable::Input {
+        text: &text,
+        dir,
+        source: &source,
+        env: None,
+        references: Some(references),
+    });
     parse_info(&text, &source)
         .map(|info| Entry::Document { path: Some(plist.to_path_buf()), info, integration: None, wellknown: None })
         .into_iter()
@@ -165,9 +195,18 @@ pub async fn load_preferences(plist: &Path) -> Vec<Entry> {
 
 /// Inline content (`OPENCODE_CONFIG_CONTENT`) document; `{file:}` base dir = location directory.
 pub fn load_content(content: &str, directory: &Path) -> Result<Option<Entry>, LoadError> {
+    load_content_with(content, directory, &References::default())
+}
+
+fn load_content_with(content: &str, directory: &Path, references: &References) -> Result<Option<Entry>, LoadError> {
     let source = "OPENCODE_CONFIG_CONTENT";
-    let text =
-        oc_util::variable::substitute(oc_util::variable::Input { text: content, dir: directory, source, env: None });
+    let text = oc_util::variable::substitute(oc_util::variable::Input {
+        text: content,
+        dir: directory,
+        source,
+        env: None,
+        references: Some(references),
+    });
     Ok(parse_info(&text, source).map(|info| Entry::Document { path: None, info, integration: None, wellknown: None }))
 }
 
@@ -216,6 +255,10 @@ impl Loader {
     /// Wellknown documents (lowest priority), each tagged with the origin that delivered it
     /// (`ConfigIntegration.WellKnownDocument`), grouped by origin.
     pub async fn load_wellknown(&self) -> Result<Vec<(String, Vec<Entry>)>, LoadError> {
+        self.load_wellknown_with(&References::default()).await
+    }
+
+    async fn load_wellknown_with(&self, references: &References) -> Result<Vec<(String, Vec<Entry>)>, LoadError> {
         let Some(wellknown) = &self.wellknown else { return Ok(vec![]) };
         let entries = match wellknown.entries().await {
             Ok(entries) => entries,
@@ -250,6 +293,7 @@ impl Loader {
                     dir: Path::new(&entry.origin),
                     source: &entry.origin,
                     env: variables.as_ref(),
+                    references: Some(references),
                 });
                 if let Some(info) = parse_info(&substituted, &entry.origin) {
                     documents.push(Entry::Document { path: None, info, integration: None, wellknown: Some(entry.origin.clone()) });
@@ -263,15 +307,20 @@ impl Loader {
     /// `Config.load(sources)`: managed policies, wellknown, global dir, explicit, direct, `.opencode`
     /// dirs, content, then managed settings.
     pub async fn load(&self, sources: &Sources) -> Result<Vec<Entry>, LoadError> {
+        self.load_with(sources, &References::default()).await
+    }
+
+    /// [`Loader::load`] recording the config inputs it read in `references`.
+    pub async fn load_with(&self, sources: &Sources, references: &References) -> Result<Vec<Entry>, LoadError> {
         // Managed settings load last so they override everything, and MDM preferences outrank the
         // system directory as in V1. Policies evaluate in reverse load order, so managed policies split
         // off and load first to keep final file-based authority.
         let mut managed = match sources.system.as_ref().filter(|s| s.present) {
-            Some(system) => load_directory(&system.path)?,
+            Some(system) => load_directory_with(&system.path, references)?,
             None => vec![],
         };
         if let Some(plist) = &sources.preferences {
-            managed.extend(load_preferences(plist).await);
+            managed.extend(load_preferences_with(plist, references).await);
         }
         let mut managed_policies: Vec<Entry> = managed
             .iter()
@@ -322,7 +371,7 @@ impl Loader {
             })
             .collect();
         let wellknown: Vec<Entry> = self
-            .load_wellknown()
+            .load_wellknown_with(references)
             .await?
             .into_iter()
             .flat_map(|(origin, documents)| {
@@ -333,41 +382,54 @@ impl Loader {
         // Integration documents load right after managed policies: every remote, user, and project layer
         // overrides their settings, and since policies evaluate earliest-loaded first, only managed policies
         // outrank theirs.
-        Ok([managed_policies, integrated, wellknown, self.load_local(sources)?, managed_settings].concat())
+        Ok([managed_policies, integrated, wellknown, self.load_local_with(sources, references)?, managed_settings].concat())
     }
 
     /// Wellknown-less, managed-less local entries, in priority order.
     pub fn load_local(&self, sources: &Sources) -> Result<Vec<Entry>, LoadError> {
+        self.load_local_with(sources, &References::default())
+    }
+
+    fn load_local_with(&self, sources: &Sources, references: &References) -> Result<Vec<Entry>, LoadError> {
         let mut direct = Vec::new();
         for file in &sources.direct {
-            if let Some(entry) = load_file(file)? {
+            if let Some(entry) = load_file_with(file, references)? {
                 direct.push(entry);
             }
         }
         let explicit = match &sources.explicit {
-            Some(file) => load_file(file)?.into_iter().collect(),
+            Some(file) => load_file_with(file, references)?.into_iter().collect(),
             None => vec![],
         };
         let content = match &self.options.content {
-            Some(content) => load_content(content, &self.directory)?.into_iter().collect(),
+            Some(content) => load_content_with(content, &self.directory, references)?.into_iter().collect(),
             None => vec![],
         };
         let global = match &sources.global {
-            Some(dir) => load_directory(dir)?,
+            Some(dir) => load_directory_with(dir, references)?,
             None => vec![],
         };
         let mut project = Vec::new();
         for root in sources.project.iter().filter(|r| r.present) {
-            project.extend(load_directory(&root.path)?);
+            project.extend(load_directory_with(&root.path, references)?);
         }
         Ok([global, explicit, direct, project, content].concat())
     }
 
     /// Discover and load in one step.
     pub async fn entries(&self) -> Result<(Sources, Vec<Entry>), LoadError> {
-        let sources = self.discover();
-        let entries = self.load(&sources).await?;
+        let (sources, entries, _) = self.entries_with_inputs().await?;
         Ok((sources, entries))
+    }
+
+    /// [`Loader::entries`] with the paths whose changes feed the loaded config (`ConfigWatch.inputs`).
+    pub async fn entries_with_inputs(&self) -> Result<(Sources, Vec<Entry>, crate::discovery::Inputs), LoadError> {
+        let sources = self.discover();
+        let references = References::default();
+        let entries = self.load_with(&sources, &references).await?;
+        let references = references.into_inner().unwrap_or_else(|e| e.into_inner());
+        let inputs = crate::discovery::inputs(&sources, &references);
+        Ok((sources, entries, inputs))
     }
 }
 

@@ -1,5 +1,5 @@
 //! Config file watching (`config.ts:240-327`, `config/watch.ts`): watch the location's config sources and
-//! request a debounced reload whenever one of them changes.
+//! request a debounced reload whenever a config input among them changes (2.4.1, #62158).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher};
-use oc_config::discovery::{WatchTarget, DEBOUNCE_MS};
+use oc_config::discovery::{Inputs, WatchTarget, DEBOUNCE_MS};
 use tokio::sync::mpsc;
 
 /// A set of filesystem watches reconciled against `ConfigWatch.plan`.
@@ -15,7 +15,8 @@ pub struct ConfigWatch {
     watcher: notify::RecommendedWatcher,
     /// key → target
     active: HashMap<String, WatchTarget>,
-    targets: Arc<parking_lot::RwLock<Vec<WatchTarget>>>,
+    /// Each planned target with its real path, and the paths whose changes feed the config.
+    filter: Arc<parking_lot::RwLock<(Vec<(WatchTarget, PathBuf)>, Inputs)>>,
 }
 
 /// `FSUtil.ignoreGlobs`: a path inside an ignored directory (`node_modules`, `.git`, `.venv`, `venv`,
@@ -41,26 +42,44 @@ pub fn reports(target: &WatchTarget, path: &Path) -> bool {
     }
 }
 
+/// Whether a change at `path` reloads the config: it is reported by a target and is a config input. Native
+/// watches can report the canonical path even after the root was deleted, so a path under a target's real path
+/// counts as the same path under the target.
+pub fn reloads(targets: &[(WatchTarget, PathBuf)], inputs: &Inputs, path: &Path) -> bool {
+    targets.iter().any(|(target, real)| {
+        if reports(target, path) && inputs.contains(path) {
+            return true;
+        }
+        if real == target.path() {
+            return false;
+        }
+        let Ok(relative) = path.strip_prefix(real) else { return false };
+        let translated = if relative.as_os_str().is_empty() { target.path().to_path_buf() } else { target.path().join(relative) };
+        reports(target, &translated) && inputs.contains(&translated)
+    })
+}
+
 impl ConfigWatch {
-    /// Start watching; every reported change sends `()` on `changes`.
+    /// Start watching; every change to a config input sends `()` on `changes`.
     pub fn new(changes: mpsc::UnboundedSender<()>) -> notify::Result<Self> {
-        let targets: Arc<parking_lot::RwLock<Vec<WatchTarget>>> = Arc::default();
-        let filter = targets.clone();
+        let filter: Arc<parking_lot::RwLock<(Vec<(WatchTarget, PathBuf)>, Inputs)>> = Arc::default();
+        let reading = filter.clone();
         let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             let Ok(event) = event else { return };
             if matches!(event.kind, notify::EventKind::Access(_)) {
                 return;
             }
-            let targets = filter.read();
-            if event.paths.iter().any(|p| targets.iter().any(|t| reports(t, p))) {
+            let filter = reading.read();
+            if event.paths.iter().any(|p| reloads(&filter.0, &filter.1, p)) {
                 let _ = changes.send(());
             }
         })?;
-        Ok(ConfigWatch { watcher, active: HashMap::new(), targets })
+        Ok(ConfigWatch { watcher, active: HashMap::new(), filter })
     }
 
-    /// Reconcile watches (keys = JSON of target; removed when no longer planned).
-    pub fn reconcile(&mut self, plan: Vec<WatchTarget>) {
+    /// Reconcile watches (keys = JSON of target; removed when no longer planned), and the config inputs of the
+    /// latest load.
+    pub fn reconcile(&mut self, plan: Vec<WatchTarget>, inputs: Inputs) {
         let keys: HashMap<String, &WatchTarget> = plan.iter().map(|t| (t.key(), t)).collect();
         let stale: Vec<String> = self.active.keys().filter(|k| !keys.contains_key(*k)).cloned().collect();
         for key in stale {
@@ -83,7 +102,12 @@ impl ConfigWatch {
                 Err(error) => tracing::debug!(path = %target.path().display(), error = %error, "config watch failed"),
             }
         }
-        *self.targets.write() = plan;
+        // `FSUtil.resolve`: the real path a native watch may report instead.
+        let targets = plan.into_iter().map(|t| {
+            let real = oc_util::fs::canonicalize(t.path()).unwrap_or_else(|_| t.path().to_path_buf());
+            (t, real)
+        });
+        *self.filter.write() = (targets.collect(), inputs);
     }
 
     pub fn paths(&self) -> Vec<PathBuf> {
@@ -107,6 +131,35 @@ pub async fn debounced(rx: &mut mpsc::UnboundedReceiver<()>) -> Option<()> {
 mod tests {
     use super::*;
     use oc_config::discovery::{DirectoryKind, EntriesKind};
+
+    /// config.test.ts (2.4.1, #62158): only config inputs reload, events for a symlinked root arrive under its real
+    /// path (even after its removal), and inputs match without case.
+    #[test]
+    fn reloads_only_config_inputs() {
+        use oc_config::discovery::{ProjectRoot, Sources};
+        let sources = Sources {
+            global: Some("/g".into()),
+            project: vec![ProjectRoot { path: "/p/.opencode".into(), present: true }],
+            ..Default::default()
+        };
+        let references = [PathBuf::from("/g/opencode.json"), PathBuf::from("/g/work.json")].into_iter().collect();
+        let inputs = oc_config::discovery::inputs(&sources, &references);
+        let dir = |path: &str| WatchTarget::Directory { path: path.into(), kind: DirectoryKind::Directory, ignore: vec![] };
+        let targets = vec![(dir("/g"), PathBuf::from("/g")), (dir("/p/.opencode"), PathBuf::from("/real/.opencode"))];
+        let reloads = |path: &str| reloads(&targets, &inputs, Path::new(path));
+        assert!(reloads("/g/opencode.json"));
+        assert!(reloads("/g/OpenCode.JSON"));
+        // A `{file:}` reference under a watched root.
+        assert!(reloads("/g/work.json"));
+        // Unrelated paths under a config root.
+        assert!(!reloads("/g/skills/demo/SKILL.md"));
+        assert!(!reloads("/g/opencode.json.bak"));
+        // Canonical events for the symlinked project root, a file in it and the root itself.
+        assert!(reloads("/real/.opencode/opencode.jsonc"));
+        assert!(reloads("/real/.opencode"));
+        assert!(!reloads("/real/.opencode/agent/x.md"));
+        assert!(!reloads("/elsewhere/opencode.json"));
+    }
 
     #[test]
     fn report_rules() {

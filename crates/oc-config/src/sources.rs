@@ -150,14 +150,8 @@ fn decode_agent_markdown(directory: &Path, file: &Path, primary: bool, markdown:
         let decoded = legacy::decode_agent(&Value::Object(input))?;
         legacy::migrate_agent(&decoded)
     } else {
-        let mut input = data.clone();
-        if let (Some(Value::String(model)), Some(Value::String(variant))) = (data.get("model"), data.get("variant"))
-            && !model.contains('#')
-            && !variant.is_empty()
-            && !variant.contains('#')
-        {
-            input.insert("model".into(), Value::String(format!("{model}#{variant}")));
-        }
+        // Native files join a legacy model + variant without sending request/permissions through migration.
+        let mut input = markdown::join_legacy_variant(data.clone());
         input.insert("system".into(), Value::String(body));
         crate::decode::encode(&Agent::decode(&Value::Object(input))?)
     };
@@ -212,7 +206,7 @@ pub fn decode_command_file(directory: &Path, file: &Path, content: &str) -> Opti
         tracing::warn!(filepath = %file.display(), reason = "markdown", "command file skipped");
         return None;
     };
-    let mut input = markdown.data;
+    let mut input = markdown::join_legacy_variant(markdown.data);
     input.insert("template".into(), Value::String(crate::schema::js_trim(&markdown.content).to_string()));
     let Some(command) = Command::decode(&Value::Object(input)) else {
         tracing::warn!(filepath = %file.display(), reason = "frontmatter", issue = "invalid command frontmatter", "command file skipped");

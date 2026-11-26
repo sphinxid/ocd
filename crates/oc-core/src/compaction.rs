@@ -496,12 +496,12 @@ pub fn split_conversation(messages: &[Message], keep: u64) -> Option<Split> {
 }
 
 fn recent_start(entries: &[Entry], keep: u64, previous_recent: bool) -> usize {
-    // Drop the oldest entries until the rest fit the allowance, but always keep the newest one.
-    let dropped = oldest_to_drop(entries, |e| token_estimate(&e.text), keep as i64).min(entries.len() - 1);
-    // Start at a user message so an assistant's tool calls and results stay together.
-    let user_boundary = entries.iter().enumerate().rposition(|(i, e)| i <= dropped && e.user);
-    if let Some(b) = user_boundary.filter(|b| *b > 0) {
-        return b;
+    // The tail is sent as text and each message carries its own tool calls and results, so it can start at any
+    // message. One token more per message covers the separator between them and rounding, so the joined text stays
+    // within `keep`. A newest message larger than `keep` on its own is summarized with the rest.
+    let start = oldest_to_drop(entries, |e| token_estimate(&e.text) + 1, keep as i64);
+    if start > 0 {
+        return start;
     }
     // Everything fits. Keep only the latest exchange rather than duplicating the whole conversation beside the summary.
     if let Some(l) = entries.iter().rposition(|e| e.user).filter(|l| *l > 0) {
@@ -1130,23 +1130,23 @@ impl Run<'_> {
         let mut fit = fit;
         loop {
             let measured = if rejections == 0 { measured_size } else { None };
-            // `(request, unchanged, is the prepared request)`
+            // `(request, is the prepared request, is `history`)`
             let unchanged = if as_text {
                 None
             } else if measured.map(|(m, e)| m + e).unwrap_or_else(|| estimate_llm_request(&prepared.request)) as i64 <= fit {
-                Some((prepared.request.clone(), true))
+                Some((prepared.request.clone(), true, history_is_prepared))
             } else if estimate_llm_request(history) as i64 <= target {
-                Some((history.clone(), history_is_prepared))
+                Some((history.clone(), history_is_prepared, true))
             } else {
                 None
             };
-            let (request, unchanged, is_prepared) = match unchanged {
-                Some((r, p)) => (Some(r), true, p),
+            let (request, unchanged, is_prepared, is_history) = match unchanged {
+                Some((r, p, h)) => (Some(r), true, p, h),
                 None => match flatten_and_drop_oldest(history, messages, &model_ref, Some(target)) {
-                    Some(r) => (Some(r), false, false),
-                    None if rejections > 0 => (None, false, false),
-                    None if as_text => (flatten_and_drop_oldest(history, messages, &model_ref, None), false, false),
-                    None => (Some(history.clone()), true, history_is_prepared),
+                    Some(r) => (Some(r), false, false, false),
+                    None if rejections > 0 => (None, false, false, false),
+                    None if as_text => (flatten_and_drop_oldest(history, messages, &model_ref, None), false, false, false),
+                    None => (Some(history.clone()), true, history_is_prepared, true),
                 },
             };
             let Some(request) = request else {
@@ -1171,8 +1171,9 @@ impl Run<'_> {
             if too_large || cause.is_context_overflow() {
                 let Some(step) = SHRINK_STEPS.get(rejections) else { return Err(Fail::Failure(error)) };
                 let first = *rejected.get_or_insert(size.map(|(m, e)| m + e).unwrap_or(estimate));
-                // The characters can still say the rejected request fits, so it only goes out again as text.
-                if size.is_some() {
+                // The characters can still say a rejected request fits, so the conversation or the history before
+                // the tail only goes out again as text.
+                if size.is_some() || is_history {
                     as_text = true;
                 }
                 target = (first as f64 * step).floor() as i64;

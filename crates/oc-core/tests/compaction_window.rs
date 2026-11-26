@@ -119,6 +119,9 @@ impl Harness {
                 // conversation is what the sizes below measure.
                 "agents": {"build": {"system": "You are a test agent."}},
                 "permissions": [{"action": "*", "resource": "*", "effect": "deny"}],
+                // Room for the 30k latest exchange of "sends the history before the tail unchanged" (2.4.1: a newest
+                // message larger than `keep` is summarized with the rest).
+                "compaction": {"keep": {"tokens": 32000}},
                 "providers": {"mock": {
                     "name": "Mock",
                     "package": "@opencode/ai/providers/openai-compatible",

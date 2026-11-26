@@ -38,6 +38,8 @@ struct Script {
     review_gate: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
     /// Ordinary work requests seen (full bodies).
     work: Vec<Value>,
+    /// Ordinary work answers this many requests with a call to a missing tool before answering with text.
+    calls: usize,
 }
 
 fn sse(chunks: &[Value]) -> Response {
@@ -204,11 +206,18 @@ async fn goal_plugin() {
                     }
                     return respond(reply);
                 }
-                let (tools, gate, n) = {
+                let (tools, gate, n, call) = {
                     let mut s = mock.lock();
                     s.work.push(body.0.clone());
-                    (s.tools, s.work_gate.clone(), s.asked)
+                    let call = s.calls.checked_sub(1);
+                    if let Some(rest) = call {
+                        s.calls = rest;
+                    }
+                    (s.tools, s.work_gate.clone(), s.asked, call)
                 };
+                if let Some(call) = call {
+                    return tool("missing_tool", &format!("call-{call}"));
+                }
                 if let Some(gate) = gate {
                     gate.notified().await;
                 }
@@ -434,12 +443,40 @@ async fn goal_plugin() {
     let next = h.script.lock().work[before].clone();
     let messages = next["messages"].as_array().unwrap();
     assert!(next["messages"].to_string().contains("A goal is active for this session. Keep working toward it."));
-    // The reminder goes before the user's prompt and is not saved to the session.
+    // The reminder goes right after the summary (after the system message on this wire), before the user's prompt,
+    // and is not saved to the session.
     assert!(messages.last().unwrap().to_string().contains("Carry on"));
-    assert!(messages[messages.len() - 2].to_string().contains("A goal is active for this session."));
+    assert_eq!(messages[0]["role"], "system");
+    assert!(messages[2].to_string().contains("A goal is active for this session."));
     assert!(!h.messages(&s).iter().any(|m| matches!(m, Message::Synthetic { text, .. } if text.contains("Keep working toward it."))));
     // The earlier process's goal was paused instead of judged.
     subset(&h.goal_of(&s), json!({"status": "paused", "reason": "The server restarted while the goal was active"}));
+
+    // ---- keeps the reminder in place after a compaction so each step extends the request before it
+    h.reset(|s| s.reviews = VecDeque::from([Reply::Text(r#"{"verdict":"paused","reason":"Stop here."}"#.into())]));
+    let s = h.session(Some("Goal session"), None).await;
+    h.prompt(&s, "Look at the failing CI job").await;
+    h.wait(&s).await;
+    h.set_goal(&s, json!({"id": "goal-compacted", "objective": "Make CI green", "status": "active", "rounds": 2, "maxRounds": 50, "boot": "an-earlier-process", "updatedAt": 0}));
+    h.app.sessions.compact(&s, None).await.unwrap();
+    h.app.coordinator().wake(&s, Scope::Input);
+    h.wait(&s).await;
+    let before = h.script.lock().work.len();
+    h.script.lock().calls = 3;
+    h.prompt(&s, "Carry on").await;
+    h.wait(&s).await;
+    let steps: Vec<Vec<String>> = h.script.lock().work[before..]
+        .iter()
+        .map(|body| body["messages"].as_array().unwrap().iter().map(|m| json!([m["role"], m["content"]]).to_string()).collect())
+        .collect();
+    assert_eq!(steps.len(), 4);
+    // The provider caches each request up to its last message, which the next step can only reuse as its prefix.
+    for (index, messages) in steps.iter().enumerate().skip(1) {
+        assert_eq!(messages[..steps[index - 1].len()], steps[index - 1][..], "step {index}");
+    }
+    for messages in &steps {
+        assert_eq!(messages.iter().filter(|m| m.contains("Keep working toward it.")).count(), 1);
+    }
 
     // ---- compacts and asks again when the reviewer's request is too large
     h.reset(|s| s.reviews = VecDeque::from([Reply::Overflow, Reply::Text(r#"{"verdict":"done","reason":"CI is green."}"#.into())]));

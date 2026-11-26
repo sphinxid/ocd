@@ -608,6 +608,38 @@ fn markdown_agent_model_variant_forms() {
 }
 
 #[test]
+fn markdown_agent_flow_collections_alongside_unquoted_colon_descriptions() {
+    let tmp = Tmp::new();
+    let content = "---\ndescription: Review changes. Keywords: review, audit\nmodel: { providerID: example, model: chat, variant: high }\npermissions: [{ action: edit, resource: \"*\", effect: deny }]\n---\nBody";
+    let file = tmp.write("agents/review.md", content);
+    let entry = sources::decode_agent_file(tmp.path(), &file, false, content).unwrap();
+    let agent = &entry.info().unwrap().agents.as_ref().unwrap()["review"];
+    assert_eq!(agent.description.as_deref(), Some("Review changes. Keywords: review, audit"));
+    let model = agent.model.as_ref().unwrap();
+    assert_eq!((model.provider_id.as_str(), model.model.as_str(), model.variant.as_deref()), ("example", "chat", Some("high")));
+    let permissions = serde_json::to_value(&agent.permissions).unwrap();
+    assert!(permissions.as_array().unwrap().contains(&json!({"action": "edit", "resource": "*", "effect": "deny"})), "{permissions}");
+}
+
+#[test]
+fn markdown_command_legacy_variant() {
+    let tmp = Tmp::new();
+    for (frontmatter, expected) in [
+        // merges a separate legacy variant
+        ("model: example/chat\nvariant: high", "high"),
+        // keeps an embedded variant over a separate one
+        ("model: example/chat#low\nvariant: high", "low"),
+    ] {
+        let content = format!("---\n{frontmatter}\n---\nProbe.");
+        let file = tmp.write("commands/probe.md", &content);
+        let (name, command) = sources::decode_command_file(tmp.path(), &file, &content).unwrap();
+        assert_eq!(name, "probe");
+        let model = command.model.unwrap();
+        assert_eq!((model.provider_id.as_str(), model.model.as_str(), model.variant.as_deref()), ("example", "chat", Some(expected)));
+    }
+}
+
+#[test]
 fn named_color_tokens_are_ignored_natively_but_migrated_for_v1() {
     // An unsupported color, such as a V1 theme name, drops only the color (6a5f15ad5).
     let info = Info::from_value(&json!({ "agents": { "r": { "description": "Reviews", "color": "warning" } } })).unwrap();

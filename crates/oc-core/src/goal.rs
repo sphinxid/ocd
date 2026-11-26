@@ -489,7 +489,7 @@ impl Goals {
 }
 
 /// The `context` hook (primary requests): until the next continuation restates the objective, a compacted
-/// history may not show it, so add it near the tail without persisting it.
+/// history may not show it, so add it right after the first message without persisting it.
 pub fn remind(db: &Database, session_id: &str, messages: &mut Vec<LlmMessage>) {
     let goal = match read(db, session_id) {
         Ok(goal) => goal,
@@ -513,8 +513,10 @@ pub fn remind(db: &Database, session_id: &str, messages: &mut Vec<LlmMessage>) {
     if messages.iter().any(|m| m.role == Role::User && text_of(m).contains(&objective)) {
         return;
     }
-    let at = if messages.last().is_some_and(|m| m.role == Role::User) { messages.len() - 1 } else { messages.len() };
-    messages.insert(at, LlmMessage::user_text(render(REMINDER, &[("objective", &escape(goal.objective()))])));
+    // Right after the first message, the compaction summary, without persisting it. The last message carries the
+    // conversation's cache point, so a reminder at the tail would move every step and no request would reuse the
+    // previous one's cache.
+    messages.insert(messages.len().min(1), LlmMessage::user_text(render(REMINDER, &[("objective", &escape(goal.objective()))])));
 }
 
 impl Engine {

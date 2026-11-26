@@ -408,14 +408,14 @@ impl Engine {
                 return;
             }
         };
-        watch.reconcile(location.sources.watch_plan());
+        watch.reconcile(location.sources.watch_plan(), location.inputs.clone());
         let me = self.me.clone();
         let key = directory.to_string();
         let handle = tokio::spawn(async move {
             while crate::config_watch::debounced(&mut rx).await.is_some() {
                 let Some(engine) = me.upgrade() else { break };
                 match engine.reload_location(&key).await {
-                    Ok(location) => watch.reconcile(location.sources.watch_plan()),
+                    Ok(location) => watch.reconcile(location.sources.watch_plan(), location.inputs.clone()),
                     Err(error) => tracing::error!(directory = %key, error = %error, "failed to reload config"),
                 }
             }
