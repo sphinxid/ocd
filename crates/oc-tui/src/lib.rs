@@ -302,7 +302,11 @@ pub async fn run(opts: TuiOptions) -> anyhow::Result<i32> {
     app.start_migration_poll();
     app.start_update_watch();
 
-    let mut events = app::escape::JoinEscapes::new(EventStream::new());
+    // A palette reply that comes after the probe above gave up re-themes the system theme.
+    let osc_tx = tx.clone();
+    let mut events = app::escape::JoinEscapes::new(EventStream::new()).on_osc(move |body| {
+        let _ = osc_tx.send(AppMsg::Apply(Box::new(move |app: &mut App| app.on_palette_reply(&body))));
+    });
     let mut hooks = TermHooks { screen: &screen, term: &mut term, title: String::new(), cursor: Default::default() };
     let result = app::event_loop::run(&mut app, &mut events, &mut rx, &mut hooks).await;
     {

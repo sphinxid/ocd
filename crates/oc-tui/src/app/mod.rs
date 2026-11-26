@@ -361,6 +361,8 @@ pub struct App {
     pub link_lookups: HashSet<String>,
     /// Bumped whenever the syntax styles are rebuilt (render caches key on it).
     pub style_epoch: u64,
+    /// Palette replies that came after the startup probe and do not make a usable palette yet.
+    late_palette: Option<crate::theme::TerminalColors>,
     /// Fixed clock for tests (`now()` returns it when set).
     pub clock: Option<i64>,
     /// Rendered file diffs of the diff viewer, by content/width/theme hash.
@@ -524,6 +526,7 @@ impl App {
             tcache: tcache::TranscriptCache::default(),
             link_lookups: HashSet::new(),
             style_epoch: 0,
+            late_palette: None,
             clock: None,
             diff_cache: Default::default(),
             selection: None,
@@ -1541,6 +1544,51 @@ impl App {
 
     fn theme_needs_reload(&self) -> bool {
         false
+    }
+
+    /// A terminal palette reply (`4;N;rgb:…`, `10;…`, `11;…`) that arrived after the startup probe: OpenTUI 0.9.4
+    /// emits `palette` again for it, and the theme context applies it (`handlePalette`): the color joins the system
+    /// palette, which, once usable, sets the mode (unless locked) and re-themes the system theme.
+    pub fn on_palette_reply(&mut self, body: &str) {
+        let reply = crate::terminal::parse_replies(&format!("\x1b]{body}\x07"));
+        let mut colors = self
+            .late_palette
+            .take()
+            .or_else(|| self.themes.system_palette().cloned())
+            .unwrap_or_else(|| crate::theme::TerminalColors { palette: vec![None; 16], ..Default::default() });
+        let mut changed = false;
+        for (i, c) in reply.palette.into_iter().enumerate() {
+            if c.is_some() {
+                if colors.palette.len() <= i {
+                    colors.palette.resize(i + 1, None);
+                }
+                changed |= colors.palette[i] != c;
+                colors.palette[i] = c;
+            }
+        }
+        if reply.default_foreground.is_some() {
+            changed |= colors.default_foreground != reply.default_foreground;
+            colors.default_foreground = reply.default_foreground;
+        }
+        if reply.default_background.is_some() {
+            changed |= colors.default_background != reply.default_background;
+            colors.default_background = reply.default_background;
+        }
+        if !colors.usable() {
+            self.late_palette = Some(colors);
+            return;
+        }
+        if !changed {
+            return;
+        }
+        if self.themes.lock.is_none()
+            && let Some(m) = crate::theme::terminal_mode(&colors)
+        {
+            self.themes.set_mode(m);
+        }
+        self.themes.set_system_palette(Some(colors.clone()));
+        self.keyed.update("system-theme", |v| *v = serde_json::json!({ "colors": colors }));
+        self.reload_theme();
     }
 
     pub fn reload_theme(&mut self) {

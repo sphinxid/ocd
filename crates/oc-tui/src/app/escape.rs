@@ -9,6 +9,10 @@
 //! the same on crossterm's events: an Esc followed within that window by `[` or `O` starts a sequence,
 //! which is collected up to its final byte and then decoded (keys) or dropped (mouse, focus and other
 //! reports, which only matter as they arrive whole). Anything else releases the held events unchanged.
+//!
+//! An OSC reply (`ESC ]` … BEL or ST) is collected the same way and handed to [`JoinEscapes::on_osc`] instead of
+//! being typed: a palette reply that arrives after the startup probe gave up re-themes the system theme, as OpenTUI
+//! 0.9.4 emits `palette` again for a reply that arrives after its query ended.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -27,6 +31,8 @@ enum State {
     Escape,
     /// `ESC [` (CSI) or `ESC O` (SS3) seen; the characters so far (after the introducer).
     Sequence { ss3: bool, body: String },
+    /// `ESC ]` (OSC) seen; its text so far, and whether an `ESC` (the start of ST) just came.
+    Osc { body: String, esc: bool },
 }
 
 pub struct JoinEscapes<S> {
@@ -37,11 +43,28 @@ pub struct JoinEscapes<S> {
     out: VecDeque<std::io::Result<Event>>,
     timer: Option<Pin<Box<tokio::time::Sleep>>>,
     done: bool,
+    /// Receives each complete OSC sequence's text (without `ESC ]` and its terminator).
+    osc: Option<Box<dyn FnMut(String) + Send>>,
 }
 
 impl<S> JoinEscapes<S> {
     pub fn new(inner: S) -> Self {
-        JoinEscapes { inner, state: State::Ground, held: vec![], out: VecDeque::new(), timer: None, done: false }
+        JoinEscapes { inner, state: State::Ground, held: vec![], out: VecDeque::new(), timer: None, done: false, osc: None }
+    }
+
+    /// Hands complete OSC sequences (terminal replies such as `4;1;rgb:…`) to `f` instead of releasing them as keys.
+    pub fn on_osc(mut self, f: impl FnMut(String) + Send + 'static) -> Self {
+        self.osc = Some(Box::new(f));
+        self
+    }
+
+    fn osc_done(&mut self, body: String) {
+        self.held.clear();
+        self.state = State::Ground;
+        self.timer = None;
+        if let Some(f) = self.osc.as_mut() {
+            f(body);
+        }
     }
 
     fn arm(&mut self) {
@@ -62,11 +85,21 @@ impl<S> JoinEscapes<S> {
                     self.held.push(ev);
                     self.state = State::Escape;
                     self.arm();
+                } else if self.osc.is_some() && is_alt(&ev, ']') {
+                    // crossterm reads `ESC ]` that arrive together as Alt+].
+                    self.held.push(ev);
+                    self.state = State::Osc { body: String::new(), esc: false };
+                    self.arm();
                 } else {
                     self.out.push_back(Ok(ev));
                 }
             }
             State::Escape => match char_of(&ev) {
+                Some(']') if self.osc.is_some() => {
+                    self.held.push(ev);
+                    self.state = State::Osc { body: String::new(), esc: false };
+                    self.arm();
+                }
                 Some(c @ ('[' | 'O')) => {
                     self.held.push(ev);
                     self.state = State::Sequence { ss3: c == 'O', body: String::new() };
@@ -100,8 +133,41 @@ impl<S> JoinEscapes<S> {
                     self.out.push_back(Ok(ev));
                 }
             }
+            State::Osc { body, esc } => {
+                // BEL (read as Ctrl+G) or ST (`ESC \`, read as Alt+\ or Esc then `\`) ends it.
+                if is_ctrl(&ev, 'g') || is_alt(&ev, '\\') || (*esc && char_of(&ev) == Some('\\')) {
+                    let body = std::mem::take(body);
+                    self.osc_done(body);
+                    return;
+                }
+                if !*esc && is_plain(&ev, KeyCode::Esc) {
+                    *esc = true;
+                    self.held.push(ev);
+                    self.arm();
+                    return;
+                }
+                match char_of(&ev).filter(|c| (' '..='~').contains(c)) {
+                    Some(c) if !*esc => {
+                        body.push(c);
+                        self.held.push(ev);
+                        self.arm();
+                    }
+                    _ => {
+                        self.release();
+                        self.feed(ev);
+                    }
+                }
+            }
         }
     }
+}
+
+fn is_alt(ev: &Event, c: char) -> bool {
+    matches!(ev, Event::Key(KeyEvent { code: KeyCode::Char(k), modifiers, kind: KeyEventKind::Press, .. }) if *k == c && *modifiers == KeyModifiers::ALT)
+}
+
+fn is_ctrl(ev: &Event, c: char) -> bool {
+    matches!(ev, Event::Key(KeyEvent { code: KeyCode::Char(k), modifiers, kind: KeyEventKind::Press, .. }) if *k == c && *modifiers == KeyModifiers::CONTROL)
 }
 
 fn char_of(ev: &Event) -> Option<char> {
@@ -247,5 +313,44 @@ mod tests {
         // An unfinished sequence is released as it came.
         let out = run(vec![(0, vec![key(KeyCode::Esc)]), (2, chars("[1")), (60, chars("z"))]).await;
         assert_eq!(out, vec!["Esc", "Char('[')", "Char('1')", "Char('z')"]);
+    }
+    fn alt(c: char) -> std::io::Result<Event> {
+        Ok(Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)))
+    }
+
+    fn ctrl(c: char) -> std::io::Result<Event> {
+        Ok(Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)))
+    }
+
+    /// Late palette replies (`ESC ] 4;1;rgb:… BEL`, or ST) go to `on_osc`, not into the prompt as typed keys.
+    #[tokio::test(start_paused = true)]
+    async fn late_osc_replies_go_to_the_handler() {
+        let (tx, rx) = futures::channel::mpsc::unbounded();
+        let mut bel = vec![alt(']')];
+        bel.extend(chars("4;1;rgb:cccc/0000/0000"));
+        bel.push(ctrl('g'));
+        let mut st = vec![key(KeyCode::Esc)];
+        st.extend(chars("]11;rgb:1010/1010/1010"));
+        st.push(alt('\\'));
+        tokio::spawn(async move {
+            for events in [bel, st, chars("ok")] {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+                for e in events {
+                    let _ = tx.unbounded_send(e);
+                }
+            }
+        });
+        let got = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = got.clone();
+        let keys: Vec<String> = JoinEscapes::new(rx)
+            .on_osc(move |body| sink.lock().unwrap().push(body))
+            .map(|e| match e.unwrap() {
+                Event::Key(k) => format!("{:?}", k.code),
+                other => format!("{other:?}"),
+            })
+            .collect()
+            .await;
+        assert_eq!(keys, vec!["Char('o')", "Char('k')"]);
+        assert_eq!(*got.lock().unwrap(), vec!["4;1;rgb:cccc/0000/0000".to_string(), "11;rgb:1010/1010/1010".to_string()]);
     }
 }

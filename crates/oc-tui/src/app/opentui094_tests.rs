@@ -1,9 +1,10 @@
 //! The TUI side of upstream's move to OpenTUI 0.9.4 (#63989): answers and reasoning drawn by the native Markdown
-//! engine (reasoning in the reasoning colors, its source in source mode).
+//! engine (reasoning in the reasoning colors, its source in source mode), and a late palette reply re-theming the
+//! system theme.
 
-use super::tests::app;
+use super::tests::{app, render};
 use super::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 fn sid() -> String {
     "ses_opentuiopentuiopentuiopentu".into()
@@ -71,4 +72,27 @@ fn reasoning_rows_are_markdown_in_the_reasoning_colors() {
     assert!(seg.style.add_modifier.contains(ratatui::style::Modifier::BOLD));
     let row = lines.iter().find(|l| l.text().contains("│ step")).unwrap();
     assert!(row.text().trim_start().starts_with("┃ │ step"), "{:?}", row.text());
+}
+
+/// A palette reply that comes after the startup probe gave up applies to the system theme, as OpenTUI 0.9.4 emits
+/// `palette` again for it.
+#[test]
+fn a_late_palette_reply_rethemes_the_system_theme() {
+    let mut a = app();
+    a.set_theme("system", false);
+    render(&mut a, 80, 24);
+    let before = a.theme().background.base;
+    for body in ["10;rgb:dddd/dddd/dddd", "11;rgb:2020/3030/4040", "4;0;rgb:0000/0000/0000", "4;7;rgb:cccc/cccc/cccc", "4;1;rgb:cccc/0000/0000"] {
+        a.on_palette_reply(body);
+    }
+    let colors = a.themes.system_palette().cloned().expect("palette");
+    assert_eq!(colors.default_background.as_deref(), Some("#203040"));
+    assert_eq!(colors.palette[1].as_deref(), Some("#cc0000"));
+    assert_ne!(a.theme().background.base, before);
+    let saved: Value = a.keyed.get("system-theme").unwrap_or_default();
+    assert_eq!(saved["colors"]["defaultBackground"], json!("#203040"));
+    // A reply that changes nothing does not re-theme.
+    let epoch = a.style_epoch;
+    a.on_palette_reply("11;rgb:2020/3030/4040");
+    assert_eq!(a.style_epoch, epoch);
 }
