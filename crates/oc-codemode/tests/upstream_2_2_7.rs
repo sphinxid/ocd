@@ -108,8 +108,8 @@ fn a_missing_module_or_export_fails_at_the_import() {
 #[test]
 fn scan_tools_parses_modules() {
     use oc_codemode::scan::scan_tools;
-    // Results of upstream 2.3.1's `scanTools` for the same programs.
-    let alias = "Automation code must call tools directly as tools.<name>(...), not alias or pass the tools object.";
+    // Results of upstream 2.4.1's `scanTools` for the same programs (2.3.1's but for the namespace import).
+    let _alias = "Automation code must call tools directly as tools.<name>(...), not alias or pass the tools object.";
     let loaded = "Automation code must call tools directly as tools.<name>(...), not import or require them.";
     let cases: [(&str, Result<Vec<&str>, String>); 9] = [
         ("import { URL } from \"url\"\nawait tools.a.b({})", Ok(vec!["a.b"])),
@@ -120,7 +120,8 @@ fn scan_tools_parses_modules() {
         ("import tools from \"tools\"", Err(format!("{loaded} (line 1, col 1)"))),
         ("{ export const x = tools.a.b() }", Ok(vec!["a.b"])),
         ("const m = await import(tools.a.b())", Err(format!("{loaded} (line 1, col 17)"))),
-        ("import * as tools from \"url\"\ntools.x()", Err(format!("{alias} (line 1, col 13)"))),
+        // 2.4.1: an import's bindings shadow `tools` (2.3.1 refused the namespace import as an alias).
+        ("import * as tools from \"url\"\ntools.x()", Ok(vec![])),
         ("const t = require(\"node:tools\"); await t.slack.post({})", Err(format!("{loaded} (line 1, col 11)"))),
         ("const fs = require(\"fs\"); return await tools.slack.read_thread({})", Ok(vec!["slack.read_thread"])),
         ("require()", Ok(vec![])),

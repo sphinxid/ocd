@@ -893,12 +893,14 @@ async fn compacts_against_mock_provider() {
 
     // Auto: a small conversation in a 100k window is not due.
     let loaded = engine.load(engine.select(&s.id).await.unwrap()).await.unwrap();
-    // `estimatePrompt` counts the snapshot's definitions before the request's session hooks: `patch` too, which
-    // the request drops for this model, and the shell's registered description (core/src/session/runner/llm.ts).
+    // `estimatePrompt` counts the snapshot's definitions before the request's session hooks: the shell's registered
+    // description (core/src/session/runner/llm.ts). Since 2.4.1 the model's tool policy leaves `patch` out of the
+    // snapshot for this model, so it is not counted either.
     let counted: Vec<String> = engine.estimate_tools(&loaded).iter().map(|t| t.name().to_string()).collect();
-    for name in ["edit", "patch", "shell", "write", "execute"] {
+    for name in ["edit", "shell", "write", "execute"] {
         assert!(counted.iter().any(|n| n == name), "{name} not counted: {counted:?}");
     }
+    assert!(!counted.iter().any(|n| n == "patch"), "{counted:?}");
     let (request, _) = engine.request(&loaded, false);
     assert!(!request.tools.iter().any(|t| t.name() == "patch"));
     let (measured, estimated) = engine.estimate_prompt(&loaded);

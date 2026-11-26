@@ -847,9 +847,10 @@ impl Engine {
         }
     }
 
-    /// The tool definitions `estimatePrompt` counts: the snapshot's (`context.tools.definitions`), as
-    /// registered, before the session hooks that drop or describe them for a request (the `patch` /
-    /// `edit` + `write` swap, the shell's name, the subagent list, a disabled web search), then `execute`.
+    /// The tool definitions `estimatePrompt` counts: the snapshot's (`context.tools.definitions`, which the model's
+    /// tool policy already narrowed: the `patch` / `edit` + `write` choice and an unavailable web search), as
+    /// registered, before the session hooks that describe them for a request (the shell's name, the subagent list),
+    /// then `execute`.
     pub fn estimate_tools(&self, loaded: &Loaded) -> Vec<ToolEntry> {
         let snapshot = &loaded.sel.snapshot;
         snapshot
