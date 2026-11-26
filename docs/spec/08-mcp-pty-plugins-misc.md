@@ -1490,7 +1490,7 @@ Behavior:
 - Patch splitting (`vcs/patch.ts:88-104`): chunks start at lines `diff --git `. When output was truncated, the last chunk is dropped. The file name comes from `+++`, else `---`, else the `diff --git` header (handling quoted paths with C escapes `\t \n \r \" \\`, and stripping the `a/` and `b/` prefixes).
 
 **Git provider** `opencode.vcs.git` (`core/src/plugin/vcs/git.ts`; registered when the location has no VCS or git):
-- Every command is prefixed with `--no-optional-locks -c core.autocrlf=false -c core.fsmonitor=false -c core.longpaths=true -c core.symlinks=true -c core.quotepath=false` (`:164-176`). Listing commands run in `location.directory` with pathspec `.`; per-file commands run in the worktree root.
+- Every command is prefixed with `--no-optional-locks -c core.fsmonitor=false -c core.longpaths=true -c core.quotepath=false` (`:164-176`; 2.4.1 dropped `core.autocrlf=false` and `core.symlinks=true`, so line endings and symlinks follow the checkout's own config as `git status` does; the snapshot repository keeps them). Listing commands run in `location.directory` with pathspec `.`; per-file commands run in the worktree root.
 - `init`: `git init` in the worktree. Failure message: "Git initialization failed".
 - `info`: `branch` = `git symbolic-ref --quiet --short HEAD`. `default` comes from `defaultBranch` (`:277-296`):
   1. Primary remote: the output of `git remote`. Pick `origin` if present; else the only remote; else `upstream`; else the first.

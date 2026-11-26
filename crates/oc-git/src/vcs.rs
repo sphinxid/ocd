@@ -183,19 +183,9 @@ pub fn locale_compare(a: &str, b: &str) -> Ordering {
 
 // ---------------------------------------------------------------------------- git runner
 
-const CFG: &[&str] = &[
-    "--no-optional-locks",
-    "-c",
-    "core.autocrlf=false",
-    "-c",
-    "core.fsmonitor=false",
-    "-c",
-    "core.longpaths=true",
-    "-c",
-    "core.symlinks=true",
-    "-c",
-    "core.quotepath=false",
-];
+// Unlike the snapshot repository, this is the user's checkout: line endings and symlinks follow its own config, as
+// `git status` does, or every CRLF checkout and symlink placeholder reads as changed (2.4.1).
+const CFG: &[&str] = &["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-c", "core.quotepath=false"];
 
 static NAMED_REF_REJECT: Lazy<Regex> = Lazy::new(|| Regex::new(r"[~^:@{}\s]").unwrap());
 static HEX_COMMIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-f0-9]{40,64}$").unwrap());

@@ -60,7 +60,12 @@ pub enum FileError {
     /// Path exists but is not the expected kind (`directory`, `symlink`, `other`, ...).
     WrongKind(String),
     Failed(String),
+    /// `FileMutation.InvalidUtf8Error`: a file that would be rewritten as text is not valid UTF-8 (2.4.1).
+    InvalidUtf8,
 }
+
+/// `FileMutation.InvalidUtf8Error`'s message.
+pub const INVALID_UTF8: &str = "file is not valid UTF-8. It was left unchanged because rewriting it as text would replace every byte that is not UTF-8 with U+FFFD; change it with a tool that preserves its bytes, or convert it to UTF-8 first";
 
 impl FileError {
     pub fn from_io(error: &std::io::Error, path: &Path) -> Self {
@@ -84,6 +89,7 @@ impl FileError {
             FileError::WrongKind(kind) if kind == "directory" => "path is a directory".into(),
             FileError::WrongKind(kind) => format!("path is {kind}"),
             FileError::Failed(message) => message.clone(),
+            FileError::InvalidUtf8 => INVALID_UTF8.into(),
         }
     }
 }
@@ -102,6 +108,16 @@ pub fn read_bytes(path: &Path) -> Result<Vec<u8>, FileError> {
 /// `FileMutation.readText`: decode (keeping BOM) then split.
 pub fn read_text(path: &Path) -> Result<bom::Split, FileError> {
     Ok(bom::decode_bytes(&read_bytes(path)?))
+}
+
+/// `FileMutation.readEditableText`: read text that will be rewritten. Decoding replaces invalid bytes with U+FFFD,
+/// so such files are refused.
+pub fn read_editable_text(path: &Path) -> Result<bom::Split, FileError> {
+    let bytes = read_bytes(path)?;
+    if std::str::from_utf8(&bytes).is_err() {
+        return Err(FileError::InvalidUtf8);
+    }
+    Ok(bom::decode_bytes(&bytes))
 }
 
 /// Write bytes creating parent directories.

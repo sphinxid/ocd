@@ -55,6 +55,11 @@ pub(crate) fn perm(leaf: impl Into<String>) -> impl FnOnce(PermissionError) -> T
 
 /// Run the configured formatters for `path`.
 pub(crate) async fn format_file(formatter: &Formatter, ctx: &ToolContext, path: &std::path::Path) -> bool {
+    // A formatter is a process on this machine acting on this machine's disk; a workspace location's files belong
+    // to its own environment (2.4.1, #64925).
+    if ctx.workspace_id.is_some() {
+        return false;
+    }
     let env = FormatEnv {
         directory: &ctx.directory,
         worktree: &ctx.worktree,

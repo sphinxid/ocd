@@ -12,11 +12,14 @@ use oc_schema::types::{Effect, PermissionRule, Ruleset};
 
 use crate::wildcard;
 
+pub use oc_config::policy::{ignores_case, PATH_ACTIONS};
+
 pub fn evaluate(action: &str, resource: &str, rules: &[PermissionRule]) -> PermissionRule {
+    let ignore_case = ignores_case(action);
     rules
         .iter()
         .rev()
-        .find(|r| wildcard::matches(action, &r.action) && wildcard::matches(resource, &r.resource))
+        .find(|r| wildcard::matches(action, &r.action) && wildcard::matches_case(resource, &r.resource, ignore_case))
         .cloned()
         .unwrap_or(PermissionRule { action: action.into(), resource: "*".into(), effect: Effect::Ask })
 }
@@ -312,6 +315,11 @@ impl Permissions {
 
     /// `allows`: true only when the rules (and the `permission.evaluate` hook) already allow the
     /// request; never asks the user.
+    /// The agent's and session's configured rules (no saved approvals); empty for an unknown session.
+    pub fn configured_rules(&self, session_id: &str, agent: Option<&str>) -> Ruleset {
+        self.ctx.configured(session_id, agent).unwrap_or_default()
+    }
+
     pub async fn allows(&self, input: AssertInput) -> bool {
         if *self.closed.lock() {
             return false;
@@ -473,6 +481,25 @@ type _Unused = HashMap<(), ()>;
 
 #[cfg(test)]
 mod tests {
+
+    /// permission.test.ts (2.4.1, #64626): file rules match without case where file systems ignore it by default.
+    #[test]
+    fn matches_file_rules_without_case_where_file_systems_ignore_it() {
+        let rule = |action: &str, resource: &str, effect: Effect| PermissionRule { action: action.into(), resource: resource.into(), effect };
+        let rules = vec![
+            rule("*", "*", Effect::Allow),
+            rule("edit", ".opencode/*", Effect::Ask),
+            rule("read", "*.env", Effect::Deny),
+            rule("shell", "git push*", Effect::Ask),
+        ];
+        let files = cfg!(any(target_os = "macos", windows));
+        assert_eq!(evaluate("edit", ".OPENCODE/plugins/guard.ts", &rules).effect, if files { Effect::Ask } else { Effect::Allow });
+        assert_eq!(evaluate("read", "Secrets.ENV", &rules).effect, if files { Effect::Deny } else { Effect::Allow });
+        // Commands and other resources keep their case outside Windows.
+        assert_eq!(evaluate("shell", "GIT PUSH origin dev", &rules).effect, if cfg!(windows) { Effect::Ask } else { Effect::Allow });
+        assert!(crate::wildcard::matches_case(".OPENCODE/x", ".opencode/*", true));
+        assert_eq!(crate::wildcard::matches(".OPENCODE/x", ".opencode/*"), cfg!(windows));
+    }
     use super::*;
 
     #[derive(Default)]

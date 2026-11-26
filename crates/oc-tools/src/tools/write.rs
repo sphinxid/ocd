@@ -36,6 +36,7 @@ fn cause(error: FileError) -> ErrorCause {
         FileError::NotFound => String::new(),
         FileError::WrongKind(_) => String::new(),
         FileError::Failed(m) => m,
+        FileError::InvalidUtf8 => crate::file_mutation::INVALID_UTF8.into(),
     })
 }
 

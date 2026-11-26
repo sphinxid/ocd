@@ -167,10 +167,11 @@ pub fn models_page(
             })
         })
         .collect();
+    // The page counts before the large provider list (2.4.1).
     json!({
-        "providers": providers,
         "total": total,
         "next": if offset + limit < total { json!(offset + limit) } else { Value::Null },
+        "providers": providers,
     })
 }
 

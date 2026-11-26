@@ -334,6 +334,12 @@ pub trait ToolHost: Send + Sync {
         Ok(())
     }
 
+    /// The agent's and session's configured permission rules (`Permission.merge(agent.permissions,
+    /// session.permissions)`), read only for a shell command the scanner can't analyze.
+    async fn permission_rules(&self, _session_id: &str, _agent: &str) -> Vec<oc_schema::types::PermissionRule> {
+        Vec::new()
+    }
+
     /// `Permission.allows`: true only when the rules already allow the request; never asks.
     async fn permission_allows(&self, _request: PermissionRequest) -> bool {
         false

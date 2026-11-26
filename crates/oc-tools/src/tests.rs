@@ -31,12 +31,18 @@ struct MockHost {
     cancelled_jobs: Mutex<Vec<String>>,
     /// The timeout of every shell command, as `shell.create.before` sees it.
     shell_timeouts: Mutex<Vec<u64>>,
+    /// The agent's and session's configured rules.
+    rules: Mutex<Vec<PermissionRule>>,
 }
 
 #[async_trait]
 impl ToolHost for MockHost {
     async fn get_skill(&self, id: &str) -> Result<Option<crate::host::SkillInfo>, String> {
         Ok(self.skills.lock().iter().find(|s| s.id == id).cloned())
+    }
+
+    async fn permission_rules(&self, _session_id: &str, _agent: &str) -> Vec<PermissionRule> {
+        self.rules.lock().clone()
     }
 
     async fn permission_allows(&self, request: PermissionRequest) -> bool {
@@ -600,6 +606,47 @@ async fn patch_self_moves_and_multi_hunk_moves() {
     assert_eq!(std::fs::read_to_string(dir.path().join("same.txt")).unwrap(), "after\n");
 }
 
+/// "// José" in Latin-1, far from the edited line.
+fn latin1_source() -> Vec<u8> {
+    [b"// Jos\xe9\n".as_slice(), b"int MAX = 10;\n"].concat()
+}
+
+// tool-edit.test.ts (2.4.1, #64868): a file that is not valid UTF-8 is not rewritten.
+#[tokio::test]
+async fn edit_refuses_a_file_that_is_not_valid_utf8() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let ctx = context(dir.path(), host.clone());
+    let tool = tools::edit::EditTool::new(Arc::new(Formatter::new()));
+    let target = dir.path().join("Invoice.java");
+    std::fs::write(&target, latin1_source()).unwrap();
+    let error = run(&tool, json!({"path": "Invoice.java", "oldString": "MAX = 10", "newString": "MAX = 25"}), ctx).await.unwrap_err();
+    assert!(error.model_message().contains("Unable to edit Invoice.java: file is not valid UTF-8."), "{}", error.model_message());
+    assert_eq!(std::fs::read(&target).unwrap(), latin1_source());
+}
+
+// tool-patch.test.ts (2.4.1, #64868): a patch touching a file that is not valid UTF-8 applies none of it; deleting
+// such a file does not rewrite its bytes, so it stays allowed.
+#[tokio::test]
+async fn patch_refuses_a_file_that_is_not_valid_utf8_and_applies_none_of_the_patch() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let ctx = context(dir.path(), host.clone());
+    let tool = tools::patch::PatchTool::new(Arc::new(Formatter::new()));
+    let (utf8, latin1, doomed) = (dir.path().join("a.txt"), dir.path().join("Invoice.java"), dir.path().join("Old.java"));
+    std::fs::write(&utf8, "before\n").unwrap();
+    std::fs::write(&latin1, latin1_source()).unwrap();
+    std::fs::write(&doomed, latin1_source()).unwrap();
+    let patch = "*** Begin Patch\n*** Update File: a.txt\n@@\n-before\n+after\n*** Update File: Invoice.java\n@@\n-int MAX = 10;\n+int MAX = 25;\n*** End Patch";
+    let error = run(&tool, json!({"patchText": patch}), ctx.clone()).await.unwrap_err();
+    let expected = format!("patch verification failed: Failed to read file to update {}: file is not valid UTF-8.", latin1.display());
+    assert!(error.model_message().contains(&expected), "{}", error.model_message());
+    assert_eq!(std::fs::read_to_string(&utf8).unwrap(), "before\n");
+    assert_eq!(std::fs::read(&latin1).unwrap(), latin1_source());
+    run(&tool, json!({"patchText": "*** Begin Patch\n*** Delete File: Old.java\n*** End Patch"}), ctx).await.unwrap();
+    assert!(!doomed.exists());
+}
+
 // tool-patch.test.ts (2.3.0, #63655): a move that only changes case renames the file, and a move into a directory
 // whose name differs only in case writes there.
 #[tokio::test]
@@ -828,7 +875,7 @@ async fn shell_tool_flow() {
     assert_eq!(ok.content, vec![ToolContent::Text { text: "hello\n".into() }, ToolContent::Text { text: "Exit code: 2".into() }]);
     // tool-shell.test.ts (2.3.0, #63647): the structured output has the exit code and the elapsed time.
     let output = ok.output.clone().unwrap();
-    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["exitCode", "output", "wallTimeSeconds"]);
+    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["exitCode", "wallTimeSeconds", "output"]);
     assert_eq!((output["output"].clone(), output["exitCode"].clone()), (json!("hello\n"), json!(2)));
     assert!(output["wallTimeSeconds"].as_f64().unwrap() >= 0.0);
     let request = host.requests.lock()[0].clone();
@@ -845,7 +892,7 @@ async fn shell_tool_flow() {
     assert!(metadata.get("timeout").is_none());
     let output = ok.output.clone().unwrap();
     let file = output["outputPath"].as_str().unwrap().to_string();
-    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["shellID", "exitCode", "output", "outputPath", "pid", "wallTimeSeconds"]);
+    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["shellID", "exitCode", "outputPath", "pid", "wallTimeSeconds", "output"]);
     assert!(output["wallTimeSeconds"].as_f64().unwrap() >= 0.01);
     assert_eq!(
         ok.content,
@@ -878,7 +925,7 @@ async fn shell_tool_flow() {
     assert_eq!((metadata["status"].clone(), metadata["truncated"].clone()), (json!("running"), json!(false)));
     let output = ok.output.clone().unwrap();
     let file = output["outputPath"].as_str().unwrap().to_string();
-    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["shellID", "exitCode", "output", "outputPath", "pid", "wallTimeSeconds"]);
+    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["shellID", "exitCode", "outputPath", "pid", "wallTimeSeconds", "output"]);
     assert_eq!((output["exitCode"].clone(), output["pid"].clone(), output["shellID"].clone()), (json!(null), json!(pid), metadata["shellID"].clone()));
     assert_eq!(
         ok.content[0],
@@ -892,6 +939,81 @@ async fn shell_tool_flow() {
     let err = run(&tool, json!({"command": "ls", "workdir": "nope"}), ctx.clone()).await.unwrap_err();
     assert_eq!(err.message, "Unable to execute command: ls");
     assert_eq!(err.model_message(), format!("Working directory does not exist: {}", dir.path().join("nope").to_string_lossy()));
+}
+
+/// shell-daemon.test.ts (2.4.1, #64889): the output directory is created per command, so commands keep working
+/// after it is removed while the location stays open.
+#[cfg(unix)]
+#[tokio::test]
+async fn shell_tool_recreates_a_removed_output_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let mut ctx = context(dir.path(), host.clone());
+    ctx.config = Arc::new(ToolConfig { shell: Some("/bin/sh".into()), ..ToolConfig::default() });
+    let service = crate::shell::service::ShellService::new(dir.path().join(".data"), None);
+    let tool = tools::shell::ShellTool::new(service.clone());
+    run(&tool, json!({"command": "printf one"}), ctx.clone()).await.unwrap();
+    let output = service.output_dir(&ctx.project_id);
+    assert!(output.is_dir());
+    std::fs::remove_dir_all(&output).unwrap();
+    let ok = run(&tool, json!({"command": "printf two"}), ctx.clone()).await.unwrap();
+    assert_eq!(ok.content, vec![ToolContent::Text { text: "two".into() }]);
+    assert!(output.is_dir());
+}
+
+/// tool-shell.test.ts (2.4.1, #65269): commands the scanner can't analyze.
+#[cfg(unix)]
+#[tokio::test]
+async fn shell_tool_unanalyzable_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(MockHost::default());
+    let mut ctx = context(dir.path(), host.clone());
+    ctx.config = Arc::new(ToolConfig { shell: Some("/bin/sh".into()), ..ToolConfig::default() });
+    let service = crate::shell::service::ShellService::new(dir.path().join(".data"), None);
+    let tool = tools::shell::ShellTool::new(service);
+    let marker = dir.path().join("marker");
+    let command = "alias p=true; printf hello > marker";
+    let rule = |action: &str, resource: &str, effect: Effect| PermissionRule { action: action.into(), resource: resource.into(), effect };
+
+    // Denied when a shell deny rule could be bypassed.
+    *host.rules.lock() = vec![rule("*", "*", Effect::Allow), rule("shell", "rm *", Effect::Deny)];
+    let err = run(&tool, json!({"command": command}), ctx.clone()).await.unwrap_err();
+    assert!(
+        err.model_message().contains("Portable shell scanner cannot analyze command: dynamic-execution. A shell deny rule is configured"),
+        "{}",
+        err.model_message()
+    );
+    assert!(host.requests.lock().is_empty());
+    assert!(!marker.exists());
+
+    // Otherwise asks for the exact command and any directory, without saving.
+    *host.rules.lock() = vec![rule("shell", "alias *", Effect::Allow)];
+    run(&tool, json!({"command": command}), ctx.clone()).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "hello");
+    let requests: Vec<_> = host.requests.lock().drain(..).map(|r| (r.action, r.resources, r.save, r.metadata.map(Value::Object))).collect();
+    assert_eq!(
+        requests,
+        vec![
+            ("external_directory".to_string(), vec!["*".to_string()], None, None),
+            ("shell".to_string(), vec![command.to_string()], None, Some(json!({"reason": "dynamic-execution"}))),
+        ]
+    );
+
+    // Malformed syntax asks too, and a rejected approval runs nothing.
+    std::fs::remove_file(&marker).unwrap();
+    let malformed = "printf hello > marker\necho \"";
+    *host.denied_resource.lock() = Some(malformed.to_string());
+    let err = run(&tool, json!({"command": malformed}), ctx.clone()).await.unwrap_err();
+    assert!(err.model_message().contains("Permission denied: shell"), "{}", err.model_message());
+    let requests: Vec<_> = host.requests.lock().drain(..).map(|r| (r.action, r.resources, r.save, r.metadata.map(Value::Object))).collect();
+    assert_eq!(
+        requests,
+        vec![
+            ("external_directory".to_string(), vec!["*".to_string()], None, None),
+            ("shell".to_string(), vec![malformed.to_string()], None, Some(json!({"reason": "unterminated-quote"}))),
+        ]
+    );
+    assert!(!marker.exists());
 }
 
 #[tokio::test]
@@ -979,7 +1101,7 @@ async fn code_mode_shell_has_the_long_default_and_no_background() {
     // A `background` key is not part of the input: the command runs in the foreground.
     let ok = run(tool.as_ref(), json!({"command": "printf fore", "background": true}), ctx.clone()).await.unwrap();
     let output = ok.output.unwrap();
-    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["exitCode", "output", "wallTimeSeconds"]);
+    assert_eq!(output.as_object().unwrap().keys().collect::<Vec<_>>(), ["exitCode", "wallTimeSeconds", "output"]);
     assert_eq!(output["output"], json!("fore"));
     assert_eq!(host.shell_timeouts.lock().last(), Some(&600_000));
     // Without the flag the direct tool keeps its 2-minute default.

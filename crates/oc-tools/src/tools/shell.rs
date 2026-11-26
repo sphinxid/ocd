@@ -115,7 +115,8 @@ fn wall_time_seconds(started: u64, end: u64) -> f64 {
     end.saturating_sub(started) as f64 / 1_000.0
 }
 
-/// The structured output (`StructuredOutput`, 2.3.1), in its schema's key order.
+/// The structured output (`StructuredOutput`), in its schema's key order: small fields before the large output
+/// (2.4.1).
 fn structured(output: &ShellOutput) -> Value {
     let mut value = serde_json::Map::new();
     if let Some(id) = &output.shell_id {
@@ -125,7 +126,10 @@ fn structured(output: &ShellOutput) -> Value {
     if let Some(signal) = &output.base.signal {
         value.insert("signal".into(), json!(signal));
     }
-    value.insert("output".into(), json!(output.base.output));
+    // Why the command ended without an exit code, when that is known (2.4.1).
+    if let Some(killed) = &output.base.killed {
+        value.insert("killed".into(), json!(killed));
+    }
     if let Some(path) = &output.output_path {
         value.insert("outputPath".into(), json!(path));
     }
@@ -135,6 +139,7 @@ fn structured(output: &ShellOutput) -> Value {
     // A JS number: whole seconds have no fraction.
     let seconds = output.wall_time_seconds;
     value.insert("wallTimeSeconds".into(), if seconds.fract() == 0.0 { json!(seconds as i64) } else { json!(seconds) });
+    value.insert("output".into(), json!(output.base.output));
     Value::Object(value)
 }
 
@@ -259,8 +264,13 @@ impl ShellTool {
         let target = file_access::resolve(ctx, &invocation.cwd, Some(Kind::Directory));
         invocation.cwd = target.absolute.to_string_lossy().into_owned();
         let timeout = invocation.timeout;
-        let parsed = parse::scan(&invocation.command, &invocation.shell, &invocation.cwd, &ctx.global.home)
-            .map_err(|message| ToolError::with_cause(leaf, ErrorCause::Error(message)))?;
+        let parsed = match parse::scan(&invocation.command, &invocation.shell, &invocation.cwd, &ctx.global.home) {
+            Ok(parsed) => parsed,
+            Err(opaque) => {
+                unanalyzable(ctx, &invocation.command, &opaque, leaf).await?;
+                return working_directory(&target.absolute).map(|()| timeout).map_err(|message| ToolError::with_cause(leaf, ErrorCause::Error(message)));
+            }
+        };
         let directories: Vec<_> = parsed
             .directories
             .iter()
@@ -283,16 +293,41 @@ impl ShellTool {
             .await
             .map_err(super::perm(leaf))?;
         }
-        let abs = target.absolute.to_string_lossy().into_owned();
-        match std::fs::metadata(&target.absolute) {
-            Err(_) => return Err(ToolError::with_cause(leaf, ErrorCause::Error(format!("Working directory does not exist: {abs}")))),
-            Ok(m) if !m.is_dir() => {
-                return Err(ToolError::with_cause(leaf, ErrorCause::Error(format!("Working directory is not a directory: {abs}"))));
-            }
-            Ok(_) => {}
-        }
+        working_directory(&target.absolute).map_err(|message| ToolError::with_cause(leaf, ErrorCause::Error(message)))?;
         Ok(timeout)
     }
+}
+
+/// Approval can outlive the directory, so validate it immediately before spawning.
+fn working_directory(path: &std::path::Path) -> Result<(), String> {
+    let abs = path.to_string_lossy();
+    match std::fs::metadata(path) {
+        Err(_) => Err(format!("Working directory does not exist: {abs}")),
+        Ok(m) if !m.is_dir() => Err(format!("Working directory is not a directory: {abs}")),
+        Ok(_) => Ok(()),
+    }
+}
+
+/// `ShellPermissions.UnverifiableError`'s message.
+pub fn unverifiable_message(reason: &str) -> String {
+    format!(
+        "Portable shell scanner cannot analyze command: {reason}. A shell deny rule is configured and the command cannot be checked against it; rewrite it without eval or other dynamic execution."
+    )
+}
+
+/// A command the scanner can't analyze (2.4.1, #65269). With any shell deny rule it fails, since its subcommands
+/// can't be checked against the rule. Otherwise it may reach any directory, so only rules allowing every directory
+/// settle `external_directory`, and the whole command is asked as one `shell` resource; neither approval is saved as
+/// a pattern.
+async fn unanalyzable(ctx: &ToolContext, command: &str, opaque: &parse::OpaqueError, leaf: &str) -> Result<(), ToolError> {
+    let rules = ctx.host.permission_rules(&ctx.session_id, &ctx.agent).await;
+    if rules.iter().any(|rule| rule.effect == oc_schema::types::Effect::Deny && crate::util::wildcard::matches("shell", &rule.action)) {
+        return Err(ToolError::with_cause(leaf, ErrorCause::Error(unverifiable_message(&opaque.reason))));
+    }
+    super::assert(ctx, "external_directory", vec!["*".into()], None, None).await.map_err(super::perm(leaf))?;
+    super::assert(ctx, "shell", vec![command.to_string()], None, Some(meta(vec![("reason", json!(opaque.reason))])))
+        .await
+        .map_err(super::perm(leaf))
 }
 
 /// A shell command's job run and the structured result it settles with (`startJob`).
@@ -665,7 +700,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&result.metadata).unwrap(), r#"{"status":"running","truncated":false,"shellID":"sh_1","pid":4242}"#);
         assert_eq!(
             serde_json::to_string(&result.output).unwrap(),
-            r#"{"shellID":"sh_1","exitCode":null,"output":"Command moved to the background (shell ID: sh_1).\nPID: 4242\nOutput is streaming to: /d/sh_1.out","outputPath":"/d/sh_1.out","pid":4242,"wallTimeSeconds":2.5}"#
+            r#"{"shellID":"sh_1","exitCode":null,"outputPath":"/d/sh_1.out","pid":4242,"wallTimeSeconds":2.5,"output":"Command moved to the background (shell ID: sh_1).\nPID: 4242\nOutput is streaming to: /d/sh_1.out"}"#
         );
         let without = tool_result(background_result(&info(None), 500, None), None);
         assert_eq!(
@@ -690,7 +725,7 @@ mod tests {
         let result = tool_result(output, Some(120_000));
         assert_eq!(result.content, vec![ToolContent::Text { text: "x".into() }, ToolContent::Text { text: "Exit code: 1".into() }]);
         assert_eq!(serde_json::to_string(&result.metadata).unwrap(), r#"{"status":"completed","truncated":false,"exit":1}"#);
-        assert_eq!(serde_json::to_string(&result.output).unwrap(), r#"{"exitCode":1,"output":"x","wallTimeSeconds":2}"#);
+        assert_eq!(serde_json::to_string(&result.output).unwrap(), r#"{"exitCode":1,"wallTimeSeconds":2,"output":"x"}"#);
     }
 
     /// A signalled command has no exit code; a cut output names its file.
@@ -704,7 +739,23 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&tool_result(output, None).output).unwrap(),
-            r#"{"exitCode":null,"signal":"SIGTERM","output":"y","outputPath":"/d/sh_1.out","wallTimeSeconds":0.25}"#
+            r#"{"exitCode":null,"signal":"SIGTERM","outputPath":"/d/sh_1.out","wallTimeSeconds":0.25,"output":"y"}"#
         );
+    }
+
+    /// 2.4.1 (#65365): the structured result says why a command has no exit code; a finished one says nothing.
+    #[test]
+    fn killed_output() {
+        let output = ShellOutput {
+            base: Output { output: "partial".into(), killed: Some(crate::shell::daemon::LOST.into()), ..Default::default() },
+            wall_time_seconds: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&tool_result(output, None).output).unwrap(),
+            r#"{"exitCode":null,"killed":"Command was killed: the process daemon stopped","wallTimeSeconds":1,"output":"partial"}"#
+        );
+        let finished = ShellOutput { base: Output { output: "local".into(), exit: Some(0), ..Default::default() }, ..Default::default() };
+        assert!(tool_result(finished, None).output.unwrap().get("killed").is_none());
     }
 }

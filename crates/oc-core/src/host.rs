@@ -51,6 +51,10 @@ impl ToolHost for CoreHost {
         })
     }
 
+    async fn permission_rules(&self, session_id: &str, agent: &str) -> Vec<oc_schema::types::PermissionRule> {
+        self.app.permissions.configured_rules(session_id, Some(agent))
+    }
+
     async fn permission_allows(&self, r: PermissionRequest) -> bool {
         let input = AssertInput {
             id: None,

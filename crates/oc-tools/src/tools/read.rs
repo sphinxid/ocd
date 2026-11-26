@@ -16,6 +16,8 @@ pub const MAX_READ_LINES: usize = 2_000;
 pub const MAX_READ_BYTES: usize = 50 * 1024;
 pub const MAX_MEDIA_INGEST_BYTES: u64 = 20 * 1024 * 1024;
 const FIRST_CHUNK: usize = 256 * 1024;
+/// The largest chunk read while skipping lines before the page (2.4.1, #65611).
+const MAX_SCAN_CHUNK: usize = 4 * 1024 * 1024;
 /// Lines an offset past the end returns from the file's end.
 const TAIL_LINES: usize = 100;
 const MAX_LINE_LENGTH: usize = 2_000;
@@ -43,24 +45,27 @@ pub enum ReadOutput {
 }
 
 impl ReadOutput {
-    /// The tool's structured output; media leaves its bytes out.
+    /// The tool's structured output; media leaves its bytes out. Small fields come before the large content
+    /// (2.4.1).
     pub fn to_json(&self) -> Value {
         match self {
             ReadOutput::Text { content, offset, line_count, next } => {
-                let mut v = json!({"type": "text", "content": content, "offset": offset, "lineCount": line_count});
+                let mut v = json!({"type": "text", "offset": offset, "lineCount": line_count});
                 if let Some(next) = next {
                     v["next"] = json!(next);
                 }
+                v["content"] = json!(content);
                 v
             }
             ReadOutput::Directory { entries, next } => {
-                let mut v = json!({"type": "directory", "entries": entries});
+                let mut v = json!({"type": "directory"});
                 if let Some(next) = next {
                     v["next"] = json!(next);
                 }
+                v["entries"] = json!(entries);
                 v
             }
-            ReadOutput::Media { uri, mime, name, .. } => json!({"type": "media", "uri": uri, "mime": mime, "name": name}),
+            ReadOutput::Media { uri, mime, name, .. } => json!({"type": "media", "mime": mime, "name": name, "uri": uri}),
         }
     }
 }
@@ -301,19 +306,21 @@ pub fn read(path: &Path, resource: &str, page: Page) -> Result<ReadOutput, ReadE
     }
     let file = std::fs::File::open(path).map_err(io_error)?;
     let name = FileName { uri: file_uri(path), name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() };
-    read_file(file, metadata.len(), || std::fs::read(path).map_err(io_error), name, resource, page)
+    let mut file = file;
+    read_file(|length| read_range(&mut file, length), metadata.len(), || std::fs::read(path).map_err(io_error), name, resource, page)
 }
 
-/// The file half of `ReadToolFileSystem.read`: `reader` yields the file's bytes in order and `size` is its length.
+/// The file half of `ReadToolFileSystem.read`: `range(length)` reads the next `length` bytes of the file in order
+/// and `size` is its length.
 fn read_file(
-    mut reader: impl std::io::Read,
+    mut range: impl FnMut(usize) -> std::io::Result<Vec<u8>>,
     size: u64,
     whole: impl FnOnce() -> Result<Vec<u8>, ReadError>,
     name: FileName,
     resource: &str,
     page: Page,
 ) -> Result<ReadOutput, ReadError> {
-    let first = read_range(&mut reader, FIRST_CHUNK).map_err(io_error)?;
+    let first = range(FIRST_CHUNK).map_err(io_error)?;
     if let Some(media) = crate::mime::detect_media(&first).filter(|media| MEDIA_MIMES.contains(media)) {
         if size > MAX_MEDIA_INGEST_BYTES {
             return Err(ReadError::MediaLimit { resource: resource.to_string() });
@@ -343,6 +350,7 @@ fn read_file(
 
     let offset = page.start();
     let limit = page.lines();
+    let mut chunk = first.len();
     let mut bytes = first;
     let mut newlines = bytes.iter().filter(|&&b| b == b'\n').count();
     let mut ended = false;
@@ -378,11 +386,18 @@ fn read_file(
                 return make_text_page(resource, translated, binary);
             }
         }
-        let next = read_range(&mut reader, FIRST_CHUNK).map_err(io_error)?;
+        // Grow only while skipping lines; keep page reads (including an unfinished selected line) small.
+        let length = if offset > 0 && newlines as i64 >= offset - 1 {
+            FIRST_CHUNK
+        } else {
+            FIRST_CHUNK.max((chunk * 4).min(MAX_SCAN_CHUNK))
+        };
+        let next = range(length.min(size.saturating_sub(bytes.len() as u64) as usize)).map_err(io_error)?;
         if next.is_empty() {
             ended = true;
             continue;
         }
+        chunk = next.len();
         newlines += next.iter().filter(|&&b| b == b'\n').count();
         bytes.extend_from_slice(&next);
     }
@@ -446,8 +461,8 @@ impl VirtualFiles {
             let base = rel.rsplit('/').next().unwrap_or(rel);
             let name = FileName { uri: resource.to_string(), name: base.to_string() };
             let whole = bytes.clone();
-            let reader = std::io::Cursor::new(bytes.as_slice());
-            return read_file(reader, bytes.len() as u64, move || Ok(whole), name, resource, page);
+            let mut reader = std::io::Cursor::new(bytes.as_slice());
+            return read_file(|length| read_range(&mut reader, length), bytes.len() as u64, move || Ok(whole), name, resource, page);
         }
         let Some(items) = self.list(rel) else { return Err(ReadError::NotFound) };
         if page.offset.is_some_and(|o| o < 0) {
@@ -1115,6 +1130,74 @@ mod tests {
         let mut want = with("Read file huge.txt, lines 1-11", 1, 10);
         want.push(format!("11: {}... (line truncated to 2000 chars)", "z".repeat(2_000)));
         assert_eq!(huge, want);
+    }
+
+    /// A synthetic file of `size` bytes whose reads are recorded: `(page, (offset, length) of every read)`.
+    fn synthetic(size: usize, slice: impl Fn(usize, usize) -> Vec<u8>, maximum: usize, page: Page) -> (ReadOutput, Vec<(usize, usize)>) {
+        let mut calls = Vec::new();
+        let mut position = 0;
+        let name = FileName { uri: "file:///synthetic.txt".into(), name: "synthetic.txt".into() };
+        let output = read_file(
+            |length| {
+                calls.push((position, length));
+                let bytes = slice(position, length.min(maximum).min(size - position));
+                position += bytes.len();
+                Ok(bytes)
+            },
+            size as u64,
+            || unreachable!("no media"),
+            name,
+            "synthetic.txt",
+            page,
+        )
+        .unwrap();
+        (output, calls)
+    }
+
+    /// tool-read-filesystem.test.ts "ReadToolFileSystem scan ranges" (2.4.1, #65611): reads grow while skipping
+    /// lines, up to 4 MiB, and stay at 256 KiB once the page is reached.
+    #[test]
+    fn scan_ranges() {
+        let line = format!("{}\n", "x".repeat(127));
+        let lines = |offset: usize, length: usize| line.as_bytes().iter().cycle().skip(offset % 128).take(length).copied().collect::<Vec<u8>>();
+        for (page, offset, count, next, calls) in [
+            (Page { offset: Some(163_741), limit: Some(10) }, 163_741, 10, Some(163_751), 7),
+            (Page { offset: Some(-100), limit: None }, 163_741, 100, None, 7),
+            (Page { offset: Some(163_841), limit: None }, 163_741, 100, None, 7),
+            (Page { offset: Some(1), limit: Some(10) }, 1, 10, Some(11), 1),
+        ] {
+            let (output, reads) = synthetic(20 * 1024 * 1024, lines, usize::MAX, page);
+            let content = vec!["x".repeat(127); count].join("\n");
+            assert_eq!(output, ReadOutput::Text { content, offset, line_count: count, next }, "{page:?}");
+            assert_eq!(reads.len(), calls, "{page:?}: {reads:?}");
+            assert_eq!(reads[0], (0, 256 * 1024));
+            assert!(reads.iter().all(|(_, length)| *length <= 4 * 1024 * 1024));
+        }
+
+        // Bounds reads to 256 KiB after reaching the requested page.
+        let boundary = 1024 * 1024 + 256 * 1024;
+        let marked = |offset: usize, length: usize| {
+            let mut bytes = vec![b'x'; length];
+            if offset < boundary && offset + length >= boundary {
+                bytes[boundary - offset - 5..boundary - offset].copy_from_slice(b"\none\n");
+            }
+            bytes
+        };
+        let (output, reads) = synthetic(boundary + 2 * 256 * 1024 + 5, marked, usize::MAX, Page { offset: Some(2), limit: Some(2) });
+        assert_eq!(
+            output,
+            ReadOutput::Text { content: format!("one\n{}... (line truncated to 2000 chars)", "x".repeat(2_000)), offset: 2, line_count: 2, next: None }
+        );
+        assert_eq!((reads[0].1, reads[1].1), (256 * 1024, 1024 * 1024));
+        assert!(reads[2..].iter().all(|(_, length)| *length <= 256 * 1024), "{reads:?}");
+
+        // Keeps scan requests at least 256 KiB after a short read.
+        let content = format!("{}target\n", "x\n".repeat(4_000)).into_bytes();
+        let size = content.len();
+        let (output, reads) =
+            synthetic(size, |offset, length| content[offset..offset + length].to_vec(), 1_024, Page { offset: Some(4_001), limit: Some(1) });
+        assert_eq!(output, ReadOutput::Text { content: "target".into(), offset: 4_001, line_count: 1, next: None });
+        assert!(reads.iter().all(|(offset, length)| offset + length == size || *length >= 256 * 1024), "{reads:?}");
     }
 
     /// "reads the end of a file many chunks long" (2.3.0, #63030).

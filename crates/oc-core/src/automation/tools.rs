@@ -109,8 +109,9 @@ pub fn view(info: &Value) -> Value {
             None => time::format_iso(ms),
         }))
     };
+    // Small fields before the large action and output (2.4.1).
     let mut out = Map::new();
-    for key in ["id", "name", "trigger", "tz", "action", "status"] {
+    for key in ["id", "name", "trigger", "tz", "status"] {
         out.insert(key.into(), info[key].clone());
     }
     for key in ["nextDueAt", "expires"] {
@@ -122,7 +123,11 @@ pub fn view(info: &Value) -> Value {
     if let Some(v) = local("lastRunAt") {
         out.insert("lastRunAt".into(), v);
     }
-    for key in ["lastOutcome", "lastOutput", "state"] {
+    if let Some(v) = info.get("lastOutcome") {
+        out.insert("lastOutcome".into(), v.clone());
+    }
+    out.insert("action".into(), info["action"].clone());
+    for key in ["lastOutput", "state"] {
         if let Some(v) = info.get(key) {
             out.insert(key.into(), v.clone());
         }

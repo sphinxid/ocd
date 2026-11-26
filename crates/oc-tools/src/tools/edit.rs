@@ -394,9 +394,12 @@ impl EditTool {
         }
         let target = file_access::resolve(ctx, &input.path, Some(Kind::File));
         file_access::authorize_external(ctx, &[&target], None).await.map_err(super::perm(leaf.clone()))?;
-        let original = match file_mutation::read_text(&target.absolute) {
+        let original = match file_mutation::read_editable_text(&target.absolute) {
             Ok(text) => text,
             Err(FileError::NotFound) => return Err(ToolError::new(format!("File not found: {}", input.path))),
+            Err(FileError::InvalidUtf8) => {
+                return Err(ToolError::new(format!("Unable to edit {}: {}", input.path, file_mutation::INVALID_UTF8)));
+            }
             Err(FileError::WrongKind(kind)) if kind == "directory" => {
                 return Err(ToolError::new(format!("Path is a directory, not a file: {}", input.path)));
             }

@@ -206,11 +206,12 @@ fn structured(results: &[SearchResult]) -> Value {
                 if let Some(title) = &hit.title {
                     item.insert("title".into(), json!(title));
                 }
-                if let Some(content) = &hit.content {
-                    item.insert("content".into(), json!(content));
-                }
+                // The date before the large content (2.4.1).
                 if let Some(published) = hit.published {
                     item.insert("published".into(), json!(published));
+                }
+                if let Some(content) = &hit.content {
+                    item.insert("content".into(), json!(content));
                 }
                 Value::Object(item)
             })
@@ -232,7 +233,7 @@ mod tests {
         ];
         assert_eq!(
             serde_json::to_string(&structured(&results)).unwrap(),
-            r#"[{"url":"https://effect.website","title":"Effect","content":"parallel results","published":1784937600000},{"url":"https://b"}]"#
+            r#"[{"url":"https://effect.website","title":"Effect","published":1784937600000,"content":"parallel results"},{"url":"https://b"}]"#
         );
     }
 

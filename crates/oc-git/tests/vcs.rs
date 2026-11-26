@@ -328,3 +328,46 @@ async fn stops_listing_an_untracked_folder_after_its_scan_budget() {
         vec![("huge/".to_string(), Some(true))]
     );
 }
+
+fn append(path: impl AsRef<std::path::Path>, text: &str) {
+    use std::io::Write;
+    std::fs::OpenOptions::new().append(true).open(path).unwrap().write_all(text.as_bytes()).unwrap();
+}
+
+/// vcs.test.ts (2.4.1, #64884): the user's checkout keeps its own line-ending conversion.
+#[tokio::test]
+async fn respects_the_repositorys_line_ending_conversion() {
+    let root = tmp();
+    let project = real(root.path()).join("crlf");
+    init_repo(&project);
+    let body = (0..20).map(|index| format!("line-{index}")).collect::<Vec<_>>().join("\r\n") + "\r\n";
+    append(project.join(".git").join("config"), "[core]\n\tautocrlf = true\n");
+    write(project.join("file.txt"), &body);
+    write(project.join("same.txt"), &body);
+    commit_all(&project, "initial");
+    write(project.join("file.txt"), body.replace("line-10", "changed"));
+    let vcs = GitVcs::new(&project, &project);
+    let status = vcs.status().await;
+    let rows: Vec<_> = status.iter().map(|s| (s.file.clone(), s.status, s.additions, s.deletions)).collect();
+    assert_eq!(rows, vec![row("file.txt", FileStatus::Modified, 1, 1)]);
+    let diff = vcs.diff(Mode::Working, &DiffOptions::default()).await.unwrap();
+    assert_eq!(summary(&diff), vec![row("file.txt", FileStatus::Modified, 1, 1)]);
+    assert!(diff[0].patch.contains("-line-10") && diff[0].patch.contains("+changed"), "{}", diff[0].patch);
+}
+
+/// vcs.test.ts (2.4.1, #64884): a checkout that cannot create symlinks keeps its placeholder files unchanged.
+#[tokio::test]
+async fn respects_the_repositorys_symlink_setting() {
+    let root = tmp();
+    let project = real(root.path()).join("symlinks");
+    init_repo(&project);
+    // Git checks a symlink out as a plain file holding its target when the checkout cannot create symlinks.
+    append(project.join(".git").join("config"), "[core]\n\tsymlinks = false\n");
+    write(project.join("link"), "target.txt");
+    let hash = git(&project, &["hash-object", "-w", "link"]);
+    git(&project, &["update-index", "--add", "--cacheinfo", &format!("120000,{},link", hash.trim())]);
+    git(&project, &["commit", "-q", "-m", "initial"]);
+    let vcs = GitVcs::new(&project, &project);
+    assert!(vcs.status().await.is_empty());
+    assert!(vcs.diff(Mode::Working, &DiffOptions::default()).await.unwrap().is_empty());
+}

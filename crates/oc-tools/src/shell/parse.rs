@@ -14,6 +14,20 @@ pub struct ScanCommand {
     pub save: String,
 }
 
+/// `ShellParse.OpaqueError`: a command the portable scanner cannot analyze, with the scanner's reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpaqueError {
+    pub reason: String,
+}
+
+impl std::fmt::Display for OpaqueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Portable shell scanner cannot analyze command: {}", self.reason)
+    }
+}
+
+impl std::error::Error for OpaqueError {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ScanResult {
     pub commands: Vec<ScanCommand>,
@@ -226,7 +240,7 @@ fn windows_path(p: &str) -> String {
 /// Mirrors `ShellParse.scan`: the portable scanner's commands, with permission resources, saved prefixes and the
 /// directories that directory commands change to. `shell` = full shell path; `home` = `os.homedir()`.
 /// `Err` is the model-visible message.
-pub fn scan(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<ScanResult, String> {
+pub fn scan(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<ScanResult, OpaqueError> {
     let powershell = is_powershell(shell);
     let name = shell_name(shell);
     let outcome = if powershell {
@@ -241,7 +255,7 @@ pub fn scan(command: &str, shell: &str, cwd: &str, home: &Path) -> Result<ScanRe
     };
     let commands = match outcome {
         ScanOutcome::Opaque(reason) => {
-            return Err(format!("Portable shell scanner cannot analyze command: {}", reason.as_str()));
+            return Err(OpaqueError { reason: reason.as_str().to_string() });
         }
         ScanOutcome::Scanned(commands) => commands,
     };
@@ -985,20 +999,20 @@ mod tests {
     use serde_json::{Value, json};
 
     fn run(command: &str, shell: &str) -> Result<ScanResult, String> {
-        scan(command, shell, "/workspace", Path::new("/home/user"))
+        scan(command, shell, "/workspace", Path::new("/home/user")).map_err(|error| error.to_string())
     }
 
     fn cmd(resource: &str, save: &str) -> ScanCommand {
         ScanCommand { resource: resource.into(), save: save.into() }
     }
 
-    fn to_json(result: Result<ScanResult, String>) -> Value {
+    fn to_json(result: Result<ScanResult, OpaqueError>) -> Value {
         match result {
             Ok(result) => json!({
                 "commands": result.commands.iter().map(|c| json!({"resource": c.resource, "save": c.save})).collect::<Vec<_>>(),
                 "directories": result.directories,
             }),
-            Err(error) => json!({"error": error}),
+            Err(error) => json!({"error": error.to_string()}),
         }
     }
 

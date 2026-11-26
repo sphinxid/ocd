@@ -178,7 +178,7 @@ impl PatchTool {
                         }
                         Some(Some(previous)) => previous.clone(),
                         None => {
-                            let text = file_mutation::read_text(&target.absolute).map_err(|e| {
+                            let text = file_mutation::read_editable_text(&target.absolute).map_err(|e| {
                                 verification(format!(
                                     "Failed to read file to update {}: {}",
                                     target.absolute.to_string_lossy(),

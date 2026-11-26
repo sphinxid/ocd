@@ -11,6 +11,21 @@ use crate::schema::{Entry, PolicyAction, PolicyEffect, UpdatePolicy};
 /// `Wildcard.match(input, pattern)`: `*` → `.*`, `?` → `.`, a trailing `" *"` also matches
 /// nothing; backslashes normalized to `/`; case-insensitive on Windows; dot matches newlines.
 pub fn wildcard_match(input: &str, pattern: &str) -> bool {
+    wildcard_match_case(input, pattern, false)
+}
+
+/// Actions whose resources are file paths (`Permission.pathActions`).
+pub const PATH_ACTIONS: [&str; 3] = ["external_directory", "read", "edit"];
+
+/// `Permission.ignoresCase(action)` (2.4.1, #64626): macOS volumes ignore case by default, so `.OPENCODE/x` opens
+/// `.opencode/x`; rules for file paths must match it too.
+pub fn ignores_case(action: &str) -> bool {
+    cfg!(target_os = "macos") && PATH_ACTIONS.contains(&action)
+}
+
+/// `Wildcard.match(input, pattern, ignoreCase)`: Windows always matches without case; `ignore_case` extends that to
+/// other callers, such as file rules on macOS.
+pub fn wildcard_match_case(input: &str, pattern: &str, ignore_case: bool) -> bool {
     let normalized = input.replace('\\', "/");
     let mut escaped = String::new();
     for c in pattern.replace('\\', "/").chars() {
@@ -32,7 +47,7 @@ pub fn wildcard_match(input: &str, pattern: &str) -> bool {
     if let Some(stripped) = escaped.strip_suffix(" .*") {
         escaped = format!("{stripped}( .*)?");
     }
-    let flags = if cfg!(windows) { "(?si)" } else { "(?s)" };
+    let flags = if cfg!(windows) || ignore_case { "(?si)" } else { "(?s)" };
     regex::Regex::new(&format!("{flags}^{escaped}$")).is_ok_and(|re| re.is_match(&normalized))
 }
 
@@ -157,9 +172,13 @@ pub fn connect_denial<'a>(policies: &'a [Statement], id: &str) -> Option<&'a Sta
 /// `` `${action}:${resource}` ``; the caller turns the effect into `deny` with this message.
 /// Policies never grant.
 pub fn tool_denial<'a>(policies: &'a [Statement], action: &str, resources: &[String]) -> Option<&'a Statement> {
+    let ignore_case = ignores_case(action);
     resources
         .iter()
-        .map(|r| find(policies, PolicyAction::ToolUse, &format!("{action}:{r}")))
+        .map(|r| {
+            let resource = format!("{action}:{r}");
+            policies.iter().rev().find(|p| p.action == PolicyAction::ToolUse && wildcard_match_case(&resource, &p.resource, ignore_case))
+        })
         .find(|p| p.is_some_and(|p| p.effect == PolicyEffect::Deny))
         .flatten()
 }
@@ -268,6 +287,19 @@ mod tests {
         assert!(tool_denial(&s, "shell", &["git push origin".into()]).is_some());
         assert!(tool_denial(&s, "shell", &["ls".into()]).is_some());
         assert_eq!(decision(&s, PolicyAction::ToolUse, "read:x"), PolicyEffect::Allow);
+    }
+
+    /// policy.test.ts (2.4.1, #64626): tool.use file policies match without case where file systems ignore it by
+    /// default; commands keep their case outside Windows.
+    #[test]
+    fn tool_use_file_policies_ignore_case_where_file_systems_do() {
+        let s = statements(&[doc(vec![
+            pol(PolicyAction::ToolUse, "read:*.env", PolicyEffect::Deny),
+            pol(PolicyAction::ToolUse, "shell:git push*", PolicyEffect::Deny),
+        ])]);
+        let files = cfg!(any(target_os = "macos", windows));
+        assert_eq!(tool_denial(&s, "read", &["secrets.ENV".into()]).is_some(), files);
+        assert_eq!(tool_denial(&s, "shell", &["GIT PUSH origin dev".into()]).is_some(), cfg!(windows));
     }
 
     #[test]
