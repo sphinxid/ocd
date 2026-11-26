@@ -724,12 +724,10 @@ fn normalize_experimental(input: &Obj, encoded: &mut Obj, d: &mut Diags) {
                 // 2.4.1: every `ConfigExperimental.Info` field in schema order (`policies` merges into top-level
                 // `policies` in normalize_policies). `codemode_vm` is a deprecated, ignored key; the retired
                 // `codemodeVm` alias and retired flags (`background_compaction`, `shell_timeout_background`) are
-                // dropped without a word. 2.4.1 drops `mcp_events` too; ocd keeps it, right after the registry, as
-                // a staged flag (`crate::flag::STAGED`) until MCP Events are ported as 2.4.1 ships them.
+                // dropped without a word, and so is `mcp_events`, whose feature 2.4.1 turns on for everyone.
                 let booleans = ["portable_shell_scanner", "codemode_vm", "all_flags"]
                     .into_iter()
-                    .chain(crate::flag::REGISTRY.iter().map(|(key, _)| *key))
-                    .chain(crate::flag::STAGED.iter().copied());
+                    .chain(crate::flag::REGISTRY.iter().map(|(key, _)| *key));
                 for key in booleans {
                     if let Some(v) = e.get(key)
                         && let Some(value) = decode_encoded::<bool>(v, p(&["experimental", key]), d)

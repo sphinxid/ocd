@@ -6,9 +6,9 @@
 //! builds whatever the environment or config say; ocd is a release-channel build, so they never turn on.
 //!
 //! 2.4.1 removed the `automations`, `video_generate` and `mcp_events` flags (and the `schedules` alias) because those
-//! features are on by default there. Until ocd ports their 2.4.1 behaviour it keeps them off by default: automations
-//! read the top-level `automations` setting (`oc_core::automation::settings_of`), video generation answers 403, and
-//! MCP Events stay behind the hidden [`STAGED`] flag `mcp_events`, which is not part of the registry.
+//! features are on by default there. MCP Events are on for every connection, as in 2.4.1. Until ocd ports the rest of
+//! their 2.4.1 behaviour it keeps the others off by default: automations read the top-level `automations` setting
+//! (`oc_core::automation::settings_of`) and video generation answers 403.
 
 use indexmap::IndexMap;
 
@@ -63,12 +63,6 @@ pub const OPT_IN_ONLY: &[&str] = &["todo", "opencode_api"];
 
 /// `ConfigFlag.localOnly`: flags that stay off outside local and dev builds, whatever `OPENCODE_FLAGS` or config say.
 pub const LOCAL_ONLY: &[&str] = &["opencode_api"];
-
-/// ocd-only, until the batch that ports the feature as 2.4.1 ships it: a flag 2.4.1 removed because the feature is
-/// on by default there, which ocd keeps behind its old gate (resolved like a registry flag, opt-in in a release
-/// build) so a half-ported feature never turns on by itself. Not in [`REGISTRY`], [`resolve`]'s output or the
-/// config schema document. `mcp_events`: MCP Events, flagless in 2.4.1.
-pub const STAGED: &[&str] = &["mcp_events"];
 
 /// The description of `experimental.<key>` in the config schema (`ConfigExperimental.Info`): the registry's, with
 /// the build-default note on flags that are neither opt-in-only nor local-only.
@@ -150,13 +144,13 @@ pub fn resolve(entries: &[Entry], channel: &str, overrides: Option<&str>) -> Ind
     REGISTRY.iter().map(|(key, _)| (*key, state(entries, channel, &env, key))).collect()
 }
 
-/// [`resolve`] for one key of the registry or of [`STAGED`]; `None` for any other key.
+/// [`resolve`] for one key of the registry; `None` for any other key.
 pub fn resolve_key(entries: &[Entry], channel: &str, overrides: Option<&str>, key: &str) -> Option<State> {
-    let known = REGISTRY.iter().any(|(k, _)| *k == key) || STAGED.contains(&key);
+    let known = REGISTRY.iter().any(|(k, _)| *k == key);
     known.then(|| state(entries, channel, &overrides_of(overrides), key))
 }
 
-/// `Flag.enabled(key)` with this build's channel and the process's `OPENCODE_FLAGS`; also reads a [`STAGED`] flag.
+/// `Flag.enabled(key)` with this build's channel and the process's `OPENCODE_FLAGS`.
 pub fn enabled(entries: &[Entry], key: &str) -> bool {
     let overrides = std::env::var("OPENCODE_FLAGS").ok();
     resolve_key(entries, oc_util::version::CHANNEL, overrides.as_deref(), key).is_some_and(|s| s.enabled)
@@ -224,7 +218,7 @@ mod tests {
         for gone in ["automations", "video_generate", "mcp_events", "schedules", "background_compaction", "shell_timeout_background", "codemode_vm"] {
             assert!(!resolve(&[], "dev", Some(gone)).contains_key(gone), "{gone}");
         }
-        for gone in ["automations", "video_generate", "schedules", "nope"] {
+        for gone in ["automations", "video_generate", "mcp_events", "schedules", "nope"] {
             assert_eq!(resolve_key(&[], "dev", Some(gone), gone), None, "{gone}");
         }
     }
@@ -342,21 +336,12 @@ mod tests {
         assert_eq!(resolve(&[global, doc(json!({"all_flags": false}))], "latest", None), every(false, Source::Default));
     }
 
-    /// ocd's staged `mcp_events` gate resolves like a 2.3.2 flag (off in a release build; on by name, `all`,
-    /// `all_flags` or `experimental.mcp_events`) without appearing among the flags.
+    /// 2.4.1 turns MCP Events on for everyone: `mcp_events` is no flag at all, whatever the environment or config say.
     #[test]
-    fn the_staged_mcp_events_flag_keeps_its_old_gate() {
+    fn mcp_events_is_no_longer_a_flag() {
         let key = "mcp_events";
-        let state = |entries: &[Entry], channel: &str, overrides: Option<&str>| {
-            resolve_key(entries, channel, overrides, key).map(|s| (s.enabled, s.source.as_str()))
-        };
-        assert_eq!(state(&[], "latest", None), Some((false, "default")));
-        assert_eq!(state(&[], "dev", None), Some((true, "default")));
-        assert_eq!(state(&[], "latest", Some(key)), Some((true, "env")));
-        assert_eq!(state(&[], "latest", Some("all")), Some((true, "env")));
-        assert_eq!(state(&[doc(json!({ key: true }))], "latest", None), Some((true, "config")));
-        assert_eq!(state(&[doc(json!({ key: true }))], "latest", Some("-mcp_events")), Some((false, "env")));
-        assert_eq!(state(&[doc(json!({"all_flags": true}))], "latest", None), Some((true, "config")));
+        assert_eq!(resolve_key(&[], "dev", Some(key), key), None);
+        assert_eq!(resolve_key(&[doc(json!({ key: true }))], "latest", Some("all"), key), None);
         assert!(!resolve(&[doc(json!({ key: true }))], "latest", Some(key)).contains_key(key));
         assert_eq!(resolve_key(&[], "latest", Some("todo"), "todo"), Some(resolve(&[], "latest", Some("todo"))["todo"]));
     }

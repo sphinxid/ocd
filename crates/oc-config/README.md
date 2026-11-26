@@ -30,7 +30,7 @@ agent/provider registries. It uses the functions below to do that work.
   `OPENCODE_FLAGS` or `all_flags`; `oc-core` records it per location), and `console_watches` turns on
   oc-core's Console watches. The feature behind `pool` is opt-in upstream and not ported: ocd connects MCP
   servers per location.
-- 2.3.0 keys: the flag `experimental.mcp_events` (accepted and echoed; its feature is not ported);
+- 2.3.0 keys: the flag `experimental.mcp_events` (gone in 2.4.1, see below);
   `experimental.codemode_vm` is a deprecated, ignored key right after `portable_shell_scanner`, and
   the retired `codemodeVm` alias is ignored without a diagnostic; provider `settings.tls` (`Tls`:
   `{cert, key, passphrase?}`, after `encoding`; a wrong shape invalidates the provider, extra keys are dropped);
@@ -44,8 +44,8 @@ agent/provider registries. It uses the functions below to do that work.
   `experimental.schedules` are dropped with a `removed` diagnostic (logged as a warning, like `invalid`);
   `experimental.video_generate` is a tool setting (`VideoGenerate`, the shape of `image_generate`) after the
   registry; the new flags `recommended_api`, `model_speeds`, `machines`, `home_memory`, `project_overlay`,
-  `opencode_api`, `sqlite_fts`; `part_rows` defaults to on. ocd keeps `experimental.mcp_events` (2.4.1 drops it)
-  as a staged flag until MCP Events are ported as 2.4.1 ships them.
+  `opencode_api`, `sqlite_fts`; `part_rows` defaults to on. `experimental.mcp_events` is dropped without a
+  diagnostic, like any unknown key: MCP Events are on for every connection.
 - `Compaction.buffer` is a `CompactionBuffer`: `Tokens(u64)` or `Percent(String)` (`Config.Compaction.Percent`,
   `^([1-9]\d?(\.\d+)?)%$`, kept as written); `tokens(window)` is `Math.round(window * pct / 100)`. The legacy
   `reserved` key stays a token count.
@@ -135,8 +135,6 @@ agent/provider registries. It uses the functions below to do that work.
   that sets it, then on only for the `local` and `dev` channels. `OPT_IN_ONLY` (`todo`, `opencode_api`) skips `all`
   and `all_flags` and is off by default on every channel; `LOCAL_ONLY` (`opencode_api`) is off outside `local` and
   `dev` whatever is set. `schema_description(key)` is the config schema's annotation.
-- `STAGED` (`mcp_events`): a flag 2.4.1 removed because the feature is on by default there; resolved like a
-  registry flag by `resolve_key`/`enabled` but not listed, until ocd ports the feature's 2.4.1 behaviour.
 - `enabled(entries, key)` with this build's channel and the process's `OPENCODE_FLAGS`; every gate in oc-core reads
   it.
 

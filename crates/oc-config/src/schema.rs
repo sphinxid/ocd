@@ -1778,10 +1778,6 @@ pub struct Experimental {
     /// Flag: the SQLite full-text index of sessions (2.4.1; accepted, not ported yet).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sqlite_fts: Option<bool>,
-    /// Staged flag (not in 2.4.1's schema, see [`crate::flag::STAGED`]): ocd's MCP Events, which 2.4.1 turns on
-    /// for everyone.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp_events: Option<bool>,
     /// Settings for the generate_video tool: `false` turns the tool off, `{model}` sets its preferred model
     /// (accepted; video generation is not ported yet).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1807,7 +1803,7 @@ pub struct Experimental {
 }
 
 impl Experimental {
-    /// The value of a flag of the registry, or of a staged flag (`experimental.<key>`).
+    /// The value of a flag of the registry (`experimental.<key>`).
     pub fn flag(&self, key: &str) -> Option<bool> {
         match key {
             "todo" => self.todo,
@@ -1822,7 +1818,6 @@ impl Experimental {
             "project_overlay" => self.project_overlay,
             "opencode_api" => self.opencode_api,
             "sqlite_fts" => self.sqlite_fts,
-            "mcp_events" => self.mcp_events,
             _ => None,
         }
     }
@@ -1847,7 +1842,6 @@ impl Decode for Experimental {
             project_overlay: opt(o, "project_overlay")?,
             opencode_api: opt(o, "opencode_api")?,
             sqlite_fts: opt(o, "sqlite_fts")?,
-            mcp_events: opt(o, "mcp_events")?,
             video_generate: opt(o, "video_generate")?,
             part_rows: opt(o, "part_rows")?,
             image_generate: opt(o, "image_generate")?,

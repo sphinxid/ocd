@@ -1193,8 +1193,7 @@ fn v2_3_0_provider_tls_and_freeform() {
 /// 2.4.1 `experimental` keys (`normalization.test.ts`): every registered flag as a boolean, `all_flags`,
 /// `video_generate` (a boolean or `{model}` like `image_generate`), `part_rows` and the deprecated `codemode_vm`
 /// (the retired `codemodeVm` alias is ignored), in the schema's key order. The retired `background_compaction` and
-/// `shell_timeout_background` are dropped without a diagnostic, like any unknown key; ocd keeps the staged
-/// `mcp_events` (dropped by 2.4.1) right after the registry.
+/// `shell_timeout_background` are dropped without a diagnostic, like any unknown key, and so is `mcp_events`.
 #[test]
 fn v2_4_1_experimental_keys() {
     let (encoded, d) = normalized(json!({ "experimental": {
@@ -1206,7 +1205,7 @@ fn v2_4_1_experimental_keys() {
         "portable_shell_scanner": true,
     } }));
     assert!(d.is_empty(), "{d:?}");
-    let expected = r#"{"portable_shell_scanner":true,"codemode_vm":false,"all_flags":true,"todo":true,"media_blob":true,"artifacts":true,"console_watches":false,"recommended_api":true,"model_speeds":false,"full_codemode":true,"machines":true,"home_memory":false,"project_overlay":true,"opencode_api":false,"sqlite_fts":true,"mcp_events":true,"video_generate":{"model":{"providerID":"xai","model":"grok-imagine-video"}},"part_rows":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-2"}},"subagent_depth":0}"#;
+    let expected = r#"{"portable_shell_scanner":true,"codemode_vm":false,"all_flags":true,"todo":true,"media_blob":true,"artifacts":true,"console_watches":false,"recommended_api":true,"model_speeds":false,"full_codemode":true,"machines":true,"home_memory":false,"project_overlay":true,"opencode_api":false,"sqlite_fts":true,"video_generate":{"model":{"providerID":"xai","model":"grok-imagine-video"}},"part_rows":true,"image_generate":{"model":{"providerID":"openai","model":"gpt-image-2"}},"subagent_depth":0}"#;
     assert_eq!(serde_json::to_string(&encoded["experimental"]).unwrap(), expected);
     let info = Info::decode(&encoded).unwrap();
     assert_eq!(serde_json::to_string(&info.experimental).unwrap(), expected);
