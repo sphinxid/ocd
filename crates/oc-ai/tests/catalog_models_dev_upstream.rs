@@ -1,5 +1,5 @@
 //! Cross-checks ocd's models.dev normalization against upstream's `ModelsDev.decodeSnapshot`, run with
-//! Bun on the upstream checkout. Needs `OCD_SCRATCH` (with `src/opencode-2.3.1`, dependencies installed)
+//! Bun on the upstream checkout. Needs `OCD_SCRATCH` (with `src/opencode-2.4.1`, dependencies installed)
 //! and `OCD_BUN_PATH`; skipped otherwise.
 
 use oc_ai::catalog::models_dev::{decode_snapshot, Snapshot, SNAPSHOT};
@@ -9,7 +9,7 @@ use std::path::PathBuf;
 fn upstream_core() -> Option<(PathBuf, PathBuf)> {
     let scratch = std::env::var("OCD_SCRATCH").ok()?;
     let bun = PathBuf::from(std::env::var("OCD_BUN_PATH").ok()?);
-    let core = PathBuf::from(scratch).join("src/opencode-2.3.1/packages/core/src");
+    let core = PathBuf::from(scratch).join("src/opencode-2.4.1/packages/core/src");
     (core.join("models-dev.ts").is_file() && bun.is_file()).then_some((core, bun))
 }
 
@@ -56,12 +56,18 @@ fn numbers(value: Value) -> Value {
 }
 
 fn ours(data: &[Snapshot]) -> Value {
-    Value::Array(data.iter().map(|s| json!({"info": s.info, "models": s.models, "environment": s.environment})).collect())
+    Value::Array(data.iter().map(|s| {
+        let mut o = json!({"info": s.info, "models": s.models, "environment": s.environment});
+        if let Some(lists) = &s.subscriptions {
+            o["subscriptions"] = json!(lists);
+        }
+        o
+    }).collect())
 }
 
 fn compare(catalog: &str) {
     let Some((core, bun)) = upstream_core() else {
-        eprintln!("upstream 2.3.1 checkout or bun not found (set OCD_SCRATCH and OCD_BUN_PATH); skipping");
+        eprintln!("upstream 2.4.1 checkout or bun not found (set OCD_SCRATCH and OCD_BUN_PATH); skipping");
         return;
     };
     let expected = numbers(upstream_normalize(&core, &bun, catalog));
@@ -74,6 +80,9 @@ fn compare(catalog: &str) {
     for (a, e) in actual.iter().zip(expected) {
         assert_eq!(a["info"], e["info"], "provider {}", e["info"]["id"]);
         assert_eq!(a["environment"], e["environment"], "provider {}", e["info"]["id"]);
+        // The ChatGPT plan lists attached to `openai` (2.4.1). Upstream's `voices` (realtime models) are not ported:
+        // ocd has no voice routes.
+        assert_eq!(a.get("subscriptions"), e.get("subscriptions"), "provider {}", e["info"]["id"]);
         let (am, em) = (a["models"].as_array().unwrap(), e["models"].as_array().unwrap());
         assert_eq!(
             am.iter().map(|m| m["id"].clone()).collect::<Vec<_>>(),
@@ -156,12 +165,31 @@ fn edge_cases_normalize_like_upstream() {
             "video-xai": model("video-xai", json!({"type": "video", "api": {"videos": {"base_url": "https://api.acme.test/v1", "sdk": {"opencodeai": "@opencode/ai/providers/xai/videos"}}}})),
             "image-no-entry": model("image-no-entry", json!({"type": "image"})),
             "image": model("image", json!({"type": "image", "api": {"images": {"base_url": "https://api.acme.test/v1", "sdk": {"opencodeai": "@opencode/ai/providers/openai-compatible/images"}}}})),
+            "tiered": model("tiered", json!({"capabilities": {"tools": {"supported": true}, "reasoning": {"supported": false}, "service_tier": ["priority", "flex"]},
+                "cost": {"text": {"input": {"price": 2}, "output": {"price": 10}}, "multipliers": [
+                    {"when": {"service_tier": {"equals": "ultrafast"}, "date": {"lt": "2020-01-01"}}, "factor": 3},
+                    {"when": {"service_tier": {"equals": "ultrafast"}, "date": {"gte": "2020-01-01", "lte": "2999-12-31"}}, "factor": 6},
+                    {"when": {"service_tier": {"equals": "flex"}, "date": {"gt": 5}}, "factor": 0.1},
+                    {"when": {"service_tier": {"equals": "flex"}, "date": "soon"}, "factor": 0.2},
+                    {"when": {"service_tier": {"equals": "flex"}, "region": "eu"}, "factor": 0.3}
+                ]},
+                "recommended_api": 7,
+                "experimental": {"modes": {"ultrafast": {}, "flex": {}, "fast": {"service_tier": "priority"}}}})),
+            "bad-tier": model("bad-tier", json!({"capabilities": {"tools": {"supported": true}, "reasoning": {"supported": false}, "service_tier": "flex"}})),
+            "realtime": model("realtime", json!({"type": "realtime", "modalities": {"input": ["audio/pcm"], "output": ["audio/pcm"]},
+                "api": {"realtime": {"base_url": "wss://api.acme.test/v1", "sdk": {"opencodeai": "@opencode/ai/providers/acme/realtimes"}}}})),
             "unknown-entry": model("unknown-entry", json!({"api": {"x": {"sdk": {"opencodeai": "@opencode/ai/providers/acme/next"}}, "y": {"base_url": "https://y.test", "sdk": {"aisdk": "@ai-sdk/anthropic"}}}})),
         }},
         "vertex": {"id": "google-vertex", "name": "Vertex", "env": ["GOOGLE_VERTEX_PROJECT"], "models": {
             "gemini": model("gemini", json!({"api": {"gemini": {"base_url": "https://aiplatform.googleapis.com", "sdk": {"opencodeai": "@opencode/ai/providers/google-vertex/gemini"}}}})),
             "glm": model("glm", json!({"api": {"chat-completions": {"base_url": "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}/endpoints/openapi", "sdk": {"opencodeai": "@opencode/ai/providers/google-vertex/chat"}}}})),
         }},
+        "openai": {"id": "openai", "name": "OpenAI", "env": ["OPENAI_API_KEY"], "models": {"gpt-6": model("gpt-6", json!({}))}},
+        "openai-codex": {"id": "openai-codex", "name": "Codex", "env": [], "models": {
+            "gpt-6": {"id": "gpt-6", "experimental": {"modes": {"fast": {}, "pro": 1}}},
+            "gpt-7": {"id": "gpt-7"}
+        }},
+        "openai-chatgpt": {"id": "openai-chatgpt", "name": "ChatGPT", "env": [], "models": {"bad": {"id": 5}}},
         "empty": {"id": "empty", "name": "Empty", "env": [], "models": {"broken": {"id": 1}}},
         "invalid": {"id": "invalid", "name": 1, "env": [], "models": {}},
     });

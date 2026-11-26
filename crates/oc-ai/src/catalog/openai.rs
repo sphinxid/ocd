@@ -29,17 +29,16 @@ pub const CODEX_BASE_URL: &str = codex::CODEX_BASE_URL;
 /// Token sharing's base URL (`resource`).
 pub const TOKEN_SHARING_BASE_URL: &str = chatgpt::RESOURCE;
 
-/// Codex rejects gpt-5.5 and older models, including gpt-5.3-codex-spark, for ChatGPT accounts; these
-/// newer ones are rejected too (`codexDisallowed`).
+/// Used when the catalog has no Codex list: Codex rejects gpt-5.5 and older models, including gpt-5.3-codex-spark,
+/// for ChatGPT accounts; these newer ones are rejected too (`codexDisallowed`).
 pub const CODEX_DISALLOWED: &[&str] = &["gpt-5.6"];
 
 /// The image models the Codex client generates and edits with on the Codex login (`codexImageModels`).
 pub const CODEX_IMAGE_MODELS: &[&str] = &["gpt-image-2"];
 
-/// The catalog models token sharing keeps (`fallbackModels`).
+/// The catalog models token sharing keeps when the catalog has no Sign in with ChatGPT list (`fallbackModels`).
+/// gpt-5.5 is rejected there.
 pub const FALLBACK_MODELS: &[&str] = &[
-    "gpt-5.5",
-    "gpt-5.5-fast",
     "gpt-5.6-luna",
     "gpt-5.6-luna-fast",
     "gpt-5.6-sol",
@@ -160,11 +159,18 @@ pub fn configured_base_url(settings: Option<&Object>, sections: &[Value]) -> boo
         })
 }
 
+/// The models.dev list of the Sign in with ChatGPT plan (`OpenAISubscriptionModels.track("openai-chatgpt")`).
+pub const CHATGPT_LIST: &str = "openai-chatgpt";
+/// The models.dev list of the Codex plan (`OpenAISubscriptionModels.track("openai-codex")`).
+pub const CODEX_LIST: &str = "openai-codex";
+
 /// The ChatGPT token-sharing catalog effects (`ChatGPTPlugin` provider and model transforms).
 pub struct ChatGpt {
     pub sign_in: SignIn,
     /// Config documents' `providers` objects (for a configured base URL).
     pub sections: Vec<Value>,
+    /// The model IDs models.dev lists for the plan ([`CHATGPT_LIST`]); `None` falls back to [`FALLBACK_MODELS`].
+    pub plan: Option<Vec<String>>,
 }
 
 impl CatalogPlugin for ChatGpt {
@@ -173,7 +179,11 @@ impl CatalogPlugin for ChatGpt {
         let Some(record) = editor.get(PROVIDER_ID) else { return };
         // Config applies after provider plugins, so read it here: a custom baseURL may not decode zstd.
         let configured = configured_base_url(record.provider.settings.as_ref(), &self.sections);
-        let models: Vec<ModelInfo> = record.models.values().filter(|m| FALLBACK_MODELS.contains(&m.id.as_str())).cloned().collect();
+        let listed = |id: &str| match &self.plan {
+            Some(plan) => plan.iter().any(|p| p == id),
+            None => FALLBACK_MODELS.contains(&id),
+        };
+        let models: Vec<ModelInfo> = record.models.values().filter(|m| listed(&m.id)).cloned().collect();
         editor.update(PROVIDER_ID, |provider| {
             let encoding = provider.settings.as_ref().and_then(|s| s.get("encoding")).filter(|v| !v.is_null()).cloned();
             let mut patch = json!({
@@ -220,6 +230,9 @@ pub struct OpenAi {
     pub sign_in: SignIn,
     /// Config documents' `providers` objects (for a configured base URL).
     pub sections: Vec<Value>,
+    /// The model IDs models.dev lists for the Codex plan ([`CODEX_LIST`]); `None` falls back to the eligibility
+    /// rules.
+    pub plan: Option<Vec<String>>,
 }
 
 impl CatalogPlugin for OpenAi {
@@ -256,6 +269,14 @@ impl CatalogPlugin for OpenAi {
         // usage, so hide the rest and zero the cost.
         for (pid, mid) in editor.list(Some(PROVIDER_ID)) {
             editor.update(&pid, &mid, |model| {
+                if let Some(plan) = &self.plan {
+                    if plan.iter().any(|id| *id == model.id) {
+                        model.cost = vec![];
+                    } else {
+                        model.enabled = false;
+                    }
+                    return;
+                }
                 if pro(model) {
                     model.enabled = false;
                     return;

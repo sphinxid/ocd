@@ -1066,3 +1066,38 @@ async fn device_and_implicit_sign_ins_take_no_pasted_redirect() {
     assert!(result.submit.is_none());
     scope.cancel();
 }
+
+/// "revokes the refresh token with the issued client ID" (2.4.1)
+#[tokio::test]
+async fn chatgpt_revokes_the_refresh_token_with_the_issued_client_id() {
+    let server = mock(|_, n| if n == 0 { Response::new(200, "") } else { Response::new(503, "") }).await;
+    let url = format!("{}/oauth/revoke", server.base);
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("clientID".into(), json!("oaiapp_issued"));
+    let value = OAuthValue {
+        method_id: "chatgpt-token-sharing".into(),
+        refresh: "refresh-token".into(),
+        access: "access".into(),
+        expires: 1,
+        metadata: Some(metadata),
+    };
+    flows::chatgpt::revoke(&ctx(), &url, &value).await.unwrap();
+    let requests = server.requests_to("/oauth/revoke");
+    assert_eq!(requests[0].method, "POST");
+    assert_eq!(header(&requests[0], "content-type"), Some("application/x-www-form-urlencoded"));
+    assert_eq!(
+        body_pairs(&requests[0]),
+        [
+            ("token".to_string(), "refresh-token".to_string()),
+            ("token_type_hint".to_string(), "refresh_token".to_string()),
+            ("client_id".to_string(), "oaiapp_issued".to_string())
+        ]
+    );
+    assert_eq!(flows::chatgpt::revoke(&ctx(), &url, &value).await.unwrap_err().message, "Revocation failed: 503");
+    assert_eq!(server.requests_to("/oauth/revoke").len(), 2);
+    let missing = OAuthValue { metadata: None, ..value };
+    assert_eq!(
+        flows::chatgpt::revoke(&ctx(), &url, &missing).await.unwrap_err().message,
+        "This ChatGPT connection has no registered client ID."
+    );
+}

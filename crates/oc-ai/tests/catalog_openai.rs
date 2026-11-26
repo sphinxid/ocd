@@ -61,9 +61,9 @@ fn sharing() -> SignIn {
 fn build(sign_in: SignIn, setup: Box<dyn CatalogPlugin + '_>, caps: bool, after: Vec<Box<dyn CatalogPlugin + '_>>) -> Catalog {
     let mut plugins: Vec<Box<dyn CatalogPlugin>> = vec![
         setup,
-        Box::new(ChatGpt { sign_in: sign_in.clone(), sections: vec![] }),
+        Box::new(ChatGpt { sign_in: sign_in.clone(), sections: vec![], plan: None }),
         Box::new(ResponsesWebSockets),
-        Box::new(OpenAi { sign_in: sign_in.clone(), sections: vec![] }),
+        Box::new(OpenAi { sign_in: sign_in.clone(), sections: vec![], plan: None }),
     ];
     if caps {
         plugins.push(Box::new(OpenAiContextCaps { sign_in: sign_in.clone() }));
@@ -173,7 +173,7 @@ fn sharing_setup<'a>() -> Box<dyn CatalogPlugin + 'a> {
             p.package = "@opencode/ai/providers/openai".into();
             p.settings = Some(obj(json!({"transport": "websocket"})));
         });
-        e.update_model("openai", "gpt-5.5", |m| {
+        e.update_model("openai", "gpt-6.2-sol", |m| {
             m.limit = FULL;
             m.cost = paid();
         });
@@ -192,6 +192,7 @@ fn sharing_setup<'a>() -> Box<dyn CatalogPlugin + 'a> {
             e.update_model("openai", id, |_| {});
         }
         for id in [
+            "gpt-5.5",
             "gpt-5.5-fast",
             "gpt-5.6-luna",
             "gpt-5.6-luna-fast",
@@ -209,7 +210,6 @@ fn sharing_setup<'a>() -> Box<dyn CatalogPlugin + 'a> {
             "gpt-6.1-terra-fast",
             "gpt-6.2-astra",
             "gpt-6.2-astra-fast",
-            "gpt-6.2-sol",
             "gpt-6.2-sol-fast",
         ] {
             e.update_model("openai", id, |_| {});
@@ -230,7 +230,7 @@ fn routes_chatgpt_over_http_with_only_the_listed_catalog_fallback_models() {
     assert!(provider.headers.as_ref().is_none_or(|h| !h.contains_key("originator")));
     assert_eq!(catalog.record("openai").unwrap().source_connection.as_deref(), Some(CONNECTION));
 
-    let eligible = catalog.model("openai", "gpt-5.5").unwrap();
+    let eligible = catalog.model("openai", "gpt-6.2-sol").unwrap();
     assert_eq!(eligible.package.as_deref(), Some("@opencode/ai/providers/openai"));
     assert!(eligible.cost.is_empty());
     assert_eq!(eligible.limit, FULL);
@@ -241,7 +241,7 @@ fn routes_chatgpt_over_http_with_only_the_listed_catalog_fallback_models() {
     assert!(gpt56.enabled);
     assert_eq!(gpt56.limit, FULL);
     assert!(catalog.model("openai", "gpt-6-astra").unwrap().enabled);
-    for id in ["gpt-5.5-pro", "gpt-5.4-pro", "gpt-5.4", "gpt-5.6", "gpt-4.1", "gpt-5.10", "gpt-5", "gpt-5.04-astra", "gpt-4.99"] {
+    for id in ["gpt-5.5", "gpt-5.5-fast", "gpt-5.5-pro", "gpt-5.4-pro", "gpt-5.4", "gpt-5.6", "gpt-4.1", "gpt-5.10", "gpt-5", "gpt-5.04-astra", "gpt-4.99"] {
         assert!(catalog.model("openai", id).is_none(), "{id}");
     }
     let mut available: Vec<String> =
@@ -252,9 +252,60 @@ fn routes_chatgpt_over_http_with_only_the_listed_catalog_fallback_models() {
     assert_eq!(available, expected);
 }
 
+/// "offers the catalog's Sign in with ChatGPT list instead of the built-in one" (2.4.1)
+#[test]
+fn offers_the_catalogs_sign_in_with_chatgpt_list_instead_of_the_built_in_one() {
+    let setup = providers(|e| {
+        e.update("openai", |p| p.package = "@opencode/ai/providers/openai".into());
+        for id in ["gpt-5.5", "gpt-6-sol", "gpt-7"] {
+            e.update_model("openai", id, |_| {});
+        }
+    });
+    let plan = Some(vec!["gpt-6-sol".to_string(), "gpt-7".to_string()]);
+    let mut plugins: Vec<Box<dyn CatalogPlugin>> = vec![setup, Box::new(ChatGpt { sign_in: sharing(), sections: vec![], plan })];
+    let catalog = Catalog::build(&mut plugins, &Access::new().integration("openai", vec![CONNECTION.into()]));
+    let mut available: Vec<String> =
+        catalog.available_models().into_iter().filter(|m| m.provider_id == "openai").map(|m| m.id.clone()).collect();
+    available.sort();
+    assert_eq!(available, ["gpt-6-sol", "gpt-7"]);
+}
+
+/// "offers only the catalog's Codex list under a ChatGPT connection, and follows its refreshes" (2.4.1); a refresh
+/// rebuilds the catalog with the new list.
+#[test]
+fn offers_only_the_catalogs_codex_list_under_a_chatgpt_connection() {
+    let setup = || {
+        providers(|e| {
+            e.update("openai", |p| p.package = "@opencode/ai/providers/openai".into());
+            for id in ["gpt-5.5", "gpt-6-sol", "gpt-6-sol-fast", "gpt-7"] {
+                e.update_model("openai", id, |m| m.cost = paid());
+            }
+            e.update_model("openai", "gpt-6-sol-pro", |m| m.body = Some(obj(json!({"reasoning": {"mode": "pro"}}))));
+            e.update_model("openai", "gpt-image-2", |m| m.kind = Some("image".into()));
+        })
+    };
+    let build = |plan: &[&str]| {
+        let plan = Some(plan.iter().map(|s| s.to_string()).collect());
+        let mut plugins: Vec<Box<dyn CatalogPlugin>> = vec![setup(), Box::new(OpenAi { sign_in: codex(), sections: vec![], plan })];
+        Catalog::build(&mut plugins, &Access::new().integration("openai", vec!["credential:crd_codex".into()]))
+    };
+    let catalog = build(&["gpt-5.5", "gpt-6-sol", "gpt-6-sol-fast", "gpt-image-2"]);
+    let enabled = |catalog: &Catalog, id: &str| catalog.model("openai", id).is_some_and(|m| m.enabled);
+    assert!(enabled(&catalog, "gpt-5.5"));
+    assert!(enabled(&catalog, "gpt-6-sol-fast"));
+    assert!(!enabled(&catalog, "gpt-6-sol-pro"));
+    assert!(!enabled(&catalog, "gpt-7"));
+    let images: Vec<String> = catalog.available_models_of(&["image".to_string()]).into_iter().map(|m| m.id.clone()).collect();
+    assert_eq!(images, ["gpt-image-2"]);
+    assert!(catalog.model("openai", "gpt-6-sol").unwrap().cost.is_empty());
+    let catalog = build(&["gpt-7"]);
+    assert!(enabled(&catalog, "gpt-7"));
+    assert!(!enabled(&catalog, "gpt-5.5"));
+}
+
 #[test]
 fn token_sharing_provider_is_bound_to_its_connection() {
-    let mut plugins: Vec<Box<dyn CatalogPlugin>> = vec![sharing_setup(), Box::new(ChatGpt { sign_in: sharing(), sections: vec![] })];
+    let mut plugins: Vec<Box<dyn CatalogPlugin>> = vec![sharing_setup(), Box::new(ChatGpt { sign_in: sharing(), sections: vec![], plan: None })];
     // Another connection became active: the token-sharing inventory is not offered under it.
     let other = Access::new().integration("openai", vec!["credential:crd_other".into(), CONNECTION.into()]);
     let catalog = Catalog::build(&mut plugins, &other);
@@ -267,8 +318,8 @@ fn a_configured_base_url_keeps_requests_uncompressed() {
     for sign_in in [codex(), sharing()] {
         let mut plugins: Vec<Box<dyn CatalogPlugin>> = vec![
             sharing_setup(),
-            Box::new(ChatGpt { sign_in: sign_in.clone(), sections: sections.clone() }),
-            Box::new(OpenAi { sign_in: sign_in.clone(), sections: sections.clone() }),
+            Box::new(ChatGpt { sign_in: sign_in.clone(), sections: sections.clone(), plan: None }),
+            Box::new(OpenAi { sign_in: sign_in.clone(), sections: sections.clone(), plan: None }),
         ];
         let access = Access::new().integration("openai", vec![CONNECTION.into()]);
         let catalog = Catalog::build(&mut plugins, &access);
@@ -392,9 +443,9 @@ fn compaction_uses_plugin_defaults_but_allows_later_model_and_variant_overrides(
             providers(|e| {
                 e.update("openai", |p| p.package = "@opencode/ai/providers/openai/responses".into());
                 // Token sharing keeps only its fallback models: gpt-6-astra and gpt-6.1-sol stand in for
-                // upstream's gpt-5.6-sol and gpt-6-astra, all pointing at gpt-5.5.
-                for id in ["gpt-5.5", "gpt-6-astra", "gpt-6.1-sol"] {
-                    e.update_model("openai", id, |m| m.model_id = "gpt-5.5".into());
+                // upstream's gpt-5.6-sol and gpt-6-astra, all pointing at gpt-6-sol (2.4.1: gpt-5.5 left the list).
+                for id in ["gpt-6-sol", "gpt-6-astra", "gpt-6.1-sol"] {
+                    e.update_model("openai", id, |m| m.model_id = "gpt-6-sol".into());
                 }
                 e.update_model("openai", "gpt-6-astra", |m| m.settings = Some(obj(json!({"compaction": {"type": "native"}}))));
             })
@@ -406,13 +457,13 @@ fn compaction_uses_plugin_defaults_but_allows_later_model_and_variant_overrides(
         let native = Some("native".to_string());
 
         let catalog = build(sign_in.clone(), setup(), false, vec![]);
-        assert_eq!(resolve(&catalog, "gpt-5.5", None), if chatgpt { summary.clone() } else { None });
+        assert_eq!(resolve(&catalog, "gpt-6-sol", None), if chatgpt { summary.clone() } else { None });
         assert_eq!(resolve(&catalog, "gpt-6-astra", None), if chatgpt { summary.clone() } else { native.clone() });
 
         // A later provider default does not override the ChatGPT model policy.
         let later = providers(|e| e.update("openai", |p| p.settings = Some(obj(json!({"compaction": {"type": "native"}})))));
         let catalog = build(sign_in.clone(), setup(), false, vec![later]);
-        assert_eq!(resolve(&catalog, "gpt-5.5", None), if chatgpt { summary.clone() } else { native.clone() });
+        assert_eq!(resolve(&catalog, "gpt-6-sol", None), if chatgpt { summary.clone() } else { native.clone() });
 
         let provider = providers(|e| e.update("openai", |p| p.settings = Some(obj(json!({"compaction": {"type": "summary"}})))));
         let overrides = models(|e| {
@@ -427,7 +478,7 @@ fn compaction_uses_plugin_defaults_but_allows_later_model_and_variant_overrides(
             });
         });
         let catalog = build(sign_in.clone(), setup(), false, vec![provider, overrides]);
-        assert_eq!(resolve(&catalog, "gpt-5.5", None), summary);
+        assert_eq!(resolve(&catalog, "gpt-6-sol", None), summary);
         assert_eq!(resolve(&catalog, "gpt-6-astra", None), native);
         assert_eq!(resolve(&catalog, "gpt-6.1-sol", Some("high")), native);
     }

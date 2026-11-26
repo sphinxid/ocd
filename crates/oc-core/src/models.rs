@@ -861,7 +861,11 @@ impl Models {
             ];
             // opencode.provider.chatgpt (token sharing), ahead of the other provider plugins.
             if chatgpt_on {
-                plugins.push(Box::new(catalog::openai::ChatGpt { sign_in: sign_in.clone(), sections: sections.clone() }));
+                plugins.push(Box::new(catalog::openai::ChatGpt {
+                    sign_in: sign_in.clone(),
+                    sections: sections.clone(),
+                    plan: catalog::models_dev::Snapshot::subscription(&snapshots, catalog::openai::CHATGPT_LIST),
+                }));
             }
             // opencode.provider.github.copilot (github-copilot.ts:216-244) with the location's loaded state.
             if let Some(state) = copilot {
@@ -877,7 +881,11 @@ impl Models {
             plugins.push(Box::new(catalog::plugins::ResponsesWebSockets));
             // opencode.provider.openai (Codex) and opencode.provider.openai-context-caps.
             if openai_on {
-                plugins.push(Box::new(catalog::openai::OpenAi { sign_in: sign_in.clone(), sections: sections.clone() }));
+                plugins.push(Box::new(catalog::openai::OpenAi {
+                    sign_in: sign_in.clone(),
+                    sections: sections.clone(),
+                    plan: catalog::models_dev::Snapshot::subscription(&snapshots, catalog::openai::CODEX_LIST),
+                }));
             }
             if caps_on {
                 plugins.push(Box::new(catalog::openai::OpenAiContextCaps { sign_in: sign_in.clone() }));

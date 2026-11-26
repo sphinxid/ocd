@@ -602,3 +602,49 @@ async fn chatgpt_saved_client_id_follows_the_active_connection() {
     drop(integrations);
     assert_eq!(saved().await, None);
 }
+
+/// OAuth method that records each revocation and fails for the refresh token `broken`.
+struct RevokingMethod(Arc<Mutex<Vec<String>>>);
+
+#[async_trait]
+impl OAuthMethod for RevokingMethod {
+    fn integration_id(&self) -> String {
+        "acme".into()
+    }
+    fn info(&self) -> OAuthMethodInfo {
+        OAuthMethodInfo::new("m", "Acme login")
+    }
+    async fn authorize(&self, _answer: FormAnswer, _scope: CancellationToken) -> FlowResult<AuthorizeResult> {
+        Err(FlowError::new("unused authorize"))
+    }
+    fn can_revoke(&self) -> bool {
+        true
+    }
+    async fn revoke(&self, value: OAuthValue) -> FlowResult<()> {
+        self.0.lock().push(value.refresh.clone());
+        if value.refresh == "broken" { Err(FlowError::new("offline")) } else { Ok(()) }
+    }
+}
+
+/// "revokes an OAuth credential before removing it, even when revocation fails" (2.4.1)
+#[tokio::test]
+async fn revokes_an_oauth_credential_before_removing_it_even_when_revocation_fails() {
+    let (_, clock) = Manual::new(1_000_000);
+    let (store, integrations) = service(&[], clock);
+    let revoked = Arc::new(Mutex::new(vec![]));
+    integrations.register_oauth(Arc::new(RevokingMethod(revoked.clone())));
+    let create = |refresh: &str| {
+        let value = OAuthValue { method_id: "m".into(), refresh: refresh.into(), access: "access".into(), expires: 1, metadata: None };
+        CreateCredential::new("acme", value.into_value())
+    };
+    let working = store.create(create("working")).await.unwrap();
+    let broken = store.create(create("broken")).await.unwrap();
+    let key = store.create(CreateCredential::new("acme", CredentialValue::key("sk-test"))).await.unwrap();
+    for id in [&working.id, &broken.id, &key.id] {
+        integrations.remove_connection(id).await.unwrap();
+    }
+    assert_eq!(*revoked.lock(), ["working", "broken"]);
+    assert!(store.list("acme").await.unwrap().is_empty());
+    // A credential that no longer exists is no error.
+    integrations.remove_connection(&working.id).await.unwrap();
+}

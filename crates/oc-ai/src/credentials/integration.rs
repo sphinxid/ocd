@@ -382,6 +382,14 @@ pub trait OAuthMethod: Send + Sync + 'static {
     async fn refresh(&self, value: OAuthValue) -> FlowResult<OAuthValue> {
         Ok(value)
     }
+    /// Whether [`OAuthMethod::revoke`] is implemented.
+    fn can_revoke(&self) -> bool {
+        false
+    }
+    /// Signs the credential out remotely before it is removed; a failure is logged and removal continues.
+    async fn revoke(&self, _value: OAuthValue) -> FlowResult<()> {
+        Ok(())
+    }
     /// Label for a newly connected credential.
     fn label(&self, _value: &OAuthValue) -> Option<String> {
         None
@@ -1012,6 +1020,28 @@ impl Integrations {
     }
 
     pub async fn remove_credential(&self, credential_id: &str) -> Result<(), IntegrationError> {
+        self.store.remove(credential_id).await.map_err(defect)
+    }
+
+    /// `connection.remove`: a sign-in method that can revoke the credential remotely does so first (a failure is
+    /// logged and the local credential is still removed), then the credential is removed.
+    pub async fn remove_connection(&self, credential_id: &str) -> Result<(), IntegrationError> {
+        let credential = self.store.get(credential_id).await.map_err(defect)?;
+        if let Some(credential) = credential
+            && let CredentialValue::Oauth { method_id, refresh, access, expires, metadata } = &credential.value
+            && let Some(implementation) = self.implementation(&credential.integration_id, method_id).filter(|i| i.can_revoke())
+        {
+            let value = OAuthValue {
+                method_id: method_id.clone(),
+                refresh: refresh.clone(),
+                access: access.clone(),
+                expires: *expires,
+                metadata: metadata.clone(),
+            };
+            if let Err(cause) = implementation.revoke(value).await {
+                tracing::warn!(integration_id = %credential.integration_id, cause = %cause.message, "remote sign-out was not confirmed; removing the local credential");
+            }
+        }
         self.store.remove(credential_id).await.map_err(defect)
     }
 

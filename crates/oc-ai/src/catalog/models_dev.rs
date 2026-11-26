@@ -22,8 +22,9 @@ use std::time::Duration;
 
 /// Default catalog source.
 pub const DEFAULT_SOURCE: &str = "https://models.opencode.ai";
-/// KV key for the default source. Versioned so an entry cached from the v1 API is never read as v2.
-pub const DEFAULT_CACHE_KEY: &str = "models-dev:v2:catalog";
+/// KV key for the default source. Versioned so an entry cached for another catalog query is never read: v1 was the
+/// v1 API, v2 had no realtime models.
+pub const DEFAULT_CACHE_KEY: &str = "models-dev:v3:catalog";
 /// Cache freshness and refresh interval.
 pub const TTL: Duration = Duration::from_secs(5 * 60);
 /// Fetch timeout (covers retries).
@@ -38,6 +39,24 @@ pub struct Snapshot {
     pub info: ProviderInfo,
     pub models: Vec<ModelInfo>,
     pub environment: Vec<String>,
+    /// On `openai` only: the model IDs (modes included) each ChatGPT subscription sign-in can use; see
+    /// [`OPENAI_SUBSCRIPTIONS`].
+    pub subscriptions: Option<IndexMap<String, Vec<String>>>,
+}
+
+impl Snapshot {
+    /// The model IDs models.dev lists for one OpenAI subscription sign-in (`openai-codex`, `openai-chatgpt`) in a
+    /// catalog. `None` when the catalog has no list for it (a cache or bundled snapshot from before it was added, or
+    /// a custom mirror) or the list is empty, so callers fall back to their own rules: an empty list is treated as
+    /// missing, so a bad catalog edit can't hide every model (`OpenAISubscriptionModels.track`).
+    pub fn subscription(data: &[Snapshot], list: &str) -> Option<Vec<String>> {
+        data.iter()
+            .find(|s| s.info.id == "openai")
+            .and_then(|s| s.subscriptions.as_ref())
+            .and_then(|lists| lists.get(list))
+            .filter(|ids| !ids.is_empty())
+            .cloned()
+    }
 }
 
 /// `cacheKey(source)`.
@@ -45,12 +64,12 @@ pub fn cache_key(source: &str) -> String {
     if source == DEFAULT_SOURCE {
         return DEFAULT_CACHE_KEY.to_string();
     }
-    format!("models-dev:v2:catalog:{}", oc_util::hash::fast(source))
+    format!("models-dev:v3:catalog:{}", oc_util::hash::fast(source))
 }
 
-/// The unversioned key the v1 catalog was cached under (removed at startup).
-pub fn legacy_cache_key(key: &str) -> String {
-    key.replacen("models-dev:v2:", "models-dev:", 1)
+/// The keys earlier versions cached the catalog under: the unversioned v1 key and the v2 key (removed at startup).
+pub fn legacy_cache_keys(key: &str) -> Vec<String> {
+    ["models-dev:", "models-dev:v2:"].iter().map(|prefix| key.replacen("models-dev:v3:", prefix, 1)).collect()
 }
 
 /// `bodyDigest(text)`: SHA-256 hex.
@@ -64,11 +83,19 @@ pub fn body_digest(text: &str) -> String {
 // ---------------------------------------------------------------------------------------------
 
 /// The model types opencode keeps (`TYPES`). Only chat models are offered for sessions; the others
-/// are listed on request.
-pub const TYPES: &[&str] = &["chat", "decision", "image", "video"];
+/// are listed on request, realtime ones as voice models.
+pub const TYPES: &[&str] = &["chat", "decision", "image", "video", "realtime"];
 
-/// `catalogPath`: the experimental v2 API, limited to the model types opencode keeps.
-pub const CATALOG_PATH: &str = "/experimental/v2.0/api.json?type=chat,decision,image,video";
+/// Temporary stopgap until the official v2 models.dev API, which returns these by default: the ChatGPT subscription
+/// sign-ins (Codex, Sign in with ChatGPT) serve a subset of OpenAI's models. models.dev lists each as a provider it
+/// hides unless asked for. They never become providers here: their model IDs are attached to `openai`, for that
+/// sign-in's plugin to read (`OPENAI_SUBSCRIPTIONS`).
+pub const OPENAI_SUBSCRIPTIONS: &[&str] = &["openai-codex", "openai-chatgpt"];
+
+/// `catalogPath`: the experimental v2 API, limited to the model types opencode keeps, with the hidden OpenAI
+/// subscription lists included.
+pub const CATALOG_PATH: &str =
+    "/experimental/v2.0/api.json?type=chat,decision,image,video,realtime&include=openai-codex,openai-chatgpt";
 
 type Decoded<T> = Result<T, String>;
 
@@ -362,6 +389,9 @@ struct SourceModel {
     tools: bool,
     reasoning: ConfigReasoning,
     temperature: Option<bool>,
+    /// `capabilities.service_tier` (decoded for its shape; the speeds that read it are opt-in).
+    #[allow(dead_code)]
+    service_tier: Option<Vec<String>>,
     limit: Option<SourceLimit>,
     cost: Option<SourceCost>,
     /// Ordered: the first API is the model's default.
@@ -399,6 +429,11 @@ fn d_model(value: &Value) -> Decoded<SourceModel> {
         tools: d_bool(tools.get("supported"), "[\"capabilities\"][\"tools\"][\"supported\"]")?,
         reasoning: d_reasoning(capabilities.get("reasoning"), "[\"capabilities\"][\"reasoning\"]")?,
         temperature: d_opt_bool(capabilities.get("temperature"), "[\"capabilities\"][\"temperature\"]")?,
+        // The faster and slower ways the provider serves the model, such as "priority" or "flex".
+        service_tier: match capabilities.get("service_tier") {
+            None => None,
+            value => Some(d_strings(value, "[\"capabilities\"][\"service_tier\"]")?),
+        },
         limit,
         cost: d_cost(o.get("cost"), &field("cost"))?,
         api: d_record(o.get("api"), &field("api"))?.clone(),
@@ -737,14 +772,10 @@ fn mode_cost(model: &SourceModel, base: &[Cost], name: &str, mode: &SourceMode) 
         return std::iter::once(cost(Some(cost_)).remove(0)).chain(tiers).collect();
     }
     let tier = mode.service_tier.as_deref().unwrap_or(name);
+    // A tier's multiplier may only hold for some dates (an introductory price); the one for today is used.
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let factor = model.cost.as_ref().and_then(|c| {
-        c.multipliers.iter().find(|(when, _)| {
-            when.len() == 1
-                && when.get("service_tier").and_then(Value::as_object).is_some_and(|condition| match condition.get("equals") {
-                    Some(Value::String(equals)) => equals == tier,
-                    _ => false,
-                })
-        })
+        c.multipliers.iter().find(|(when, _)| multiplier_applies(when, tier, &today))
     });
     let (Some((_, factor)), Some(default)) = (factor, base.first()) else { return base.to_vec() };
     let scale = |price: f64, path: &[&str]| js_round(price * factor_at(factor, path) * 1e10) / 1e10;
@@ -758,6 +789,38 @@ fn mode_cost(model: &SourceModel, base: &[Cost], name: &str, mode: &SourceMode) 
         },
     };
     std::iter::once(scaled).chain(tiers).collect()
+}
+
+/// Whether a cost multiplier's `when` holds for `tier` on `today` (`YYYY-MM-DD`): only `service_tier` and `date`
+/// conditions, `service_tier.equals` naming the tier, and every bound of an ISO `date` range (compared as strings).
+fn multiplier_applies(when: &Object, tier: &str, today: &str) -> bool {
+    if !when.keys().all(|key| key == "service_tier" || key == "date") {
+        return false;
+    }
+    // `Schema.Struct({ equals: Schema.optional(Schema.String) })`.
+    let equals = match when.get("service_tier") {
+        Some(Value::Object(condition)) => match condition.get("equals") {
+            Some(Value::String(equals)) => Some(equals.as_str()),
+            _ => None,
+        },
+        _ => None,
+    };
+    if equals != Some(tier) {
+        return false;
+    }
+    let Some(date) = when.get("date") else { return true };
+    let Some(range) = date.as_object() else { return false };
+    let mut bounds = [None, None, None, None];
+    for (slot, key) in ["lt", "lte", "gt", "gte"].iter().enumerate() {
+        match range.get(*key) {
+            None => {}
+            Some(Value::String(value)) => bounds[slot] = Some(value.as_str()),
+            Some(_) => return false,
+        }
+    }
+    let [lt, lte, gt, gte] = bounds;
+    // JavaScript compares strings by UTF-16 code units; ISO dates are ASCII.
+    lt.is_none_or(|d| today < d) && lte.is_none_or(|d| today <= d) && gt.is_none_or(|d| today > d) && gte.is_none_or(|d| today >= d)
 }
 
 /// v2 lists exact MIME types; opencode's capabilities use the broad kind.
@@ -826,6 +889,7 @@ fn model_info(provider_id: &str, provider: &ProviderDefaults<'_>, id: String, mo
             temperature: model.temperature,
         },
         variants: input.variants.unwrap_or_default(),
+        experimental: None,
         time: ModelTime { released: released(&model.release_date) },
         cost: input.cost.unwrap_or_else(|| cost(model.cost.as_ref())),
         status: match model.status.as_deref() {
@@ -855,8 +919,15 @@ pub fn normalize(input: &Object) -> Vec<Snapshot> {
     let mut failed: Vec<(String, String)> = vec![];
     let mut unknown: IndexSet<String> = IndexSet::new();
     let mut snapshots = vec![];
+    let subscriptions: IndexMap<String, Vec<String>> = OPENAI_SUBSCRIPTIONS
+        .iter()
+        .filter_map(|id| catalog.get(*id).and_then(subscription_ids).map(|ids| (id.to_string(), ids)))
+        .collect();
     for value in catalog.values() {
         let Some(item) = d_provider(value) else { continue };
+        if OPENAI_SUBSCRIPTIONS.contains(&item.id.as_str()) {
+            continue;
+        }
         let provider_id = item.id.clone();
         let mut sources: Vec<(SourceModel, Route)> = vec![];
         for (key, value) in item.models {
@@ -939,7 +1010,8 @@ pub fn normalize(input: &Object) -> Vec<Snapshot> {
                 ));
             }
         }
-        snapshots.push(Snapshot { info, models, environment: item.env.clone() });
+        let subscriptions = (provider_id == "openai" && !subscriptions.is_empty()).then(|| subscriptions.clone());
+        snapshots.push(Snapshot { info, models, environment: item.env.clone(), subscriptions });
     }
     if !failed.is_empty() {
         let models: Vec<&str> = failed.iter().take(10).map(|(m, _)| m.as_str()).collect();
@@ -949,6 +1021,29 @@ pub fn normalize(input: &Object) -> Vec<Snapshot> {
         tracing::debug!(entrypoints = ?unknown, "Skipped models.dev APIs with entrypoints this build doesn't have");
     }
     snapshots
+}
+
+/// One hidden subscription provider's model IDs (`Subscription`): each listed model's `id`, then `<id>-<mode>` for its
+/// modes. `None` when the list doesn't decode.
+fn subscription_ids(value: &Value) -> Option<Vec<String>> {
+    let models = value.as_object()?.get("models")?.as_object()?;
+    let mut ids = vec![];
+    for model in models.values() {
+        let model = model.as_object()?;
+        let id = model.get("id")?.as_str()?;
+        let modes = match model.get("experimental") {
+            None => None,
+            Some(Value::Object(experimental)) => match experimental.get("modes") {
+                None => None,
+                Some(Value::Object(modes)) => Some(modes),
+                Some(_) => return None,
+            },
+            Some(_) => return None,
+        };
+        ids.push(id.to_string());
+        ids.extend(modes.into_iter().flat_map(|m| m.keys()).map(|mode| format!("{id}-{mode}")));
+    }
+    Some(ids)
 }
 
 /// Decode `api.json` text as a JSON record.
@@ -1000,6 +1095,7 @@ pub fn filter_snapshots(data: &[Snapshot]) -> Vec<Snapshot> {
         .map(|p| Snapshot {
             info: p.info.clone(),
             environment: p.environment.clone(),
+            subscriptions: p.subscriptions.clone(),
             models: p
                 .models
                 .iter()
@@ -1277,14 +1373,15 @@ impl ModelsDev {
         self.events.subscribe()
     }
 
-    /// The v1 catalog was cached under unversioned keys; free that multi-MB row (done when the service
-    /// is built upstream, here before its first use).
+    /// Free the multi-MB rows cached under earlier keys (done when the service is built upstream, here before its
+    /// first use).
     async fn start(&self) {
         self.started
             .get_or_init(|| async {
-                let legacy = legacy_cache_key(&self.key);
-                self.cache.remove(&legacy).await;
-                self.cache.remove(&format!("{legacy}:meta")).await;
+                for legacy in legacy_cache_keys(&self.key) {
+                    self.cache.remove(&legacy).await;
+                    self.cache.remove(&format!("{legacy}:meta")).await;
+                }
             })
             .await;
     }

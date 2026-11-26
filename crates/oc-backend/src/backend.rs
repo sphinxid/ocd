@@ -521,16 +521,14 @@ impl Backend for Engine {
 
     async fn model_default(&self, ctx: &RequestContext, _req: ModelDefaultRequest) -> Result<Option<ModelInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        self.await_plugins(&loc).await?;
         let catalog = self.catalog(&loc).await?;
         catalog.default_model().map(conv).transpose()
     }
 
     async fn experimental_generate_text(&self, _ctx: &RequestContext, req: ExperimentalGenerateTextRequest) -> Result<GenerateTextResponse, ApiError> {
-        // Runs at the location whose directory is the global config directory, after its plugins activate.
+        // Runs at the location whose directory is the global config directory, with what its plugins loaded so far.
         let directory = self.app.global.config.display().to_string();
-        let loc = self.locations.get(&directory).await?;
-        self.await_plugins(&loc).await?;
+        self.locations.get(&directory).await?;
         let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
         let model = req.body.model.map(conv).transpose()?;
         match runner.generate_text(&directory, &req.body.prompt, model).await {
@@ -541,8 +539,7 @@ impl Backend for Engine {
 
     async fn experimental_generate_image(&self, _ctx: &RequestContext, req: ExperimentalGenerateImageRequest) -> Result<GenerateImageResponse, ApiError> {
         let directory = self.app.global.config.display().to_string();
-        let loc = self.locations.get(&directory).await?;
-        self.await_plugins(&loc).await?;
+        self.locations.get(&directory).await?;
         let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
         let body = serde_json::to_value(&req.body).map_err(|e| defect(e.to_string()))?;
         match runner.generate_image(&directory, &body).await {
@@ -557,7 +554,7 @@ impl Backend for Engine {
         req: ExperimentalGenerateDecisionsRequest,
     ) -> Result<GenerateDecisionsResponse, ApiError> {
         let directory = self.app.global.config.display().to_string();
-        let loc = self.locations.get(&directory).await?;
+        self.locations.get(&directory).await?;
         let questions = serde_json::to_value(&req.body.questions).map_err(|e| defect(e.to_string()))?;
         let names: Vec<&str> =
             questions.as_array().map(|q| q.iter().filter_map(|q| q.get("name").and_then(Value::as_str)).collect()).unwrap_or_default();
@@ -565,7 +562,6 @@ impl Backend for Engine {
         if unique.len() != names.len() {
             return Err(ApiError::invalid_request("Decision question names must be unique").with_field("questions"));
         }
-        self.await_plugins(&loc).await?;
         let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
         let body = serde_json::to_value(&req.body).map_err(|e| defect(e.to_string()))?;
         match runner.generate_decisions(&directory, &body).await {
@@ -836,7 +832,6 @@ impl Backend for Engine {
 
     async fn provider_list(&self, ctx: &RequestContext, _req: ProviderListRequest) -> Result<Vec<ProviderInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        self.await_plugins(&loc).await?;
         let catalog = self.catalog(&loc).await?;
         catalog.available_providers().into_iter().map(conv).collect()
     }
@@ -1055,7 +1050,16 @@ impl Backend for Engine {
     }
 
     async fn credential_remove(&self, _ctx: &RequestContext, req: CredentialRemoveRequest) -> Result<(), ApiError> {
-        self.credentials().remove(&req.credential_id).await.map_err(defect)
+        // Removal goes through the integration registry so a sign-in method can revoke the credential remotely
+        // first. Credentials are global: the registry is the global config location's. Like upstream, nothing waits
+        // for that location's plugins: one it boots announces its boot after this request's credential events, and
+        // a method its plugins have not registered yet does not revoke.
+        let global = self.app.global.config.display().to_string();
+        let loc = self.locations.get_activating(&global).await?;
+        let integrations = self.models().integrations_for(Some(&loc.key));
+        let removed = integrations.remove_connection(&req.credential_id).await.map_err(integration_error);
+        self.locations.finish_boot(&global).await;
+        removed
     }
 
     async fn credential_activate(&self, _ctx: &RequestContext, req: CredentialActivateRequest) -> Result<(), ApiError> {
@@ -1817,8 +1821,6 @@ impl Backend for Engine {
 
     async fn websearch_query(&self, ctx: &RequestContext, req: WebsearchQueryRequest) -> Result<WebSearchResponseEncoded, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        // A cold location must finish activating plugins before their providers can be resolved.
-        self.await_plugins(&loc).await?;
         let websearch = self.configure_websearch(&loc);
         use oc_tools::websearch::WebSearchError as W;
         match websearch.query(&req.body.query, req.body.provider_id.as_deref(), None, &|_| {}).await {
@@ -2065,19 +2067,10 @@ impl Engine {
         oc_core::worktree::strategies(&self.app.plugins, &self.app.bus, project_id).await
     }
 
-    /// `awaitPlugins` (server/src/location.ts): `Plugin.awaitActivation` for at most 5 seconds, then
-    /// `503 ServiceUnavailableError`. Since 2.2.7 only the endpoints that list or use providers wait.
-    async fn await_plugins(&self, loc: &crate::locations::Loc) -> Result<(), ApiError> {
-        tokio::time::timeout(std::time::Duration::from_secs(5), self.app.plugins.await_activation(&loc.key))
-            .await
-            .map_err(|_| ApiError::service_unavailable("Location plugins did not finish activating", Some("plugin".into())))
-    }
-
     /// `model.list` with `?types=`: enabled models of the given types, chat when none are given
     /// (`Model.available(types)`). Unknown types list nothing.
     pub async fn model_list_of(&self, ctx: &RequestContext, types: &[String]) -> Result<Vec<ModelInfo>, ApiError> {
         let loc = self.locations.get(&ctx.location.directory).await?;
-        self.await_plugins(&loc).await?;
         let catalog = self.catalog(&loc).await?;
         catalog.available_models_of(types).into_iter().map(conv).collect()
     }

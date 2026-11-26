@@ -1802,6 +1802,7 @@ impl Plugins {
                     info: oc_ai::credentials::integration::OAuthMethodInfo { id: method_id, label, form },
                     authorize,
                     refresh: handle("refresh"),
+                    revoke: handle("revoke"),
                 }));
             }
         }
@@ -2783,6 +2784,8 @@ struct PluginOAuth {
     info: oc_ai::credentials::integration::OAuthMethodInfo,
     authorize: String,
     refresh: Option<String>,
+    /// The plugin API's `revoke` (2.4.1): signs the credential out remotely before it is removed.
+    revoke: Option<String>,
 }
 
 fn flow_error(e: oc_plugin::CallError) -> oc_ai::credentials::integration::FlowError {
@@ -2875,6 +2878,19 @@ impl oc_ai::credentials::OAuthMethod for PluginOAuth {
         let host = plugins.host.get().ok_or_else(|| FlowError::new("Plugin host is not running"))?.clone();
         let input = serde_json::to_value(value.into_value()).unwrap_or_default();
         oauth_value(host.invoke(&LocationRef::new(self.key.clone()), handle, vec![input], None).await.map_err(flow_error)?)
+    }
+
+    fn can_revoke(&self) -> bool {
+        self.revoke.is_some()
+    }
+
+    async fn revoke(&self, value: oc_ai::credentials::OAuthValue) -> oc_ai::credentials::integration::FlowResult<()> {
+        use oc_ai::credentials::integration::FlowError;
+        let Some(handle) = &self.revoke else { return Ok(()) };
+        let plugins = self.plugins.upgrade().ok_or_else(|| FlowError::new("Plugin host is not running"))?;
+        let host = plugins.host.get().ok_or_else(|| FlowError::new("Plugin host is not running"))?.clone();
+        let input = serde_json::to_value(value.into_value()).unwrap_or_default();
+        host.invoke(&LocationRef::new(self.key.clone()), handle, vec![input], None).await.map(|_| ()).map_err(flow_error)
     }
 }
 

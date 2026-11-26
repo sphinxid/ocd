@@ -490,11 +490,34 @@ pub struct ModelInfo {
     pub body: Option<Object>,
     pub capabilities: Capabilities,
     pub variants: Vec<Variant>,
+    /// Experimental: may change without compatibility guarantees (`Model.Info.experimental`, 2.4.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experimental: Option<ModelExperimental>,
     pub time: ModelTime,
     pub cost: Vec<Cost>,
     pub status: ModelStatus,
     pub enabled: bool,
     pub limit: Limit,
+}
+
+/// `Model.Info.experimental`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ModelExperimental {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<ModelSpeed>,
+}
+
+/// `Model.Speed`: set on a model that is another model served faster or slower, such as "gpt-5.5-fast" for
+/// "gpt-5.5". Clients offer it as a speed of that model instead of listing it. Only the opt-in `model_speeds` flag
+/// lists such models.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelSpeed {
+    /// The same provider's model at its standard speed.
+    pub base: String,
+    /// The speed's name, such as "fast" or "flex".
+    pub id: String,
+    /// Whether it is faster than the standard speed. A slower speed trades latency for a lower price.
+    pub faster: bool,
 }
 
 impl ModelInfo {
@@ -515,6 +538,7 @@ impl ModelInfo {
             body: None,
             capabilities: Capabilities::default(),
             variants: vec![],
+            experimental: None,
             time: ModelTime { released: 0.0 },
             cost: vec![],
             status: ModelStatus::Active,

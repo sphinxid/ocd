@@ -67,13 +67,19 @@ async fn credential_changes_announce_availability_and_accounts_before_switching(
     settle().await;
     assert_eq!(drain(&mut rx, &h), ["credential.updated"]);
 
-    // Removing the inactive one switches nothing; removing the last one makes anthropic unavailable again.
+    // Removing the inactive one switches nothing; removing the last one makes anthropic unavailable again. Removal
+    // goes through the global config location's integrations (2.4.1), which it boots: that location announces its
+    // boot after the credential event.
     assert_eq!(h.req("DELETE", &format!("/api/credential/{first}"), None).await.status.as_u16() / 100, 2);
     settle().await;
-    assert_eq!(drain(&mut rx, &h), ["credential.updated"]);
+    assert_eq!(drain(&mut rx, &h), ["credential.updated", "provider.updated@config", "model.updated@config", "websearch.updated@config"]);
     assert_eq!(h.req("DELETE", &format!("/api/credential/{second}"), None).await.status.as_u16() / 100, 2);
     settle().await;
-    assert_eq!(drain(&mut rx, &h), ["credential.updated", "provider.updated@work", "model.updated@work", "credential.switched"]);
+    // Both loaded locations announce, in load order (as the 2.4.1 binary does in `api225_credential_events`).
+    assert_eq!(
+        drain(&mut rx, &h),
+        ["credential.updated", "provider.updated@work", "model.updated@work", "provider.updated@config", "model.updated@config", "credential.switched"]
+    );
 }
 
 #[tokio::test]
@@ -173,9 +179,18 @@ async fn account_changes_reload_web_search_only_when_its_list_changes() {
     let r = h.req("PATCH", &format!("/api/credential/{id}"), Some(json!({ "label": "work" }))).await;
     assert_eq!(r.status.as_u16() / 100, 2);
     settle().await;
+    // The global config location, booted by the removal above, reloads its catalog too (its web search list is
+    // unchanged: the policy is the project's).
     assert_eq!(
         drain(&mut rx, &h),
-        ["credential.updated", "provider.updated@work", "model.updated@work", "websearch.updated@work"]
+        [
+            "credential.updated",
+            "provider.updated@work",
+            "model.updated@work",
+            "websearch.updated@work",
+            "provider.updated@config",
+            "model.updated@config"
+        ]
     );
     assert!(!websearch().await.iter().any(|p| p == "exa"));
 }

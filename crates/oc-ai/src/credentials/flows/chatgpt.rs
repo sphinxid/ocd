@@ -262,6 +262,41 @@ impl OAuthMethod for ChatGptTokenSharing {
     async fn refresh(&self, value: OAuthValue) -> FlowResult<OAuthValue> {
         refresh(&self.ctx, &self.token_url(), &value).await
     }
+
+    fn can_revoke(&self) -> bool {
+        true
+    }
+
+    async fn revoke(&self, value: OAuthValue) -> FlowResult<()> {
+        revoke(&self.ctx, &format!("{}/api/accounts/oauth/revoke", self.issuer), &value).await
+    }
+}
+
+/// `revoke(value)`: revokes the refresh token so OpenAI ends the session; already-invalid tokens also answer 200.
+/// Logout waits on this, so it gives up after 5 seconds; an unrevoked token just expires unused.
+pub async fn revoke(ctx: &FlowContext, revoke_url: &str, value: &OAuthValue) -> FlowResult<()> {
+    let metadata = value.metadata.as_ref();
+    let client_id = metadata.and_then(|m| m.get("clientID")).and_then(Value::as_str);
+    let scopes_ok = match metadata.and_then(|m| m.get("scopes")) {
+        None => true,
+        Some(Value::Array(items)) => items.iter().all(Value::is_string),
+        Some(_) => false,
+    };
+    let (Some(client_id), true) = (client_id, scopes_ok) else {
+        return Err(FlowError::new("This ChatGPT connection has no registered client ID."));
+    };
+    let body = pkce::form_encode(&[("token", value.refresh.as_str()), ("token_type_hint", "refresh_token"), ("client_id", client_id)]);
+    let send = async {
+        let response = form_headers(ctx, ctx.http.post(revoke_url)).body(body).send().await.map_err(crate::credentials::http::transport)?;
+        if !response.status().is_success() {
+            return Err(FlowError::new(format!("Revocation failed: {}", response.status().as_u16())));
+        }
+        Ok(())
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(5), send).await {
+        Ok(result) => result,
+        Err(_) => Err(FlowError::new("Revocation timed out")),
+    }
 }
 
 fn form_headers(ctx: &FlowContext, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {

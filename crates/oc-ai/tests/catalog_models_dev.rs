@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-const META_KEY: &str = "models-dev:v2:catalog:meta";
+const META_KEY: &str = "models-dev:v3:catalog:meta";
 
 /// A chat model in the models.dev v2 shape, served over one OpenAI-compatible API.
 fn source_model(id: &str, extra: Value) -> Value {
@@ -193,9 +193,9 @@ async fn cached(data: &Value) -> Vec<Snapshot> {
 
 #[test]
 fn cache_keys_and_dates() {
-    assert_eq!(cache_key("https://models.opencode.ai"), "models-dev:v2:catalog");
-    assert_eq!(cache_key("https://example.com"), format!("models-dev:v2:catalog:{}", oc_util::hash::fast("https://example.com")));
-    assert_eq!(CATALOG_PATH, "/experimental/v2.0/api.json?type=chat,decision,image,video");
+    assert_eq!(cache_key("https://models.opencode.ai"), "models-dev:v3:catalog");
+    assert_eq!(cache_key("https://example.com"), format!("models-dev:v3:catalog:{}", oc_util::hash::fast("https://example.com")));
+    assert_eq!(CATALOG_PATH, "/experimental/v2.0/api.json?type=chat,decision,image,video,realtime&include=openai-codex,openai-chatgpt");
     assert_eq!(released("2026-01-01"), 1767225600000.0);
     assert_eq!(released("2025-02"), 1738368000000.0);
     assert_eq!(released("bogus"), 0.0);
@@ -212,10 +212,12 @@ async fn get_returns_normalized_snapshots_from_cache() {
 }
 
 #[tokio::test]
-async fn removes_the_unversioned_v1_cache_rows_at_startup() {
+async fn removes_the_unversioned_v1_and_the_v2_cache_rows_at_startup() {
     let cache = Arc::new(MemoryCache::default());
     cache.set("models-dev:catalog", json!({"updatedAt": 1, "body": "{}"})).await.unwrap();
     cache.set("models-dev:catalog:meta", json!({"updatedAt": 1})).await.unwrap();
+    cache.set("models-dev:v2:catalog", json!({"updatedAt": 1, "body": "{}"})).await.unwrap();
+    cache.set("models-dev:v2:catalog:meta", json!({"updatedAt": 1})).await.unwrap();
     let mirror = format!("models-dev:catalog:{}", oc_util::hash::fast("https://mirror.example"));
     cache.set(&mirror, json!({"updatedAt": 1, "body": "{}"})).await.unwrap();
     write_cache(&cache, &fixture(), now()).await;
@@ -223,6 +225,8 @@ async fn removes_the_unversioned_v1_cache_rows_at_startup() {
     service.get().await.unwrap();
     assert!(cache.get("models-dev:catalog").await.is_none());
     assert!(cache.get("models-dev:catalog:meta").await.is_none());
+    assert!(cache.get("models-dev:v2:catalog").await.is_none());
+    assert!(cache.get("models-dev:v2:catalog:meta").await.is_none());
     // Only the rows of this service's source go.
     assert!(cache.get(&mirror).await.is_some());
     assert!(cache.get(DEFAULT_CACHE_KEY).await.is_some());
@@ -487,7 +491,7 @@ async fn falls_back_to_api_json_when_a_custom_mirror_has_no_v2_catalog() {
     let result = service.get().await.unwrap();
     assert_eq!(
         *http.0.lock(),
-        ["https://mirror.example/experimental/v2.0/api.json?type=chat,decision,image,video", "https://mirror.example/api.json"]
+        ["https://mirror.example/experimental/v2.0/api.json?type=chat,decision,image,video,realtime&include=openai-codex,openai-chatgpt", "https://mirror.example/api.json"]
     );
     assert_eq!(result[0].models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["beta-1"]);
 }
@@ -546,7 +550,7 @@ async fn uses_default_url_when_configured_url_is_empty() {
     opts.url = Some(String::new());
     let service = ModelsDev::new(opts, Arc::new(MemoryCache::default()), http.clone());
     service.get().await.unwrap();
-    assert_eq!(http.calls()[0].url, "https://models.opencode.ai/experimental/v2.0/api.json?type=chat,decision,image,video");
+    assert_eq!(http.calls()[0].url, "https://models.opencode.ai/experimental/v2.0/api.json?type=chat,decision,image,video,realtime&include=openai-codex,openai-chatgpt");
     assert_eq!(http.calls()[0].user_agent, "opencode/test/1.0.0/opencode");
 }
 
@@ -784,6 +788,7 @@ fn lists_non_chat_models_only_by_type_so_sessions_never_see_them() {
             ..oc_ai::catalog::ProviderInfo::empty("acme")
         },
         environment: vec![],
+        subscriptions: None,
         models: vec![model("gpt-5.5", None), model("gpt-audio", Some("chat")), model("jev-1.13", Some("decision")), model("gpt-image-2", Some("image"))],
     };
     let mut plugins: Vec<Box<dyn CatalogPlugin>> = vec![Box::new(ModelsDevPlugin::new(&[snapshot])), Box::new(Activate)];
@@ -967,7 +972,15 @@ fn bundled_snapshot_normalizes() {
     let anthropic = data.iter().find(|s| s.info.id == "anthropic").unwrap();
     assert_eq!(anthropic.info.package, "@opencode/ai/providers/anthropic");
     assert_eq!(anthropic.info.base_url(), Some("https://api.anthropic.com/v1"));
-    assert_eq!(data.len(), 230);
+    // The 2.4.1 snapshot normalizes to what upstream's `decodeSnapshot` gives (checked with the 2.4.1 source).
+    assert_eq!(data.len(), 326);
+    assert_eq!(data.iter().map(|s| s.models.len()).sum::<usize>(), 10039);
+    assert!(data.iter().all(|s| s.info.id != "openai-codex" && s.info.id != "openai-chatgpt"));
+    let codex = Snapshot::subscription(&data, "openai-codex").unwrap();
+    assert_eq!(codex.len(), 21);
+    assert_eq!(codex[0], "gpt-5.6-terra");
+    assert!(codex.contains(&"gpt-image-2".to_string()));
+    assert_eq!(Snapshot::subscription(&data, "openai-chatgpt").unwrap().len(), 20);
     let deepseek = data.iter().find(|s| s.info.id == "deepseek").unwrap();
     assert_eq!(deepseek.info.package, "@opencode/ai/providers/deepseek");
     assert_eq!(deepseek.info.settings.as_ref().and_then(|s| s.get("baseURL")).and_then(Value::as_str), Some("https://api.deepseek.com"));
@@ -1095,4 +1108,89 @@ fn a_read_spanning_a_refresh_is_not_memoized() {
         assert_eq!(catalog[0].info.name, "Acme Two");
         assert_eq!(service.get().await.unwrap()[0].info.name, "Acme Two");
     });
+}
+
+/// "attaches the OpenAI subscription lists to openai instead of adding them as providers" (2.4.1)
+#[test]
+fn attaches_the_openai_subscription_lists_to_openai_instead_of_adding_them_as_providers() {
+    let list = |id: &str, models: Value| json!({"id": id, "name": id, "env": ["CHATGPT_ACCESS_TOKEN"], "models": models});
+    let catalog = json!({
+        "openai": {"id": "openai", "name": "OpenAI", "env": ["OPENAI_API_KEY"], "models": {"gpt-6": source_model("gpt-6", json!({}))}},
+        "openai-codex": list("openai-codex", json!({"gpt-6": source_model("gpt-6", json!({"experimental": {"modes": {"fast": {}}}}))})),
+        "openai-chatgpt": list("openai-chatgpt", json!({"gpt-5.5": source_model("gpt-5.5", json!({}))})),
+    });
+    let snapshots = decode_snapshot(&catalog.to_string()).unwrap();
+    assert_eq!(snapshots.iter().map(|s| s.info.id.as_str()).collect::<Vec<_>>(), ["openai"]);
+    assert_eq!(
+        serde_json::to_value(&snapshots[0].subscriptions).unwrap(),
+        json!({"openai-codex": ["gpt-6", "gpt-6-fast"], "openai-chatgpt": ["gpt-5.5"]})
+    );
+    assert_eq!(Snapshot::subscription(&snapshots, "openai-codex").unwrap(), ["gpt-6", "gpt-6-fast"]);
+    // The filtered snapshots keep them.
+    assert_eq!(filter_snapshots(&snapshots)[0].subscriptions, snapshots[0].subscriptions);
+    // A catalog without the lists, or with an empty one, has none.
+    let empty = json!({
+        "openai": catalog["openai"].clone(),
+        "openai-chatgpt": list("openai-chatgpt", json!({})),
+    });
+    let snapshots = decode_snapshot(&empty.to_string()).unwrap();
+    assert_eq!(Snapshot::subscription(&snapshots, "openai-chatgpt"), None);
+    assert_eq!(Snapshot::subscription(&snapshots, "openai-codex"), None);
+    let without = decode_snapshot(&json!({"openai": catalog["openai"].clone()}).to_string()).unwrap();
+    assert_eq!(without[0].subscriptions, None);
+}
+
+/// The always-on part of "lists each service tier as a model of its own" (2.4.1): without speeds only the modes are
+/// models, nothing is marked, a malformed `service_tier` capability fails its model, and a mode's multiplier may hold
+/// only for some dates.
+#[test]
+fn modes_stay_models_without_speeds_and_take_the_multiplier_for_today() {
+    let tiers = |input: Value| {
+        let mut capabilities = json!({"tools": {"supported": true}, "reasoning": {"supported": false}});
+        for (k, v) in input.as_object().unwrap() {
+            capabilities[k] = v.clone();
+        }
+        json!({"capabilities": capabilities})
+    };
+    let mut acme1 = source_model("acme-1", tiers(json!({"service_tier": ["ultrafast", "priority", "flex"]})));
+    acme1["name"] = json!("Acme One");
+    acme1["cost"] = json!({
+        "text": {"input": {"price": 2}, "output": {"price": 10}},
+        "multipliers": [
+            {"when": {"service_tier": {"equals": "priority"}}, "factor": 2},
+            // Only the multiplier whose dates hold today applies.
+            {"when": {"service_tier": {"equals": "ultrafast"}, "date": {"lt": "2020-01-01"}}, "factor": 3},
+            {"when": {"service_tier": {"equals": "ultrafast"}, "date": {"gte": "2020-01-01"}}, "factor": 6},
+            // A condition other than the tier and dates never applies.
+            {"when": {"service_tier": {"equals": "flex"}, "region": "eu"}, "factor": 0.5}
+        ]
+    });
+    acme1["experimental"] = json!({"modes": {
+        "fast": {"service_tier": "priority", "body": {"service_tier": "priority"}, "headers": {"x-old": "1"}},
+        "pro": {"body": {"reasoning": {"mode": "pro"}}},
+        "ultrafast": {},
+        "flex": {}
+    }});
+    let catalog = json!({"acme": {"id": "acme", "name": "Acme", "env": ["ACME_API_KEY"], "models": {
+        "acme-1": acme1,
+        "acme-2": source_model("acme-2", tiers(json!({"service_tier": ["flex"]}))),
+        "acme-2-flex": source_model("acme-2-flex", json!({})),
+        "broken": source_model("broken", tiers(json!({"service_tier": "flex"}))),
+        "kimi": source_model("kimi", json!({"experimental": {"modes": {"priority": {"body": {"service_tier": "priority"}}}}}))
+    }}});
+    let plain = decode_snapshot(&catalog.to_string()).unwrap();
+    let models = &plain[0].models;
+    assert_eq!(
+        models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["acme-1", "acme-1-fast", "acme-1-pro", "acme-1-ultrafast", "acme-1-flex", "acme-2", "acme-2-flex", "kimi", "kimi-priority"]
+    );
+    let model = |id: &str| models.iter().find(|m| m.id == id).unwrap();
+    assert!(models.iter().all(|m| m.experimental.is_none()));
+    let json = serde_json::to_value(model("acme-1-fast")).unwrap();
+    assert_eq!(json["body"], json!({"service_tier": "priority"}));
+    assert_eq!(json["headers"], json!({"x-old": "1"}));
+    assert!(json.get("experimental").is_none());
+    assert_eq!((model("acme-1-fast").cost[0].input, model("acme-1-fast").cost[0].output), (4.0, 20.0));
+    assert_eq!(model("acme-1-ultrafast").cost[0].input, 12.0);
+    assert_eq!(model("acme-1-flex").cost[0].input, 2.0);
 }
