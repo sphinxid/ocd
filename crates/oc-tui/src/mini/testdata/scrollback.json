@@ -173,7 +173,7 @@
 "styles": [
 [
 "0-9:i215/#000000:0/4",
-"9-42:i255/#000000:0/0",
+"9-42:i8/#000000:0/0",
 "42-80:-"
 ]
 ]
@@ -195,15 +195,12 @@
 },
 {
 "width": 80,
-"height": 4,
+"height": 1,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
-"Hello! I can help with that.",
-"",
-"- one",
-"- two"
+"Hello! I can help with that."
 ],
 "styles": [
 [
@@ -211,7 +208,21 @@
 "23-27:i215/#000000:0/1",
 "27-28:i255/#000000:0/0",
 "28-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 3,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"- one",
+"- two"
 ],
+"styles": [
 [
 "0-80:-"
 ],
@@ -286,10 +297,10 @@
 "commits": [
 {
 "width": 80,
-"height": 16,
+"height": 18,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "Title",
 "",
@@ -306,7 +317,9 @@
 "│ quote here",
 "",
 "────────────────────────────────────────────────────────────────────────────────",
-""
+"",
+"a  b",
+"1  2"
 ],
 "styles": [
 [
@@ -371,7 +384,7 @@
 [
 "0-1:i255/#000000:0/0",
 "1-2:-",
-"2-12:i255/#000000:0/4",
+"2-12:i215/#000000:0/4",
 "12-80:-"
 ],
 [
@@ -382,34 +395,32 @@
 ],
 [
 "0-80:-"
+],
+[
+"0-1:i104/#000000:0/1",
+"1-3:-",
+"3-4:i104/#000000:0/1",
+"4-80:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-3:-",
+"3-4:i255/#000000:0/0",
+"4-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 4,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"a  b",
-"1  2",
 "",
 "See link (https://example.com) now."
 ],
 "styles": [
-[
-"0-1:i104/#000000:0/1",
-"1-3:#ffffff/#000000:0/0",
-"3-4:i104/#000000:0/1",
-"4-80:#ffffff/#000000:0/0"
-],
-[
-"0-1:i255/#000000:0/0",
-"1-3:#ffffff/#000000:0/0",
-"3-4:i255/#000000:0/0",
-"4-80:#ffffff/#000000:0/0"
-],
 [
 "0-80:-"
 ],
@@ -514,13 +525,12 @@
 "commits": [
 {
 "width": 80,
-"height": 2,
+"height": 1,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
-"Hello! I can help with that.",
-""
+"Hello! I can help with that."
 ],
 "styles": [
 [
@@ -528,23 +538,24 @@
 "23-27:i215/#000000:0/1",
 "27-28:i255/#000000:0/0",
 "28-80:-"
-],
-[
-"0-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 2,
+"height": 3,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "- one",
 "- two"
 ],
 "styles": [
+[
+"0-80:-"
+],
 [
 "0-2:i216/#000000:0/0",
 "2-5:i255/#000000:0/0",
@@ -604,7 +615,7 @@
 "styles": [
 [
 "0-9:i215/#000000:0/4",
-"9-42:i255/#000000:0/0",
+"9-42:i8/#000000:0/0",
 "42-80:-"
 ]
 ]
@@ -626,13 +637,12 @@
 },
 {
 "width": 80,
-"height": 2,
+"height": 1,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
-"Hello! I can help with that.",
-""
+"Hello! I can help with that."
 ],
 "styles": [
 [
@@ -640,23 +650,24 @@
 "23-27:i215/#000000:0/1",
 "27-28:i255/#000000:0/0",
 "28-80:-"
-],
-[
-"0-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 2,
+"height": 3,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "- one",
 "- two"
 ],
 "styles": [
+[
+"0-80:-"
+],
 [
 "0-2:i216/#000000:0/0",
 "2-5:i255/#000000:0/0",
@@ -696,13 +707,12 @@
 "commits": [
 {
 "width": 80,
-"height": 2,
+"height": 1,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
-"Hello! I can help with that.",
-""
+"Hello! I can help with that."
 ],
 "styles": [
 [
@@ -710,23 +720,24 @@
 "23-27:i215/#000000:0/1",
 "27-28:i255/#000000:0/0",
 "28-80:-"
-],
-[
-"0-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 2,
+"height": 3,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "- one",
 "- two"
 ],
 "styles": [
+[
+"0-80:-"
+],
 [
 "0-2:i216/#000000:0/0",
 "2-5:i255/#000000:0/0",
@@ -766,10 +777,10 @@
 "commits": [
 {
 "width": 80,
-"height": 16,
+"height": 18,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "Title",
 "",
@@ -786,7 +797,9 @@
 "│ quote here",
 "",
 "────────────────────────────────────────────────────────────────────────────────",
-""
+"",
+"a  b",
+"1  2"
 ],
 "styles": [
 [
@@ -851,7 +864,7 @@
 [
 "0-1:i255/#000000:0/0",
 "1-2:-",
-"2-12:i255/#000000:0/4",
+"2-12:i215/#000000:0/4",
 "12-80:-"
 ],
 [
@@ -862,34 +875,32 @@
 ],
 [
 "0-80:-"
+],
+[
+"0-1:i104/#000000:0/1",
+"1-3:-",
+"3-4:i104/#000000:0/1",
+"4-80:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-3:-",
+"3-4:i255/#000000:0/0",
+"4-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 4,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"a  b",
-"1  2",
 "",
 "See link (https://example.com) now."
 ],
 "styles": [
-[
-"0-1:i104/#000000:0/1",
-"1-3:#ffffff/#000000:0/0",
-"3-4:i104/#000000:0/1",
-"4-80:#ffffff/#000000:0/0"
-],
-[
-"0-1:i255/#000000:0/0",
-"1-3:#ffffff/#000000:0/0",
-"3-4:i255/#000000:0/0",
-"4-80:#ffffff/#000000:0/0"
-],
 [
 "0-80:-"
 ],
@@ -935,12 +946,12 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Inline: strike, under em, under strong, both, ab, `tick ` code``."
+"Inline: strike, under em, under strong, both, ab, ``tick  code``."
 ],
 "styles": [
 [
 "0-8:i255/#000000:0/0",
-"8-14:i8/#000000:0/0",
+"8-14:i8/#000000:0/128",
 "14-16:i255/#000000:0/0",
 "16-24:i215/#000000:0/4",
 "24-26:i255/#000000:0/0",
@@ -950,8 +961,8 @@
 "44-46:i255/#000000:0/0",
 "46-47:i114/#000000:0/0",
 "47-48:i255/#000000:0/0",
-"48-51:i114/#000000:0/0",
-"51-65:i255/#000000:0/0",
+"48-57:i114/#000000:0/0",
+"57-65:i255/#000000:0/0",
 "65-80:-"
 ]
 ]
@@ -988,18 +999,18 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Escapes \\*not em\\* and a \\_ backslash; entity & <tag> space."
+"Escapes *not em* and a _ backslash; entity & <tag>  space."
 ],
 "styles": [
 [
 "0-8:i255/#000000:0/0",
-"8-10:i104/#000000:0/0",
-"10-16:i255/#000000:0/0",
-"16-18:i104/#000000:0/0",
-"18-25:i255/#000000:0/0",
-"25-27:i104/#000000:0/0",
-"27-60:i255/#000000:0/0",
-"60-80:-"
+"8-9:i104/#000000:0/0",
+"9-15:i255/#000000:0/0",
+"15-16:i104/#000000:0/0",
+"16-23:i255/#000000:0/0",
+"23-24:i104/#000000:0/0",
+"24-58:i255/#000000:0/0",
+"58-80:-"
 ]
 ]
 }
@@ -1035,33 +1046,26 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Links: text (https://a.b/c \"title\"), https://auto.link, ref, full, img, https://",
-"bare.url/path."
+"Links: text (https://a.b/c), https://auto.link, [ref], [full][ref2], img, https:",
+"//bare.url/path."
 ],
 "styles": [
 [
 "0-7:i255/#000000:0/0",
 "7-11:i73/#000000:0/8",
 "11-12:i255/#000000:0/0",
-"12-26:i216/#000000:0/8",
-"26-27:i255/#000000:0/0",
-"27-34:i73/#000000:0/8",
-"34-35:i216/#000000:0/8",
-"35-37:i255/#000000:0/0",
-"37-54:i216/#000000:0/8",
-"54-56:i255/#000000:0/0",
-"56-59:i73/#000000:0/8",
-"59-61:i255/#000000:0/0",
-"61-65:i73/#000000:0/8",
-"65-67:i255/#000000:0/0",
-"67-70:i73/#000000:0/8",
-"70-72:i255/#000000:0/0",
-"72-80:i73/#000000:0/8"
+"12-27:i216/#000000:0/8",
+"27-29:i255/#000000:0/0",
+"29-46:i73/#000000:0/8",
+"46-69:i255/#000000:0/0",
+"69-72:i73/#000000:0/8",
+"72-74:i255/#000000:0/0",
+"74-80:i73/#000000:0/8"
 ],
 [
-"0-13:i73/#000000:0/8",
-"13-14:i255/#000000:0/0",
-"14-80:-"
+"0-15:i73/#000000:0/8",
+"15-16:i255/#000000:0/0",
+"16-80:-"
 ]
 ]
 }
@@ -1092,15 +1096,16 @@
 "commits": [
 {
 "width": 80,
-"height": 4,
+"height": 5,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "Second level",
 "",
 "Third level heading with bold",
-""
+"",
+"Four"
 ],
 "styles": [
 [
@@ -1111,30 +1116,30 @@
 "0-80:-"
 ],
 [
-"0-29:i104/#000000:0/1",
+"0-25:i104/#000000:0/1",
+"25-29:i215/#000000:0/1",
 "29-80:-"
 ],
 [
 "0-80:-"
+],
+[
+"0-4:i104/#000000:0/1",
+"4-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 3,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Four",
 "",
 "Body."
 ],
 "styles": [
-[
-"0-4:i104/#000000:0/1",
-"4-80:-"
-],
 [
 "0-80:-"
 ],
@@ -1171,35 +1176,46 @@
 "commits": [
 {
 "width": 80,
-"height": 5,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Setext",
+"==="
+],
+"styles": [
+[
+"0-6:i104/#000000:0/9",
+"6-80:-"
+],
+[
+"0-3:i104/#000000:0/9",
+"3-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 3,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Setext",
-"===",
 "",
 "Sub",
 "---"
 ],
 "styles": [
 [
-"0-6:i255/#000000:0/0",
-"6-80:-"
-],
-[
-"0-3:i255/#000000:0/0",
-"3-80:-"
-],
-[
 "0-80:-"
 ],
 [
-"0-3:i255/#000000:0/0",
+"0-3:i104/#000000:0/1",
 "3-80:-"
 ],
 [
-"0-3:i255/#000000:0/0",
+"0-3:i104/#000000:0/1",
 "3-80:-"
 ]
 ]
@@ -1231,14 +1247,16 @@
 "commits": [
 {
 "width": 80,
-"height": 6,
+"height": 8,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
 "- item one",
+"",
 "  - nested a",
 "  - nested b",
+"",
 "- item two with a long line that wraps around the column limit at narrow widths",
 "",
 "- loose item"
@@ -1250,6 +1268,9 @@
 "10-80:-"
 ],
 [
+"0-80:-"
+],
+[
 "0-2:-",
 "2-4:i216/#000000:0/0",
 "4-12:i255/#000000:0/0",
@@ -1260,6 +1281,9 @@
 "2-4:i216/#000000:0/0",
 "4-12:i255/#000000:0/0",
 "12-80:-"
+],
+[
+"0-80:-"
 ],
 [
 "0-2:i216/#000000:0/0",
@@ -1308,19 +1332,19 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"- todo item",
-"- done item"
+"- ☐ todo item",
+"- ☑ done item"
 ],
 "styles": [
 [
-"0-2:i216/#000000:0/0",
-"2-11:i255/#000000:0/0",
-"11-80:-"
+"0-4:i216/#000000:0/0",
+"4-13:i255/#000000:0/0",
+"13-80:-"
 ],
 [
-"0-2:i216/#000000:0/0",
-"2-11:i255/#000000:0/0",
-"11-80:-"
+"0-4:i216/#000000:0/0",
+"4-13:i255/#000000:0/0",
+"13-80:-"
 ]
 ]
 }
@@ -1412,15 +1436,13 @@
 "commits": [
 {
 "width": 80,
-"height": 4,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "def f(x):",
-"    return x * 2  # comment",
-"",
-"Text after fence."
+"    return x * 2  # comment"
 ],
 "styles": [
 [
@@ -1430,7 +1452,20 @@
 [
 "0-27:i255/#000000:0/0",
 "27-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"Text after fence."
 ],
+"styles": [
 [
 "0-80:-"
 ],
@@ -1573,36 +1608,36 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Name   Value  Notes",
-"alpha  1      first bold",
-"beta   22     code here"
+"Name   Value    Notes",
+"alpha      1  first bold",
+"beta      22  code here"
 ],
 "styles": [
 [
 "0-4:i104/#000000:0/1",
-"4-7:#ffffff/#000000:0/0",
+"4-7:-",
 "7-12:i104/#000000:0/1",
-"12-14:#ffffff/#000000:0/0",
-"14-19:i104/#000000:0/1",
-"19-80:#ffffff/#000000:0/0"
+"12-16:-",
+"16-21:i104/#000000:0/1",
+"21-80:-"
 ],
 [
 "0-5:i255/#000000:0/0",
-"5-7:#ffffff/#000000:0/0",
-"7-8:i255/#000000:0/0",
-"8-14:#ffffff/#000000:0/0",
+"5-11:-",
+"11-12:i255/#000000:0/0",
+"12-14:-",
 "14-20:i255/#000000:0/0",
 "20-24:i215/#000000:0/1",
-"24-80:#ffffff/#000000:0/0"
+"24-80:-"
 ],
 [
 "0-4:i255/#000000:0/0",
-"4-7:#ffffff/#000000:0/0",
-"7-9:i255/#000000:0/0",
-"9-14:#ffffff/#000000:0/0",
+"4-10:-",
+"10-12:i255/#000000:0/0",
+"12-14:-",
 "14-18:i114/#000000:0/0",
 "18-23:i255/#000000:0/0",
-"23-80:#ffffff/#000000:0/0"
+"23-80:-"
 ]
 ]
 }
@@ -1633,44 +1668,44 @@
 "commits": [
 {
 "width": 80,
-"height": 3,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "│ quote bold",
-"│ second line",
-""
+"│ second line"
 ],
 "styles": [
 [
 "0-1:i255/#000000:0/0",
 "1-2:-",
-"2-8:i255/#000000:0/4",
+"2-8:i215/#000000:0/4",
 "8-12:i215/#000000:0/5",
 "12-80:-"
 ],
 [
 "0-1:i255/#000000:0/0",
 "1-2:-",
-"2-13:i255/#000000:0/4",
+"2-13:i215/#000000:0/4",
 "13-80:-"
-],
-[
-"0-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 1,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "after quote"
 ],
 "styles": [
+[
+"0-80:-"
+],
 [
 "0-11:i255/#000000:0/0",
 "11-80:-"
@@ -1710,19 +1745,17 @@
 "trailingNewline": false,
 "rows": [
 "Text with trailing spaces",
-"hard break and\\",
+"hard break and",
 "backslash break"
 ],
 "styles": [
 [
 "0-25:i255/#000000:0/0",
-"25-27:i104/#000000:0/0",
-"27-80:-"
+"25-80:-"
 ],
 [
 "0-14:i255/#000000:0/0",
-"14-15:i104/#000000:0/0",
-"15-80:-"
+"14-80:-"
 ],
 [
 "0-15:i255/#000000:0/0",
@@ -1810,15 +1843,14 @@
 "commits": [
 {
 "width": 80,
-"height": 4,
+"height": 3,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "<div>",
 "html block",
-"</div>",
-"after html"
+"</div>"
 ],
 "styles": [
 [
@@ -1832,6 +1864,22 @@
 [
 "0-6:i255/#000000:0/0",
 "6-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"after html"
+],
+"styles": [
+[
+"0-80:-"
 ],
 [
 "0-10:i255/#000000:0/0",
@@ -1866,14 +1914,13 @@
 "commits": [
 {
 "width": 80,
-"height": 3,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "Para one.",
-"Same para line two.",
-""
+"Same para line two."
 ],
 "styles": [
 [
@@ -1883,22 +1930,23 @@
 [
 "0-19:i255/#000000:0/0",
 "19-80:-"
-],
-[
-"0-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 1,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "Para two."
 ],
 "styles": [
+[
+"0-80:-"
+],
 [
 "0-9:i255/#000000:0/0",
 "9-80:-"
@@ -1932,33 +1980,33 @@
 "commits": [
 {
 "width": 80,
-"height": 2,
+"height": 1,
 "rowColumns": 80,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
-"────────────────────────────────────────────────────────────────────────────────",
-""
+"────────────────────────────────────────────────────────────────────────────────"
 ],
 "styles": [
 [
 "0-80:i255/#000000:0/0"
-],
-[
-"0-80:-"
 ]
 ]
 },
 {
 "width": 80,
-"height": 1,
+"height": 2,
 "rowColumns": 80,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "After rule"
 ],
 "styles": [
+[
+"0-80:-"
+],
 [
 "0-10:i255/#000000:0/0",
 "10-80:-"
@@ -1992,13 +2040,12 @@
 "commits": [
 {
 "width": 36,
-"height": 2,
+"height": 1,
 "rowColumns": 36,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
-"Hello! I can help with that.",
-""
+"Hello! I can help with that."
 ],
 "styles": [
 [
@@ -2006,23 +2053,24 @@
 "23-27:i215/#000000:0/1",
 "27-28:i255/#000000:0/0",
 "28-36:-"
-],
-[
-"0-36:-"
 ]
 ]
 },
 {
 "width": 36,
-"height": 2,
+"height": 3,
 "rowColumns": 36,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "- one",
 "- two"
 ],
 "styles": [
+[
+"0-36:-"
+],
 [
 "0-2:i216/#000000:0/0",
 "2-5:i255/#000000:0/0",
@@ -2062,10 +2110,10 @@
 "commits": [
 {
 "width": 36,
-"height": 16,
+"height": 18,
 "rowColumns": 36,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "Title",
 "",
@@ -2082,7 +2130,9 @@
 "│ quote here",
 "",
 "────────────────────────────────────",
-""
+"",
+"a  b",
+"1  2"
 ],
 "styles": [
 [
@@ -2147,7 +2197,7 @@
 [
 "0-1:i255/#000000:0/0",
 "1-2:-",
-"2-12:i255/#000000:0/4",
+"2-12:i215/#000000:0/4",
 "12-36:-"
 ],
 [
@@ -2158,34 +2208,32 @@
 ],
 [
 "0-36:-"
+],
+[
+"0-1:i104/#000000:0/1",
+"1-3:-",
+"3-4:i104/#000000:0/1",
+"4-36:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-3:-",
+"3-4:i255/#000000:0/0",
+"4-36:-"
 ]
 ]
 },
 {
 "width": 36,
-"height": 4,
+"height": 2,
 "rowColumns": 36,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"a  b",
-"1  2",
 "",
 "See link (https://example.com) now."
 ],
 "styles": [
-[
-"0-1:i104/#000000:0/1",
-"1-3:#ffffff/#000000:0/0",
-"3-4:i104/#000000:0/1",
-"4-36:#ffffff/#000000:0/0"
-],
-[
-"0-1:i255/#000000:0/0",
-"1-3:#ffffff/#000000:0/0",
-"3-4:i255/#000000:0/0",
-"4-36:#ffffff/#000000:0/0"
-],
 [
 "0-36:-"
 ],
@@ -2232,12 +2280,12 @@
 "trailingNewline": false,
 "rows": [
 "Inline: strike, under em, under",
-"strong, both, ab, `tick ` code``."
+"strong, both, ab, ``tick  code``."
 ],
 "styles": [
 [
 "0-8:i255/#000000:0/0",
-"8-14:i8/#000000:0/0",
+"8-14:i8/#000000:0/128",
 "14-16:i255/#000000:0/0",
 "16-24:i215/#000000:0/4",
 "24-26:i255/#000000:0/0",
@@ -2251,8 +2299,8 @@
 "12-14:i255/#000000:0/0",
 "14-15:i114/#000000:0/0",
 "15-16:i255/#000000:0/0",
-"16-19:i114/#000000:0/0",
-"19-33:i255/#000000:0/0",
+"16-25:i114/#000000:0/0",
+"25-33:i255/#000000:0/0",
 "33-36:-"
 ]
 ]
@@ -2289,23 +2337,22 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Escapes \\*not em\\* and a \\_",
-"backslash; entity & <tag> space."
+"Escapes *not em* and a _ backslash;",
+"entity & <tag>  space."
 ],
 "styles": [
 [
 "0-8:i255/#000000:0/0",
-"8-10:i104/#000000:0/0",
-"10-16:i255/#000000:0/0",
-"16-18:i104/#000000:0/0",
-"18-25:i255/#000000:0/0",
-"25-27:i104/#000000:0/0",
-"27-28:i255/#000000:0/0",
-"28-36:-"
+"8-9:i104/#000000:0/0",
+"9-15:i255/#000000:0/0",
+"15-16:i104/#000000:0/0",
+"16-23:i255/#000000:0/0",
+"23-24:i104/#000000:0/0",
+"24-36:i255/#000000:0/0"
 ],
 [
-"0-32:i255/#000000:0/0",
-"32-36:-"
+"0-22:i255/#000000:0/0",
+"22-36:-"
 ]
 ]
 }
@@ -2341,36 +2388,30 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Links: text (https://a.b/c \"title\"),",
-"https://auto.link, ref, full, img,",
-"https://bare.url/path."
+"Links: text (https://a.b/c), https:/",
+"/auto.link, [ref], [full][ref2],",
+"img, https://bare.url/path."
 ],
 "styles": [
 [
 "0-7:i255/#000000:0/0",
 "7-11:i73/#000000:0/8",
 "11-12:i255/#000000:0/0",
-"12-26:i216/#000000:0/8",
+"12-27:i216/#000000:0/8",
+"27-29:i255/#000000:0/0",
+"29-36:i73/#000000:0/8"
+],
+[
+"0-10:i73/#000000:0/8",
+"10-33:i255/#000000:0/0",
+"33-36:-"
+],
+[
+"0-3:i73/#000000:0/8",
+"3-5:i255/#000000:0/0",
+"5-26:i73/#000000:0/8",
 "26-27:i255/#000000:0/0",
-"27-34:i73/#000000:0/8",
-"34-35:i216/#000000:0/8",
-"35-36:i255/#000000:0/0"
-],
-[
-"0-17:i216/#000000:0/8",
-"17-19:i255/#000000:0/0",
-"19-22:i73/#000000:0/8",
-"22-24:i255/#000000:0/0",
-"24-28:i73/#000000:0/8",
-"28-30:i255/#000000:0/0",
-"30-33:i73/#000000:0/8",
-"33-35:i255/#000000:0/0",
-"35-36:-"
-],
-[
-"0-21:i73/#000000:0/8",
-"21-22:i255/#000000:0/0",
-"22-36:-"
+"27-36:-"
 ]
 ]
 }
@@ -2401,15 +2442,16 @@
 "commits": [
 {
 "width": 36,
-"height": 4,
+"height": 5,
 "rowColumns": 36,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "Second level",
 "",
 "Third level heading with bold",
-""
+"",
+"Four"
 ],
 "styles": [
 [
@@ -2420,30 +2462,30 @@
 "0-36:-"
 ],
 [
-"0-29:i104/#000000:0/1",
+"0-25:i104/#000000:0/1",
+"25-29:i215/#000000:0/1",
 "29-36:-"
 ],
 [
 "0-36:-"
+],
+[
+"0-4:i104/#000000:0/1",
+"4-36:-"
 ]
 ]
 },
 {
 "width": 36,
-"height": 3,
+"height": 2,
 "rowColumns": 36,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Four",
 "",
 "Body."
 ],
 "styles": [
-[
-"0-4:i104/#000000:0/1",
-"4-36:-"
-],
 [
 "0-36:-"
 ],
@@ -2480,35 +2522,46 @@
 "commits": [
 {
 "width": 36,
-"height": 5,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Setext",
+"==="
+],
+"styles": [
+[
+"0-6:i104/#000000:0/9",
+"6-36:-"
+],
+[
+"0-3:i104/#000000:0/9",
+"3-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 3,
 "rowColumns": 36,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Setext",
-"===",
 "",
 "Sub",
 "---"
 ],
 "styles": [
 [
-"0-6:i255/#000000:0/0",
-"6-36:-"
-],
-[
-"0-3:i255/#000000:0/0",
-"3-36:-"
-],
-[
 "0-36:-"
 ],
 [
-"0-3:i255/#000000:0/0",
+"0-3:i104/#000000:0/1",
 "3-36:-"
 ],
 [
-"0-3:i255/#000000:0/0",
+"0-3:i104/#000000:0/1",
 "3-36:-"
 ]
 ]
@@ -2540,14 +2593,16 @@
 "commits": [
 {
 "width": 36,
-"height": 8,
+"height": 10,
 "rowColumns": 36,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
 "- item one",
+"",
 "  - nested a",
 "  - nested b",
+"",
 "- item two with a long line that",
 "  wraps around the column limit at",
 "  narrow widths",
@@ -2561,6 +2616,9 @@
 "10-36:-"
 ],
 [
+"0-36:-"
+],
+[
 "0-2:-",
 "2-4:i216/#000000:0/0",
 "4-12:i255/#000000:0/0",
@@ -2571,6 +2629,9 @@
 "2-4:i216/#000000:0/0",
 "4-12:i255/#000000:0/0",
 "12-36:-"
+],
+[
+"0-36:-"
 ],
 [
 "0-2:i216/#000000:0/0",
@@ -2629,19 +2690,19 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"- todo item",
-"- done item"
+"- ☐ todo item",
+"- ☑ done item"
 ],
 "styles": [
 [
-"0-2:i216/#000000:0/0",
-"2-11:i255/#000000:0/0",
-"11-36:-"
+"0-4:i216/#000000:0/0",
+"4-13:i255/#000000:0/0",
+"13-36:-"
 ],
 [
-"0-2:i216/#000000:0/0",
-"2-11:i255/#000000:0/0",
-"11-36:-"
+"0-4:i216/#000000:0/0",
+"4-13:i255/#000000:0/0",
+"13-36:-"
 ]
 ]
 }
@@ -2733,15 +2794,13 @@
 "commits": [
 {
 "width": 36,
-"height": 4,
+"height": 2,
 "rowColumns": 36,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "def f(x):",
-"    return x * 2  # comment",
-"",
-"Text after fence."
+"    return x * 2  # comment"
 ],
 "styles": [
 [
@@ -2751,7 +2810,20 @@
 [
 "0-27:i255/#000000:0/0",
 "27-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"Text after fence."
 ],
+"styles": [
 [
 "0-36:-"
 ],
@@ -2894,36 +2966,36 @@
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
-"Name   Value  Notes",
-"alpha  1      first bold",
-"beta   22     code here"
+"Name   Value    Notes",
+"alpha      1  first bold",
+"beta      22  code here"
 ],
 "styles": [
 [
 "0-4:i104/#000000:0/1",
-"4-7:#ffffff/#000000:0/0",
+"4-7:-",
 "7-12:i104/#000000:0/1",
-"12-14:#ffffff/#000000:0/0",
-"14-19:i104/#000000:0/1",
-"19-36:#ffffff/#000000:0/0"
+"12-16:-",
+"16-21:i104/#000000:0/1",
+"21-36:-"
 ],
 [
 "0-5:i255/#000000:0/0",
-"5-7:#ffffff/#000000:0/0",
-"7-8:i255/#000000:0/0",
-"8-14:#ffffff/#000000:0/0",
+"5-11:-",
+"11-12:i255/#000000:0/0",
+"12-14:-",
 "14-20:i255/#000000:0/0",
 "20-24:i215/#000000:0/1",
-"24-36:#ffffff/#000000:0/0"
+"24-36:-"
 ],
 [
 "0-4:i255/#000000:0/0",
-"4-7:#ffffff/#000000:0/0",
-"7-9:i255/#000000:0/0",
-"9-14:#ffffff/#000000:0/0",
+"4-10:-",
+"10-12:i255/#000000:0/0",
+"12-14:-",
 "14-18:i114/#000000:0/0",
 "18-23:i255/#000000:0/0",
-"23-36:#ffffff/#000000:0/0"
+"23-36:-"
 ]
 ]
 }
@@ -2954,44 +3026,44 @@
 "commits": [
 {
 "width": 36,
-"height": 3,
+"height": 2,
 "rowColumns": 36,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "│ quote bold",
-"│ second line",
-""
+"│ second line"
 ],
 "styles": [
 [
 "0-1:i255/#000000:0/0",
 "1-2:-",
-"2-8:i255/#000000:0/4",
+"2-8:i215/#000000:0/4",
 "8-12:i215/#000000:0/5",
 "12-36:-"
 ],
 [
 "0-1:i255/#000000:0/0",
 "1-2:-",
-"2-13:i255/#000000:0/4",
+"2-13:i215/#000000:0/4",
 "13-36:-"
-],
-[
-"0-36:-"
 ]
 ]
 },
 {
 "width": 36,
-"height": 1,
+"height": 2,
 "rowColumns": 36,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "after quote"
 ],
 "styles": [
+[
+"0-36:-"
+],
 [
 "0-11:i255/#000000:0/0",
 "11-36:-"
@@ -3031,19 +3103,17 @@
 "trailingNewline": false,
 "rows": [
 "Text with trailing spaces",
-"hard break and\\",
+"hard break and",
 "backslash break"
 ],
 "styles": [
 [
 "0-25:i255/#000000:0/0",
-"25-27:i104/#000000:0/0",
-"27-36:-"
+"25-36:-"
 ],
 [
 "0-14:i255/#000000:0/0",
-"14-15:i104/#000000:0/0",
-"15-36:-"
+"14-36:-"
 ],
 [
 "0-15:i255/#000000:0/0",
@@ -3146,15 +3216,14 @@
 "commits": [
 {
 "width": 36,
-"height": 4,
+"height": 3,
 "rowColumns": 36,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "<div>",
 "html block",
-"</div>",
-"after html"
+"</div>"
 ],
 "styles": [
 [
@@ -3168,6 +3237,22 @@
 [
 "0-6:i255/#000000:0/0",
 "6-36:-"
+]
+]
+},
+{
+"width": 36,
+"height": 2,
+"rowColumns": 36,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"after html"
+],
+"styles": [
+[
+"0-36:-"
 ],
 [
 "0-10:i255/#000000:0/0",
@@ -3202,14 +3287,13 @@
 "commits": [
 {
 "width": 36,
-"height": 3,
+"height": 2,
 "rowColumns": 36,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
 "Para one.",
-"Same para line two.",
-""
+"Same para line two."
 ],
 "styles": [
 [
@@ -3219,22 +3303,23 @@
 [
 "0-19:i255/#000000:0/0",
 "19-36:-"
-],
-[
-"0-36:-"
 ]
 ]
 },
 {
 "width": 36,
-"height": 1,
+"height": 2,
 "rowColumns": 36,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "Para two."
 ],
 "styles": [
+[
+"0-36:-"
+],
 [
 "0-9:i255/#000000:0/0",
 "9-36:-"
@@ -3268,33 +3353,33 @@
 "commits": [
 {
 "width": 36,
-"height": 2,
+"height": 1,
 "rowColumns": 36,
 "startOnNewLine": false,
-"trailingNewline": false,
+"trailingNewline": true,
 "rows": [
-"────────────────────────────────────",
-""
+"────────────────────────────────────"
 ],
 "styles": [
 [
 "0-36:i255/#000000:0/0"
-],
-[
-"0-36:-"
 ]
 ]
 },
 {
 "width": 36,
-"height": 1,
+"height": 2,
 "rowColumns": 36,
 "startOnNewLine": false,
 "trailingNewline": false,
 "rows": [
+"",
 "After rule"
 ],
 "styles": [
+[
+"0-36:-"
+],
 [
 "0-10:i255/#000000:0/0",
 "10-36:-"
@@ -5002,20 +5087,31 @@
 "commits": [
 {
 "width": 80,
-"height": 3,
+"height": 1,
 "rowColumns": 80,
 "startOnNewLine": true,
 "trailingNewline": true,
 "rows": [
-"Findings",
-"",
-"- Footer stays live"
+"Findings"
 ],
 "styles": [
 [
 "0-8:i104/#000000:0/9",
 "8-80:-"
+]
+]
+},
+{
+"width": 80,
+"height": 2,
+"rowColumns": 80,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"",
+"- Footer stays live"
 ],
+"styles": [
 [
 "0-80:-"
 ],
@@ -7701,20 +7797,31 @@
 "commits": [
 {
 "width": 40,
-"height": 3,
+"height": 1,
 "rowColumns": 40,
 "startOnNewLine": true,
 "trailingNewline": true,
 "rows": [
-"Findings",
-"",
-"- Footer stays live"
+"Findings"
 ],
 "styles": [
 [
 "0-8:i104/#000000:0/9",
 "8-40:-"
+]
+]
+},
+{
+"width": 40,
+"height": 2,
+"rowColumns": 40,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"",
+"- Footer stays live"
 ],
+"styles": [
 [
 "0-40:-"
 ],
@@ -8697,6 +8804,2112 @@
 [
 "0-18:i167/#000000:0/1",
 "18-40:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-blocks-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Intro paragraph.\nTitle One\n=========\nParagraph under setext h1.\n\nSub Two\n-------\nPara.\n- - -\nAfter rule.\n***\n# ATX One\nPara right after heading.\n## ATX Two\n### ATX Three\nText\n___\nEnd.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 28,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Intro paragraph.",
+"Title One",
+"=========",
+"",
+"Paragraph under setext h1.",
+"",
+"Sub Two",
+"-------",
+"",
+"Para.",
+"",
+"────────────────────────────────────────────────────────────",
+"",
+"After rule.",
+"",
+"────────────────────────────────────────────────────────────",
+"",
+"ATX One",
+"",
+"Para right after heading.",
+"",
+"ATX Two",
+"",
+"ATX Three",
+"",
+"Text",
+"",
+"────────────────────────────────────────────────────────────"
+],
+"styles": [
+[
+"0-16:i104/#000000:0/9",
+"16-60:-"
+],
+[
+"0-9:i104/#000000:0/9",
+"9-60:-"
+],
+[
+"0-9:i104/#000000:0/9",
+"9-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-26:i255/#000000:0/0",
+"26-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-7:i104/#000000:0/1",
+"7-60:-"
+],
+[
+"0-7:i104/#000000:0/1",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-60:i255/#000000:0/0"
+],
+[
+"0-60:-"
+],
+[
+"0-11:i255/#000000:0/0",
+"11-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-60:i255/#000000:0/0"
+],
+[
+"0-60:-"
+],
+[
+"0-7:i104/#000000:0/9",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-25:i255/#000000:0/0",
+"25-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-7:i104/#000000:0/1",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-9:i104/#000000:0/1",
+"9-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-60:i255/#000000:0/0"
+]
+]
+},
+{
+"width": 60,
+"height": 2,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"End."
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-lists-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "- [ ] todo item\n- [x] done item\n- plain\n  - nested a\n    - deeper\n  1. ordered nested\n  2. second\n3. starts at three\n4. four\n* star bullet\n+ plus bullet\n\n> quote line one\n> quote **bold**\n\nLoose list:\n\n- a\n\n- b",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 19,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"- ☐ todo item",
+"- ☑ done item",
+"- plain",
+"  - nested a",
+"    - deeper",
+"  1. ordered nested",
+"  2. second",
+"",
+"3. starts at three",
+"4. four",
+"",
+"- star bullet",
+"",
+"- plus bullet",
+"",
+"│ quote line one",
+"│ quote bold",
+"",
+"Loose list:"
+],
+"styles": [
+[
+"0-4:i216/#000000:0/0",
+"4-13:i255/#000000:0/0",
+"13-60:-"
+],
+[
+"0-4:i216/#000000:0/0",
+"4-13:i255/#000000:0/0",
+"13-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-7:i255/#000000:0/0",
+"7-60:-"
+],
+[
+"0-2:-",
+"2-4:i216/#000000:0/0",
+"4-12:i255/#000000:0/0",
+"12-60:-"
+],
+[
+"0-4:-",
+"4-6:i216/#000000:0/0",
+"6-12:i255/#000000:0/0",
+"12-60:-"
+],
+[
+"0-2:-",
+"2-5:i216/#000000:0/0",
+"5-19:i255/#000000:0/0",
+"19-60:-"
+],
+[
+"0-2:-",
+"2-5:i216/#000000:0/0",
+"5-11:i255/#000000:0/0",
+"11-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-18:i255/#000000:0/0",
+"18-60:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-7:i255/#000000:0/0",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-13:i255/#000000:0/0",
+"13-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-13:i255/#000000:0/0",
+"13-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-16:i215/#000000:0/4",
+"16-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-8:i215/#000000:0/4",
+"8-12:i215/#000000:0/5",
+"12-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-11:i255/#000000:0/0",
+"11-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 4,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"- a",
+"",
+"- b"
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-3:i255/#000000:0/0",
+"3-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-3:i255/#000000:0/0",
+"3-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-inline-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "| Name | Value |\n|:-----|------:|\n| alpha | 1 |\n| `beta` | **2** |\n\nLink [text](https://example.com) and <https://auto.link> and https://bare.url/x.\nImage ![alt](https://img/x.png)\n~~strike~~ *em* **strong** `code`\nline with hard break  \nnext\n<b>html</b>",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 3,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Name   Value",
+"alpha      1",
+"beta       2"
+],
+"styles": [
+[
+"0-4:i104/#000000:0/1",
+"4-7:-",
+"7-12:i104/#000000:0/1",
+"12-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-11:-",
+"11-12:i255/#000000:0/0",
+"12-60:-"
+],
+[
+"0-4:i114/#000000:0/0",
+"4-11:-",
+"11-12:i215/#000000:0/1",
+"12-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 8,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"Link text (https://example.com) and https://auto.link and",
+"https://bare.url/x.",
+"Image alt",
+"strike em strong code",
+"line with hard break",
+"next",
+"<b>html</b>"
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-9:i73/#000000:0/8",
+"9-10:i255/#000000:0/0",
+"10-31:i216/#000000:0/8",
+"31-36:i255/#000000:0/0",
+"36-53:i73/#000000:0/8",
+"53-58:i255/#000000:0/0",
+"58-60:-"
+],
+[
+"0-18:i73/#000000:0/8",
+"18-19:i255/#000000:0/0",
+"19-60:-"
+],
+[
+"0-6:i255/#000000:0/0",
+"6-9:i73/#000000:0/8",
+"9-60:-"
+],
+[
+"0-6:i8/#000000:0/128",
+"6-7:i255/#000000:0/0",
+"7-9:i215/#000000:0/4",
+"9-10:i255/#000000:0/0",
+"10-16:i215/#000000:0/1",
+"16-17:i255/#000000:0/0",
+"17-21:i114/#000000:0/0",
+"21-60:-"
+],
+[
+"0-20:i255/#000000:0/0",
+"20-60:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-60:-"
+],
+[
+"0-11:i255/#000000:0/0",
+"11-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-edgeone-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Para then list:\n- a\n- b\nPara then fence:\n```\ncode1\n```\nAfter fence no blank.\n> quote\nlazy continuation\n> > nested quote\n\nTable next:\n| a | b |\n|---|---|\n| 1 | 2 |\nAfter table no blank.\n#### H4 here\n##### H5 here\n###### H6 here\n    indented code\n    block\n\nDone.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 26,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Para then list:",
+"",
+"- a",
+"- b",
+"  Para then fence:",
+"",
+"code1",
+"",
+"After fence no blank.",
+"",
+"│ quote",
+"│ lazy continuation",
+"│",
+"│ │ nested quote",
+"",
+"Table next:",
+"",
+"a                      b",
+"1                      2",
+"After table no blank.",
+"",
+"H4 here",
+"",
+"H5 here",
+"",
+"H6 here"
+],
+"styles": [
+[
+"0-15:i255/#000000:0/0",
+"15-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-3:i255/#000000:0/0",
+"3-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-3:i255/#000000:0/0",
+"3-60:-"
+],
+[
+"0-2:-",
+"2-18:i255/#000000:0/0",
+"18-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-21:i255/#000000:0/0",
+"21-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-7:i215/#000000:0/4",
+"7-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-19:i215/#000000:0/4",
+"19-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-2:-",
+"2-3:i255/#000000:0/0",
+"3-4:-",
+"4-16:i215/#000000:0/4",
+"16-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-11:i255/#000000:0/0",
+"11-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-1:i104/#000000:0/1",
+"1-23:-",
+"23-24:i104/#000000:0/1",
+"24-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-23:-",
+"23-24:i255/#000000:0/0",
+"24-60:-"
+],
+[
+"0-21:i255/#000000:0/0",
+"21-23:-",
+"23-24:i255/#000000:0/0",
+"24-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-7:i104/#000000:0/1",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-7:i104/#000000:0/1",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-7:i104/#000000:0/1",
+"7-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 5,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"indented code",
+"block",
+"",
+"Done."
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-13:i255/#000000:0/0",
+"13-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-edgetwo-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "snake_case_word and **bold**text and *a*b\n\\*not em\\* &amp; &copy; www.example.com\n~single~ and ~~double~~\nline one\\\nline two\nRef [link][r] here.\n\n[r]: https://ref.example\n\n9. nine\n10. ten\n11. eleven\n\n0. zero\n\n1) paren one\n2) paren two\n\n- item with a long text that should wrap around the width of the terminal because it keeps going on and on and on\n- \n- after empty\n\n1. first\n\n   continued paragraph in item\n\n2. second\n<div>\nblock html\n</div>\n\nEnd.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 32,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"snake_case_word and boldtext and ab",
+"*not em* & © www.example.com",
+"single and double",
+"line one",
+"line two",
+"Ref link (https://ref.example) here.",
+"",
+" 9. nine",
+"",
+"10. ten",
+"",
+"11. eleven",
+"",
+"12. zero",
+"",
+"1. paren one",
+"2. paren two",
+"",
+"- item with a long text that should wrap around the width of",
+"  the terminal because it keeps going on and on and on",
+"-",
+"- after empty",
+"",
+"1. first",
+"",
+"   continued paragraph in item",
+"",
+"2. second",
+"",
+"<div>",
+"block html",
+"</div>"
+],
+"styles": [
+[
+"0-20:i255/#000000:0/0",
+"20-24:i215/#000000:0/1",
+"24-33:i255/#000000:0/0",
+"33-34:i215/#000000:0/4",
+"34-35:i255/#000000:0/0",
+"35-60:-"
+],
+[
+"0-1:i104/#000000:0/0",
+"1-7:i255/#000000:0/0",
+"7-8:i104/#000000:0/0",
+"8-13:i255/#000000:0/0",
+"13-28:i73/#000000:0/8",
+"28-60:-"
+],
+[
+"0-6:i8/#000000:0/128",
+"6-11:i255/#000000:0/0",
+"11-17:i8/#000000:0/128",
+"17-60:-"
+],
+[
+"0-8:i255/#000000:0/0",
+"8-60:-"
+],
+[
+"0-8:i255/#000000:0/0",
+"8-60:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-8:i73/#000000:0/8",
+"8-9:i255/#000000:0/0",
+"9-30:i216/#000000:0/8",
+"30-36:i255/#000000:0/0",
+"36-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-4:i216/#000000:0/0",
+"4-8:i255/#000000:0/0",
+"8-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-4:i216/#000000:0/0",
+"4-7:i255/#000000:0/0",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-4:i216/#000000:0/0",
+"4-10:i255/#000000:0/0",
+"10-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-4:i216/#000000:0/0",
+"4-8:i255/#000000:0/0",
+"8-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-12:i255/#000000:0/0",
+"12-60:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-12:i255/#000000:0/0",
+"12-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-60:i255/#000000:0/0"
+],
+[
+"0-2:-",
+"2-54:i255/#000000:0/0",
+"54-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-13:i255/#000000:0/0",
+"13-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-8:i255/#000000:0/0",
+"8-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-3:-",
+"3-30:i255/#000000:0/0",
+"30-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-3:i216/#000000:0/0",
+"3-9:i255/#000000:0/0",
+"9-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-60:-"
+],
+[
+"0-10:i255/#000000:0/0",
+"10-60:-"
+],
+[
+"0-6:i255/#000000:0/0",
+"6-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 2,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"End."
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-edgethree-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "a | b\n--|--\nx \\| y | `p|q`\n\n| L | C | R |\n|:--|:-:|--:|\n| left | mid | right |\n| l | c | r |\n\n**Bold heading-like line**\n* * *\nText before setext\n---\nFinal ***both*** and `code with **stars**`.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 13,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"a      b",
+"x | y  `p",
+"",
+"L      C       R",
+"left  mid  right",
+"l      c       r",
+"",
+"Bold heading-like line",
+"",
+"────────────────────────────────────────────────────────────",
+"",
+"Text before setext",
+"---"
+],
+"styles": [
+[
+"0-1:i104/#000000:0/1",
+"1-7:-",
+"7-8:i104/#000000:0/1",
+"8-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-7:-",
+"7-9:i255/#000000:0/0",
+"9-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-1:i104/#000000:0/1",
+"1-7:-",
+"7-8:i104/#000000:0/1",
+"8-15:-",
+"15-16:i104/#000000:0/1",
+"16-60:-"
+],
+[
+"0-4:i255/#000000:0/0",
+"4-6:-",
+"6-9:i255/#000000:0/0",
+"9-11:-",
+"11-16:i255/#000000:0/0",
+"16-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-7:-",
+"7-8:i255/#000000:0/0",
+"8-15:-",
+"15-16:i255/#000000:0/0",
+"16-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-22:i215/#000000:0/1",
+"22-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-60:i255/#000000:0/0"
+],
+[
+"0-60:-"
+],
+[
+"0-18:i104/#000000:0/1",
+"18-60:-"
+],
+[
+"0-3:i104/#000000:0/1",
+"3-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 2,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"Final both and code with **stars**."
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-6:i255/#000000:0/0",
+"6-10:i215/#000000:0/5",
+"10-15:i255/#000000:0/0",
+"15-34:i114/#000000:0/0",
+"34-35:i255/#000000:0/0",
+"35-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-blocks-mono-w60",
+"width": 60,
+"wrote": false,
+"mono": true,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Intro paragraph.\nTitle One\n=========\nParagraph under setext h1.\n\nSub Two\n-------\nPara.\n- - -\nAfter rule.\n***\n# ATX One\nPara right after heading.\n## ATX Two\n### ATX Three\nText\n___\nEnd.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 28,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Intro paragraph.",
+"Title One",
+"=========",
+"",
+"Paragraph under setext h1.",
+"",
+"Sub Two",
+"-------",
+"",
+"Para.",
+"",
+"------------------------------------------------------------",
+"",
+"After rule.",
+"",
+"------------------------------------------------------------",
+"",
+"ATX One",
+"",
+"Para right after heading.",
+"",
+"ATX Two",
+"",
+"ATX Three",
+"",
+"Text",
+"",
+"------------------------------------------------------------"
+],
+"styles": [
+[
+"0-16:d#ffffff/#000000:0/0",
+"16-60:-"
+],
+[
+"0-9:d#ffffff/#000000:0/0",
+"9-60:-"
+],
+[
+"0-9:d#ffffff/#000000:0/0",
+"9-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-26:d#ffffff/#000000:0/0",
+"26-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-7:d#ffffff/#000000:0/0",
+"7-60:-"
+],
+[
+"0-7:d#ffffff/#000000:0/0",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-5:d#ffffff/#000000:0/0",
+"5-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-60:d#ffffff/#000000:0/0"
+],
+[
+"0-60:-"
+],
+[
+"0-11:d#ffffff/#000000:0/0",
+"11-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-60:d#ffffff/#000000:0/0"
+],
+[
+"0-60:-"
+],
+[
+"0-7:d#ffffff/#000000:0/0",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-25:d#ffffff/#000000:0/0",
+"25-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-7:d#ffffff/#000000:0/0",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-9:d#ffffff/#000000:0/0",
+"9-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-4:d#ffffff/#000000:0/0",
+"4-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-60:d#ffffff/#000000:0/0"
+]
+]
+},
+{
+"width": 60,
+"height": 2,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"End."
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-4:d#ffffff/#000000:0/0",
+"4-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-lists-mono-w60",
+"width": 60,
+"wrote": false,
+"mono": true,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "- [ ] todo item\n- [x] done item\n- plain\n  - nested a\n    - deeper\n  1. ordered nested\n  2. second\n3. starts at three\n4. four\n* star bullet\n+ plus bullet\n\n> quote line one\n> quote **bold**\n\nLoose list:\n\n- a\n\n- b",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 19,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"- [ ] todo item",
+"- [x] done item",
+"- plain",
+"  - nested a",
+"    - deeper",
+"  1. ordered nested",
+"  2. second",
+"",
+"3. starts at three",
+"4. four",
+"",
+"- star bullet",
+"",
+"- plus bullet",
+"",
+"| quote line one",
+"| quote bold",
+"",
+"Loose list:"
+],
+"styles": [
+[
+"0-15:d#ffffff/#000000:0/0",
+"15-60:-"
+],
+[
+"0-15:d#ffffff/#000000:0/0",
+"15-60:-"
+],
+[
+"0-7:d#ffffff/#000000:0/0",
+"7-60:-"
+],
+[
+"0-2:-",
+"2-12:d#ffffff/#000000:0/0",
+"12-60:-"
+],
+[
+"0-4:-",
+"4-12:d#ffffff/#000000:0/0",
+"12-60:-"
+],
+[
+"0-2:-",
+"2-19:d#ffffff/#000000:0/0",
+"19-60:-"
+],
+[
+"0-2:-",
+"2-11:d#ffffff/#000000:0/0",
+"11-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-18:d#ffffff/#000000:0/0",
+"18-60:-"
+],
+[
+"0-7:d#ffffff/#000000:0/0",
+"7-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-13:d#ffffff/#000000:0/0",
+"13-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-13:d#ffffff/#000000:0/0",
+"13-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-1:d#ffffff/#000000:0/0",
+"1-2:-",
+"2-16:d#ffffff/#000000:0/0",
+"16-60:-"
+],
+[
+"0-1:d#ffffff/#000000:0/0",
+"1-2:-",
+"2-12:d#ffffff/#000000:0/0",
+"12-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-11:d#ffffff/#000000:0/0",
+"11-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 4,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"- a",
+"",
+"- b"
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-3:d#ffffff/#000000:0/0",
+"3-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-3:d#ffffff/#000000:0/0",
+"3-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-inline-mono-w60",
+"width": 60,
+"wrote": false,
+"mono": true,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "| Name | Value |\n|:-----|------:|\n| alpha | 1 |\n| `beta` | **2** |\n\nLink [text](https://example.com) and <https://auto.link> and https://bare.url/x.\nImage ![alt](https://img/x.png)\n~~strike~~ *em* **strong** `code`\nline with hard break  \nnext\n<b>html</b>",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 3,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Name   Value",
+"alpha      1",
+"beta       2"
+],
+"styles": [
+[
+"0-4:d#ffffff/#000000:0/0",
+"4-7:-",
+"7-12:d#ffffff/#000000:0/0",
+"12-60:-"
+],
+[
+"0-5:d#ffffff/#000000:0/0",
+"5-11:-",
+"11-12:d#ffffff/#000000:0/0",
+"12-60:-"
+],
+[
+"0-4:d#ffffff/#000000:0/0",
+"4-11:-",
+"11-12:d#ffffff/#000000:0/0",
+"12-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 8,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"Link text (https://example.com) and https://auto.link and",
+"https://bare.url/x.",
+"Image alt",
+"strike em strong code",
+"line with hard break",
+"next",
+"<b>html</b>"
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-58:d#ffffff/#000000:0/0",
+"58-60:-"
+],
+[
+"0-19:d#ffffff/#000000:0/0",
+"19-60:-"
+],
+[
+"0-9:d#ffffff/#000000:0/0",
+"9-60:-"
+],
+[
+"0-6:d#ffffff/#000000:0/128",
+"6-21:d#ffffff/#000000:0/0",
+"21-60:-"
+],
+[
+"0-20:d#ffffff/#000000:0/0",
+"20-60:-"
+],
+[
+"0-4:d#ffffff/#000000:0/0",
+"4-60:-"
+],
+[
+"0-11:d#ffffff/#000000:0/0",
+"11-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-reasoning-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "user",
+"text": "think",
+"phase": "start",
+"source": "system",
+"messageID": "m1"
+}
+},
+{
+"commit": {
+"kind": "reasoning",
+"text": "Thinking: ## Plan\n\nCheck the **reducer** and `state`.\n\n- first step\n- second step\n  - nested\n\n| step | risk |\n| --- | --- |\n| check | low |\n\n```ts\nconst probe = 1\n```\nDone thinking.",
+"phase": "progress",
+"source": "reasoning",
+"messageID": "a1",
+"partID": "reasoning:0"
+}
+},
+{
+"commit": {
+"kind": "reasoning",
+"text": "",
+"phase": "final",
+"source": "reasoning",
+"messageID": "a1",
+"partID": "reasoning:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "Answer after thought.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 1,
+"rowColumns": 60,
+"startOnNewLine": true,
+"trailingNewline": false,
+"rows": [
+"› think"
+],
+"styles": [
+[
+"0-7:i255/#000000:0/0",
+"7-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 1,
+"rowColumns": 60,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+""
+],
+"styles": [
+[
+"0-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 12,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Thinking: ## Plan",
+"",
+"Check the reducer and state.",
+"",
+"- first step",
+"- second step",
+"  - nested",
+"",
+"step   risk",
+"check  low",
+"",
+"const probe = 1"
+],
+"styles": [
+[
+"0-9:i215/#000000:0/4",
+"9-17:i8/#000000:0/0",
+"17-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-10:i8/#000000:0/0",
+"10-17:i215/#000000:0/1",
+"17-22:i8/#000000:0/0",
+"22-27:i114/#000000:0/0",
+"27-28:i8/#000000:0/0",
+"28-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-12:i8/#000000:0/0",
+"12-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-13:i8/#000000:0/0",
+"13-60:-"
+],
+[
+"0-2:-",
+"2-4:i216/#000000:0/0",
+"4-10:i8/#000000:0/0",
+"10-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-4:i104/#000000:0/1",
+"4-7:-",
+"7-11:i104/#000000:0/1",
+"11-60:-"
+],
+[
+"0-5:i8/#000000:0/0",
+"5-7:-",
+"7-10:i8/#000000:0/0",
+"10-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-5:i104/#000000:0/4",
+"5-6:i255/#000000:0/0",
+"6-11:i167/#000000:0/0",
+"11-12:i255/#000000:0/0",
+"12-13:i73/#000000:0/0",
+"13-14:i255/#000000:0/0",
+"14-15:i215/#000000:0/0",
+"15-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 2,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"Done thinking."
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-14:i8/#000000:0/0",
+"14-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 1,
+"rowColumns": 60,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+""
+],
+"styles": [
+[
+"0-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 1,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"Answer after thought."
+],
+"styles": [
+[
+"0-21:i255/#000000:0/0",
+"21-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-stream-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Intro\n\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "| a | b |\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "|---|---|\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "| 1 | 2 |\n\n```py\nx = 1\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "``",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "`",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "\n\n- one\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "- two\n\nDone **bo",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "ld**.",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+},
+{
+"summary": {
+"agent": "Build",
+"model": "Mock One",
+"duration": "1.0s"
+}
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 1,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Intro"
+],
+"styles": [
+[
+"0-5:i255/#000000:0/0",
+"5-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 3,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"",
+"a  b",
+"1  2"
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-1:i104/#000000:0/1",
+"1-3:-",
+"3-4:i104/#000000:0/1",
+"4-60:-"
+],
+[
+"0-1:i255/#000000:0/0",
+"1-3:-",
+"3-4:i255/#000000:0/0",
+"4-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 2,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"",
+"x = 1"
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 5,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"- one",
+"- two",
+"",
+"Done bold."
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-60:-"
+],
+[
+"0-2:i216/#000000:0/0",
+"2-5:i255/#000000:0/0",
+"5-60:-"
+],
+[
+"0-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-9:i215/#000000:0/1",
+"9-10:i255/#000000:0/0",
+"10-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 1,
+"rowColumns": 60,
+"startOnNewLine": true,
+"trailingNewline": true,
+"rows": [
+""
+],
+"styles": [
+[
+"0-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 1,
+"rowColumns": 60,
+"startOnNewLine": true,
+"trailingNewline": false,
+"rows": [
+"Build · Mock One · 1.0s"
+],
+"styles": [
+[
+"0-5:i255/#000000:0/0",
+"5-23:i8/#000000:0/0",
+"23-60:-"
+]
+]
+}
+]
+},
+{
+"name": "r9-setext-stream-w60",
+"width": 60,
+"wrote": false,
+"mono": false,
+"theme": "resolved",
+"shellOutput": true,
+"steps": [
+{
+"commit": {
+"kind": "assistant",
+"text": "Title\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "===",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "\n\nBody line\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "---\n\n",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"commit": {
+"kind": "assistant",
+"text": "after",
+"phase": "progress",
+"source": "assistant",
+"messageID": "a1",
+"partID": "text:0"
+}
+},
+{
+"complete": true
+}
+],
+"commits": [
+{
+"width": 60,
+"height": 2,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"Title",
+"==="
+],
+"styles": [
+[
+"0-5:i104/#000000:0/9",
+"5-60:-"
+],
+[
+"0-3:i104/#000000:0/9",
+"3-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 3,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": true,
+"rows": [
+"",
+"Body line",
+"---"
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-9:i104/#000000:0/1",
+"9-60:-"
+],
+[
+"0-3:i104/#000000:0/1",
+"3-60:-"
+]
+]
+},
+{
+"width": 60,
+"height": 2,
+"rowColumns": 60,
+"startOnNewLine": false,
+"trailingNewline": false,
+"rows": [
+"",
+"after"
+],
+"styles": [
+[
+"0-60:-"
+],
+[
+"0-5:i255/#000000:0/0",
+"5-60:-"
 ]
 ]
 }

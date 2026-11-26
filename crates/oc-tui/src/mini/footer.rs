@@ -92,6 +92,8 @@ pub struct FooterOptions {
     pub image_preview: bool,
     /// `prompt.image_preview`.
     pub prompt_image_preview: bool,
+    /// `session.markdown` is `"source"`: reasoning in scrollback and the subagent view shows its Markdown source.
+    pub markdown_source: bool,
 }
 
 pub struct Footer {
@@ -189,7 +191,8 @@ fn format_context_usage(tokens: f64, percent: Option<i64>) -> String {
 
 impl Footer {
     pub fn new(o: FooterOptions, term_width: usize, term_height: usize, footer_height: usize, now: Instant) -> Footer {
-        let scrollback = ScrollbackStream::new(o.theme.clone(), o.wrote, o.settings.mono, o.settings.shell_output, o.image_preview);
+        let mut scrollback = ScrollbackStream::new(o.theme.clone(), o.wrote, o.settings.mono, o.settings.shell_output, o.image_preview);
+        scrollback.markdown_source = o.markdown_source;
         Footer {
             closed: false,
             destroyed: false,
@@ -238,7 +241,7 @@ impl Footer {
             panel: None,
             permission: None,
             form: None,
-            inspector: SubagentInspector::default(),
+            inspector: SubagentInspector::with_markdown_source(o.markdown_source),
             busy_since: None,
             actions: Vec::new(),
             term_width,
@@ -504,7 +507,9 @@ impl Footer {
         }
         self.finish_startup();
         self.scrollback.destroy();
+        let markdown_source = self.scrollback.markdown_source;
         self.scrollback = ScrollbackStream::new(self.theme.clone(), wrote, self.settings.mono, self.settings.shell_output, self.scrollback.image_preview);
+        self.scrollback.markdown_source = markdown_source;
     }
 
     pub fn close(&mut self) {

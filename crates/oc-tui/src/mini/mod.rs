@@ -4,7 +4,7 @@
 //!
 //! Module map: `runtime` (lifecycle, queue, session target) drives `transport`/`subagents` (V2
 //! events → commits), `footer` (state and view: `prompt`, `menu`, `panels`, `blocker`,
-//! `subagent_view`), `scrollback` (entries: `markdown`, `marked`, `highlight`, `structured`, `text`,
+//! `subagent_view`), `scrollback` (entries: `markdown` over `ui::mdoc`, `highlight`, `structured`, `text`,
 //! `cell`) and `split` (the terminal renderer).
 
 pub mod blocker;
@@ -17,8 +17,6 @@ pub mod form_shared;
 pub mod fuzzysort;
 pub mod highlight;
 pub mod markdown;
-pub mod marked;
-mod marked_rules;
 pub mod menu;
 pub mod mono;
 pub mod motion;

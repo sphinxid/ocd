@@ -14,6 +14,8 @@ pub struct EntryFlags {
 pub struct BodyOptions {
     pub shell_output: Option<bool>,
     pub mono: bool,
+    /// `session.markdown` is `"source"` (the default is rendered).
+    pub markdown_source: bool,
 }
 
 fn clean_run_text(text: &str) -> String {
@@ -45,20 +47,22 @@ fn user_body(raw: &str, mono: bool) -> EntryBody {
     text_body(format!("{lead}{} {body}", if mono { ">" } else { "›" }))
 }
 
-fn reasoning_body(raw: &str, mono: bool) -> EntryBody {
+/// Rendered reasoning is native Markdown, as answers are; source reasoning is highlighted Markdown source.
+fn reasoning_body(raw: &str, mono: bool, rendered: bool) -> EntryBody {
     let clean = raw.replace("[REDACTED]", "");
     if clean.is_empty() {
         return EntryBody::None;
     }
     let (lead, body) = lead(&clean);
     let mark = "Thinking:";
+    let styled = |content: String| if rendered { markdown_body(content) } else { code_body(content, "markdown") };
     if let Some(rest) = body.strip_prefix(mark) {
         if mono {
             return text_body(format!("{lead}{mark} {}", rest.trim_start()));
         }
-        return code_body(format!("{lead}_Thinking:_ {}", rest.trim_start()), "markdown");
+        return styled(format!("{lead}_Thinking:_ {}", rest.trim_start()));
     }
-    if mono { text_body(clean.clone()) } else { code_body(clean.clone(), "markdown") }
+    if mono { text_body(clean.clone()) } else { styled(clean.clone()) }
 }
 
 fn system_body(raw: &str, phase: Phase) -> EntryBody {
@@ -184,7 +188,7 @@ pub fn entry_body(commit: &StreamCommit, options: BodyOptions) -> EntryBody {
                     EntryBody::None
                 }
             }
-            Phase::Progress => reasoning_body(&raw, mono),
+            Phase::Progress => reasoning_body(&raw, mono, !options.markdown_source),
         },
         _ => {
             let body = system_body(&raw, commit.phase);
@@ -278,8 +282,13 @@ mod tests {
         assert_eq!(entry_body(&a, BodyOptions::default()), EntryBody::Markdown("# Title\n\nHello **world**".into()));
         let r = StreamCommit { part_id: Some("reason-1".into()), ..StreamCommit::new(EntryKind::Reasoning, "Thinking: plan next steps", Phase::Progress, Source::Reasoning) };
         let reasoning = entry_body(&r, BodyOptions::default());
-        assert_eq!(reasoning, EntryBody::Code { content: "_Thinking:_ plan next steps".into(), filetype: Some("markdown".into()) });
+        // Reasoning follows session.markdown: native Markdown when rendered (the default), highlighted source otherwise.
+        assert_eq!(reasoning, EntryBody::Markdown("_Thinking:_ plan next steps".into()));
+        let source = entry_body(&r, BodyOptions { markdown_source: true, ..Default::default() });
+        assert_eq!(source, EntryBody::Code { content: "_Thinking:_ plan next steps".into(), filetype: Some("markdown".into()) });
+        assert_eq!(entry_body(&r, BodyOptions { mono: true, ..Default::default() }), text("Thinking: plan next steps"));
         assert!(entry_can_stream(&StreamCommit::new(EntryKind::Reasoning, "Thinking: plan next steps", Phase::Progress, Source::Reasoning), &reasoning));
+        assert!(entry_can_stream(&StreamCommit::new(EntryKind::Reasoning, "Thinking: plan next steps", Phase::Progress, Source::Reasoning), &source));
         let u = StreamCommit::new(EntryKind::User, "Inspect footer tabs", Phase::Start, Source::System);
         assert_eq!(entry_body(&u, BodyOptions::default()), text("› Inspect footer tabs"));
         assert_eq!(entry_body(&u, BodyOptions { mono: true, ..Default::default() }), text("> Inspect footer tabs"));

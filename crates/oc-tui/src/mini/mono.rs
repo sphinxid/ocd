@@ -31,6 +31,9 @@ pub fn markdown_sub(c: char) -> Option<&'static str> {
         0x2026 => "...",
         0x2191 => "up",
         0x2193 => "down",
+        // Markdown task boxes.
+        0x2610 => "[ ]",
+        0x2611 => "[x]",
         _ => return None,
     })
 }

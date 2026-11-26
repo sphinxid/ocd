@@ -13,6 +13,8 @@
   sessions with their last outcome; with one it shows the last steps (finish reason, tool errors, step errors),
   compactions and the `RUN ENDED` row, newest first. Needs `sqlite3`.
 - `vt_render.py <capture> <cols> <rows>`: replays a `script -qfec ...` capture and prints the final screen.
+- `mini_scrollback_golden.test.ts`: regenerates mini's scrollback goldens from upstream's `RunScrollbackStream`
+  (run it inside an upstream checkout; usage in its header).
 - `tui_capture.py --bin target/debug/ocd --work DIR --script turns.json --ready "Mock One" --key 1.5:hi --key 2:<CR>
   --snap 5 --snap 12 [--mini] [--config '{"animations": false}']`: runs the TUI isolated (`DIR/project`, `DIR/state`,
   `--standalone`, mock provider from the turn script) in its own pty and prints the screen at each `--snap` time. With

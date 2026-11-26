@@ -1936,6 +1936,7 @@ pub async fn run_mini(opts: TuiOptions, mini: MiniOptions) -> anyhow::Result<i32
             directory: directory.clone(),
             image_preview: config.bool("session.image_preview").unwrap_or(false),
             prompt_image_preview: config.bool("prompt.image_preview").unwrap_or(false),
+            markdown_source: config.str("session.markdown") == Some("source"),
         },
         w as usize,
         h as usize,

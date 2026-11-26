@@ -1,6 +1,7 @@
 //! Golden tests: scrollback commits (rows and per-cell styles) captured from upstream's
-//! `RunScrollbackStream` on OpenTUI 0.7.0 (2.2.2) (`testdata/scrollback.json`). Each case replays the same
-//! `StreamCommit`s and compares every commit snapshot.
+//! `RunScrollbackStream` (`testdata/scrollback.json`): on OpenTUI 0.7.0 (2.2.2), and the Markdown cases (`md*`,
+//! `stream-md`, `quiet-full*`, `task-*`, `r9-*`) on OpenTUI 0.9.4 (2.4.1, `scripts/mini_scrollback_golden.test.ts`).
+//! Each case replays the same `StreamCommit`s and compares every commit snapshot.
 
 use super::super::cell::{Color, Glyph, Intent};
 use super::super::theme::{self, RunTheme};

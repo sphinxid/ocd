@@ -163,6 +163,7 @@ fn run(case: &Value) -> Vec<Value> {
             directory: "/project".into(),
             image_preview: false,
             prompt_image_preview: false,
+            markdown_source: false,
         },
         width,
         height,

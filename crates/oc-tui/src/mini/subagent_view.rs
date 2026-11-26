@@ -18,6 +18,8 @@ pub struct SubagentInspector {
     /// Rows scrolled up from the bottom (sticky bottom when 0).
     from_bottom: usize,
     started: Option<std::time::Instant>,
+    /// `session.markdown` is `"source"`: reasoning shows its Markdown source.
+    pub markdown_source: bool,
 }
 
 fn status_color(t: &super::theme::FooterTheme, s: SubagentStatus) -> Color {
@@ -43,6 +45,10 @@ fn status_icon(s: SubagentStatus, mono: bool) -> &'static str {
 }
 
 impl SubagentInspector {
+    pub fn with_markdown_source(markdown_source: bool) -> Self {
+        SubagentInspector { markdown_source, ..SubagentInspector::default() }
+    }
+
     pub fn reset(&mut self) {
         self.from_bottom = 0;
         self.started = Some(std::time::Instant::now());
@@ -157,7 +163,7 @@ impl SubagentInspector {
             parts.push(b);
         } else {
             for (i, c) in detail.iter().enumerate() {
-                let body = entry_body(c, BodyOptions { shell_output: Some(shell_output), mono });
+                let body = entry_body(c, BodyOptions { shell_output: Some(shell_output), mono, markdown_source: self.markdown_source });
                 if i > 0 && separator_rows(Some(&detail[i - 1]), c, &body) > 0 {
                     parts.push(Buffer::new(cw.max(1) as u16, 1));
                 }

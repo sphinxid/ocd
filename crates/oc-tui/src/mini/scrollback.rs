@@ -6,7 +6,6 @@
 use super::cell::{Buffer, Color, Glyph, StyledChunk, attr};
 use super::entry_body::{BodyOptions, entry_body, entry_can_stream, entry_done, entry_flags};
 use super::markdown::{self, MdStyle, Rendered, blit};
-use super::marked::ParseState;
 use super::structured;
 use super::text::{WrapMode, layout_first};
 use super::theme::{EntryTheme, MiniSyntax, RunTheme};
@@ -167,7 +166,6 @@ struct Active {
     start_on_new_line: bool,
     first_line_offset: usize,
     commits: usize,
-    parse: Option<ParseState>,
 }
 
 pub struct ScrollbackStream {
@@ -178,13 +176,15 @@ pub struct ScrollbackStream {
     pub mono: bool,
     pub image_preview: bool,
     pub shell_output: bool,
+    /// `session.markdown` is `"source"`: reasoning shows its highlighted Markdown source.
+    pub markdown_source: bool,
     pub theme: RunTheme,
     destroyed: bool,
 }
 
 impl ScrollbackStream {
     pub fn new(theme: RunTheme, wrote: bool, mono: bool, shell_output: bool, image_preview: bool) -> Self {
-        ScrollbackStream { tail: None, rendered: None, active: None, wrote, mono, image_preview, shell_output, theme, destroyed: false }
+        ScrollbackStream { tail: None, rendered: None, active: None, wrote, mono, image_preview, shell_output, markdown_source: false, theme, destroyed: false }
     }
 
     pub fn destroy(&mut self) {
@@ -234,7 +234,6 @@ impl ScrollbackStream {
             start_on_new_line: flags.start_on_new_line,
             first_line_offset,
             commits: 0,
-            parse: None,
         }
     }
 
@@ -251,10 +250,7 @@ impl ScrollbackStream {
             }
             ActiveKind::Markdown => {
                 let st = MdStyle { syntax: &syntax, fg: entry_color(&a.commit, &self.theme), mono: self.mono };
-                let state = super::marked::parse_incremental(&a.content, a.parse.as_ref(), 2);
-                let state = if done { super::marked::parse_incremental(&a.content, Some(&state), 0) } else { state };
-                let r = markdown::render_state(&state, width, &st);
-                a.parse = Some(state);
+                let r = markdown::render(&a.content, !done, width, &st);
                 (r.compose(width as u16), Some(r))
             }
         }
@@ -299,14 +295,20 @@ impl ScrollbackStream {
                 }
             }
             Some(r) => {
-                let target = if done { r.blocks.len() } else { r.stable.min(r.blocks.len()) };
+                // A committed block goes out once a block follows it, so its line ending is known; the last one
+                // waits for the caller's line ending at completion.
+                let count = r.blocks.len();
+                let target = if done { count } else { r.stable.min(count.saturating_sub(1)) };
                 if target <= a.committed_blocks || r.blocks.is_empty() {
                     false
                 } else {
                     let ys = r.ys();
-                    let start = ys[a.committed_blocks];
-                    let end = if target < r.blocks.len() { ys[target] } else { ys[target - 1] + r.blocks[target - 1].buf.height as usize };
-                    let t = if done && target == r.blocks.len() { trailing } else { false };
+                    // A block goes out with the gap above it; the gap below waits for the next block, which may
+                    // never show one.
+                    let start = if a.committed_blocks > 0 { ys[a.committed_blocks - 1] + r.blocks[a.committed_blocks - 1].buf.height as usize } else { ys[0] };
+                    let end = ys[target - 1] + r.blocks[target - 1].buf.height as usize;
+                    // Blocks followed by another end their rows; the gap above the next block goes out with that block.
+                    let t = if done { trailing } else { true };
                     let spacer = std::mem::take(&mut a.pending_spacer);
                     self.write_spacer(sink, spacer);
                     Self::commit_rows(sink, &mut a, &buf, start, end, t);
@@ -379,7 +381,7 @@ impl ScrollbackStream {
             self.tail = Some(commit);
             return;
         }
-        let body = entry_body(&commit, BodyOptions { shell_output: Some(self.shell_output), mono: self.mono });
+        let body = entry_body(&commit, BodyOptions { shell_output: Some(self.shell_output), mono: self.mono, markdown_source: self.markdown_source });
         if body == EntryBody::None {
             if entry_done(&commit) {
                 let done = self.finish_active(sink, false);
@@ -434,7 +436,7 @@ impl ScrollbackStream {
     /// the image fitted at the left edge into the terminal width and the rows above the footer, never larger than
     /// its own pixels.
     fn write_image(&mut self, sink: &mut dyn Sink, commit: &StreamCommit) {
-        let body = entry_body(commit, BodyOptions { shell_output: None, mono: self.mono });
+        let body = entry_body(commit, BodyOptions { shell_output: None, mono: self.mono, markdown_source: self.markdown_source });
         let EntryBody::Text(text) = &body else { return };
         let picture = commit.image.as_deref().and_then(crate::graphics::decode::data_uri_bytes).and_then(|b| crate::graphics::decode::decode(&b).ok()).map(std::sync::Arc::new);
         let width = sink.width().max(1);
@@ -549,8 +551,7 @@ pub fn render_entry(commit: &StreamCommit, body: &EntryBody, theme: &RunTheme, w
         EntryBody::Markdown(t) => {
             let st = MdStyle { syntax: &syntax, fg: entry_color(commit, theme), mono };
             let streaming = commit.phase == Phase::Progress;
-            let (_, r) = markdown::render(t, None, streaming, width, &st);
-            r.compose(width as u16)
+            markdown::render(t, streaming, width, &st).compose(width as u16)
         }
         EntryBody::Structured(snap) => structured::render(snap, theme, &syntax, width, mono, suppress_backgrounds),
     }

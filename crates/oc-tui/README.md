@@ -84,7 +84,8 @@ does not touch.
   docks, command, agent, model, variant, settings, subagent and queued-prompt panels, queued prompts, statusline)
   is redrawn. The startup cursor position comes from a CPR query, and the footer height follows
   upstream's rules for each view.
-- **Scrollback:** upstream's entry rendering (markdown through a `marked` lexer port, code, tools
+- **Scrollback:** upstream's entry rendering (markdown as OpenTUI 0.9.4's native engine draws it, through the
+  `ui::mdoc` document the full TUI uses too; code, tools
   with diffs, shell output, reasoning, todo and question summaries), streaming tails, the quiet mode
   that hides tool output, verbosity settings and the `ocd mini -s <id>` exit splash.
 - **Transport:** the V2 event stream is reduced to commits, patches and blocker views the same way
@@ -101,7 +102,11 @@ does not touch.
 
 Upstream's mini tests are ported next to each module. `testdata/scrollback.json` and
 `testdata/footer.json` are goldens produced by running upstream 2.2.2's own modules under Bun with
-OpenTUI 0.7.0's test renderer; the tests compare every cell (text, colors, attributes). Against 0.6.8 two things
+OpenTUI 0.7.0's test renderer; the tests compare every cell (text, colors, attributes). The scrollback cases that
+draw Markdown, and the `r9-*` cases (setext headings, rules, task boxes, loose lists, quotes, aligned tables,
+reasoning, streamed blocks, mono), come from 2.4.1's `RunScrollbackStream` on OpenTUI 0.9.4
+(`scripts/mini_scrollback_golden.test.ts`); the diff tool cases keep their 2.2.2 rows (0.9.4 leaves a diff
+gutter's padding cells unwritten, which shows the same). Against 0.6.8 two things
 changed and are ported: diff gutters size their numbers to the furthest hunk range end (`minDigits`) in every hunk,
 and bare `http(s)://` URLs in markdown take the link label's look (`detectLinks`; also in the full TUI).
 
