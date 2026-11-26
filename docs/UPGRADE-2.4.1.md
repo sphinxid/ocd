@@ -71,3 +71,19 @@ Opt-in features (about 28 days: the rest of `full_codemode`, `sqlite_fts`, `home
 ## Checks
 
 Filled in as batches land.
+
+- **R0** (done): the flag registry follows 2.4.1, including `localOnly` and the opt-in-only list. The top-level
+  `automations` setting is read with 2.4.1's diagnostics, but automations stay off until R2. `mcp_events` stays
+  gated until R3 and video until R6. The OpenAPI document is regenerated (178 operations, 528 schemas). Both
+  migrations apply. Plugin generations that 2.4.1 rejected are skipped.
+- **R1** (done): checked side by side against the 2.4.1 binary (`scripts/parity/session241.py`). Unanalysable shell
+  commands and job cancel are identical. Tool repair, result field order and background results match on everything
+  R1 changed; what still differs belongs to R2 (the Code Mode catalog) and R6 (`generate_video`). Not ported:
+  `session_search`'s field order, because ocd has no such tool.
+- **R4** (done): the recorded request bodies for flattening, Google Interactions continuation and the catalog refresh
+  are checked against 2.4.1 (`scripts/parity/wire241.py`). Token revocation on sign-out waits for the plugin helper
+  rebuild in R12.
+- **R7** (done): the CLI help, the hidden `login` command, log redaction, the TUI's `/login` and `/auth`, and job
+  tracking.
+- **R11** (done): 22 CLI cases and the machine routes match a 2.4.1 release build with the `machines` flag off.
+  ocd keeps answering 403 when the flag is on (see COMPATIBILITY.md).
