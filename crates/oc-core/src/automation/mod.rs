@@ -10,10 +10,11 @@
 //! (TTL 60 s, heartbeat 20 s while ticking, released when nothing is active) elects one leader per database, so an
 //! automation runs once across processes sharing a data directory.
 //!
-//! An `event` trigger (with `experimental.mcp_events`) watches a connected MCP server's push event instead: the
-//! leader opens one stream per active watch ([`event`]), runs the action on each event with the event as input, and
-//! keeps its place in `event_position` (`{agent, cursor, id}`), so a restart, or another process taking the lease,
-//! resumes from the last committed event. Watches a 2.3.1 process created in the same database run here too.
+//! An `event` trigger watches a connected MCP server's push event instead: the leader follows each active watch
+//! through its Location's MCP service ([`event`]), runs the action on each event with the event as input, and keeps
+//! its place in `event_position` (`{agent, cursor}`), so a restart, or another process taking the lease, resumes from
+//! the last committed cursor. Like a timer, a watch where automations are off stays active and is checked again an
+//! hour later, starting from now when it reopens. Watches a 2.3.1 process created in the same database run here too.
 
 pub mod code;
 pub mod event;
@@ -132,29 +133,6 @@ impl AutomationError {
 impl std::fmt::Display for AutomationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message())
-    }
-}
-
-/// Why one opening of an event watch ended.
-#[derive(Debug)]
-enum WatchError {
-    /// `Automation.EventDisconnected`: the stream broke or the server is not connected; it may reopen.
-    Disconnected(String),
-    Failed(AutomationError),
-}
-
-impl From<AutomationError> for WatchError {
-    fn from(error: AutomationError) -> WatchError {
-        WatchError::Failed(error)
-    }
-}
-
-impl From<event::Failure> for WatchError {
-    fn from(failure: event::Failure) -> WatchError {
-        match failure {
-            event::Failure::Disconnected(message) => WatchError::Disconnected(message),
-            event::Failure::Error(message) => WatchError::Failed(AutomationError::Other(message)),
-        }
     }
 }
 
@@ -450,8 +428,6 @@ fn delivery_summary(session_id: &str, subagent: bool) -> String {
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub enabled: bool,
-    /// `experimental.mcp_events`
-    pub events: bool,
     pub timezone: Option<String>,
 }
 
@@ -772,7 +748,6 @@ impl Automations {
         if let (Some(event), Some(Value::Object(position))) = (event, &row.event_position) {
             let mut position = position.clone();
             position.insert("cursor".into(), json!(event.cursor));
-            position.insert("id".into(), json!(event.event_id));
             let mut values = Vec::new();
             if done {
                 values.push(("status", text("done")));
@@ -1067,8 +1042,17 @@ impl Automations {
                 Some(message) => event::prompt(prompt, message),
                 None => prompt.to_string(),
             };
+            // One oversized event is skipped, so the watch moves past it instead of stopping on it.
             if event.is_some() && prompt.len() > 32_768 {
-                return Err(AutomationError::Invalid("Event prompt exceeds 32 KiB".into()));
+                let mut values = vec![
+                    ("last_outcome", text("skipped")),
+                    ("last_output", text("Event prompt exceeds 32 KiB")),
+                    ("retry_at", Sql::Null),
+                ];
+                values.extend(Self::advance(row, now, false, event));
+                values.push(("time_updated", Sql::Integer(now)));
+                self.settle(row, &values, false);
+                return Ok(());
             }
             let to = action.get("to").cloned().unwrap_or(Value::Null);
             let target = self.prompt_target(row, &to).await?;
@@ -1374,7 +1358,7 @@ impl Automations {
             return;
         }
         // No timer tick or next-slot query for event-only databases; timer-only databases need no extra probe.
-        if self.reconcile_watches() > 0 && !self.has_active_rows(true) {
+        if self.reconcile_watches(now).await > 0 && !self.has_active_rows(true) {
             self.doorbell.wait(MAX_SLEEP).await;
             return;
         }
@@ -1539,9 +1523,6 @@ impl Automations {
             return Err(AutomationError::Disabled);
         }
         if kind(&input.trigger) == "event" {
-            if !config.events {
-                return Err(AutomationError::Invalid("Event automations require experimental.mcp_events".into()));
-            }
             let (Some(owner), Some(invocation)) = (&owner, invocation) else {
                 return Err(AutomationError::Invalid("Create an event automation from a tool call in a local session".into()));
             };
@@ -1597,245 +1578,6 @@ impl Automations {
             .map_err(|e| AutomationError::Other(e.to_string()))?;
         self.doorbell.open();
         Ok(row.info())
-    }
-
-    /// An event watch's creation checks (`create` with an `event` trigger): the session's current agent, the
-    /// `opencode_watch_mcp_event` permission for the server, then the server's push event type and the trigger's
-    /// arguments ([`event::resolve`] from now, its stream dropped right away).
-    async fn authorize_watch(&self, owner: &SessionInfo, invocation: &Invocation, input: &CreateInput, directory: &str) -> Result<(), AutomationError> {
-        let env = self.env(owner, directory).await?;
-        if !matches_author(owner, env.agent.as_ref().map(|a| a.id.as_str()), invocation) {
-            return Err(AutomationError::Invalid("Create the watch with the session's current agent".into()));
-        }
-        let app = self.app().ok_or(AutomationError::Declined)?;
-        let server = input.trigger.get("server").and_then(Value::as_str).unwrap_or_default().to_string();
-        let mut metadata = Map::new();
-        metadata.insert("automation".into(), json!(input.name));
-        metadata.insert("trigger".into(), encode_trigger(&input.trigger));
-        app.permissions
-            .assert(AssertInput {
-                id: None,
-                session_id: invocation.session_id.clone(),
-                action: "opencode_watch_mcp_event".into(),
-                resources: vec![server.clone()],
-                save: None,
-                metadata: Some(metadata),
-                source: Some(invocation.source.clone()),
-                agent: Some(invocation.agent.clone()),
-            })
-            .await
-            .map_err(AutomationError::from_permission)?;
-        // Everything `resolve` fails with, the server not being configured included, is an invalid trigger.
-        let events = self.mcp_events(directory, &server).await.map_err(|e| match e {
-            AutomationError::DirectoryNotFound(_) => e,
-            other => AutomationError::Invalid(other.message()),
-        })?;
-        event::resolve(events, &encode_trigger(&input.trigger), None).await.map(drop).map_err(|e| AutomationError::Invalid(e.message().to_string()))
-    }
-
-    /// The MCP Events of `server` in the Location of `directory` (`mcp.events(server)` there).
-    async fn mcp_events(&self, directory: &str, server: &str) -> Result<Option<oc_mcp::events::Events>, AutomationError> {
-        if !std::path::Path::new(directory).is_dir() {
-            return Err(AutomationError::DirectoryNotFound(directory.to_string()));
-        }
-        let engine = self.runner()?;
-        let location = engine.location(directory).await.map_err(|_| AutomationError::DirectoryNotFound(directory.to_string()))?;
-        let mcp = engine.mcp(&location).await;
-        mcp.events(server).await.map_err(|e| AutomationError::Other(e.to_string()))
-    }
-
-    /// `checkWatch(row, server)`: re-checks the original placement and the resource-specific grant before opening a
-    /// stream or running an action.
-    async fn check_watch(&self, row: &Row, server: &str) -> Result<(), AutomationError> {
-        let config = self.settings(&row.directory).await?;
-        if !config.enabled || !config.events {
-            return Err(AutomationError::Invalid("Event automations are disabled".into()));
-        }
-        let owner = row.session_id.as_deref().and_then(|id| self.existing(id));
-        let Some(owner) = owner.filter(|o| {
-            o.project_id == row.project_id && o.location.directory == row.directory && o.location.workspace_id.is_none()
-        }) else {
-            return Err(AutomationError::Invalid("The session that authorized this watch moved or was deleted".into()));
-        };
-        let env = self.env(&owner, &row.directory).await?;
-        let authorized = row.event_position.as_ref().and_then(|p| p.get("agent")).and_then(Value::as_str);
-        let Some(agent) = env.agent.as_ref().filter(|a| Some(a.id.as_str()) == authorized) else {
-            return Err(AutomationError::Invalid("The session agent that authorized this watch changed".into()));
-        };
-        let app = self.app().ok_or(AutomationError::Declined)?;
-        let input = AssertInput {
-            id: None,
-            session_id: owner.id.clone(),
-            action: crate::mcp_events::WATCH_ACTION.into(),
-            resources: vec![server.to_string()],
-            save: None,
-            metadata: None,
-            source: None,
-            agent: Some(agent.id.clone()),
-        };
-        let allow = vec![oc_schema::types::PermissionRule {
-            action: crate::mcp_events::WATCH_ACTION.into(),
-            resource: server.to_string(),
-            effect: oc_schema::types::Effect::Allow,
-        }];
-        crate::permission::unattended(allow, app.permissions.assert(input)).await.map_err(AutomationError::from_permission)
-    }
-
-    /// `expireWatch(row, now)`
-    fn expire_watch(&self, row: &Row, now: i64) {
-        self.settle(row, &[("status", text("done")), ("last_outcome", text("expired")), ("time_updated", Sql::Integer(now))], false);
-    }
-
-    /// `event_position` with `cursor` (null allowed) over `position` and the current row's.
-    fn position_with(position: &Value, current: Option<&Value>, cursor: Option<&str>) -> Value {
-        let mut out = position.as_object().cloned().unwrap_or_default();
-        if let Some(Value::Object(current)) = current {
-            for (k, v) in current {
-                out.insert(k.clone(), v.clone());
-            }
-        }
-        out.insert("cursor".into(), json!(cursor));
-        Value::Object(out)
-    }
-
-    /// Opens the watch's stream once and processes it until it fails or should stop (`open` in `watch`): `Ok` ends
-    /// the watch quietly, an `Err` from `Failure::Disconnected` may reopen.
-    async fn watch_once(self: &Arc<Self>, id: &str, delivery: &tokio::sync::Mutex<()>, attempts: &mut u32) -> Result<(), WatchError> {
-        let row = self.find(id)?;
-        if row.status != "active" || row.trigger_type() != "event" {
-            return Ok(());
-        }
-        let trigger = row.trigger.clone();
-        let server = trigger.get("server").and_then(Value::as_str).unwrap_or_default().to_string();
-        let now = self.clock.now();
-        if row.expires_at.is_some_and(|e| now >= e) {
-            self.expire_watch(&row, now);
-            return Ok(());
-        }
-        self.check_watch(&row, &server).await?;
-        let Some(position) = row.event_position.clone() else {
-            return Err(AutomationError::Invalid("No authorized event watch".into()).into());
-        };
-        let cursor = match position.get("cursor") {
-            Some(Value::Null) => return Err(AutomationError::Invalid("No replay cursor; recreate the watch to start from now".into()).into()),
-            Some(Value::String(cursor)) => Some(cursor.clone()),
-            _ => None,
-        };
-        let events = self.mcp_events(&row.directory, &server).await?;
-        let mut source = event::resolve(events, &trigger, cursor.as_deref()).await?;
-        // Even a crash before the first heartbeat must not silently turn a restart into a fresh watch.
-        if cursor.is_none() {
-            self.settle(&row, &[("event_position", Sql::Text(Self::position_with(&position, None, None).to_string()))], false);
-        }
-        loop {
-            let message = source.next().await?;
-            let _delivering = delivery.lock().await;
-            let current = self.find(id)?;
-            let at = self.clock.now();
-            if current.status != "active" || !self.claim_leader(at) {
-                return Ok(());
-            }
-            if current.expires_at.is_some_and(|e| at >= e) {
-                self.expire_watch(&current, at);
-                return Ok(());
-            }
-            self.check_watch(&current, &server).await?;
-            let oc_mcp::events::EventMessage::Event { event_id, name, timestamp, data, cursor } = message else {
-                let position = Self::position_with(&position, current.event_position.as_ref(), message.cursor());
-                self.settle(&current, &[("event_position", Sql::Text(position.to_string()))], false);
-                *attempts = 0;
-                continue;
-            };
-            *attempts = 0;
-            if current.event_position.as_ref().and_then(|p| p.get("id")).and_then(Value::as_str) == Some(event_id.as_str()) {
-                continue;
-            }
-            let message = event::Message { event_id, name, timestamp, data, cursor };
-            self.run_action(&current, at, Some(&message)).await?;
-            if self.find(id)?.status != "active" {
-                return Ok(());
-            }
-        }
-    }
-
-    /// `watch(id, expires)`: follows one event automation until it is paused, done or removed, or this process loses
-    /// the lease. A broken stream reopens from the last committed cursor up to three times in a row (1, 2 and 4 s
-    /// later); any other failure pauses the automation with the reason. Expiry stops admission, but cannot cut a
-    /// delivery between its inbox write and cursor commit.
-    async fn watch(self: Arc<Self>, id: String, expires: Option<i64>) {
-        let delivery = tokio::sync::Mutex::new(());
-        let open = async {
-            let mut attempts = 0u32;
-            loop {
-                match self.watch_once(&id, &delivery, &mut attempts).await {
-                    Ok(()) => return Ok(()),
-                    Err(WatchError::Disconnected(message)) => {
-                        let cursor = self.find(&id)?.event_position.and_then(|p| p.get("cursor").cloned()).filter(|c| !c.is_null());
-                        if cursor.is_none() {
-                            return Err(AutomationError::Invalid("No replay cursor; recreate the watch to start from now".into()));
-                        }
-                        if attempts >= 3 {
-                            return Err(AutomationError::Other(message));
-                        }
-                        tokio::time::sleep(Duration::from_secs(1 << attempts)).await;
-                        attempts += 1;
-                    }
-                    Err(WatchError::Failed(error)) => return Err(error),
-                }
-            }
-        };
-        let result = match expires {
-            None => open.await,
-            Some(expires) => {
-                let wait = Duration::from_millis((expires - self.clock.now()).max(0) as u64);
-                tokio::select! {
-                    result = open => result,
-                    _ = async {
-                        tokio::time::sleep(wait).await;
-                        let _delivering = delivery.lock().await;
-                        if let Ok(row) = self.find(&id) {
-                            self.expire_watch(&row, self.clock.now());
-                        }
-                    } => Ok(()),
-                }
-            }
-        };
-        let Err(error) = result else { return };
-        if matches!(error, AutomationError::NotFound(_)) {
-            return;
-        }
-        if let Ok(row) = self.find(&id)
-            && row.status == "active"
-        {
-            let reason: String = error.message().chars().take(1024).collect();
-            self.pause_with(&row, self.clock.now(), &reason);
-        }
-    }
-
-    /// `reconcileWatches`: the lease/doorbell loop also sees changes from other processes; it never polls a producer
-    /// for events. Returns how many watches are active.
-    fn reconcile_watches(self: &Arc<Self>) -> usize {
-        let active: Vec<(String, Option<i64>)> = self
-            .db
-            .with(|c| {
-                let mut stmt = c.prepare("SELECT id, expires_at FROM automation WHERE status = 'active' AND next_due_at IS NULL")?;
-                stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()
-            })
-            .unwrap_or_default();
-        let mut watches = self.watches.lock();
-        watches.retain(|id, watch| {
-            let keep = active.iter().any(|(a, _)| a == id);
-            if !keep {
-                watch.abort();
-            }
-            keep
-        });
-        for (id, expires) in &active {
-            if watches.get(id).is_none_or(|w| w.is_finished()) {
-                watches.insert(id.clone(), tokio::spawn(self.clone().watch(id.clone(), *expires)));
-            }
-        }
-        active.len()
     }
 
     /// `list({sessionID, projectID, directory})`: oldest first, leaving out automations whose directory has
@@ -1956,12 +1698,11 @@ pub fn is_absolute(input: &str) -> bool {
     std::path::Path::new(input).is_absolute() || (cfg!(windows) && (input.starts_with('/') || input.starts_with('\\')))
 }
 
-/// The location settings from its config entries: the top-level `automations` setting (see [`DEFAULT_ENABLED`]), the
-/// staged `mcp_events` flag and `timezone`.
+/// The location settings from its config entries: the top-level `automations` setting (see [`DEFAULT_ENABLED`]) and
+/// `timezone`.
 pub fn settings_of(entries: &[oc_config::Entry]) -> Settings {
     Settings {
         enabled: oc_config::fold::latest(entries, |i| i.automations.as_ref()).copied().unwrap_or(DEFAULT_ENABLED),
-        events: oc_config::flag::enabled(entries, "mcp_events"),
         timezone: oc_config::fold::latest(entries, |i| i.timezone.as_ref()).cloned(),
     }
 }

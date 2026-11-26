@@ -1020,15 +1020,16 @@ async fn validates_durations_at_creation() {
     assert_eq!(invalid(create(every("10 seconds"), code("return")).await), "every must be at least 15 seconds");
     assert_eq!(create(every("15 seconds"), code("return")).await.unwrap()["status"], "active");
     let event = json!({"type": "event", "server": "ci", "event": "build.changed"});
-    assert_eq!(invalid(create(event, prompt("x")).await), "Event automations require experimental.mcp_events");
+    // 2.4.1 needs no flag: an event watch is checked like any other, and refused outside a tool call.
+    assert_eq!(invalid(create(event, prompt("x")).await), "Create an event automation from a tool call in a local session");
 }
 
-/// With `mcp_events` on, an event watch needs a tool call in a local session, then a configured server offering push
-/// events (the event cases are in `automation_event.rs`).
+/// An event watch needs a tool call in a local session, then a configured server offering push events (the event
+/// cases are in `automation_event.rs`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn event_watches_need_a_tool_call_and_a_server_offering_events() {
     let h = harness();
-    write_config(&h.root.join("enabled"), config(true, json!({"experimental": {"automations": true, "mcp_events": true}})));
+    write_config(&h.root.join("enabled"), config(true, json!({})));
     let s = h.session().await;
     let input =
         json!({"sessionID": s, "name": "watch", "trigger": {"type": "event", "server": "ci", "event": "build.changed"}, "action": prompt("Check the build")});

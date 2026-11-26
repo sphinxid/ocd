@@ -27,7 +27,7 @@ fn api() -> Api {
     let tmp = tempfile::tempdir().unwrap();
     let root = oc_util::fs::canonicalize(tmp.path()).unwrap();
     let cwd = root.join("enabled");
-    write(&cwd, json!({ "automations": true, "experimental": { "mcp_events": true }, "permission": { "*": "allow" } }));
+    write(&cwd, json!({ "automations": true, "permission": { "*": "allow" } }));
     write(&root.join("ask"), json!({ "automations": true, "permission": { "*": "allow", "execute": "ask" } }));
     let app = oc_core::app::App::new(global(&root.join("g")), oc_storage::Database::memory().unwrap(), "1.2.3");
     let runner = oc_core::runner::Engine::new(app.clone(), &oc_core::services::default_services(&app));
