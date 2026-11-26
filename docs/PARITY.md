@@ -171,17 +171,19 @@ iterator's `next`.
 
 ## Results
 
-**2.4.1 MCP (R3; debug build, 2026-11-26):** against the opencode 2.4.1 binary: `mcp241_unset_protocol_negotiates_auto`
-identical (a modern, a legacy, an exiting, a silent and a pinned-legacy server: statuses, spawn counts and wire
-methods). `mcp241_list_mcp_events` matches in everything this batch owns (the tool's definition and its place in the
-tool list, the listing and the failure); what differs is other batches' (the `opencode_session_move` hint in the
-system prompt and `opencode_models`' `video` type). `mcp241_event_watch_wire` differs only because ocd has no
-`tools.automation.create` until the automation namespace is ported; run with ocd's current `automation_create`, its
-rows, `events/*` params and wire methods equal upstream's. Rerun: `mcpopt231_pool_shares_local_servers`, `mcp227`
-(except `mcp227_slow_server_misses_the_first_step`, whose diff is the tool list: automations on by default and the
-media tool names) and `clientmcp231_tickets_and_refusals` identical; the other `clientmcp231` diffs are the Code Mode
-catalog and media tool names, and `mcpopt231_automation_event_fires` still uses 2.3.x's `opencode_automation_create`,
-which 2.4.1 replaced.
+**2.4.1 MCP (R3; debug build, 2026-11-26, on top of the automation batch):** against the opencode 2.4.1 binary:
+`mcp241_unset_protocol_negotiates_auto` (a modern, a legacy, an exiting, a silent and a pinned-legacy server:
+statuses, spawn counts and wire methods) and `mcp241_event_watch_wire` (the event automation's rows, `events/*`
+params and wire methods) identical. `mcp241_list_mcp_events` matches in the tool's definition, its place in the tool
+list, the listing and the failure; what differs is `opencode_models`' `video` type. In the `automation` group
+`automation_api`, `automation_api_unattended`, `automation_config_off`, `automation_folder_gone`, `automation_lease`
+and `automation_shell` are identical, and `automation_fires`, `automation_subagent`, `automation_checks`,
+`automation_command` and `automation_tools_direct` differ only in the media tools (`generate_image`/`generate_video`
+against ocd's `experimental_image_generate`); `mcpopt231_automation_event_fires` likewise differs only there.
+`mcpopt231_pool_shares_local_servers`, four of five `mcp227` and `clientmcp231_tickets_and_refusals` are identical;
+`mcp227_slow_server_misses_the_first_step` differs in the media tools and in the slow server already being connected
+when ocd's prompt ends (ocd's session start and prompt took about 2 s longer here, with or without the probe), and
+the other `clientmcp231` diffs are the media tools.
 
 **Opt-in full Code Mode (debug build, 2026-11-20):** the new `fcm231` group (5 scenarios) against the opencode 2.3.1
 binary: **5 identical**. The tool definitions, system prompt and Code Mode catalog the model sees with the config key
