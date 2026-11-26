@@ -1,0 +1,406 @@
+{
+ "source": "OpenTUI v0.9.4 packages/core/src/renderables/markdown.conformance.json (MIT): the rows with frames, math rows left out. Each frame is Core's char frame at width 60 (tableOptions.widthMode \"content\") after a chunk; `skip` lists the frames Core itself does not draw.",
+ "rows": [
+  {
+   "name": "parity no rule, NBSP between marks",
+   "chunks": [
+    "- - -"
+   ],
+   "skip": [],
+   "frames": [
+    "- - -"
+   ]
+  },
+  {
+   "name": "parity no rule, em space between marks",
+   "chunks": [
+    "* * *"
+   ],
+   "skip": [],
+   "frames": [
+    "* * *"
+   ]
+  },
+  {
+   "name": "parity no rule, ideographic space between marks",
+   "chunks": [
+    "_　_　_"
+   ],
+   "skip": [],
+   "frames": [
+    "_　_　_"
+   ]
+  },
+  {
+   "name": "parity no rule, NBSP after the marks",
+   "chunks": [
+    "*** "
+   ],
+   "skip": [],
+   "frames": [
+    "***"
+   ]
+  },
+  {
+   "name": "parity no rule, NBSP before the marks",
+   "chunks": [
+    " ***"
+   ],
+   "skip": [],
+   "frames": [
+    " ***"
+   ]
+  },
+  {
+   "name": "parity no rule, NBSP marks after a paragraph",
+   "chunks": [
+    "above\n- - -"
+   ],
+   "skip": [],
+   "frames": [
+    "above\n- - -"
+   ]
+  },
+  {
+   "name": "parity no setext underline, NBSP after it",
+   "chunks": [
+    "Title\n--- "
+   ],
+   "skip": [],
+   "frames": [
+    "Title\n---"
+   ]
+  },
+  {
+   "name": "parity no blank line, NBSP only",
+   "chunks": [
+    "a\n \nb"
+   ],
+   "skip": [],
+   "frames": [
+    "a\n\nb"
+   ]
+  },
+  {
+   "name": "parity no heading, NBSP before it",
+   "chunks": [
+    " # h"
+   ],
+   "skip": [],
+   "frames": [
+    " # h"
+   ]
+  },
+  {
+   "name": "parity no list, NBSP before the marker",
+   "chunks": [
+    " - item"
+   ],
+   "skip": [],
+   "frames": [
+    " - item"
+   ]
+  },
+  {
+   "name": "parity no emphasis, em space inside double stars",
+   "chunks": [
+    "** ** **"
+   ],
+   "skip": [],
+   "frames": [
+    "** ** **"
+   ]
+  },
+  {
+   "name": "parity no emphasis, ideographic space inside double underscores",
+   "chunks": [
+    "__　__　__"
+   ],
+   "skip": [],
+   "frames": [
+    "__　__　__"
+   ]
+  },
+  {
+   "name": "parity no emphasis, NBSP inside stars",
+   "chunks": [
+    "a * b * c"
+   ],
+   "skip": [],
+   "frames": [
+    "a * b * c"
+   ]
+  },
+  {
+   "name": "parity emphasis and strong text conceal their marks",
+   "chunks": [
+    "*a* and **b**"
+   ],
+   "skip": [],
+   "frames": [
+    "a and b"
+   ]
+  },
+  {
+   "name": "reflow ordered 9 -> 10",
+   "chunks": [
+    "1. item 1\n2. item 2\n3. item 3\n4. item 4\n5. item 5\n6. item 6\n7. item 7\n8. item 8\n9. item 9\n",
+    "10. ten\n"
+   ],
+   "skip": [
+    "core-text:1"
+   ],
+   "frames": [
+    " 1. item 1\n 2. item 2\n 3. item 3\n 4. item 4\n 5. item 5\n 6. item 6\n 7. item 7\n 8. item 8\n 9. item 9",
+    " 1. item 1\n 2. item 2\n 3. item 3\n 4. item 4\n 5. item 5\n 6. item 6\n 7. item 7\n 8. item 8\n 9. item 9\n10. ten"
+   ]
+  },
+  {
+   "name": "reflow table header",
+   "chunks": [
+    "a | b\n",
+    "--- | ---\n",
+    "1 | 2\n"
+   ],
+   "skip": [],
+   "frames": [
+    "a",
+    "┌─┬─┐\n│a│b│\n└─┴─┘",
+    "┌─┬─┐\n│a│b│\n├─┼─┤\n│1│2│\n└─┴─┘"
+   ]
+  },
+  {
+   "name": "reflow setext underline",
+   "chunks": [
+    "Title\n",
+    "=",
+    "==\n",
+    "\nbody\n"
+   ],
+   "skip": [],
+   "frames": [
+    "Title",
+    "Title",
+    "Title\n===",
+    "Title\n===\n\nbody"
+   ]
+  },
+  {
+   "name": "reflow fence close",
+   "chunks": [
+    "```\ncode\n",
+    "``",
+    "`\n",
+    "after\n"
+   ],
+   "skip": [],
+   "frames": [
+    "code",
+    "code",
+    "code",
+    "code\n\nafter"
+   ]
+  },
+  {
+   "name": "reflow bold before close",
+   "chunks": [
+    "some **bold",
+    " text** end\n"
+   ],
+   "skip": [],
+   "frames": [
+    "some bold",
+    "some bold text end"
+   ]
+  },
+  {
+   "name": "reflow link before close",
+   "chunks": [
+    "see [docs",
+    "](https://example.com/x) now\n"
+   ],
+   "skip": [],
+   "frames": [
+    "see [docs",
+    "see docs (https://example.com/x) now"
+   ]
+  },
+  {
+   "name": "reflow late link definition",
+   "chunks": [
+    "see [x] here\n\n",
+    "[x]: https://example.com\n"
+   ],
+   "skip": [],
+   "frames": [
+    "see [x] here",
+    "see x (https://example.com) here"
+   ]
+  },
+  {
+   "name": "stream heading, gap, paragraph",
+   "chunks": [
+    "# A",
+    "\n\np",
+    "\n\nq"
+   ],
+   "skip": [],
+   "frames": [
+    "A",
+    "A\n\np",
+    "A\n\np\n\nq"
+   ]
+  },
+  {
+   "name": "stream a paragraph after a gap turns into a link definition",
+   "chunks": [
+    "# A\n\n[x]:",
+    "\n/url"
+   ],
+   "skip": [],
+   "frames": [
+    "A",
+    "A"
+   ]
+  },
+  {
+   "name": "stream a held line ends the stream",
+   "chunks": [
+    "text\n",
+    "a | b"
+   ],
+   "skip": [],
+   "frames": [
+    "text",
+    "text\na | b"
+   ]
+  },
+  {
+   "name": "stream a session ID split across chunks",
+   "chunks": [
+    "see se",
+    "s_abc now"
+   ],
+   "skip": [],
+   "frames": [
+    "see se",
+    "see ses_abc now"
+   ]
+  },
+  {
+   "name": "stream a code span split across chunks",
+   "chunks": [
+    "use `bun",
+    " test` now"
+   ],
+   "skip": [],
+   "frames": [
+    "use bun",
+    "use bun test now"
+   ]
+  },
+  {
+   "name": "stream a fence and the text after it",
+   "chunks": [
+    "Run:\n\n```sh\nbun",
+    " test\n```",
+    "\n\nDone."
+   ],
+   "skip": [
+    "core-text:1",
+    "core-text:2"
+   ],
+   "frames": [
+    "Run:\n\nbun",
+    "Run:\n\nbun test",
+    "Run:\n\nbun test\n\nDone."
+   ]
+  },
+  {
+   "name": "stream table rows",
+   "chunks": [
+    "| a | b |\n| --- | --- |",
+    "\n| 1 | 2 |",
+    "\n| 3 | 4 |"
+   ],
+   "skip": [],
+   "frames": [
+    "",
+    "┌─┬─┐\n│a│b│\n├─┼─┤\n│1│2│\n└─┴─┘",
+    "┌─┬─┐\n│a│b│\n├─┼─┤\n│1│2│\n├─┼─┤\n│3│4│\n└─┴─┘"
+   ]
+  },
+  {
+   "name": "align columns",
+   "chunks": [
+    "| Left | Right | Centre | Plain |\n| :--- | ----: | :----: | ----- |\n| c |\n| a | 1 | x | y |\n| bb | 22 | xyz | z |\n"
+   ],
+   "skip": [],
+   "frames": [
+    "┌────┬─────┬──────┬─────┐\n│Left│Right│Centre│Plain│\n├────┼─────┼──────┼─────┤\n│c   │     │      │     │\n├────┼─────┼──────┼─────┤\n│a   │    1│  x   │y    │\n├────┼─────┼──────┼─────┤\n│bb  │   22│ xyz  │z    │\n└────┴─────┴──────┴─────┘"
+   ]
+  },
+  {
+   "name": "align wrap",
+   "chunks": [
+    "| Item | Note |\n| ---- | ---: |\n| tent | Pitch it on the flat ground near the water, away from the trees and the wind. |\n"
+   ],
+   "skip": [],
+   "frames": [
+    "┌────┬─────────────────────────────────────────────────────┐\n│Item│                                                 Note│\n├────┼─────────────────────────────────────────────────────┤\n│tent│Pitch it on the flat ground near the water, away from│\n│    │                              the trees and the wind.│\n└────┴─────────────────────────────────────────────────────┘"
+   ]
+  },
+  {
+   "name": "align wide",
+   "chunks": [
+    "| 名前 | 数 | 絵 |\n| :-: | --: | :-: |\n| 東京都 | 12 | 🎉 |\n| 大阪 | 3 | 🍣🍣🍣 |\n| 京 | 100 | a |\n"
+   ],
+   "skip": [],
+   "frames": [
+    "┌──────┬───┬──────┐\n│ 名前 │ 数│  絵  │\n├──────┼───┼──────┤\n│東京都│ 12│  🎉  │\n├──────┼───┼──────┤\n│ 大阪 │  3│🍣🍣🍣│\n├──────┼───┼──────┤\n│  京  │100│  a   │\n└──────┴───┴──────┘"
+   ]
+  },
+  {
+   "name": "align stream",
+   "chunks": [
+    "| Qty | Item |\n",
+    "| --: | :-: |\n",
+    "| 4 | apples |\n",
+    "| 12 | figs |"
+   ],
+   "skip": [],
+   "frames": [
+    "",
+    "┌───┬────┐\n│Qty│Item│\n└───┴────┘",
+    "┌───┬──────┐\n│Qty│ Item │\n├───┼──────┤\n│  4│apples│\n└───┴──────┘",
+    "┌───┬──────┐\n│Qty│ Item │\n├───┼──────┤\n│  4│apples│\n├───┼──────┤\n│ 12│ figs │\n└───┴──────┘"
+   ]
+  },
+  {
+   "name": "stream long fence lines wrap, also in a list and a quote",
+   "chunks": [
+    "```sh\nOPENCODE_STORY=media OPENCODE_STORY_MEDIA=\"$C/vt520.mp4:0:12\" bun run story\n",
+    "```\n\n- item\n\n  ```\n  echo one two three four five six seven eight nine ten eleven twelve\n  ```\n\n> ```\n> echo one two three four five six seven eight nine ten eleven twelve\n> ```\n"
+   ],
+   "skip": [
+    "core-text:1"
+   ],
+   "frames": [
+    "OPENCODE_STORY=media OPENCODE_STORY_MEDIA=\"$C/vt520.mp4:0:\n12\" bun run story",
+    "OPENCODE_STORY=media OPENCODE_STORY_MEDIA=\"$C/vt520.mp4:0:\n12\" bun run story\n\n- item\n\n  echo one two three four five six seven eight nine ten\n  eleven twelve\n\n│ echo one two three four five six seven eight nine ten\n│ eleven twelve"
+   ]
+  },
+  {
+   "name": "stream a list, then a paragraph",
+   "chunks": [
+    "- one\n- tw",
+    "o\n\nafter"
+   ],
+   "skip": [],
+   "frames": [
+    "- one\n- tw",
+    "- one\n- two\n\nafter"
+   ]
+  }
+ ]
+}

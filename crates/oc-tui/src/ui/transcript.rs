@@ -1284,16 +1284,22 @@ pub fn switch_label(model: &ModelRef, models: &[ModelInfo], previous: Option<&Mo
     }
 }
 
-fn md_lines(ctx: &RCtx, text: &str, width: usize, mono: bool) -> Vec<SLine> {
+/// `<markdown>`: an answer or a compaction summary in the Markdown colors, or (`thinking`) reasoning in the reasoning
+/// colors (`ReasoningBody`: the thinking syntax, every group in `text.muted`). `streaming` while more may come.
+fn md_lines(ctx: &RCtx, text: &str, width: usize, thinking: bool, streaming: bool) -> Vec<SLine> {
     let o = MdOpts {
         theme: ctx.t(),
-        syntax: if mono { ctx.thinking_syntax } else { ctx.syntax },
+        syntax: if thinking { ctx.thinking_syntax } else { ctx.syntax },
         conceal: ctx.conceal(),
-        fg: if mono { ctx.t().text.muted } else { ctx.t().markdown.text },
-        mono,
+        fg: if thinking { ctx.t().text.muted } else { ctx.t().markdown.text },
+        streaming,
         // Assistant text and compaction summaries (`useSessionLinks`); thinking stays plain.
-        links: if mono { None } else { ctx.links },
+        links: if thinking { None } else { ctx.links },
     };
+    // `ReasoningBody`: source mode keeps a code view of the reasoning's Markdown source.
+    if thinking && !o.conceal {
+        return markdown::source(text, width, &o);
+    }
     markdown::render(text, width, &o)
 }
 
@@ -1326,7 +1332,7 @@ fn render_part(ctx: &RCtx, r: &PartRef) -> Vec<SLine> {
             if t.is_empty() {
                 return vec![];
             }
-            md_lines(ctx, t, ctx.width.saturating_sub(3), false).into_iter().map(|l| l.prefixed(&[pad(3)])).collect()
+            md_lines(ctx, t, ctx.width.saturating_sub(3), false, m.time.completed.is_none()).into_iter().map(|l| l.prefixed(&[pad(3)])).collect()
         }
         Content::Reasoning { text, time, .. } => {
             // thinking = "show": header + body with left bars.
@@ -1347,7 +1353,7 @@ fn render_part(ctx: &RCtx, r: &PartRef) -> Vec<SLine> {
                 vec![s(format!("Thought{}", if d.is_empty() { String::new() } else { format!(": {d}") }), warn60(ctx))]
             };
             let mut out = vec![SLine::new(header).prefixed(&bar), SLine::blank()];
-            for l in md_lines(ctx, &content, ctx.width.saturating_sub(5), true) {
+            for l in md_lines(ctx, &content, ctx.width.saturating_sub(5), true, !done) {
                 out.push(l.prefixed(&bar));
             }
             out
@@ -1787,7 +1793,7 @@ fn render_message(ctx: &RCtx, id: &str, light: bool) -> Vec<SLine> {
             let content = content.trim();
             if !content.is_empty() {
                 out.push(SLine::blank());
-                out.extend(md_lines(ctx, content, w.saturating_sub(3), false).into_iter().map(|l| l.prefixed(&[pad(3)])));
+                out.extend(md_lines(ctx, content, w.saturating_sub(3), false, status == "running").into_iter().map(|l| l.prefixed(&[pad(3)])));
             }
             out
         }
@@ -1830,7 +1836,7 @@ fn group_lines(ctx: &RCtx, kind: GroupKind, children: &[Node], completed: bool, 
                     if mode == "thought" {
                         if let Entry::Part(r) = e
                             && let Some(m) = ctx.message(&r.message)
-                            && let Some(Content::Reasoning { text, .. }) = resolve_part(m, &r.part)
+                            && let Some(Content::Reasoning { text, time, .. }) = resolve_part(m, &r.part)
                         {
                             let content = reasoning_content(text);
                             if content.is_empty() {
@@ -1838,7 +1844,8 @@ fn group_lines(ctx: &RCtx, kind: GroupKind, children: &[Node], completed: bool, 
                             }
                             v.push(SLine::blank());
                             let bar = vec![pad(3), s("┃", th.dec(th.background.raised.base)), pad(1)];
-                            for l in md_lines(ctx, &content, ctx.width.saturating_sub(5), true) {
+                            let streaming = time.as_ref().and_then(|t| t.completed).is_none() && m.time.completed.is_none();
+                            for l in md_lines(ctx, &content, ctx.width.saturating_sub(5), true, streaming) {
                                 v.push(l.prefixed(&bar));
                             }
                         }

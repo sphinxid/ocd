@@ -1,22 +1,36 @@
-//! Markdown → styled lines (stands in for OpenTUI's `<markdown>` renderable).
-//! `conceal` hides inline markers (`**`, backticks, `#`) as in `session.markdown = "rendered"`.
+//! Markdown → styled lines: OpenTUI 0.9.4's `<markdown>` (`renderables/Markdown.ts` over the native engine) as
+//! opencode's `TextPart` and `ReasoningBody` use it (`tableOptions: { style: "grid", cellPaddingX: 1 }`).
+//!
+//! Top-level blocks are separated by one blank row. A paragraph or heading keeps its line breaks and wraps by word; a
+//! setext heading keeps its underline row. A block quote is a `│` bar (the `default` style's color) with its blocks a
+//! row apart, its text in `markup.quote`. A list's items are a marker column (`-`, or numbers aligned on their right,
+//! then a task box) and a content column; a loose list puts a row between items and between an item's blocks. A
+//! table fills the width (`widthMode: "full"`, proportional fitting), with `#888888` borders, a header in the heading
+//! style and each column aligned as its delimiter row says. A rule is `─` in the Markdown color. Code blocks wrap by
+//! word and never show their fences.
+//!
+//! `conceal` hides the syntax markers (`session.markdown = "rendered"`); without it each leaf shows its source.
 
 use super::highlight::{highlight, token_style};
+use super::mdoc::{self, Align, Block, Item, Row, Scope, Span};
 use super::text::{Click, SLine, Seg, Wrap, wrap};
-use crate::theme::{SyntaxStyle, Theme};
+use crate::mini::cell::{Color as CellColor, StyledChunk};
+use crate::mini::text::{WrapMode, layout};
+use crate::theme::{Rgba, SyntaxStyle, Theme, TokenStyle};
+use crate::util::locale::width as text_width;
 use crate::util::session_mention::{parse_session_mention, session_mentions};
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd, TextMergeStream};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use std::cell::RefCell;
 
 pub struct MdOpts<'a> {
     pub theme: &'a Theme,
+    /// The syntax style: the theme's, or the thinking style (every group in `text.muted`) for reasoning.
     pub syntax: &'a SyntaxStyle,
     pub conceal: bool,
-    /// Base foreground (`markdown.text`, or `text.muted` for thinking).
-    pub fg: crate::theme::Rgba,
-    /// Force every style's fg to `fg` (thinking blocks).
-    pub mono: bool,
+    /// Base foreground (`markdown.text`, or `text.muted` for reasoning).
+    pub fg: Rgba,
+    /// Whether more content is still to come (`streaming`): the last line shows as far as it is decided.
+    pub streaming: bool,
     /// Show session IDs as links (`useSessionLinks`).
     pub links: Option<&'a SessionLinks<'a>>,
 }
@@ -51,587 +65,466 @@ impl<'a> SessionLinks<'a> {
     }
 }
 
-struct Ctx<'a> {
+/// The table border color when the syntax has no `conceal` group (`resolveTableRenderableOptions`).
+const TABLE_BORDER: Rgba = Rgba::rgb(0x88, 0x88, 0x88);
+
+type Rows = Vec<Vec<Seg>>;
+
+struct Lay<'a> {
     o: &'a MdOpts<'a>,
-    out: Vec<SLine>,
-    inline: Vec<Seg>,
-    styles: Vec<Style>,
-    prefix: Vec<Seg>,
-    lists: Vec<Option<u64>>,
-    width: usize,
-    code: Option<(String, String)>,
-    table: Option<Table>,
-    link: Option<String>,
-    pending_item: Option<Vec<Seg>>,
+    table: TableOpts,
 }
 
-#[derive(Default)]
-struct Table {
-    rows: Vec<Vec<Vec<Seg>>>,
-    cell: Vec<Seg>,
-    row: Vec<Vec<Seg>>,
-    head_rows: usize,
-    in_head: bool,
+/// The table options (`MarkdownTableOptions`): `full` fills the width (`widthMode: "full"`, else `"content"`), `pad`
+/// is `cellPaddingX`. opencode's answers and reasoning use full width and one cell of padding.
+#[derive(Clone, Copy, Debug)]
+pub struct TableOpts {
+    pub full: bool,
+    pub pad: usize,
 }
 
-impl<'a> Ctx<'a> {
-    fn style(&self) -> Style {
-        *self.styles.last().unwrap()
+/// The style of text no part of a block styles: the Markdown color, under `markup.quote` for each quote around it.
+#[derive(Clone, Copy)]
+struct Base {
+    style: Style,
+}
+
+fn modifiers(t: &TokenStyle) -> Modifier {
+    let mut m = Modifier::empty();
+    if t.bold {
+        m |= Modifier::BOLD;
     }
-    fn st(&self, c: crate::theme::Rgba) -> Style {
-        if self.o.mono { Style::default().fg(self.o.fg.tui()) } else { Style::default().fg(c.tui()) }
+    if t.italic {
+        m |= Modifier::ITALIC;
     }
-    fn push_text(&mut self, text: &str, style: Style) {
-        if let Some(t) = self.table.as_mut() {
-            t.cell.push(Seg::new(text.to_string(), style));
+    if t.underline {
+        m |= Modifier::UNDERLINED;
+    }
+    m
+}
+
+impl<'a> Lay<'a> {
+    fn root(&self) -> Base {
+        Base { style: Style::default().fg(self.o.fg.tui()) }
+    }
+
+    fn quoted(&self, b: Base) -> Base {
+        let Some(q) = self.o.syntax.lookup("markup.quote") else { return b };
+        let mut style = b.style;
+        if let Some(fg) = q.fg {
+            style = style.fg(fg.tui());
+        }
+        if let Some(bg) = q.bg {
+            style = style.bg(bg.tui());
+        }
+        Base { style: style.add_modifier(modifiers(&q)) }
+    }
+
+    /// A span's style: the scope's groups composed over the base (`resolveGroupSet`).
+    fn scope(&self, base: Base, scope: &Scope) -> Style {
+        let mut style = base.style;
+        for name in scope.groups() {
+            let Some(t) = self.o.syntax.lookup(name) else {
+                if name == "markup.strikethrough" {
+                    style = style.add_modifier(Modifier::CROSSED_OUT);
+                }
+                continue;
+            };
+            if let Some(fg) = t.fg {
+                style = style.fg(fg.tui());
+            }
+            if let Some(bg) = t.bg {
+                style = style.bg(bg.tui());
+            }
+            style = style.add_modifier(modifiers(&t));
+            if name == "markup.strikethrough" {
+                style = style.add_modifier(Modifier::CROSSED_OUT);
+            }
+        }
+        style
+    }
+
+    /// A prose leaf's spans as segments, session IDs linked (the inline hook; table cells never get it).
+    fn segs(&self, spans: &[Span], base: Base, prose: bool) -> Vec<Seg> {
+        let mut out = Vec::new();
+        for s in spans {
+            let style = self.scope(base, &s.scope);
+            match self.o.links.filter(|_| prose) {
+                Some(links) => self.link_ids(&mut out, s, style, links),
+                None => out.push(Seg::new(s.text.clone(), style)),
+            }
+        }
+        out
+    }
+
+    /// `linkSpans`: a span's session IDs become links. A link's text stays, and a code span links only when it is
+    /// exactly a session ID, so a command such as `opencode --session ses_…` stays copyable.
+    fn link_ids(&self, out: &mut Vec<Seg>, s: &Span, style: Style, links: &SessionLinks) {
+        let exact = || parse_session_mention(s.text.trim_start_matches('`').trim_end_matches('`').trim()).is_some();
+        if s.link.is_some() || (s.code && !exact()) {
+            out.push(Seg::new(s.text.clone(), style));
             return;
         }
-        self.inline.push(Seg::new(text.to_string(), style));
-    }
-    /// Prose text: session IDs become links (`linkChunks`). Tables are not prose blocks.
-    fn push_prose(&mut self, text: &str, style: Style) {
-        let Some(links) = self.o.links.filter(|_| self.table.is_none()) else {
-            return self.push_text(text, style);
-        };
         let mut at = 0;
-        for m in session_mentions(text) {
+        for m in session_mentions(&s.text) {
             if m.start > at {
-                self.push_text(&text[at..m.start], style);
+                out.push(Seg::new(s.text[at..m.start].to_string(), style));
             }
-            let raw = &text[m.start..m.end];
+            let raw = &s.text[m.start..m.end];
             match links.label(&m.id) {
                 Some(label) => {
                     let shown = if self.o.conceal { format!("@{label}") } else { raw.to_string() };
-                    let link = self.link_style(style);
-                    self.inline.push(Seg::new(shown, link).on_click(Click::SessionLink(m.id)));
+                    let url = token_style(self.o.syntax.get("markup.link.url"));
+                    let mut link = style;
+                    link.fg = url.fg.or(style.fg);
+                    link.add_modifier = url.add_modifier | Modifier::UNDERLINED;
+                    link.sub_modifier = Modifier::empty();
+                    out.push(Seg::new(shown, link).on_click(Click::SessionLink(m.id)));
                 }
-                None => self.push_text(raw, style),
+                None => out.push(Seg::new(raw.to_string(), style)),
             }
             at = m.end;
         }
-        if at < text.len() {
-            self.push_text(&text[at..], style);
+        if at < s.text.len() {
+            out.push(Seg::new(s.text[at..].to_string(), style));
         }
     }
-    /// The chunk restyled as `markup.link.url`: its foreground and attributes, underlined.
-    fn link_style(&self, style: Style) -> Style {
-        let url = token_style(self.o.syntax.get("markup.link.url"));
-        let mut s = style;
-        s.fg = url.fg.or(style.fg);
-        s.add_modifier = url.add_modifier | Modifier::UNDERLINED;
-        s.sub_modifier = Modifier::empty();
-        s
+
+    /// Blocks stacked with `gap` blank rows between them.
+    fn blocks(&self, blocks: &[Block], width: usize, base: Base, gap: usize) -> Rows {
+        let mut out: Rows = Vec::new();
+        for (i, b) in blocks.iter().enumerate() {
+            if i > 0 {
+                for _ in 0..gap {
+                    out.push(vec![]);
+                }
+            }
+            out.extend(self.block(b, width, base));
+        }
+        out
     }
-    fn flush(&mut self) {
-        if self.inline.is_empty() && self.pending_item.is_none() {
-            return;
-        }
-        let mut first_prefix = self.prefix.clone();
-        let mut rest_prefix = self.prefix.clone();
-        if let Some(marker) = self.pending_item.take() {
-            let mw: usize = marker.iter().map(|s| s.width()).sum();
-            first_prefix.extend(marker);
-            rest_prefix.push(Seg::new(" ".repeat(mw), Style::default()));
-        }
-        let pw: usize = first_prefix.iter().map(|s| s.width()).sum();
-        let segs = std::mem::take(&mut self.inline);
-        let lines = wrap(&segs, self.width.saturating_sub(pw).max(1), Wrap::Word);
-        for (i, l) in lines.into_iter().enumerate() {
-            let p = if i == 0 { &first_prefix } else { &rest_prefix };
-            self.out.push(SLine::new(l).prefixed(p));
+
+    fn block(&self, b: &Block, width: usize, base: Base) -> Rows {
+        let width = width.max(1);
+        match b {
+            Block::Paragraph(spans) | Block::Heading { spans, .. } => word(&self.segs(spans, base, true), width),
+            Block::Html(text) => word(&[Seg::new(text.clone(), base.style)], width),
+            Block::Code { lang, text } => self.code(lang, text, width),
+            Block::Rule => vec![vec![Seg::new("─".repeat(width), Style::default().fg(self.o.fg.tui()))]],
+            Block::Table { aligns, rows } => self.table(aligns, rows, width),
+            Block::Quote(children) => {
+                let bar = Style::default().fg(self.o.syntax.lookup("default").and_then(|d| d.fg).unwrap_or(self.o.fg).tui());
+                let inner = self.blocks(children, width.saturating_sub(2), self.quoted(base), 1);
+                // An empty quote still shows its bar.
+                let rows = if inner.is_empty() { vec![vec![]] } else { inner };
+                rows.into_iter()
+                    .map(|r| {
+                        let mut row = vec![Seg::new("│", bar)];
+                        if !r.is_empty() {
+                            row.push(Seg::new(" ", Style::default()));
+                            row.extend(r);
+                        }
+                        row
+                    })
+                    .collect()
+            }
+            Block::List { ordered, start, tight, items } => self.list(*ordered, *start, *tight, items, width, base),
         }
     }
-    fn blank(&mut self) {
-        if !self.out.is_empty() && self.out.last().is_some_and(|l| !l.segs.is_empty() || l.bg.is_some()) {
-            if self.prefix.is_empty() {
-                self.out.push(SLine::blank());
-            } else {
-                self.out.push(SLine::new(self.prefix.clone()));
+
+    /// A code block (`CodeRenderable`, word wrap): highlighted, its plain text in the Markdown color.
+    fn code(&self, lang: &str, text: &str, width: usize) -> Rows {
+        let plain = Style::default().fg(self.o.fg.tui());
+        let default = token_style(self.o.syntax.default);
+        let lines: Rows = if lang.is_empty() {
+            text.split('\n').map(|l| vec![Seg::new(l.to_string(), plain)]).collect()
+        } else {
+            highlight(text, lang, self.o.syntax)
+                .into_iter()
+                .map(|l| l.into_iter().map(|s| if s.style == default { Seg::new(s.text, plain) } else { s }).collect())
+                .collect()
+        };
+        let mut out = Vec::new();
+        for l in lines {
+            out.extend(word(&l, width));
+        }
+        out
+    }
+
+    /// `updateList`: markers are `-` or numbers aligned on their right, then the task box; a loose list puts a row
+    /// between its items and between an item's blocks.
+    fn list(&self, ordered: bool, start: u64, tight: bool, items: &[Item], width: usize, base: Base) -> Rows {
+        let gap = usize::from(!tight);
+        let count = items.len() as u64;
+        let mw = if ordered { (start + count.saturating_sub(1)).to_string().len() + 1 } else { 1 };
+        let marker_style = match self.o.syntax.lookup("markup.list") {
+            Some(t) => {
+                let mut s = Style::default().fg(t.fg.map(|c| c.tui()).or(base.style.fg).unwrap_or(Color::Reset));
+                if let Some(bg) = t.bg.map(|c| c.tui()).or(base.style.bg) {
+                    s = s.bg(bg);
+                }
+                s.add_modifier(modifiers(&t))
+            }
+            None => base.style,
+        };
+        let mut out = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                for _ in 0..gap {
+                    out.push(vec![]);
+                }
+            }
+            let task = match item.task {
+                None => "",
+                Some(true) if self.o.conceal => " ☑",
+                Some(false) if self.o.conceal => " ☐",
+                Some(true) => " [x]",
+                Some(false) => " [ ]",
+            };
+            let number = if ordered { format!("{:>mw$}", format!("{}.", start + i as u64)) } else { "-".to_string() };
+            let label = format!("{number}{task} ");
+            let lw = text_width(&label);
+            let content = self.blocks(&item.blocks, width.saturating_sub(lw).max(1), base, gap);
+            let rows = if content.is_empty() { vec![vec![]] } else { content };
+            for (k, r) in rows.into_iter().enumerate() {
+                let mut row = if k == 0 { vec![Seg::new(label.clone(), marker_style)] } else if r.is_empty() { vec![] } else { vec![Seg::new(" ".repeat(lw), Style::default())] };
+                row.extend(r);
+                out.push(row);
             }
         }
+        out
+    }
+
+    /// `TextTableRenderable` in the grid style: full width, proportional fitting, word wrap, one cell of padding on
+    /// each side, a border on every side and between all rows and columns.
+    fn table(&self, aligns: &[Align], rows: &[Row], width: usize) -> Rows {
+        let cols = aligns.len();
+        if cols == 0 || rows.is_empty() {
+            return vec![];
+        }
+        let base = self.root();
+        let heading = self.o.syntax.lookup("markup.heading").or_else(|| self.o.syntax.lookup("default"));
+        let cells: Vec<Vec<Vec<Seg>>> = rows
+            .iter()
+            .map(|r| {
+                (0..cols)
+                    .map(|c| {
+                        let spans = r.cells.get(c).map(Vec::as_slice).unwrap_or(&[]);
+                        let mut segs = self.segs(spans, base, false);
+                        if r.header
+                            && let Some(h) = heading
+                        {
+                            for s in &mut segs {
+                                let strike = s.style.add_modifier.contains(Modifier::CROSSED_OUT);
+                                let mut st = Style::default().fg(h.fg.map(|c| c.tui()).or(s.style.fg).unwrap_or(Color::Reset)).add_modifier(modifiers(&h));
+                                if let Some(bg) = h.bg.map(|c| c.tui()).or(s.style.bg) {
+                                    st = st.bg(bg);
+                                }
+                                if strike {
+                                    st = st.add_modifier(Modifier::CROSSED_OUT);
+                                }
+                                s.style = st;
+                            }
+                        }
+                        if segs.is_empty() { vec![Seg::new(" ", base.style)] } else { segs }
+                    })
+                    .collect()
+            })
+            .collect();
+        let px = self.table.pad;
+        let pad = px * 2;
+        let mut intrinsic = vec![1 + pad; cols];
+        for row in &cells {
+            for (c, cell) in row.iter().enumerate() {
+                let w = wrap(cell, usize::MAX / 4, Wrap::None).iter().map(|l| l.iter().map(Seg::width).sum::<usize>()).max().unwrap_or(0);
+                intrinsic[c] = intrinsic[c].max(w.max(1) + pad);
+            }
+        }
+        let max_content = width.saturating_sub(cols + 1).max(1);
+        let total: usize = intrinsic.iter().sum();
+        let widths = if total == max_content {
+            intrinsic
+        } else if total < max_content && !self.table.full {
+            intrinsic
+        } else if total < max_content {
+            let extra = max_content - total;
+            let (share, rem) = (extra / cols, extra % cols);
+            intrinsic.iter().enumerate().map(|(i, w)| w + share + usize::from(i < rem)).collect()
+        } else {
+            allocate_proportional(&intrinsic, max_content, 1 + pad)
+        };
+        let border = Style::default().fg(TABLE_BORDER.tui());
+        let rule = |l: &str, m: &str, r: &str| -> Vec<Seg> {
+            let mut s = l.to_string();
+            for (i, w) in widths.iter().enumerate() {
+                s.push_str(&"─".repeat(*w));
+                s.push_str(if i + 1 == cols { r } else { m });
+            }
+            vec![Seg::new(s, border)]
+        };
+        let mut out = vec![rule("┌", "┬", "┐")];
+        for (ri, row) in cells.iter().enumerate() {
+            let laid: Vec<Rows> = row.iter().enumerate().map(|(c, cell)| word(cell, widths[c] - pad)).collect();
+            let h = laid.iter().map(Vec::len).max().unwrap_or(1).max(1);
+            for li in 0..h {
+                let mut segs = vec![Seg::new("│", border)];
+                for (c, w) in widths.iter().enumerate() {
+                    let inner = w - pad;
+                    let line = laid[c].get(li).cloned().unwrap_or_default();
+                    let lw: usize = line.iter().map(Seg::width).sum();
+                    let free = inner.saturating_sub(lw);
+                    let left = match aligns[c] {
+                        Align::Left => 0,
+                        Align::Right => free,
+                        Align::Center => free / 2,
+                    };
+                    if px + left > 0 {
+                        segs.push(Seg::new(" ".repeat(px + left), Style::default()));
+                    }
+                    segs.extend(line);
+                    if free - left + px > 0 {
+                        segs.push(Seg::new(" ".repeat(free - left + px), Style::default()));
+                    }
+                    segs.push(Seg::new("│", border));
+                }
+                out.push(segs);
+            }
+            out.push(if ri + 1 < cells.len() { rule("├", "┼", "┤") } else { rule("└", "┴", "┘") });
+        }
+        out
     }
 }
 
-/// Bare `http(s)://` URLs in plain text as `detectLinks` (OpenTUI 0.7) finds them: up to whitespace, `<`, `>`, `"`
-/// or a backtick, without trailing `.,!?;:]}'` or an unbalanced `)`. Byte ranges.
-pub fn bare_urls(text: &str) -> Vec<(usize, usize)> {
-    static BARE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r#"(?i)https?://[^\s<>"`]+"#).unwrap());
-    let mut out = Vec::new();
-    for m in BARE.find_iter(text) {
-        let mut url = m.as_str();
-        let open = url.matches('(').count();
-        let mut close = url.matches(')').count();
-        while let Some(last) = url.chars().last() {
-            if last == ')' && close > open {
-                close -= 1;
-            } else if !".,!?;:]}'".contains(last) {
-                break;
-            }
-            url = &url[..url.len() - last.len_utf8()];
-        }
-        if !url.is_empty() {
-            out.push((m.start(), m.start() + url.len()));
-        }
+/// OpenTUI's word wrap (`TextBufferView`, `wrapMode: "word"`): a row breaks after whitespace and after `-`, `/`,
+/// `\`, `.`, `,`, `;`, `:`, `!`, `?` and brackets, and between CJK characters; a word wider than the row breaks by
+/// character. `\n` starts a row. The break positions come from mini's port of it (`mini::text::layout`).
+fn word(segs: &[Seg], width: usize) -> Rows {
+    let chunks: Vec<StyledChunk> = segs.iter().map(|s| StyledChunk::new(s.text.clone(), CellColor::WHITE, CellColor::TRANSPARENT, 0)).collect();
+    let mut starts = Vec::with_capacity(segs.len());
+    let mut at = 0;
+    for s in segs {
+        starts.push(at);
+        at += s.text.len();
     }
-    out
+    layout(&chunks, width.max(1), WrapMode::Word, false)
+        .into_iter()
+        .map(|line| {
+            let mut row = Vec::new();
+            for (i, s) in segs.iter().enumerate() {
+                let (a, b) = (starts[i], starts[i] + s.text.len());
+                let (from, to) = (a.max(line.start), b.min(line.end));
+                if from >= to {
+                    continue;
+                }
+                let mut piece = s.clone();
+                piece.text = s.text[from - a..to - a].replace('\t', "  ");
+                row.push(piece);
+            }
+            row
+        })
+        .collect()
+}
+
+/// `allocateProportionalColumnWidths` (`text-table-width.ts`): shrinks columns toward `min`, the wide ones most.
+pub fn allocate_proportional(widths: &[usize], target: usize, min: usize) -> Vec<usize> {
+    let base: Vec<usize> = widths.iter().map(|w| (*w).max(min)).collect();
+    let total: usize = base.iter().sum();
+    let capacity: Vec<usize> = base.iter().map(|w| w - min).collect();
+    let n = base.len();
+    let mut growth = vec![0usize; n];
+    let available = (target.saturating_sub(min * n)).min(total - min * n);
+    if available == 0 {
+        return vec![min; n];
+    }
+    if available == capacity.iter().sum::<usize>() {
+        return base;
+    }
+    let weights: Vec<f64> = capacity.iter().map(|c| (*c as f64).sqrt()).collect();
+    let mut active: Vec<(usize, usize, f64)> = capacity.iter().enumerate().filter(|(_, w)| **w > 0).map(|(i, w)| (i, *w, weights[i])).collect();
+    active.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+    if active.len() == n && capacity.iter().all(|c| *c == capacity[0]) {
+        let shared = available / n;
+        let rem = available % n;
+        return (0..n).map(|i| min + shared + usize::from(i < rem)).collect();
+    }
+    let mut remaining = available as f64;
+    let mut total_weight: f64 = active.iter().map(|a| a.2).sum();
+    for (idx, w, weight) in &active {
+        if remaining / total_weight <= *weight {
+            break;
+        }
+        growth[*idx] = *w;
+        remaining -= *w as f64;
+        total_weight -= weight;
+    }
+    let level = remaining / total_weight;
+    for (idx, w, weight) in &active {
+        if growth[*idx] == *w {
+            continue;
+        }
+        growth[*idx] = (*w).min((level * weight).floor() as usize);
+    }
+    let cmp = |lg: usize, lc: usize, rg: usize, rc: usize| ((lg * lg * rc) as u128).cmp(&((rg * rg * lc) as u128));
+    let mut allocated: usize = growth.iter().sum();
+    while allocated > available {
+        let mut worst: Option<usize> = None;
+        for i in 0..n {
+            if growth[i] == 0 {
+                continue;
+            }
+            let better = match worst {
+                None => true,
+                Some(w) => {
+                    let c = cmp(growth[i], capacity[i], growth[w], capacity[w]);
+                    c == std::cmp::Ordering::Greater || (c == std::cmp::Ordering::Equal && i > w)
+                }
+            };
+            if better {
+                worst = Some(i);
+            }
+        }
+        let Some(w) = worst else { break };
+        growth[w] -= 1;
+        allocated -= 1;
+    }
+    while allocated < available {
+        let mut best: Option<usize> = None;
+        for i in 0..n {
+            if growth[i] >= capacity[i] {
+                continue;
+            }
+            let better = match best {
+                None => true,
+                Some(b) => cmp(growth[i] + 1, capacity[i], growth[b] + 1, capacity[b]) == std::cmp::Ordering::Less,
+            };
+            if better {
+                best = Some(i);
+            }
+        }
+        let Some(b) = best else { break };
+        growth[b] += 1;
+        allocated += 1;
+    }
+    growth.iter().map(|g| g + min).collect()
 }
 
 /// Render markdown text to lines of at most `width` cells.
 pub fn render(text: &str, width: usize, o: &MdOpts) -> Vec<SLine> {
-    let width = width.max(4);
-    let base = Style::default().fg(o.fg.tui());
-    let mut c = Ctx {
-        o,
-        out: Vec::new(),
-        inline: Vec::new(),
-        styles: vec![base],
-        prefix: Vec::new(),
-        lists: Vec::new(),
-        width,
-        code: None,
-        table: None,
-        link: None,
-        pending_item: None,
-    };
-    let md = &o.theme.markdown;
-    // Adjacent text events are one run, as OpenTUI's chunks are: a session ID or URL is not split at `_`.
-    let parser = TextMergeStream::new(Parser::new_ext(text, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS));
-    for ev in parser {
-        match ev {
-            Event::Start(tag) => match tag {
-                Tag::Paragraph => {}
-                Tag::Heading { level, .. } => {
-                    c.blank_if_needed();
-                    let mut s = c.st(md.heading).add_modifier(Modifier::BOLD);
-                    if level == HeadingLevel::H1 {
-                        s = s.add_modifier(Modifier::UNDERLINED);
-                    }
-                    c.styles.push(s);
-                    if !o.conceal {
-                        let n = match level {
-                            HeadingLevel::H1 => 1,
-                            HeadingLevel::H2 => 2,
-                            HeadingLevel::H3 => 3,
-                            HeadingLevel::H4 => 4,
-                            HeadingLevel::H5 => 5,
-                            HeadingLevel::H6 => 6,
-                        };
-                        c.push_text(&format!("{} ", "#".repeat(n)), s);
-                    }
-                }
-                Tag::BlockQuote(_) => {
-                    c.flush();
-                    let s = c.st(md.block_quote);
-                    c.prefix.push(Seg::new("│ ", s));
-                    c.styles.push(c.st(md.block_quote).add_modifier(Modifier::ITALIC));
-                }
-                Tag::CodeBlock(kind) => {
-                    c.flush();
-                    let lang = match kind {
-                        CodeBlockKind::Fenced(l) => l.split_whitespace().next().unwrap_or("").to_string(),
-                        CodeBlockKind::Indented => String::new(),
-                    };
-                    if !o.conceal {
-                        let p = c.prefix.clone();
-                        c.out.push(SLine::new(vec![Seg::new(format!("```{lang}"), c.st(md.code))]).prefixed(&p));
-                    }
-                    c.code = Some((lang, String::new()));
-                }
-                Tag::List(start) => {
-                    c.flush();
-                    c.lists.push(start);
-                }
-                Tag::Item => {
-                    c.flush();
-                    let depth = c.lists.len().saturating_sub(1);
-                    let indent = "  ".repeat(depth);
-                    let marker = match c.lists.last_mut() {
-                        Some(Some(n)) => {
-                            let m = format!("{indent}{n}. ");
-                            *n += 1;
-                            vec![Seg::new(m, c.st(md.list_enumeration))]
-                        }
-                        _ => vec![Seg::new(format!("{indent}- "), c.st(md.list_item))],
-                    };
-                    c.pending_item = Some(marker);
-                }
-                Tag::Emphasis => {
-                    let s = c.style().add_modifier(Modifier::ITALIC);
-                    let s = if o.mono { s } else { s.fg(md.emphasis.tui()) };
-                    if !o.conceal {
-                        c.push_text("*", s);
-                    }
-                    c.styles.push(s);
-                }
-                Tag::Strong => {
-                    let s = c.style().add_modifier(Modifier::BOLD);
-                    let s = if o.mono { s } else { s.fg(md.strong.tui()) };
-                    if !o.conceal {
-                        c.push_text("**", s);
-                    }
-                    c.styles.push(s);
-                }
-                Tag::Strikethrough => {
-                    let s = c.style().add_modifier(Modifier::CROSSED_OUT);
-                    c.styles.push(s);
-                }
-                Tag::Link { dest_url, .. } => {
-                    let s = c.st(md.link_text).add_modifier(Modifier::UNDERLINED);
-                    if !o.conceal {
-                        c.push_text("[", c.style());
-                    }
-                    c.styles.push(s);
-                    c.link = Some(dest_url.to_string());
-                }
-                Tag::Image { dest_url, .. } => {
-                    let s = c.st(md.image_text);
-                    c.styles.push(s);
-                    c.link = Some(dest_url.to_string());
-                }
-                Tag::Table(_) => {
-                    c.flush();
-                    c.table = Some(Table::default());
-                }
-                Tag::TableHead => {
-                    if let Some(t) = c.table.as_mut() {
-                        t.in_head = true;
-                    }
-                    c.styles.push(c.style().add_modifier(Modifier::BOLD));
-                }
-                Tag::TableRow => {}
-                Tag::TableCell => {}
-                _ => {}
-            },
-            Event::End(tag) => match tag {
-                TagEnd::Paragraph => {
-                    c.flush();
-                    c.blank();
-                }
-                TagEnd::Heading(_) => {
-                    c.styles.pop();
-                    c.flush();
-                    c.blank();
-                }
-                TagEnd::BlockQuote(_) => {
-                    c.flush();
-                    c.prefix.pop();
-                    c.styles.pop();
-                    c.blank();
-                }
-                TagEnd::CodeBlock => {
-                    if let Some((lang, code)) = c.code.take() {
-                        let code = code.strip_suffix('\n').unwrap_or(&code).to_string();
-                        let lines = if o.mono {
-                            code.split('\n').map(|l| vec![Seg::new(l.to_string(), base)]).collect()
-                        } else {
-                            highlight(&code, &lang, o.syntax)
-                        };
-                        let p = c.prefix.clone();
-                        let pw: usize = p.iter().map(|s| s.width()).sum();
-                        for l in lines {
-                            for wl in wrap(&l, width.saturating_sub(pw).max(1), Wrap::Char) {
-                                c.out.push(SLine::new(wl).prefixed(&p));
-                            }
-                        }
-                        if !o.conceal {
-                            c.out.push(SLine::new(vec![Seg::new("```", c.st(md.code))]).prefixed(&p));
-                        }
-                    }
-                    c.blank();
-                }
-                TagEnd::List(_) => {
-                    c.flush();
-                    c.lists.pop();
-                    if c.lists.is_empty() {
-                        c.blank();
-                    }
-                }
-                TagEnd::Item => c.flush(),
-                TagEnd::Emphasis => {
-                    let s = c.styles.pop().unwrap_or(base);
-                    if !o.conceal {
-                        c.push_text("*", s);
-                    }
-                }
-                TagEnd::Strong => {
-                    let s = c.styles.pop().unwrap_or(base);
-                    if !o.conceal {
-                        c.push_text("**", s);
-                    }
-                }
-                TagEnd::Strikethrough => {
-                    c.styles.pop();
-                }
-                TagEnd::Link => {
-                    c.styles.pop();
-                    if let Some(url) = c.link.take() {
-                        let ls = c.st(md.link).add_modifier(Modifier::UNDERLINED);
-                        if o.conceal {
-                            c.push_text(&format!(" ({url})"), ls);
-                        } else {
-                            c.push_text("](", c.style());
-                            c.push_text(&url, ls);
-                            c.push_text(")", c.style());
-                        }
-                    }
-                }
-                TagEnd::Image => {
-                    c.styles.pop();
-                    if let Some(url) = c.link.take() {
-                        c.push_text(&format!(" ({url})"), c.st(md.image));
-                    }
-                }
-                TagEnd::TableCell => {
-                    if let Some(t) = c.table.as_mut() {
-                        let cell = std::mem::take(&mut t.cell);
-                        t.row.push(cell);
-                    }
-                }
-                TagEnd::TableHead => {
-                    c.styles.pop();
-                    if let Some(t) = c.table.as_mut() {
-                        let row = std::mem::take(&mut t.row);
-                        t.rows.push(row);
-                        t.head_rows = t.rows.len();
-                        t.in_head = false;
-                    }
-                }
-                TagEnd::TableRow => {
-                    if let Some(t) = c.table.as_mut() {
-                        let row = std::mem::take(&mut t.row);
-                        t.rows.push(row);
-                    }
-                }
-                TagEnd::Table => {
-                    if let Some(t) = c.table.take() {
-                        let border = c.st(o.theme.border);
-                        let p = c.prefix.clone();
-                        for l in render_table(&t, width.saturating_sub(p.iter().map(|s| s.width()).sum()), border) {
-                            c.out.push(l.prefixed(&p));
-                        }
-                    }
-                    c.blank();
-                }
-                _ => {}
-            },
-            Event::Text(t) => {
-                if let Some((_, code)) = c.code.as_mut() {
-                    code.push_str(&t);
-                } else {
-                    let s = c.style();
-                    if c.link.is_some() {
-                        c.push_text(&t, s);
-                    } else {
-                        // OpenTUI 0.7's `detectLinks` gives bare URLs the link label's look.
-                        let label = c.st(md.link_text);
-                        let bare = s.patch(Style { fg: label.fg, ..Style::default() }).add_modifier(Modifier::UNDERLINED);
-                        let mut at = 0;
-                        for (a, b) in bare_urls(&t) {
-                            if a > at {
-                                c.push_prose(&t[at..a], s);
-                            }
-                            c.push_text(&t[a..b], bare);
-                            at = b;
-                        }
-                        if at < t.len() {
-                            c.push_prose(&t[at..], s);
-                        }
-                    }
-                }
-            }
-            Event::Code(t) => {
-                let style = if o.mono { base } else { token_style(o.syntax.get("markup.raw.inline")) };
-                if !o.conceal {
-                    c.push_text("`", style);
-                }
-                // A code span links only when it is exactly a session ID, so a command such as
-                // `opencode --session ses_…` stays copyable.
-                if c.link.is_none() && parse_session_mention(&t).is_some() {
-                    c.push_prose(&t, style);
-                } else {
-                    c.push_text(&t, style);
-                }
-                if !o.conceal {
-                    c.push_text("`", style);
-                }
-            }
-            Event::SoftBreak => c.push_text(" ", base),
-            Event::HardBreak => c.push_text("\n", base),
-            Event::Rule => {
-                c.flush();
-                let s = c.st(md.horizontal_rule);
-                c.out.push(SLine::new(vec![Seg::new("─".repeat(width), s)]));
-                c.blank();
-            }
-            Event::TaskListMarker(done) => {
-                let marker = if done { "[x] " } else { "[ ] " };
-                c.push_text(marker, c.st(md.list_item));
-            }
-            Event::Html(h) | Event::InlineHtml(h) => {
-                let s = c.style();
-                c.push_text(h.trim_end_matches('\n'), s);
-            }
-            _ => {}
-        }
-    }
-    c.flush();
-    while c.out.last().is_some_and(|l| l.segs.iter().all(|s| s.text.trim().is_empty() || s.text == "│ ")) {
-        c.out.pop();
-    }
-    c.out
+    render_with(text, width, o, TableOpts { full: true, pad: 1 })
 }
 
-impl Ctx<'_> {
-    fn blank_if_needed(&mut self) {
-        self.flush();
-    }
+/// Markdown shown as its source in a code view (`<code filetype="markdown" conceal={false}>`, reasoning in source
+/// mode): the text as written, highlighted, its plain text in `o.fg`, wrapped by word.
+pub fn source(text: &str, width: usize, o: &MdOpts) -> Vec<SLine> {
+    Lay { o, table: TableOpts { full: true, pad: 1 } }.code("markdown", text, width.max(1)).into_iter().map(SLine::new).collect()
 }
 
-fn render_table(t: &Table, width: usize, border: Style) -> Vec<SLine> {
-    let cols = t.rows.iter().map(|r| r.len()).max().unwrap_or(0);
-    if cols == 0 {
-        return vec![];
-    }
-    let mut widths = vec![1usize; cols];
-    for r in &t.rows {
-        for (i, cell) in r.iter().enumerate() {
-            let w: usize = cell.iter().map(|s| s.width()).sum();
-            widths[i] = widths[i].max(w);
-        }
-    }
-    // Shrink columns to fit: each column has padding 1 on both sides plus borders.
-    let overhead = cols * 3 + 1;
-    while widths.iter().sum::<usize>() + overhead > width && widths.iter().any(|w| *w > 3) {
-        let (i, _) = widths.iter().enumerate().max_by_key(|(_, w)| **w).unwrap();
-        widths[i] -= 1;
-    }
-    let rule = |l: &str, m: &str, r: &str| -> SLine {
-        let mut s = l.to_string();
-        for (i, w) in widths.iter().enumerate() {
-            s.push_str(&"─".repeat(w + 2));
-            s.push_str(if i + 1 == cols { r } else { m });
-        }
-        SLine::new(vec![Seg::new(s, border)])
-    };
-    let mut out = vec![rule("┌", "┬", "┐")];
-    for (ri, r) in t.rows.iter().enumerate() {
-        let wrapped: Vec<Vec<Vec<Seg>>> = (0..cols)
-            .map(|i| {
-                let cell = r.get(i).cloned().unwrap_or_default();
-                wrap(&cell, widths[i], Wrap::Word)
-            })
-            .collect();
-        let h = wrapped.iter().map(|c| c.len()).max().unwrap_or(1);
-        for li in 0..h {
-            let mut segs = vec![Seg::new("│", border)];
-            for (i, w) in widths.iter().enumerate() {
-                segs.push(Seg::new(" ", Style::default()));
-                let line = wrapped[i].get(li).cloned().unwrap_or_default();
-                let lw: usize = line.iter().map(|s| s.width()).sum();
-                segs.extend(line);
-                segs.push(Seg::new(" ".repeat(w.saturating_sub(lw) + 1), Style::default()));
-                segs.push(Seg::new("│", border));
-            }
-            out.push(SLine::new(segs));
-        }
-        if ri + 1 < t.rows.len() {
-            out.push(rule("├", "┼", "┤"));
-        }
-    }
-    out.push(rule("└", "┴", "┘"));
-    out
+/// [`render`] with other table options.
+pub fn render_with(text: &str, width: usize, o: &MdOpts, table: TableOpts) -> Vec<SLine> {
+    let doc = mdoc::parse(text, o.conceal, o.streaming);
+    let lay = Lay { o, table };
+    lay.blocks(&doc, width.max(1), lay.root(), 1).into_iter().map(SLine::new).collect()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::theme::{Mode, OPENCODE_V2, resolve};
-
-    #[test]
-    fn finds_bare_urls_like_detect_links() {
-        let t = "see https://bare.url/path. and (https://x.y/a_(b)) or HTTP://Q.r/s?x=1, `https://no` <https://z>";
-        let found: Vec<&str> = bare_urls(t).into_iter().map(|(a, b)| &t[a..b]).collect();
-        assert_eq!(found, ["https://bare.url/path", "https://x.y/a_(b)", "HTTP://Q.r/s?x=1", "https://no", "https://z"]);
-    }
-
-    fn lines(text: &str, conceal: bool) -> Vec<String> {
-        let doc: serde_json::Value = serde_json::from_str(OPENCODE_V2).unwrap();
-        let t = resolve::resolve_document(&doc, Mode::Dark).unwrap();
-        let st = SyntaxStyle::from_theme(&t);
-        let o = MdOpts { theme: &t, syntax: &st, conceal, fg: t.markdown.text, mono: false, links: None };
-        render(text, 40, &o).into_iter().map(|l| l.text()).collect()
-    }
-
-    const KNOWN: &str = "ses_knownknownknownknownknownk";
-    const OTHER: &str = "ses_otherotherotherotherothero";
-
-    type Linked = (Vec<String>, Vec<(String, Click)>, Vec<(String, Option<String>)>);
-
-    /// Renders with links for `KNOWN` (titled) only: (rows, linked texts with their targets, mentioned IDs).
-    fn linked(text: &str, conceal: bool, width: usize) -> Linked {
-        let doc: serde_json::Value = serde_json::from_str(OPENCODE_V2).unwrap();
-        let t = resolve::resolve_document(&doc, Mode::Dark).unwrap();
-        let st = SyntaxStyle::from_theme(&t);
-        let label = |id: &str| (id == KNOWN).then(|| "Fix the flaky reconnect test on Windows".to_string());
-        let links = SessionLinks::new(&label);
-        let o = MdOpts { theme: &t, syntax: &st, conceal, fg: t.markdown.text, mono: false, links: Some(&links) };
-        let out = render(text, width, &o);
-        let found = out.iter().flat_map(|l| l.segs.iter()).filter_map(|s| s.link.as_ref().map(|c| (s.text.clone(), (**c).clone()))).collect();
-        for s in out.iter().flat_map(|l| l.segs.iter()).filter(|s| s.link.is_some()) {
-            assert!(s.style.add_modifier.contains(Modifier::UNDERLINED));
-            assert_eq!(s.style.fg, Some(t.markdown.link.tui()));
-        }
-        (out.iter().map(|l| l.text()).collect(), found, links.take())
-    }
-
-    /// `session-link.test.tsx` "session links in … markdown": only loaded sessions link; a long
-    /// title wraps and both rows open it; fenced code stays plain.
-    #[test]
-    fn session_ids_link_in_prose() {
-        let text = format!("**中文** see {KNOWN} now\n\n- other {OTHER}\n\n```\n{KNOWN}\n```");
-        let (rows, found, used) = linked(&text, true, 30);
-        let link = Click::SessionLink(KNOWN.into());
-        assert_eq!(found, vec![("@Fix the flaky".to_string(), link.clone()), ("reconnect test on Windows".to_string(), link)]);
-        assert_eq!(rows[0], "中文 see @Fix the flaky");
-        assert_eq!(rows[1], "reconnect test on Windows now");
-        assert!(rows.iter().any(|r| r.starts_with("- other ses_other")), "{rows:?}");
-        assert_eq!(rows.last().unwrap(), KNOWN);
-        assert_eq!(used, vec![(KNOWN.to_string(), Some("Fix the flaky reconnect test on Windows".to_string())), (OTHER.to_string(), None)]);
-        // Source mode keeps the ID text, still a link; `@session:` mentions link too.
-        let (rows, found, _) = linked(&format!("see @session:{KNOWN} now"), false, 80);
-        assert_eq!(rows, [format!("see @session:{KNOWN} now")]);
-        assert_eq!(found, vec![(format!("@session:{KNOWN}"), Click::SessionLink(KNOWN.into()))]);
-    }
-
-    /// "code spans link only when they are exactly an ID".
-    #[test]
-    fn code_spans_link_only_when_exactly_an_id() {
-        let text = format!("Run `opencode --session {KNOWN}` or open `{KNOWN}`.");
-        let (rows, found, _) = linked(&text, true, 200);
-        assert_eq!(found.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["@Fix the flaky reconnect test on Windows"]);
-        assert!(rows[0].contains(&format!("opencode --session {KNOWN}")));
-        let (rows, found, _) = linked(&text, false, 200);
-        assert_eq!(found.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), [KNOWN]);
-        assert!(rows[0].contains(&format!("`opencode --session {KNOWN}`")));
-    }
-
-    #[test]
-    fn urls_and_markdown_links_keep_their_ids() {
-        let text = format!("https://host/{KNOWN} and [x](https://h/{KNOWN}) and [{KNOWN}](https://h)");
-        let (_, found, used) = linked(&text, true, 200);
-        assert!(found.is_empty() && used.is_empty(), "{found:?}");
-    }
-
-    #[test]
-    fn basics() {
-        assert_eq!(lines("# Title\n\nSome **bold** text", true), vec!["Title", "", "Some bold text"]);
-        assert_eq!(lines("Some **bold**", false), vec!["Some **bold**"]);
-        assert_eq!(lines("- a\n- b", true), vec!["- a", "- b"]);
-        assert_eq!(lines("1. a\n2. b", true), vec!["1. a", "2. b"]);
-        assert_eq!(lines("```rust\nfn x() {}\n```", true), vec!["fn x() {}"]);
-        let t = lines("| a | b |\n|---|---|\n| 1 | 2 |", true);
-        assert_eq!(t[0], "┌───┬───┐");
-        assert_eq!(t[1], "│ a │ b │");
-        assert_eq!(t.len(), 5);
-    }
-}
+mod tests;

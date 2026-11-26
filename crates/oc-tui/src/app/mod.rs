@@ -1630,3 +1630,5 @@ mod media_tests;
 mod images_tests;
 #[cfg(test)]
 mod catchup241_tests;
+#[cfg(test)]
+mod opentui094_tests;

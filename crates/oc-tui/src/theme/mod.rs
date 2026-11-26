@@ -520,6 +520,12 @@ impl SyntaxStyle {
         s
     }
 
+    /// A style group as Core's `SyntaxStyle.getStyle` finds it: the name itself, else its first dotted segment, else
+    /// nothing (no fallback to `default`).
+    pub fn lookup(&self, name: &str) -> Option<TokenStyle> {
+        self.rules.get(name).or_else(|| name.split_once('.').and_then(|(head, _)| self.rules.get(head))).copied()
+    }
+
     /// Look up a scope with dotted-prefix fallback.
     pub fn get(&self, scope: &str) -> TokenStyle {
         let mut s = scope;

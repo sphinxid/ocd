@@ -1462,7 +1462,7 @@ pub fn btw_answer(app: &App, question: &str, answer: &str, copied: bool) -> Dial
     let st = crate::theme::SyntaxStyle::from_theme(&base);
     let label = |id: &str| app.session_link_label(id);
     let links = crate::ui::markdown::SessionLinks::new(&label);
-    let o = crate::ui::markdown::MdOpts { theme: &base, syntax: &st, conceal: true, fg: base.markdown.text, mono: false, links: Some(&links) };
+    let o = crate::ui::markdown::MdOpts { theme: &base, syntax: &st, conceal: true, fg: base.markdown.text, streaming: false, links: Some(&links) };
     let lines = crate::ui::markdown::render(answer, width, &o);
     let links = links.take();
     let question_line = question.split_whitespace().collect::<Vec<_>>().join(" ");

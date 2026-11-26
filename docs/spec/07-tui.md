@@ -1977,11 +1977,11 @@ All have `paddingLeft=3` and `theme.text.muted` unless noted.
 #### 3.5.1 Text part (`src/routes/session/message-parts.tsx:169-196`)
 - Box with `paddingLeft=3`. It uses an OpenTUI `<markdown>` element:
   - `content = text.trim()`; `streaming` while `message.time.completed` is undefined.
-  - `internalBlockMode="top-level"`; `tableOptions={{style:"grid", cellPaddingX:1}}`.
+  - `tableOptions={{style:"grid", cellPaddingX:1}}`.
   - `conceal = (config.session.markdown ?? "rendered") === "rendered"`. Conceal hides markdown markers (`**`, backticks, `#`…); `"source"` shows them (`src/config/index.tsx:170`, `index.tsx:239`).
   - fg `theme.markdown.text`, bg `theme.background.base`, `syntaxStyle` = current theme syntax.
-- `renderNode` comes from plugin code-block renderers (`src/plugin/markdown.ts:5-18`). These are per-language custom code-block renderers merged last-wins. With none registered it is `undefined` and OpenTUI's default code blocks are used.
-- Headings, lists, link and code-block appearance are implemented inside OpenTUI's MarkdownRenderable (not in this repo). See Open questions.
+- `renderBlock` comes from plugin code-block renderers (`src/plugin/markdown.ts:5-18`). These are per-language custom code-block renderers merged last-wins. With none registered it is `undefined` and OpenTUI's default code blocks are used.
+- Headings, lists, link and code-block appearance are implemented inside OpenTUI's MarkdownRenderable (not in this repo). Since 2.4.1 (OpenTUI 0.9.4) it renders through the native CommonMark engine (`packages/native/src/markdown*.zig`): one blank row between top-level blocks; paragraphs keep their line breaks; a setext heading keeps its underline row in the heading style; `- - -` is a rule (`─` in the Markdown color); task items show `☐`/`☑` (`[ ]`/`[x]` without conceal); numbers align on their right and a loose list puts a row between items; quotes are a `│` bar in the `default` color with a row between their blocks; grid tables fill the width with `#888888` borders, align columns as the delimiter row says and draw the header in `markup.heading`; links show `label (url)` when the terminal has no hyperlinks, autolinks and images only their text. While streaming, a last line that may still become a fence's closer, a setext underline or a table row waits, and an unclosed emphasis or code span draws as if closed. ocd: `ui/mdoc.rs` (document), `ui/markdown.rs` (layout), `mini/markdown.rs` (mini).
 - Tree-sitter languages: markdown, javascript, and typescript are OpenTUI built-ins. Extra WASM parsers come from `src/parsers-config.ts`: python, rust, go, cpp, csharp, bash, c, java, kotlin, ruby, php, scala, html, vue, hcl, json, yaml, haskell, css, julia, lua, ocaml, clojure, swift, toml, nix, diff, elixir, fsharp, r, make, vim, xml, agda (`parsers-config.ts:1-6,8-377`). They are registered via `addDefaultParsers` (`index.tsx:134`).
 - Extension→filetype map: `src/util/filetype.ts:3-128`. `typescriptreact`, `javascriptreact`, and `javascript` all map to `"typescript"`. A missing path gives `"none"` (`filetype.ts:130-135`).
 
@@ -2000,7 +2000,7 @@ Reasoning parts **always** go into a `reasoning` group (`grouping/session.ts:85-
 - Header while streaming: Spinner with label `Thinking` (or `Thinking: <title>`).
 - Header when done: `Thought` + (`: ` + duration). Duration is `Locale.duration(completed - created)` (`:60-64,86,120-166`).
 - Header fg: `theme.text.feedback.warning.base` at **alpha 0.6** when open (`:128-136`).
-- Body: OpenTUI `<code filetype="markdown" drawUnstyledText={false} streaming conceal=…>`, using a syntax style where every token's fg is forced to `theme.text.muted` (`src/routes/session/thinking-syntax.ts:3-7`), base fg muted (`:98-106`).
+- Body (`ReasoningBody`, 2.4.1): rendered mode draws `<markdown>` as a text part is drawn (grid tables, concealed markers; `streaming` while the part is open), with a syntax style where every group's fg is `theme.text.muted` (`src/routes/session/thinking-syntax.ts:3-7`) and fg muted. Source mode keeps `<code filetype="markdown" drawUnstyledText={false} conceal={false}>`.
 
 **thinking = "hide"** (grouped, `group-view.tsx:162-193`): one InlineToolRow per run of adjacent reasoning parts:
 ```

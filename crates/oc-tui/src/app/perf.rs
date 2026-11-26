@@ -241,7 +241,7 @@ fn perf_pieces() {
         eprintln!("{label:28} {:8.3} ms", start.elapsed().as_secs_f64() * 1000.0 / 20.0);
     };
     let md = markdown(7);
-    let o = crate::ui::markdown::MdOpts { theme: &t, syntax: &app.syntax, conceal: true, fg: t.markdown.text, mono: false, links: None };
+    let o = crate::ui::markdown::MdOpts { theme: &t, syntax: &app.syntax, conceal: true, fg: t.markdown.text, streaming: false, links: None };
     time("markdown (long answer)", &mut || {
         std::hint::black_box(crate::ui::markdown::render(&md, 130, &o));
     });
@@ -535,7 +535,7 @@ fn perf_pieces_cold() {
         eprintln!("{label:28} {:8.3} ms", start.elapsed().as_secs_f64() * 1000.0 / 20.0);
     };
     let md = markdown(7);
-    let o = crate::ui::markdown::MdOpts { theme: &t, syntax: &app.syntax, conceal: true, fg: t.markdown.text, mono: false, links: None };
+    let o = crate::ui::markdown::MdOpts { theme: &t, syntax: &app.syntax, conceal: true, fg: t.markdown.text, streaming: false, links: None };
     time("cold markdown", &mut || {
         std::hint::black_box(crate::ui::markdown::render(&md, 130, &o));
     });
