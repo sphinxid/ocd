@@ -72,7 +72,8 @@ pub fn system_parts(agent_system: Option<&str>, tools: &[&str], model: &ModelIde
         "# Your Model\n- Name: {}\n- Provider ID: {}\n- Model ID: {}",
         model.name, model.provider_id, model.id
     );
-    [base, identity, baseline.to_string(), SESSION_MOVE_GUIDANCE.to_string()].into_iter().filter(|p| !p.is_empty()).collect()
+    let guidance = oc_tools::tools::opencode::system_hint(tools).unwrap_or_default().to_string();
+    [base, identity, baseline.to_string(), guidance].into_iter().filter(|p| !p.is_empty()).collect()
 }
 
 /// The request's system parts: the instruction baseline carries its sources as
@@ -96,8 +97,14 @@ pub fn system_request(parts: Vec<String>, initial: &str, rendered: &[(String, St
 }
 
 /// System part the built-in `opencode.tools` plugin appends on every `context`, `compaction` and
-/// `generate` hook (core/src/tool/plugin/opencode.ts).
-pub const SESSION_MOVE_GUIDANCE: &str = "When you create a worktree outside the current working directory and intend to use it as your primary working directory, consider using `execute` to call `tools.opencode.session_move` and make the worktree the session's working directory.";
+/// `generate` hook (core/src/tool/plugin/opencode.ts) where the request offers `execute`; see
+/// [`oc_tools::tools::opencode::system_hint`] for the direct-tool variant.
+pub const SESSION_MOVE_GUIDANCE: &str = oc_tools::tools::opencode::SYSTEM_HINT;
+
+/// Whether a system part is the `opencode.tools` worktree hint, in either variant.
+pub fn is_session_move_guidance(text: &str) -> bool {
+    text == oc_tools::tools::opencode::SYSTEM_HINT || text == oc_tools::tools::opencode::SYSTEM_HINT_DIRECT
+}
 
 /// Share of the window a primary turn leaves unused when its output limit is fitted to the room left
 /// (`WINDOW_HEADROOM`). Providers count a few tokens more than we do (chat template, tool schemas), and strict ones
@@ -377,10 +384,14 @@ mod tests {
     #[test]
     fn family_prompts() {
         let m = ModelIdentity { id: "claude-sonnet", name: "Claude", provider_id: "anthropic" };
-        let parts = system_parts(None, &["shell", "edit"], &m, "");
+        let parts = system_parts(None, &["shell", "edit", "execute"], &m, "");
         assert_eq!(parts.len(), 3);
         assert!(parts[0].ends_with(&format!("\n\n{ANTHROPIC}")));
         assert!(parts[1].starts_with("# Your Model\n- Name: Claude"));
         assert_eq!(parts[2], SESSION_MOVE_GUIDANCE);
+        // 2.4.1 (#65080): the hint names the direct tool without Code Mode, and is left out when neither is offered.
+        let direct = system_parts(None, &["opencode_session_move", "shell"], &m, "");
+        assert_eq!(direct[2], oc_tools::tools::opencode::SYSTEM_HINT_DIRECT);
+        assert_eq!(system_parts(None, &["shell", "edit"], &m, "").len(), 2);
     }
 }

@@ -129,7 +129,7 @@ fn entries(snapshot: &Snapshot) -> Vec<ToolEntry> {
             out.push(ToolEntry::Namespace { path: path.join("."), description: Some(description.clone()) });
         }
         if let Some((_, tool)) = &node.tool {
-            let definition = tool.definition(&DefinitionContext::default());
+            let definition = tool.codemode_definition().unwrap_or_else(|| tool.definition(&DefinitionContext::default()));
             out.push(ToolEntry::Tool(ToolDef {
                 path: path.join("."),
                 description: definition.description,
@@ -161,7 +161,9 @@ fn runtime(
 ) -> CodeMode {
     let (authorize, redirect) = checks.unzip();
     let client = Arc::new(oc_codemode::web::ReqwestClient::manual());
-    let mut extensions = vec![oc_codemode::web::extension_checked(client, authorize, redirect)];
+    // A session's `opencode://` request: the local-only `opencode_api` flag is off in a release build (2.4.1, #65725).
+    let refusal = Some(oc_codemode::web::OPENCODE_DISABLED.to_string());
+    let mut extensions = vec![oc_codemode::web::extension_api(client, authorize, redirect, refusal)];
     // `codemode/path.ts` (2.3.1 #64476): with `full_codemode`, the host's `path` module, `resolve` and `relative`
     // starting from the session's directory. Its calls show no progress rows (only `fetch`'s do).
     extensions.extend(path.map(oc_codemode::path::extension));
@@ -321,6 +323,9 @@ struct ExecuteHost {
     throttle: Mutex<Throttle>,
     calls: Mutex<usize>,
     files: Arc<Mutex<Vec<Collected>>>,
+    /// The files the program changes, shown under the call as it runs and when it ends in the foreground. A failed
+    /// or stopped one keeps them too, since they really changed (2.4.1, #65002/#65247).
+    diffs: Arc<Mutex<crate::codemode_diffs::Diffs>>,
     stop: Stopper,
     this: std::sync::Weak<ExecuteHost>,
 }
@@ -332,6 +337,11 @@ impl ExecuteHost {
         throttle.published_at = Some(tokio::time::Instant::now());
         let mut metadata = Metadata::new();
         metadata.insert("toolCalls".into(), serde_json::to_value(self.rows.rows()).unwrap_or(Value::Array(Vec::new())));
+        let diffs = self.diffs.lock().unwrap();
+        if !diffs.is_empty() {
+            metadata.insert("files".into(), diffs.to_json());
+        }
+        drop(diffs);
         self.ctx.progress(metadata);
     }
 
@@ -428,6 +438,7 @@ impl Host for ExecuteHost {
             index
         };
         let mut ctx = self.ctx.clone();
+        ctx.codemode = true;
         // Its own ID, so plugin hooks and traces can tell the program's calls apart. It has no row, so until the
         // program ends its permission requests show on the execute call's (#64324).
         ctx.call_id = oc_schema::id::ascending("call");
@@ -437,6 +448,8 @@ impl Host for ExecuteHost {
         // A stop is the execute call's to handle: a nested call never fails it with its own error (2.3.0).
         ctx.stop = oc_tools::Stop::none();
         let files = self.files.clone();
+        let diffs = self.diffs.clone();
+        let this = self.this.clone();
         let hooks = self.hooks.clone();
         let stop = self.stop.clone();
         let tools = self.tools.clone();
@@ -458,7 +471,20 @@ impl Host for ExecuteHost {
             let mut hooked = name.clone();
             hooks.before(&mut hooked, &mut input, &ctx).await.map_err(fail)?;
             let (name, tool) = renamed(&tools, name, tool, hooked).map_err(fail)?;
+            let called = input.clone();
             let executed = run_tool(tool.as_ref(), &name, input, ctx, hooks.as_ref()).await.map_err(fail)?;
+            // The name the program called, so a namespaced tool that happens to be named edit or write records nothing.
+            let changed = crate::codemode_diffs::changes(&name, &called, &executed);
+            if !changed.is_empty() {
+                let mut collector = diffs.lock().unwrap();
+                for change in changed {
+                    collector.record(change);
+                }
+                drop(collector);
+                if let Some(host) = this.upgrade() {
+                    host.record(true);
+                }
+            }
             let collected = output_files(&executed.content);
             if !collected.is_empty() {
                 files.lock().unwrap().push(Collected { index, files: collected });
@@ -529,6 +555,7 @@ pub async fn execute_in(
         throttle: Mutex::new(Throttle::default()),
         calls: Mutex::new(0),
         files: files.clone(),
+        diffs: Arc::new(Mutex::new(crate::codemode_diffs::Diffs::default())),
         stop: stop.clone(),
         this: this.clone(),
     });
@@ -577,6 +604,10 @@ pub async fn execute_in(
     if value.error == Some(true) {
         metadata.insert("error".into(), Value::Bool(true));
     }
+    let changed = host.diffs.lock().unwrap().clone();
+    if !changed.is_empty() {
+        metadata.insert("files".into(), changed.to_json());
+    }
     let output = serde_json::to_value(&value).unwrap_or(Value::Null);
     Ok(ToolResult { output: Some(output), content, metadata: Some(metadata) })
 }
@@ -604,6 +635,7 @@ impl Host for CheckHost {
         };
         let mut ctx = self.ctx.clone();
         ctx.call_id = format!("call_{}_{index}", ctx.message_id);
+        ctx.codemode = true;
         ctx.stop = oc_tools::Stop::none();
         let hooks = self.hooks.clone();
         let unattended = self.unattended.clone();

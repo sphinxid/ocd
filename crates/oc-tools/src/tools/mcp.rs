@@ -240,6 +240,7 @@ mod tests {
         global.bin = dir.join(".bin");
         global.home = dir.join(".home");
         ToolContext {
+            codemode: false,
             session_id: "ses_mcp".into(),
             message_id: "msg_mcp".into(),
             call_id: "call_mcp".into(),

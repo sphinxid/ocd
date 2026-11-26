@@ -83,6 +83,7 @@ fn snapshot(wait_ms: Option<u64>, started: Arc<tokio::sync::Notify>) -> oc_tools
 fn context(host: Arc<Host>, progress: Arc<Mutex<Vec<Metadata>>>) -> ToolContext {
     let dir = std::env::temp_dir();
     ToolContext {
+        codemode: false,
         session_id: "ses_execute".into(),
         message_id: "msg_execute".into(),
         call_id: "call_execute".into(),

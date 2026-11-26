@@ -2236,48 +2236,72 @@ fn options_json(options: &ToolOptions) -> Value {
     if let Some(p) = &options.permission {
         v.insert("permission".into(), json!(p));
     }
-    v.insert("codemode".into(), json!(options.codemode));
-    if options.pinned {
-        v.insert("pinned".into(), json!(true));
+    // 2.4.1 pins a tool with `codemode: { pinned: true }` (#65208).
+    if options.codemode && options.pinned {
+        v.insert("codemode".into(), json!({ "pinned": true }));
+    } else {
+        v.insert("codemode".into(), json!(options.codemode));
     }
     Value::Object(v)
 }
 
+/// `options`: `codemode` is a boolean or, since 2.4.1, an object (`{ pinned?, description?, input?, output? }`) that
+/// keeps the tool in Code Mode; `pinned` there wins over the older top-level `pinned`.
 fn options_from_json(v: Option<&Value>) -> ToolOptions {
     let get = |k: &str| v.and_then(|o| o.get(k));
+    let codemode = get("codemode");
+    let pinned = codemode.and_then(|c| c.get("pinned")).and_then(Value::as_bool).or_else(|| get("pinned").and_then(Value::as_bool));
     ToolOptions {
         namespace: get("namespace").and_then(Value::as_str).map(String::from),
         permission: get("permission").and_then(Value::as_str).map(String::from),
-        codemode: get("codemode").and_then(Value::as_bool) != Some(false),
-        pinned: get("pinned").and_then(Value::as_bool) == Some(true),
+        codemode: codemode.and_then(Value::as_bool) != Some(false),
+        pinned: pinned == Some(true),
     }
+}
+
+/// A plugin tool's Code Mode definition (`definition(tool, true)`): `options.codemode`'s description and JSON
+/// Schemas over the direct ones.
+fn codemode_overrides(definition: ToolDefinition, options: Option<&Value>) -> Option<ToolDefinition> {
+    let overrides = options.and_then(|o| o.get("codemode")).filter(|c| c.is_object())?;
+    if ["description", "input", "output"].iter().all(|k| overrides.get(*k).is_none_or(Value::is_null)) {
+        return None;
+    }
+    let mut definition = definition;
+    if let Some(description) = overrides.get("description").and_then(Value::as_str) {
+        definition.description = description.to_string();
+    }
+    if let Some(input) = overrides.get("input").filter(|v| v.is_object()) {
+        definition.input_schema = input.clone();
+    }
+    if let Some(output) = overrides.get("output").filter(|v| v.is_object()) {
+        definition.output_schema = Some(output.clone());
+    }
+    Some(definition)
+}
+
+/// One registered tool as it crosses the sidecar (`Tool.Info & { id }`), its executor a native handle.
+pub fn tool_json(id: &str, tool: &dyn Tool) -> Value {
+    let definition = tool.definition(&DefinitionContext::default());
+    let mut v = json!({
+        "id": id,
+        "name": tool.name(),
+        "description": definition.description,
+        "input": definition.input_schema,
+    });
+    if let Some(freeform) = &definition.freeform {
+        v["freeform"] = json!(freeform);
+    }
+    if let Some(output) = definition.output_schema {
+        v["output"] = output;
+    }
+    v["options"] = options_json(&tool.options());
+    v["execute"] = json!({ "$fn": tool_handle(id) });
+    v
 }
 
 /// The tool domain value of a registry (`{tools, namespaces}`).
 pub fn tool_value(registry: &Registry) -> Value {
-    let ctx = DefinitionContext::default();
-    let tools: Vec<Value> = registry
-        .list()
-        .into_iter()
-        .map(|(id, tool)| {
-            let definition = tool.definition(&ctx);
-            let mut v = json!({
-                "id": id,
-                "name": tool.name(),
-                "description": definition.description,
-                "input": definition.input_schema,
-            });
-            if let Some(freeform) = &definition.freeform {
-                v["freeform"] = json!(freeform);
-            }
-            if let Some(output) = definition.output_schema {
-                v["output"] = output;
-            }
-            v["options"] = options_json(&tool.options());
-            v["execute"] = json!({ "$fn": tool_handle(&id) });
-            v
-        })
-        .collect();
+    let tools: Vec<Value> = registry.list().into_iter().map(|(id, tool)| tool_json(&id, tool.as_ref())).collect();
     let namespaces: Vec<Value> =
         registry.namespaces().iter().map(|n| json!({ "name": n.name, "description": n.description })).collect();
     json!({ "tools": tools, "namespaces": namespaces })
@@ -2377,6 +2401,8 @@ pub struct PluginTool {
     /// The tool's declared freeform encoding (`Tool.Info.freeform`).
     freeform: Option<oc_schema::Freeform>,
     options: ToolOptions,
+    /// The registration's `options` as sent, for the Code Mode overrides in `codemode`.
+    raw_options: Option<Value>,
 }
 
 impl PluginTool {
@@ -2391,12 +2417,16 @@ impl PluginTool {
             output: item.get("output").cloned(),
             freeform: item.get("freeform").and_then(|f| serde_json::from_value(f.clone()).ok()),
             options: options_from_json(item.get("options")),
+            raw_options: item.get("options").cloned(),
         }
     }
 }
 
 #[async_trait]
 impl Tool for PluginTool {
+    fn codemode_definition(&self) -> Option<ToolDefinition> {
+        codemode_overrides(self.definition(&DefinitionContext::default()), self.raw_options.as_ref())
+    }
     fn name(&self) -> &str {
         &self.name
     }
@@ -2416,7 +2446,7 @@ impl Tool for PluginTool {
     async fn execute(&self, input: Value, ctx: ToolContext) -> Result<ToolResult, ToolError> {
         let plugins = self.plugins.upgrade().ok_or_else(|| ToolError::new("Plugin host is not running"))?;
         let host = plugins.host.get().ok_or_else(|| ToolError::new("Plugin host is not running"))?.clone();
-        let context = json!({ "sessionID": ctx.session_id, "agent": ctx.agent, "messageID": ctx.message_id, "id": ctx.call_id });
+        let context = json!({ "sessionID": ctx.session_id, "agent": ctx.agent, "messageID": ctx.message_id, "id": ctx.call_id, "codemode": ctx.codemode });
         let call = ctx.call_id.clone();
         plugins.inflight.lock().insert(call.clone(), ctx.clone());
         let progress_ctx = ctx.clone();

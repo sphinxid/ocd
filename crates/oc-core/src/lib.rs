@@ -10,6 +10,7 @@ pub mod browser;
 pub mod bus;
 pub mod claude_agent;
 pub mod codemode;
+pub mod codemode_diffs;
 pub mod codemode_job;
 pub mod compaction;
 pub mod config_watch;

@@ -135,6 +135,7 @@ impl ToolHost for Host {
 
 fn context(h: &Harness, session: &str) -> ToolContext {
     ToolContext {
+        codemode: false,
         session_id: session.into(),
         message_id: "msg_test".into(),
         call_id: "call_execute".into(),

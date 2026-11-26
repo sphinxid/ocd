@@ -407,6 +407,7 @@ impl oc_tools::host::ToolHost for NoHost {
 fn context(session: &str) -> ToolContext {
     let dir = std::env::temp_dir();
     ToolContext {
+        codemode: false,
         session_id: session.into(),
         message_id: "msg_test".into(),
         call_id: "call_1".into(),

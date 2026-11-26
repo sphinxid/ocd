@@ -87,6 +87,8 @@ pub struct SubagentSummary {
 pub struct DefinitionContext {
     /// Model id of the request (`gpt-` patch/edit swap).
     pub model_id: Option<String>,
+    /// The API model id the request sends (`Model.Info.modelID`), which the patch/edit swap reads too (2.4.1).
+    pub api_model_id: Option<String>,
     /// Compatible shell path (shell description names `ShellSelect.name(shell)`).
     pub shell: Option<String>,
     /// Subagents already filtered (mode != primary, not hidden, `subagent` permission not denied), any order.
@@ -270,6 +272,9 @@ pub struct ToolContext {
     pub progress: ProgressFn,
     pub config: Arc<ToolConfig>,
     pub host: Arc<dyn ToolHost>,
+    /// The call runs inside Code Mode (`Tool.Context.codemode`, 2.4.1): a program's call, or a Code Mode tool the
+    /// model called at the top level. Plugin hooks see it.
+    pub codemode: bool,
 }
 
 impl ToolContext {
@@ -477,6 +482,12 @@ pub trait Tool: Send + Sync {
     /// Definition with description and JSON schemas exactly as upstream emits.
     /// `name` in the returned definition is the effective name.
     fn definition(&self, ctx: &DefinitionContext) -> ToolDefinition;
+
+    /// The definition Code Mode lists and checks calls against, when it differs from the direct one
+    /// (`options.codemode: { description?, input?, output? }`, 2.4.1 #64515).
+    fn codemode_definition(&self) -> Option<ToolDefinition> {
+        None
+    }
 
     /// Whether the tool is advertised for this request (session hooks may delete tools).
     fn advertised(&self, _ctx: &DefinitionContext) -> bool {

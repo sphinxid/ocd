@@ -113,6 +113,7 @@ fn context(dir: &Path, host: Arc<MockHost>) -> ToolContext {
     global.bin = dir.join(".bin");
     global.home = dir.join(".home");
     ToolContext {
+        codemode: false,
         session_id: "ses_test".into(),
         message_id: "msg_test".into(),
         call_id: "call_1".into(),

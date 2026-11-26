@@ -1583,6 +1583,7 @@ async fn code_rejects_dynamic_tool_access_unknown_tools_shell_recursive_automati
 fn tool_context(h: &H, session: &str, call: &str) -> ToolContext {
     let dir = h.root.join("enabled");
     ToolContext {
+        codemode: false,
         session_id: session.into(),
         message_id: "msg_tool".into(),
         call_id: call.into(),

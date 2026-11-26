@@ -124,6 +124,7 @@ impl H {
     async fn watch(&self, session: &str, input: Value) -> Result<ToolResult, oc_tools::ToolError> {
         let tool = self.tool().await.expect("the watch tool");
         let ctx = ToolContext {
+            codemode: false,
             session_id: session.into(),
             message_id: "msg_tool".into(),
             call_id: "call_watch".into(),

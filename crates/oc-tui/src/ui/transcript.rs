@@ -674,7 +674,86 @@ struct PatchFile {
     kind: String,
     path: String,
     patch: String,
-    deletions: i64,
+    additions: Option<i64>,
+    deletions: Option<i64>,
+}
+
+/// `parseScriptChanges(metadata.files)` (2.4.1, #65002): a Code Mode script's changes, like a patch's files, but a
+/// change may have no patch and, where nothing could be derived without reading the file, no counts.
+fn script_changes(meta: &Value) -> Vec<PatchFile> {
+    let Some(arr) = meta.get("files").and_then(|f| f.as_array()) else { return vec![] };
+    arr.iter()
+        .filter_map(|f| {
+            let kind = match str_of(f, "status") {
+                Some("added") => "add",
+                Some("deleted") => "delete",
+                Some("modified") => "update",
+                _ => return None,
+            };
+            let path = str_of(f, "file").filter(|p| !p.is_empty())?.to_string();
+            let count = |key: &str| f.get(key).and_then(Value::as_f64).filter(|n| n.is_finite()).map(|n| n as i64);
+            Some(PatchFile {
+                kind: kind.into(),
+                path,
+                patch: str_of(f, "patch").unwrap_or("").to_string(),
+                additions: count("additions"),
+                deletions: count("deletions"),
+            })
+        })
+        .collect()
+}
+
+/// `changeCounts(file)`: the line counts a change shows without its diff (`+2 lines`, `-40 lines`, `+5 -1 lines`);
+/// nothing where they are unknown or zero, so the change shows only its path.
+fn change_counts(file: &PatchFile) -> Option<(String, String, &'static str)> {
+    let additions = file.additions.unwrap_or(0);
+    let deletions = file.deletions.unwrap_or(0);
+    if additions == 0 && deletions == 0 {
+        return None;
+    }
+    let added = if additions > 0 { format!("+{additions}") } else { String::new() };
+    let removed = if deletions > 0 { format!("-{deletions}") } else { String::new() };
+    Some((added, removed, if additions + deletions == 1 { " line" } else { " lines" }))
+}
+
+/// `PatchedFiles`: one block per changed file with its diff, or its counts when the diff is missing (a deleted file,
+/// or a script's change past the size cap).
+fn patched_files(ctx: &RCtx, files: &[PatchFile], err: Option<(String, Rgba)>) -> Vec<SLine> {
+    let th = ctx.t();
+    let mut out = Vec::new();
+    for (i, f) in files.iter().enumerate() {
+        if i > 0 {
+            out.push(SLine::blank());
+        }
+        let label = match f.kind.as_str() {
+            "add" => "# Created",
+            "delete" => "# Deleted",
+            _ => "← Patched",
+        };
+        let body = if f.kind != "delete" && f.patch.contains("@@") {
+            diff_body(ctx, &f.patch, &f.path)
+        } else {
+            match change_counts(f) {
+                None => vec![],
+                Some((added, removed, unit)) => {
+                    let mut spans = Vec::new();
+                    if !added.is_empty() {
+                        spans.push(s(added.clone(), th.diff.text_added));
+                    }
+                    if !added.is_empty() && !removed.is_empty() {
+                        spans.push(s(" ", th.text.base));
+                    }
+                    if !removed.is_empty() {
+                        spans.push(s(removed, th.diff.text_removed));
+                    }
+                    spans.push(s(unit, th.text.base));
+                    vec![SLine::new(spans)]
+                }
+            }
+        };
+        out.extend(block(ctx, path_header(ctx, label, &ctx.path(&f.path), th.text.muted, false), body, err.clone(), None));
+    }
+    out
 }
 
 fn patch_files(meta: &Value) -> Vec<PatchFile> {
@@ -690,9 +769,9 @@ fn patch_files(meta: &Value) -> Vec<PatchFile> {
             })?;
             let path = str_of(f, "file").or(str_of(f, "relativePath"))?.to_string();
             let patch = str_of(f, "patch")?.to_string();
-            num_of(f, "additions")?;
+            let additions = num_of(f, "additions")? as i64;
             let deletions = num_of(f, "deletions")? as i64;
-            Some(PatchFile { kind, path, patch, deletions })
+            Some(PatchFile { kind, path, patch, additions: Some(additions), deletions: Some(deletions) })
         })
         .collect()
 }
@@ -995,24 +1074,7 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
             let files = patch_files(&meta);
             let err = tool_error(t).map(|e| (e, th.text.feedback.error.base));
             if !files.is_empty() {
-                let mut out = Vec::new();
-                for (i, f) in files.iter().enumerate() {
-                    if i > 0 {
-                        out.push(SLine::blank());
-                    }
-                    let label = match f.kind.as_str() {
-                        "add" => "# Created",
-                        "delete" => "# Deleted",
-                        _ => "← Patched",
-                    };
-                    let body = if f.kind == "delete" {
-                        vec![SLine::new(vec![s(format!("-{} line{}", f.deletions, if f.deletions != 1 { "s" } else { "" }), th.diff.text_removed)])]
-                    } else {
-                        diff_body(ctx, &f.patch, &f.path)
-                    };
-                    out.extend(block(ctx, path_header(ctx, label, &ctx.path(&f.path), th.text.muted, false), body, err.clone(), None));
-                }
-                return out;
+                return patched_files(ctx, &files, err);
             }
             let applied: Vec<(String, String)> = meta
                 .get("applied")
@@ -1097,6 +1159,12 @@ fn render_tool(ctx: &RCtx, msg: &Message, t: &ToolPart) -> Vec<SLine> {
                         out.push(SLine::new(vec![pad(6), s(format!("{}{l}", if i == 0 { "↳ " } else { "  " }), th.text.feedback.error.base)]));
                     }
                 }
+            }
+            // The files the script changed, one block each below the call (2.4.1, #65002/#65247).
+            let files = script_changes(&meta);
+            if !files.is_empty() {
+                out.push(SLine::blank());
+                out.extend(patched_files(ctx, &files, None));
             }
             out
         }
@@ -2141,6 +2209,46 @@ pub fn revert_banner(ctx: &RCtx, count: usize, files: &[FileDiff]) -> Vec<SLine>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `script-changes.test.ts` (2.4.1): a script's changes parse one per change, with or without a patch and counts.
+    #[test]
+    fn script_changes_parse_one_per_change() {
+        let meta = serde_json::json!({"files": [
+            {"file": "a.ts", "status": "modified", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-a\n+b\n"},
+            {"file": "a.ts", "status": "modified", "additions": 2, "deletions": 0},
+            {"file": "copy.txt", "status": "added"},
+            {"file": "gone.bin", "status": "deleted"},
+            {"file": "", "status": "added"},
+            {"file": "x.ts", "status": "renamed"},
+            "junk",
+        ]});
+        let parsed: Vec<(String, String, String, Option<i64>, Option<i64>)> =
+            script_changes(&meta).into_iter().map(|f| (f.kind, f.path, f.patch, f.additions, f.deletions)).collect();
+        assert_eq!(
+            parsed,
+            vec![
+                ("update".into(), "a.ts".into(), "@@ -1 +1 @@\n-a\n+b\n".into(), Some(1), Some(1)),
+                ("update".into(), "a.ts".into(), String::new(), Some(2), Some(0)),
+                ("add".into(), "copy.txt".into(), String::new(), None, None),
+                ("delete".into(), "gone.bin".into(), String::new(), None, None),
+            ]
+        );
+    }
+
+    /// "a change without its diff shows its counts, or only its path".
+    #[test]
+    fn a_change_without_its_diff_shows_its_counts() {
+        let text = |additions: Option<i64>, deletions: Option<i64>| {
+            let file = PatchFile { kind: "update".into(), path: "a".into(), patch: String::new(), additions, deletions };
+            change_counts(&file).map(|(a, d, unit)| [a, d].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" ") + unit)
+        };
+        assert_eq!(text(Some(2), Some(0)).as_deref(), Some("+2 lines"));
+        assert_eq!(text(None, Some(40)).as_deref(), Some("-40 lines"));
+        assert_eq!(text(None, Some(1)).as_deref(), Some("-1 line"));
+        assert_eq!(text(Some(5), Some(1)).as_deref(), Some("+5 -1 lines"));
+        assert_eq!(text(Some(0), Some(0)), None);
+        assert_eq!(text(None, None), None);
+    }
 
     // session-turn.test.ts (2.3.0, #63321; 2.3.1 dropped the time to first token, #63759): throughput from the first
     // streamed token.

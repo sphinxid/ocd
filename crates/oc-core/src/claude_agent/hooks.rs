@@ -42,7 +42,7 @@ pub fn instructions(system: &[oc_ai::types::SystemPart]) -> String {
             None => {
                 // ocd lays out the identity and tool-guidance parts before plugin hooks run; upstream adds them
                 // after this hook, so they are not part of the instructions.
-                if part.text.starts_with("# Your Model\n") || part.text == crate::prompt::SESSION_MOVE_GUIDANCE {
+                if part.text.starts_with("# Your Model\n") || crate::prompt::is_session_move_guidance(&part.text) {
                     continue;
                 }
                 texts.push(part.text.clone());

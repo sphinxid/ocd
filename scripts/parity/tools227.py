@@ -104,8 +104,8 @@ def tools227_session_move(ctx):
     """session_move asks for external_directory before leaving the project (denied here), while a folder inside the
     project moves the session without asking; relative paths resolve against the session's location."""
     run_prompt(ctx, [
-        {"tools": [execute('return await tools.opencode.session_move({ directory: "../elsewhere" })', "call_outside")]},
-        {"tools": [execute('return await tools.opencode.session_move({ directory: " sub " })', "call_inside")]},
+        {"tools": [execute('return await tools.opencode.session.move({ directory: "../elsewhere" })', "call_outside")]},
+        {"tools": [execute('return await tools.opencode.session.move({ directory: " sub " })', "call_inside")]},
         {"text": "Done."},
     ], text="move", files={"sub/keep.txt": "x\n"},
         config_extra={"permission": {"external_directory": "deny"}})

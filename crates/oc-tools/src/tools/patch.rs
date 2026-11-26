@@ -22,10 +22,23 @@ pub const DESCRIPTION: &str = include_str!("../../../../assets/tool/patch.txt");
 /// The Lark grammar of a patch (`tool/patch-grammar.txt`), sent to models that take `patch` as a freeform tool.
 pub const GRAMMAR: &str = include_str!("../../../../assets/tool/patch-grammar.txt");
 
-/// Session hook: `gpt-` models (except `oss`/`gpt-4`) use `patch`; others use `edit`/`write`.
+/// `usesPatch(model)` (`tool/model-policy.ts`, 2.4.1 #64515): GPT-5+ edits with `patch`, every other model with `edit`
+/// and `write`. Both the model's ID and its API model ID count, lowercased: `gpt-` in either, and `oss` or `gpt-4` in
+/// neither.
+pub fn uses_patch(id: &str, model_id: &str) -> bool {
+    let id = id.to_lowercase();
+    let model_id = model_id.to_lowercase();
+    (id.contains("gpt-") || model_id.contains("gpt-"))
+        && !id.contains("oss")
+        && !model_id.contains("oss")
+        && !id.contains("gpt-4")
+        && !model_id.contains("gpt-4")
+}
+
+/// The request's model uses `patch` rather than `edit`/`write` ([`uses_patch`]).
 pub fn use_patch(ctx: &DefinitionContext) -> bool {
     match &ctx.model_id {
-        Some(id) => id.contains("gpt-") && !id.contains("oss") && !id.contains("gpt-4"),
+        Some(id) => uses_patch(id, ctx.api_model_id.as_deref().unwrap_or(id)),
         None => false,
     }
 }

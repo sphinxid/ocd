@@ -86,6 +86,23 @@ pub struct Loaded {
     pub websearch_disabled: bool,
 }
 
+/// `modelTools({model, websearch})` (`tool/model-policy.ts`, 2.4.1 #64515): the built-in tools hidden for a request
+/// with `model`: `edit` and `write` for GPT-5+, which edits with `patch`, `patch` for every other model, and
+/// `websearch` while web search is unavailable. (`full_codemode` also hides `glob`, `grep` and `webfetch`, which ocd
+/// leaves unregistered under that flag.)
+pub fn model_hidden_tools(model: &oc_ai::catalog::types::ModelInfo, websearch_disabled: bool) -> Vec<&'static str> {
+    let mut hidden = Vec::new();
+    if websearch_disabled {
+        hidden.push("websearch");
+    }
+    if oc_tools::tools::patch::uses_patch(&model.id, &model.model_id) {
+        hidden.extend(["edit", "write"]);
+    } else {
+        hidden.push("patch");
+    }
+    hidden
+}
+
 /// `SessionRunnerModel.resolve` for a session without a model: the selected agent's configured model (and
 /// variant) when it is available, before the default.
 pub(crate) fn agent_model(catalog: &oc_ai::catalog::Catalog, agent: &Agent) -> Option<ModelRef> {
@@ -779,6 +796,12 @@ impl Engine {
         let rendered = crate::instruction_state::initial_keyed(&self.app.bus, &sel.session.id, &sel.sources)?;
         let initial = crate::instructions::join(&rendered);
         let websearch_disabled = self.websearch_disabled(&sel).await;
+        let mut sel = sel;
+        // `modelTools` (`tool/model-policy.ts`, 2.4.1): the tools the session's model doesn't get leave the request's
+        // snapshot, so they are neither offered, counted nor run.
+        let hidden = model_hidden_tools(&resolved.model, websearch_disabled);
+        sel.snapshot.direct.retain(|(name, _)| !hidden.contains(&name.as_str()));
+        sel.snapshot.codemode.retain(|(name, _)| !hidden.contains(&name.as_str()));
         Ok(Loaded { sel, resolved, messages, initial, rendered, websearch_disabled })
     }
 
@@ -811,6 +834,7 @@ impl Engine {
             .collect();
         DefinitionContext {
             model_id: Some(loaded.resolved.model.id.clone()),
+            api_model_id: Some(loaded.resolved.model.model_id.clone()),
             // The shell tool always describes the compatible shell (core/src/tool/plugin/shell.ts context
             // hook: `description(ShellSelect.name(compatibleShell))`), not only a configured one.
             shell: Some(oc_tools::shell::select::resolve(
@@ -1530,6 +1554,7 @@ impl Engine {
             blocking_parent: None,
         });
         let ctx = ToolContext {
+            codemode: false,
             session_id: session.id.clone(),
             message_id: message_id.to_string(),
             call_id: String::new(),
@@ -1596,6 +1621,7 @@ impl ToolRunner for LocalTools {
         self.engine.app.plugins.await_activation(&self.key).await;
         let host = self.host(None);
         let ctx = ToolContext {
+            codemode: false,
             session_id: self.session.id.clone(),
             message_id: self.message_id.clone(),
             call_id: call.id.clone(),
@@ -1656,6 +1682,8 @@ impl ToolRunner for LocalTools {
                     .flatten();
                     if let Some((id, tool)) = found {
                         core_hooks.in_program.lock().insert(ctx.call_id.clone());
+                        let mut ctx = ctx;
+                        ctx.codemode = true;
                         if self.full_codemode {
                             // Like an execute program, it moves to the background when it runs long.
                             let job = crate::codemode_job::id();
@@ -1792,6 +1820,17 @@ impl Misplaced {
 }
 
 impl CoreHooks {
+    /// The `info` the `tool.execute.*` hooks get (2.4.1): the registration of the tool `name` runs as, a direct tool
+    /// for a top-level call or a Code Mode tool for a program's, or the `execute` tool's; none for an unknown name.
+    fn info(&self, name: &str) -> Option<serde_json::Value> {
+        if name == oc_codemode::execute_tool::NAME {
+            let tool = crate::codemode::ExecuteTool(self.snapshot.clone(), Arc::new(oc_tools::registry::NoHooks), false);
+            return Some(crate::plugins::tool_json(name, &tool));
+        }
+        let tool = self.snapshot.direct_tool(name).or_else(|| self.snapshot.codemode_tool(name))?;
+        Some(crate::plugins::tool_json(name, tool.as_ref()))
+    }
+
     /// What the repair plugin's `execute.before` notes for a top-level call to `name`: the registered tool it is
     /// another harness's name for, or the registered tool with that ID or Code Mode path.
     fn misplaced(&self, name: &str) -> Option<Misplaced> {
@@ -1827,14 +1866,15 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
         if !self.plugins.has_hook(&self.key, "tool.execute.before", None) {
             return Ok(());
         }
-        let event = serde_json::json!({
-            "tool": tool,
-            "sessionID": ctx.session_id,
-            "agent": ctx.agent,
-            "messageID": ctx.message_id,
-            "id": ctx.call_id,
-            "input": input,
-        });
+        let mut event = serde_json::json!({ "tool": tool });
+        if let Some(info) = self.info(tool) {
+            event["info"] = info;
+        }
+        event["codemode"] = ctx.codemode.into();
+        for (key, value) in [("sessionID", &ctx.session_id), ("agent", &ctx.agent), ("messageID", &ctx.message_id), ("id", &ctx.call_id)] {
+            event[key] = value.clone().into();
+        }
+        event["input"] = input.clone();
         match self.plugins.trigger(&self.key, "tool.execute.before", event).await {
             Ok(out) => {
                 if let Some(t) = out.get("tool").and_then(|t| t.as_str()) {
@@ -1889,14 +1929,15 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
         if !self.plugins.has_hook(&self.key, "tool.execute.after", None) {
             return;
         }
-        let mut event = serde_json::json!({
-            "tool": tool,
-            "sessionID": ctx.session_id,
-            "agent": ctx.agent,
-            "messageID": ctx.message_id,
-            "id": ctx.call_id,
-            "input": input,
-        });
+        let mut event = serde_json::json!({ "tool": tool });
+        if let Some(info) = self.info(tool) {
+            event["info"] = info;
+        }
+        event["codemode"] = ctx.codemode.into();
+        for (key, value) in [("sessionID", &ctx.session_id), ("agent", &ctx.agent), ("messageID", &ctx.message_id), ("id", &ctx.call_id)] {
+            event[key] = value.clone().into();
+        }
+        event["input"] = input.clone();
         match result {
             Ok(r) => {
                 let mut v = serde_json::Map::new();

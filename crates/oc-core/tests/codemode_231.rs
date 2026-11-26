@@ -89,6 +89,7 @@ impl ExecuteHooks for Rename {
 fn context() -> ToolContext {
     let dir = std::env::temp_dir();
     ToolContext {
+        codemode: false,
         session_id: "ses_231".into(),
         message_id: "msg_231".into(),
         call_id: "call_program_231".into(),

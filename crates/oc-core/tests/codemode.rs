@@ -85,6 +85,7 @@ fn registry() -> Registry {
 fn context(progress: Arc<Mutex<Vec<Metadata>>>) -> ToolContext {
     let dir = std::env::temp_dir();
     ToolContext {
+        codemode: false,
         session_id: "ses_test".into(),
         message_id: "msg_test".into(),
         call_id: "call_execute".into(),
@@ -326,4 +327,121 @@ async fn freeform_tools_take_their_string_field_directly() {
         .output
         .unwrap();
     assert_eq!(plain["error"], json!(true));
+}
+
+/// A file tool for the diffs tests: `write` and `edit` registered without a namespace (as `full_codemode` registers
+/// the real ones), or `notes.write` in a namespace. `edit` reports its diff in `metadata.files` like the real one.
+struct FileTool {
+    name: &'static str,
+    namespace: Option<&'static str>,
+}
+
+#[async_trait]
+impl Tool for FileTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn options(&self) -> ToolOptions {
+        ToolOptions { namespace: self.namespace.map(String::from), codemode: true, ..ToolOptions::default() }
+    }
+    fn definition(&self, _ctx: &DefinitionContext) -> ToolDefinition {
+        let id = oc_tools::tool::effective_name(self.name, self.namespace);
+        ToolDefinition::new(id, "Looks like a file tool", json!({ "type": "object", "properties": { "path": { "type": "string" }, "content": { "type": "string" } } }))
+    }
+    async fn execute(&self, input: Value, _ctx: ToolContext) -> Result<ToolResult, ToolError> {
+        let path = input["path"].as_str().unwrap_or_default().to_string();
+        if self.name == "edit" {
+            let diff = oc_tools::file_diff::file_diff(&path, "a\n", "b\n", "modified");
+            let mut metadata = Metadata::new();
+            metadata.insert("files".into(), json!([diff.to_json()]));
+            return Ok(ToolResult { output: Some(json!(format!("Edited {path}"))), content: vec![], metadata: Some(metadata) });
+        }
+        let text = format!("Created file successfully: {path}");
+        let mut result = ToolResult::text(text.clone()).with_output(json!(text));
+        if self.namespace.is_some() {
+            let mut metadata = Metadata::new();
+            metadata.insert("files".into(), json!([{ "file": path, "status": "added", "additions": 1, "deletions": 0, "patch": "+x" }]));
+            result.metadata = Some(metadata);
+        }
+        Ok(result)
+    }
+}
+
+/// `codemode/diffs` through `execute` (2.4.1, #65002/#65247): the files a program's write and edit calls changed are
+/// listed in `metadata.files`, as they happen in progress and at the end, a failed program keeping them; a namespaced
+/// tool named like a file tool records nothing.
+#[tokio::test]
+async fn execute_lists_the_files_a_program_changed() {
+    let mut registry = Registry::new();
+    registry.add(Arc::new(FileTool { name: "write", namespace: None })).unwrap();
+    registry.add(Arc::new(FileTool { name: "edit", namespace: None })).unwrap();
+    registry.add(Arc::new(FileTool { name: "write", namespace: Some("notes") })).unwrap();
+    let snapshot = registry.snapshot(&[]);
+    let progress = Arc::new(Mutex::new(Vec::new()));
+    let code = "await tools.write({ path: \"n.md\", content: \"# N\\nx\\n\" })\nawait tools.edit({ path: \"a.ts\" })\nthrow new Error(\"boom\")";
+    let result = codemode::execute(&snapshot, json!({ "code": code }), context(progress.clone())).await.unwrap();
+    let metadata = result.metadata.unwrap();
+    assert_eq!(metadata["error"], true);
+    let files = metadata["files"].as_array().unwrap();
+    let summary: Vec<(String, String, Value, Value)> =
+        files.iter().map(|f| (f["file"].as_str().unwrap().into(), f["status"].as_str().unwrap().into(), f["additions"].clone(), f["deletions"].clone())).collect();
+    assert_eq!(summary, vec![("n.md".into(), "added".into(), json!(2), json!(0)), ("a.ts".into(), "modified".into(), json!(1), json!(1))]);
+    assert!(files.iter().all(|f| f["patch"].is_string()));
+    // Progress never lists more changes than were made so far (updates within 100 ms of the last are coalesced, and a
+    // program that ends drops its pending one: the result carries the final list).
+    let counts: Vec<usize> = progress.lock().unwrap().iter().map(|m| m.get("files").and_then(Value::as_array).map_or(0, Vec::len)).collect();
+    assert!(counts.windows(2).all(|w| w[0] <= w[1]) && counts.iter().all(|c| *c <= 2), "{counts:?}");
+
+    let quiet = codemode::execute(&snapshot, json!({ "code": "await tools.notes.write({ path: \"n.md\", content: \"x\" })\nreturn []" }), context(Arc::default()))
+        .await
+        .unwrap();
+    assert!(quiet.metadata.unwrap().get("files").is_none());
+}
+
+/// `opencode://` fetch (2.4.1, #65725): only `opencode:///api/...` is accepted, and a release build has the OpenCode
+/// API off, so a valid one fails with how to enable it; neither asks for permission.
+#[tokio::test]
+async fn opencode_urls_are_validated_then_refused_in_a_release_build() {
+    let snapshot = registry().snapshot(&[]);
+    let run = |url: &'static str| {
+        let snapshot = snapshot.clone();
+        async move {
+            let code = format!("try {{ await fetch({}) }} catch (e) {{ return e.name + \": \" + e.message }}", Value::from(url));
+            let result = codemode::execute(&snapshot, json!({ "code": code }), context(Arc::default())).await.unwrap();
+            result.output.unwrap()["output"].as_str().unwrap().to_string()
+        }
+    };
+    for url in ["opencode://api/session", "opencode:x@evil.com/api/info", "opencode:///openapi.json"] {
+        let message = run(url).await;
+        assert_eq!(message, format!("TypeError: Invalid opencode URI \"{url}\": use opencode:///api/..., for example \"opencode:///api/session\"."));
+    }
+    assert_eq!(
+        run("opencode:///api/info").await,
+        "Error: opencode:// URLs are off. In a local or dev build, enable them with OPENCODE_FLAGS=opencode_api or \"experimental\": { \"opencode_api\": true }."
+    );
+}
+
+/// The catalog shows a pinned tool's whole description, each further line as a `//` comment (2.4.1, #65493).
+#[test]
+fn pinned_tools_show_their_full_description() {
+    struct Pinned;
+    #[async_trait]
+    impl Tool for Pinned {
+        fn name(&self) -> &str {
+            "move"
+        }
+        fn options(&self) -> ToolOptions {
+            ToolOptions { pinned: true, ..ToolOptions::codemode("opencode.session") }
+        }
+        fn definition(&self, _ctx: &DefinitionContext) -> ToolDefinition {
+            ToolDefinition::new("opencode_session_move", "Move a session.\nThe current session moves later.", json!({ "type": "object", "properties": {} }))
+        }
+        async fn execute(&self, _input: Value, _ctx: ToolContext) -> Result<ToolResult, ToolError> {
+            Ok(ToolResult::text("moved"))
+        }
+    }
+    let mut registry = Registry::new();
+    registry.add(Arc::new(Pinned)).unwrap();
+    let summary = codemode::catalog_summary(&registry.snapshot(&[])).unwrap();
+    assert_eq!(summary.namespaces[0].entries[0].line, "  - tools.opencode.session.move(): Promise<string | null> // Move a session.\n    // The current session moves later.");
 }

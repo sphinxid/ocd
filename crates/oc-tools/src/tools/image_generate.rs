@@ -567,6 +567,7 @@ mod tests {
         global.tmp = dir.path().join(".tmp");
         global.home = dir.path().join(".home");
         let ctx = ToolContext {
+            codemode: false,
             session_id: "ses_test".into(),
             message_id: "msg_test".into(),
             call_id: "call_1".into(),

@@ -14,8 +14,23 @@ use crate::validate::{Issue, PathSegment};
 
 pub const NAMESPACE_DESCRIPTION: &str = "Tools for managing OpenCode itself, such as working with sessions and worktrees, searching the available models, and reading MCP resources.";
 
-/// System part pushed on every request by the opencode tools plugin.
-pub const SYSTEM_HINT: &str = "When you create a worktree outside the current working directory and intend to use it as your primary working directory, consider using `execute` to call `tools.opencode.session_move` and make the worktree the session's working directory.";
+/// System part the opencode tools plugin pushes on every request where Code Mode offers `opencode.session.move`.
+pub const SYSTEM_HINT: &str = "When you create a worktree outside the current working directory and intend to use it as your primary working directory, consider using `execute` to call `tools.opencode.session.move` and make the worktree the session's working directory.";
+
+/// The same hint where `opencode_session_move` is a direct tool (Code Mode off for the agent).
+pub const SYSTEM_HINT_DIRECT: &str = "When you create a worktree outside the current working directory and intend to use it as your primary working directory, consider calling `opencode_session_move` to make the worktree the session's working directory.";
+
+/// The hint for a request offering `tools` (2.4.1, #65080): none when it offers neither `execute` nor
+/// `opencode_session_move`.
+pub fn system_hint(tools: &[&str]) -> Option<&'static str> {
+    if tools.contains(&"execute") {
+        Some(SYSTEM_HINT)
+    } else if tools.contains(&"opencode_session_move") {
+        Some(SYSTEM_HINT_DIRECT)
+    } else {
+        None
+    }
+}
 
 pub fn namespace() -> Namespace {
     Namespace { name: "opencode".into(), description: NAMESPACE_DESCRIPTION.into() }
@@ -46,13 +61,13 @@ impl OpenCodeTool {
     fn info(&self) -> (&'static str, &'static str, &'static str, bool) {
         match self.kind {
             Kind2::SessionRename => (
-                "session_rename",
+                "rename",
                 "Rename a session, or omit sessionID to rename the current session. Use a short, specific title that summarizes the work being done.",
                 include_str!("../../schemas/opencode_session_rename.json"),
                 false,
             ),
             Kind2::SessionMove => (
-                "session_move",
+                "move",
                 "Move a session to another directory, or omit sessionID to move the current session. The current session moves at the next safe boundary; do not run destination-dependent tools in the same execute call.",
                 include_str!("../../schemas/opencode_session_move.json"),
                 true,
@@ -206,8 +221,10 @@ impl Tool for OpenCodeTool {
 
     fn options(&self) -> ToolOptions {
         let (_, _, _, pinned) = self.info();
+        // `rename` and `move` live in `opencode.session` (2.4.1; registry IDs unchanged).
+        let namespace = if matches!(self.kind, Kind2::SessionRename | Kind2::SessionMove) { "opencode.session" } else { "opencode" };
         ToolOptions {
-            namespace: Some("opencode".into()),
+            namespace: Some(namespace.into()),
             permission: (self.kind == Kind2::WorktreeRemove).then(|| "edit".into()),
             codemode: true,
             pinned,
@@ -216,7 +233,8 @@ impl Tool for OpenCodeTool {
 
     fn definition(&self, _ctx: &DefinitionContext) -> ToolDefinition {
         let (name, description, schema, _) = self.info();
-        super::definition(&format!("opencode_{name}"), description, schema)
+        let namespace = self.options().namespace.unwrap_or_default().replace('.', "_");
+        super::definition(&format!("{namespace}_{name}"), description, schema)
     }
 
     fn validate(&self, input: &Value) -> Vec<Issue> {
