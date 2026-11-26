@@ -167,12 +167,13 @@ pub fn models_page(
             })
         })
         .collect();
-    // The page counts before the large provider list (2.4.1).
-    json!({
+    // The page counts before the large provider list (2.4.1). Numbers as JSON.stringify writes them: whole values
+    // such as release times have no fraction.
+    crate::repair::js_numbers(json!({
         "total": total,
         "next": if offset + limit < total { json!(offset + limit) } else { Value::Null },
         "providers": providers,
-    })
+    }))
 }
 
 #[derive(Deserialize)]

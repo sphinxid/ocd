@@ -246,7 +246,7 @@ impl Backend for Engine {
     /// `job.cancel` (2.4.1): cancels a running job, interrupting the work it started; a finished or unknown job is
     /// left alone.
     async fn experimental_job_cancel(&self, _ctx: &RequestContext, req: ExperimentalJobCancelRequest) -> Result<(), ApiError> {
-        self.app.jobs.cancel(&req.id);
+        self.app.jobs.cancel_unlocated(&req.id);
         Ok(())
     }
 

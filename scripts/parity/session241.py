@@ -74,7 +74,7 @@ def session241_unanalyzable_shell(ctx):
 def session241_background_result(ctx):
     """A background shell command reports in a `<background-result kind="shell">` block that resumes the session."""
     ctx.set_script([
-        {"tools": [call("shell", {"command": "echo bg-done", "background": True}, "call_bg")]},
+        {"tools": [call("shell", {"command": "sleep 1; echo bg-done", "background": True}, "call_bg")]},
         {"text": "Started it."},
         {"text": "Noted."},
     ])

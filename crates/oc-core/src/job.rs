@@ -133,7 +133,9 @@ pub struct Jobs {
     updated: parking_lot::RwLock<Option<UpdatedFn>>,
 }
 
-pub type UpdatedFn = Arc<dyn Fn(ListedJob) + Send + Sync>;
+/// Called with the listed job and whether the change happened at the job's location (its session's): a change a
+/// global request made, such as a cancel through the job API, has none.
+pub type UpdatedFn = Arc<dyn Fn(ListedJob, bool) + Send + Sync>;
 
 fn now() -> u64 {
     oc_schema::id::now_ms()
@@ -198,10 +200,14 @@ impl Jobs {
 
     /// `updated(listed(info, recovery))`: only jobs with a recovery are listed.
     fn publish_updated(&self, listed: Option<ListedJob>) {
+        self.publish_updated_at(listed, true);
+    }
+
+    fn publish_updated_at(&self, listed: Option<ListedJob>, located: bool) {
         let Some(listed) = listed else { return };
         let f = self.updated.read().clone();
         if let Some(f) = f {
-            f(listed);
+            f(listed, located);
         }
     }
 
@@ -477,10 +483,15 @@ impl Jobs {
     }
 
     pub fn cancel(&self, id: &str) -> Option<JobInfo> {
-        self.cancel_internal(id, true)
+        self.cancel_internal(id, true, true)
     }
 
-    fn cancel_internal(&self, id: &str, persist: bool) -> Option<JobInfo> {
+    /// [`Jobs::cancel`] for a global request (`POST /api/experimental/job/{id}/cancel`): its update has no location.
+    pub fn cancel_unlocated(&self, id: &str) -> Option<JobInfo> {
+        self.cancel_internal(id, true, false)
+    }
+
+    fn cancel_internal(&self, id: &str, persist: bool, located: bool) -> Option<JobInfo> {
         let mut jobs = self.jobs.lock();
         let job = jobs.get_mut(id)?;
         let generation = job.generation;
@@ -503,7 +514,7 @@ impl Jobs {
         let ended = listed(&info, &job.recovery);
         drop(jobs);
         let _ = done.send_replace(Some(info.clone()));
-        self.publish_updated(ended);
+        self.publish_updated_at(ended, located);
         cancel.cancel();
         self.consume(id, generation);
         Some(info)
@@ -520,7 +531,7 @@ impl Jobs {
             .filter(|j| j.info.status == JobStatus::Running && matches_session(j, session))
             .map(|j| j.info.id.clone())
             .collect();
-        let cancelled = ids.iter().filter_map(|id| self.cancel_internal(id, false)).collect();
+        let cancelled = ids.iter().filter_map(|id| self.cancel_internal(id, false, true)).collect();
         if let Err(e) =
             self.db.with(|c| c.execute("DELETE FROM job WHERE session_id = ?1 OR child_session_id = ?1", [session]))
         {

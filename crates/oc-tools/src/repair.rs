@@ -252,7 +252,7 @@ fn number(value: f64) -> Value {
 }
 
 /// `JSON.parse` numbers are doubles: integral floats (`1.0`) read as integers.
-fn js_numbers(value: Value) -> Value {
+pub(crate) fn js_numbers(value: Value) -> Value {
     match value {
         Value::Number(n) if n.is_f64() => number(n.as_f64().unwrap_or(0.0)),
         Value::Array(items) => Value::Array(items.into_iter().map(js_numbers).collect()),

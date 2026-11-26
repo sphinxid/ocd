@@ -10,15 +10,21 @@ use oc_core::job::StartInput;
 use oc_tools::host::JobRecovery;
 use serde_json::{Value, json};
 
-/// The next `experimental.job.updated` event's `info`.
-async fn next_update(rx: &mut tokio::sync::broadcast::Receiver<oc_core::bus::Event>) -> Value {
+/// The next `experimental.job.updated` event: its `info`, and whether it has a location.
+async fn next_located(rx: &mut tokio::sync::broadcast::Receiver<oc_core::bus::Event>) -> (Value, bool) {
     loop {
         let event = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await.expect("an update").unwrap();
         if event.kind == "experimental.job.updated" {
-            assert!(event.location.is_none());
-            return event.data["info"].clone();
+            return (event.data["info"].clone(), event.location.is_some());
         }
     }
+}
+
+/// The next update, which happened at the job's session's location.
+async fn next_update(rx: &mut tokio::sync::broadcast::Receiver<oc_core::bus::Event>) -> Value {
+    let (info, located) = next_located(rx).await;
+    assert!(located, "{info}");
+    info
 }
 
 fn subset(actual: &Value, expected: Value) {
@@ -56,7 +62,9 @@ async fn cancels_jobs_and_publishes_their_updates() {
     let cancelled = h.post("/api/experimental/job/job_bg/cancel", json!({})).await;
     assert_eq!(cancelled.status.as_u16(), 204);
     assert!(cancelled.body.is_empty());
-    let info = next_update(&mut rx).await;
+    // The cancel came through a global request, so its update has no location.
+    let (info, located) = next_located(&mut rx).await;
+    assert!(!located);
     subset(&info, json!({"id": "job_bg", "status": "cancelled"}));
     assert!(info["time"]["completed"].is_u64());
     assert_eq!(h.app.jobs.get("job_bg").map(|job| job.status), Some(oc_tools::host::JobStatus::Cancelled));

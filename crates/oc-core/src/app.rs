@@ -151,8 +151,14 @@ impl App {
         })));
         let jobs = Arc::new(crate::job::Jobs::new(db.clone()));
         let updates = bus.clone();
-        jobs.on_updated(Arc::new(move |listed| {
-            updates.publish("experimental.job.updated", serde_json::json!({ "info": listed.to_value() }), None);
+        let sessions = db.clone();
+        jobs.on_updated(Arc::new(move |listed, located| {
+            // Published where the change happened: the job's session's location, or none for a global request.
+            let location = located
+                .then(|| sessions.session_get(listed.session_id()).ok().flatten())
+                .flatten()
+                .map(|s| oc_schema::types::LocationRef { directory: s.location.directory, workspace_id: s.location.workspace_id });
+            updates.publish("experimental.job.updated", serde_json::json!({ "info": listed.to_value() }), location);
         }));
         Arc::new(App {
             plugins,
