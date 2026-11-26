@@ -7,8 +7,12 @@ Flags:
   --pid-file=PATH   append this process's pid to PATH on start
   --wire-log=PATH   append every request method to PATH
   --legacy          speak only the legacy `initialize` handshake (`server/discover` is an unknown method)
+  --exit-on-discover  with --legacy: exit on the `server/discover` probe, as servers on the Python SDK 1.3 do
+  --silent-discover with --legacy: never answer the `server/discover` probe
   --events          offer MCP Events: `events/list` lists `job.finished` (push, `{job: string}` arguments) and
-                    `poll.only`; each `events/stream` is held open and gets `notifications/events/active`
+                    `poll.only`; each `events/stream` is held open and gets `notifications/events/active` (with a
+                    30 s heartbeat grant)
+  --params-log=PATH with --events: append the params (without the `_meta` envelope) of every `events/*` request
   --emit=PATH       with --events: while PATH holds JSON lines `{"eventId", "data", "cursor"}`, send each line once as
                     `notifications/events/event` (name `job.finished`) on every open stream
 """
@@ -29,8 +33,10 @@ def opt(name):
 
 
 LEGACY = "--legacy" in ARGS
+EXIT_ON_DISCOVER = "--exit-on-discover" in ARGS
+SILENT_DISCOVER = "--silent-discover" in ARGS
 EVENTS = "--events" in ARGS
-PID_FILE, WIRE_LOG, EMIT = opt("pid-file"), opt("wire-log"), opt("emit")
+PID_FILE, WIRE_LOG, EMIT, PARAMS_LOG = opt("pid-file"), opt("wire-log"), opt("emit"), opt("params-log")
 SUBSCRIPTION = "io.modelcontextprotocol/subscriptionId"
 lock = threading.Lock()
 streams = []  # open events/stream request ids
@@ -63,7 +69,7 @@ EVENT_TYPES = [
     {"name": "job.finished", "description": "A job ended", "delivery": ["push"],
      "inputSchema": {"type": "object", "properties": {"job": {"type": "string"}}, "required": ["job"]},
      "payloadSchema": {"type": "object", "properties": {"status": {"type": "string"}}, "required": ["status"]}},
-    {"name": "poll.only", "delivery": ["poll"]},
+    {"name": "poll.only", "delivery": ["poll"], "inputSchema": {}, "payloadSchema": {}},
 ]
 
 
@@ -111,7 +117,14 @@ for line in sys.stdin:
         continue
     if mid is None:
         continue
+    if PARAMS_LOG and method and method.startswith("events/"):
+        with open(PARAMS_LOG, "a") as f:
+            f.write(json.dumps({"method": method, "params": {k: v for k, v in params.items() if k != "_meta"}}) + "\n")
     modern = "io.modelcontextprotocol/protocolVersion" in (params.get("_meta") or {})
+    if method == "server/discover" and LEGACY and EXIT_ON_DISCOVER:
+        sys.exit(0)
+    if method == "server/discover" and LEGACY and SILENT_DISCOVER:
+        continue
     if modern and LEGACY:
         send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "Method not found"}})
         continue
@@ -138,7 +151,8 @@ for line in sys.stdin:
         with lock:
             streams.append(mid)
         send({"jsonrpc": "2.0", "method": "notifications/events/active",
-              "params": {"cursor": params.get("cursor") or "c0", "truncated": False, "_meta": {SUBSCRIPTION: mid}}})
+              "params": {"cursor": params.get("cursor") or "c0", "truncated": False, "heartbeatMs": 30000,
+                         "_meta": {SUBSCRIPTION: mid}}})
     elif method == "ping":
         send({"jsonrpc": "2.0", "id": mid, "result": wrap({})})
     else:
