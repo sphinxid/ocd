@@ -404,7 +404,7 @@ impl H {
     }
 
     fn get(&self, id: &str) -> Value {
-        self.automations.get(id).unwrap()
+        self.automations.row(id).unwrap().info()
     }
 
     fn wakes(&self) -> Vec<String> {
@@ -526,18 +526,19 @@ async fn creates_lists_pauses_resumes_and_deletes() {
     let automation = h.create(json!({"sessionID": s, "name": "poll", "trigger": every("1 minute"), "action": prompt("poll")})).await.unwrap();
     let project = h.app.sessions.get(&s).unwrap().project_id;
     let ids = |list: Vec<Value>| list.iter().map(|i| i["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
-    assert_eq!(ids(h.automations.list(&ListInput { project_id: Some(project), ..Default::default() })), vec![id(&automation)]);
-    assert!(h.automations.list(&ListInput { session_id: Some("ses_other".into()), ..Default::default() }).is_empty());
+    assert_eq!(ids(h.automations.list(&ListInput { project_id: Some(project), ..Default::default() }).await.unwrap()), vec![id(&automation)]);
+    // 2.4.1: a session filter needs the session.
+    assert_eq!(h.automations.list(&ListInput { session_id: Some("ses_other".into()), ..Default::default() }).await, Err(AutomationError::SessionNotFound("ses_other".into())));
 
-    assert_eq!(h.automations.pause(id(&automation)).unwrap()["status"], "paused");
+    assert_eq!(h.automations.pause(id(&automation)).await.unwrap()["status"], "paused");
     h.adjust(150_000);
     h.tick().await;
     assert!(h.pending().is_empty());
-    let resumed = h.automations.resume(id(&automation)).unwrap();
+    let resumed = h.automations.resume(id(&automation)).await.unwrap();
     assert_eq!(resumed["status"], "active");
     assert_eq!(resumed["nextDueAt"], 180_000);
-    h.automations.remove(id(&automation)).unwrap();
-    assert_eq!(h.automations.get(id(&automation)), Err(AutomationError::NotFound(id(&automation).to_string())));
+    h.automations.remove(id(&automation)).await.unwrap();
+    assert_eq!(h.automations.get(id(&automation)).await, Err(AutomationError::NotFound(id(&automation).to_string())));
     assert_eq!(AutomationError::NotFound("aut_x".into()).message(), "Automation not found: aut_x");
 }
 
@@ -550,7 +551,7 @@ async fn rejects_tool_created_code_and_child_actions_if_the_session_switched_age
         let reason = invalid(h.create_as(json!({"sessionID": s, "name": "stale", "trigger": every("1 minute"), "action": action}), &invocation(&s)).await);
         assert!(reason.contains("current agent"), "{reason}");
     }
-    assert!(h.automations.list(&ListInput::default()).is_empty());
+    assert!(h.automations.list(&ListInput::default()).await.unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -731,11 +732,11 @@ async fn never_runs_a_slot_that_only_comes_up_after_expires() {
         .unwrap();
     let once =
         h.create(json!({"sessionID": s, "name": "once", "trigger": at("in 10 minutes"), "expires": "in 20 minutes", "action": prompt("once")})).await.unwrap();
-    h.automations.pause(id(&once)).unwrap();
+    h.automations.pause(id(&once)).await.unwrap();
     h.adjust(30 * MINUTE);
     h.tick().await;
     subset(&h.get(id(&poll)), json!({"status": "done", "runCount": 0, "lastOutcome": "expired"}));
-    subset(&h.automations.resume(id(&once)).unwrap(), json!({"status": "done", "runCount": 0}));
+    subset(&h.automations.resume(id(&once)).await.unwrap(), json!({"status": "done", "runCount": 0}));
     h.tick().await;
     assert!(h.pending().is_empty());
 }
@@ -813,7 +814,7 @@ async fn keeps_automations_when_their_creating_session_is_deleted_and_pauses_whe
     let targeted = create(&other, "targeted", json!({"type": "prompt", "prompt": "go", "to": {"session": s}})).await.unwrap();
     let coded = create(&s, "coded", code("return")).await.unwrap();
     h.app.db.with(|c| c.execute("DELETE FROM session_v2 WHERE id = ?", [&s])).unwrap();
-    let ids: Vec<String> = h.automations.list(&ListInput::default()).iter().map(|i| i["id"].as_str().unwrap().to_string()).collect();
+    let ids: Vec<String> = h.automations.list(&ListInput::default()).await.unwrap().iter().map(|i| i["id"].as_str().unwrap().to_string()).collect();
     assert_eq!(ids, [&elsewhere, &child, &targeted, &coded].map(|i| id(i).to_string()));
 
     h.minute().await;
@@ -833,7 +834,7 @@ async fn rejects_creation_when_automations_are_off() {
     let created = h.create(json!({"sessionID": s, "name": "x", "trigger": at("in 1 minute"), "action": prompt("x")})).await;
     assert_eq!(created, Err(AutomationError::Disabled));
     assert_eq!(AutomationError::Disabled.message(), "Automations are disabled. Set automations to true in config to enable them.");
-    assert!(h.automations.list(&ListInput::default()).is_empty());
+    assert!(h.automations.list(&ListInput::default()).await.unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -870,12 +871,12 @@ async fn keeps_the_run_count_when_paused_while_a_prompt_is_being_admitted() {
     let automations = h.automations.clone();
     let pause = id(&automation).to_string();
     *h.prompter.during.lock() = Some(Box::new(move || {
-        automations.pause(&pause).unwrap();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(automations.pause(&pause))).unwrap();
     }));
     h.tick().await;
     subset(&h.get(id(&automation)), json!({"status": "paused", "runCount": 1}));
     h.deliver(&s).await;
-    h.automations.resume(id(&automation)).unwrap();
+    h.automations.resume(id(&automation)).await.unwrap();
     h.minute().await;
     assert_eq!(h.pending_ids(), vec![msg(&automation, 2)]);
 }
@@ -903,10 +904,10 @@ async fn does_not_start_queued_timers_that_were_paused_deleted_or_rescheduled() 
         assert!(std::time::Instant::now() < deadline, "the first runs never started");
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    h.automations.pause(id(&queued[0])).unwrap();
-    h.automations.remove(id(&queued[1])).unwrap();
-    h.automations.pause(id(&queued[2])).unwrap();
-    h.automations.resume(id(&queued[2])).unwrap();
+    h.automations.pause(id(&queued[0])).await.unwrap();
+    h.automations.remove(id(&queued[1])).await.unwrap();
+    h.automations.pause(id(&queued[2])).await.unwrap();
+    h.automations.resume(id(&queued[2])).await.unwrap();
     h.slack.gate.0.add_permits(4);
     ticking.await.unwrap();
     assert!(h.slack.posts.lock().is_empty());
@@ -1033,7 +1034,7 @@ async fn event_watches_need_a_tool_call_and_a_server_offering_events() {
         json!({"sessionID": s, "name": "watch", "trigger": {"type": "event", "server": "ci", "event": "build.changed"}, "action": prompt("Check the build")});
     assert_eq!(invalid(h.create(input.clone()).await), "Create an event automation from a tool call in a local session");
     assert_eq!(invalid(h.create_as(input, &invocation(&s)).await), "MCP server not found: ci");
-    assert!(h.automations.list(&ListInput::default()).is_empty());
+    assert!(h.automations.list(&ListInput::default()).await.unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1298,7 +1299,7 @@ async fn code_hands_a_failed_check_to_one_quiet_child_with_the_creators_permissi
     let info = h.app.sessions.get(&child).unwrap();
     assert_eq!((info.agent.as_deref(), info.parent_id.as_deref()), (Some("helper"), Some(s.as_str())));
     assert_eq!(info.permissions, Some(permissions));
-    let list = h.automations.list(&ListInput { session_id: Some(s.clone()), ..Default::default() });
+    let list = h.automations.list(&ListInput { session_id: Some(s.clone()), ..Default::default() }).await.unwrap();
     assert_eq!(list.len(), 1);
     subset(&list[0], json!({"id": automation["id"], "status": "active", "runCount": 1, "lastOutput": format!("Started subagent {child}")}));
 }
@@ -1560,7 +1561,7 @@ async fn code_asks_for_execute_when_its_tools_are_already_allowed() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn code_rejects_dynamic_tool_access_unknown_tools_shell_recursive_automation_tools_and_denied_permissions() {
+async fn code_rejects_dynamic_tool_access_unknown_tools_recursive_automation_tools_and_denied_permissions() {
     let h = harness();
     let s = h.session().await;
     let bad = |owner: &str, text: &str| h.create(json!({"sessionID": owner, "name": "bad", "trigger": every("1 minute"), "action": code(text)}));
@@ -1568,14 +1569,12 @@ async fn code_rejects_dynamic_tool_access_unknown_tools_shell_recursive_automati
     assert!(invalid(bad(&s, "return await tools.slack[name]({})").await).starts_with("Automation code must reference tools statically"));
     assert!(invalid(bad(&s, "const t = require(\"tools\"); await t.slack.post({})").await).starts_with("Automation code must call tools directly"));
     assert_eq!(invalid(bad(&s, "return await tools.slack.missing({})").await), "Unknown Code Mode tool: slack.missing");
-    assert_eq!(invalid(bad(&s, "await tools.shell({ command: \"pwd\" })").await), "Tool shell cannot be used inside an automation");
-    assert_eq!(
-        invalid(bad(&s, "return await tools.opencode.automation_create({})").await),
-        "Tool opencode.automation_create cannot be used inside an automation"
-    );
+    // 2.4.1 (#65217): the automation tools and session moves stay off-limits; shell is not on the list any more.
+    assert_eq!(invalid(bad(&s, "return await tools.automation.create({})").await), "Tool automation.create cannot be used inside an automation");
+    assert_eq!(invalid(bad(&s, "return await tools.opencode.session.move({})").await), "Tool opencode.session.move cannot be used inside an automation");
     let denied = h.session_in("enabled", Some(vec![rule("*", "*", "allow"), rule("slack_post", "*", "deny")])).await;
     assert!(matches!(bad(&denied, "await tools.slack.post({ text: 'x' })").await, Err(AutomationError::Blocked(_))));
-    assert!(h.automations.list(&ListInput::default()).is_empty());
+    assert!(h.automations.list(&ListInput::default()).await.unwrap().is_empty());
 }
 
 // ---- the tools (`tool-automation.test.ts`) ----
@@ -1603,7 +1602,11 @@ fn tool_context(h: &H, session: &str, call: &str) -> ToolContext {
 
 impl H {
     fn tool(&self, name: &str) -> Arc<dyn Tool> {
-        oc_core::automation::tools::tools(&self.automations).into_iter().find(|t| t.name() == name).unwrap()
+        // Registry IDs (`automation_create`, ...): the tools are `create`, ... in the `automation` namespace.
+        oc_core::automation::tools::tools(&self.automations)
+            .into_iter()
+            .find(|t| t.definition(&Default::default()).name == name)
+            .unwrap()
     }
 
     async fn call(&self, session: &str, name: &str, input: Value) -> Result<ToolResult, ToolError> {
@@ -1620,13 +1623,15 @@ impl H {
 async fn tools_are_absent_unless_automations_are_enabled() {
     let h = harness();
     let names = ["automation_create", "automation_list", "automation_pause", "automation_resume", "automation_delete"];
-    for (dir, present) in [("enabled", true), ("disabled", false)] {
+    // 2.4.1: available by default and absent when `automations` is false.
+    write_config(&h.root.join("plain"), json!({}));
+    for (dir, present) in [("enabled", true), ("disabled", false), ("plain", true)] {
         let s = h.session_in(dir, None).await;
         let session = h.app.sessions.get(&s).unwrap();
         let env = h.engine.check_env(&session, &h.dir(dir)).await.unwrap();
         let listed: Vec<String> = env.registry.list().into_iter().map(|(id, _)| id).collect();
         for name in names {
-            assert_eq!(listed.contains(&format!("opencode_{name}")), present, "{dir}: {name} in {listed:?}");
+            assert_eq!(listed.contains(&name.to_string()), present, "{dir}: {name} in {listed:?}");
         }
     }
 }
@@ -1655,7 +1660,7 @@ async fn tools_create_list_pause_resume_and_delete_this_projects_automations() {
     subset(&h.call(&s, "automation_resume", json!({"id": aut})).await.unwrap().output.unwrap(), json!({"status": "active"}));
     let deleted = h.call(&s, "automation_delete", json!({"id": aut})).await.unwrap();
     assert_eq!(deleted.output, Some(json!({"id": aut, "removed": true})));
-    assert!(h.automations.list(&ListInput::default()).is_empty());
+    assert!(h.automations.list(&ListInput::default()).await.unwrap().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1721,12 +1726,12 @@ async fn tools_put_each_automations_id_trigger_status_next_run_and_action_in_the
     h.set_time("2026-10-27T13:00:00Z");
     let s = h.session().await;
     let ci = h.content(&s, "automation_create", json!({"name": "ci", "trigger": every("1 hour"), "action": prompt("check CI")})).await;
-    let first = h.automations.list(&ListInput::default())[0]["id"].as_str().unwrap().to_string();
+    let first = h.automations.list(&ListInput::default()).await.unwrap()[0]["id"].as_str().unwrap().to_string();
     let ci_line = format!("{first} \"ci\": every 1 hour (America/New_York), active, next 2026-10-27T10:00:00.000-04:00, prompt {s}: \"check CI\"");
     assert_eq!(ci, format!("Created: {ci_line}"));
     let watch = json!({"name": "watch", "trigger": {"type": "cron", "cron": "0 9 * * 1-5"}, "action": code("\n  const t = await tools.slack.read_thread({})\n  return { state: t }")});
     h.content(&s, "automation_create", watch).await;
-    let second = h.automations.list(&ListInput::default())[1]["id"].as_str().unwrap().to_string();
+    let second = h.automations.list(&ListInput::default()).await.unwrap()[1]["id"].as_str().unwrap().to_string();
     h.content(&s, "automation_pause", json!({"id": second})).await;
     let list = h.content(&s, "automation_list", json!({})).await;
     let lines: Vec<&str> = list.split('\n').collect();
@@ -1761,9 +1766,9 @@ async fn tools_treat_another_projects_automation_as_missing() {
     subset(&h.get(&aut), json!({"status": "active", "sessionID": other}));
 }
 
-/// 2.4.1 (#65296): automations follow the top-level `automations` of the highest-priority document that sets it;
-/// `experimental.automations` and `experimental.schedules` are removed and no longer count. Unset, ocd keeps them off
-/// for now (`DEFAULT_ENABLED`; 2.4.1 turns them on), and `OPENCODE_FLAGS` no longer names them.
+/// 2.4.1 (#65296): automations follow the top-level `automations` of the highest-priority document that sets it, and
+/// are on when none does; `experimental.automations` and `experimental.schedules` are removed and no longer count, and
+/// `OPENCODE_FLAGS` no longer names them.
 #[test]
 fn the_top_level_automations_setting_turns_automations_on() {
     let doc = |text: &str| oc_config::Entry::Document {
@@ -1773,12 +1778,233 @@ fn the_top_level_automations_setting_turns_automations_on() {
         wellknown: None,
     };
     let enabled = |entries: &[oc_config::Entry]| oc_core::automation::settings_of(entries).enabled;
-    assert!(!oc_core::automation::DEFAULT_ENABLED);
-    assert_eq!(enabled(&[]), oc_core::automation::DEFAULT_ENABLED);
+    assert!(oc_core::automation::DEFAULT_ENABLED);
+    assert!(enabled(&[]));
     assert!(enabled(&[doc(r#"{"automations": true}"#)]));
     assert!(!enabled(&[doc(r#"{"automations": true}"#), doc(r#"{"automations": false}"#)]));
     // A project document that does not set it leaves the global one in effect.
-    assert!(enabled(&[doc(r#"{"automations": true}"#), doc(r#"{"timezone": "UTC", "experimental": {}}"#)]));
-    assert!(!enabled(&[doc(r#"{"experimental": {"automations": true, "schedules": true}}"#)]));
+    assert!(!enabled(&[doc(r#"{"automations": false}"#), doc(r#"{"timezone": "UTC", "experimental": {}}"#)]));
+    assert!(enabled(&[doc(r#"{"experimental": {"automations": false, "schedules": false}}"#)]));
     assert!(enabled(&[doc(r#"{"automations": true, "experimental": {"automations": false}}"#)]));
+}
+
+// ---- 2.4.1: automations are on by default, the shell action and the visibility checks -------------------------------
+
+/// "hides and refuses automations while their location has automations off" (`automation.test.ts`, #65747): list,
+/// pause and delete answer `Disabled` there, a directory filter must be absolute, and the rows come back once
+/// automations are on again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hides_and_refuses_automations_while_their_location_has_automations_off() {
+    let h = harness();
+    write_config(&h.root.join("toggle"), config(true, json!({})));
+    let s = h.session_in("toggle", None).await;
+    let automation = h.create(json!({"sessionID": s, "name": "poll", "trigger": every("1 minute"), "action": prompt("poll")})).await.unwrap();
+    let aut = id(&automation).to_string();
+    let toggle = h.dir("toggle");
+    let ids = |list: Vec<Value>| list.iter().map(|i| i["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    let by_directory = |directory: &str| ListInput { directory: Some(directory.to_string()), ..Default::default() };
+    assert_eq!(ids(h.automations.list(&by_directory(&toggle)).await.unwrap()), vec![aut.clone()]);
+    assert_eq!(h.automations.list(&by_directory("relative")).await, Err(AutomationError::Invalid("Directory must be an absolute path: relative".into())));
+
+    write_config(&h.root.join("toggle"), config(false, json!({})));
+    h.reload("toggle").await;
+    assert_eq!(h.automations.list(&ListInput::default()).await.unwrap(), Vec::<Value>::new());
+    assert_eq!(h.automations.list(&by_directory(&toggle)).await, Err(AutomationError::Disabled));
+    assert_eq!(h.automations.list(&ListInput { session_id: Some(s.clone()), ..Default::default() }).await, Err(AutomationError::Disabled));
+    assert_eq!(h.automations.get(&aut).await, Err(AutomationError::Disabled));
+    assert_eq!(h.automations.pause(&aut).await, Err(AutomationError::Disabled));
+    assert_eq!(h.automations.remove(&aut).await, Err(AutomationError::Disabled));
+
+    write_config(&h.root.join("toggle"), config(true, json!({})));
+    h.reload("toggle").await;
+    h.automations.remove(&aut).await.unwrap();
+    assert_eq!(h.automations.list(&ListInput::default()).await.unwrap(), Vec::<Value>::new());
+}
+
+/// An unset `automations` means on (2.4.1, #65296): a location whose config never names it creates and lists them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn automations_are_on_where_config_does_not_set_them() {
+    let h = harness();
+    write_config(&h.root.join("plain"), json!({"timezone": "America/New_York"}));
+    let s = h.session_in("plain", None).await;
+    let automation = h.create(json!({"sessionID": s, "name": "poll", "trigger": every("1 hour"), "action": prompt("poll")})).await.unwrap();
+    let listed = h.automations.list(&ListInput { directory: Some(h.dir("plain")), ..Default::default() }).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["id"], automation["id"]);
+}
+
+/// `{ type: "shell" }` needs a creating session, like a code action.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shell_action_needs_a_session() {
+    let h = harness();
+    let input = json!({"name": "x", "directory": h.dir("enabled"), "trigger": every("1 hour"), "action": {"type": "shell", "command": "echo x"}});
+    assert_eq!(invalid(h.create(input).await), "A shell action needs a session");
+}
+
+/// Waits for the row's `lastOutput` (a shell action records its result when the command exits).
+async fn last_output(h: &H, aut: &str) -> Value {
+    for _ in 0..2000 {
+        let info = h.get(aut);
+        if info.get("lastOutput").is_some() {
+            return info;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("no lastOutput for {aut}: {}", h.get(aut));
+}
+
+/// Makes the automation due now, so a tick runs it.
+fn due_now(h: &H, aut: &str) {
+    h.app.db.with(|c| c.execute("UPDATE automation SET next_due_at = ? WHERE id = ?", rusqlite::params![h.now(), aut])).unwrap();
+}
+
+/// `automation-shell.test.ts` "approves the fixed command once and records a failed exit without waking a session".
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shell_approves_the_fixed_command_once_and_records_a_failed_exit_without_waking_a_session() {
+    let h = harness();
+    let s = h.session_in("enabled", Some(vec![rule("*", "*", "allow"), rule("shell", "*", "ask")])).await;
+    let command = "echo automation-output; exit 7";
+    let trigger = every("1 hour");
+    let (asked, task) = answer_asks(&h);
+    let created = h
+        .create_as(json!({"sessionID": s, "name": "shell test", "trigger": trigger, "action": {"type": "shell", "command": command}}), &invocation(&s))
+        .await
+        .unwrap();
+    task.abort();
+    let asks = asked.lock().clone();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(asks[0]["action"], "shell");
+    assert!(asks[0]["resources"].as_array().unwrap().contains(&json!("echo automation-output")), "{}", asks[0]);
+    assert_eq!(asks[0]["metadata"], json!({"automation": "shell test", "trigger": trigger, "unattended": true, "command": command}));
+    assert!(asks[0].get("save").is_none_or(Value::is_null), "{}", asks[0]);
+    subset(&created, json!({"action": {"type": "shell", "command": command}}));
+
+    let aut = id(&created).to_string();
+    due_now(&h, &aut);
+    h.tick().await;
+    let ran = last_output(&h, &aut).await;
+    subset(&ran, json!({"status": "active", "runCount": 1, "lastOutcome": "failed"}));
+    let output = ran["lastOutput"].as_str().unwrap();
+    assert!(output.starts_with("Exit code: 7\n") && output.contains("automation-output"), "{output}");
+    assert!(h.pending().is_empty());
+    assert!(h.wakes().is_empty());
+}
+
+/// "uses the saved location after the creating session moves and pauses if that directory disappears".
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shell_uses_the_saved_location_and_pauses_if_that_directory_disappears() {
+    let h = harness();
+    write_config(&h.root.join("saved"), config(true, json!({})));
+    std::fs::create_dir_all(h.root.join("destination")).unwrap();
+    let s = h.session_in("saved", None).await;
+    let created = h
+        .create(json!({"sessionID": s, "name": "saved location", "trigger": every("1 hour"), "action": {"type": "shell", "command": "echo automation-output"}}))
+        .await
+        .unwrap();
+    let aut = id(&created).to_string();
+    // The creating session moves; the automation keeps its directory.
+    h.app.db.with(|c| c.execute("UPDATE session_v2 SET directory = ? WHERE id = ?", rusqlite::params![h.dir("destination"), s])).unwrap();
+    due_now(&h, &aut);
+    h.tick().await;
+    let ran = last_output(&h, &aut).await;
+    subset(&ran, json!({"lastOutcome": "fired", "directory": h.dir("saved")}));
+    assert!(ran["lastOutput"].as_str().unwrap().contains("automation-output"));
+
+    std::fs::remove_dir_all(h.root.join("saved")).unwrap();
+    due_now(&h, &aut);
+    h.tick().await;
+    subset(&h.get(&aut), json!({"status": "paused", "runCount": 1, "lastOutput": format!("Directory no longer exists: {}", h.dir("saved"))}));
+}
+
+/// "rejects a shell action that changes to a denied external directory".
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shell_rejects_a_command_that_changes_to_a_denied_external_directory() {
+    let h = harness();
+    let s = h.session_in("enabled", Some(vec![rule("*", "*", "allow"), rule("external_directory", "*", "deny")])).await;
+    let result = h
+        .create_as(json!({"sessionID": s, "name": "outside", "trigger": every("1 hour"), "action": {"type": "shell", "command": "cd ..; echo outside"}}), &invocation(&s))
+        .await;
+    match result {
+        Err(AutomationError::Blocked(message)) => assert!(message.contains("external_directory"), "{message}"),
+        other => panic!("expected a blocked external_directory, got {other:?}"),
+    }
+    assert!(h.automations.list(&ListInput::default()).await.unwrap().is_empty());
+}
+
+/// Scheduled code gets `fetch` (#65236): referencing it asks for `webfetch` once at creation, without saving, and a
+/// run fetches unattended. ocd has no Bun globals (`full_codemode`), so only the fetch half of "scheduled code uses
+/// session capabilities after one-time approval" applies.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scheduled_code_fetches_after_one_time_approval() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else { return };
+            let mut buffer = [0u8; 4096];
+            let _ = socket.read(&mut buffer).await;
+            let _ = socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\nconnection: close\r\n\r\nready").await;
+        }
+    });
+    let h = harness();
+    let s = h.session_in("enabled", Some(vec![rule("*", "*", "allow"), rule("webfetch", "*", "ask")])).await;
+    let (asked, task) = answer_asks(&h);
+    let created = h
+        .create_as(
+            json!({"sessionID": s, "name": "check", "trigger": every("1 hour"),
+                "action": code_args("const text = await (await fetch(args)).text(); return { state: { text }, done: true }", json!(format!("http://{address}/")))}),
+            &invocation(&s),
+        )
+        .await
+        .unwrap();
+    task.abort();
+    let asks = asked.lock().clone();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(asks[0]["action"], "webfetch");
+    assert_eq!(asks[0]["metadata"]["unattended"], true);
+    assert_eq!(asks[0]["metadata"]["tools"], json!([]));
+    let aut = id(&created).to_string();
+    due_now(&h, &aut);
+    h.tick().await;
+    subset(&h.get(&aut), json!({"status": "done", "lastOutcome": "fired", "state": {"text": "ready"}}));
+    server.abort();
+}
+
+/// The tools are `create`, `list`, `pause`, `resume` and `delete` in their own `automation` namespace (2.4.1, #65001),
+/// so programs call `tools.automation.create(...)`; their registry IDs stay `automation_<name>`.
+#[test]
+fn the_tools_live_in_the_automation_namespace() {
+    let h = harness();
+    let tools = oc_core::automation::tools::tools(&h.automations);
+    let names: Vec<(String, Option<String>, String)> = tools
+        .iter()
+        .map(|t| (t.name().to_string(), t.options().namespace, t.definition(&Default::default()).name))
+        .collect();
+    assert_eq!(
+        names,
+        ["create", "list", "pause", "resume", "delete"]
+            .map(|n| (n.to_string(), Some("automation".to_string()), format!("automation_{n}")))
+            .to_vec()
+    );
+    let namespace = oc_core::automation::tools::namespace();
+    assert_eq!(namespace.name, "automation");
+    assert!(namespace.description.starts_with("Schedule recurring or one-off jobs (cron jobs, timers, reminders)."));
+    assert_eq!(
+        tools[0].definition(&Default::default()).description,
+        "Create an automation that runs a prompt, a Code Mode script, or a shell command once at a set time, on an interval, on a cron, or when an MCP server sends an event."
+    );
+    assert_eq!(tools[2].definition(&Default::default()).input_schema["properties"]["id"]["description"], "Automation id from automation.list.");
+    // The view puts the small fields before the large action and output.
+    let view = oc_core::automation::tools::view(&json!({
+        "id": "aut_1", "name": "ci", "projectID": "prj", "directory": "/p", "trigger": every("1 hour"), "tz": "UTC",
+        "action": {"type": "shell", "command": "make test"}, "status": "active", "runCount": 0, "lastOutput": "ok",
+        "time": {"created": 0, "updated": 0},
+    }));
+    let keys: Vec<&String> = view.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["id", "name", "trigger", "tz", "status", "runCount", "action", "lastOutput"]);
+    assert_eq!(oc_core::automation::tools::summary(&view), "aut_1 \"ci\": every 1 hour (UTC), active, shell: \"make test\", output: \"ok\"");
 }

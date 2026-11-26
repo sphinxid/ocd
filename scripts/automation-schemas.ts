@@ -21,12 +21,13 @@ const definitions = [
   ["automation_resume", tools.IDInput, tools.View],
   ["automation_delete", tools.IDInput, RemoveOutput],
 ].map(([name, input, output]) => {
+  // Registered as `create`, `list`, ... in the `automation` namespace (2.4.1); keyed by the registry ID.
   const definition = runtime.definition({
-    name,
+    name: name.replace("automation_", ""),
     description: "",
     input,
     output,
-    options: { namespace: "opencode", codemode: true },
+    options: { namespace: "automation", codemode: true },
   })
   return { name, inputSchema: definition.inputSchema, outputSchema: definition.outputSchema }
 })

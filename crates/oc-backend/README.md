@@ -86,15 +86,18 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `tokens`, `cost` (decisions) and the provider metadata as `native`.
 * **automations, video and blobs** (`automations.rs`, 2.3.1): the schedule routes, the schedule loop and `/schedule`
   are gone (2.3.1's migrations drop the `schedule` table). The six `experimental.automation.*` routes run
-  `oc_core::automation` (`server/src/handlers/automation.ts`), each needing automations enabled (the top-level
-  `automations`, 2.4.1; ocd keeps them off until it is `true`) in the config of the automation's directory, except that an automation whose folder is gone stays
-  manageable (listed, read, paused, deleted): create settles permission asks unattended (an ask is 403) and maps
-  `InvalidError` to 400 `{kind:"automation"}`, `DisabledError` to 403 `Automations are disabled. Set
-  automations to true in config to enable them.` and a missing session to 404; list checks its `sessionID`/`directory` filters
-  (a relative directory is 400; the project is resolved without being recorded) and shows each automation only where
-  the flag allows it; get/pause/resume/delete answer 404 `AutomationNotFoundError`, else 403 where the flag is off.
+  `oc_core::automation` (`server/src/handlers/automation.ts`, thinned in 2.4.1: the checks live in the service, which
+  plugins call too). Automations are on unless the top-level `automations: false` turns them off in the config of the
+  automation's directory, except that an automation whose folder is gone stays manageable (listed, read, paused,
+  deleted): create settles permission asks unattended (an ask is 403) and maps `InvalidError` to 400
+  `{kind:"automation"}`, `DisabledError` to 403 `Automations are disabled. Set automations to true in config to enable
+  them.` and a missing session to 404; list checks its `sessionID`/`directory` filters (a relative directory is 400;
+  the project is resolved without being recorded) and shows each automation only where automations are on;
+  get/pause/resume/delete answer 404 `AutomationNotFoundError`, else 403 where they are off. Reading a directory's
+  config boots its location (`EnginePrompter::boot`). Plugins' `ctx.experimental.automation.{create,list,delete}`
+  reach these handlers through `BackendApi` (`automation.*` operation names, 2.4.1).
   `start` gives the service its prompt path (the session API's `prompt` as a steer, which a new admission needs the
-  session's folder for) and runs its loop in every server process; `/automation` is listed where the flag and the
+  session's folder for) and runs its loop in every server process; `/automation` is listed where automations and the
   `opencode.tool.automation` plugin are on. `generate.video.*` answer 403 `Video generation is disabled; enable
   experimental.video_generate` after decoding. `blob.get` reads `<data>/blobs/<id>` (`BlobStore.read`: 404
   `BlobNotFoundError` when missing, the type sniffed from the first 64 bytes). The machine routes (2.4.1) answer as

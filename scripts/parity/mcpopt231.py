@@ -215,7 +215,7 @@ def _automation_rows(ctx):
 @scenario("mcpopt231", hold_for_title=0, timeout=180)
 def mcpopt231_automation_event_fires(ctx):
     """An automation with an `event` trigger (`OPENCODE_FLAGS=automations,mcp_events`), created by the model with
-    `opencode_automation_create`: the watch's stream opens with the trigger's arguments, the server's event fires the
+    `automation_create`: the watch's stream opens with the trigger's arguments, the server's event fires the
     prompt into the session with the event quoted as untrusted data, a heartbeat and the event move `event_position`,
     and an event the payload schema refuses pauses the watch."""
     files = os.path.join(ctx.state, "mcp")
@@ -225,11 +225,11 @@ def mcpopt231_automation_event_fires(ctx):
     create = {"name": "On job", "trigger": {"type": "event", "server": "jobs", "event": "job.finished", "args": {"job": "j1"}},
               "action": {"type": "prompt", "prompt": "Report the finished job."}}
     _boot_events(ctx, [
-        {"tools": [{"name": "opencode_automation_create", "id": "call_1",
+        {"tools": [{"name": "automation_create", "id": "call_1",
                     "args": {**create, "trigger": {**create["trigger"], "event": "poll.only"}}}]},
-        {"tools": [{"name": "opencode_automation_create", "id": "call_2",
+        {"tools": [{"name": "automation_create", "id": "call_2",
                     "args": {**create, "trigger": {**create["trigger"], "args": {"job": 1}}}}]},
-        {"tools": [{"name": "opencode_automation_create", "id": "call_3", "args": create}]},
+        {"tools": [{"name": "automation_create", "id": "call_3", "args": create}]},
         {"text": "Watching."},
         {"text": "The job finished."},
     ], servers, flags="automations,mcp_events")

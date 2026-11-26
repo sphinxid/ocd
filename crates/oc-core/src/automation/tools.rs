@@ -1,6 +1,6 @@
-//! The automation tools (`core/src/tool/plugin/automation.ts`, plugin `opencode.tool.automation`):
-//! `automation_create`, `automation_list`, `automation_pause`, `automation_resume` and `automation_delete` in the
-//! `opencode` namespace, through Code Mode. They act only on automations in the calling session's project, and each
+//! The automation tools (`core/src/tool/plugin/automation.ts`, plugin `opencode.tool.automation`): `create`, `list`,
+//! `pause`, `resume` and `delete` in their own `automation` namespace (2.4.1; registry IDs `automation_create`, ...),
+//! through Code Mode. They act only on automations in the calling session's project, and each
 //! call rechecks config where that session lives, since a request keeps the tools it started
 //! with after a config reload.
 
@@ -8,7 +8,7 @@ use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use oc_schema::types::{SessionInfo, ToolContent};
-use oc_tools::tool::{DefinitionContext, ErrorCause, ToolOptions};
+use oc_tools::tool::{DefinitionContext, ErrorCause, Namespace, ToolOptions};
 use oc_tools::{Registry, Tool, ToolContext, ToolDefinition, ToolError, ToolResult};
 use serde_json::{Map, Value, json};
 
@@ -39,8 +39,31 @@ enum Kind {
 
 const KINDS: [Kind; 5] = [Kind::Create, Kind::List, Kind::Pause, Kind::Resume, Kind::Delete];
 
+/// The tools' namespace.
+pub const NAMESPACE: &str = "automation";
+
+/// `editor.namespace({ name: "automation", description })`
+pub fn namespace() -> Namespace {
+    Namespace {
+        name: NAMESPACE.into(),
+        description: "Schedule recurring or one-off jobs (cron jobs, timers, reminders). Each one runs a prompt or Code Mode action at a time, every interval, on a cron or when a connected MCP server pushes an event. Use these when the user asks you to schedule, remind, repeat or check back on something, instead of waiting, sleeping or polling.".into(),
+    }
+}
+
 impl Kind {
+    /// The registered name, in the `automation` namespace.
     fn name(self) -> &'static str {
+        match self {
+            Kind::Create => "create",
+            Kind::List => "list",
+            Kind::Pause => "pause",
+            Kind::Resume => "resume",
+            Kind::Delete => "delete",
+        }
+    }
+
+    /// The registry ID (`automation_<name>`), which also keys the schemas.
+    fn id(self) -> &'static str {
         match self {
             Kind::Create => "automation_create",
             Kind::List => "automation_list",
@@ -53,7 +76,7 @@ impl Kind {
     fn description(self) -> &'static str {
         match self {
             Kind::Create => {
-                "Run a prompt or Code Mode action on a timer or a connected MCP server's push event. A prompt can target this session, another session in this project or a new subagent child. Code runs without a model and can return one send: { send: { prompt } } steers this session; add to: { subagent } inside send for a permitted quiet child. Omit send to stay quiet."
+                "Create an automation that runs a prompt, a Code Mode script, or a shell command once at a set time, on an interval, on a cron, or when an MCP server sends an event."
             }
             Kind::List => "List this project's automations with their status and next run, and the current time.",
             Kind::Pause => "Pause an automation. It keeps its settings and does not run until resumed.",
@@ -70,16 +93,12 @@ pub fn tools(automations: &Arc<Automations>) -> Vec<Arc<dyn Tool>> {
     KINDS.into_iter().map(|kind| Arc::new(AutomationTool { kind, automations: automations.clone() }) as Arc<dyn Tool>).collect()
 }
 
-/// Registers the five tools at the end of `registry` (tests; the runner inserts them in plugin order).
+/// Registers the namespace and the five tools at the end of `registry` (tests; the runner inserts them in plugin order).
 pub fn register(registry: &mut Registry, automations: &Arc<Automations>) {
+    let _ = registry.namespace(namespace());
     for tool in tools(automations) {
         let _ = registry.add(tool);
     }
-}
-
-/// Whether a tool (un-namespaced) is one of the automation tools (plugin `opencode.tool.automation`).
-pub fn is_automation_tool(name: &str) -> bool {
-    KINDS.iter().any(|k| k.name() == name)
 }
 
 struct AutomationTool {
@@ -163,6 +182,8 @@ pub fn summary(view: &Value) -> String {
             None => format!("subagent {}", s(to, "subagent")),
         };
         format!("prompt {target}: {}", Value::from(clip(&s(action, "prompt"))))
+    } else if action["type"] == "shell" {
+        format!("shell: {}", Value::from(clip(&s(action, "command"))))
     } else {
         let code = s(action, "code");
         let line = code.split('\n').find(|l| !js_trim(l).is_empty()).map(js_trim).unwrap_or_default();
@@ -208,7 +229,7 @@ impl AutomationTool {
     /// `owned(id, sessionID)`: tools act only on automations in the calling session's project.
     async fn owned(&self, id: &str, session_id: &str) -> Result<(), AutomationError> {
         let session = self.caller(session_id).await?;
-        let info = self.automations.get(id)?;
+        let info = self.automations.get(id).await?;
         if info.get("projectID").and_then(Value::as_str) != Some(session.project_id.as_str()) {
             return Err(AutomationError::NotFound(id.to_string()));
         }
@@ -230,7 +251,7 @@ impl AutomationTool {
                 let caller = self.caller(session).await?;
                 let now = time::format_iso(self.automations.clock().now());
                 let list: Vec<Value> =
-                    self.automations.list(&ListInput { project_id: Some(caller.project_id), ..Default::default() }).iter().map(view).collect();
+                    self.automations.list(&ListInput { project_id: Some(caller.project_id), ..Default::default() }).await?.iter().map(view).collect();
                 let mut lines = vec![format!("Now: {now}")];
                 if list.is_empty() {
                     lines.push("No automations.".into());
@@ -241,15 +262,15 @@ impl AutomationTool {
             }
             Kind::Pause => {
                 self.owned(&id, session).await?;
-                Ok(changed("Paused", self.automations.pause(&id)?))
+                Ok(changed("Paused", self.automations.pause(&id).await?))
             }
             Kind::Resume => {
                 self.owned(&id, session).await?;
-                Ok(changed("Resumed", self.automations.resume(&id)?))
+                Ok(changed("Resumed", self.automations.resume(&id).await?))
             }
             Kind::Delete => {
                 self.owned(&id, session).await?;
-                self.automations.remove(&id)?;
+                self.automations.remove(&id).await?;
                 Ok(ToolResult {
                     output: Some(json!({ "id": id, "removed": true })),
                     content: text(format!("Deleted automation {id}.")),
@@ -267,16 +288,16 @@ impl Tool for AutomationTool {
     }
 
     fn options(&self) -> ToolOptions {
-        ToolOptions::codemode("opencode")
+        ToolOptions::codemode(NAMESPACE)
     }
 
     fn definition(&self, _ctx: &DefinitionContext) -> ToolDefinition {
         let (input, output) = SCHEMAS
             .iter()
-            .find(|(n, _, _)| n == self.kind.name())
+            .find(|(n, _, _)| n == self.kind.id())
             .map(|(_, i, o)| (i.clone(), o.clone()))
             .unwrap_or((json!({"type": "object"}), Value::Null));
-        ToolDefinition::new(self.kind.name(), self.kind.description(), input).with_output(Some(output))
+        ToolDefinition::new(self.kind.id(), self.kind.description(), input).with_output(Some(output))
     }
 
     /// The JSON schema check, with `trigger` and `action` decoded as Effect's tagged unions: by their `type`, only

@@ -659,8 +659,29 @@ impl Host for CheckHost {
     }
 }
 
-/// `CodeModeTool.check`: runs one program over the snapshot's Code Mode tools alone, with no model step and no
-/// `fetch`, binding `bindings` as outer globals.
+/// The fetch checks of an automation's program, under the `Unattended` rules in effect: the interpreter runs them
+/// outside the caller's task.
+fn unattended_authorize(authorize: oc_codemode::web::Authorize, rules: Option<oc_schema::types::Ruleset>) -> oc_codemode::web::Authorize {
+    match rules {
+        None => authorize,
+        Some(rules) => Arc::new(move |url: String, args: Vec<HostValue>| {
+            Box::pin(crate::permission::unattended(rules.clone(), authorize(url, args))) as BoxFuture<'static, Result<(), HostValue>>
+        }),
+    }
+}
+
+fn unattended_redirect(check: oc_codemode::web::CheckRedirect, rules: Option<oc_schema::types::Ruleset>) -> oc_codemode::web::CheckRedirect {
+    match rules {
+        None => check,
+        Some(rules) => Arc::new(move |next: String, args: Vec<HostValue>, from: String| {
+            Box::pin(crate::permission::unattended(rules.clone(), check(next, args, from))) as BoxFuture<'static, Result<(), HostValue>>
+        }),
+    }
+}
+
+/// `CodeModeTool.check`: runs one program over the snapshot's Code Mode tools alone, with no model step, binding
+/// `bindings` as outer globals. Since 2.4.1 (#65236) the program has `fetch`, checked like an `execute` call's as
+/// `call_<messageID>_execute`; it has no OpenCode API, so `opencode://` is unavailable.
 pub async fn check(
     snapshot: &Snapshot,
     code: &str,
@@ -676,14 +697,18 @@ pub async fn check(
             .map(|(name, tool)| (qualified_name(tool.as_ref()), name.clone(), tool.clone()))
             .collect(),
     );
-    let host = Arc::new(CheckHost {
-        tools,
-        ctx,
-        hooks,
-        calls: Mutex::new(0),
-        unattended: crate::permission::current_unattended(),
-    });
-    let runtime = match CodeMode::new(entries(snapshot), host, Vec::new(), limits) {
+    let unattended = crate::permission::current_unattended();
+    let mut execution = ctx.clone();
+    execution.call_id = format!("call_{}_execute", ctx.message_id);
+    let stop = Stopper::default();
+    let fetch = oc_codemode::web::extension_api(
+        Arc::new(oc_codemode::web::ReqwestClient::manual()),
+        Some(unattended_authorize(fetch_authorize(execution.clone(), stop), unattended.clone())),
+        Some(unattended_redirect(fetch_redirect_check(execution), unattended.clone())),
+        None,
+    );
+    let host = Arc::new(CheckHost { tools, ctx, hooks, calls: Mutex::new(0), unattended });
+    let runtime = match CodeMode::new(entries(snapshot), host, vec![fetch], limits) {
         Ok(runtime) => runtime.with_bindings(bindings),
         Err(e) => {
             return oc_codemode::codemode::ExecResult::Failure {

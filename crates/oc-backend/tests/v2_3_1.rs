@@ -1,6 +1,6 @@
 //! opencode 2.3.1 API behaviour in a release build: the schedule routes are gone, the automation routes check their
-//! input, sessions, directories and stored rows and then answer that automations are disabled (where the folder still
-//! exists; `tests/automations.rs` covers them on), the video routes
+//! input, sessions, directories and stored rows and then answer that automations are disabled where `automations:
+//! false` (where the folder still exists; `tests/automations.rs` covers them on, the 2.4.1 default), the video routes
 //! answer that video generation is disabled, and blobs under `<data>/blobs/` are served with an immutable ETag,
 //! `If-None-Match`, a single `bytes=` range and a strong `If-Range`. Expected bodies and headers were checked against
 //! the 2.3.1 binary.
@@ -10,11 +10,28 @@ mod common;
 use common::*;
 use serde_json::{Value, json};
 
-/// Automations stay off in ocd until the top-level `automations` is set (`oc_core::automation::DEFAULT_ENABLED`).
+/// What the routes answer where the top-level `automations: false` turns automations off (on by default since 2.4.1).
 const AUTOMATIONS_OFF: &str = "Automations are disabled. Set automations to true in config to enable them.";
 const VIDEO_OFF: &str = "Video generation is disabled; enable experimental.video_generate";
 const MISSING_SESSION: &str = "ses_ffffffffffffZZZZZZZZZZZZZZ";
 const MISSING_AUTOMATION: &str = "aut_ffffffffffffZZZZZZZZZZZZZZ";
+
+/// A server (with its session runner, which reads a directory's config) whose working directory has automations off.
+fn harness_off() -> Harness {
+    unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
+    let root = tempfile::tempdir().unwrap();
+    let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
+    let cwd = root_path.join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::write(cwd.join("opencode.json"), json!({ "automations": false }).to_string()).unwrap();
+    let app = oc_core::app::App::new(global(&root_path), oc_storage::Database::memory().unwrap(), "1.2.3");
+    let runner = oc_core::runner::Engine::new(app.clone(), &oc_core::services::default_services(&app));
+    let engine = oc_backend::Engine::with_runner(runner);
+    oc_backend::automations::connect(&engine);
+    let opts = oc_server::ServerOptions { cwd: Some(cwd.display().to_string()), version: "1.2.3".into(), ready: true, ..Default::default() };
+    let (router, _) = oc_server::router(engine.clone() as std::sync::Arc<dyn oc_server::Backend>, &opts).unwrap();
+    Harness { app, engine, router, root, cwd }
+}
 
 fn res(r: &Res) -> (u16, Value) {
     (r.status.as_u16(), r.json())
@@ -49,10 +66,11 @@ async fn the_schedule_routes_are_gone() {
 
 #[tokio::test]
 async fn creating_an_automation_checks_its_input_then_answers_disabled() {
-    let h = harness();
+    let h = harness_off();
     let sid = h.session().await;
     let route = "/api/experimental/automation";
-    assert_eq!(res(&h.post(route, every(json!({}))).await), forbidden(AUTOMATIONS_OFF));
+    // Without a session or directory the automation runs in the home folder, where automations are on.
+    assert_eq!(res(&h.post(route, every(json!({}))).await), invalid("A prompt action needs `to` when there is no session", "automation"));
     assert_eq!(res(&h.post(route, every(json!({ "sessionID": sid }))).await), forbidden(AUTOMATIONS_OFF));
     assert_eq!(res(&h.post(route, every(json!({ "directory": h.dir() }))).await), forbidden(AUTOMATIONS_OFF));
     assert_eq!(res(&h.post(route, every(json!({ "directory": "rel" }))).await), invalid("Directory must be an absolute path: rel", "automation"));
@@ -85,7 +103,7 @@ async fn creating_an_automation_checks_its_input_then_answers_disabled() {
 
 #[tokio::test]
 async fn listing_automations_checks_the_filters_then_answers_disabled() {
-    let h = harness();
+    let h = harness_off();
     let sid = h.session().await;
     let route = "/api/experimental/automation";
     assert_eq!(res(&h.get(route).await), (200, json!({ "data": [] })));
@@ -101,7 +119,7 @@ async fn listing_automations_checks_the_filters_then_answers_disabled() {
 
 #[tokio::test]
 async fn a_missing_automation_is_not_found_and_a_stored_one_is_forbidden() {
-    let h = harness();
+    let h = harness_off();
     let missing = json!({
         "_tag": "AutomationNotFoundError",
         "automationID": MISSING_AUTOMATION,

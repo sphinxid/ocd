@@ -677,6 +677,7 @@ impl Engine {
         if crate::automation::settings_of(&location.entries).enabled
             && self.app.plugins.enabled(key).is_none_or(|enabled| enabled.iter().any(|e| e == crate::automation::PLUGIN_ID))
         {
+            let _ = registry.namespace(crate::automation::tools::namespace());
             crate::plugins::insert_tools(&mut registry, crate::automation::PLUGIN_ID, crate::automation::tools::tools(&self.automations));
         }
         // `opencode.tools.mcp-events` adds `watch_mcp_event` only while the `mcp_events` flag is on.

@@ -139,7 +139,7 @@ iterator's `next`.
 | session225 | reasoning across model switches and an interrupt, `read`/`edit` misses and `bash` as `shell`, MCP stdio framing, quiet location close, Code Mode `fetch` permissions, well-known config, terminal rename and removal with the session, restart recovery only under `serve --service` |
 | claude | the Claude Agent provider against a scripted stand-in for `claude` (both binaries use the same stand-in, which logs its arguments, environment and every message): sign-in states, prices, a missing or crashing executable, text and tool turns, an unoffered tool, errors, cancel, fork and compaction; 2.3.1: a chat's `claude` reporting a model the saved catalog doesn't know (one full check for its context size, none on the next chat) |
 
-| automation | `experimental.automations` through `OPENCODE_FLAGS=automations` (`scripts/parity/automation.py`): the automation API and its errors (triggers, targets, sessionless automations, list filters, the command list), unattended creation over HTTP, the `schedules` config alias, automations whose folder is gone staying manageable with the flag off, a prompt automation firing into its session and into a new subagent child, `/automation` and the automation tools through Code Mode and directly (summaries, input errors), code actions (programs refused at creation, state, sends to the creator and to a child, an invalid result pausing, failures), two servers on one data directory running an automation once (KV `automation:leader`) |
+| automation | automations, on by default since 2.4.1 (`scripts/parity/automation.py`; `OPENCODE_FLAGS=automations` against 2.3.1): the automation API and its errors (triggers, targets, sessionless automations, shell actions, list filters, the command list), unattended creation over HTTP, `automations: false` turning them off while the removed `experimental` keys don't, automations whose folder is gone staying manageable where they are off, a prompt automation firing into its session and into a new subagent child, `/automation` and the `automation` tools through Code Mode (`tools.automation.create`) and directly (`automation_create`; summaries, input errors), code actions (programs refused at creation, state, sends to the creator and to a child, an invalid result pausing, failures), shell actions (`automation_shell`: exit codes and output recorded, refused asks, no prompt), two servers on one data directory running an automation once (KV `automation:leader`) |
 | image | image generation and decisions over HTTP (with the one-shot retry), the image tool by default, edits, model choice, turned off, failures, restart recovery, the plugin API, background jobs at the idle boundary |
 | artifact | `experimental.artifacts`: the HTTP routes and `view`, location resolution, the tools directly and through Code Mode, a plugin provider and its failures |
 | media | `experimental.media_blob`: images stored from a prompt and from the read tool, reads with and without the media capability, the media route, fork, import, cancel, revert and delete, a fork from a location without the flag |
@@ -178,6 +178,21 @@ parallel `tools.shell` calls, read/write/edit through Code Mode, a `background` 
 none without the flag), a script backgrounded
 after 10 s and by a session-wide background request (the receipt, the `codemode` job in `experimental.job.list`, the
 `<codemode>` message and the step it wakes) match.
+
+**2.4.1 catch-up, automations and the Code Mode surface (batch R2; debug build, 2026-11-26):** against the opencode
+2.4.1 binary through the isolation guard. The `automation` group, rewritten for automations on by default (no
+`OPENCODE_FLAGS`; `automation_config_alias` became `automation_config_off`, and the new `automation_shell`):
+**4 of 11 identical** (`automation_api_unattended`, `_config_off`, `_folder_gone`, `_shell`), and the other 7 differ
+only by later batches' tools: the code actions of `_checks` (refused programs, state, sends, pauses), the system prompt's Code Mode catalog (the `automation` namespace and its five
+tools, `opencode.session.move` pinned, `opencode.session.rename`), `/automation`'s text, the direct
+`automation_create` summaries and input errors, the shell action's `Exit code: N` outputs and the hidden/refused
+automations all match. What still differs belongs to other batches: 2.4.1 always offers
+`opencode.list_mcp_events` and checks an event trigger without `mcp_events` (batch R3: the catalog hash, `event.off`'s
+`MCP server not found: ci`), and offers `generate_image`/`generate_video` (batch R6). The same holds for `loop_write_edit`,
+`loop_patch`, `loop_llm_request`, `tools227_session_move` (`tools.opencode.session.move`), `codemode231_*` (plus batch
+R10's import messages), `plugin_hooks`, `plugin_tool` and `api231_automation_routes` (plugin listing of later batches).
+`fcm231_tools` (opt-in `full_codemode`) differs as expected: 2.4.1's Code Mode description overrides of `edit`/`patch`,
+the pinned `websearch` and the model's tool policy applied to the catalog are not ported.
 
 **Client-hosted MCP (debug build, 2026-11-20):** the new `clientmcp231` group (3 scenarios) against the opencode
 2.3.1 binary through the isolation guard: **3 identical** (two runs). The handshake opencode sends the client, the

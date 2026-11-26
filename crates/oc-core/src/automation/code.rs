@@ -1,5 +1,5 @@
 //! Code actions (`core/src/automation/code.ts`): a Code Mode program an automation runs on each trigger with no
-//! model call and no `fetch`.
+//! model call. Since 2.4.1 (#65236) it has `fetch` too, authorized at creation like its tools.
 //!
 //! The tools a program calls are found statically (`tools.<path>(...)`) and authorized once at creation while the
 //! user is present (permissions asked without `save`). Each run then executes under narrow `Unattended` rules: an
@@ -23,9 +23,9 @@ use crate::permission::{AssertInput, PermissionError};
 pub const TIMEOUT_MS: u64 = 30_000;
 const MAX_OUTPUT_BYTES: usize = 32 * 1024;
 
-/// `CODE_LIMITS`
+/// `CODE_LIMITS`: 30 s and 32 KB of output; no tool call cap since 2.4.1 (#65236).
 pub fn code_limits() -> ExecutionLimits {
-    ExecutionLimits { timeout_ms: Some(TIMEOUT_MS as f64), max_tool_calls: Some(20.0), max_output_bytes: Some(MAX_OUTPUT_BYTES as f64) }
+    ExecutionLimits { timeout_ms: Some(TIMEOUT_MS as f64), max_tool_calls: None, max_output_bytes: Some(MAX_OUTPUT_BYTES as f64) }
 }
 
 /// `boundedOutput(text)`: at most 32 KB of UTF-8, cut at a character and marked with `…`.
@@ -49,19 +49,9 @@ pub fn handoff_output(delivery: &str, logs: Option<&str>) -> String {
     }
 }
 
-/// Tools that must not receive an unattended grant from an automation.
-pub const FORBIDDEN_TOOLS: [&str; 9] = [
-    // Approving the shell tool unattended would approve every command, not a particular command.
-    "shell",
-    "opencode.automation_create",
-    "opencode.automation_pause",
-    "opencode.automation_resume",
-    "opencode.automation_delete",
-    "opencode.session_move",
-    "opencode.session_rename",
-    "opencode.worktree_create",
-    "opencode.worktree_remove",
-];
+/// Tools that must not receive an unattended grant from an automation. Shell, renames and worktrees may (2.4.1,
+/// #65217): an approval for a code action covers its own program only.
+pub const FORBIDDEN_TOOLS: [&str; 5] = ["automation.create", "automation.pause", "automation.resume", "automation.delete", "opencode.session.move"];
 
 /// What one run receives.
 #[derive(Debug, Clone)]
@@ -101,14 +91,79 @@ impl Outcome {
     }
 }
 
-/// `scan(code)`: the tools the program calls, or why it cannot be an automation: it does not parse, or reaches a
+/// What a program reaches, found statically (`ProgramScan`): the tools it calls and the extension permissions its
+/// globals need (`fetch` → `webfetch`; `Bun` → `read`, `edit`, `external_directory`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scanned {
+    pub tools: Vec<String>,
+    pub actions: Vec<String>,
+}
+
+/// Script text is immutable. Only the static scan is cached (16 programs), never tool registrations or permission
+/// decisions.
+static SCANS: std::sync::LazyLock<parking_lot::Mutex<Vec<(String, Result<Scanned, String>)>>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(Vec::new()));
+
+/// `scan(code)`: what the program reaches, or why it cannot be an automation: it does not parse, or reaches a
 /// forbidden tool.
-pub fn scan(code: &str) -> Result<Vec<String>, String> {
-    let paths = oc_codemode::scan::scan_tools(code).map_err(|d| d.message)?;
-    if let Some(path) = paths.iter().find(|p| FORBIDDEN_TOOLS.contains(&p.as_str())) {
+pub fn scan(code: &str) -> Result<Scanned, String> {
+    if let Some((_, cached)) = SCANS.lock().iter().find(|(c, _)| c == code) {
+        return cached.clone();
+    }
+    let scanned = scan_program(code);
+    let mut scans = SCANS.lock();
+    if scans.len() == 16 {
+        let _ = scans.remove(0);
+    }
+    scans.push((code.to_string(), scanned.clone()));
+    scanned
+}
+
+fn scan_program(code: &str) -> Result<Scanned, String> {
+    let scanned = oc_codemode::scan::scan_program(code, &["fetch", "Bun"], &["slice"]).map_err(|d| d.message)?;
+    if let Some(path) = scanned.tools.iter().find(|p| FORBIDDEN_TOOLS.contains(&p.as_str())) {
         return Err(format!("Tool {path} cannot be used inside an automation"));
     }
-    Ok(paths)
+    Ok(Scanned { actions: extension_actions(&scanned), tools: scanned.tools })
+}
+
+/// What a `Bun.file(...)` result is only read through.
+const BUN_FILE_READ_MEMBERS: [&str; 10] = ["name", "type", "size", "lastModified", "text", "json", "bytes", "arrayBuffer", "exists", "stat"];
+
+/// `extensionActions(scanned)`: the permissions the program's globals need. Referenced file access is approved even
+/// while `full_codemode` is off, so turning it on later doesn't grant it unattended.
+fn extension_actions(scanned: &oc_codemode::scan::ProgramScan) -> Vec<String> {
+    let mut actions: Vec<String> = Vec::new();
+    let mut add = |action: &str| {
+        if !actions.iter().any(|a| a == action) {
+            actions.push(action.to_string());
+        }
+    };
+    if scanned.global("fetch").is_some() {
+        add("webfetch");
+    }
+    let bun = scanned.global("Bun").unwrap_or_default();
+    if scanned.has_module("bun") || bun.iter().any(|u| u.member.is_none()) {
+        add("read");
+        add("edit");
+        add("external_directory");
+    }
+    for use_ in bun {
+        let member = use_.member.as_deref();
+        if matches!(member, Some("file" | "Glob")) {
+            add("read");
+        }
+        let writes = member == Some("write")
+            || (member == Some("file")
+                && use_.result_members.iter().any(|m| !BUN_FILE_READ_MEMBERS.contains(&m.as_deref().unwrap_or_default())));
+        if writes {
+            add("edit");
+        }
+        if matches!(member, Some("file" | "Glob" | "write")) {
+            add("external_directory");
+        }
+    }
+    actions
 }
 
 fn dedupe(items: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -125,20 +180,26 @@ fn scoped_rules(rules: &[PermissionRule], action: &str) -> Vec<PermissionRule> {
     rules.iter().filter(|r| r.resource != "*" && crate::wildcard::matches(action, &r.action)).cloned().collect()
 }
 
-/// `resolveTools(paths)`: the permission each registered Code Mode tool at `paths` asks for, deduplicated.
-async fn resolve_tools(env: &crate::runner::CheckEnv, paths: &[String]) -> Result<Vec<String>, String> {
-    if paths.is_empty() {
-        return Ok(Vec::new());
-    }
-    env.flush_mcp().await;
-    let registered = env.registry.list();
+/// `resolveCapabilities(scanned)`: the permission each registered Code Mode tool the program calls asks for, then the
+/// extension permissions, deduplicated. A tool is found by its registry ID (`path` with `.` as `_`), and must be a
+/// Code Mode tool at exactly that path (`Tool.codeModeTools`).
+async fn resolve_capabilities(env: &crate::runner::CheckEnv, scanned: &Scanned) -> Result<Vec<String>, String> {
     let mut actions = Vec::new();
-    for path in paths {
-        let Some((id, tool)) = registered.iter().find(|(_, t)| t.options().codemode && crate::codemode::qualified_name(t.as_ref()) == *path) else {
-            return Err(format!("Unknown Code Mode tool: {path}"));
-        };
-        actions.push(tool.options().permission.unwrap_or_else(|| id.clone()));
+    if !scanned.tools.is_empty() {
+        env.flush_mcp().await;
+        let registered = env.registry.list();
+        for path in &scanned.tools {
+            let id = path.replace('.', "_");
+            let Some((id, tool)) = registered
+                .iter()
+                .find(|(registered, t)| *registered == id && t.options().codemode && crate::codemode::qualified_name(t.as_ref()) == *path)
+            else {
+                return Err(format!("Unknown Code Mode tool: {path}"));
+            };
+            actions.push(tool.options().permission.unwrap_or_else(|| id.clone()));
+        }
     }
+    actions.extend(scanned.actions.iter().cloned());
     Ok(dedupe(actions))
 }
 
@@ -162,8 +223,9 @@ fn assert_input(
     }
 }
 
-/// `authorize`: runs in the creating session's location while the user is present. Asks once for each tool's
-/// permission (and for `execute` unless a tool asked), without saving, so every run can be allowed unattended.
+/// `authorize`: runs in the creating session's location while the user is present. Asks once for tool and extension
+/// permissions (and for `execute` if none of those needed approval), without saving, so every run can be allowed
+/// unattended.
 pub async fn authorize(
     automations: &Automations,
     session: &SessionInfo,
@@ -174,14 +236,14 @@ pub async fn authorize(
     directory: &str,
 ) -> Result<(), AutomationError> {
     let code = action.get("code").and_then(Value::as_str).unwrap_or_default();
-    let paths = scan(code).map_err(AutomationError::Invalid)?;
+    let scanned = scan(code).map_err(AutomationError::Invalid)?;
     let env = automations.env(session, directory).await?;
     if let Some(invocation) = invocation
         && !matches_author(session, env.agent.as_ref().map(|a| a.id.as_str()), invocation)
     {
         return Err(AutomationError::Invalid("Create the automation with the session's current agent".into()));
     }
-    let actions = resolve_tools(&env, &paths).await.map_err(AutomationError::Invalid)?;
+    let actions = resolve_capabilities(&env, &scanned).await.map_err(AutomationError::Invalid)?;
     let app = automations.app().ok_or(AutomationError::Declined)?;
     let agent_rules = env.agent.as_ref().map(|a| a.permissions.clone()).unwrap_or_default();
     let rules = crate::permission::merge(&[&agent_rules, session.permissions.as_deref().unwrap_or(&[])]);
@@ -196,8 +258,7 @@ pub async fn authorize(
     for item in &all {
         app.permissions.assert_not_denied(request(item, None)).await.map_err(AutomationError::from_permission)?;
     }
-    // A tool's approval also covers running the program; with no tool to ask about, `execute` itself must be
-    // approved.
+    // A capability's approval also covers running the program; otherwise ask to run `execute` itself.
     let mut allowed = true;
     for item in &actions {
         allowed &= app.permissions.allows(request(item, None)).await;
@@ -207,7 +268,7 @@ pub async fn authorize(
     metadata.insert("trigger".into(), trigger.clone());
     metadata.insert("unattended".into(), json!(true));
     metadata.insert("code".into(), json!(code));
-    metadata.insert("tools".into(), json!(paths));
+    metadata.insert("tools".into(), json!(scanned.tools));
     for item in if allowed { &all } else { &actions } {
         // No `save`: "always" would save a project-wide allow, while runs are allowed through Unattended.
         app.permissions.assert(request(item, Some(metadata.clone()))).await.map_err(AutomationError::from_permission)?;
@@ -302,11 +363,12 @@ async fn run_once(automations: &Automations, session: &SessionInfo, action: &Val
     let Some(app) = automations.app() else { return Ok(Outcome::failed("Session runner is not available")) };
     let Some(engine) = automations.engine() else { return Ok(Outcome::failed("Session runner is not available")) };
     let code = action.get("code").and_then(Value::as_str).unwrap_or_default();
-    let paths = match scan(code) {
-        Ok(paths) => paths,
+    let scanned = match scan(code) {
+        Ok(scanned) => scanned,
         Err(error) => return Ok(Outcome::invalid(error)),
     };
-    let resolved = match resolve_tools(&env, &paths).await {
+    let paths = scanned.tools.clone();
+    let resolved = match resolve_capabilities(&env, &scanned).await {
         Ok(actions) => actions,
         Err(error) => return Ok(Outcome::invalid(error)),
     };
@@ -401,6 +463,23 @@ mod tests {
             decode_result(&json!({"state": 1, "done": true, "send": {"prompt": "\n x", "to": {"subagent": "general"}}})),
             Ok((Some(json!(1)), true, Some(Send { prompt: "\n x".into(), subagent: Some("general".into()) })))
         );
+    }
+
+    /// `extensionActions` (2.4.1, #65236): `fetch` needs `webfetch`; Bun's file APIs need `read`, `edit` (a write, or a
+    /// file handle used for anything but reading) and `external_directory`, even while `full_codemode` is off.
+    #[test]
+    fn programs_ask_for_their_extension_permissions() {
+        let actions = |code: &str| scan(code).unwrap().actions;
+        assert_eq!(actions("return await (await fetch(args)).text()"), vec!["webfetch"]);
+        assert_eq!(actions("function fetch() {}; return fetch()"), Vec::<String>::new());
+        assert_eq!(actions("return Bun.file('a').text()"), vec!["read", "external_directory"]);
+        assert_eq!(actions("await Bun.write('a', 'x')"), vec!["edit", "external_directory"]);
+        assert_eq!(actions("Bun.file('a').slice(0, 2).writer()"), vec!["read", "edit", "external_directory"]);
+        assert_eq!(actions("const f = Bun.file('a'); return f"), vec!["read", "edit", "external_directory"]);
+        assert_eq!(actions("const b = require('bun'); return b"), vec!["read", "edit", "external_directory"]);
+        assert_eq!(actions("const t = await tools.slack.read({}); return await fetch(t.url)"), vec!["webfetch"]);
+        assert_eq!(scan("const t = await tools.slack.read({}); return t").unwrap().tools, vec!["slack.read"]);
+        assert_eq!(scan("await tools.automation.pause({})").unwrap_err(), "Tool automation.pause cannot be used inside an automation");
     }
 
     #[test]

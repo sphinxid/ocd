@@ -108,7 +108,7 @@
        "additionalProperties": false
       }
      ],
-     "description": "When it runs: { type: \"at\", at: \"in 20 minutes\" | \"2026-10-27T09:00\" }, { type: \"every\", every: \"1 hour\" } or { type: \"cron\", cron: \"0 9 * * 1-5\" }, each with an optional tz. Or { type: \"event\", server, event, args? } for a connected MCP server advertising push delivery (requires mcp_events)."
+     "description": "When it runs: { type: \"at\", at: \"in 20 minutes\" | \"2026-10-27T09:00\" }, { type: \"every\", every: \"1 hour\" } or { type: \"cron\", cron: \"0 9 * * 1-5\" }, each with an optional tz. Or { type: \"event\", server, event, args? } for a connected MCP server advertising push delivery."
     },
     "action": {
      "anyOf": [
@@ -180,7 +180,7 @@
         "code": {
          "type": "string",
          "minLength": 1,
-         "description": "Code Mode JavaScript run on each trigger with no model (no fetch; 30s, 20 tool calls, 32 KB output cap). Call tools statically as tools.<ns>.<tool>(...) or tools[\"ns-name\"].tool(...); each is authorized once at creation to run unattended. Receives input = { state, now, runs, args } (also globals): state starts null, now is epoch ms, runs counts earlier runs. Event triggers also receive input.event = { id, timestamp, data }; data follows the event type's payloadSchema. Return nothing, or { state?, done?, send? }. JSON state is kept for the next run; done: true stops. lastOutput shows the delivery target and any logs. Return at most one send per run. { send: { prompt } } steers the creating session; { send: { prompt, to: { subagent } } } starts a permitted child that does not report back. No session IDs. Omit send to stay quiet. A rejected send commits neither state nor done. Example code string: if (runs < 2) return; return { done: true, send: { prompt: \"Three checks elapsed. Review the build.\" } }"
+         "description": "Code Mode JavaScript run on each trigger with no model (32 KB output cap). Call tools statically as tools.<ns>.<tool>(...) or tools[\"ns-name\"].tool(...); each is authorized once at creation to run unattended. Receives input = { state, now, runs, args } (also globals): state starts null, now is epoch ms, runs counts earlier runs. Event triggers also receive input.event = { id, timestamp, data }; data follows the event type's payloadSchema. Return nothing, or { state?, done?, send? }. JSON state is kept for the next run; done: true stops. lastOutput shows the delivery target and any logs. Return at most one send per run. { send: { prompt } } steers the creating session; { send: { prompt, to: { subagent } } } starts a permitted child that does not report back. No session IDs. Omit send to stay quiet. A rejected send commits neither state nor done. Example code string: if (runs < 2) return; return { done: true, send: { prompt: \"Three checks elapsed. Review the build.\" } }"
         },
         "args": {}
        },
@@ -189,9 +189,30 @@
         "code"
        ],
        "additionalProperties": false
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "type": "string",
+         "enum": [
+          "shell"
+         ]
+        },
+        "command": {
+         "type": "string",
+         "minLength": 1,
+         "description": "The fixed shell command to run on each trigger without a model."
+        }
+       },
+       "required": [
+        "type",
+        "command"
+       ],
+       "additionalProperties": false
       }
      ],
-     "description": "What it does: { type: \"prompt\", prompt, to? } sends a prompt; { type: \"code\", code, args? } runs Code Mode with no model."
+     "description": "What it does: { type: \"prompt\", prompt, to? } sends a prompt; { type: \"code\", code, args? } runs Code Mode; { type: \"shell\", command } runs a fixed shell command."
     },
     "expires": {
      "type": "string"
@@ -434,6 +455,26 @@
        "required": [
         "type",
         "code"
+       ],
+       "additionalProperties": false
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "type": "string",
+         "enum": [
+          "shell"
+         ]
+        },
+        "command": {
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "type",
+        "command"
        ],
        "additionalProperties": false
       }
@@ -704,6 +745,26 @@
            "code"
           ],
           "additionalProperties": false
+         },
+         {
+          "type": "object",
+          "properties": {
+           "type": {
+            "type": "string",
+            "enum": [
+             "shell"
+            ]
+           },
+           "command": {
+            "type": "string",
+            "minLength": 1
+           }
+          },
+          "required": [
+           "type",
+           "command"
+          ],
+          "additionalProperties": false
          }
         ]
        },
@@ -740,7 +801,7 @@
     "id": {
      "type": "string",
      "pattern": "^aut_",
-     "description": "Automation id from automation_list."
+     "description": "Automation id from automation.list."
     }
    },
    "required": [
@@ -978,6 +1039,26 @@
        "required": [
         "type",
         "code"
+       ],
+       "additionalProperties": false
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "type": "string",
+         "enum": [
+          "shell"
+         ]
+        },
+        "command": {
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "type",
+        "command"
        ],
        "additionalProperties": false
       }
@@ -1008,7 +1089,7 @@
     "id": {
      "type": "string",
      "pattern": "^aut_",
-     "description": "Automation id from automation_list."
+     "description": "Automation id from automation.list."
     }
    },
    "required": [
@@ -1248,6 +1329,26 @@
         "code"
        ],
        "additionalProperties": false
+      },
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "type": "string",
+         "enum": [
+          "shell"
+         ]
+        },
+        "command": {
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "required": [
+        "type",
+        "command"
+       ],
+       "additionalProperties": false
       }
      ]
     },
@@ -1276,7 +1377,7 @@
     "id": {
      "type": "string",
      "pattern": "^aut_",
-     "description": "Automation id from automation_list."
+     "description": "Automation id from automation.list."
     }
    },
    "required": [

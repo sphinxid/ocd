@@ -1,6 +1,6 @@
 //! Automations (`core/src/automation.ts`, `automation/sql.ts`, `schema/src/automation.ts`), opencode 2.3.1's
-//! replacement for scheduled prompts, behind the top-level `automations` setting (2.4.1; `experimental.automations`
-//! and its old name `schedules` before).
+//! replacement for scheduled prompts. 2.4.1 turns them on by default; the top-level `automations: false` turns them off
+//! for a directory (`experimental.automations` and its old name `schedules` before).
 //!
 //! An automation belongs to a project. On a timer (`at` once, `every` interval or `cron`, each in a zone) it either
 //! sends a prompt (`{type: "prompt"}`) to an existing session or to a new child of its creating session with a
@@ -17,10 +17,12 @@
 
 pub mod code;
 pub mod event;
+pub mod shell;
 pub mod time;
 pub mod tools;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
@@ -60,11 +62,9 @@ const TICK_CONCURRENCY: usize = 4;
 /// `Automation.DisabledError`'s message.
 pub const DISABLED: &str = "Automations are disabled. Set automations to true in config to enable them.";
 
-/// What an unset top-level `automations` means. 2.4.1 (#65296) reads `Config.latest(entries, "automations") ?? true`:
-/// automations are on unless a config turns them off. ocd keeps them off until set to `true` while its automations
-/// are still 2.3.2's (no `session.rename`/`move`, shell action, denylist, ...).
-// TODO(2.4.1 automations batch): flip to `true` once automations match 2.4.1.
-pub const DEFAULT_ENABLED: bool = false;
+/// What an unset top-level `automations` means: 2.4.1 (#65296) reads `Config.latest(entries, "automations") ?? true`, so
+/// automations are on unless a config turns them off.
+pub const DEFAULT_ENABLED: bool = true;
 
 /// The `/automation` command template (`plugin/command/automation.txt`).
 pub const COMMAND_TEMPLATE: &str = include_str!("../../../../assets/prompt/command/automation.txt");
@@ -245,6 +245,7 @@ pub fn encode_action(action: &Value) -> Value {
             out
         }
         "code" => pick(action, &["type", "code", "args"]),
+        "shell" => pick(action, &["type", "command"]),
         _ => action.clone(),
     }
 }
@@ -446,12 +447,19 @@ fn delivery_summary(session_id: &str, subagent: bool) -> String {
 
 /// The location settings an automation follows (`settings(directory)`): config is per location, so an automation
 /// follows the config of the directory it runs in.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Settings {
     pub enabled: bool,
     /// `experimental.mcp_events`
     pub events: bool,
     pub timezone: Option<String>,
+}
+
+/// No config: automations on ([`DEFAULT_ENABLED`]).
+impl Default for Settings {
+    fn default() -> Self {
+        settings_of(&[])
+    }
 }
 
 /// What the automation service needs from the server: admitting a prompt through the session API
@@ -460,6 +468,11 @@ pub trait Prompter: Send + Sync {
     fn prompt(&self, session_id: String, id: String, text: String, metadata: Map<String, Value>) -> BoxFuture<'static, Result<(), AutomationError>>;
     /// `execution.wake(sessionID)`
     fn wake(&self, session_id: &str);
+    /// Boots the location of `directory` the way the server does on first use (reading its config boots it), before
+    /// the service reads that config.
+    fn boot(&self, _directory: &str) -> BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
 }
 
 /// The loop's clock (`Clock.currentTimeMillis`). Tests install a manual clock that follows tokio's paused time.
@@ -549,6 +562,8 @@ struct Lease {
 pub struct ListInput {
     pub session_id: Option<String>,
     pub project_id: Option<String>,
+    /// Only automations in the project that owns this absolute directory, or that ran in it.
+    pub directory: Option<String>,
 }
 
 /// The automation service (`Automation.Service`).
@@ -563,6 +578,8 @@ pub struct Automations {
     clock: Clock,
     /// The running event watches, by automation (`watches`, a FiberMap).
     watches: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// This service, for the shell commands a run leaves running (forked in the service's scope).
+    this: Weak<Automations>,
 }
 
 type Values<'a> = Vec<(&'a str, Sql)>;
@@ -585,7 +602,7 @@ impl Automations {
     }
 
     pub fn with_clock(app: &Arc<crate::app::App>, clock: Clock) -> Arc<Automations> {
-        Arc::new(Automations {
+        Arc::new_cyclic(|this| Automations {
             db: app.db.clone(),
             app: Arc::downgrade(app),
             engine: OnceLock::new(),
@@ -595,6 +612,7 @@ impl Automations {
             lease: Mutex::new(Lease::default()),
             clock,
             watches: Mutex::new(HashMap::new()),
+            this: this.clone(),
         })
     }
 
@@ -660,6 +678,11 @@ impl Automations {
         if !std::path::Path::new(directory).is_dir() {
             return Err(AutomationError::DirectoryNotFound(directory.to_string()));
         }
+        if is_absolute(directory)
+            && let Some(prompter) = self.prompter.get()
+        {
+            prompter.boot(directory).await;
+        }
         let Some(engine) = self.engine() else { return Ok(Settings::default()) };
         let location = engine.location(directory).await.map_err(|_| AutomationError::DirectoryNotFound(directory.to_string()))?;
         Ok(settings_of(&location.entries))
@@ -669,6 +692,24 @@ impl Automations {
     /// folder is gone.
     pub async fn enabled(&self, directory: &str) -> Result<bool, AutomationError> {
         self.settings(directory).await.map(|s| s.enabled)
+    }
+
+    /// `visible(directory)`: whether automations in `directory` may be managed. An automation whose folder is gone
+    /// stays manageable, so it can be inspected and deleted.
+    pub async fn visible(&self, directory: &str) -> bool {
+        match self.settings(directory).await {
+            Ok(settings) => settings.enabled,
+            Err(_) => true,
+        }
+    }
+
+    /// `findVisible(id)`: the row of an automation callers may manage: it exists and its directory has automations on.
+    async fn find_visible(&self, id: &str) -> Result<Row, AutomationError> {
+        let row = self.find(id)?;
+        if !self.visible(&row.directory).await {
+            return Err(AutomationError::Disabled);
+        }
+        Ok(row)
     }
 
     fn find(&self, id: &str) -> Result<Row, AutomationError> {
@@ -964,8 +1005,59 @@ impl Automations {
         }
     }
 
+    /// `runShell(row, action, now, event?)`: starts the command and advances the automation on launch; its result is
+    /// recorded when it exits.
+    async fn run_shell(&self, row: &Row, now: i64, event: Option<&event::Message>) -> Result<(), AutomationError> {
+        let run = row.run_count + 1;
+        let Some(owner) = row.session_id.as_deref().and_then(|id| self.existing(id)) else {
+            self.pause_with(row, now, "The session that authorized this command no longer exists");
+            return Ok(());
+        };
+        let missing = || format!("Directory no longer exists: {}", row.directory);
+        // The saved location may still be cached after its directory is removed.
+        if !Path::new(&row.directory).is_dir() {
+            self.pause_with(row, now, &missing());
+            return Ok(());
+        }
+        let command = row.action.get("command").and_then(Value::as_str).unwrap_or_default().to_string();
+        let started = shell::start(self, &owner, &row.project_id, &command, &row.directory).await;
+        if matches!(started, Err(AutomationError::DirectoryNotFound(_))) {
+            self.pause_with(row, now, &missing());
+            return Ok(());
+        }
+        // Advance on launch, so the next timer slot or event can start before this command exits.
+        let mut values = vec![("run_count", Sql::Integer(run)), ("last_run_at", Sql::Integer(now)), ("retry_at", Sql::Null)];
+        values.extend(Self::advance(row, now, false, event));
+        values.push(("time_updated", Sql::Integer(now)));
+        self.settle(row, &values, true);
+        let id = row.id.clone();
+        let this = self.this.clone();
+        let finish = async move {
+            let (output, fired) = match started {
+                Ok(started) => started.wait().await,
+                Err(error) => (error.message(), false),
+            };
+            let Some(me) = this.upgrade() else { return };
+            // A late completion must not replace a newer run's result or the reason the automation paused.
+            let result = me.db.with(|c| {
+                c.execute(
+                    "UPDATE automation SET last_outcome = ?, last_output = ?, time_updated = ? WHERE id = ? AND run_count = ? AND status != 'paused'",
+                    rusqlite::params![if fired { "fired" } else { "failed" }, code::bounded_output(&output), me.clock.now(), id, run],
+                )
+            });
+            if let Err(e) = result {
+                tracing::error!(automation = %id, error = %e, "automation update failed");
+            }
+        };
+        tokio::spawn(finish);
+        Ok(())
+    }
+
     async fn run_action_inner(&self, row: &Row, now: i64, event: Option<&event::Message>) -> Result<(), AutomationError> {
         let action = &row.action;
+        if kind(action) == "shell" {
+            return self.run_shell(row, now, event).await;
+        }
         let due = row.next_due_at.unwrap_or(now);
         let late = now - due >= LATE_AFTER;
 
@@ -1408,6 +1500,12 @@ impl Automations {
             }
             return Ok(json!({ "type": "prompt", "prompt": action.get("prompt").cloned().unwrap_or(json!("")), "to": to }));
         }
+        if kind(action) == "shell" {
+            let Some(owner) = owner else { return Err(AutomationError::Invalid("A shell action needs a session".into())) };
+            let command = action.get("command").and_then(Value::as_str).unwrap_or_default();
+            shell::authorize(self, owner, &input.name, trigger, command, invocation).await?;
+            return Ok(json!({ "type": "shell", "command": command }));
+        }
         // Tool permissions are asked in, and checked against, the creating session.
         let Some(owner) = owner else { return Err(AutomationError::Invalid("A code action needs a session".into())) };
         let mut code = json!({ "type": "code", "code": action.get("code").cloned().unwrap_or(json!("")) });
@@ -1740,9 +1838,45 @@ impl Automations {
         active.len()
     }
 
-    /// `list({sessionID, projectID})`: oldest first.
-    pub fn list(&self, input: &ListInput) -> Vec<Value> {
-        self.rows(input).iter().map(Row::info).collect()
+    /// `list({sessionID, projectID, directory})`: oldest first, leaving out automations whose directory has
+    /// automations off. A session filter needs that session and automations on where it lives; a directory filter
+    /// must be absolute and needs them on there, and matches automations of the project that owns the directory or
+    /// that ran in it.
+    pub async fn list(&self, input: &ListInput) -> Result<Vec<Value>, AutomationError> {
+        if let Some(id) = &input.session_id {
+            let session = self.session(id)?;
+            if !self.visible(&session.location.directory).await {
+                return Err(AutomationError::Disabled);
+            }
+        }
+        let directory = input.directory.as_deref();
+        if let Some(directory) = directory {
+            if !is_absolute(directory) {
+                return Err(AutomationError::Invalid(format!("Directory must be an absolute path: {directory}")));
+            }
+            if !self.visible(directory).await {
+                return Err(AutomationError::Disabled);
+            }
+        }
+        // Reading ownership must not record a project for a folder that was only asked about.
+        let owner = match directory {
+            Some(directory) => Some(crate::project::resolve(std::path::Path::new(directory)).await.id),
+            None => None,
+        };
+        // A deleted folder may no longer resolve to its project, so also match automations that ran there.
+        let matching: Vec<Row> = self
+            .rows(input)
+            .into_iter()
+            .filter(|row| directory.is_none() || owner.as_deref() == Some(row.project_id.as_str()) || Some(row.directory.as_str()) == directory)
+            .collect();
+        let mut shown = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::new();
+        for row in &matching {
+            if seen.insert(row.directory.clone()) && self.visible(&row.directory).await {
+                shown.insert(row.directory.clone());
+            }
+        }
+        Ok(matching.iter().filter(|row| shown.contains(&row.directory)).map(Row::info).collect())
     }
 
     pub fn rows(&self, input: &ListInput) -> Vec<Row> {
@@ -1765,12 +1899,13 @@ impl Automations {
             .unwrap_or_default()
     }
 
-    pub fn get(&self, id: &str) -> Result<Value, AutomationError> {
-        Ok(self.find(id)?.info())
+    /// `get(id)`: fails with `Disabled` where the automation's directory has automations off.
+    pub async fn get(&self, id: &str) -> Result<Value, AutomationError> {
+        Ok(self.find_visible(id).await?.info())
     }
 
-    pub fn pause(&self, id: &str) -> Result<Value, AutomationError> {
-        let row = self.find(id)?;
+    pub async fn pause(&self, id: &str) -> Result<Value, AutomationError> {
+        let row = self.find_visible(id).await?;
         if row.status != "active" {
             return Ok(row.info());
         }
@@ -1781,11 +1916,11 @@ impl Automations {
         if row.trigger_type() == "event" {
             self.remove_watch(id);
         }
-        self.get(id)
+        Ok(self.find(id)?.info())
     }
 
-    pub fn resume(&self, id: &str) -> Result<Value, AutomationError> {
-        let row = self.find(id)?;
+    pub async fn resume(&self, id: &str) -> Result<Value, AutomationError> {
+        let row = self.find_visible(id).await?;
         if row.status != "paused" {
             return Ok(row.info());
         }
@@ -1805,11 +1940,11 @@ impl Automations {
             )
         });
         self.doorbell.open();
-        self.get(id)
+        Ok(self.find(id)?.info())
     }
 
-    pub fn remove(&self, id: &str) -> Result<(), AutomationError> {
-        self.find(id)?;
+    pub async fn remove(&self, id: &str) -> Result<(), AutomationError> {
+        self.find_visible(id).await?;
         let _ = self.db.with(|c| c.execute("DELETE FROM automation WHERE id = ?", [id]));
         self.remove_watch(id);
         Ok(())

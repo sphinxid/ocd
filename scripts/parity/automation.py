@@ -1,7 +1,8 @@
-"""Automations (`experimental.automations`, 2.3.1, here on through `OPENCODE_FLAGS=automations`): the automation HTTP
-API and its errors, unattended creation over HTTP, a prompt automation firing, `/automation` and the automation tools
-through Code Mode and directly, code actions (state, sends, invalid programs, pauses), two servers on one data
-directory running an automation once, and automations whose folder is gone staying manageable with the flag off.
+"""Automations (on by default since 2.4.1; `experimental.automations` through `OPENCODE_FLAGS=automations` in 2.3.1):
+the automation HTTP API and its errors, unattended creation over HTTP, a prompt automation firing, `/automation` and the
+automation tools through Code Mode and directly, code actions (state, sends, invalid programs, pauses), shell actions,
+two servers on one data directory running an automation once, and automations whose folder is gone staying manageable
+where `automations: false`.
 
 Times differ between runs (epoch-ms values are masked); automations that run use short `at` delays or the 15 s code
 minimum, so these scenarios take a while."""
@@ -33,7 +34,7 @@ def config(extra=None, timezone="America/New_York", allow=True):
     return cfg
 
 
-def boot(ctx, script=None, flags="automations", **kw):
+def boot(ctx, script=None, flags=None, **kw):
     ctx.set_script(script or [])
     if flags:
         ctx.env_extra["OPENCODE_FLAGS"] = flags
@@ -110,6 +111,7 @@ def automation_api(ctx):
                          "action": {"type": "prompt", "prompt": "standup", "to": {"subagent": "general"}}})
     create(ctx, "code", {"sessionID": sid, "name": "quiet", "trigger": {"type": "every", "every": "15 seconds"},
                          "action": {"type": "code", "code": "return", "args": {"channel": "#ops"}}})
+    create(ctx, "shell", {"sessionID": sid, "name": "status", "trigger": HOURLY, "action": {"type": "shell", "command": "git status"}})
     _, standalone = create(ctx, "standalone", {"name": "standalone", "directory": ctx.project, "trigger": HOURLY,
                                                "action": {"type": "prompt", "prompt": "hello", "to": {"session": sid}}})
 
@@ -146,6 +148,9 @@ def automation_api(ctx):
         ("sessionless.subagent", {"name": "x", "directory": ctx.project, "trigger": HOURLY,
                                   "action": {"type": "prompt", "prompt": "x", "to": {"subagent": "general"}}}),
         ("sessionless.code", {"name": "x", "directory": ctx.project, "trigger": HOURLY, "action": {"type": "code", "code": "return"}}),
+        ("sessionless.shell", {"name": "x", "directory": ctx.project, "trigger": HOURLY, "action": {"type": "shell", "command": "echo x"}}),
+        ("shell.empty", body(action={"type": "shell", "command": ""})),
+        ("every.shell.short", body(trigger={"type": "every", "every": "30 seconds"}, action={"type": "shell", "command": "echo x"})),
         ("directory.relative", {"name": "x", "directory": "relative", "trigger": HOURLY, "action": {"type": "prompt", "prompt": "x", "to": {"session": sid}}}),
         ("directory.gone", {"name": "x", "directory": os.path.join(ctx.project, "gone"), "trigger": HOURLY,
                             "action": {"type": "prompt", "prompt": "x", "to": {"session": sid}}}),
@@ -190,29 +195,35 @@ def automation_api_unattended(ctx):
 
 
 @scenario("automation", hold_for_title=0)
-def automation_config_alias(ctx):
-    """without `OPENCODE_FLAGS`, `experimental.schedules: true` (the old name) turns automations on and
-    `experimental.automations: false` turns them off again; the flag is read where the automation runs."""
-    boot(ctx, flags=None, extra={"experimental": {"schedules": True}})
-    sid = ctx.create_session(title="Alias")
-    create(ctx, "alias", {"sessionID": sid, "name": "alias", "trigger": HOURLY, "action": {"type": "prompt", "prompt": "x"}})
+def automation_config_off(ctx):
+    """2.4.1: automations are on without any config, `experimental.automations`/`experimental.schedules` no longer
+    count, and the top-level `automations: false` turns them off where the automation runs (list empty, a session or
+    directory filter and creation forbidden)."""
+    boot(ctx, extra={"experimental": {"schedules": False, "automations": False}})
+    sid = ctx.create_session(title="Off")
+    create(ctx, "default", {"sessionID": sid, "name": "default", "trigger": HOURLY, "action": {"type": "prompt", "prompt": "x"}})
     automations(ctx, "list", f"?sessionID={sid}")
     ctx.stop()
     with open(os.path.join(ctx.project, "opencode.json")) as f:
         cfg = json.load(f)
-    cfg["experimental"] = {"schedules": True, "automations": False}
+    cfg.pop("experimental", None)
+    cfg["automations"] = False
     with open(os.path.join(ctx.project, "opencode.json"), "w") as f:
         json.dump(cfg, f)
     ctx.start()
     automations(ctx, "list.off")
     automations(ctx, "list.off.session", f"?sessionID={sid}")
+    automations(ctx, "list.off.directory", f"?directory={ctx.project}")
     create(ctx, "off", {"sessionID": sid, "name": "off", "trigger": HOURLY, "action": {"type": "prompt", "prompt": "x"}})
+    ctx.settle(f"/api/command?directory={ctx.project}")
+    commands = ctx.data("commands", "GET", "/api/command", record=False)
+    ctx.rec("commands", [c for c in commands if c.get("name") == "automation"] if isinstance(commands, list) else commands)
 
 
 @scenario("automation", hold_for_title=0, timeout=240)
 def automation_folder_gone(ctx):
-    """with the flag off, an automation whose folder is gone stays manageable (listed, read, paused and deleted),
-    while one in a folder that still exists reads as forbidden."""
+    """with `automations: false`, an automation whose folder is gone stays manageable (listed, read, paused and
+    deleted), while one in a folder that still exists reads as forbidden."""
     boot(ctx)
     gone = os.path.join(ctx.project, "worktree")
     os.makedirs(gone)
@@ -225,7 +236,11 @@ def automation_folder_gone(ctx):
                                 "action": {"type": "prompt", "prompt": "x", "to": {"session": kept}}})
     ctx.stop()
     shutil.rmtree(gone)
-    ctx.env_extra.pop("OPENCODE_FLAGS", None)
+    with open(os.path.join(ctx.project, "opencode.json")) as f:
+        cfg = json.load(f)
+    cfg["automations"] = False
+    with open(os.path.join(ctx.project, "opencode.json"), "w") as f:
+        json.dump(cfg, f)
     ctx.start()
     automations(ctx, "list")
     automations(ctx, "list.gone", f"?directory={gone}")
@@ -281,9 +296,9 @@ def automation_subagent(ctx):
 @scenario("automation", timeout=240)
 def automation_command(ctx):
     """/automation hands the request to the model with the automation instructions; the model creates an automation
-    through Code Mode (`opencode.automation_create`), lists it, and the automation then fires."""
-    code = ('const a = await tools.opencode.automation_create({ name: "stretch", trigger: { type: "at", at: "in 3 seconds" }, '
-            'action: { type: "prompt", prompt: "Time to stretch." } }); const l = await tools.opencode.automation_list({}); '
+    through Code Mode (`automation.create`), lists it, and the automation then fires."""
+    code = ('const a = await tools.automation.create({ name: "stretch", trigger: { type: "at", at: "in 3 seconds" }, '
+            'action: { type: "prompt", prompt: "Time to stretch." } }); const l = await tools.automation.list({}); '
             'return [a.status, a.trigger.type, a.tz, a.action.to, l.automations.length]')
     boot(ctx, script=[
         {"tools": [{"name": "execute", "id": "call_1", "args": {"code": code}}]},
@@ -306,24 +321,24 @@ def automation_tools_direct(ctx):
     """the automation tools without Code Mode (`execute` denied): their summaries, input errors, another project's
     automation reading as missing, and pause/resume/delete."""
     boot(ctx, script=[
-        {"tools": [{"name": "opencode_automation_create", "id": "call_1",
+        {"tools": [{"name": "automation_create", "id": "call_1",
                     "args": {"name": "ci", "trigger": HOURLY, "action": {"type": "prompt", "prompt": "check CI"}}}]},
-        {"tools": [{"name": "opencode_automation_create", "id": "call_2",
+        {"tools": [{"name": "automation_create", "id": "call_2",
                     "args": {"name": "watch", "trigger": {"type": "cron", "cron": "0 9 * * 1-5"}, "expires": "2099-01-01T00:00:00Z",
                              "action": {"type": "prompt", "prompt": "x" * 100, "to": {"subagent": "general"}}}}]},
-        {"tools": [{"name": "opencode_automation_create", "id": "call_3",
+        {"tools": [{"name": "automation_create", "id": "call_3",
                     "args": {"name": "x", "trigger": {"every": "1 hour"}, "action": {"type": "prompt", "prompt": "two"}}}]},
-        {"tools": [{"name": "opencode_automation_create", "id": "call_4",
+        {"tools": [{"name": "automation_create", "id": "call_4",
                     "args": {"name": "x", "trigger": HOURLY, "action": {"type": "prompt", "prompt": "x", "to": {"session": "ses_1", "subagent": "general"}}}}]},
-        {"tools": [{"name": "opencode_automation_create", "id": "call_5",
+        {"tools": [{"name": "automation_create", "id": "call_5",
                     "args": {"name": "", "trigger": HOURLY, "action": {"type": "prompt", "prompt": "x"}}}]},
-        {"tools": [{"name": "opencode_automation_create", "id": "call_6",
+        {"tools": [{"name": "automation_create", "id": "call_6",
                     "args": {"name": "x", "trigger": {"type": "every", "every": "soon"}, "action": {"type": "prompt", "prompt": "x"}}}]},
-        {"tools": [{"name": "opencode_automation_create", "id": "call_7",
+        {"tools": [{"name": "automation_create", "id": "call_7",
                     "args": {"name": "x", "trigger": {"type": "event", "server": "ci", "event": "e"}, "action": {"type": "prompt", "prompt": "x"}}}]},
-        {"tools": [{"name": "opencode_automation_list", "id": "call_8", "args": {}}]},
-        {"tools": [{"name": "opencode_automation_pause", "id": "call_9", "args": {"id": MISSING_AUTOMATION}}]},
-        {"tools": [{"name": "opencode_automation_delete", "id": "call_10", "args": {"id": "nope"}}]},
+        {"tools": [{"name": "automation_list", "id": "call_8", "args": {}}]},
+        {"tools": [{"name": "automation_pause", "id": "call_9", "args": {"id": MISSING_AUTOMATION}}]},
+        {"tools": [{"name": "automation_delete", "id": "call_10", "args": {"id": "nope"}}]},
         {"text": "Done."},
     ], extra={"permission": {"*": "allow", "execute": "deny"}})
     sid = ctx.create_session(title="Automations")
@@ -336,7 +351,7 @@ def automation_tools_direct(ctx):
 @scenario("automation", hold_for_title=0, timeout=300)
 def automation_checks(ctx):
     """code actions over HTTP: programs refused at creation (syntax, dynamic or aliased tools, `require("tools")`,
-    unknown, shell and automation tools), a check that keeps state and hands one prompt to the creator, a check that
+    unknown, shell and automation tools, session moves), a check that keeps state and hands one prompt to the creator, a check that
     starts a quiet child, and one that returns an invalid shape and pauses."""
     server = os.path.join(HERE, "fake_mcp.py")
     boot(ctx, script=[{"text": "Noted."}, {"text": "Child noted."}],
@@ -357,7 +372,8 @@ def automation_checks(ctx):
         ("require", 'const t = require("tools"); return await t.fake.good_one({})'),
         ("unknown", "return await tools.fake.missing({})"),
         ("shell", 'await tools.shell({ command: "pwd" })'),
-        ("forbidden", "return await tools.opencode.automation_create({})"),
+        ("forbidden", "return await tools.automation.create({})"),
+        ("move", "return await tools.opencode.session.move({})"),
         ("empty", "   "),
         ("send", 'const r = await tools.fake.good_one({}); console.log("said " + r); '
                  'if (state === null) return { state: { runs, said: r } }; return { done: true, send: { prompt: "Fake said " + r } }'),
@@ -427,3 +443,24 @@ def automation_lease(ctx):
     finally:
         second.close()
     ctx.record_events()
+
+
+@scenario("automation", hold_for_title=0, timeout=240)
+def automation_shell(ctx):
+    """2.4.1 shell actions: created over HTTP (asks settled unattended: allowed by config, refused where `shell` asks),
+    each run starts the fixed command without a model and records `Exit code: N` with its output, a failing command
+    reads as failed, and the creating session gets no prompt."""
+    boot(ctx, extra={"permission": {"*": "allow", "shell": {"*": "allow", "rm *": "ask"}}})
+    sid = ctx.create_session(title="Shell")
+    soon = {"type": "at", "at": "in 2 seconds"}
+    _, ok = create(ctx, "ok", {"sessionID": sid, "name": "ok", "trigger": soon, "action": {"type": "shell", "command": "echo automation-output"}})
+    _, bad = create(ctx, "bad", {"sessionID": sid, "name": "bad", "trigger": soon, "action": {"type": "shell", "command": "echo failing; exit 7"}})
+    create(ctx, "asks", {"sessionID": sid, "name": "asks", "trigger": soon, "action": {"type": "shell", "command": "rm -rf build"}})
+    create(ctx, "outside", {"sessionID": sid, "name": "outside", "trigger": soon, "action": {"type": "shell", "command": "cd ..; ls"}})
+    for label, created in [("ok", ok), ("bad", bad)]:
+        aid = created_id(created)
+        if aid:
+            wait_status(ctx, aid, lambda i: "lastOutput" in i and i.get("status") == "done")
+            ctx.call(f"get.{label}", "GET", f"/api/experimental/automation/{aid}")
+    automations(ctx, "list", f"?sessionID={sid}")
+    ctx.call("messages", "GET", f"/api/session/{sid}/message")

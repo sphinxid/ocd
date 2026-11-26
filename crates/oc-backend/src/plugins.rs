@@ -25,6 +25,11 @@ fn operation_id(method: &str) -> &str {
         "session.instructions.entry.list" => "experimental.session.instructions.entry.list",
         "session.instructions.entry.put" => "experimental.session.instructions.entry.put",
         "session.instructions.entry.remove" => "experimental.session.instructions.entry.remove",
+        // `ctx.experimental.automation.{create,list,delete}` (2.4.1, #65747): the core service through the same
+        // handlers, so a plugin's create settles asks unattended like an HTTP caller's.
+        "automation.create" => "experimental.automation.create",
+        "automation.list" => "experimental.automation.list",
+        "automation.delete" => "experimental.automation.delete",
         other => other,
     }
 }

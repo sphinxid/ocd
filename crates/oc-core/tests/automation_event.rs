@@ -225,7 +225,7 @@ impl H {
     }
 
     fn get(&self, id: &str) -> Value {
-        self.automations.get(id).unwrap()
+        self.automations.row(id).unwrap().info()
     }
 
     /// Waits for durable results of a push.
@@ -382,10 +382,10 @@ async fn pause_restart_resume_and_delete_cancel_and_reacquire_exactly_one_stream
     let first = h.server.next_stream().await;
     event(&first, "p1", "pending");
     h.settled(&id(&a), |row| row["runCount"] == 1).await;
-    assert_eq!(h.automations.pause(&id(&a)).unwrap()["status"], "paused");
+    assert_eq!(h.automations.pause(&id(&a)).await.unwrap()["status"], "paused");
     h.cancelled(&first).await;
     event(&first, "paused", "failure");
-    h.automations.resume(&id(&a)).unwrap();
+    h.automations.resume(&id(&a)).await.unwrap();
     let second = h.server.next_stream().await;
     assert_eq!(second.params["cursor"], "p1");
     // A restart of the scheduler: its loop stops and releases the lease, then runs again.
@@ -395,10 +395,10 @@ async fn pause_restart_resume_and_delete_cancel_and_reacquire_exactly_one_stream
     h.start();
     let third = h.server.next_stream().await;
     assert_eq!(third.params["cursor"], "p1");
-    h.automations.remove(&id(&a)).unwrap();
+    h.automations.remove(&id(&a)).await.unwrap();
     h.cancelled(&third).await;
     event(&third, "deleted", "failure");
-    assert!(h.automations.list(&ListInput::default()).is_empty());
+    assert!(h.automations.list(&ListInput::default()).await.unwrap().is_empty());
     assert_eq!(h.streams(), 3);
     assert!(h.wakes().is_empty());
     h.stop();
@@ -436,7 +436,7 @@ async fn resumes_after_a_restart_from_the_saved_cursor_in_another_process() {
     let row = {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         loop {
-            let row = automations.get(&id(&a)).unwrap();
+            let row = automations.get(&id(&a)).await.unwrap();
             if row["runCount"] == 1 {
                 break row;
             }
@@ -518,7 +518,7 @@ async fn validates_permission_push_capability_and_arguments_before_creating_a_wa
         other => panic!("expected a blocked permission, got {other:?}"),
     }
     assert_eq!(h.server.fake.state.lock().lists.len(), lists);
-    assert!(h.automations.list(&ListInput::default()).is_empty());
+    assert!(h.automations.list(&ListInput::default()).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -584,7 +584,7 @@ async fn does_not_checkpoint_a_rejected_handoff_or_commit_its_terminal_state() {
     assert_eq!(row["state"], json!({"first": "p1"}));
     assert_eq!(row["runCount"], 1);
     assert!(h.wakes().is_empty());
-    h.automations.resume(&id(&a)).unwrap();
+    h.automations.resume(&id(&a)).await.unwrap();
     assert_eq!(h.server.next_stream().await.params["cursor"], "p1");
     h.stop();
 }

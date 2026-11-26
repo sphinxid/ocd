@@ -233,3 +233,63 @@ async fn runs_due_automations_from_the_server_loop() {
     assert!(current["lastOutput"].as_str().unwrap().contains("models="), "{current}");
     assert!(current["state"]["total"].is_number(), "{current}");
 }
+
+/// A shell action (2.4.1, #65186) created over HTTP and run by the server loop: the command's exit code and output
+/// become the automation's last output, and the creating session gets no prompt.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runs_a_shell_action_from_the_server_loop() {
+    let a = api();
+    let session = a.session_at(&a.cwd).await;
+    let (status, created) = a
+        .create(json!({ "sessionID": session, "name": "echo", "trigger": { "type": "at", "at": "in 150 millis" }, "action": { "type": "shell", "command": "echo from-automation; exit 3" } }))
+        .await;
+    assert_eq!(status, 200, "{created}");
+    assert_eq!(created["data"]["action"], json!({ "type": "shell", "command": "echo from-automation; exit 3" }));
+    let id = created["data"]["id"].as_str().unwrap().to_string();
+    let runner = tokio::spawn(a.engine.automations.clone().run());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut current = created["data"].clone();
+    while current.get("lastOutput").is_none() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        current = a.req("GET", &format!("/api/experimental/automation/{id}"), None).await.1["data"].clone();
+    }
+    runner.abort();
+    assert_eq!((current["status"].as_str(), current["runCount"].as_i64(), current["lastOutcome"].as_str()), (Some("done"), Some(1), Some("failed")), "{current}");
+    assert_eq!(current["lastOutput"], "Exit code: 3\nfrom-automation\n", "{current}");
+    let (_, messages) = a.req("GET", &format!("/api/session/{session}/message"), None).await;
+    assert_eq!(messages["data"], json!([]), "{messages}");
+}
+
+/// `ctx.experimental.automation.create/list/delete` (2.4.1, #65747, `plugin/automation.test.ts`): a plugin's calls reach
+/// the automation handlers, so they create, list by directory and delete like an HTTP caller, and deleting a missing
+/// automation fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn plugins_create_list_and_delete_automations() {
+    use oc_plugin::PluginApi;
+    let a = api();
+    let session = a.session_at(&a.cwd).await;
+    let api = oc_backend::plugins::BackendApi::new(&a.engine, a.router.clone());
+    let call = |method: &str, input: Value| oc_plugin::ApiRequest {
+        location: oc_plugin::LocationRef::new(a.cwd.display().to_string()),
+        plugin: Some("test.automation".into()),
+        method: method.into(),
+        input,
+    };
+    let directory = a.cwd.display().to_string();
+    let created = api
+        .call(call(
+            "automation.create",
+            json!({ "directory": directory, "name": "promise inbox", "trigger": { "type": "cron", "cron": "0 9 * * *" }, "action": { "type": "prompt", "prompt": "Check the balance now.", "to": { "session": session } } }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!((created["name"].as_str(), created["status"].as_str()), (Some("promise inbox"), Some("active")), "{created}");
+    assert_eq!(created["action"]["to"], json!({ "session": session }));
+    let id = created["id"].as_str().unwrap().to_string();
+    let listed = api.call(call("automation.list", json!({ "directory": directory }))).await.unwrap();
+    assert!(listed.as_array().unwrap().iter().any(|i| i["id"] == id.as_str()), "{listed}");
+    assert_eq!(api.call(call("automation.delete", json!({ "automationID": id }))).await.unwrap(), Value::Null);
+    assert!(api.call(call("automation.delete", json!({ "automationID": id }))).await.is_err());
+    assert_eq!(a.list("").await.1, json!({ "data": [] }));
+}

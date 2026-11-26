@@ -75,3 +75,22 @@ async fn the_machine_link_answers_like_an_unknown_route() {
     assert_eq!(send("POST", true, false).await, empty);
     assert_eq!(send("DELETE", true, false).await, empty);
 }
+
+/// 2.4.1 (#65296): automations are on without any config, so the routes create, list and manage them; a shell action
+/// (#65186) needs a session (`tests/automations.rs` creates and runs one).
+#[tokio::test]
+async fn automations_are_on_by_default() {
+    let h = harness();
+    let sid = h.session().await;
+    let route = "/api/experimental/automation";
+    let hourly = json!({ "type": "every", "every": "1 hour" });
+    let created = h.post(route, json!({ "sessionID": sid, "name": "n", "trigger": hourly, "action": { "type": "prompt", "prompt": "p" } })).await;
+    assert_eq!(created.status.as_u16(), 200, "{}", created.json());
+    let id = created.json()["data"]["id"].as_str().unwrap().to_string();
+    let (status, body) = res(&h.get(&format!("{route}?directory={}", enc(&h.dir()))).await);
+    assert_eq!((status, body["data"].as_array().unwrap().len()), (200, 1));
+    let sessionless = h.post(route, json!({ "directory": h.dir(), "name": "x", "trigger": hourly, "action": { "type": "shell", "command": "echo hi" } })).await;
+    assert_eq!(res(&sessionless), (400, json!({ "_tag": "InvalidRequestError", "message": "A shell action needs a session", "kind": "automation" })));
+    assert_eq!(res(&h.req("POST", &format!("{route}/{id}/pause"), None).await).1["data"]["status"], "paused");
+    assert_eq!(h.req("DELETE", &format!("{route}/{id}"), None).await.status.as_u16(), 204);
+}

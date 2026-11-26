@@ -249,15 +249,13 @@ pub fn tool_plugin(tool: &dyn Tool) -> Option<&'static str> {
         "webfetch" => "opencode.tool.webfetch",
         "websearch" => "opencode.tool.websearch",
         "write" => "opencode.tool.write",
-        name if tool.options().namespace.as_deref() == Some("opencode") && crate::automation::tools::is_automation_tool(name) => {
-            crate::automation::PLUGIN_ID
-        }
+        _ if tool.options().namespace.as_deref() == Some(crate::automation::tools::NAMESPACE) => crate::automation::PLUGIN_ID,
         name if crate::artifact::tools::is_artifact_tool(name) => crate::artifact::tools::PLUGIN_ID,
         name if tool.options().namespace.as_deref() == Some("opencode") && crate::mcp_events::is_watch_tool(name) => {
             crate::mcp_events::PLUGIN_ID
         }
         _ if crate::console_watches::is_watch_tool(tool) => crate::console_config::PLUGIN_ID,
-        _ if tool.options().namespace.as_deref() == Some("opencode") => "opencode.tools",
+        _ if matches!(tool.options().namespace.as_deref(), Some("opencode" | "opencode.session")) => "opencode.tools",
         _ => return None,
     })
 }
