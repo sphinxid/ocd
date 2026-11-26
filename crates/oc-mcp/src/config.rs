@@ -70,10 +70,9 @@ fn positive<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<u64>, D
 
 /// `Mcp.Protocol`.
 ///
-/// MCP protocol negotiation. "legacy" (default) opens with the initialize handshake and speaks
-/// protocol revisions up to 2025-11-25. "auto" probes for the 2026-07-28 revision and falls back
-/// to legacy when the server does not support it. "2026-07-28" requires that revision and fails
-/// otherwise.
+/// MCP protocol negotiation. "auto" (default) probes for the 2026-07-28 revision and falls back to
+/// legacy when the server does not support it. "legacy" opens with the initialize handshake and speaks
+/// protocol revisions up to 2025-11-25. "2026-07-28" requires that revision and fails otherwise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Protocol {
     #[serde(rename = "legacy")]
@@ -257,6 +256,11 @@ impl ServerConfig {
             Self::Local(c) => c.protocol,
             Self::Remote(c) => c.protocol,
         }
+    }
+
+    /// The negotiation a connection uses: `protocol`, or `auto` when unset (`config.protocol ?? "auto"`).
+    pub fn negotiation(&self) -> Protocol {
+        self.protocol().unwrap_or(Protocol::Auto)
     }
 
     pub fn set_protocol(&mut self, protocol: Option<Protocol>) {

@@ -35,6 +35,8 @@ struct Fake {
     refresh_status: Option<u16>,
     /// Delay refresh answers, so concurrent refreshes overlap.
     refresh_delay_ms: u64,
+    /// Never answers the `server/discover` probe, like a slow legacy server.
+    hang_discover: bool,
 }
 
 type Shared = Arc<Mutex<Fake>>;
@@ -50,6 +52,10 @@ fn json_response(status: u16, body: Value, extra: &[(&str, String)]) -> Response
 async fn mcp_post(State(fake): State<Shared>, uri: Uri, headers: HeaderMap, body: String) -> Response<Body> {
     let message: Value = serde_json::from_str(&body).unwrap();
     let method = message.get("method").and_then(Value::as_str).unwrap_or("").to_string();
+    if method == "server/discover" && fake.lock().hang_discover {
+        fake.lock().requests.push((uri.to_string(), headers.clone(), message.clone()));
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    }
     let mut fake = fake.lock();
     fake.requests.push((uri.to_string(), headers.clone(), message.clone()));
     if let Some(token) = fake.require_token.clone() {
@@ -229,7 +235,6 @@ fn manager(credentials: Option<Arc<dyn McpCredentialStore>>) -> McpManager {
         credentials,
         elicitation: None,
         pool: None,
-        mcp_events: false,
     })
 }
 
@@ -256,17 +261,22 @@ async fn http_handshake_sse_session_and_expiry() {
 
     {
         let fake = fake.lock();
-        let (uri, headers, body) = &fake.requests[0];
+        // An unset protocol is `auto` (2.4.1): the probe the server doesn't know comes first.
+        let (uri, _, probe) = &fake.requests[0];
+        assert_eq!(uri, "/mcp");
+        assert_eq!(probe["method"], "server/discover");
+        let (uri, headers, body) = &fake.requests[1];
         // Loopback servers never get `?codemode=false` (7b5f1bd9e).
         assert_eq!(uri, "/mcp");
         assert_eq!(body["method"], "initialize");
         assert_eq!(body["params"]["clientInfo"], json!({"name": "opencode", "version": "test"}));
         assert_eq!(body["params"]["protocolVersion"], "2025-11-25");
-        assert_eq!(body["params"]["capabilities"], json!({"roots": {}}));
+        // Every connection declares MCP Events (2.4.1).
+        assert_eq!(body["params"]["capabilities"], json!({"roots": {}, "extensions": {"io.modelcontextprotocol/events": {}}}));
         assert!(header(headers, "mcp-session-id").is_none());
         assert_eq!(header(headers, "accept").as_deref(), Some("application/json, text/event-stream"));
         assert_eq!(header(headers, "x-custom").as_deref(), Some("yes"));
-        let (_, headers, body) = &fake.requests[1];
+        let (_, headers, body) = &fake.requests[2];
         assert_eq!(body["method"], "notifications/initialized");
         assert_eq!(header(headers, "mcp-session-id").as_deref(), Some("sess-1"));
         assert_eq!(header(headers, "mcp-protocol-version").as_deref(), Some("2025-11-25"));
@@ -302,6 +312,28 @@ async fn http_loopback_servers_get_no_codemode_param() {
     manager.shutdown().await;
 }
 
+/// #65282: over HTTP an `auto` probe that goes unanswered for five seconds is retried with the legacy handshake within
+/// what is left of the startup timeout; a startup timeout that has run out by then fails.
+#[tokio::test]
+async fn http_probe_timeout_falls_back_to_legacy_within_the_startup_timeout() {
+    let (fake, port) = start_fake(|f| f.hang_discover = true).await;
+    let manager = manager(None);
+    let started = std::time::Instant::now();
+    load(&manager, "slow", remote(port, Some(OAuthSetting::Disabled))).await;
+    assert_eq!(manager.status("slow"), Some(Status::Connected), "{:?}", manager.servers());
+    assert!(started.elapsed() >= Duration::from_millis(4_900), "{:?}", started.elapsed());
+    let methods: Vec<Value> = fake.lock().requests.iter().map(|r| r.2["method"].clone()).collect();
+    assert_eq!(methods[..2], [json!("server/discover"), json!("initialize")]);
+
+    let mut short = remote(port, Some(OAuthSetting::Disabled));
+    if let ServerConfig::Remote(remote) = &mut short {
+        remote.timeout = Some(TimeoutConfig { startup: Some(1_000), catalog: None, execution: None });
+    }
+    load(&manager, "short", short).await;
+    assert_eq!(manager.status("short"), Some(Status::failed("Version negotiation probe timed out after 1000ms")));
+    manager.shutdown().await;
+}
+
 #[tokio::test]
 async fn http_unreachable_and_invalid_url() {
     let manager = manager(None);
@@ -323,10 +355,15 @@ async fn http_unreachable_and_invalid_url() {
     manager.wait_ready("bad").await.unwrap();
     assert_eq!(manager.status("bad"), Some(Status::failed("Invalid MCP server URL: not a url")));
 
-    // 401 without OAuth integration → failed with the HTTP status appended.
+    // 401 without OAuth integration → failed: on the auto probe with the SDK's negotiation text, on the legacy
+    // handshake with the HTTP status appended.
     let (_fake, port) = start_fake(|f| f.require_token = Some("x".into())).await;
     load(&manager, "noauth", remote(port, Some(OAuthSetting::Disabled))).await;
-    assert_eq!(manager.status("noauth"), Some(Status::failed("Error POSTing to endpoint: unauthorized (HTTP 401)")));
+    assert_eq!(manager.status("noauth"), Some(Status::failed("Version negotiation failed: the server requires authorization (HTTP 401)")));
+    let mut legacy = remote(port, Some(OAuthSetting::Disabled));
+    legacy.set_protocol(Some(oc_mcp::Protocol::Legacy));
+    load(&manager, "noauth-legacy", legacy).await;
+    assert_eq!(manager.status("noauth-legacy"), Some(Status::failed("Error POSTing to endpoint: unauthorized (HTTP 401)")));
 }
 
 #[tokio::test]

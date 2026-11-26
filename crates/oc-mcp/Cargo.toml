@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 oc-util = { path = "../oc-util" }
+oc-tools = { path = "../oc-tools" }
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
@@ -30,6 +31,7 @@ hex.workspace = true
 bytes.workspace = true
 sha1 = "0.10"
 uuid = { version = "1", features = ["v4"] }
+ryu-js = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

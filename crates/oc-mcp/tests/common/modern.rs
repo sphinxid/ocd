@@ -28,11 +28,16 @@ pub struct Options {
     pub list_changed: bool,
     /// Offers MCP Events.
     pub events: bool,
+    /// Offers MCP Events announcing `listChanged: true`.
+    pub events_list_changed: bool,
+    /// From the second `events/list` on, annotates `job.finished`'s `job` argument with `x-mcp-header: Job`, and
+    /// refuses (HTTP 400, -32020) an `events/stream` without that header.
+    pub job_header: bool,
     /// Appends the process id here when it starts.
     pub pid_file: Option<String>,
     /// Appends every request method here.
     pub wire_log: Option<String>,
-    /// The `events/list` pages (default: `job.finished`, then `job.failed`).
+    /// The `events/list` pages (default: `job.finished`, then `job.failed` and the malformed `job.broken`).
     pub event_pages: Option<Vec<Vec<Value>>>,
     /// The first this many `events/stream` requests fail with -32603 "Temporary failure".
     pub failed_opens: usize,
@@ -47,6 +52,7 @@ impl Options {
             require_roots_to_list: flag("FAKE_REQUIRE_ROOTS_TO_LIST"),
             list_changed: flag("FAKE_LIST_CHANGED"),
             events: flag("FAKE_EVENTS"),
+            events_list_changed: flag("FAKE_EVENTS_LIST_CHANGED"),
             pid_file: std::env::var("FAKE_PID_FILE").ok(),
             wire_log: std::env::var("FAKE_WIRE_LOG").ok(),
             ..Default::default()
@@ -67,6 +73,8 @@ pub struct State {
     pub streams: Vec<Value>,
     /// `events/list` params, in order.
     pub lists: Vec<Value>,
+    /// `subscriptions/listen` params, in order.
+    pub listens: Vec<Value>,
     pub cancelled: Vec<Value>,
 }
 
@@ -129,7 +137,9 @@ impl Fake {
         if self.options.list_changed {
             capabilities["tools"] = json!({"listChanged": true});
         }
-        if self.options.events {
+        if self.options.events_list_changed {
+            capabilities["extensions"] = json!({"io.modelcontextprotocol/events": {"listChanged": true}});
+        } else if self.options.events {
             capabilities["extensions"] = json!({"io.modelcontextprotocol/events": {}});
         }
         capabilities
@@ -190,7 +200,14 @@ impl Fake {
                     false,
                 ))
             }
-            "subscriptions/listen" => Reply::Stream(id),
+            "subscriptions/listen" => {
+                let mut listened = params.clone();
+                if let Some(object) = listened.as_object_mut() {
+                    object.remove("_meta");
+                }
+                self.state.lock().listens.push(listened);
+                Reply::Stream(id)
+            }
             "tools/list" => {
                 if self.options.require_roots_to_list && !declared_roots(&self.state.lock()) {
                     return Reply::Message(Self::error(&id, -32603, "roots required"));
@@ -232,11 +249,30 @@ impl Fake {
                 }
             }
             "events/list" => {
-                self.state.lock().lists.push(params.clone());
+                let mut listed = params.clone();
+                if let Some(object) = listed.as_object_mut() {
+                    object.remove("_meta");
+                }
+                let lists = {
+                    let mut state = self.state.lock();
+                    state.lists.push(listed);
+                    state.lists.len()
+                };
                 let pages = self.options.event_pages.clone().unwrap_or_else(|| {
+                    let mut job = json!({"type": "string"});
+                    if self.options.job_header && lists > 1 {
+                        job["x-mcp-header"] = json!("Job");
+                    }
                     vec![
-                        vec![json!({"name": "job.finished", "description": "A job ended", "inputSchema": {}})],
-                        vec![json!({"name": "job.failed", "delivery": ["push"]})],
+                        vec![json!({
+                            "name": "job.finished", "description": "A job ended", "delivery": ["push", "poll"],
+                            "inputSchema": {"type": "object", "properties": {"job": job}}, "payloadSchema": {"type": "object"},
+                        })],
+                        vec![
+                            json!({"name": "job.failed", "delivery": ["push", "future"], "inputSchema": {}, "payloadSchema": {}}),
+                            // Malformed: no payloadSchema. Skipped without hiding the others.
+                            json!({"name": "job.broken", "delivery": ["push"], "inputSchema": {}}),
+                        ],
                     ]
                 });
                 let page = params.get("cursor").and_then(Value::as_str).and_then(|c| c.strip_prefix("page-")).and_then(|n| n.parse::<usize>().ok()).unwrap_or(1);
@@ -249,7 +285,7 @@ impl Fake {
             "events/stream" => {
                 let opened = {
                     let mut state = self.state.lock();
-                    state.streams.push(params.clone());
+                    state.streams.push(without_envelope(&params));
                     state.streams.len()
                 };
                 if opened <= self.options.failed_opens {
@@ -264,6 +300,15 @@ impl Fake {
             _ => Reply::Message(Self::error(&id, -32601, "Method not found")),
         }
     }
+}
+
+/// `params` without the protocol envelope every 2026-07-28 request carries in `_meta`; the tests check the rest.
+pub fn without_envelope(params: &Value) -> Value {
+    let mut params = params.clone();
+    if let Some(object) = params.as_object_mut() {
+        object.remove("_meta");
+    }
+    params
 }
 
 /// The acknowledgement a `subscriptions/listen` stream starts with.
@@ -311,6 +356,8 @@ pub struct OpenStream {
     pub params: Value,
     /// The request's `Mcp-Name` header.
     pub name: Option<String>,
+    /// The request's `Mcp-Param-Job` header.
+    pub job: Option<String>,
     pub sender: mpsc::UnboundedSender<Option<Value>>,
 }
 
@@ -344,6 +391,8 @@ pub struct Http {
     pub refused: Arc<Mutex<usize>>,
     /// `subscriptions/listen` streams, which a list change notifies.
     listeners: Arc<Mutex<Vec<mpsc::UnboundedSender<Option<Value>>>>>,
+    /// Their request ids, in the same order.
+    listener_ids: Arc<Mutex<Vec<Value>>>,
     /// Each `events/stream` opened.
     pub opened: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<OpenStream>>>,
     opener: mpsc::UnboundedSender<OpenStream>,
@@ -353,6 +402,20 @@ impl Http {
     pub fn send_tool_list_changed(&self) {
         for listener in self.listeners.lock().iter() {
             let _ = listener.send(Some(json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})));
+        }
+    }
+
+    pub fn send_events_list_changed(&self) {
+        for listener in self.listeners.lock().iter() {
+            let _ = listener.send(Some(json!({"jsonrpc": "2.0", "method": "notifications/events/list_changed"})));
+        }
+    }
+
+    /// Ends every open `subscriptions/listen` stream with its result.
+    pub fn close_listens(&self) {
+        for (id, listener) in std::mem::take(&mut *self.listener_ids.lock()).into_iter().zip(self.listeners.lock().drain(..)) {
+            let _ = listener.send(Some(json!({"jsonrpc": "2.0", "id": id, "result": {"resultType": "complete"}})));
+            let _ = listener.send(None);
         }
     }
 
@@ -391,6 +454,7 @@ pub async fn serve_http(options: Options) -> Http {
         refuse: Arc<Mutex<Option<u16>>>,
         refused: Arc<Mutex<usize>>,
         listeners: Arc<Mutex<Vec<mpsc::UnboundedSender<Option<Value>>>>>,
+        listener_ids: Arc<Mutex<Vec<Value>>>,
         opener: mpsc::UnboundedSender<OpenStream>,
     }
     let shared = Shared {
@@ -398,6 +462,7 @@ pub async fn serve_http(options: Options) -> Http {
         refuse: Arc::default(),
         refused: Arc::default(),
         listeners: Arc::default(),
+        listener_ids: Arc::default(),
         opener: opener.clone(),
     };
     async fn handle(State(shared): State<Shared>, headers: HeaderMap, body: String) -> axum::response::Response {
@@ -407,6 +472,16 @@ pub async fn serve_http(options: Options) -> Http {
             return axum::response::Response::builder().status(status).body(Body::empty()).unwrap();
         }
         let message: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+        let job = headers.get("mcp-param-job").and_then(|v| v.to_str().ok()).map(String::from);
+        if shared.fake.options.job_header && message["method"] == "events/stream" && job.is_none() {
+            shared.fake.state.lock().streams.push(without_envelope(&message["params"]));
+            let error = json!({"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32020, "message": "Header mismatch"}});
+            return axum::response::Response::builder()
+                .status(400)
+                .header("content-type", "application/json")
+                .body(Body::from(error.to_string()))
+                .unwrap();
+        }
         match shared.fake.handle(&message) {
             Reply::None | Reply::Exit => axum::response::Response::builder().status(202).body(Body::empty()).unwrap(),
             Reply::Message(value) => axum::response::Response::builder()
@@ -418,11 +493,12 @@ pub async fn serve_http(options: Options) -> Http {
                 let (tx, rx) = mpsc::unbounded_channel();
                 if message["method"] == "subscriptions/listen" {
                     shared.listeners.lock().push(tx);
+                    shared.listener_ids.lock().push(id.clone());
                     return sse(rx, vec![acknowledged(&id)]);
                 }
-                let params = message.get("params").cloned().unwrap_or(Value::Null);
+                let params = without_envelope(&message["params"]);
                 let name = headers.get("mcp-name").and_then(|v| v.to_str().ok()).map(String::from);
-                let _ = shared.opener.send(OpenStream { id, params, name, sender: tx });
+                let _ = shared.opener.send(OpenStream { id, params, name, job, sender: tx });
                 sse(rx, vec![])
             }
         }
@@ -437,6 +513,7 @@ pub async fn serve_http(options: Options) -> Http {
         refuse: shared.refuse,
         refused: shared.refused,
         listeners: shared.listeners,
+        listener_ids: shared.listener_ids,
         opened: Arc::new(tokio::sync::Mutex::new(opened)),
         opener,
     }

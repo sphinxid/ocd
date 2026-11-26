@@ -153,6 +153,14 @@ impl McpError {
         Self::sdk(SdkErrorCode::RequestTimeout, "Request timed out")
     }
 
+    /// The `SdkErrorCode` of an `SdkError` or `SdkHttpError`.
+    pub fn sdk_code(&self) -> Option<SdkErrorCode> {
+        match self {
+            Self::Sdk { code, .. } | Self::Http { code, .. } => Some(*code),
+            _ => None,
+        }
+    }
+
     pub fn is_connection_closed(&self) -> bool {
         matches!(self, Self::Sdk { code: SdkErrorCode::ConnectionClosed, .. })
     }

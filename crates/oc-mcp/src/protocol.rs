@@ -69,15 +69,37 @@ pub struct RequestOptions {
     /// Called with the JSON-RPC id before the request is sent (the SDK's `onRequestId`), so notifications that name
     /// the request can be routed before it settles.
     pub on_request_id: Option<Arc<dyn Fn(i64) + Send + Sync>>,
+    /// Extra request headers, such as `Mcp-Param-*` (HTTP only; reserved names are ignored).
+    pub headers: Vec<(String, String)>,
 }
 
-/// MCP Events (SEP-3415), a draft extension: the capability key a client declares and a server offers.
+/// MCP Events (SEP-3415), a beta extension on 2026-07-28: the capability key a client declares and a server offers.
 pub const EVENTS_EXTENSION: &str = "io.modelcontextprotocol/events";
+
+/// `ISO_8601`: the timestamps an event may carry (JS `\d` is ASCII).
+static ISO_8601: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(
+        r"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9](\.[0-9]+)?)?(Z|[+-](0[0-9]|1[0-4]):[0-5][0-9])$",
+    )
+    .expect("ISO 8601 pattern")
+});
+
+/// `Schema.Int`: a JSON number that is a safe integer.
+pub(crate) fn int(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(n) => n.as_i64().filter(|n| n.unsigned_abs() <= (1 << 53) - 1).or_else(|| {
+            let f = n.as_f64()?;
+            (f.is_finite() && f.fract() == 0.0 && f.abs() <= 9_007_199_254_740_991.0).then_some(f as i64)
+        }),
+        _ => None,
+    }
+}
 
 /// A `notifications/events/*` notification, routed to the stream its `_meta` subscription id names.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventNotification {
-    Active { cursor: Option<String>, truncated: bool },
+    /// `heartbeat_ms`: the server's heartbeat grant, which comes with every `active`.
+    Active { cursor: Option<String>, truncated: bool, heartbeat_ms: u64 },
     Event { event_id: String, name: String, timestamp: String, data: Value, cursor: Option<String> },
     Heartbeat { cursor: Option<String> },
     Error { error: Value },
@@ -93,12 +115,66 @@ struct Callbacks {
     tools: Option<Callback>,
     prompts: Option<Callback>,
     resources: Option<Callback>,
+    events_list_changed: Option<Callback>,
+}
+
+/// One `subscriptions/listen` stream's state machine (`_listenState`): opening until the server acknowledges it,
+/// open until it ends.
+struct ListenState {
+    ack: Option<oneshot::Sender<Result<(), McpError>>>,
+    closed: Option<oneshot::Sender<()>>,
+    request: CancellationToken,
+}
+
+impl ListenState {
+    /// Ends the stream: an opening one fails with `error`, an open one reports it closed.
+    fn settle(mut self, error: McpError) {
+        self.request.cancel();
+        if let Some(ack) = self.ack.take() {
+            let _ = ack.send(Err(error));
+        }
+        if let Some(closed) = self.closed.take() {
+            let _ = closed.send(());
+        }
+    }
+}
+
+/// An open `subscriptions/listen` stream (`McpSubscription`).
+pub struct Listen {
+    id: String,
+    client: std::sync::Weak<Client>,
+    /// Resolves once the stream ended, whoever ended it.
+    pub closed: oneshot::Receiver<()>,
+}
+
+impl Listen {
+    /// `close()`: aborts the request and sends `notifications/cancelled` for it without waiting on the server, unless the
+    /// stream already ended.
+    pub fn close(&self) {
+        let Some(client) = self.client.upgrade() else { return };
+        // A stream that already ended needs no teardown.
+        let Some(state) = client.listens.lock().remove(&self.id) else { return };
+        state.settle(McpError::other("closed"));
+        let id = self.id.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move { client.listen_teardown(&id).await });
+        }
+    }
+}
+
+impl Drop for Listen {
+    fn drop(&mut self) {
+        self.close();
+    }
 }
 
 pub struct ClientConfig {
     pub server: String,
     pub client_info: ClientInfo,
     pub negotiation: Option<ProtocolSetting>,
+    /// How long the version probe waits for an answer (`versionNegotiation.probe.timeoutMs`); the connect timeout
+    /// when unset.
+    pub probe_timeout: Option<Duration>,
     pub elicitation: Option<Arc<dyn ElicitationHandler>>,
     /// `file://` URI of the Location directory returned from `roots/list`.
     pub root_uri: String,
@@ -127,7 +203,12 @@ pub struct Client {
     negotiated: RwLock<Option<String>>,
     callbacks: RwLock<Callbacks>,
     list_changed: RwLock<(bool, bool, bool)>,
-    listen: Mutex<Option<(String, Option<oneshot::Sender<()>>)>>,
+    /// Live `subscriptions/listen` streams, by their request id (`listen:N`).
+    listens: Mutex<HashMap<String, ListenState>>,
+    next_listen: AtomicI64,
+    /// The subscription `ClientOptions.listChanged` opened (`autoOpenedSubscription`).
+    auto_listen: Mutex<Option<Listen>>,
+    this: std::sync::Weak<Client>,
     /// Open event streams, by the JSON-RPC id of their `events/stream` request.
     event_streams: Mutex<HashMap<String, mpsc::UnboundedSender<EventNotification>>>,
 }
@@ -152,7 +233,9 @@ impl Client {
         if config.events {
             capabilities.insert("extensions".into(), json!({ EVENTS_EXTENSION: {} }));
         }
-        let client = Arc::new(Self {
+        let client = Arc::new_cyclic(|this| Self {
+            this: this.clone(),
+            auto_listen: Mutex::new(None),
             transport,
             config,
             capabilities: Value::Object(capabilities),
@@ -167,7 +250,8 @@ impl Client {
             negotiated: RwLock::new(None),
             callbacks: RwLock::new(Callbacks::default()),
             list_changed: RwLock::new((false, false, false)),
-            listen: Mutex::new(None),
+            listens: Mutex::new(HashMap::new()),
+            next_listen: AtomicI64::new(0),
             event_streams: Mutex::new(HashMap::new()),
         });
         let weak = Arc::downgrade(&client);
@@ -231,6 +315,10 @@ impl Client {
     pub fn set_on_resources_changed(&self, f: impl Fn() + Send + Sync + 'static) {
         self.callbacks.write().resources = Some(Arc::new(f));
     }
+    /// `notifications/events/list_changed`, which a `subscriptions/listen` stream with `eventsListChanged` carries.
+    pub fn set_on_events_list_changed(&self, f: impl Fn() + Send + Sync + 'static) {
+        self.callbacks.write().events_list_changed = Some(Arc::new(f));
+    }
 
     fn on_error(&self, error: &McpError) {
         let callback = self.callbacks.read().on_error.clone();
@@ -246,6 +334,10 @@ impl Client {
         let pending: Vec<_> = self.pending.lock().drain().collect();
         self.progress.lock().clear();
         self.event_streams.lock().clear();
+        let listens: Vec<_> = self.listens.lock().drain().map(|(_, state)| state).collect();
+        for state in listens {
+            state.settle(McpError::connection_closed());
+        }
         let handlers: Vec<_> = self.handlers.lock().drain().collect();
         let callback = self.callbacks.read().on_close.clone();
         if let Some(callback) = callback {
@@ -261,11 +353,22 @@ impl Client {
     fn on_message(self: &Arc<Self>, message: Value) {
         if jsonrpc::is_response(&message) {
             let id = message.get("id").cloned().unwrap_or(Value::Null);
-            if let Some((listen_id, _)) = self.listen.lock().as_ref() {
-                if id.as_str() == Some(listen_id.as_str()) {
-                    // The server ended the subscription.
-                    return;
-                }
+            // A listen stream's error is the server refusing it; its result is the server closing it gracefully.
+            let listen = id.as_str().and_then(|id| self.listens.lock().remove(id));
+            if let Some(state) = listen {
+                let error = match message.get("error") {
+                    Some(error) => McpError::from_rpc_error(
+                        error.get("code").and_then(Value::as_i64).unwrap_or(codes::INTERNAL_ERROR),
+                        error.get("message").and_then(Value::as_str).unwrap_or("").to_string(),
+                        error.get("data").cloned(),
+                    ),
+                    None => McpError::sdk(
+                        SdkErrorCode::ConnectionClosed,
+                        "subscriptions/listen: server closed the subscription gracefully before acknowledging",
+                    ),
+                };
+                state.settle(error);
+                return;
             }
             let key = jsonrpc::id_key(&id);
             if let Some(n) = id.as_i64() {
@@ -300,6 +403,11 @@ impl Client {
         let params = message.get("params").cloned().unwrap_or(Value::Null);
         match method.as_str() {
             "notifications/cancelled" => {
+                let listen = params.get("requestId").and_then(Value::as_str).and_then(|id| self.listens.lock().remove(id));
+                if let Some(state) = listen {
+                    state.settle(McpError::other("subscriptions/listen: server cancelled the subscription"));
+                    return;
+                }
                 if let Some(id) = params.get("requestId") {
                     if let Some(token) = self.handlers.lock().get(&jsonrpc::id_key(id)) {
                         token.cancel();
@@ -317,13 +425,8 @@ impl Client {
             }
             "notifications/subscriptions/acknowledged" => {
                 let id = params.get("_meta").and_then(|m| m.get(SUBSCRIPTION_ID_META_KEY)).and_then(Value::as_str);
-                let mut listen = self.listen.lock();
-                if let Some((listen_id, ack)) = listen.as_mut() {
-                    if Some(listen_id.as_str()) == id {
-                        if let Some(ack) = ack.take() {
-                            let _ = ack.send(());
-                        }
-                    }
+                if let Some(state) = id.and_then(|id| self.listens.lock().get_mut(id).and_then(|state| state.ack.take())) {
+                    let _ = state.send(Ok(()));
                 }
             }
             "notifications/tools/list_changed" => {
@@ -347,6 +450,11 @@ impl Client {
                     }
                 }
             }
+            "notifications/events/list_changed" if self.config.events => {
+                if let Some(cb) = self.callbacks.read().events_list_changed.clone() {
+                    cb();
+                }
+            }
             method if self.config.events && method.starts_with("notifications/events/") => {
                 self.on_event_notification(method, &params);
             }
@@ -368,7 +476,10 @@ impl Client {
     fn on_event_notification(&self, method: &str, params: &Value) {
         let id = match params.get("_meta").and_then(|m| m.get(SUBSCRIPTION_ID_META_KEY)) {
             Some(Value::String(id)) => id.clone(),
-            Some(Value::Number(id)) => id.to_string(),
+            Some(id @ Value::Number(_)) => match int(id) {
+                Some(id) => id.to_string(),
+                None => return,
+            },
             _ => return,
         };
         let cursor = match params.get("cursor") {
@@ -379,25 +490,37 @@ impl Client {
         let text = |key: &str| params.get(key).and_then(Value::as_str).map(String::from);
         let error = || {
             let error = params.get("error")?;
-            (error.get("code").is_some_and(Value::is_number) && error.get("message").is_some_and(Value::is_string)).then(|| {
+            let data = match error.get("data") {
+                None => None,
+                Some(data @ Value::Object(_)) => Some(data.clone()),
+                Some(_) => return None,
+            };
+            (error.get("code").and_then(int).is_some() && error.get("message").is_some_and(Value::is_string)).then(|| {
                 let mut out = Map::new();
                 out.insert("code".into(), error["code"].clone());
                 out.insert("message".into(), error["message"].clone());
-                if let Some(data) = error.get("data") {
-                    out.insert("data".into(), data.clone());
+                if let Some(data) = data {
+                    out.insert("data".into(), data);
                 }
                 Value::Object(out)
             })
         };
         let notification = match method {
-            "notifications/events/active" => match (cursor, params.get("truncated")) {
-                (Ok(cursor), None | Some(Value::Bool(_))) => {
-                    Some(EventNotification::Active { cursor, truncated: params.get("truncated") == Some(&Value::Bool(true)) })
+            "notifications/events/active" => {
+                let heartbeat = params.get("heartbeatMs").and_then(int).filter(|ms| *ms > 0);
+                match (cursor, params.get("truncated"), heartbeat) {
+                    (Ok(cursor), None | Some(Value::Bool(_)), Some(heartbeat_ms)) => Some(EventNotification::Active {
+                        cursor,
+                        truncated: params.get("truncated") == Some(&Value::Bool(true)),
+                        heartbeat_ms: heartbeat_ms as u64,
+                    }),
+                    _ => None,
                 }
-                _ => None,
-            },
+            }
             "notifications/events/event" => match (cursor, text("eventId"), text("name"), text("timestamp"), params.get("data")) {
-                (Ok(cursor), Some(event_id), Some(name), Some(timestamp), Some(data)) => {
+                (Ok(cursor), Some(event_id), Some(name), Some(timestamp), Some(data @ Value::Object(_)))
+                    if ISO_8601.is_match(&timestamp) =>
+                {
                     Some(EventNotification::Event { event_id, name, timestamp, data: data.clone(), cursor })
                 }
                 _ => None,
@@ -425,9 +548,11 @@ impl Client {
         self.event_streams.lock().remove(&id.to_string());
     }
 
-    /// Whether the connection declared MCP Events and the server offers them (`capabilities.extensions`).
+    /// Whether the connection declared MCP Events, negotiated 2026-07-28 (events are defined for it only) and the
+    /// server offers them (`capabilities.extensions`).
     pub fn offers_events(&self) -> bool {
         self.config.events
+            && self.is_modern()
             && self
                 .server_capabilities
                 .read()
@@ -687,7 +812,7 @@ impl Client {
         }
         let per_request = self.is_modern() && self.transport.has_per_request_stream();
         let request_cancel = per_request.then(CancellationToken::new);
-        let send_options = SendOptions { request_cancel: request_cancel.clone(), ..Default::default() };
+        let send_options = SendOptions { request_cancel: request_cancel.clone(), headers: options.headers.clone(), ..Default::default() };
         let transport = self.transport.clone();
         let (send_err_tx, send_err_rx) = oneshot::channel::<McpError>();
         tokio::spawn(async move {
@@ -812,6 +937,7 @@ impl Client {
     /// Era negotiation: `Ok(None)` = legacy, `Ok(Some(version, discover))` = modern.
     async fn negotiate(&self, setting: ProtocolSetting, timeout: Duration) -> Result<Option<(String, Value)>, McpError> {
         self.transport.start().await?;
+        let timeout = self.config.probe_timeout.unwrap_or(timeout);
         let pin = setting == ProtocolSetting::V2026_07_28;
         let fallback_available = !pin;
         let modern_versions = [MODERN_PROTOCOL_VERSION.to_string()];
@@ -984,34 +1110,96 @@ impl Client {
         if filter.is_empty() {
             return;
         }
-        let listen_id = "listen:0".to_string();
-        let (ack_tx, ack_rx) = oneshot::channel();
-        *self.listen.lock() = Some((listen_id.clone(), Some(ack_tx)));
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": listen_id,
-            "method": "subscriptions/listen",
-            "params": {"_meta": self.envelope().unwrap_or(json!({})), "notifications": filter}
-        });
-        let transport = self.transport.clone();
-        let send_options = SendOptions { request_cancel: Some(CancellationToken::new()), ..Default::default() };
-        let (err_tx, err_rx) = oneshot::channel::<McpError>();
-        tokio::spawn(async move {
-            if let Err(error) = transport.send(request, send_options).await {
-                let _ = err_tx.send(error);
-            }
-        });
-        let outcome = tokio::select! {
-            _ = ack_rx => None,
-            Ok(error) = err_rx => Some(error),
-            _ = tokio::time::sleep(timeout) => Some(McpError::sdk(SdkErrorCode::RequestTimeout, "subscriptions/listen ack timed out")),
-        };
-        if let Some(error) = outcome {
-            self.on_error(&error);
+        // The auto-opened subscription; its errors are only reported.
+        match self.listen(Value::Object(filter), timeout, None).await {
+            // Held for the connection's life: the server ending it ends it.
+            Ok(listen) => *self.auto_listen.lock() = Some(listen),
+            Err(error) => self.on_error(&error),
         }
     }
 
-    /// `_listAllPages`: follows `nextCursor` (stopping on a repeated cursor) up to 64 pages.
+    /// `listen(filter, {timeout, signal})`: opens a `subscriptions/listen` stream (2026-07-28) and resolves once the
+    /// server acknowledges it, or fails when the server refuses or closes it first, it is not acknowledged within
+    /// `timeout` or `cancel` fires.
+    pub async fn listen(&self, filter: Value, timeout: Duration, cancel: Option<CancellationToken>) -> Result<Listen, McpError> {
+        if !self.is_modern() {
+            return Err(McpError::sdk(
+                SdkErrorCode::MethodNotSupportedByProtocolVersion,
+                format!(
+                    "subscriptions/listen requires a 2026-07-28-era connection (negotiated: {})",
+                    self.negotiated_protocol_version().unwrap_or_else(|| "none".into())
+                ),
+            ));
+        }
+        let id = format!("listen:{}", self.next_listen.fetch_add(1, Ordering::SeqCst));
+        let (ack_tx, ack_rx) = oneshot::channel();
+        let (closed_tx, closed_rx) = oneshot::channel();
+        let request = CancellationToken::new();
+        self.listens.lock().insert(id.clone(), ListenState { ack: Some(ack_tx), closed: Some(closed_tx), request: request.clone() });
+        let message = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "subscriptions/listen",
+            "params": {"_meta": self.envelope().unwrap_or(json!({})), "notifications": filter}
+        });
+        let ended: Arc<dyn Fn() + Send + Sync> = {
+            let client = self.weak();
+            let id = id.clone();
+            Arc::new(move || {
+                if let Some(client) = client.upgrade() {
+                    let state = client.listens.lock().remove(&id);
+                    if let Some(state) = state {
+                        state.settle(McpError::other("subscriptions/listen: stream ended"));
+                    }
+                }
+            })
+        };
+        let send_options = SendOptions { request_cancel: Some(request), on_stream_end: Some(ended), ..Default::default() };
+        let transport = self.transport.clone();
+        let failed = {
+            let client = self.weak();
+            let id = id.clone();
+            move |error: McpError| {
+                if let Some(client) = client.upgrade() {
+                    let state = client.listens.lock().remove(&id);
+                    if let Some(state) = state {
+                        state.settle(error);
+                    }
+                }
+            }
+        };
+        tokio::spawn(async move {
+            if let Err(error) = transport.send(message, send_options).await {
+                failed(error);
+            }
+        });
+        let cancel = cancel.unwrap_or_default();
+        let outcome = tokio::select! {
+            ack = ack_rx => match ack {
+                Ok(result) => result,
+                Err(_) => Err(McpError::sdk(SdkErrorCode::ConnectionClosed, "subscriptions/listen closed before the server acknowledged")),
+            },
+            _ = tokio::time::sleep(timeout) => Err(McpError::sdk(SdkErrorCode::RequestTimeout, "subscriptions/listen ack timed out")),
+            _ = cancel.cancelled() => Err(McpError::Aborted("AbortError: This operation was aborted".into())),
+        };
+        let listen = Listen { id: id.clone(), client: self.weak(), closed: closed_rx };
+        if let Err(error) = outcome {
+            // Settles what is left and sends the cancellation.
+            drop(listen);
+            return Err(error);
+        }
+        Ok(listen)
+    }
+
+    /// The wire teardown of a listen stream: `notifications/cancelled` naming it (the request is already aborted).
+    async fn listen_teardown(&self, id: &str) {
+        let _ = self.notify("notifications/cancelled", Some(json!({ "requestId": id }))).await;
+    }
+
+    fn weak(&self) -> std::sync::Weak<Client> {
+        self.this.clone()
+    }
+
     pub async fn list_all(&self, method: &str, key: &str, options: &RequestOptions) -> Result<Vec<Value>, McpError> {
         let first = self.request(method, None, options).await?;
         let mut items: Vec<Value> = first.get(key).and_then(Value::as_array).cloned().ok_or_else(|| {

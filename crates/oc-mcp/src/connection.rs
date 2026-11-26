@@ -11,8 +11,8 @@ use serde_json::{Map, Value, json};
 use tokio::sync::mpsc;
 use url::Url;
 
-use crate::config::{ServerConfig, TimeoutConfig};
-use crate::error::McpError;
+use crate::config::{Protocol, ServerConfig, TimeoutConfig};
+use crate::error::{McpError, SdkErrorCode};
 use crate::oauth::ConnectAuth;
 use crate::oauth::fetch::Fetcher;
 use crate::protocol::{Client, ClientConfig, ElicitationHandler, RequestOptions};
@@ -22,6 +22,8 @@ use crate::transport::{Transport, TransportKind};
 use crate::types::{CallToolResult, ClientInfo, to_call_tool_result};
 
 const TERMINATE_TIMEOUT: Duration = Duration::from_millis(1_000);
+/// The longest an `auto` probe waits for an answer (`PROBE_TIMEOUT`), when the startup timeout is longer.
+const PROBE_TIMEOUT: Duration = Duration::from_millis(5_000);
 /// SEP-2243 HeaderMismatch; the SDK does not export the constant.
 const HEADER_MISMATCH: i64 = -32020;
 
@@ -54,8 +56,8 @@ pub struct ConnectOptions<'a> {
     pub client_info: &'a ClientInfo,
     /// False declares no roots and leaves `roots/list` unanswered, for a connection no one directory owns.
     pub roots: bool,
-    /// Experimental: declares MCP Events, a draft extension, and exposes [`Connection::events`] for a server that
-    /// offers them.
+    /// Experimental: declares MCP Events, a beta extension, and exposes [`crate::events::Events`] for a 2026-07-28
+    /// server that offers them.
     pub events: bool,
 }
 
@@ -76,6 +78,8 @@ pub struct Connection {
     catalog: Duration,
     execution: Duration,
     closed: Mutex<bool>,
+    /// MCP Events, when the connection declared them and negotiated 2026-07-28 with a server that offers them.
+    events: Option<Arc<crate::events::EventsState>>,
 }
 
 /// `file://` URL for a directory (`pathToFileURL(directory).href`).
@@ -133,7 +137,7 @@ fn explain(error: &McpError, last_error: &Mutex<Option<String>>) -> String {
 }
 
 /// Retries transient failures twice (250 ms, then 1 s) while the deadline allows.
-async fn retrying<T, F, Fut>(server: &str, what: &str, deadline: Option<Instant>, mut run: F) -> Result<T, McpError>
+pub(crate) async fn retrying<T, F, Fut>(server: &str, what: &str, deadline: Option<Instant>, mut run: F) -> Result<T, McpError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, McpError>>,
@@ -163,13 +167,18 @@ struct Opened {
     client: Arc<Client>,
 }
 
+/// `initialize(transport, protocol, startup)`: the handshake with `protocol`, waiting `startup` for it. An `auto`
+/// probe waits at most five seconds, or the configured startup timeout when shorter, so a server that never answers
+/// it falls back quickly (stdio in place, HTTP through [`Connection::open`]).
 async fn initialize(
     options: &ConnectOptions<'_>,
     transport: Arc<dyn Transport>,
     events: mpsc::UnboundedReceiver<crate::transport::TransportEvent>,
     last_error: Arc<Mutex<Option<String>>>,
+    protocol: Protocol,
+    startup: Duration,
 ) -> Result<Opened, McpError> {
-    let config = options.config;
+    let configured = Duration::from_millis(options.config.startup_timeout_ms());
     handshake(
         Handshake {
             server: options.server,
@@ -178,8 +187,9 @@ async fn initialize(
             client_info: options.client_info,
             roots: options.roots,
             events: options.events,
-            negotiation: config.protocol(),
-            startup: Duration::from_millis(config.startup_timeout_ms()),
+            negotiation: Some(protocol),
+            probe: (protocol == Protocol::Auto).then(|| PROBE_TIMEOUT.min(configured)),
+            startup,
         },
         transport,
         events,
@@ -196,6 +206,8 @@ struct Handshake<'a> {
     roots: bool,
     events: bool,
     negotiation: Option<crate::config::Protocol>,
+    /// How long the version probe waits, when shorter than `startup`.
+    probe: Option<Duration>,
     startup: Duration,
 }
 
@@ -213,6 +225,7 @@ async fn handshake(
             server: server.to_string(),
             client_info: options.client_info.clone(),
             negotiation: options.negotiation,
+            probe_timeout: options.probe,
             elicitation: options.elicitation.clone(),
             root_uri: file_url(options.directory),
             without_roots: !options.roots,
@@ -236,6 +249,46 @@ async fn handshake(
             Err(error)
         }
     }
+}
+
+/// `failure(error)`: maps a request failure, detecting legacy session expiry (reported once).
+fn map_failure(
+    client: &Client,
+    server: &str,
+    session: &Mutex<SessionState>,
+    last_error: &Mutex<Option<String>>,
+    error: McpError,
+) -> McpError {
+    // A tool call that relists first can fail with the list's already mapped expiry.
+    if matches!(error, McpError::SessionExpired { .. }) {
+        return error;
+    }
+    let status = error.http_status();
+    let Some(status) = status else { return McpError::other(explain(&error, last_error)) };
+    if client.transport().session_id().is_none() || client.transport().kind() != TransportKind::Http {
+        return McpError::other(explain(&error, last_error));
+    }
+    let text = match &error {
+        McpError::Http { text, .. } => text.clone().unwrap_or_default(),
+        _ => String::new(),
+    };
+    let expired = status == 404 || (status == 400 && text.contains("Bad Request: Server not initialized"));
+    if !expired {
+        return McpError::other(explain(&error, last_error));
+    }
+    let callback = {
+        let mut session = session.lock();
+        if session.reported {
+            None
+        } else {
+            session.reported = true;
+            session.expired.clone()
+        }
+    };
+    if let Some(callback) = callback {
+        callback();
+    }
+    McpError::SessionExpired { server: server.to_string() }
 }
 
 /// The execution timeout of an attached client's tool calls (`ATTACHED_EXECUTION_TIMEOUT`).
@@ -290,12 +343,38 @@ impl Connection {
                     environment.insert(k.clone(), v.clone());
                 }
                 let cwd = resolve_cwd(directory, local.cwd.as_deref());
-                let (tx, rx) = mpsc::unbounded_channel();
-                let transport: Arc<dyn Transport> = StdioTransport::new(
-                    StdioOptions { server: server.to_string(), command, args, cwd, environment },
-                    tx,
-                );
-                initialize(&options, transport, rx, last_error.clone()).await
+                let protocol = config.negotiation();
+                let startup = Duration::from_millis(config.startup_timeout_ms());
+                let spawn = |protocol: Protocol| {
+                    let (tx, rx) = mpsc::unbounded_channel();
+                    let transport: Arc<dyn Transport> = StdioTransport::new(
+                        StdioOptions {
+                            server: server.to_string(),
+                            command: command.clone(),
+                            args: args.clone(),
+                            cwd: cwd.clone(),
+                            environment: environment.clone(),
+                        },
+                        tx,
+                    );
+                    initialize(&options, transport, rx, last_error.clone(), protocol, startup)
+                };
+                // Some legacy servers exit on the auto probe's unknown request (Python SDK 1.3 does), so respawn for
+                // initialize. A shared connection (no roots) can't be legacy, so the pool opens its own private one
+                // instead.
+                match spawn(protocol).await {
+                    Err(error)
+                        if protocol == Protocol::Auto
+                            && options.roots
+                            && matches!(
+                                error.sdk_code(),
+                                Some(SdkErrorCode::ConnectionClosed | SdkErrorCode::EraNegotiationFailed)
+                            ) =>
+                    {
+                        spawn(Protocol::Legacy).await
+                    }
+                    other => other,
+                }
             }
             ServerConfig::Remote(remote) => {
                 let Ok(configured) = Url::parse(&remote.url) else {
@@ -312,8 +391,11 @@ impl Connection {
                     pairs.push(("codemode".into(), "false".into()));
                     url.set_query(Some(&crate::oauth::fetch::encode_form(&pairs)));
                 }
-                let deadline = Instant::now() + Duration::from_millis(config.startup_timeout_ms());
-                let open = |url: Url| {
+                // Every attempt opens a fresh transport; no retry starts once the startup timeout has passed.
+                let startup = Duration::from_millis(config.startup_timeout_ms());
+                let deadline = Instant::now() + startup;
+                let protocol = config.negotiation();
+                let open = |url: Url, protocol: Protocol, startup: Duration| {
                     let fetch = fetch.clone();
                     let auth_provider = options.auth_provider.clone();
                     let last_error = last_error.clone();
@@ -324,20 +406,37 @@ impl Connection {
                             HttpOptions { url, headers: remote.headers.clone(), auth_provider, fetch },
                             tx,
                         );
-                        initialize(options, transport, rx, last_error).await
+                        initialize(options, transport, rx, last_error, protocol, startup).await
+                    }
+                };
+                // Over HTTP an unanswered auto probe looks like an outage, but slow legacy servers may still
+                // initialize within what is left of the startup timeout.
+                let negotiate = |url: Url| {
+                    let open = &open;
+                    async move {
+                        match open(url.clone(), protocol, startup).await {
+                            Err(error)
+                                if protocol == Protocol::Auto
+                                    && error.sdk_code() == Some(SdkErrorCode::RequestTimeout) =>
+                            {
+                                let now = Instant::now();
+                                if now < deadline { open(url, Protocol::Legacy, deadline - now).await } else { Err(error) }
+                            }
+                            other => other,
+                        }
                     }
                 };
                 retrying(server, "MCP connect", Some(deadline), || {
-                    let open = &open;
+                    let negotiate = &negotiate;
                     let url = url.clone();
                     let configured = configured.clone();
                     async move {
-                        match open(url).await {
+                        match negotiate(url).await {
                             Err(error)
                                 if added_codemode && matches!(error.http_status(), Some(400) | Some(404)) =>
                             {
                                 // Servers that reject unknown query params get one retry at the configured URL.
-                                open(configured).await
+                                negotiate(configured).await
                             }
                             other => other,
                         }
@@ -347,14 +446,23 @@ impl Connection {
             }
         };
         let opened = opened.map_err(|error| connect_error(server, &error, &last_error))?;
+        let catalog = Duration::from_millis(TimeoutConfig::catalog_ms(config.timeout()));
+        // Events are defined for 2026-07-28 only.
+        let events = (options.events && opened.client.offers_events()).then(|| {
+            let (client, name, session, last_error) = (opened.client.clone(), server.to_string(), session.clone(), last_error.clone());
+            let failure: crate::events::Failure =
+                Arc::new(move |error| map_failure(&client, &name, &session, &last_error, error));
+            crate::events::EventsState::start(server, opened.client.clone(), catalog, failure)
+        });
         Ok(Connection {
             server: server.to_string(),
             client: opened.client,
             last_error,
             session,
-            catalog: Duration::from_millis(TimeoutConfig::catalog_ms(config.timeout())),
+            catalog,
             execution: Duration::from_millis(TimeoutConfig::execution_ms(config.timeout())),
             closed: Mutex::new(false),
+            events,
         })
     }
 
@@ -380,6 +488,7 @@ impl Connection {
                 roots: true,
                 events: false,
                 negotiation: Some(crate::config::Protocol::Legacy),
+                probe: None,
                 startup: Duration::from_millis(TimeoutConfig::startup_ms(None)),
             },
             transport,
@@ -396,6 +505,7 @@ impl Connection {
             catalog: Duration::from_millis(TimeoutConfig::catalog_ms(None)),
             execution: ATTACHED_EXECUTION_TIMEOUT,
             closed: Mutex::new(false),
+            events: None,
         })
     }
 
@@ -428,36 +538,12 @@ impl Connection {
 
     /// Maps a request failure, detecting legacy session expiry.
     fn failure(&self, error: McpError) -> McpError {
-        // A tool call that relists first can fail with the list's already mapped expiry.
-        if matches!(error, McpError::SessionExpired { .. }) {
-            return error;
-        }
-        let status = error.http_status();
-        let Some(status) = status else { return McpError::other(explain(&error, &self.last_error)) };
-        if self.client.transport().session_id().is_none() || self.client.transport().kind() != TransportKind::Http {
-            return McpError::other(explain(&error, &self.last_error));
-        }
-        let text = match &error {
-            McpError::Http { text, .. } => text.clone().unwrap_or_default(),
-            _ => String::new(),
-        };
-        let expired = status == 404 || (status == 400 && text.contains("Bad Request: Server not initialized"));
-        if !expired {
-            return McpError::other(explain(&error, &self.last_error));
-        }
-        let callback = {
-            let mut session = self.session.lock();
-            if session.reported {
-                None
-            } else {
-                session.reported = true;
-                session.expired.clone()
-            }
-        };
-        if let Some(callback) = callback {
-            callback();
-        }
-        McpError::SessionExpired { server: self.server.clone() }
+        map_failure(&self.client, &self.server, &self.session, &self.last_error, error)
+    }
+
+    /// The connection's MCP Events state, when it has events.
+    pub(crate) fn events_state(&self) -> Option<Arc<crate::events::EventsState>> {
+        self.events.clone()
     }
 
     async fn list<F, Fut>(&self, what: &str, run: F) -> Result<Vec<Value>, McpError>
@@ -635,6 +721,9 @@ impl Connection {
             *closed = true;
         }
         self.client.clear_on_error();
+        if let Some(events) = &self.events {
+            events.stop();
+        }
         let transport = self.client.transport().clone();
         let reported = self.session.lock().reported;
         if transport.session_id().is_some() && !reported {

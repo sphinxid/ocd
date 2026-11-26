@@ -184,7 +184,6 @@ fn manager(directory: PathBuf) -> McpManager {
         credentials: None,
         elicitation: None,
         pool: None,
-        mcp_events: false,
     })
 }
 
@@ -489,7 +488,8 @@ async fn model_calls_wait_two_seconds_for_servers_still_connecting() {
 }
 
 /// Legacy stdio servers (#61496): the SDK classifies upstream's stdio transport as stdio, where an unanswered probe
-/// means a legacy server and a closed one fails with the in-place probe text.
+/// means a legacy server and a closed one fails with the in-place probe text, after which `auto` respawns the server
+/// for the legacy handshake (#65282: some legacy servers exit on the probe's unknown request).
 #[tokio::test]
 async fn stdio_probe_that_closes_or_goes_unanswered() {
     let dir = tempfile::tempdir().unwrap();
@@ -512,12 +512,7 @@ async fn stdio_probe_that_closes_or_goes_unanswered() {
         manager.wait_ready(name).await.unwrap();
     }
     assert_eq!(manager.status("auto-ignore"), Some(Status::Connected), "{:?}", manager.servers());
-    assert_eq!(
-        manager.status("auto-exit"),
-        Some(Status::failed(
-            "Version negotiation failed: the connection closed during the server/discover probe (this transport probed in place — the disposable sibling probe requires the SDK's base StdioClientTransport)"
-        ))
-    );
+    assert_eq!(manager.status("auto-exit"), Some(Status::Connected), "{:?}", manager.servers());
     assert_eq!(
         manager.status("pin-ignore"),
         Some(Status::failed(
@@ -593,6 +588,7 @@ async fn stdio_handshake_declares_capabilities() {
             server: "raw".into(),
             client_info: ClientInfo::default(),
             negotiation: None,
+            probe_timeout: None,
             elicitation: Some(Arc::new(AcceptAll)),
             root_uri: "file:///tmp".into(),
             without_roots: false,

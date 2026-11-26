@@ -91,8 +91,6 @@ pub async fn manager(
 ) -> Arc<McpManager> {
     let manager = Arc::new(McpManager::new(ManagerOptions {
         pool: Some(pool.clone()),
-        // `Flag.enabled("mcp_events")`, read when the Location's MCP service is built.
-        mcp_events: oc_config::flag::enabled(&location.entries, "mcp_events"),
         directory: location.directory.clone(),
         client_info: ClientInfo { name: "opencode".into(), version: version.into() },
         credentials: Some(Arc::new(McpCreds(credentials, Some(locks)))),
@@ -376,7 +374,6 @@ mod elicitation_tests {
             credentials: None,
             elicitation: None,
             pool: None,
-            mcp_events: false,
         }));
         let servers = |v: serde_json::Value| serde_json::from_value::<indexmap::IndexMap<String, oc_mcp::config::ServerConfig>>(v).unwrap();
         manager

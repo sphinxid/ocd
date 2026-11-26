@@ -47,7 +47,6 @@ pub struct KeyInput<'a> {
     /// The active OAuth credential's ID, which a token refresh keeps and a sign-in replaces.
     pub credential: Option<&'a str>,
     pub client_info: Option<&'a ClientInfo>,
-    pub mcp_events: bool,
 }
 
 /// `SharedCache.fingerprint`: never a raw secret in a key.
@@ -74,7 +73,7 @@ pub fn key(input: &KeyInput<'_>) -> String {
     let protocol = config.protocol().map(|p| json!(p.as_str())).unwrap_or(Value::Null);
     let timeout = config.timeout().map(|t| serde_json::to_value(t).unwrap_or(Value::Null)).unwrap_or(Value::Null);
     let client_info = input.client_info.map(|c| serde_json::to_value(c).unwrap_or(Value::Null)).unwrap_or(Value::Null);
-    let common = [protocol, timeout, client_info, json!(input.mcp_events)];
+    let common = [protocol, timeout, client_info];
     let mut parts = match config {
         ServerConfig::Remote(remote) => {
             let oauth = match &remote.oauth {
@@ -182,7 +181,6 @@ struct Opening {
     config: ServerConfig,
     directory: PathBuf,
     client_info: ClientInfo,
-    mcp_events: bool,
 }
 
 impl McpPool {
@@ -235,7 +233,6 @@ impl McpPool {
             directory: input.directory,
             shared: true,
             client_info: input.client_info,
-            mcp_events: input.mcp_events,
             auth_provider: auth,
             elicitation: Some(Arc::new(Shared { slot: weak.clone() })),
             lock: slot.lock.clone(),
@@ -575,7 +572,6 @@ impl Pooled {
             config: self.input.config.clone(),
             directory: self.input.directory.clone(),
             client_info: self.input.client_info.clone(),
-            mcp_events: self.input.mcp_events,
         };
         let Some(claim) = self.pool.acquire(&selected.key, opening, &holder) else { return false };
         let slot = claim.slot.clone();
@@ -672,15 +668,6 @@ pub fn pooled(config: &ServerConfig) -> bool {
     config.pool() && config.protocol() != Some(Protocol::Legacy)
 }
 
-/// Pooling offers 2026-07-28, the only revision a connection can be shared on: an unset `protocol` becomes `auto`.
-pub fn effective_config(config: &ServerConfig) -> ServerConfig {
-    let mut config = config.clone();
-    if config.pool() && config.protocol().is_none() {
-        config.set_protocol(Some(Protocol::Auto));
-    }
-    config
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -696,10 +683,10 @@ mod tests {
         let base = remote(json!({"type": "remote", "url": "https://mcp.example.com", "headers": {"authorization": "secret"}}));
         let local = remote(json!({"type": "local", "command": ["server"], "environment": {"TOKEN": "secret"}}));
         let key_of = |config: &ServerConfig, credential: Option<&str>| {
-            key(&KeyInput { config, cwd: None, credential, client_info: None, mcp_events: false })
+            key(&KeyInput { config, cwd: None, credential, client_info: None })
         };
         let local_key = |config: &ServerConfig, cwd: &str, client: Option<&ClientInfo>| {
-            key(&KeyInput { config, cwd: Some(std::path::Path::new(cwd)), credential: None, client_info: client, mcp_events: false })
+            key(&KeyInput { config, cwd: Some(std::path::Path::new(cwd)), credential: None, client_info: client })
         };
         assert!(!key_of(&base, None).contains("secret"));
         assert!(!local_key(&local, "/a", None).contains("secret"));
@@ -715,21 +702,21 @@ mod tests {
         assert_ne!(local_key(&env, "/a", None), local_key(&local, "/a", None));
         let client = ClientInfo { name: "other".into(), version: "1".into() };
         assert_ne!(local_key(&local, "/a", Some(&client)), local_key(&local, "/a", None));
-        let events = key(&KeyInput { config: &local, cwd: Some(std::path::Path::new("/a")), credential: None, client_info: None, mcp_events: true });
-        assert_ne!(events, local_key(&local, "/a", None));
     }
 
+    /// Every connection negotiates `auto` unless configured otherwise; only a `legacy` one is never pooled. The key
+    /// reads the configured protocol as written.
     #[test]
-    fn pooling_offers_the_modern_revision() {
+    fn pools_every_protocol_but_legacy() {
         let unset = remote(json!({"type": "remote", "url": "https://x", "pool": true}));
         assert!(pooled(&unset));
-        assert_eq!(effective_config(&unset).protocol(), Some(Protocol::Auto));
+        assert_eq!(unset.negotiation(), Protocol::Auto);
         let legacy = remote(json!({"type": "remote", "url": "https://x", "pool": true, "protocol": "legacy"}));
         assert!(!pooled(&legacy));
-        let pinned = remote(json!({"type": "remote", "url": "https://x", "pool": true, "protocol": "2026-07-28"}));
-        assert_eq!(effective_config(&pinned).protocol(), Some(Protocol::V2026_07_28));
+        let auto = remote(json!({"type": "remote", "url": "https://x", "pool": true, "protocol": "auto"}));
+        let key_of = |config: &ServerConfig| key(&KeyInput { config, cwd: None, credential: None, client_info: None });
+        assert_ne!(key_of(&auto), key_of(&unset));
         let plain = remote(json!({"type": "remote", "url": "https://x"}));
         assert!(!pooled(&plain));
-        assert_eq!(effective_config(&plain).protocol(), None);
     }
 }

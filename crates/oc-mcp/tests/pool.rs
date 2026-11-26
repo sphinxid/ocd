@@ -118,7 +118,6 @@ async fn open_with(
         credentials: None,
         elicitation,
         pool: Some(pool.clone()),
-        mcp_events: false,
     });
     let events: Arc<Mutex<Vec<McpEvent>>> = Arc::default();
     let seen = events.clone();
@@ -427,7 +426,7 @@ async fn asks_every_holder_about_an_elicitation_no_request_claims_and_takes_the_
     let (_root, d0, d1) = directories();
     let config: ServerConfig =
         serde_json::from_value(json!({"type": "remote", "url": server.url, "oauth": false, "protocol": "2026-07-28"})).unwrap();
-    let key = oc_mcp::pool::key(&oc_mcp::pool::KeyInput { config: &config, cwd: None, credential: None, client_info: None, mcp_events: false });
+    let key = oc_mcp::pool::key(&oc_mcp::pool::KeyInput { config: &config, cwd: None, credential: None, client_info: None });
     // Each holder knows the server by its own name; the connection carries the first one's.
     let holder = |directory: &Path, name: &str, handler: Arc<Recorder>| {
         let key = key.clone();
@@ -438,7 +437,6 @@ async fn asks_every_holder_about_an_elicitation_no_request_claims_and_takes_the_
                 directory: directory.to_path_buf(),
                 shared: false,
                 client_info: ClientInfo::default(),
-                mcp_events: false,
                 auth_provider: oc_mcp::link::no_auth(),
                 elicitation: Some(handler),
                 lock: Default::default(),

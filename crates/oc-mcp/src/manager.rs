@@ -47,15 +47,79 @@ pub fn unavailable_message(server: &str, status: &Status) -> String {
     }
 }
 
-/// Why `subscribe` cannot follow a server's events (`MCP.EventsUnavailableError`, `MCP.NotFoundError`).
-/// Experimental: MCP Events is a draft extension.
+/// Why `subscribe` or `follow` cannot follow a server's events (`MCP.NotFoundError`).
+/// Experimental: MCP Events is a beta extension.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SubscribeError {
     #[error("MCP server not found: {0}")]
     NotFound(String),
-    #[error("{message}")]
-    EventsUnavailable { server: String, message: String },
 }
+
+/// Where following an event type resumes: the last cursor, and the latest event IDs it delivered, oldest first
+/// (`Mcp.EventPosition`). Experimental: MCP Events is a beta extension.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EventPosition {
+    pub cursor: Option<String>,
+    pub seen: Vec<String>,
+}
+
+/// One event `follow` yields.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FollowedEvent {
+    pub event_id: String,
+    pub name: String,
+    pub timestamp: String,
+    /// Always an object.
+    pub data: Value,
+    pub cursor: Option<String>,
+}
+
+/// What `follow` yields (`Mcp.EventUpdate`). Experimental: MCP Events is a beta extension.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventUpdate {
+    /// An event with the position after it. `truncated`: events before this one may have been missed.
+    Event { event: FollowedEvent, position: EventPosition, truncated: bool },
+    /// The cursor moved without an event.
+    Position(EventPosition),
+    /// The stream broke or the server is not connected; it reopens later.
+    Pending,
+}
+
+/// Why following stopped for good.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum FollowError {
+    /// `MCP.EventsUnavailableError`: the server was removed or disabled, offers no events, or sent an oversized
+    /// cursor.
+    #[error("{message}")]
+    Unavailable { server: String, message: String },
+    /// The server (or the client, before asking) rejected the subscription, or the server terminated it.
+    #[error("{0}")]
+    Ended(crate::events::EventStreamError),
+}
+
+/// A running `follow`: its updates, then the error that stopped it. Dropping it stops following.
+pub struct Following {
+    updates: tokio::sync::mpsc::UnboundedReceiver<Result<EventUpdate, FollowError>>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Following {
+    /// The next update; `None` once following stopped without an error, as when the Location closed.
+    pub async fn next(&mut self) -> Option<Result<EventUpdate, FollowError>> {
+        self.updates.recv().await
+    }
+}
+
+impl Drop for Following {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// Event IDs a subscription remembers to skip a duplicate the server replays.
+const SEEN_EVENTS: usize = 100;
+/// A cursor is kept and sent back on every reopen, so a server can't make it arbitrarily large.
+const MAX_CURSOR: usize = 4096;
 
 /// `Mcp.SubscriptionStatus`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,7 +154,7 @@ impl SubscriptionStatus {
 }
 
 /// An event type of a server, followed onto the bus as `experimental.mcp.event` (`Mcp.Subscription`).
-/// Experimental: MCP Events is a draft extension.
+/// Experimental: MCP Events is a beta extension.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Subscription {
     /// The same for every subscribe to this server, event name and arguments, within this Location.
@@ -103,8 +167,8 @@ pub struct Subscription {
     pub cursor: Option<String>,
 }
 
-/// A subscription and whether the server skipped events since it was last delivered one.
-type Followed = Arc<Mutex<(Subscription, bool)>>;
+/// A subscription and where it resumes.
+type Followed = Arc<Mutex<(Subscription, EventPosition)>>;
 
 /// `canonicalJson`: object keys sorted by UTF-16 code units, everything else as `JSON.stringify`.
 fn canonical_json(value: &Value) -> String {
@@ -120,9 +184,6 @@ fn canonical_json(value: &Value) -> String {
         other => other.to_string(),
     }
 }
-
-/// A broken, silent or closed event stream reopens after a delay growing from a second to this cap (`EVENT_REOPEN`).
-const EVENT_REOPEN_CAP: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// `String.prototype.localeCompare` approximation for ASCII names: case-insensitive first,
 /// lowercase before uppercase on ties.
@@ -154,9 +215,6 @@ pub struct ManagerOptions {
     /// The process's connection pool (`McpPool.Service`): servers with `pool: true` share one connection with every
     /// other Location that configures them identically. Without one, every server connects on its own.
     pub pool: Option<McpPool>,
-    /// Experimental `mcp_events` flag of the Location: connections declare MCP Events, and [`McpManager::events`]
-    /// and subscriptions read the events of servers that offer them.
-    pub mcp_events: bool,
 }
 
 #[derive(Default)]
@@ -443,12 +501,10 @@ struct Inner {
     registered: Mutex<Option<Vec<Tool>>>,
     /// Bumped by every `ToolsChanged`; the registry reads the tools again once these settle.
     tools_changed: tokio::sync::watch::Sender<u64>,
-    /// Experimental MCP Events subscriptions, by server, then id. Each streams while its server is connected.
-    followed: Mutex<IndexMap<String, IndexMap<String, Followed>>>,
+    /// Experimental MCP Events subscriptions, by id. Each follows its event type while this service lives.
+    followed: Mutex<IndexMap<String, Followed>>,
     /// The running stream of each subscription, by id.
     streams: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
-    /// Serializes `follows`, which runs on every status change.
-    follows_lock: tokio::sync::Mutex<()>,
     /// Work tied to this Location's MCP service (see [`McpManager::spawn_scoped`]).
     scoped: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// Client-hosted MCP servers attached over a connection the client opened, by name (see [`McpManager::attach`]).
@@ -533,7 +589,6 @@ impl McpManager {
             tools_changed,
             followed: Mutex::new(IndexMap::new()),
             streams: Mutex::new(HashMap::new()),
-            follows_lock: tokio::sync::Mutex::new(()),
             scoped: Mutex::new(Vec::new()),
             attached: Mutex::new(IndexMap::new()),
             attached_locks: KeyedMutex::default(),
@@ -590,20 +645,11 @@ impl McpManager {
         if matches!(event, McpEvent::ToolsChanged { .. }) {
             self.inner.tools_changed.send_modify(|n| *n += 1);
         }
-        // Subscriptions start or stop with their server's status (a bus subscriber upstream).
-        let follow = match &event {
-            McpEvent::StatusChanged { server } if self.inner.options.mcp_events => Some(server.clone()),
-            _ => None,
-        };
         let sink = self.inner.sink.lock().clone();
         if let Some(sink) = sink {
             sink(&event);
         }
         let _ = self.inner.events.send(event);
-        if let Some(server) = follow {
-            let this = self.clone();
-            tokio::spawn(async move { this.follows(&server).await });
-        }
     }
 
     fn entry(&self, name: &str) -> Option<Arc<Entry>> {
@@ -778,12 +824,10 @@ impl McpManager {
         };
         let link = LinkInput {
             name: name.to_string(),
-            // Pooling offers 2026-07-28, the only revision a connection can be shared on.
-            config: pool::effective_config(&entry.config),
+            config: entry.config.clone(),
             directory: options.directory.clone(),
             shared: false,
             client_info: options.client_info.clone(),
-            mcp_events: options.mcp_events,
             auth_provider,
             elicitation: options.elicitation.clone(),
             lock: self.inner.locks.get(name),
@@ -795,7 +839,7 @@ impl McpManager {
             None => Conn::Direct(Link::new(link)),
             Some(pool) => {
                 let config = link.config.clone();
-                let (directory, client_info, mcp_events) = (options.directory.clone(), options.client_info.clone(), options.mcp_events);
+                let (directory, client_info) = (options.directory.clone(), options.client_info.clone());
                 let select: pool::Select = Arc::new(move || {
                     let (config, directory, client_info) = (config.clone(), directory.clone(), client_info.clone());
                     let (select_credential, provider) = (select_credential.clone(), provider.clone());
@@ -809,7 +853,6 @@ impl McpManager {
                                 cwd: Some(&cwd),
                                 credential: None,
                                 client_info: Some(&client_info),
-                                mcp_events,
                             });
                             return Selection { key, auth_provider: crate::link::no_auth() };
                         }
@@ -820,7 +863,6 @@ impl McpManager {
                             cwd: None,
                             credential: id.as_deref(),
                             client_info: Some(&client_info),
-                            mcp_events,
                         });
                         let auth_provider: AuthProvider = Arc::new(move || {
                             let result = credential.clone().map(|c| provider(c));
@@ -1203,21 +1245,156 @@ impl McpManager {
         scoped.push(tokio::spawn(work));
     }
 
-    /// Experimental: MCP Events of a connected server that offers them, while the `mcp_events` flag is on.
+    /// Experimental: MCP Events of a connected server that offers them.
     pub async fn events(&self, server: &str) -> Result<Option<crate::events::Events>, ManagerError> {
         let entry = self.require(server)?;
         entry.await_startup().await;
-        if !self.inner.options.mcp_events {
-            return Ok(None);
-        }
         Ok(entry.connection().as_ref().and_then(crate::events::Events::of))
     }
 
-    /// Experimental: follows an event type of a server, publishing each event as `experimental.mcp.event` while the
-    /// server is connected, and resuming from the last cursor after a reconnect or a broken stream. Its status changes
-    /// publish `experimental.mcp.subscription.changed`. Subscribing again to the same server, name and arguments
-    /// returns the existing subscription. An ended one stays until unsubscribed. `cursor`: where to start; `None`
-    /// starts from now.
+    /// What `follow` opens each time: the events of `server` while it is connected (`Mcp.follow`'s `open`). Fails
+    /// with [`FollowError::Unavailable`] when following can't go on, and with `Ok(Err)` to retry later.
+    fn follow_events(&self, server: &str) -> Result<Result<crate::events::Events, String>, FollowError> {
+        let unavailable = |message: &str| FollowError::Unavailable { server: server.to_string(), message: message.into() };
+        let Some(entry) = self.entry(server).filter(|entry| entry.status() != Status::Disabled) else {
+            return Err(unavailable("The MCP server was removed or disabled."));
+        };
+        if entry.status() != Status::Connected {
+            return Ok(Err(format!("MCP server {server} is not connected")));
+        }
+        match entry.connection().as_ref().and_then(crate::events::Events::of) {
+            Some(events) => Ok(Ok(events)),
+            None => Err(unavailable("The MCP server offers no events.")),
+        }
+    }
+
+    /// Experimental: follows an event type of a server from `position`, or from now (`Mcp.follow`). It reopens a
+    /// broken stream and waits for a disconnected server, skips events in `seen`, and yields each event with the
+    /// position after it, a new position when the cursor moves without one, and `Pending` while it waits to reopen.
+    /// It stops with an error when the server rejects or terminates the subscription, or is removed, disabled or
+    /// offers no events, and without one once this service closes.
+    pub fn follow(
+        &self,
+        server: &str,
+        name: &str,
+        arguments: Option<Value>,
+        position: Option<EventPosition>,
+    ) -> Result<Following, SubscribeError> {
+        if self.entry(server).is_none() {
+            return Err(SubscribeError::NotFound(server.to_string()));
+        }
+        let (tx, updates) = tokio::sync::mpsc::unbounded_channel();
+        let this = self.clone();
+        let (server, name) = (server.to_string(), name.to_string());
+        let task = tokio::spawn(async move {
+            use crate::events::{EventMessage, EventStreamError, StreamInput, reopen_delay};
+            let mut position = position.unwrap_or_default();
+            let mut gap = false;
+            let mut attempt = 0;
+            loop {
+                if this.closing() {
+                    return;
+                }
+                let failure: FollowError = 'open: {
+                    let events = match this.follow_events(&server) {
+                        Err(ended) => break 'open ended,
+                        Ok(Err(message)) => break 'open FollowError::Ended(EventStreamError::Broken(message)),
+                        Ok(Ok(events)) => events,
+                    };
+                    let mut stream = events.stream(StreamInput {
+                        name: name.clone(),
+                        arguments: arguments.clone(),
+                        cursor: Some(position.cursor.clone()),
+                        max_age_ms: None,
+                    });
+                    loop {
+                        let message = match stream.next().await {
+                            Ok(Some(message)) => message,
+                            Ok(None) => {
+                                break 'open FollowError::Ended(EventStreamError::Broken(format!(
+                                    "MCP server {server} closed the event stream"
+                                )));
+                            }
+                            Err(error) => break 'open FollowError::Ended(error),
+                        };
+                        if let EventMessage::Error { error } = &message {
+                            tracing::warn!(server = %server, name = %name, code = ?error.get("code"), "mcp event stream error");
+                            continue;
+                        }
+                        if message.cursor().is_some_and(|cursor| cursor.encode_utf16().count() > MAX_CURSOR) {
+                            break 'open FollowError::Unavailable {
+                                server: server.clone(),
+                                message: "The MCP server sent an oversized event cursor.".into(),
+                            };
+                        }
+                        let update = match message {
+                            EventMessage::Heartbeat { cursor } => {
+                                let moved = cursor != position.cursor;
+                                position.cursor = cursor;
+                                moved.then(|| EventUpdate::Position(position.clone()))
+                            }
+                            EventMessage::Active { cursor, truncated } => {
+                                // Only a confirmed open resets the reopen delay, not a failed attempt.
+                                attempt = 0;
+                                gap |= cursor.is_some() && truncated;
+                                position.cursor = cursor;
+                                Some(EventUpdate::Position(position.clone()))
+                            }
+                            EventMessage::Event { event_id, name, timestamp, data, cursor } => {
+                                // A server replaying from an older cursor can send an event again; the last ones are
+                                // remembered.
+                                if position.seen.contains(&event_id) {
+                                    let moved = cursor != position.cursor;
+                                    position.cursor = cursor;
+                                    moved.then(|| EventUpdate::Position(position.clone()))
+                                } else {
+                                    position.cursor = cursor.clone();
+                                    position.seen.push(event_id.clone());
+                                    if position.seen.len() > SEEN_EVENTS {
+                                        position.seen.drain(..position.seen.len() - SEEN_EVENTS);
+                                    }
+                                    let truncated = std::mem::take(&mut gap);
+                                    Some(EventUpdate::Event {
+                                        event: FollowedEvent { event_id, name, timestamp, data, cursor },
+                                        position: position.clone(),
+                                        truncated,
+                                    })
+                                }
+                            }
+                            EventMessage::Error { .. } => None,
+                        };
+                        if let Some(update) = update
+                            && tx.send(Ok(update)).is_err()
+                        {
+                            return;
+                        }
+                    }
+                };
+                let ended = match &failure {
+                    FollowError::Unavailable { .. } => true,
+                    FollowError::Ended(error) => error.ended(),
+                };
+                if ended {
+                    let _ = tx.send(Err(failure));
+                    return;
+                }
+                if this.closing() || tx.send(Ok(EventUpdate::Pending)).is_err() {
+                    return;
+                }
+                tokio::select! {
+                    _ = tokio::time::sleep(reopen_delay(attempt)) => {}
+                    _ = tx.closed() => return,
+                }
+                attempt += 1;
+            }
+        });
+        Ok(Following { updates, task })
+    }
+
+    /// Experimental: follows an event type of a server, publishing each event as `experimental.mcp.event` and
+    /// resuming from the last cursor after a reconnect or a broken stream. Its status changes publish
+    /// `experimental.mcp.subscription.changed`. Subscribing again to the same server, name and arguments returns the
+    /// existing subscription. An ended one stays until unsubscribed. `cursor`: where to start; `None` starts from now.
     pub async fn subscribe_events(
         &self,
         server: &str,
@@ -1225,47 +1402,47 @@ impl McpManager {
         arguments: Option<Value>,
         cursor: Option<String>,
     ) -> Result<Subscription, SubscribeError> {
-        if !self.inner.options.mcp_events {
-            return Err(SubscribeError::EventsUnavailable {
-                server: server.to_string(),
-                message: "MCP events need the mcp_events flag.".into(),
-            });
-        }
         if self.entry(server).is_none() {
             return Err(SubscribeError::NotFound(server.to_string()));
         }
         let key = json!([server, name, arguments.clone().unwrap_or_else(|| json!({}))]);
         let digest = <sha2::Sha256 as sha2::Digest>::digest(canonical_json(&key).as_bytes());
         let id = format!("mcpsub_{}", &hex::encode(digest)[..24]);
-        let view = {
+        let (view, sub) = {
             let mut followed = self.inner.followed.lock();
-            let subs = followed.entry(server.to_string()).or_default();
-            let existing = subs.get(&id).map(|sub| sub.lock().0.clone());
-            if let Some(existing) = &existing
+            let existing = followed.get(&id).map(|sub| sub.lock().clone());
+            if let Some((existing, _)) = &existing
                 && !matches!(existing.status, SubscriptionStatus::Ended { .. })
             {
                 return Ok(existing.clone());
             }
+            let position = EventPosition {
+                cursor: cursor.or_else(|| existing.as_ref().and_then(|(_, p)| p.cursor.clone())),
+                seen: existing.map(|(_, p)| p.seen).unwrap_or_default(),
+            };
             let view = Subscription {
                 id: id.clone(),
                 server: server.to_string(),
                 name: name.to_string(),
                 arguments,
                 status: SubscriptionStatus::Pending,
-                cursor: cursor.or_else(|| existing.and_then(|e| e.cursor)),
+                cursor: position.cursor.clone(),
             };
-            subs.insert(id.clone(), Arc::new(Mutex::new((view.clone(), false))));
-            view
+            let sub: Followed = Arc::new(Mutex::new((view.clone(), position)));
+            followed.insert(id.clone(), sub.clone());
+            (view, sub)
         };
-        self.publish(McpEvent::ExperimentalSubscriptionChanged { id });
-        self.follows(server).await;
-        Ok(self.event_subscriptions().into_iter().find(|s| s.id == view.id).unwrap_or(view))
+        self.publish(McpEvent::ExperimentalSubscriptionChanged { id: id.clone() });
+        let task = tokio::spawn(self.clone().publish_events(sub));
+        if let Some(previous) = self.inner.streams.lock().insert(id, task) {
+            previous.abort();
+        }
+        Ok(view)
     }
 
     /// Experimental: stops following a subscription.
     pub fn unsubscribe_events(&self, id: &str) {
-        let removed = self.inner.followed.lock().values_mut().any(|subs| subs.shift_remove(id).is_some());
-        if !removed {
+        if self.inner.followed.lock().shift_remove(id).is_none() {
             return;
         }
         if let Some(stream) = self.inner.streams.lock().remove(id) {
@@ -1276,7 +1453,7 @@ impl McpManager {
 
     /// Experimental: every subscription, with its status.
     pub fn event_subscriptions(&self) -> Vec<Subscription> {
-        self.inner.followed.lock().values().flat_map(|subs| subs.values().map(|sub| sub.lock().0.clone()).collect::<Vec<_>>()).collect()
+        self.inner.followed.lock().values().map(|sub| sub.lock().0.clone()).collect()
     }
 
     fn set_status(&self, sub: &Followed, status: SubscriptionStatus) {
@@ -1291,125 +1468,66 @@ impl McpManager {
         self.publish(McpEvent::ExperimentalSubscriptionChanged { id });
     }
 
-    fn receive(&self, sub: &Followed, message: crate::events::EventMessage) {
-        use crate::events::EventMessage;
-        match message {
-            EventMessage::Error { error } => {
-                let (server, name) = {
-                    let sub = sub.lock();
-                    (sub.0.server.clone(), sub.0.name.clone())
-                };
-                tracing::warn!(server = %server, name = %name, code = ?error.get("code"), "mcp event stream error");
+    /// Follows a subscription onto the bus until it ends (`publish`).
+    async fn publish_events(self, sub: Followed) {
+        let (server, name, arguments, position) = {
+            let sub = sub.lock();
+            (sub.0.server.clone(), sub.0.name.clone(), sub.0.arguments.clone(), sub.1.clone())
+        };
+        let mut following = match self.follow(&server, &name, arguments, Some(position)) {
+            Ok(following) => following,
+            Err(_) => {
+                return self.set_status(&sub, SubscriptionStatus::Ended { reason: "unavailable".into(), error: None });
             }
-            EventMessage::Heartbeat { cursor } => sub.lock().0.cursor = cursor,
-            EventMessage::Active { cursor, truncated } => {
-                {
-                    let mut sub = sub.lock();
-                    sub.1 |= cursor.is_some() && truncated;
-                    sub.0.cursor = cursor;
-                }
-                self.set_status(sub, SubscriptionStatus::Active);
-            }
-            EventMessage::Event { event_id, timestamp, data, cursor, .. } => {
-                let mut payload = {
-                    let sub = sub.lock();
-                    json!({
-                        "id": sub.0.id, "server": sub.0.server, "name": sub.0.name, "eventId": event_id,
-                        "timestamp": timestamp, "data": data, "cursor": cursor,
-                    })
-                };
-                if sub.lock().1 {
-                    payload["truncated"] = json!(true);
-                }
-                // The cursor moves past the event only once it is published.
-                self.publish(McpEvent::ExperimentalEvent { data: payload });
-                let mut sub = sub.lock();
-                sub.0.cursor = cursor;
-                sub.1 = false;
-            }
-        }
-    }
-
-    /// Streams until the server terminates or rejects the subscription. A clean close reopens like a broken stream;
-    /// only a confirmed open resets the delay.
-    async fn follow(self, sub: Followed, events: crate::events::Events) {
-        use crate::events::{EventMessage, EventStreamError, StreamInput};
-        let mut delay = std::time::Duration::from_secs(1);
+        };
         loop {
-            let (server, input) = {
-                let sub = sub.lock();
-                let view = &sub.0;
-                let input = StreamInput {
-                    name: view.name.clone(),
-                    arguments: view.arguments.clone(),
-                    cursor: Some(view.cursor.clone()),
-                    max_age_ms: None,
-                };
-                (view.server.clone(), input)
+            let update = match following.next().await {
+                None => return,
+                Some(Ok(update)) => update,
+                Some(Err(error)) => {
+                    use crate::events::EventStreamError;
+                    let status = match error {
+                        FollowError::Ended(EventStreamError::Rejected { code, message, .. }) => SubscriptionStatus::Ended {
+                            reason: "rejected".into(),
+                            error: Some(json!({ "code": code, "message": message })),
+                        },
+                        FollowError::Ended(EventStreamError::Terminated { code, message, .. }) => SubscriptionStatus::Ended {
+                            reason: "terminated".into(),
+                            error: Some(json!({ "code": code, "message": message })),
+                        },
+                        _ => SubscriptionStatus::Ended { reason: "unavailable".into(), error: None },
+                    };
+                    return self.set_status(&sub, status);
+                }
             };
-            let mut stream = events.stream(input);
-            let error = loop {
-                match stream.next().await {
-                    Ok(Some(message)) => {
-                        if matches!(message, EventMessage::Active { .. }) {
-                            delay = std::time::Duration::from_secs(1);
-                        }
-                        self.receive(&sub, message);
+            let position = match update {
+                EventUpdate::Pending => {
+                    self.set_status(&sub, SubscriptionStatus::Pending);
+                    continue;
+                }
+                EventUpdate::Position(position) => position,
+                EventUpdate::Event { event, position, truncated } => {
+                    let mut payload = {
+                        let sub = sub.lock();
+                        json!({
+                            "id": sub.0.id, "server": sub.0.server, "name": sub.0.name, "eventId": event.event_id,
+                            "timestamp": event.timestamp, "data": event.data, "cursor": event.cursor,
+                        })
+                    };
+                    if truncated {
+                        payload["truncated"] = json!(true);
                     }
-                    Ok(None) => break EventStreamError::Broken(format!("MCP server {server} closed the event stream")),
-                    Err(error) => break error,
+                    // The position moves past an event only once it is published.
+                    self.publish(McpEvent::ExperimentalEvent { data: payload });
+                    position
                 }
             };
-            drop(stream);
-            match error {
-                EventStreamError::Rejected { code, message, .. } => {
-                    let error = json!({ "code": code, "message": message });
-                    return self.set_status(&sub, SubscriptionStatus::Ended { reason: "rejected".into(), error: Some(error) });
-                }
-                EventStreamError::Terminated { code, message, .. } => {
-                    let error = json!({ "code": code, "message": message });
-                    return self.set_status(&sub, SubscriptionStatus::Ended { reason: "terminated".into(), error: Some(error) });
-                }
-                EventStreamError::Broken(_) => self.set_status(&sub, SubscriptionStatus::Pending),
+            {
+                let mut sub = sub.lock();
+                sub.0.cursor = position.cursor.clone();
+                sub.1 = position;
             }
-            tokio::time::sleep(delay).await;
-            delay = (delay * 2).min(EVENT_REOPEN_CAP);
-        }
-    }
-
-    /// Starts or stops a server's subscriptions to match its status; runs on every status change.
-    async fn follows(&self, server: &str) {
-        let _guard = self.inner.follows_lock.lock().await;
-        if self.closing() {
-            return;
-        }
-        let entry = self.entry(server);
-        let client = entry.as_ref().filter(|e| e.status() == Status::Connected).and_then(|e| e.connection());
-        let events = client.as_ref().and_then(crate::events::Events::of);
-        let subs: Vec<Followed> = self.inner.followed.lock().get(server).map(|subs| subs.values().cloned().collect()).unwrap_or_default();
-        for sub in subs {
-            let (id, ended) = {
-                let sub = sub.lock();
-                (sub.0.id.clone(), matches!(sub.0.status, SubscriptionStatus::Ended { .. }))
-            };
-            if ended {
-                continue;
-            }
-            if let Some(events) = &events {
-                let mut streams = self.inner.streams.lock();
-                if streams.get(&id).is_none_or(|s| s.is_finished()) {
-                    streams.insert(id, tokio::spawn(self.clone().follow(sub.clone(), events.clone())));
-                }
-                continue;
-            }
-            if let Some(stream) = self.inner.streams.lock().remove(&id) {
-                stream.abort();
-            }
-            let unavailable = entry.as_ref().is_none_or(|e| e.status() == Status::Disabled) || client.is_some();
-            self.set_status(
-                &sub,
-                if unavailable { SubscriptionStatus::Ended { reason: "unavailable".into(), error: None } } else { SubscriptionStatus::Pending },
-            );
+            self.set_status(&sub, SubscriptionStatus::Active);
         }
     }
 
@@ -1681,7 +1799,6 @@ mod tests {
             credentials: None,
             elicitation: None,
             pool: None,
-            mcp_events: false,
         });
         let seen: Arc<Mutex<Vec<McpEvent>>> = Arc::default();
         let sink_seen = seen.clone();

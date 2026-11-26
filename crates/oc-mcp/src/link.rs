@@ -90,8 +90,6 @@ pub struct LinkInput {
     /// per-endpoint handshake turn, since it is already the only connection for its key.
     pub shared: bool,
     pub client_info: ClientInfo,
-    /// Declares MCP Events (`McpClient.ConnectOptions.events`).
-    pub mcp_events: bool,
     pub auth_provider: AuthProvider,
     pub elicitation: Option<Arc<dyn ElicitationHandler>>,
     pub lock: Lock,
@@ -298,7 +296,8 @@ impl Link {
                 elicitation: input.elicitation.clone(),
                 client_info: &input.client_info,
                 roots: !input.shared,
-                events: input.mcp_events,
+                // Every connection declares MCP Events (`McpConnection.make`).
+                events: true,
             })
             .await?;
             if input.shared && !client.modern() {
