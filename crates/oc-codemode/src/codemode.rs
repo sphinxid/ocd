@@ -474,8 +474,15 @@ pub(crate) fn parse_diagnostic(error: &crate::parser::ParseError) -> Diagnostic 
         }
         _ => error.message.as_str(),
     };
-    let sentence = if reason.ends_with('.') { reason.to_string() } else { format!("{reason}.") };
-    let text = format!("{sentence} Code must be plain JavaScript written as a program body.");
+    // 2.4.1 (#64965): decorators and private class members say what isn't supported.
+    let text = if reason == "Unexpected character '@'" {
+        "Decorators are not supported.".to_string()
+    } else if reason.starts_with("Private field '#") {
+        "Private class members (#name) are not supported. Use a regular property instead.".to_string()
+    } else {
+        let sentence = if reason.ends_with('.') { reason.to_string() } else { format!("{reason}.") };
+        format!("{sentence} Code must be plain JavaScript written as a program body.")
+    };
     Diagnostic {
         kind: DiagnosticKind::ParseError,
         message: format!("SyntaxError: {text} (line {}, col {})", location.line, location.column),

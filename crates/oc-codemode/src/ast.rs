@@ -62,8 +62,49 @@ pub enum Stmt {
     /// `ExportNamedDeclaration`, `ExportDefaultDeclaration`, `ExportAllDeclaration`: a top-level export is a parse
     /// error (`parseProgram`), a nested one is unsupported syntax when reached.
     Export(Box<ExportDecl>),
-    /// Any statement outside the interpreter's subset: `ClassDeclaration`, `DebuggerStatement`, `WithStatement`.
+    /// `ClassDeclaration` (2.4.1, #64965).
+    Class(Rc<Class>),
+    /// Any statement outside the interpreter's subset: `DebuggerStatement`, `WithStatement`.
     Unsupported { kind: &'static str, loc: Loc },
+}
+
+/// A class declaration or expression.
+#[derive(Debug)]
+pub struct Class {
+    pub id: Option<Ident>,
+    pub super_class: Option<Box<Expr>>,
+    /// The `constructor`, or the default one (`constructor() {}`, which a derived class runs as
+    /// `constructor(...args) { super(...args) }`) when `default_constructor` is set.
+    pub constructor: Rc<Function>,
+    pub default_constructor: bool,
+    /// Where the written constructor stood among the members (the ESTree body order).
+    pub constructor_at: usize,
+    pub members: Vec<ClassMember>,
+    pub loc: Loc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodKind {
+    Method,
+    Get,
+    Set,
+}
+
+/// A class element other than the constructor.
+#[derive(Debug)]
+pub enum ClassMember {
+    Method { key: PropKey, kind: MethodKind, is_static: bool, value: Rc<Function>, loc: Loc },
+    Field { key: PropKey, is_static: bool, value: Option<Expr>, loc: Loc },
+    /// `static { }`, refused when the class is evaluated.
+    StaticBlock { loc: Loc },
+}
+
+impl ClassMember {
+    pub fn loc(&self) -> Loc {
+        match self {
+            ClassMember::Method { loc, .. } | ClassMember::Field { loc, .. } | ClassMember::StaticBlock { loc } => *loc,
+        }
+    }
 }
 
 /// acorn's `parseModuleExportName`: an identifier, or a string literal without lone surrogates.
@@ -484,7 +525,9 @@ pub enum Expr {
     PrivateName(Ident),
     /// `import(source[, options])`: a promise of the module namespace.
     Import { source: Box<Expr>, options: Option<Box<Expr>>, loc: Loc },
-    /// Expression node types outside the subset: `ClassExpression`, `MetaProperty`.
+    /// `ClassExpression` (2.4.1, #64965).
+    Class(Rc<Class>),
+    /// Expression node types outside the subset: `MetaProperty`.
     Unsupported { kind: &'static str, loc: Loc },
 }
 
@@ -514,6 +557,7 @@ impl Expr {
             | Expr::Chain { loc, .. }
             | Expr::Import { loc, .. }
             | Expr::Unsupported { loc, .. } => *loc,
+            Expr::Class(c) => c.loc,
         }
     }
 
@@ -548,6 +592,7 @@ impl Expr {
             Expr::Chain { .. } => "ChainExpression",
             Expr::PrivateName(_) => "PrivateIdentifier",
             Expr::Import { .. } => "ImportExpression",
+            Expr::Class(_) => "ClassExpression",
             Expr::Unsupported { kind, .. } => kind,
         }
     }
@@ -608,6 +653,7 @@ impl Stmt {
             Stmt::VarDecl(v) => v.loc,
             Stmt::Import(i) => i.loc,
             Stmt::Export(e) => e.loc(),
+            Stmt::Class(c) => c.loc,
             Stmt::Expr { loc, .. }
             | Stmt::Return { loc, .. }
             | Stmt::Labeled { loc, .. }

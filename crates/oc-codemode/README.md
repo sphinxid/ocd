@@ -8,9 +8,9 @@ Programs can only use the supported JavaScript built-ins (with Node's `Buffer` s
 `search(...)` discovery function (synchronous, and its result can also be awaited or chained like a Promise), and
 globals the host adds through extensions (core adds `fetch`, and with the opt-in `experimental.full_codemode` also
 `path`, see The `path` global). `import`, `import()` and
-`require` load those globals by Node module name (see Modules). Getters and setters are supported since 2.4.1 (see
-Getters and setters). Classes, BigInt, arbitrary symbols, timers, exports, `eval`/`Function`, and TypeScript syntax
-are rejected with the same diagnostics as upstream. The exact support matrix is upstream's `interpreter-support.md`; behaviour, diagnostics, and model-visible
+`require` load those globals by Node module name (see Modules). Getters and setters and classes are supported since
+2.4.1 (see Getters and setters, Classes). Private class members, decorators, BigInt, arbitrary symbols, timers,
+exports, `eval`/`Function`, and TypeScript syntax are rejected with the same diagnostics as upstream. The exact support matrix is upstream's `interpreter-support.md`; behaviour, diagnostics, and model-visible
 strings match upstream byte for byte (verified by replaying upstream's recorded test executions, see Tests).
 
 ## Architecture
@@ -415,6 +415,34 @@ target's `name` and `length` through getters, and `Function.prototype.caller`/`a
 Not reproduced: upstream reads the getters a built-in meets ahead of it, once per receiver and key per call, in
 rounds; here each read calls the getter when it happens, as JS does.
 
+## Classes (2.4.1, #64965)
+
+`class` declarations (block-scoped, with a TDZ) and expressions: a constructor (or the default one), methods
+(generator and async too), getters and setters, static members, instance and static fields (computed keys evaluated
+once, in member order, with the methods' keys), `extends` another class or an Error type (`AggregateError`
+included), `super(...)`, and `super.x` reads, calls, writes, compound and logical assignment and `++`/`--` in methods,
+accessors, field initializers and arrows inside them (object-literal methods have `super` too). The class body sees
+its own name read-only; methods and accessors are non-enumerable, `prototype` read-only, and an anonymous class takes
+its NamedEvaluation name before its static fields run. A base class defines its fields on the new instance before
+its constructor runs, a derived one right after `super()` returns; a derived constructor's `this` is unbound until
+`super()` (V8's `Must call super constructor in derived class before accessing 'this' or returning from derived
+constructor`), `super()` binds it once (`Super constructor may only be called once`), and a primitive return is
+refused (`Derived constructors may only return object or undefined`). The default derived constructor passes its
+arguments without iterating them. Error subclasses are real errors (stack, `instanceof`, uncaught diagnostics).
+`console.log` shows `[class A]`, `[class B extends A]`, `[class (anonymous)]` and instances as `A {…}`; a class
+crosses to the host as a function does (left out), an instance as its own enumerable fields and own getters.
+
+Refused, with upstream's texts: a class called without `new` (`Class constructor A cannot be invoked without
+'new'`), `new` on any other program function (`f is not a constructor: only classes can be constructed with new. …`),
+extending `null` or another built-in (`Classes extending null are not supported.`, `Extending the built-in Map is not
+supported. Only classes and Error types can be extended.`, `Class extends value … is not a constructor or null.`), a
+static member named `prototype`, private members (`Private class members (#name) are not supported. Use a regular
+property instead.`, also as the parse error for an undeclared `#x`), static blocks (`Class static blocks are not
+supported. Assign static fields instead.`), decorators (`SyntaxError: Decorators are not supported.`), `new.target`
+and `import.meta` (`new.target is not supported.`), `super()` in an arrow function, destructuring into `super.x`
+(`Destructuring into super.x is not supported.`) and `delete super.x` (`ReferenceError: Unsupported reference to
+'super'.`). Field initializers show in stacks as `<instance_members_initializer>` and `<static_initializer>`.
+
 ## Error stacks (2.4.1, #64939)
 
 Every Error has an own non-enumerable `stack` in V8's format (`interp::stack`): `name: message` (read when `stack` is
@@ -463,8 +491,9 @@ About 1 in 5 000 generated nonsense patterns still differs (a run of six stars a
 
 ## Unsupported JavaScript (same as upstream, same diagnostics)
 
-Classes and private fields, user-defined constructors (`new f()` on a program function), BigInt, arbitrary `Symbol()` values and symbol-keyed properties (only `Symbol.iterator`/`asyncIterator`),
-exports and `import.meta`, `new.target`, `super`, `with`, `debugger`, `eval`/`Function`, timers (`setTimeout`,
+Private class members, class static blocks, decorators, constructors other than classes (`new f()` on a program
+function), BigInt, arbitrary `Symbol()` values and symbol-keyed properties (only `Symbol.iterator`/`asyncIterator`),
+exports and `import.meta`, `new.target`, `super()` in arrow functions, `with`, `debugger`, `eval`/`Function`, timers (`setTimeout`,
 `queueMicrotask`), `Proxy`/`Reflect`, `__defineGetter__` and friends, `for...in` skipping keys deleted during the loop,
 `ArrayBuffer`/`DataView`/typed arrays other than `Uint8Array`, `Request`/`Response`/`Blob`, `crypto.subtle`, non-UTF-8
 `TextDecoder`, `Iterator.concat`/`zip`, array methods on array-likes (`Array.prototype.slice.call(arguments)`),
@@ -500,6 +529,5 @@ TypeScript syntax. Unsupported syntax is reported lazily (when reached) as `Unsu
   each execution has its own thread, so there is nothing to yield to. A synchronous generator body that awaits
   across its caller (only possible through `search(...)` arguments holding promises inside a generator) is not
   supported.
-- `scan_tools` walks the parser's ESTree JSON, where node kinds outside the interpreter's subset (classes,
-  `new.target`, `import.meta`) carry no children, so a `tools.<path>` call inside a class body is not found (upstream finds it; the
-  program fails when it runs either way).
+- `scan_tools` walks the parser's ESTree JSON (classes whole since 2.4.1), where `new.target` and `import.meta`
+  carry no children.

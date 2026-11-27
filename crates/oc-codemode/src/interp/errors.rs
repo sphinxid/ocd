@@ -208,10 +208,31 @@ pub fn host_error(error_type: ErrorType, message: impl Into<String>) -> Thrown {
 /// Orient the agent rather than enumerate JavaScript; interpreter-support.md is the full matrix (psychoscript 0.2.1's text).
 pub const SUPPORTED_SYNTAX_MESSAGE: &str = "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols.";
 
+/// The features with a message of their own (2.4.1, #64965).
+fn unsupported_feature_message(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "PrivateIdentifier" => "Private class members (#name) are not supported. Use a regular property instead.",
+        "StaticBlock" => "Class static blocks are not supported. Assign static fields instead.",
+        "MetaProperty" => "new.target is not supported.",
+        "Super" => "'super' is only supported in class methods.",
+        _ => return None,
+    })
+}
+
 pub fn unsupported_syntax(kind: &str, node: Loc) -> Thrown {
+    unsupported_message(
+        unsupported_feature_message(kind)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Syntax '{kind}' is not supported. {SUPPORTED_SYNTAX_MESSAGE}")),
+        node,
+    )
+}
+
+/// An `UnsupportedSyntax` failure with its own message.
+pub fn unsupported_message(message: String, node: Loc) -> Thrown {
     Thrown::Pending(Rc::new(PendingThrow {
         error_type: ErrorType::SyntaxError,
-        message: format!("Syntax '{kind}' is not supported. {SUPPORTED_SYNTAX_MESSAGE}"),
+        message,
         node: RefCell::new(Some(node)),
         kind: DiagnosticKind::UnsupportedSyntax,
         suggestions: Some(vec![SUPPORTED_SYNTAX_MESSAGE.to_string()]),

@@ -129,13 +129,17 @@ pub fn json_eq(a: &Json, b: &Json) -> bool {
 }
 
 /// The texts 2.4.1 reworded when it moved the language to the `psychoscript` package, as they read in recordings of
-/// earlier versions: the supported-syntax summary, the well-known symbols' names, and the three import errors
-/// (#64587). Older corpora are compared as if recorded with these texts; everything else they hold must still match.
+/// earlier versions: the supported-syntax summary, `new.target is not supported.` for a `MetaProperty`, the well-known
+/// symbols' names, and the three import errors (#64587). Older corpora are compared as if recorded with these texts; everything else they hold must still match.
 pub fn reworded_2_4_1(text: &str) -> String {
     const SUMMARY: &str = "Unsupported: private class members, BigInt, and custom Symbols.";
     let mut text = text
         .replace("Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead.", SUMMARY)
         .replace("Unsupported: classes, BigInt, and custom Symbols. Use plain functions and data objects instead.", SUMMARY)
+        .replace(
+            &format!("Syntax 'MetaProperty' is not supported. {}", oc_codemode::interp::errors::SUPPORTED_SYNTAX_MESSAGE),
+            "new.target is not supported.",
+        )
         .replace("Symbol(codemode.iterator)", "Symbol(psychoscript.iterator)")
         .replace("Symbol(codemode.async-iterator)", "Symbol(psychoscript.async-iterator)");
     const OLD: &str = "\": it isn't available here, where packages and files can't be loaded.";

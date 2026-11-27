@@ -17,6 +17,8 @@ pub struct Entry {
     id: u64,
     /// The running function; `None` for the program body (a bare `at <program>:l:c`).
     func: Option<Obj>,
+    /// A frame with a fixed name: a class's `<instance_members_initializer>` or `<static_initializer>`.
+    label: Option<&'static str>,
     site: Cell<Option<Loc>>,
 }
 
@@ -42,12 +44,21 @@ impl Drop for Guard {
 
 /// Pushes the entry of a frame that starts running.
 pub fn enter(func: Option<Obj>) -> Guard {
+    push(func, None)
+}
+
+/// Pushes the entry of a frame with a fixed name.
+pub fn enter_named(label: &'static str) -> Guard {
+    push(None, Some(label))
+}
+
+fn push(func: Option<Obj>, label: Option<&'static str>) -> Guard {
     let id = NEXT.with(|n| {
         let id = n.get();
         n.set(id + 1);
         id
     });
-    STACK.with(|s| s.borrow_mut().push(Entry { id, func, site: Cell::new(None) }));
+    STACK.with(|s| s.borrow_mut().push(Entry { id, func, label, site: Cell::new(None) }));
     Guard(id)
 }
 
@@ -125,7 +136,7 @@ pub fn trace() -> String {
                 break;
             }
             let Some(site) = entry.site.get() else { continue };
-            let name = entry.func.as_ref().map(shown_name);
+            let name = entry.label.map(str::to_string).or_else(|| entry.func.as_ref().map(shown_name));
             out.push_str(&frame_line(site, name.as_deref()));
             shown += 1;
         }

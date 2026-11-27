@@ -925,10 +925,13 @@
   }
  },
  {
-  "code": "try { host.echo(new Promise(() => {})) } catch (e) { return e.stack }",
+  "code": "try { echo(new Promise(() => {})) } catch (e) { return e.stack }",
   "result": {
-   "ok": true,
-   "value": "ReferenceError: Unknown identifier 'host'.\n    at <program>:1:7",
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: The program is waiting on a promise that can never settle: nothing else is running, so nothing can resolve it. There are no timers or sleep, so don't wait or poll inside a program."
+   },
    "toolCalls": []
   }
  },
@@ -1093,17 +1096,34 @@
   }
  },
  {
-  "code": "let n = 0\nconst o = { a: 1, get b() { n++; return { c: [n] } }, set d(v) {}, get e() { n++ } }\nconst r = host.echo(o, [o.b])\nreturn [n, r, Object.keys(r[0])]",
+  "code": "let n = 0\nconst o = { a: 1, get b() { n++; return { c: [n] } }, set d(v) {}, get e() { n++ } }\nconst r = echo(o, [o.b])\nreturn [n, r, Object.keys(r[0])]",
   "result": {
-   "ok": false,
-   "error": {
-    "kind": "ExecutionFailure",
-    "message": "ReferenceError: Unknown identifier 'host'. (line 3, col 11)",
-    "location": {
-     "line": 3,
-     "column": 11
-    }
-   },
+   "ok": true,
+   "value": [
+    3,
+    [
+     {
+      "a": 1,
+      "b": {
+       "c": [
+        2
+       ]
+      }
+     },
+     [
+      {
+       "c": [
+        1
+       ]
+      }
+     ]
+    ],
+    [
+     "a",
+     "b",
+     "e"
+    ]
+   ],
    "toolCalls": []
   }
  },
@@ -1139,36 +1159,39 @@
   }
  },
  {
-  "code": "let n = 0\nconst o = { a: 1, get b() { n++; return [n] } }\nconst r = await host.echoAsync(o)\nreturn [n, r]",
-  "result": {
-   "ok": false,
-   "error": {
-    "kind": "ExecutionFailure",
-    "message": "ReferenceError: Unknown identifier 'host'. (line 3, col 17)",
-    "location": {
-     "line": 3,
-     "column": 17
-    }
-   },
-   "toolCalls": []
-  }
- },
- {
-  "code": "const o = { get boom() { throw new Error(\"getter failed\") } }\ntry { host.echo(o) } catch (e) { return [e.message, e.stack] }",
+  "code": "let n = 0\nconst o = { a: 1, get b() { n++; return [n] } }\nconst r = await echoAsync(o)\nreturn [n, r]",
   "result": {
    "ok": true,
    "value": [
-    "Unknown identifier 'host'.",
-    "ReferenceError: Unknown identifier 'host'.\n    at <program>:2:7"
+    1,
+    [
+     {
+      "a": 1,
+      "b": [
+       1
+      ]
+     }
+    ]
    ],
    "toolCalls": []
   }
  },
  {
-  "code": "const o = { get boom() { throw new Error(\"getter failed\") } }\ntry { await host.echoAsync(o) } catch (e) { return e.message }",
+  "code": "const o = { get boom() { throw new Error(\"getter failed\") } }\ntry { echo(o) } catch (e) { return [e.message, e.stack] }",
   "result": {
    "ok": true,
-   "value": "Unknown identifier 'host'.",
+   "value": [
+    "getter failed",
+    "Error: getter failed\n    at get boom (<program>:1:32)\n    at <program>:2:7"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get boom() { throw new Error(\"getter failed\") } }\ntry { await echoAsync(o) } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "getter failed",
    "toolCalls": []
   }
  },
@@ -1181,43 +1204,38 @@
   }
  },
  {
-  "code": "const o = { get self() { return o } }\ntry { host.echo(o) } catch (e) { return [e.name, e.message] }",
+  "code": "const o = { get self() { return o } }\ntry { echo(o) } catch (e) { return [e.name, e.message] }",
   "result": {
    "ok": true,
    "value": [
-    "ReferenceError",
-    "Unknown identifier 'host'."
+    "TypeError",
+    "Argument 1 to echo contains a circular value."
    ],
    "toolCalls": []
   }
  },
  {
-  "code": "const o = { get f() { return () => 1 }, x: 1 }\nreturn host.echo(o)",
+  "code": "const o = { get f() { return () => 1 }, x: 1 }\nreturn echo(o)",
   "result": {
-   "ok": false,
-   "error": {
-    "kind": "ExecutionFailure",
-    "message": "ReferenceError: Unknown identifier 'host'. (line 2, col 8)",
-    "location": {
-     "line": 2,
-     "column": 8
+   "ok": true,
+   "value": [
+    {
+     "x": 1
     }
-   },
+   ],
    "toolCalls": []
   }
  },
  {
-  "code": "const o = { get p() { return Promise.resolve(5) }, x: 1 }\nreturn host.echo(o)",
+  "code": "const o = { get p() { return Promise.resolve(5) }, x: 1 }\nreturn echo(o)",
   "result": {
-   "ok": false,
-   "error": {
-    "kind": "ExecutionFailure",
-    "message": "ReferenceError: Unknown identifier 'host'. (line 2, col 8)",
-    "location": {
-     "line": 2,
-     "column": 8
+   "ok": true,
+   "value": [
+    {
+     "p": 5,
+     "x": 1
     }
-   },
+   ],
    "toolCalls": []
   }
  },
@@ -2100,6 +2118,1210 @@
   "result": {
    "ok": true,
    "value": {},
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { x = 1 } class B extends A { m() {} } console.log(A, B, new B(), class {}, [A], { A }); return [String(A).slice(0, 5), typeof B]",
+  "result": {
+   "ok": true,
+   "value": [
+    "[obje",
+    "function"
+   ],
+   "logs": [
+    "[class A] [class B extends A] B {\"x\":1} [class (anonymous)] [[class A]] {\"A\":[class A]}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function f() { return new.target } return f()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: new.target is not supported. (line 1, col 23)",
+    "location": {
+     "line": 1,
+     "column": 23
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} class B extends A { m() { delete super.x } } new B().m()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unsupported reference to 'super'. (line 1, col 45)",
+    "location": {
+     "line": 1,
+     "column": 45
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { f = () => 1; g = function () {}; static s = () => 2; [\"c\" + 1] = () => 3 } const a = new A(); return [a.f.name, a.g.name, A.s.name, a.c1.name]",
+  "result": {
+   "ok": true,
+   "value": [
+    "f",
+    "g",
+    "s",
+    "c1"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} A()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Class constructor A cannot be invoked without 'new' (line 1, col 12)",
+    "location": {
+     "line": 1,
+     "column": 12
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} const r = [1].map((x) => { try { return A() } catch (e) { return e.message } }); return r",
+  "result": {
+   "ok": true,
+   "value": [
+    "Class constructor A cannot be invoked without 'new'"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { this.x = 1 } } class B extends A { constructor() { const f = () => super(); f() } } new B()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: super() inside an arrow function is not supported. Call super() directly in the constructor. (line 1, col 94)",
+    "location": {
+     "line": 1,
+     "column": 94
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { m() { return super.x } }; return o.m()",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() { return super.x } } return new A().m()",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static #p = 1 }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Private class members (#name) are not supported. Use a regular property instead. (line 1, col 11)",
+    "location": {
+     "line": 1,
+     "column": 11
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static { } }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Class static blocks are not supported. Assign static fields instead. (line 1, col 11)",
+    "location": {
+     "line": 1,
+     "column": 11
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() { return this.#y } }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Private class members (#name) are not supported. Use a regular property instead. (line 1, col 29)",
+    "location": {
+     "line": 1,
+     "column": 29
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { a = 1; static b = 2; get c() { return 3 } } return [Object.keys(new A()), Object.getOwnPropertyNames(A), Object.getOwnPropertyNames(A.prototype), JSON.stringify(Object.getOwnPropertyDescriptor(A.prototype, \"c\"))]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a"
+    ],
+    [
+     "length",
+     "name",
+     "prototype",
+     "b"
+    ],
+    [
+     "constructor",
+     "c"
+    ],
+    "{\"enumerable\":false,\"configurable\":true}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor(a, b = 1, ...c) {} } return [A.length, A.name, (class {}).name, (class { static name = \"x\" }).name]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    "A",
+    "",
+    "x"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() { return new Error(\"e\").stack } } return new A().m()",
+  "result": {
+   "ok": true,
+   "value": "Error: e\n    at m (<program>:1:24)\n    at <program>:1:56",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { x = new Error(\"f\").stack } return new A().x",
+  "result": {
+   "ok": true,
+   "value": "Error: f\n    at <instance_members_initializer> (<program>:1:15)\n    at <program>:1:45",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { this.s = new Error(\"c\").stack } } return new A().s",
+  "result": {
+   "ok": true,
+   "value": "Error: c\n    at A (<program>:1:36)\n    at <program>:1:68",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} class B extends A { constructor() { super(); this.s = new Error(\"c\").stack } } return new B().s",
+  "result": {
+   "ok": true,
+   "value": "Error: c\n    at B (<program>:1:66)\n    at <program>:1:98",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let C = class { static s = new Error(\"st\").stack }; return C.s",
+  "result": {
+   "ok": true,
+   "value": "Error: st\n    at <static_initializer> (<program>:1:28)\n    at <program>:1:9",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { [\"constructor\"]() { return 1 } } return [new A().constructor === A, typeof A.prototype.constructor]",
+  "result": {
+   "ok": true,
+   "value": [
+    false,
+    "function"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static m() { return super.toString === Function.prototype.toString } } return A.m()",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A extends Object {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Extending the built-in Object is not supported. Only classes and Error types can be extended. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A extends Promise {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Extending the built-in Promise is not supported. Only classes and Error types can be extended. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A extends Date {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Extending the built-in Date is not supported. Only classes and Error types can be extended. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const B = A.bind(null); class A {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Cannot access 'A' before initialization. (line 1, col 11)",
+    "location": {
+     "line": 1,
+     "column": 11
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { console.log(typeof this) } } const B = A.bind(null); try { new B() } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "new B(...) is not supported; call B(...) without new instead.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} try { new (A.prototype.constructor)(); return \"ok\" } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "ok",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() {} } try { new (new A().m)() } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "The called value is not a constructor: only classes can be constructed with new. Use a class, or call it as a function that returns an object.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { *g() { yield 1 } async a() { return 2 } static async *sg() { yield 3 } } const a = new A(); return [[...a.g()], await a.a(), (await A.sg().next()).value]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     1
+    ],
+    2,
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { toString() { return \"custom\" } } return [String(new A()), `${new A()}`, new A() + \"\"]",
+  "result": {
+   "ok": true,
+   "value": [
+    "custom",
+    "custom",
+    "custom"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class Point { constructor(x) { this.x = x } } return echo(new Point(1), Point)",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "x": 1
+    },
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class Point { constructor(x) { this.x = x } get double() { return this.x * 2 } } return await tools.echo(new Point(2))",
+  "result": {
+   "ok": true,
+   "value": {
+    "x": 2
+   },
+   "toolCalls": [
+    {
+     "name": "echo"
+    }
+   ]
+  }
+ },
+ {
+  "code": "const log = []\nconst k = (n) => { log.push(n); return n }\nclass A { [k(\"a\")]() {} static [k(\"b\")] = k(\"bv\"); [k(\"c\")] = k(\"cv\"); get [k(\"d\")]() { return 1 } }\nlog.push(\"defined\")\nnew A()\nreturn log",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "bv",
+    "defined",
+    "cv"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static x = 1; static y = A.x + 1; static z = this.y + 1 } return [A.x, A.y, A.z]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { a = 1; b = this.a + 1; c = () => this.b } const o = new A(); return [o.a, o.b, o.c(), Object.keys(o)]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    2,
+    [
+     "a",
+     "b",
+     "c"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static #x }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Private class members (#name) are not supported. Use a regular property instead. (line 1, col 11)",
+    "location": {
+     "line": 1,
+     "column": 11
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() { return arguments.length } static s(...a) { return a } } return [new A().m(1, 2), A.s(3, 4)]",
+  "result": {
+   "ok": true,
+   "value": [
+    2,
+    [
+     3,
+     4
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m(a, b) {} static s(a = 1) {} get g() { return 1 } set g(v) {} } const d = Object.getOwnPropertyDescriptor(A.prototype, \"g\"); return [A.prototype.m.length, A.s.length, d.get.name, d.set.name, d.get.length, d.set.length]",
+  "result": {
+   "ok": true,
+   "value": [
+    2,
+    0,
+    "get g",
+    "set g",
+    0,
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { new.target } } new A()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: new.target is not supported. (line 1, col 27)",
+    "location": {
+     "line": 1,
+     "column": 27
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const classes = []; for (let i = 0; i < 3; i++) classes.push(class { v() { return i } }); return classes.map((C) => new C().v())",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { async m() { await null; return super.toString === Object.prototype.toString } } return await new A().m()",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static async *g() { yield super.constructor === Function.prototype.constructor } } const it = A.g(); return (await it.next()).value",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { get x() { return \"A\" } } class B extends A { get x() { return () => super.x } } return new B().x()",
+  "result": {
+   "ok": true,
+   "value": "A",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class Base { greet() { return \"hi \" + this.name } } class P extends Base { constructor(name) { super(); this.name = name } greet() { return super.greet() + \"!\" } } const p = new P(\"ann\"); return [p.greet(), p instanceof Base, Object.keys(p)]",
+  "result": {
+   "ok": true,
+   "value": [
+    "hi ann!",
+    true,
+    [
+     "name"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class E extends Error { constructor(m) { super(m); this.name = \"E\" } } try { throw new E(\"boom\") } catch (e) { return [e.name, e.message, String(e), e instanceof E, e instanceof Error, e.stack] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "E",
+    "boom",
+    "E: boom",
+    true,
+    true,
+    "E: boom\n    at E (<program>:1:42)\n    at <program>:1:84"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class E extends RangeError {} const e = new E(\"r\"); return [e.name, e instanceof RangeError, Object.prototype.toString.call(e), JSON.stringify(e)]",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError",
+    true,
+    "[object Error]",
+    "{\"name\":\"RangeError\",\"message\":\"r\"}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class E extends Error {} throw new E(\"uncaught\")",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: uncaught"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class E extends Error { name = \"Custom\" } throw new E(\"uncaught\")",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Custom: uncaught"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { x = 1 } return await tools.echo({ a: new A() })",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": {
+     "x": 1
+    }
+   },
+   "toolCalls": [
+    {
+     "name": "echo"
+    }
+   ]
+  }
+ },
+ {
+  "code": "class A { x = 1 } return new A()",
+  "result": {
+   "ok": true,
+   "value": {
+    "x": 1
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} return A",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} return [A]",
+  "result": {
+   "ok": true,
+   "value": [
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} return { A }",
+  "result": {
+   "ok": true,
+   "value": {},
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { x = 1 } return JSON.stringify([new A(), A])",
+  "result": {
+   "ok": true,
+   "value": "[{\"x\":1},null]",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() {} } const a = new A(); return [typeof a.m, a.m === A.prototype.m, Object.getOwnPropertyNames(A.prototype)]",
+  "result": {
+   "ok": true,
+   "value": [
+    "function",
+    true,
+    [
+     "constructor",
+     "m"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const C = class Named { static who() { return Named.name } }; return [C.who(), typeof Named]",
+  "result": {
+   "ok": true,
+   "value": [
+    "Named",
+    "undefined"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static name = \"override\" } return A.name",
+  "result": {
+   "ok": true,
+   "value": "override",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { this.v = 1 } } const B = class extends A {}; const b = new B(); return [b.v, B.name, Object.getPrototypeOf(B) === A]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    "B",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor(x) { this.x = x } } class B extends A { constructor() { super(...[1, 2]) } } return new B().x",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} class B extends A { constructor() { super(); super.x = 5; return [this.x, Object.keys(this)] } } try { new B() } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { set x(v) { this._x = v * 2 } } class B extends A { m() { super.x = 3; return this._x } } return new B().m()",
+  "result": {
+   "ok": true,
+   "value": 6,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { get x() { return 1 } } class B extends A { m() { try { super.x = 3 } catch (e) { return [e.name, e.message] } } } return new B().m()",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Cannot set property x, which has only a getter."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class B { m() { const [super.x] = [1] } } new B().m()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected keyword 'super'. Code must be plain JavaScript written as a program body. (line 1, col 24)",
+    "location": {
+     "line": 1,
+     "column": 24
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { m() { return super.toString() } }; return o.m()",
+  "result": {
+   "ok": true,
+   "value": "[object Object]",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const p = { greet() { return \"p\" } }; const o = { __proto__: p, greet() { return \"o>\" + super.greet() } }; return o.greet()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: The called value is not a function. (line 1, col 89)",
+    "location": {
+     "line": 1,
+     "column": 89
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = Object.create(null); const m = { f() { return super.x } }; Object.setPrototypeOf ? 1 : 0; return m.f()",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() { return super.x } } A.prototype.__proto__ = null; return new A().m()",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static m() { return this } } const { m } = A; return [m(), A.m() === A]",
+  "result": {
+   "ok": true,
+   "value": [
+    null,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { #p() {} }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Private class members (#name) are not supported. Use a regular property instead. (line 1, col 11)",
+    "location": {
+     "line": 1,
+     "column": 11
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "@decorator class A {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Decorators are not supported. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static { this.x = 1 } }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Class static blocks are not supported. Assign static fields instead. (line 1, col 11)",
+    "location": {
+     "line": 1,
+     "column": 11
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { 'quoted key'() { return 1 } 42() { return 2 } } return [new A()[\"quoted key\"](), new A()[42](), Object.getOwnPropertyNames(A.prototype)]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    [
+     "42",
+     "constructor",
+     "quoted key"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { *[Symbol.iterator]() { yield 1; yield 2 } } return [...new A()]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class Counter { count = 0; inc = () => ++this.count } const c = new Counter(); const { inc } = c; inc(); inc(); return c.count",
+  "result": {
+   "ok": true,
+   "value": 2,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { return [1, 2] } } return new A()",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { x = 1 } class B extends A { y = this.x + 1 } return new B()",
+  "result": {
+   "ok": true,
+   "value": {
+    "x": 1,
+    "y": 2
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { this.order = [\"A\"] } } class B extends A { constructor() { super(); this.order.push(\"B\") } } class C extends B { constructor() { super(); this.order.push(\"C\") } } return new C().order",
+  "result": {
+   "ok": true,
+   "value": [
+    "A",
+    "B",
+    "C"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static create() { return new this() } } class B extends A {} return [B.create() instanceof B, A.create() instanceof B]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { toJSON() { return \"json\" } } return JSON.stringify({ a: new A() })",
+  "result": {
+   "ok": true,
+   "value": "{\"a\":\"json\"}",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} console.log(new A(), [new A()], { a: new A() }); return 1",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "logs": [
+    "A {} [A {}] {\"a\":A {}}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { this.self = this } } const a = new A(); console.log(a); return 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Object assignment result contains a circular value. (line 1, col 27)",
+    "location": {
+     "line": 1,
+     "column": 27
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor(x) { this.x = x } } console.table([new A(1), new A(2)]); return 1",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "logs": [
+    "(index)\tx\n0\t1\n1\t2"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} class B extends A {} const b = new B(); return [b.constructor.name, Object.getPrototypeOf(Object.getPrototypeOf(b)) === A.prototype]",
+  "result": {
+   "ok": true,
+   "value": [
+    "B",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() { return 1 } } A.prototype.m = function () { return 2 }; return new A().m()",
+  "result": {
+   "ok": true,
+   "value": 2,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static s = 1 } delete A.s; return [A.s, Object.keys(A)]",
+  "result": {
+   "ok": true,
+   "value": [
+    null,
+    []
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { f() { return this } } const f = new A().f; return f()",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { throw new Error(\"in ctor\") } } try { new A() } catch (e) { return [e.message, e.stack] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "in ctor",
+    "Error: in ctor\n    at A (<program>:1:33)\n    at <program>:1:64"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor() { null.x } } new A()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot read properties of null (reading 'x'). (line 1, col 27)",
+    "location": {
+     "line": 1,
+     "column": 27
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A extends (class { m() { return 1 } }) {} return new A().m()",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let X = 1; class A extends (X = 2, class {}) {} return X",
+  "result": {
+   "ok": true,
+   "value": 2,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { constructor(...args) { this.n = args.length } } class B extends A {} return [new B(1, 2, 3).n, B.length]",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const A = class { static n = this.name }; const B = class Named { static n = this.name }; return [A.n, B.n]",
+  "result": {
+   "ok": true,
+   "value": [
+    "A",
+    "Named"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { m() { return typeof super.m } } return new A().m()",
+  "result": {
+   "ok": true,
+   "value": "undefined",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A { static [Symbol.iterator]() { return [1, 2].values() } } return [...A]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new (class {}.constructor)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: The Function constructor is not supported; write the function inline. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function Point(x) { return { x } }; return new Point(1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Point is not a constructor: only classes can be constructed with new. Use a class, or call it as a function that returns an object. (line 1, col 44)",
+    "location": {
+     "line": 1,
+     "column": 44
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const make = () => ({}); return new make()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: make is not a constructor: only classes can be constructed with new. Use a class, or call it as a function that returns an object. (line 1, col 33)",
+    "location": {
+     "line": 1,
+     "column": 33
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { class A {} } catch (e) { return [e.name, e instanceof SyntaxError] }",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return import.meta",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: new.target is not supported. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return typeof import.meta",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: new.target is not supported. (line 1, col 15)",
+    "location": {
+     "line": 1,
+     "column": 15
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
    "toolCalls": []
   }
  }

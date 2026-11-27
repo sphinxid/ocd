@@ -92,6 +92,15 @@ fn inspect(o: &Obj, item: &mut dyn FnMut(&Value, &mut HashSet<usize>) -> String,
         }
         ObjKind::Error(..) => obj_to_string(o).to_rust(),
         ObjKind::Promise(_) => "[Promise (await it to get its value)]".into(),
+        ObjKind::Function(_) if class_info(o).is_some() => {
+            let name = own_name(o);
+            let name = if name.is_empty() { "(anonymous)".to_string() } else { name };
+            let parent = match (class_info(o), o.proto()) {
+                (Some(true), Some(p)) if p.is_callable() => own_name(&p),
+                _ => String::new(),
+            };
+            if parent.is_empty() { format!("[class {name}]") } else { format!("[class {name} extends {parent}]") }
+        }
         ObjKind::Function(_) | ObjKind::Generator(_) | ObjKind::Iterator(_) => "[opaque reference]".into(),
         ObjKind::Map(m) => {
             let entries: Vec<(Value, Value)> = m.borrow().iter().cloned().collect();
@@ -131,9 +140,39 @@ fn inspect(o: &Obj, item: &mut dyn FnMut(&Value, &mut HashSet<usize>) -> String,
                     format!("{}:{}", json_string(k), shown)
                 })
                 .collect();
-            format!("{{{}}}", parts.join(","))
+            let shown = format!("{{{}}}", parts.join(","));
+            match instance_class_name(o) {
+                Some(name) => format!("{name} {shown}"),
+                None => shown,
+            }
         }
     }
+}
+
+/// `Some(derived)` for a class constructor.
+fn class_info(o: &Obj) -> Option<bool> {
+    o.closure().and_then(|c| c.class.borrow().as_ref().map(|i| i.derived))
+}
+
+/// A function's own `name` when it is a string, without running program code.
+fn own_name(o: &Obj) -> String {
+    match crate::object::own(o, &PropKey::str("name")) {
+        Some(crate::object::Slot::Data { value: Value::String(s), .. }) => s.to_rust(),
+        _ => String::new(),
+    }
+}
+
+/// The class an instance was made by, read from its prototype's own `constructor` without running program code.
+fn instance_class_name(o: &Obj) -> Option<String> {
+    let proto = o.proto()?;
+    let Some(crate::object::Slot::Data { value: Value::Object(ctor), .. }) =
+        crate::object::own(&proto, &PropKey::str("constructor"))
+    else {
+        return None;
+    };
+    class_info(&ctor)?;
+    let name = own_name(&ctor);
+    (!name.is_empty()).then_some(name)
 }
 
 fn format_console_table(value: Value, columns_argument: Value) -> String {

@@ -29,16 +29,12 @@ async fn binds_outer_globals_that_programs_can_read_or_shadow() {
 }
 
 /// Every case of `fixtures/scan_tools.jsonl` (captured from upstream 2.3.1's `CodeMode.scanTools`, re-recorded on
-/// 2.4.1, where an import's bindings shadow `tools`) gives the same paths or diagnostic. Classes are outside the interpreter's subset, and their bodies are not scanned.
+/// 2.4.1, where an import's bindings shadow `tools`) gives the same paths or diagnostic, class bodies included.
 #[test]
 fn scan_tools_matches_upstream() {
     for line in include_str!("fixtures/scan_tools.jsonl").lines() {
         let case: serde_json::Value = serde_json::from_str(line).unwrap();
         let code = case["code"].as_str().unwrap();
-        if code.starts_with("class ") {
-            assert_eq!(oc_codemode::scan::scan_tools(code).unwrap(), Vec::<String>::new());
-            continue;
-        }
         let got = match oc_codemode::scan::scan_tools(code) {
             Ok(paths) => json!({"_id": "Result", "_tag": "Success", "value": paths}),
             Err(d) => json!({"_id": "Result", "_tag": "Failure", "failure": serde_json::to_value(&d).unwrap()}),

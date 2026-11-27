@@ -129,7 +129,12 @@ fn to_host_with(
                     }
                 }
                 for key in names {
-                    if UNCROSSED.contains(&key.as_str()) || key == "message" || !has(&o, &PropKey::str(&key)) {
+                    // A setter-only property is left out (2.4.1).
+                    if UNCROSSED.contains(&key.as_str())
+                        || key == "message"
+                        || !has(&o, &PropKey::str(&key))
+                        || crate::object::lookup(&o, &PropKey::str(&key)).is_some_and(|s| s.is_setter_only())
+                    {
                         continue;
                     }
                     let item = match next(&get(&o, &PropKey::str(&key))?) {
@@ -177,6 +182,10 @@ fn to_host_with(
                 let mut fields = Vec::new();
                 for key in keys(&o) {
                     if key.eq_str("__proto__") {
+                        continue;
+                    }
+                    // A setter-only property is left out (2.4.1); a getter runs and its value crosses.
+                    if crate::object::own(&o, &PropKey::Str(key.clone())).is_some_and(|s| s.is_setter_only()) {
                         continue;
                     }
                     let item = get(&o, &PropKey::Str(key.clone()))?;

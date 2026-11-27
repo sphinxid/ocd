@@ -57,6 +57,28 @@ pub struct NativeFn {
 pub struct Closure {
     pub func: Rc<ast::Function>,
     pub env: RefCell<Option<Env>>,
+    /// [[HomeObject]]: the prototype, constructor or object literal a method was defined on, for `super`.
+    pub home: RefCell<Option<Obj>>,
+    /// Set on class constructors only (2.4.1, #64965).
+    pub class: RefCell<Option<Rc<ClassInfo>>>,
+}
+
+impl Closure {
+    pub fn new(func: Rc<ast::Function>, env: Option<Env>) -> Closure {
+        Closure { func, env: RefCell::new(env), home: RefCell::new(None), class: RefCell::new(None) }
+    }
+}
+
+/// What a class constructor knows about its class.
+pub struct ClassInfo {
+    pub derived: bool,
+    pub node: Rc<ast::Class>,
+    /// The class scope, where field initializers run.
+    pub env: Env,
+    /// The prototype: the home of the instance fields.
+    pub proto: Obj,
+    /// The instance fields: each key (computed ones evaluated with the class) and the index of its member.
+    pub fields: Vec<(crate::value::PropKey, usize)>,
 }
 
 pub enum FuncImpl {
@@ -76,7 +98,9 @@ impl FuncKind {
     }
     pub fn teardown(&self) -> Box<dyn std::any::Any> {
         match &self.imp {
-            FuncImpl::Closure(c) => Box::new(c.env.borrow_mut().take()),
+            FuncImpl::Closure(c) => {
+                Box::new((c.env.borrow_mut().take(), c.home.borrow_mut().take(), c.class.borrow_mut().take()))
+            }
             FuncImpl::Native(_) => Box::new(()),
         }
     }

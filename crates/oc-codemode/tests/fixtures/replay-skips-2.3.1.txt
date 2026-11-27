@@ -4,3 +4,8 @@
 promise.test.ts	64	upstream waits for an uninterruptible tool cleanup (400 ms) past the timeout; Rust host futures are dropped immediately, so no TimeoutExceeded warning (as in the 2.2 and 2.3.0 corpora)
 promise.test.ts	65	same as seq 64 (uninterruptible tool cleanup past the timeout)
 parity.test.ts	281	2.4.1 changed this: Object.create defines properties from descriptors (#64908; cases-2.4.1.json)
+new-expression.test.ts	6	2.4.1 changed this: new on a program function says only classes can be constructed (#64965; cases-2.4.1.json)
+new-expression.test.ts	7	2.4.1 changed this: new on a program function says only classes can be constructed (#64965; cases-2.4.1.json)
+new-expression.test.ts	11	2.4.1 changed this: classes are supported (#64965; language-2.4.1/classes.json)
+parity.test.ts	74	2.4.1 changed this: classes are supported (#64965; language-2.4.1/classes.json)
+stdlib.test.ts	198	2.4.1 changed this: new on a program function says only classes can be constructed (#64965; cases-2.4.1.json)

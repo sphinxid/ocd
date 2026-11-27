@@ -14681,7 +14681,8 @@
     ]
    },
    "toolCalls": []
-  }
+  },
+  "gap": "2.4.1 changed this: classes are supported (#64965); cases-2.4.1.json has its result"
  },
  {
   "code": "const B = Buffer; return new B(\"x\") instanceof Buffer",

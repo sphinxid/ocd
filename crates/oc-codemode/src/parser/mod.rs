@@ -36,7 +36,7 @@ mod unicode_data;
 use std::fmt;
 
 #[doc(hidden)]
-pub use estree::to_estree;
+pub use estree::{to_estree, to_estree_full};
 
 /// A syntax error, as acorn reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]

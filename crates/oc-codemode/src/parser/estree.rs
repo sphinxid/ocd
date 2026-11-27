@@ -10,6 +10,80 @@
 use crate::ast::*;
 use serde_json::{Map, Value, json};
 
+thread_local! {
+    /// Whether classes are emitted whole (for `scan`) rather than as bare nodes (for the parser comparison).
+    static FULL_CLASSES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// ESTree JSON with class declarations and expressions in full, as acorn gives them (2.4.1: classes run, so `scan`
+/// must see into their bodies).
+pub fn to_estree_full(program: &Program) -> Value {
+    FULL_CLASSES.with(|f| f.set(true));
+    let out = to_estree(program);
+    FULL_CLASSES.with(|f| f.set(false));
+    out
+}
+
+fn class(c: &Class, ty: &str) -> Value {
+    let mut n = node(ty, c.loc);
+    if !FULL_CLASSES.with(|f| f.get()) {
+        return Value::Object(n);
+    }
+    n.insert("id".into(), opt(&c.id, ident));
+    n.insert("superClass".into(), opt(&c.super_class, |e| expr(e)));
+    let mut members: Vec<Value> = Vec::new();
+    let method = |key: &PropKey, kind: &str, is_static: bool, value: &Function, loc: Loc| {
+        let mut m = node("MethodDefinition", loc);
+        let (computed, key) = prop_key(key);
+        m.insert("static".into(), json!(is_static));
+        m.insert("computed".into(), json!(computed));
+        m.insert("key".into(), key);
+        m.insert("kind".into(), json!(kind));
+        m.insert("value".into(), function(value));
+        Value::Object(m)
+    };
+    for (index, member) in c.members.iter().enumerate() {
+        if index == c.constructor_at && !c.default_constructor {
+            let ctor = &c.constructor;
+            let key = PropKey::Ident(Ident { name: std::rc::Rc::from("constructor"), loc: ctor.loc });
+            members.push(method(&key, "constructor", false, ctor, ctor.loc));
+        }
+        members.push(match member {
+            ClassMember::Method { key, kind, is_static, value, loc } => {
+                let kind = match kind {
+                    MethodKind::Method => "method",
+                    MethodKind::Get => "get",
+                    MethodKind::Set => "set",
+                };
+                method(key, kind, *is_static, value, *loc)
+            }
+            ClassMember::Field { key, is_static, value, loc } => {
+                let mut m = node("PropertyDefinition", *loc);
+                let (computed, key) = prop_key(key);
+                m.insert("static".into(), json!(is_static));
+                m.insert("computed".into(), json!(computed));
+                m.insert("key".into(), key);
+                m.insert("value".into(), opt(value, expr));
+                Value::Object(m)
+            }
+            ClassMember::StaticBlock { loc } => {
+                let mut m = node("StaticBlock", *loc);
+                m.insert("body".into(), json!([]));
+                Value::Object(m)
+            }
+        });
+    }
+    if c.constructor_at >= c.members.len() && !c.default_constructor {
+        let ctor = &c.constructor;
+        let key = PropKey::Ident(Ident { name: std::rc::Rc::from("constructor"), loc: ctor.loc });
+        members.push(method(&key, "constructor", false, ctor, ctor.loc));
+    }
+    let mut body = node("ClassBody", c.loc);
+    body.insert("body".into(), Value::Array(members));
+    n.insert("body".into(), Value::Object(body));
+    Value::Object(n)
+}
+
 /// Converts a program to normalized ESTree JSON.
 #[doc(hidden)]
 pub fn to_estree(program: &Program) -> Value {
@@ -232,6 +306,8 @@ fn stmt(s: &Stmt) -> Value {
             }
         },
         Stmt::Unsupported { kind, loc } => node(kind, *loc),
+        // Bare in the parser comparison (acorn-normalized output), whole for `scan`.
+        Stmt::Class(c) => return class(c, "ClassDeclaration"),
     };
     Value::Object(n)
 }
@@ -590,6 +666,7 @@ fn expr(e: &Expr) -> Value {
             n
         }
         Expr::Unsupported { kind, loc } => node(kind, *loc),
+        Expr::Class(c) => return class(c, "ClassExpression"),
     };
     Value::Object(n)
 }

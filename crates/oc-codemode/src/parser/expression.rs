@@ -693,10 +693,7 @@ impl Parser {
                 self.next(false)?;
                 Ok(Expr::Function(self.parse_function(start, start_loc, 0, false, InFor::No)?))
             }
-            TT::Class => {
-                self.parse_class(false)?;
-                Ok(Expr::Unsupported { kind: "ClassExpression", loc: self.finish_loc(start, start_loc) })
-            }
+            TT::Class => Ok(Expr::Class(self.parse_class(false)?)),
             TT::New => self.parse_new(),
             TT::BackQuote => Ok(Expr::Template(self.parse_template(false)?)),
             TT::Import => self.parse_expr_import(for_new),

@@ -278,8 +278,7 @@
     "Error: g"
    ],
    "toolCalls": []
-  },
-  "gap": "classes (#64965)"
+  }
  },
  {
   "test": "stack > an assigned stack replaces it, before or after the first read",

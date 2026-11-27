@@ -3,9 +3,8 @@
 //!
 //! The walk runs over the parser's ESTree JSON (the same node shapes and key order acorn produces), so children
 //! are visited in acorn's `Object.entries` order like upstream. The program is parsed like `execute` parses it, so a
-//! top-level export is the same `ParseError`. Node kinds outside the interpreter's subset (classes, `new.target`,
-//! `import.meta`) carry no children in that JSON, so a `tools` reference inside a class body is not seen;
-//! such a program fails when it runs anyway (`Syntax 'ClassDeclaration' is not supported`).
+//! top-level export is the same `ParseError`. Classes are walked whole (`to_estree_full`, 2.4.1 runs them); the
+//! other node kinds outside the interpreter's subset (`new.target`, `import.meta`) carry no children in that JSON.
 
 use std::collections::HashSet;
 
@@ -69,7 +68,7 @@ pub fn scan_program(code: &str, globals: &[&str], forwarding: &[&str]) -> Result
     let code = code.to_string();
     let worker = std::thread::Builder::new().name("codemode-scan".into()).stack_size(STACK_SIZE).spawn(move || {
         let program = crate::codemode::parse_program(&code)?;
-        Ok::<Value, Diagnostic>(crate::parser::to_estree(&program))
+        Ok::<Value, Diagnostic>(crate::parser::to_estree_full(&program))
     });
     let tree = match worker.map(|w| w.join()) {
         Ok(Ok(result)) => result?,

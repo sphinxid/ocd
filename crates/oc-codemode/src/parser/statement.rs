@@ -102,8 +102,7 @@ impl Parser {
                 if context.is_some() {
                     return Err(self.unexpected());
                 }
-                self.parse_class(true)?;
-                Ok(Stmt::Unsupported { kind: "ClassDeclaration", loc: self.finish_loc(start, start_loc) })
+                Ok(Stmt::Class(self.parse_class(true)?))
             }
             TT::If => {
                 self.next(false)?;
@@ -618,11 +617,12 @@ impl Parser {
     /// Parses a class declaration (`is_statement`) or expression; the caller builds the node. `nullable_id` is
     /// acorn's `"nullableID"` (`export default class {}`): a declaration whose name may be left out. The class id is
     /// left in [`Parser::last_class_id`].
-    pub(super) fn parse_class(&mut self, is_statement: bool) -> R<()> {
+    pub(super) fn parse_class(&mut self, is_statement: bool) -> R<Rc<crate::ast::Class>> {
         self.parse_class_with(is_statement, false)
     }
 
-    pub(super) fn parse_class_with(&mut self, is_statement: bool, nullable_id: bool) -> R<()> {
+    pub(super) fn parse_class_with(&mut self, is_statement: bool, nullable_id: bool) -> R<Rc<crate::ast::Class>> {
+        let (start, start_loc) = (self.start, self.start_loc);
         self.next(false)?;
         // A class definition is always strict mode code.
         let old_strict = self.strict;
@@ -638,12 +638,15 @@ impl Parser {
         } else if is_statement && !nullable_id {
             return Err(self.unexpected());
         }
-        let has_super_class = if self.eat(TT::Extends)? {
-            self.parse_expr_subscripts(None, InFor::No)?;
-            true
+        let super_class = if self.eat(TT::Extends)? {
+            Some(Box::new(self.parse_expr_subscripts(None, InFor::No)?))
         } else {
-            false
+            None
         };
+        let has_super_class = super_class.is_some();
+        let mut constructor = None;
+        let mut constructor_at = 0;
+        let mut members = Vec::new();
         self.private_name_stack.push(PrivateNameScope::default());
         self.expect(TT::BraceL)?;
         let mut had_constructor = false;
@@ -654,18 +657,62 @@ impl Parser {
                     return Err(self.raise(element.start, "Duplicate constructor in the same class"));
                 }
                 had_constructor = true;
+                constructor = element.method.clone();
+                constructor_at = members.len();
+                continue;
             } else if let Some(PropKey::Private(key)) = &element.key
                 && self.is_private_name_conflicted(&element, key)
             {
                 return Err(self
                     .raise(key.loc.start as usize, &format!("Identifier '#{}' has already been declared", key.name)));
             }
+            members.push(match element {
+                ClassElement { key: None, loc, .. } => crate::ast::ClassMember::StaticBlock { loc },
+                ClassElement { key: Some(key), method: Some(value), kind, is_static, loc, .. } => {
+                    crate::ast::ClassMember::Method {
+                        key,
+                        kind: match kind {
+                            "get" => crate::ast::MethodKind::Get,
+                            "set" => crate::ast::MethodKind::Set,
+                            _ => crate::ast::MethodKind::Method,
+                        },
+                        is_static,
+                        value,
+                        loc,
+                    }
+                }
+                ClassElement { key: Some(key), field, is_static, loc, .. } => {
+                    crate::ast::ClassMember::Field { key, is_static, value: field, loc }
+                }
+            });
         }
         self.strict = old_strict;
         self.next(false)?;
         self.exit_class_body()?;
-        self.last_class_id = class_id;
-        Ok(())
+        self.last_class_id = class_id.clone();
+        let loc = self.finish_loc(start, start_loc);
+        let default_constructor = constructor.is_none();
+        // The default constructor, `constructor() {}`, located at the class.
+        let constructor = constructor.unwrap_or_else(|| {
+            Rc::new(crate::ast::Function {
+                kind: crate::ast::FunctionKind::Expression,
+                id: None,
+                params: Vec::new(),
+                body: crate::ast::FunctionBody::Block(crate::ast::Block { body: Vec::new(), loc }),
+                is_async: false,
+                is_generator: false,
+                loc,
+            })
+        });
+        Ok(Rc::new(crate::ast::Class {
+            id: class_id,
+            super_class,
+            constructor,
+            default_constructor,
+            constructor_at,
+            members,
+            loc,
+        }))
     }
 
     fn is_private_name_conflicted(&mut self, element: &ClassElement, key: &Ident) -> bool {
@@ -719,6 +766,7 @@ impl Parser {
             return Ok(None);
         }
         let start = self.start;
+        let start_loc = self.start_loc;
         let mut key_name: Option<&'static str> = None;
         let mut is_generator = false;
         let mut is_async = false;
@@ -729,7 +777,17 @@ impl Parser {
             // A static initialization block.
             if self.eat(TT::BraceL)? {
                 self.parse_class_static_block()?;
-                return Ok(Some(ClassElement { is_method: false, kind: "", is_static: true, start, key: None }));
+                let loc = self.finish_loc(start, start_loc);
+                return Ok(Some(ClassElement {
+                    is_method: false,
+                    kind: "",
+                    is_static: true,
+                    start,
+                    key: None,
+                    method: None,
+                    field: None,
+                    loc,
+                }));
             }
             if self.is_class_element_name_start() || self.ty == TT::Star {
                 is_static = true;
@@ -810,21 +868,26 @@ impl Parser {
             {
                 return Err(self.raise(loc.start as usize, "Setter cannot use rest params"));
             }
-            Ok(Some(ClassElement { is_method: true, kind, is_static, start, key: Some(key) }))
+            let loc = self.finish_loc(start, start_loc);
+            Ok(Some(ClassElement { is_method: true, kind, is_static, start, key: Some(key), method: Some(value), field: None, loc }))
         } else {
             if key_is(&key, "constructor") {
                 return Err(self.raise(key_start, "Classes can't have a field named 'constructor'"));
             } else if is_static && key_is(&key, "prototype") {
                 return Err(self.raise(key_start, "Classes can't have a static field named 'prototype'"));
             }
-            if self.eat(TT::Eq)? {
+            let field = if self.eat(TT::Eq)? {
                 // A separate scope, so that `arguments` in the initializer is an error.
                 self.enter_scope(SCOPE_CLASS_FIELD_INIT | SCOPE_SUPER);
-                self.parse_maybe_assign(InFor::No, None)?;
+                let value = self.parse_maybe_assign(InFor::No, None)?;
                 self.exit_scope();
-            }
+                Some(value)
+            } else {
+                None
+            };
             self.semicolon()?;
-            Ok(Some(ClassElement { is_method: false, kind: "field", is_static, start, key: Some(key) }))
+            let loc = self.finish_loc(start, start_loc);
+            Ok(Some(ClassElement { is_method: false, kind: "field", is_static, start, key: Some(key), method: None, field, loc }))
         }
     }
 
@@ -1080,7 +1143,7 @@ impl Parser {
                         self.check_export(top_level, &id.name, id.loc.start as usize)?;
                     }
                 }
-                Stmt::Unsupported { kind: "ClassDeclaration", .. } => {
+                Stmt::Class(_) => {
                     if let Some(id) = self.last_class_id.clone() {
                         self.check_export(top_level, &id.name, id.loc.start as usize)?;
                     }
@@ -1150,12 +1213,7 @@ impl Parser {
             return Ok(ExportDefault::Decl(Stmt::FunctionDecl(f)));
         }
         if self.ty == TT::Class {
-            let (start, start_loc) = (self.start, self.start_loc);
-            self.parse_class_with(true, true)?;
-            return Ok(ExportDefault::Decl(Stmt::Unsupported {
-                kind: "ClassDeclaration",
-                loc: self.finish_loc(start, start_loc),
-            }));
+            return Ok(ExportDefault::Decl(Stmt::Class(self.parse_class_with(true, true)?)));
         }
         let declaration = self.parse_maybe_assign(InFor::No, None)?;
         self.semicolon()?;

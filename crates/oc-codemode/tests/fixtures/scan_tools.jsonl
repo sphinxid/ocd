@@ -30,3 +30,9 @@
 {"code":"import * as tools from \"url\"\ntools.x()","result":{"_id":"Result","_tag":"Success","value":[]}}
 {"code":"const m = await import(tools.a.b())","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Automation code must call tools directly as tools.<name>(...), not import or require them. (line 1, col 17)","location":{"line":1,"column":17}}}}
 {"code":"import { URL } from \"url\"\nawait tools.a.b({})","result":{"_id":"Result","_tag":"Success","value":["a.b"]}}
+{"code":"class A { m() { return tools.a.b({}) } } return new A().m()","result":{"_id":"Result","_tag":"Success","value":["a.b"]}}
+{"code":"class A { static x = tools.c.d({}); y = tools.e.f({}) } return 1","result":{"_id":"Result","_tag":"Success","value":["c.d","e.f"]}}
+{"code":"class A extends (tools.g.h({}), class {}) { constructor() { super(); tools.i.j({}) } ['k' + tools.k.l({})]() {} } return 1","result":{"_id":"Result","_tag":"Success","value":["g.h","i.j","k.l"]}}
+{"code":"const C = class { get g() { return tools.m.n({}) } }; return 1","result":{"_id":"Result","_tag":"Success","value":["m.n"]}}
+{"code":"class A { m() { const t = tools; return t.x({}) } }","result":{"_id":"Result","_tag":"Failure","failure":{"kind":"UnsupportedSyntax","message":"Automation code must call tools directly as tools.<name>(...), not alias or pass the tools object. (line 1, col 27)","location":{"line":1,"column":27}}}}
+{"code":"class A { m() { return tools.p.q({}) } constructor() { tools.r.s({}) } n() { return tools.t.u({}) } }","result":{"_id":"Result","_tag":"Success","value":["p.q","r.s","t.u"]}}

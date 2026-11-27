@@ -83,8 +83,24 @@ enum BindMode {
 /// A resolved member: the object to read through and the receiver inherited accessors see.
 enum MemberRef {
     Prop { target: Obj, key: PropKey, receiver: Value },
+    /// `super.x`: read from `base` (the home object's prototype) with `this` as the receiver.
+    Super { base: Obj, key: PropKey, this: Value },
     Tool(ToolRef),
     Value(Value),
+}
+
+/// A class constructor (a program function made by a class).
+fn is_class(o: &Obj) -> bool {
+    o.closure().is_some_and(|c| c.class.borrow().is_some())
+}
+
+/// How a method, accessor or field key names its function: `[Symbol.iterator]` for the iterator symbols.
+fn key_label(key: &PropKey) -> String {
+    match key {
+        PropKey::Sym(Sym::Iterator) => "[Symbol.iterator]".to_string(),
+        PropKey::Sym(Sym::AsyncIterator) => "[Symbol.asyncIterator]".to_string(),
+        other => other.display(),
+    }
 }
 
 /// Native engines name the callee (`search(...).catch is not a function`), including call chains.
@@ -238,6 +254,8 @@ fn uses_arguments(f: &Function) -> bool {
         match e {
             Expr::Ident(i) => &*i.name == "arguments",
             Expr::Lit(_) | Expr::This(_) | Expr::Super(_) | Expr::PrivateName(_) | Expr::Unsupported { .. } => false,
+            // The heritage and computed keys run in the enclosing function; methods and fields have their own.
+            Expr::Class(c) => class(c),
             Expr::Array { elements, .. } => elements.iter().flatten().any(eos),
             Expr::Object { properties, .. } => properties.iter().any(|p| match p {
                 ObjectMember::Prop(p) => key(&p.key) || expr(&p.value),
@@ -262,6 +280,13 @@ fn uses_arguments(f: &Function) -> bool {
             Expr::Chain { expression, .. } => expr(expression),
             Expr::Import { source, options, .. } => expr(source) || options.as_ref().is_some_and(|o| expr(o)),
         }
+    }
+    fn class(c: &Class) -> bool {
+        c.super_class.as_deref().map(expr).unwrap_or(false)
+            || c.members.iter().any(|m| match m {
+                ClassMember::Method { key: k, .. } | ClassMember::Field { key: k, .. } => key(k),
+                ClassMember::StaticBlock { .. } => false,
+            })
     }
     fn member(m: &Member) -> bool {
         expr(&m.object)
@@ -303,6 +328,7 @@ fn uses_arguments(f: &Function) -> bool {
             Stmt::Expr { expr: e, .. } => expr(e),
             Stmt::Block(b) => b.body.iter().any(stmt),
             Stmt::Empty(_) | Stmt::Break { .. } | Stmt::Continue { .. } | Stmt::Unsupported { .. } => false,
+            Stmt::Class(c) => class(c),
             Stmt::Return { argument, .. } => argument.as_ref().map(expr).unwrap_or(false),
             Stmt::Labeled { body, .. } => stmt(body),
             Stmt::If { test, consequent, alternate, .. } => {
@@ -369,7 +395,15 @@ pub struct Frame {
     pub gen_async: Cell<bool>,
     /// Whether this frame runs the program itself (set by `run`), not a function it calls.
     pub program: Cell<bool>,
+    /// Whether this frame runs an arrow function (`super()` is refused there).
+    pub arrow: Cell<bool>,
+    /// Whether this frame runs a derived class constructor (a `return` of a primitive is refused).
+    pub derived: Cell<bool>,
 }
+
+/// A derived constructor's `this` before `super()` binds it (V8's text).
+const THIS_BEFORE_SUPER: &str =
+    "Must call super constructor in derived class before accessing 'this' or returning from derived constructor";
 
 /// The single dispatch for calls made by built-ins (upstream `ctx.call`): a root frame at depth 0.
 pub async fn call_value(rt: &Rt, callable: &Value, this: Value, args: Vec<Value>, site: Site) -> JsResult<Value> {
@@ -415,6 +449,8 @@ impl Frame {
             generator: RefCell::new(None),
             gen_async: Cell::new(false),
             program: Cell::new(false),
+            arrow: Cell::new(false),
+            derived: Cell::new(false),
         }
     }
 
@@ -459,6 +495,9 @@ impl Frame {
         let vars = scope.vars.borrow();
         let b = vars.get(name).unwrap();
         if !b.initialized {
+            if name == "this" {
+                return Err(reference_error_at(THIS_BEFORE_SUPER, node));
+            }
             return Err(reference_error_at(format!("Cannot access '{name}' before initialization."), node));
         }
         Ok(b.value.clone())
@@ -518,6 +557,12 @@ impl Frame {
 
     fn predeclare_lexical(&self, env: &Env, statements: &[Stmt]) -> JsResult<()> {
         for s in statements {
+            if let Stmt::Class(c) = s
+                && let Some(id) = &c.id
+            {
+                self.reserve(env, &id.name, true, c.loc)?;
+                continue;
+            }
             let Stmt::VarDecl(d) = s else { continue };
             if d.kind == VarKind::Var {
                 continue;
@@ -664,10 +709,20 @@ impl Frame {
                 self.var_decl(env, d).await?;
                 Ok(Completion::Normal)
             }),
+            Stmt::Class(c) => Box::pin(async move {
+                        let ctor = self.class_def(env, c, None).await?;
+                        if let Some(id) = &c.id {
+                            self.initialize(env, &id.name, ctor, c.loc)?;
+                        }
+                        Ok(Completion::Normal)
+                    }),
             Stmt::Return { argument, loc } => match argument {
                 None => ready(Ok(Completion::Return(Value::Undefined))),
                 Some(a) => Box::pin(async move {
                     let value = self.eval(env, a).await?;
+                    if self.derived.get() && !matches!(value, Value::Object(_) | Value::Undefined) {
+                        return Err(type_error_at("Derived constructors may only return object or undefined", *loc));
+                    }
                     // An async generator awaits what it returns, as it awaits what it yields.
                     if self.gen_async.get() && self.generator.borrow().is_some() {
                         return Ok(Completion::Return(self.await_value(value, Some(*loc)).await?));
@@ -1226,6 +1281,9 @@ impl Frame {
                     Ok(())
                 }
                 Pat::Member(m) => {
+                    if let Expr::Super(loc) = &*m.object {
+                        return Err(unsupported_message("Destructuring into super.x is not supported.".into(), *loc));
+                    }
                     self.modify_member(env, m, false, move |_| Box::pin(async move { Ok((true, value.clone(), value)) }))
                         .await?;
                     Ok(())
@@ -1371,6 +1429,7 @@ impl Frame {
         match self.resolve_property(source, &ekey, node, node)? {
             MemberRef::Tool(t) => Ok(Value::Tool(t)),
             MemberRef::Value(v) => Ok(v),
+            MemberRef::Super { base, key, this } => self.read_property(&base, &key, node, &this),
             MemberRef::Prop { target, key, receiver } => self.read_property(&target, &key, node, &receiver),
         }
     }
@@ -1391,7 +1450,7 @@ impl Frame {
             .iter()
             .position(|p| matches!(p, Pat::Assign { .. } | Pat::Rest { .. }))
             .unwrap_or(node.params.len());
-        let closure = Rc::new(Closure { func: node.clone(), env: RefCell::new(Some(env.clone())) });
+        let closure = Rc::new(Closure::new(node.clone(), Some(env.clone())));
         let f = make_function(&b.function, &name, length, FuncImpl::Closure(closure.clone()));
         // Each generator function gets its own prototype, so `g() instanceof g` holds as in JS.
         if node.is_generator {
@@ -1416,7 +1475,301 @@ impl Frame {
         {
             return Ok(self.create_function(env, f, Some(name)));
         }
+        if let Expr::Class(c) = node
+            && c.id.is_none()
+        {
+            return self.class_def(env, c, Some(name)).await;
+        }
         self.eval(env, node).await
+    }
+
+    // ---- classes (2.4.1, #64965) ----
+
+    /// Evaluates a class: its heritage, prototype, constructor, methods and accessors (keys in order), then the
+    /// static fields with the class as `this`. The class body sees its own name, read-only.
+    fn class_def<'a>(&'a self, env: &'a Env, node: &'a Rc<Class>, name: Option<&'a str>) -> LocalBoxFuture<'a, JsResult<Value>> {
+        Box::pin(async move {
+            for member in &node.members {
+                match member {
+                    ClassMember::StaticBlock { loc } => return Err(unsupported_syntax("StaticBlock", *loc)),
+                    ClassMember::Method { key: crate::ast::PropKey::Private(_), loc, .. }
+                    | ClassMember::Field { key: crate::ast::PropKey::Private(_), loc, .. } => {
+                        return Err(unsupported_syntax("PrivateIdentifier", *loc));
+                    }
+                    _ => {}
+                }
+            }
+            let class_env = new_env(Some(env));
+            let own_name = node.id.as_ref().map(|i| i.name.clone());
+            if let Some(n) = &own_name {
+                self.reserve(&class_env, n, false, node.loc)?;
+            }
+            let parent = match &node.super_class {
+                None => None,
+                Some(heritage) => {
+                    let value = self.eval(&class_env, heritage).await?;
+                    Some(self.class_parent(value, heritage.loc())?)
+                }
+            };
+            let b = &self.rt.builtins;
+            let proto_parent = match &parent {
+                Some(p) => match object::get(p, &PropKey::str("prototype"))? {
+                    Value::Object(o) => o,
+                    _ => b.object.clone(),
+                },
+                None => b.object.clone(),
+            };
+            let proto = Obj::ordinary(&proto_parent);
+            let shown = own_name.as_deref().or(name).unwrap_or("").to_string();
+            let Value::Object(ctor) = self.create_function(&class_env, &node.constructor, Some(&shown)) else {
+                unreachable!()
+            };
+            if let Some(p) = &parent {
+                ctor.set_proto(Some(p.clone()));
+            }
+            define(&ctor, "prototype", Value::Object(proto.clone()), FROZEN);
+            define(&proto, "constructor", Value::Object(ctor.clone()), HIDDEN);
+            let closure = ctor.closure().expect("a class constructor").clone();
+            *closure.home.borrow_mut() = Some(proto.clone());
+            let (mut fields, mut statics) = (Vec::new(), Vec::new());
+            for (index, member) in node.members.iter().enumerate() {
+                match member {
+                    ClassMember::Method { key, kind, is_static, value, loc } => {
+                        let key = self.class_key(&class_env, key).await?;
+                        let home = if *is_static { &ctor } else { &proto };
+                        if *is_static && matches!(&key, PropKey::Str(s) if s.eq_str("prototype")) {
+                            return Err(type_error_at("Classes may not have a static property named 'prototype'.", *loc));
+                        }
+                        let label = key_label(&key);
+                        let shown = match kind {
+                            MethodKind::Method => label,
+                            MethodKind::Get => format!("get {label}"),
+                            MethodKind::Set => format!("set {label}"),
+                        };
+                        let Value::Object(f) = self.create_function(&class_env, value, Some(&shown)) else { unreachable!() };
+                        if let Some(c) = f.closure() {
+                            *c.home.borrow_mut() = Some(home.clone());
+                        }
+                        match kind {
+                            MethodKind::Method => define(home, key, Value::Object(f), HIDDEN),
+                            MethodKind::Get => object::define_accessor_half(home, key, true, f, false),
+                            MethodKind::Set => object::define_accessor_half(home, key, false, f, false),
+                        }
+                    }
+                    ClassMember::Field { key, is_static, .. } => {
+                        let key = self.class_key(&class_env, key).await?;
+                        if *is_static { statics.push((key, index)) } else { fields.push((key, index)) }
+                    }
+                    ClassMember::StaticBlock { .. } => unreachable!(),
+                }
+            }
+            *closure.class.borrow_mut() = Some(Rc::new(super::function::ClassInfo {
+                derived: parent.is_some(),
+                node: node.clone(),
+                env: class_env.clone(),
+                proto,
+                fields,
+            }));
+            if let Some(n) = &own_name {
+                self.initialize(&class_env, n, Value::Object(ctor.clone()), node.loc)?;
+            }
+            // Static fields run with the class as `this` and its home, once the class has its name.
+            if !statics.is_empty() {
+                super::stack::mark(node.loc);
+            }
+            for (key, index) in statics {
+                self.init_field(&class_env, &ctor, &ctor, &node.members[index], key, "<static_initializer>").await?;
+            }
+            Ok(Value::Object(ctor))
+        })
+    }
+
+    /// A class member's key: computed ones are evaluated (through `toString`) when the class is.
+    async fn class_key(&self, env: &Env, key: &crate::ast::PropKey) -> JsResult<PropKey> {
+        Ok(match key {
+            crate::ast::PropKey::Ident(i) => PropKey::Str(JsStr::from(&*i.name)),
+            crate::ast::PropKey::Lit(l) => literal_key(l)?.prop(),
+            crate::ast::PropKey::Computed(e) => {
+                let v = self.eval(env, e).await?;
+                self.to_property_key(v, e.loc()).await?.prop()
+            }
+            crate::ast::PropKey::Private(i) => return Err(unsupported_syntax("PrivateIdentifier", i.loc)),
+        })
+    }
+
+    /// What a class may extend: another class or an error constructor. Other built-ins and `null` are refused.
+    fn class_parent(&self, parent: Value, at: Loc) -> JsResult<Obj> {
+        match &parent {
+            Value::Null => Err(type_error_at("Classes extending null are not supported.", at)),
+            Value::Object(o) if is_class(o) || self.is_error_constructor(o) => Ok(o.clone()),
+            Value::Object(o) if o.native_fn().is_some_and(|n| n.construct.is_some()) => {
+                let name = coerce_to_string(&object::peek(o, &PropKey::str("name"))).to_rust();
+                Err(type_error_at(
+                    format!("Extending the built-in {name} is not supported. Only classes and Error types can be extended."),
+                    at,
+                ))
+            }
+            other => Err(type_error_at(
+                format!("Class extends value {} is not a constructor or null.", super::describe_value(other)),
+                at,
+            )),
+        }
+    }
+
+    fn is_error_constructor(&self, o: &Obj) -> bool {
+        if o.native_fn().is_none() {
+            return false;
+        }
+        let Value::String(name) = object::peek(o, &PropKey::str("name")) else { return false };
+        let Some(t) = ErrorType::from_name(&name.to_rust()) else { return false };
+        matches!(object::peek(self.rt.builtins.error(t), &PropKey::str("constructor")), Value::Object(c) if Obj::ptr_eq(&c, o))
+    }
+
+    /// Defines one field on `target` (an instance, or the class for a static field): its initializer runs as a
+    /// method of `home`, with `target` as `this`; CreateDataPropertyOrThrow.
+    async fn init_field(
+        &self,
+        class_env: &Env,
+        target: &Obj,
+        home: &Obj,
+        member: &ClassMember,
+        key: PropKey,
+        label: &'static str,
+    ) -> JsResult<()> {
+        let ClassMember::Field { value, loc, .. } = member else { return Ok(()) };
+        let value = match value {
+            None => Value::Undefined,
+            Some(expr) => {
+                let field_env = new_env(Some(class_env));
+                field_env.set_binding(Rc::from("this"), Binding { mutable: false, value: Value::Object(target.clone()), initialized: true });
+                field_env.set_binding(Rc::from("%home"), Binding { mutable: false, value: Value::Object(home.clone()), initialized: true });
+                let frame = Frame::new(self.rt.clone(), self.depth.get().max(self.ambient.depth) + 1, self.ambient);
+                let _entry = super::stack::enter_named(label);
+                frame.eval_named(&field_env, expr, &key_label(&key)).await?
+            }
+        };
+        let desc = object::Descriptor {
+            value: Some(value),
+            writable: Some(true),
+            enumerable: Some(true),
+            configurable: Some(true),
+            ..Default::default()
+        };
+        if !object::define_own_property(target, &key, &desc).map_err(|e| locate(e, Some(*loc)))? {
+            return Err(type_error_at(format!("Cannot define property {}.", key.display()), *loc));
+        }
+        Ok(())
+    }
+
+    /// A class's instance fields, in order, on a new instance.
+    async fn init_instance_fields(&self, info: &super::function::ClassInfo, instance: &Obj) -> JsResult<()> {
+        for (key, index) in &info.fields {
+            let member = &info.node.members[*index];
+            self.init_field(&info.env, instance, &info.proto, member, key.clone(), "<instance_members_initializer>").await?;
+        }
+        Ok(())
+    }
+
+    /// `new C(...)`, or `super(...)` for `new_target`: a base class runs its constructor on a new instance of
+    /// `new_target.prototype` (fields first); a derived one runs with `this` unbound until `super()` binds it.
+    fn construct_class<'a>(&'a self, ctor: &'a Obj, args: Vec<Value>, new_target: &'a Obj, site: Loc) -> LocalBoxFuture<'a, JsResult<Value>> {
+        Box::pin(async move {
+            let closure = ctor.closure().expect("a class constructor").clone();
+            let info = closure.class.borrow().clone().expect("a class constructor");
+            if !info.derived {
+                let proto = match object::get(new_target, &PropKey::str("prototype"))? {
+                    Value::Object(o) => o,
+                    _ => self.rt.builtins.object.clone(),
+                };
+                let instance = Obj::ordinary(&proto);
+                self.init_instance_fields(&info, &instance).await?;
+                return self
+                    .invoke_function(ctor.clone(), closure, Value::Object(instance), args, Some(site), Some(new_target.clone()))
+                    .await;
+            }
+            if info.node.default_constructor {
+                // `constructor(...args) { super(...args) }`, passing the arguments without iterating them.
+                let depth = self.depth.get().max(self.ambient.depth) + 1;
+                if depth > MAX_CALL_DEPTH {
+                    return Err(located(range_error("Maximum call stack size exceeded"), Some(site)));
+                }
+                let frame = Frame::new(self.rt.clone(), depth, self.ambient);
+                let instance = frame.super_construct(ctor, args, new_target, site).await?;
+                frame.init_instance_fields(&info, &instance).await?;
+                return Ok(Value::Object(instance));
+            }
+            self.invoke_function(ctor.clone(), closure, Value::Undefined, args, Some(site), Some(new_target.clone())).await
+        })
+    }
+
+    /// The parent constructor of the running class constructed for `new_target`.
+    async fn super_construct(&self, ctor: &Obj, args: Vec<Value>, new_target: &Obj, site: Loc) -> JsResult<Obj> {
+        let parent = ctor.proto();
+        let made = match &parent {
+            Some(p) if is_class(p) => self.construct_class(p, args, new_target, site).await?,
+            Some(p) if self.is_error_constructor(p) => {
+                let construct = p.native_fn().and_then(|n| n.construct.clone()).expect("an error constructor");
+                super::stack::mark(site);
+                construct(&self.rt, self.site(Some(site)), args, new_target.clone()).resolve().await.map_err(|e| locate(e, Some(site)))?
+            }
+            other => {
+                let shown = other.clone().map(Value::Object).unwrap_or(Value::Null);
+                return Err(type_error_at(
+                    format!("Super constructor {} of anonymous class is not a constructor", super::describe_value(&shown)),
+                    site,
+                ));
+            }
+        };
+        match made {
+            Value::Object(o) => Ok(o),
+            _ => Err(type_error_at("Super constructor returned a non-object.", site)),
+        }
+    }
+
+    /// `super(...)` in a derived constructor: constructs the parent for the new target, binds `this` (once), then
+    /// defines this class's fields.
+    async fn super_call(&self, env: &Env, arguments: &[ExprOrSpread], callee: Loc, node: Loc) -> JsResult<Value> {
+        if self.arrow.get() {
+            return Err(unsupported_message(
+                "super() inside an arrow function is not supported. Call super() directly in the constructor.".into(),
+                callee,
+            ));
+        }
+        let (Value::Object(ctor), Value::Object(new_target)) =
+            (self.lookup(env, "%fn", callee)?, self.lookup(env, "%newTarget", callee)?)
+        else {
+            return Err(unsupported_syntax("Super", callee));
+        };
+        let args = self.call_arguments(env, arguments).await?;
+        super::stack::mark(node);
+        let instance = self.super_construct(&ctor, args, &new_target, node).await?;
+        let Some(scope) = env.lookup("this") else { return Err(unsupported_syntax("Super", callee)) };
+        {
+            let mut vars = scope.vars.borrow_mut();
+            let binding = vars.get_mut("this").expect("a this binding");
+            if binding.initialized {
+                return Err(reference_error_at("Super constructor may only be called once", node));
+            }
+            binding.value = Value::Object(instance.clone());
+            binding.initialized = true;
+        }
+        if let Some(info) = ctor.closure().and_then(|c| c.class.borrow().clone()) {
+            self.init_instance_fields(&info, &instance).await?;
+        }
+        Ok(Value::Object(instance))
+    }
+
+    /// The object `super.x` reads from (the home object's prototype) and `this`.
+    fn super_base(&self, env: &Env, at: Loc) -> JsResult<(Obj, Value)> {
+        let Some(Value::Object(home)) = env.lookup("%home").and_then(|s| s.vars.borrow().get("%home").map(|b| b.value.clone()))
+        else {
+            return Err(unsupported_syntax("Super", at));
+        };
+        let this = self.lookup(env, "this", at)?;
+        match home.proto() {
+            Some(base) => Ok((base, this)),
+            None => Err(type_error_at("Cannot use 'super' here: the home object has no prototype.", at)),
+        }
     }
 
     // ---- calls ----
@@ -1445,7 +1798,14 @@ impl Frame {
                 Value::Object(o) if o.is_callable() => {
                     if let Some(c) = o.closure() {
                         let c = c.clone();
-                        return self.invoke_function(o.clone(), c, this, args, node).await;
+                        if c.class.borrow().is_some() {
+                            let name = coerce_to_string(&object::get(o, &PropKey::str("name"))?).to_rust();
+                            return Err(located(
+                                type_error(format!("Class constructor {name} cannot be invoked without 'new'")),
+                                node,
+                            ));
+                        }
+                        return self.invoke_function(o.clone(), c, this, args, node, None).await;
                     }
                     if let Some(n) = o.native_fn() {
                         // A loop made only of built-in calls has no program call or loop back-edge to count.
@@ -1496,6 +1856,8 @@ impl Frame {
     }
 
     // A callback invoked by a built-in runs below the call that invoked the built-in, so the deeper counts.
+    /// Runs a program function; with `new_target`, as a class constructor (`this` is the new instance, or unbound
+    /// until `super()` for a derived class) whose result is the constructed object.
     async fn invoke_function(
         &self,
         fn_obj: Obj,
@@ -1503,6 +1865,7 @@ impl Frame {
         this: Value,
         args: Vec<Value>,
         node: Option<Loc>,
+        new_target: Option<Obj>,
     ) -> JsResult<Value> {
         self.rt.interrupt.check()?;
         let depth = self.depth.get().max(self.ambient.depth) + 1;
@@ -1516,8 +1879,25 @@ impl Frame {
         let invocation = Rc::new(Frame::new(self.rt.clone(), depth, self.ambient));
         let param_env = new_env(Some(&captured));
         let arrow = func.kind == FunctionKind::Arrow;
+        invocation.arrow.set(arrow);
+        let derived = new_target.is_some() && closure.class.borrow().as_ref().is_some_and(|c| c.derived);
+        let constructed = this.clone();
         if !arrow {
-            param_env.set_binding(Rc::from("this"), Binding { mutable: false, value: this, initialized: true });
+            param_env.set_binding(Rc::from("this"), Binding { mutable: false, value: this, initialized: !derived });
+            // A method's home object, for `super.x` (arrows inside see it too).
+            if let Some(home) = closure.home.borrow().clone() {
+                param_env.set_binding(Rc::from("%home"), Binding { mutable: false, value: Value::Object(home), initialized: true });
+            }
+            if let Some(target) = &new_target
+                && derived
+            {
+                invocation.derived.set(true);
+                let bind = |name: &str, value: Value| {
+                    param_env.set_binding(Rc::from(name), Binding { mutable: false, value, initialized: true })
+                };
+                bind("%fn", Value::Object(fn_obj.clone()));
+                bind("%newTarget", Value::Object(target.clone()));
+            }
         }
         if !arrow && self.uses_arguments(&func) {
             let arguments = Obj::new(Some(self.rt.builtins.object.clone()), ObjKind::Arguments);
@@ -1589,7 +1969,25 @@ impl Frame {
         if !func.is_async {
             let _frame = super::stack::enter(Some(fn_obj.clone()));
             bind.await?;
-            return body.await;
+            let result = body.await?;
+            if new_target.is_none() || matches!(result, Value::Object(_)) {
+                return Ok(result);
+            }
+            if !derived {
+                return Ok(constructed);
+            }
+            // `this` as `super()` left it; unbound, the constructor returned before calling it.
+            let bound = param_env.vars.borrow().get("this").cloned();
+            return match bound {
+                Some(b) if b.initialized => Ok(b.value),
+                _ => {
+                    let at = match &func.body {
+                        FunctionBody::Block(b) => b.loc,
+                        FunctionBody::Expr(e) => e.loc(),
+                    };
+                    Err(reference_error_at(THIS_BEFORE_SUPER, at))
+                }
+            };
         }
         // The body runs now, nested in the caller's job, until it first suspends; its completion settles the promise.
         let made = super::promises::capability(&self.rt, None)?;
@@ -1840,11 +2238,19 @@ impl Frame {
             Expr::PrivateName(i) => ready(Err(unsupported_syntax("PrivateIdentifier", i.loc))),
             Expr::Import { source, options, loc } => Box::pin(self.import_expr(env, source, options, *loc)),
             Expr::Unsupported { kind, loc } => ready(Err(unsupported_syntax(kind, *loc))),
+            Expr::Class(c) => Box::pin(self.class_def(env, c, None)),
         }
     }
 
     async fn new_expr(&self, env: &Env, callee: &Expr, arguments: &[ExprOrSpread], loc: Loc) -> JsResult<Value> {
         let value = self.eval(env, callee).await?;
+        if let Value::Object(o) = &value
+            && is_class(o)
+        {
+            let args = self.call_arguments(env, arguments).await?;
+            super::stack::mark(loc);
+            return self.construct_class(o, args, o, loc).await;
+        }
         let construct = match &value {
             Value::Object(o) => o.native_fn().and_then(|n| n.construct.clone()),
             _ => None,
@@ -1853,7 +2259,7 @@ impl Frame {
             let name = callee_description(Some(callee)).unwrap_or_else(|| "The called value".into());
             let message = match &value {
                 Value::Object(o) if o.closure().is_some() => format!(
-                    "{name} cannot be constructed: user-defined constructors and classes are not supported. Call it as a function that returns a plain object instead."
+                    "{name} is not a constructor: only classes can be constructed with new. Use a class, or call it as a function that returns an object."
                 ),
                 Value::Object(o) if o.native_fn().is_some() => {
                     format!("new {name}(...) is not supported; call {name}(...) without new instead.")
@@ -2071,7 +2477,7 @@ impl Frame {
         node: Loc,
     ) -> JsResult<Value> {
         if let Expr::Super(loc) = callee {
-            return Err(unsupported_syntax("Super", *loc));
+            return self.super_call(env, arguments, *loc, node).await;
         }
         let (callable, this) = match callee {
             Expr::Member(m) => self.read_method(env, m).await?,
@@ -2088,6 +2494,7 @@ impl Frame {
         Ok(match self.member_reference(env, node).await? {
             MemberRef::Tool(t) => (Value::Tool(t), Value::Undefined),
             MemberRef::Value(v) => (v, Value::Undefined),
+            MemberRef::Super { base, key, this } => (self.read_property(&base, &key, node.loc, &this)?, this),
             MemberRef::Prop { target, key, receiver } => {
                 (self.read_reference(&target, &key, node, &receiver)?, receiver)
             }
@@ -2129,10 +2536,20 @@ impl Frame {
                         let getter = p.kind == PropKind::Get;
                         let label = format!("{} {name}", if getter { "get" } else { "set" });
                         let Value::Object(f) = self.eval_named(env, &p.value, &label).await? else { unreachable!() };
+                        if let Some(c) = f.closure() {
+                            *c.home.borrow_mut() = Some(object.clone());
+                        }
                         object::define_accessor_half(&object, key.prop(), getter, f, true);
                         continue;
                     }
                     let value = self.eval_named(env, &p.value, &name).await?;
+                    // An object literal method has the object as its home, for `super.x`.
+                    if p.method
+                        && let Value::Object(f) = &value
+                        && let Some(c) = f.closure()
+                    {
+                        *c.home.borrow_mut() = Some(object.clone());
+                    }
                     define(&object, key.prop(), value, object::DATA);
                 }
             }
@@ -2215,7 +2632,16 @@ impl Frame {
 
     async fn member_reference(&self, env: &Env, node: &Member) -> JsResult<MemberRef> {
         if let Expr::Super(loc) = &*node.object {
-            return Err(unsupported_syntax("Super", *loc));
+            let (base, this) = self.super_base(env, *loc)?;
+            let key = match &node.property {
+                MemberProp::Ident(i) => PropKey::Str(JsStr::from(&*i.name)),
+                MemberProp::Computed(e) => {
+                    let v = self.eval(env, e).await?;
+                    self.to_property_key(v, e.loc()).await?.prop()
+                }
+                MemberProp::Private(i) => return Err(unsupported_syntax("PrivateIdentifier", i.loc)),
+            };
+            return Ok(MemberRef::Super { base, key, this });
         }
         if let MemberProp::Private(i) = &node.property {
             return Err(unsupported_syntax("PrivateIdentifier", i.loc));
@@ -2306,6 +2732,7 @@ impl Frame {
         match self.member_reference(env, node).await? {
             MemberRef::Tool(t) => Ok(Value::Tool(t)),
             MemberRef::Value(v) => Ok(v),
+            MemberRef::Super { base, key, this } => self.read_property(&base, &key, node.loc, &this),
             MemberRef::Prop { target, key, receiver } => self.read_reference(&target, &key, node, &receiver),
         }
     }
@@ -2322,6 +2749,15 @@ impl Frame {
             self.eval(env, target).await?;
             return Ok(Value::Bool(true));
         };
+        if let Expr::Super(loc) = &*m.object {
+            // `delete super.x` evaluates the reference (`this`, then the key) and always throws.
+            self.lookup(env, "this", *loc)?;
+            if let MemberProp::Computed(e) = &m.property {
+                let v = self.eval(env, e).await?;
+                self.to_property_key(v, e.loc()).await?;
+            }
+            return Err(reference_error_at("Unsupported reference to 'super'.", m.loc));
+        }
         let reference = match self.member_reference(env, m).await {
             Err(Thrown::ShortCircuit) => return Ok(Value::Bool(true)),
             other => other?,
@@ -2350,6 +2786,14 @@ impl Frame {
             Err(Thrown::ShortCircuit) => return Err(type_error_at("Only data fields may be assigned.", node.loc)),
             other => other?,
         };
+        if let MemberRef::Super { base, key, this } = reference {
+            let current = if read { self.read_property(&base, &key, node.loc, &this)? } else { Value::Undefined };
+            let (write, next, result) = compute(current).await?;
+            if write {
+                self.put_super(&base, &key, &this, next, node.loc)?;
+            }
+            return Ok(result);
+        }
         let MemberRef::Prop { target, key, receiver } = reference else {
             return Err(type_error_at("Only data fields may be assigned.", node.loc));
         };
@@ -2387,6 +2831,25 @@ impl Frame {
             self.assign_to_reference(&target, &key, next, node.loc)?;
         }
         Ok(result)
+    }
+
+    /// `super.x = v`: a setter on the home object's prototype chain runs with `this`; otherwise `this` takes the write.
+    fn put_super(&self, base: &Obj, key: &PropKey, this: &Value, next: Value, node: Loc) -> JsResult<()> {
+        super::stack::mark(node);
+        if let Some(Slot::Accessor { set: setter, .. }) = object::lookup(base, key) {
+            return match setter {
+                None => Err(type_error_at(format!("Cannot set property {}, which has only a getter.", key.display()), node)),
+                Some(object::Half::Native(f)) => f(this, next).map_err(|e| locate(e, Some(node))),
+                Some(object::Half::Program(f)) => call_sync(&f, this.clone(), vec![next]).map(|_| ()).map_err(|e| locate(e, Some(node))),
+            };
+        }
+        let Value::Object(target) = this else {
+            return Err(type_error_at(
+                format!("Cannot set property {} of {}.", key.display(), super::describe_value(this)),
+                node,
+            ));
+        };
+        self.assign_to_reference(target, key, next, node)
     }
 
     fn assign_to_reference(&self, target: &Obj, key: &PropKey, next: Value, node: Loc) -> JsResult<()> {

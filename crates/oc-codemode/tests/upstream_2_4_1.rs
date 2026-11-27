@@ -144,4 +144,5 @@ language_tests! {
     descriptors => "descriptors",
     errors => "errors",
     buffer => "buffer",
+    classes => "classes",
 }

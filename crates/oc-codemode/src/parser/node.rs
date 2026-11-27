@@ -42,6 +42,10 @@ pub(super) struct ClassElement {
     pub start: usize,
     /// The key of a method or field (`None` for static blocks).
     pub key: Option<crate::ast::PropKey>,
+    /// A method's function, or a field's initializer.
+    pub method: Option<std::rc::Rc<crate::ast::Function>>,
+    pub field: Option<crate::ast::Expr>,
+    pub loc: crate::ast::Loc,
 }
 
 /// Multiplies the little-endian base-2^32 number `n` by `mul` and adds `add`.
