@@ -521,6 +521,7 @@ impl Catalog {
 pub enum MediaType {
     Image,
     Decision,
+    Video,
 }
 
 impl MediaType {
@@ -528,15 +529,17 @@ impl MediaType {
         match self {
             Self::Image => "image",
             Self::Decision => "decision",
+            Self::Video => "video",
         }
     }
 }
 
-/// A resolved image or decision model.
+/// A resolved image, decision or video model.
 #[derive(Debug, Clone)]
 pub enum MediaModel {
     Image(crate::image::ImageModel),
     Decision(crate::decision::DecisionModel),
+    Video(crate::video::VideoModel),
 }
 
 /// `loadCatalogPackage` + `fromCatalogMedia`: build an image or decision model from its catalog package. The
@@ -623,6 +626,14 @@ pub fn from_catalog_media(
                 }
                 model.http = with_tls(model.http.take());
                 Ok(MediaModel::Decision(model))
+            }
+            None => Err(unsupported()),
+        },
+        MediaType::Video => match crate::providers::media::video_model(&specifier, &resolved.model_id, &settings) {
+            Some(built) => {
+                let mut model = built.map_err(construction)?;
+                model.http = with_tls(model.http.take());
+                Ok(MediaModel::Video(model))
             }
             None => Err(unsupported()),
         },

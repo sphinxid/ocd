@@ -188,7 +188,7 @@ async fn media_requests_time_out_waiting_for_headers_and_between_chunks() {
 
 /// "applies provider timeouts to resolved image, video, and decision models" (model-resolver.test.ts)
 #[test]
-fn applies_provider_timeouts_to_resolved_image_and_decision_models() {
+fn applies_provider_timeouts_to_resolved_image_video_and_decision_models() {
     use oc_ai::catalog::resolve::{resolve_media, MediaModel, MediaType};
     use oc_ai::catalog::{ModelInfo, ProviderInfo};
     let settings = json!({"apiKey": "secret", "timeout": 12_000, "headerTimeout": 3_000, "chunkTimeout": 4_000});
@@ -198,13 +198,15 @@ fn applies_provider_timeouts_to_resolved_image_and_decision_models() {
     let expected = (Some(HttpTimeout::Millis(12_000.0)), Some(HttpTimeout::Millis(3_000.0)), Some(HttpTimeout::Millis(4_000.0)));
     for (kind, package, id) in [
         (MediaType::Image, "@opencode/ai/providers/openai/images", "gpt-image-2"),
+        (MediaType::Video, "@opencode/ai/providers/xai/videos", "grok-imagine-video-1.5"),
         (MediaType::Decision, "@opencode/ai/providers/google/decisions", "gemini-2.5-flash"),
     ] {
         let mut model = ModelInfo::default_for("timed", id);
-        model.kind = Some(if kind == MediaType::Image { "image" } else { "decision" }.into());
+        model.kind = Some(kind.as_str().into());
         model.package = Some(package.into());
         let http = match resolve_media(Some(&provider), &model, kind, None, None, &Default::default()).unwrap() {
             MediaModel::Image(m) => m.http,
+            MediaModel::Video(m) => m.http,
             MediaModel::Decision(m) => m.http,
         };
         let http = http.unwrap();

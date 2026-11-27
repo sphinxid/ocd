@@ -1,5 +1,6 @@
-//! Image and decision entrypoints of the native provider packages (`providers/<P>/images.ts` →
-//! `imageModel(modelID, settings)`, `providers/<P>/decisions.ts` → `decisionModel(modelID, settings)`).
+//! Image, decision and video entrypoints of the native provider packages (`providers/<P>/images.ts` →
+//! `imageModel(modelID, settings)`, `providers/<P>/decisions.ts` → `decisionModel(modelID, settings)`,
+//! `providers/<P>/videos.ts` → `videoModel(modelID, settings)`).
 
 use super::{Settings, PREFIX};
 use crate::decision::{google as google_decisions, openai as openai_decisions, system_one, DecisionModel};
@@ -11,6 +12,7 @@ use crate::protocols::gemini;
 use crate::route::auth::{self, Credential};
 use crate::route::media::Deployment;
 use crate::types::HttpOptions;
+use crate::video::{self, VideoModel};
 use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -351,6 +353,64 @@ fn cloudflare_workers(model_id: &str, s: &mut Settings) -> Result<ImageModel> {
     let run = cloudflare_run_base(base, account, "cloudflare-workers-ai", "CloudflareWorkersAI")?;
     let deployment = Deployment::new(bearer(api_key, WORKERS_ENV), Some(run), headers, body);
     Ok(image::cloudflare::model(model_id, &deployment, Some(take_rest(s))))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Videos
+// ---------------------------------------------------------------------------------------------
+
+/// The video entrypoints (`@opencode/ai/providers/<P>/videos`).
+pub fn is_video_package(package: &str) -> bool {
+    package.strip_prefix(PREFIX).is_some_and(|n| n.ends_with("/videos"))
+}
+
+/// `MediaRoute.deployment(config, auth)` for a video facade: `apiKey: false` builds the model without auth.
+fn video_deployment(s: &mut Settings, auth: impl FnOnce(Option<String>) -> std::sync::Arc<dyn crate::route::Auth>) -> Deployment {
+    let keyless = key_disabled(s);
+    let api_key = s.string("apiKey");
+    let base = s.string("baseURL");
+    let headers = s.headers();
+    let body = s.body();
+    Deployment::new(if keyless { auth::none() } else { auth(api_key) }, base, headers, body)
+}
+
+/// Build a video model for a native `.../videos` entrypoint (`videoModel(modelID, settings)`). Entrypoints that are
+/// not video packages fail with `None`: the resolver reports them as unsupported for this type.
+pub fn video_model(package: &str, model_id: &str, settings: &Object) -> Option<Result<VideoModel>> {
+    let name = package.strip_prefix(PREFIX)?;
+    let mut s = Settings::new(settings);
+    let bearer_env = |env: &'static str| move |key: Option<String>| bearer(key, &[env]);
+    Some(Ok(match name {
+        "xai/videos" => {
+            let deployment = video_deployment(&mut s, bearer_env("XAI_API_KEY"));
+            video::xai::model(model_id, &deployment, Some(take_rest(&mut s)))
+        }
+        "minimax/videos" => {
+            let mut deployment = video_deployment(&mut s, bearer_env("MINIMAX_API_KEY"));
+            // H3 is under /v2 and Hailuo under /v1, so video drops the version a shared `baseURL` carries.
+            deployment.base_url = deployment.base_url.map(|b| video::minimax::video_base_url(&b));
+            video::minimax::model(model_id, &deployment, Some(take_rest(&mut s)))
+        }
+        "openrouter/videos" => {
+            let deployment = video_deployment(&mut s, bearer_env("OPENROUTER_API_KEY"));
+            video::openrouter::model(model_id, &deployment, Some(take_rest(&mut s)))
+        }
+        "google/videos" => {
+            let deployment = video_deployment(&mut s, |key| {
+                auth::header("x-goog-api-key", Credential::optional(key, "apiKey").or_else(Credential::env("GOOGLE_GENERATIVE_AI_API_KEY")))
+            });
+            video::google::model(model_id, &deployment, Some(take_rest(&mut s)))
+        }
+        "byteplus/videos" => {
+            let deployment = video_deployment(&mut s, bearer_env("BYTEPLUS_API_KEY"));
+            video::seedance::model(video::seedance::Provider::Byteplus, model_id, &deployment, Some(take_rest(&mut s)))
+        }
+        "volcengine/videos" => {
+            let deployment = video_deployment(&mut s, bearer_env("ARK_API_KEY"));
+            video::seedance::model(video::seedance::Provider::Volcengine, model_id, &deployment, Some(take_rest(&mut s)))
+        }
+        _ => return None,
+    }))
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -308,7 +308,7 @@ pub fn reject_unsupported(route: &str, provider: &str, present: &[&str]) -> Resu
     ))
 }
 
-fn with_query(url: &mut url::Url, query: Option<&Query>) {
+pub(crate) fn with_query(url: &mut url::Url, query: Option<&Query>) {
     let Some(query) = query else { return };
     if query.is_empty() {
         return;
@@ -324,7 +324,7 @@ fn with_query(url: &mut url::Url, query: Option<&Query>) {
     url.set_query(Some(&encoded));
 }
 
-fn string_query(query: Option<&IndexMap<String, String>>) -> Option<Query> {
+pub(crate) fn string_query(query: Option<&IndexMap<String, String>>) -> Option<Query> {
     query.map(|q| q.iter().map(|(k, v)| (k.clone(), vec![v.clone()])).collect())
 }
 

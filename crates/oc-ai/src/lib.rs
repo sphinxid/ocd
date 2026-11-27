@@ -13,6 +13,7 @@ pub mod protocols;
 pub mod client;
 pub mod aisdk;
 pub mod image;
+pub mod video;
 pub mod decision;
 
 pub use client::{Client, Compiled, LLMStream, StreamDriver, StreamOptions};

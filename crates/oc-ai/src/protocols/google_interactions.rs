@@ -36,7 +36,8 @@ const OFFICE_DOCUMENT_MIME_TYPES: [&str; 10] = [
     "application/vnd.oasis.opendocument.spreadsheet",
 ];
 
-fn media_content(asset: &MediaAsset) -> Result<Value, AIError> {
+/// `GoogleInteractions.mediaContent`: one media input as an Interactions content part.
+pub fn media_content(asset: &MediaAsset) -> Result<Value, AIError> {
     let media_type = asset.media_type();
     let kind = asset.kind();
     let kind_name = match kind {

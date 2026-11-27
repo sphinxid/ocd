@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "metadata": {
+    "tags": [
+      "prefix:xai-video",
+      "provider:xai",
+      "protocol:xai-video"
+    ],
+    "name": "xai-video/generates-a-video",
+    "recordedAt": "2026-09-22T19:37:31.721Z"
+  },
+  "interactions": [
+    {
+      "transport": "http",
+      "request": {
+        "method": "POST",
+        "url": "https://api.x.ai/v1/videos/generations",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"grok-imagine-video-1.5\",\"prompt\":\"A single red balloon drifting slowly upward against a clear blue sky.\",\"duration\":2,\"aspect_ratio\":\"16:9\",\"resolution\":\"480p\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"request_id\":\"5677f6a3-b499-969d-9e51-396b503a95df\"}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://api.x.ai/v1/videos/5677f6a3-b499-969d-9e51-396b503a95df",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"pending\",\"progress\":1}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://api.x.ai/v1/videos/5677f6a3-b499-969d-9e51-396b503a95df",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"pending\",\"progress\":10}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://api.x.ai/v1/videos/5677f6a3-b499-969d-9e51-396b503a95df",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"pending\",\"progress\":37}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://api.x.ai/v1/videos/5677f6a3-b499-969d-9e51-396b503a95df",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"done\",\"video\":{\"url\":\"https://vidgen.x.ai/xai-vidgen-bucket/xai-video-5677f6a3-b499-969d-9e51-396b503a95df.mp4\",\"duration\":2,\"respect_moderation\":true},\"model\":\"grok-imagine-video-1.5\",\"usage\":{\"cost_in_usd_ticks\":1600000000},\"progress\":100}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://api.x.ai/v1/videos/5677f6a3-b499-969d-9e51-396b503a95df",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"status\":\"done\",\"video\":{\"url\":\"https://vidgen.x.ai/xai-vidgen-bucket/xai-video-5677f6a3-b499-969d-9e51-396b503a95df.mp4\",\"duration\":2,\"respect_moderation\":true},\"model\":\"grok-imagine-video-1.5\",\"usage\":{\"cost_in_usd_ticks\":1600000000},\"progress\":100}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://vidgen.x.ai/xai-vidgen-bucket/xai-video-5677f6a3-b499-969d-9e51-396b503a95df.mp4",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "video/mp4"
+        },
+        "body": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAADVpdXVpZNj+w9YbDkg8",
+        "bodyEncoding": "base64"
+      }
+    }
+  ]
+}

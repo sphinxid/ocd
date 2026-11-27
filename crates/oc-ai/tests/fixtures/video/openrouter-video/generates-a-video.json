@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "metadata": {
+    "tags": [
+      "prefix:openrouter-video",
+      "provider:openrouter",
+      "protocol:openrouter-video"
+    ],
+    "name": "openrouter-video/generates-a-video",
+    "recordedAt": "2026-11-13T05:21:47.989Z"
+  },
+  "interactions": [
+    {
+      "transport": "http",
+      "request": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/videos",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"x-ai/grok-imagine-video-1.5-lite\",\"prompt\":\"A single red balloon drifting slowly upward against a clear blue sky.\",\"duration\":1,\"aspect_ratio\":\"16:9\",\"resolution\":\"480p\"}"
+      },
+      "response": {
+        "status": 202,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "\n         \n\n         \n\n         \n\n         \n\n         \n{\"id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"polling_url\":\"https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"status\":\"pending\"}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"generation_id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"polling_url\":\"https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"status\":\"pending\"}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"generation_id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"polling_url\":\"https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"status\":\"pending\"}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"generation_id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"polling_url\":\"https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"status\":\"completed\",\"unsigned_urls\":[\"https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F/content?index=0\"],\"usage\":{\"cost\":0.02,\"is_byok\":false}}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"generation_id\":\"gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"polling_url\":\"https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F\",\"status\":\"completed\",\"unsigned_urls\":[\"https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F/content?index=0\"],\"usage\":{\"cost\":0.02,\"is_byok\":false},\"expires_at\":1794633707}"
+      }
+    },
+    {
+      "transport": "http",
+      "request": {
+        "method": "GET",
+        "url": "https://openrouter.ai/api/v1/videos/gen-vid-1794547285-vcFmxk5o6GYVzbleaY8F/content?index=0",
+        "headers": {},
+        "body": ""
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "video/mp4"
+        },
+        "body": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAADVndXVpZNj+w9YbDkg8",
+        "bodyEncoding": "base64"
+      }
+    }
+  ]
+}
