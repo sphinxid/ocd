@@ -79,13 +79,7 @@ pub fn module(rt: &Rt, specifier: &str, site: Option<Loc>) -> JsResult<Value> {
     }
     let module = resolve_module(rt, name)?;
     if matches!(module, Value::Undefined) {
-        return Err(error_at(
-            ErrorType::Error,
-            format!(
-                "Cannot import \"{specifier}\": it isn't available here, where packages and files can't be loaded. Use the provided globals."
-            ),
-            site,
-        ));
+        return Err(error_at(ErrorType::Error, cannot_import(specifier), site));
     }
     rt.modules.borrow_mut().insert(name.to_string(), module.clone());
     Ok(module)
@@ -108,4 +102,32 @@ pub fn namespace(rt: &Rt, specifier: &str, site: Option<Loc>) -> JsResult<Obj> {
     define(&namespace, "default", module, DATA);
     rt.namespaces.borrow_mut().insert(name.to_string(), namespace.clone());
     Ok(namespace)
+}
+
+// Node's core modules, fixed so every host gives the same answer (Bun's `isBuiltin` also claims `ws` and `undici`).
+const CORE_MODULES: &[&str] = &[
+    "assert", "async_hooks", "buffer", "child_process", "cluster", "console", "constants", "crypto", "dgram",
+    "diagnostics_channel", "dns", "domain", "events", "fs", "http", "http2", "https", "inspector", "module", "net",
+    "os", "path", "perf_hooks", "process", "punycode", "querystring", "readline", "repl", "stream", "string_decoder",
+    "sys", "timers", "tls", "trace_events", "tty", "url", "util", "v8", "vm", "wasi", "worker_threads", "zlib",
+];
+
+/// Whether a specifier names a module a runtime provides, as Node's and Bun's own modules are, rather than a package
+/// (psychoscript's `isRuntimeModule`, 2.4.1 #64587).
+pub fn is_runtime_module(specifier: &str) -> bool {
+    specifier.starts_with("node:")
+        || specifier == "bun"
+        || specifier.starts_with("bun:")
+        || CORE_MODULES.contains(&specifier.split('/').next().unwrap_or(""))
+}
+
+/// Why `specifier` can't be loaded, naming the kind of import that failed (2.4.1, #64587).
+fn cannot_import(specifier: &str) -> String {
+    if specifier.starts_with('.') || specifier.starts_with('/') || specifier.starts_with("file:") {
+        return format!("Cannot import \"{specifier}\": local files can't be imported.");
+    }
+    if is_runtime_module(specifier) {
+        return format!("Cannot import \"{specifier}\": this runtime doesn't provide it.");
+    }
+    format!("Cannot import \"{specifier}\": packages can't be installed here.")
 }

@@ -15,3 +15,4 @@ extensions.test.ts	26	2.3.1 changed this: "which cannot be passed to the host" (
 extensions.test.ts	51	2.3.1 changed this: the import error no longer names Code Mode or `tools` (#64487; 2.3.1 corpus, extensions.test.ts 61)
 extensions.test.ts	52	2.3.1 changed this: the import error wording (#64487; 2.3.1 corpus, extensions.test.ts 62)
 extensions.test.ts	54	2.3.1 changed this: the import error wording (#64487; 2.3.1 corpus, extensions.test.ts 64)
+extensions.test.ts	56	2.4.1 changed this: every Error has a stack, a host one too (#64939; cases-2.4.1.json "host errors")

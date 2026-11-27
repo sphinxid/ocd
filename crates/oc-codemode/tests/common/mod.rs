@@ -118,10 +118,44 @@ pub fn json_eq(a: &Json, b: &Json) -> bool {
         (Json::Number(x), Json::Number(y)) => x.as_f64() == y.as_f64(),
         (Json::Array(x), Json::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| json_eq(p, q)),
         (Json::Object(x), Json::Object(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|((k1, v1), (k2, v2))| k1 == k2 && json_eq(v1, v2))
+            x.len() == y.len()
+                && x.iter().zip(y.iter()).all(|((k1, v1), (k2, v2))| {
+                    (k1 == k2 || reworded_2_4_1(k1) == reworded_2_4_1(k2)) && json_eq(v1, v2)
+                })
         }
+        (Json::String(x), Json::String(y)) => x == y || reworded_2_4_1(x) == reworded_2_4_1(y),
         _ => a == b,
     }
+}
+
+/// The texts 2.4.1 reworded when it moved the language to the `psychoscript` package, as they read in recordings of
+/// earlier versions: the supported-syntax summary, the well-known symbols' names, and the three import errors
+/// (#64587). Older corpora are compared as if recorded with these texts; everything else they hold must still match.
+pub fn reworded_2_4_1(text: &str) -> String {
+    const SUMMARY: &str = "Unsupported: private class members, BigInt, and custom Symbols.";
+    let mut text = text
+        .replace("Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead.", SUMMARY)
+        .replace("Unsupported: classes, BigInt, and custom Symbols. Use plain functions and data objects instead.", SUMMARY)
+        .replace("Symbol(codemode.iterator)", "Symbol(psychoscript.iterator)")
+        .replace("Symbol(codemode.async-iterator)", "Symbol(psychoscript.async-iterator)");
+    const OLD: &str = "\": it isn't available here, where packages and files can't be loaded.";
+    while let Some(at) = text.find(OLD) {
+        let Some(open) = text[..at].rfind("Cannot import \"") else { break };
+        let spec = text[open + "Cannot import \"".len()..at].to_string();
+        let mut end = at + OLD.len();
+        if text[end..].starts_with(" Use the provided globals.") {
+            end += " Use the provided globals.".len();
+        }
+        let why = if spec.starts_with('.') || spec.starts_with('/') || spec.starts_with("file:") {
+            "local files can't be imported."
+        } else if oc_codemode::interp::modules::is_runtime_module(&spec) {
+            "this runtime doesn't provide it."
+        } else {
+            "packages can't be installed here."
+        };
+        text.replace_range(at..end, &format!("\": {why}"));
+    }
+    text
 }
 
 pub fn schema_of(record: &Json) -> ToolSchema {

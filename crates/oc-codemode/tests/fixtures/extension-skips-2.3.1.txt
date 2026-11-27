@@ -5,3 +5,4 @@ extensions.test.ts	46	a Proxy over an ArrayBuffer: recorded as a plain ArrayBuff
 extensions.test.ts	53	a host object whose getter throws while it is copied: getters are not recorded (2.3.0 corpus seq 44)
 extensions.test.ts	54	a function whose name and length change between reads: recorded without its getters (2.3.0 corpus seq 45)
 suspend.test.ts	2	a loop of sync extension calls stopped by a 100 ms timeout: how many calls run first is timing
+extensions.test.ts	66	2.4.1 changed this: every Error has a stack, a host one too (#64939; cases-2.4.1.json "host errors")

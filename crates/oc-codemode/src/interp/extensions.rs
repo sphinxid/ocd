@@ -113,7 +113,7 @@ fn to_host_with(
     let result = (|| -> JsResult<HostValue> {
         let mut next = |item: &Value| to_host_with(item, label, depth + 1, seen, waiting, back);
         Ok(match o.kind() {
-            ObjKind::Error(_) => {
+            ObjKind::Error(..) => {
                 let name = coerce_to_string(&get(&o, &PropKey::str("name"))?).to_rust();
                 let message = match get(&o, &PropKey::str("message"))? {
                     Value::Undefined => String::new(),

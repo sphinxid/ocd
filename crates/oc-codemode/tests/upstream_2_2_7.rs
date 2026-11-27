@@ -7,6 +7,8 @@
 //! `{path, size: 3}`). Every recorded result must be identical. The 14 "Cannot import" failures carry 2.3.1's wording
 //! (the language/Code Mode split, #64487, dropped "Code Mode" and `tools` from it).
 
+mod common;
+
 use std::sync::Arc;
 
 use oc_codemode::codemode::{CodeMode, ExecutionLimits};
@@ -60,7 +62,7 @@ fn imports_and_require_match_upstream() {
         let code = case["code"].as_str().unwrap();
         let runtime = if case["extension"] == json!(true) { &files } else { &plain };
         let actual = runtime.execute_blocking(code).to_json();
-        if actual != case["result"] {
+        if !common::json_eq(&actual, &case["result"]) {
             failures.push(format!("{code}\n  expected {}\n  actual   {actual}", case["result"]));
         }
     }
@@ -89,9 +91,8 @@ fn a_missing_module_or_export_fails_at_the_import() {
     let runtime = plain();
     let message =
         |code: &str| runtime.execute_blocking(code).to_json()["error"]["message"].as_str().unwrap().to_string();
-    assert!(message(r#"import yaml from "yaml""#).starts_with(
-        r#"Error: Cannot import "yaml": it isn't available here, where packages and files can't be loaded."#
-    ));
+    // Reworded in 2.4.1 (#64587).
+    assert!(message(r#"import yaml from "yaml""#).starts_with(r#"Error: Cannot import "yaml": packages can't be installed here."#));
     let caught =
         runtime.execute_blocking(r#"try { await import("child_process") } catch (e) { return e.message }"#).to_json();
     assert!(caught["value"].as_str().unwrap().starts_with(r#"Cannot import "child_process""#));

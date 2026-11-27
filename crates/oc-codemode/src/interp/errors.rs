@@ -205,8 +205,8 @@ pub fn host_error(error_type: ErrorType, message: impl Into<String>) -> Thrown {
     pending(error_type, message.into(), None, DiagnosticKind::ExecutionFailure)
 }
 
-/// Orient the agent rather than enumerate JavaScript; interpreter-support.md is the full matrix.
-pub const SUPPORTED_SYNTAX_MESSAGE: &str = "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: classes, getters/setters, BigInt, and custom Symbols. Use plain functions and data objects instead.";
+/// Orient the agent rather than enumerate JavaScript; interpreter-support.md is the full matrix (psychoscript 0.2.1's text).
+pub const SUPPORTED_SYNTAX_MESSAGE: &str = "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols.";
 
 pub fn unsupported_syntax(kind: &str, node: Loc) -> Thrown {
     Thrown::Pending(Rc::new(PendingThrow {

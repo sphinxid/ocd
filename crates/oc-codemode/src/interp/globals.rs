@@ -16,9 +16,20 @@ use crate::stdlib;
 use crate::value::{PropKey, Sym, ToolRef, Value};
 
 pub fn create_error_value(prototype: &Obj, message: Option<&str>) -> Obj {
-    let value = Obj::new(Some(prototype.clone()), ObjKind::Error(std::cell::RefCell::new(None)));
+    create_traced_error(prototype, message, String::new())
+}
+
+/// A new error whose `stack` is `name: message` as of its first read, then `trace`, the `    at` lines where it was
+/// made (2.4.1, #64939): an own, non-enumerable data property.
+pub fn create_traced_error(prototype: &Obj, message: Option<&str>, trace: String) -> Obj {
+    let value =
+        Obj::new(Some(prototype.clone()), ObjKind::Error(std::cell::RefCell::new(None), std::cell::RefCell::new(None)));
     if let Some(m) = message {
         define(&value, "message", Value::str(m), HIDDEN);
+    }
+    define(&value, "stack", Value::Undefined, HIDDEN);
+    if let ObjKind::Error(_, pending) = value.kind() {
+        *pending.borrow_mut() = Some(trace);
     }
     value
 }
@@ -52,7 +63,7 @@ pub fn normalize_error(error: &Thrown) -> Diagnostic {
         Thrown::ToolFailure(m) => Diagnostic::new(DiagnosticKind::ToolFailure, m.to_string()),
         Thrown::Value(value) => {
             if let Value::Object(o) = value
-                && let ObjKind::Error(host) = o.kind()
+                && let ObjKind::Error(host, _) = o.kind()
             {
                 let host = host.borrow().clone();
                 return match host {
@@ -103,13 +114,17 @@ fn construct_error(rt: &Rt, site: Site, error_type: ErrorType, args: Vec<Value>,
                 }
                 errors.push(step.value);
             }
-            create_aggregate_error_value(&rt, errors, &message, Some(&proto))
+            let created = create_aggregate_error_value(&rt, errors, &message, Some(&proto));
+            if let ObjKind::Error(_, trace) = created.kind() {
+                *trace.borrow_mut() = Some(super::stack::trace());
+            }
+            created
         } else {
             let message = match arg(&args, 0) {
                 Value::Undefined => None,
                 m => Some(to_primitive_string(&rt, &m, site).await?.to_rust()),
             };
-            create_error_value(&proto, message.as_deref())
+            create_traced_error(&proto, message.as_deref(), super::stack::trace())
         };
         // ES2022 `new Error(message, { cause })`: installed only when the options object has the property.
         let options = arg(&args, if error_type == ErrorType::AggregateError { 2 } else { 1 });

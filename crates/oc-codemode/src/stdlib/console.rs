@@ -90,7 +90,7 @@ fn inspect(o: &Obj, item: &mut dyn FnMut(&Value, &mut HashSet<usize>) -> String,
             let parts: Vec<String> = items.iter().map(|v| v.as_ref().map(|v| item(v, seen)).unwrap_or_default()).collect();
             format!("[{}]", parts.join(","))
         }
-        ObjKind::Error(_) => obj_to_string(o).to_rust(),
+        ObjKind::Error(..) => obj_to_string(o).to_rust(),
         ObjKind::Promise(_) => "[Promise (await it to get its value)]".into(),
         ObjKind::Function(_) | ObjKind::Generator(_) | ObjKind::Iterator(_) => "[opaque reference]".into(),
         ObjKind::Map(m) => {

@@ -5,3 +5,4 @@ extensions.test.ts	23	2.3.1 changed this: a function argument is left out (#6451
 extensions.test.ts	24	2.3.1 changed this: "which cannot be passed to the host" (#64487; 2.3.1 corpus, extensions.test.ts 34)
 extensions.test.ts	25	2.3.1 changed this: a promise argument is awaited (#64513; 2.3.1 corpus, extensions.test.ts 33)
 extensions.test.ts	26	2.3.1 changed this: "which cannot be passed to the host" (#64487; 2.3.1 corpus, extensions.test.ts 35)
+extensions.test.ts	37	2.4.1 changed this: every Error has a stack, a host one too (#64939; cases-2.4.1.json "host errors")

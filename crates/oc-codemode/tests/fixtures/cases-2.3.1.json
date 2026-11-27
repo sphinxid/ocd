@@ -3193,7 +3193,8 @@
     false
    ],
    "toolCalls": []
-  }
+  },
+  "gap": "2.4.1 changed this (#64933, Symbol(psychoscript.iterator)); cases-2.4.1.json has its result"
  },
  {
   "code": "return [\"utf8\", \"UTF-8\", \"Hex\", \"base64url\", \"binary\", \"ascii\", \"ucs2\", \"utf16le\", \"utf-16\", \"utf32\", \"\", 1, null, undefined, \"latin1 \"].map((e) => Buffer.isEncoding(e))",
@@ -11434,7 +11435,8 @@
     "message": "TypeError: A Uint8Array cannot cross to the host; pass text instead, e.g. `new TextDecoder().decode(bytes)` or `bytes.toBase64()`."
    },
    "toolCalls": []
-  }
+  },
+  "gap": "2.4.1 changed this (#64933, Symbol(psychoscript.iterator)); cases-2.4.1.json has its result"
  },
  {
   "code": "const b = Buffer.from(\"abc\"); b[0] = 300; b[1] = -1; b[2] = 1.7; b[3] = 5; return [[...b], b[3], b.length]",
@@ -14031,7 +14033,8 @@
     ]
    ],
    "toolCalls": []
-  }
+  },
+  "gap": "2.4.1 changed this (#64933, Symbol(psychoscript.iterator)); cases-2.4.1.json has its result"
  },
  {
   "code": "const b = Buffer.from(\"abc\"); return [b.reverse() === b, [...b], b.toString()]",
@@ -14567,7 +14570,8 @@
    "ok": true,
    "value": 25,
    "toolCalls": []
-  }
+  },
+  "gap": "2.4.1 changed this (#64933, Symbol(psychoscript.iterator)); cases-2.4.1.json has its result"
  },
  {
   "code": "try { return Buffer.byteLength(\"x\", null) } catch (e) { return [e.name, e.message] }",

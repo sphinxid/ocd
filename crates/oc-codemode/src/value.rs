@@ -142,11 +142,12 @@ pub enum Sym {
 }
 
 impl Sym {
-    /// `String(symbol)`: upstream's well-known symbols are its own (`Symbol("codemode.iterator")`, ...).
+    /// `String(symbol)`: upstream's well-known symbols are its own (`Symbol("psychoscript.iterator")`, ... since
+    /// 2.4.1 runs the language as the `psychoscript` package; `codemode.*` before).
     pub fn description(self) -> &'static str {
         match self {
-            Sym::Iterator => "Symbol(codemode.iterator)",
-            Sym::AsyncIterator => "Symbol(codemode.async-iterator)",
+            Sym::Iterator => "Symbol(psychoscript.iterator)",
+            Sym::AsyncIterator => "Symbol(psychoscript.async-iterator)",
         }
     }
 }

@@ -1,0 +1,1097 @@
+[
+ {
+  "code": "import x from \"./a\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"./a\": local files can't be imported. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"../a/b.js\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"../a/b.js\": local files can't be imported. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"/abs/path\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"/abs/path\": local files can't be imported. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"file:///x.js\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"file:///x.js\": local files can't be imported. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"node:sqlite\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"node:sqlite\": this runtime doesn't provide it. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"child_process\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"child_process\": this runtime doesn't provide it. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"fs/promises/extra\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"fs/promises/extra\": this runtime doesn't provide it. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"bun\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"bun\": this runtime doesn't provide it. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"bun:sqlite\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"bun:sqlite\": this runtime doesn't provide it. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"lodash\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"lodash\": packages can't be installed here. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "import x from \"@scope/pkg\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"@scope/pkg\": packages can't be installed here. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const m = await import(\"zod\"); return m",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: Cannot import \"zod\": packages can't be installed here. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { require(\"os\") } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "Cannot import \"os\": this runtime doesn't provide it.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { require(\"left-pad\") } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "Cannot import \"left-pad\": packages can't be installed here.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [Uint8Array.BYTES_PER_ELEMENT, Buffer.BYTES_PER_ELEMENT, new Uint8Array(2).BYTES_PER_ELEMENT, Buffer.from(\"a\").BYTES_PER_ELEMENT]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = Object.getOwnPropertyDescriptor ? 1 : 0; Uint8Array.BYTES_PER_ELEMENT = 4; return Uint8Array.BYTES_PER_ELEMENT",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot assign to read only property 'BYTES_PER_ELEMENT'. (line 1, col 52)",
+    "location": {
+     "line": 1,
+     "column": 52
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const b = Buffer.from(\"abc\")\nconst made = [b.map((x) => x + 1), b.filter((x) => x > 97), Uint8Array.prototype.slice.call(b, 1), Uint8Array.prototype.subarray.call(b, 2)]\nreturn [...made.map((x) => [Buffer.isBuffer(x), x.toString()]), Buffer.isBuffer(new Uint8Array(1).map((x) => x)), String(new Uint8Array([1, 2]).slice(1))]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     true,
+     "bcd"
+    ],
+    [
+     true,
+     "bc"
+    ],
+    [
+     true,
+     "bc"
+    ],
+    [
+     true,
+     "c"
+    ],
+    false,
+    "2"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const b = Buffer.from(\"hello\"); const s = b.subarray(1, 3); s[0] = 65; return [b.toString(), Buffer.isBuffer(s), s instanceof Buffer, Buffer.isBuffer(b.slice(0, 2))]",
+  "result": {
+   "ok": true,
+   "value": [
+    "hAllo",
+    true,
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const b = Buffer.from(\"xyz\"); console.log(b.map((x) => x - 32)); return b.filter(() => false).length",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "logs": [
+    "<Buffer 58 59 5a>"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [new Uint8Array([251, 255]).toBase64(), new Uint8Array([251, 255]).toBase64({ alphabet: \"base64url\" }), new Uint8Array([1]).toBase64({ omitPadding: true }), new Uint8Array([251,1]).toBase64({ alphabet: \"base64url\", omitPadding: 1 })]",
+  "result": {
+   "ok": true,
+   "value": [
+    "+/8=",
+    "-_8=",
+    "AQ",
+    "-wE"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { new Uint8Array(1).toBase64({ alphabet: \"hex\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Uint8Array.prototype.toBase64 requires that alphabet be \"base64\" or \"base64url\"."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { new Uint8Array(1).toBase64(1) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Uint8Array.prototype.toBase64 requires that options be an object."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { new Uint8Array(1).toBase64(null) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Uint8Array.prototype.toBase64 requires that options be an object."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"-_8\", { alphabet: \"base64url\" }))",
+  "result": {
+   "ok": true,
+   "value": [
+    251,
+    255
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"-_8\", { alphabet: \"base64\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    "Uint8Array.fromBase64: the string is not valid base64."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"+/8\", { alphabet: \"base64url\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    "Uint8Array.fromBase64: the string is not valid base64."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"aGVsbG8\", { lastChunkHandling: \"loose\" }))",
+  "result": {
+   "ok": true,
+   "value": [
+    104,
+    101,
+    108,
+    108,
+    111
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"aGVsbG8\", { lastChunkHandling: \"strict\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    "Uint8Array.fromBase64: the string is not valid base64."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"aGVsbG8\", { lastChunkHandling: \"stop-before-partial\" }))",
+  "result": {
+   "ok": true,
+   "value": [
+    104,
+    101,
+    108
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"aGVsbG8=\", { lastChunkHandling: \"strict\" }))",
+  "result": {
+   "ok": true,
+   "value": [
+    104,
+    101,
+    108,
+    108,
+    111
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"aGVsbG9=\", { lastChunkHandling: \"strict\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    "Uint8Array.fromBase64: the string is not valid base64."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"aGVsbG9=\", { lastChunkHandling: \"loose\" }))",
+  "result": {
+   "ok": true,
+   "value": [
+    104,
+    101,
+    108,
+    108,
+    111
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"aGVsbA=\", { lastChunkHandling: \"stop-before-partial\" }))",
+  "result": {
+   "ok": true,
+   "value": [
+    104,
+    101,
+    108
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"aGVsbA=\", { lastChunkHandling: \"loose\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    "Uint8Array.fromBase64: the string is not valid base64."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"abcd\", { lastChunkHandling: \"lax\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Uint8Array.fromBase64 requires that lastChunkHandling be \"loose\" or \"strict\" or \"stop-before-partial\"."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(5, { alphabet: \"nope\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Uint8Array.fromBase64 expects a string."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"abcd\", \"x\") } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Uint8Array.fromBase64 requires that options be an object."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\" aG Vs\\nbG8 = \", {}))",
+  "result": {
+   "ok": true,
+   "value": [
+    104,
+    101,
+    108,
+    108,
+    111
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"a\", { lastChunkHandling: \"stop-before-partial\" }))",
+  "result": {
+   "ok": true,
+   "value": [],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"a\") } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    "Uint8Array.fromBase64: the string is not valid base64."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"YQ\", { lastChunkHandling: \"loose\" }))",
+  "result": {
+   "ok": true,
+   "value": [
+    97
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"YR\", { lastChunkHandling: \"strict\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    "Uint8Array.fromBase64: the string is not valid base64."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Uint8Array.fromBase64(\"YR==\", { lastChunkHandling: \"strict\" }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    "Uint8Array.fromBase64: the string is not valid base64."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Array.from(Uint8Array.fromBase64(\"YR==\", { lastChunkHandling: \"loose\" }))",
+  "result": {
+   "ok": true,
+   "value": [
+    97
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return String(Symbol.iterator) + \" \" + String(Symbol.asyncIterator)",
+  "result": {
+   "ok": true,
+   "value": "Symbol(psychoscript.iterator) Symbol(psychoscript.async-iterator)",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "with (a) {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Syntax 'WithStatement' is not supported. This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "debugger",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnsupportedSyntax",
+    "message": "SyntaxError: Syntax 'DebuggerStatement' is not supported. This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    },
+    "suggestions": [
+     "This is a restricted JavaScript-like language. Supported: plain and async functions, data literals, destructuring, standard control flow, await and Promise, and built-ins such as Array, Object, Math, JSON, Date, RegExp, Map, Set, and URL. Unsupported: private class members, BigInt, and custom Symbols."
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function inner() { return new Error(\"boom\") }\nconst outer = () => inner()\nreturn outer().stack.split(\"\\n\")",
+  "result": {
+   "ok": true,
+   "value": [
+    "Error: boom",
+    "    at inner (<program>:1:27)",
+    "    at outer (<program>:2:21)",
+    "    at <program>:3:8"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { null.x } catch (e) { return [e.stack, new RangeError().stack] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError: Cannot read properties of null (reading 'x').\n    at <program>:1:7",
+    "RangeError\n    at <program>:1:45"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const e = new Error(\"x\"); e.code = 1\nreturn [JSON.stringify(e), Object.keys(e), \"stack\" in e, e.propertyIsEnumerable(\"stack\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"name\":\"Error\",\"message\":\"x\",\"code\":1}",
+    [
+     "code"
+    ],
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const late = new Error(\"y\"); late.name = \"Late\"; late.message = \"z\"\nconst first = late.stack\nlate.name = \"After\"\nconst unnamed = new Error(\"q\"); unnamed.name = \"\"\nconst empty = new Error(\"\"); empty.name = \"N\"\nreturn [first, late.stack, unnamed.stack, empty.stack]",
+  "result": {
+   "ok": true,
+   "value": [
+    "Late: z\n    at <program>:1:14",
+    "Late: z\n    at <program>:1:14",
+    "q\n    at <program>:4:17",
+    "N\n    at <program>:5:15"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const a = new Error(\"a\"); a.stack = \"custom\"\nconst b = new Error(\"b\"); b.stack; b.stack = 1\nreturn [a.stack, b.stack]",
+  "result": {
+   "ok": true,
+   "value": [
+    "custom",
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function f(n) { return n === 0 ? new Error(\"deep\") : f(n - 1) }\nreturn f(20).stack.split(\"\\n\")",
+  "result": {
+   "ok": true,
+   "value": [
+    "Error: deep",
+    "    at f (<program>:1:34)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = {f() { return new Error(\"x\").stack }}; return   o.f()",
+  "result": {
+   "ok": true,
+   "value": "Error: x\n    at f (<program>:1:25)\n    at <program>:1:59",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [1].map(() => new Error(\"m\").stack)[0]",
+  "result": {
+   "ok": true,
+   "value": "Error: m\n    at <anonymous> (<program>:1:22)\n    at <program>:1:8",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "async function g() { await 1; return new Error(\"a\").stack } async function h() { return await g() } return await h()",
+  "result": {
+   "ok": true,
+   "value": "Error: a\n    at g (<program>:1:38)",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "async function g() { return new Error(\"a\").stack } function h() { return g() } return await h()",
+  "result": {
+   "ok": true,
+   "value": "Error: a\n    at g (<program>:1:29)\n    at h (<program>:1:74)\n    at <program>:1:93",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function* gen() { yield new Error(\"g\").stack } function run() { return gen().next().value } return run()",
+  "result": {
+   "ok": true,
+   "value": "Error: g\n    at gen (<program>:1:25)\n    at run (<program>:1:72)\n    at <program>:1:100",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { undefinedVar } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "ReferenceError: Unknown identifier 'undefinedVar'.\n    at <program>:1:7",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { [].reduce((a,b)=>a) } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "TypeError: Array.reduce of an empty array with no initial value.\n    at <program>:1:7",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { await tools.nope() } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "Error: Unknown tool 'nope'.\n    at <program>:1:7",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { await tools.echo(() => 1, Symbol.iterator) } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "TypeError: Argument 2 to tools.echo contains a symbol, which cannot be passed to the host.\n    at <program>:1:13",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const f = function () { return new Error().stack }; return f()",
+  "result": {
+   "ok": true,
+   "value": "Error\n    at f (<program>:1:32)\n    at <program>:1:60",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const f = () => new TypeError(\"t\", { cause: 1 }); const e = f(); return [e.stack, JSON.stringify(e), String(e)]",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError: t\n    at f (<program>:1:17)\n    at <program>:1:61",
+    "{\"name\":\"TypeError\",\"message\":\"t\"}",
+    "TypeError: t"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { await Promise.reject(new Error(\"r\")) } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "Error: r\n    at <program>:1:28",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const e = new Error(\"x\"); delete e.stack; return [e.stack, \"stack\" in e]",
+  "result": {
+   "ok": true,
+   "value": [
+    null,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let caught; try { JSON.parse(\"{\") } catch (e) { caught = e } return caught.stack",
+  "result": {
+   "ok": true,
+   "value": "SyntaxError: JSON.parse received invalid JSON: JSON Parse error: Expected '}'\n    at <program>:1:19",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new AggregateError([1], \"agg\").stack",
+  "result": {
+   "ok": true,
+   "value": "AggregateError: agg\n    at <program>:1:8",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Error(\"no new\").stack",
+  "result": {
+   "ok": true,
+   "value": "Error: no new\n    at <program>:1:8",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const e = structuredClone(new Error(\"c\")); return [e.stack, Object.keys(e)]",
+  "result": {
+   "ok": true,
+   "value": [
+    "Error: c\n    at <program>:1:27",
+    []
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "async function f() { throw new Error(\"in async\") } try { await f() } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "Error: in async\n    at f (<program>:1:28)\n    at <program>:1:64",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "async function f() { null.y } try { await f() } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "TypeError: Cannot read properties of null (reading 'y').\n    at <program>:1:22",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const p = Promise.reject(new TypeError(\"p\")); try { await p } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "TypeError: p\n    at <program>:1:26",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function thrower() { [].reduce((a) => a) } function mid() { thrower() } try { mid() } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "TypeError: Array.reduce of an empty array with no initial value.\n    at <program>:1:22",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const r = await Promise.allSettled([tools.nope()]); return r[0].reason.stack",
+  "result": {
+   "ok": true,
+   "value": "Error: Unknown tool 'nope'.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { search(5) } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "Error: Invalid input for tool 'search': SchemaError(Expected object)\n    at <program>:1:7",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const e = new Error(\"x\"); e.name = { toString() { return \"obj\" } }; return e.stack",
+  "result": {
+   "ok": true,
+   "value": "[object Object]: x\n    at <program>:1:11",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const e = new Error(\"x\"); Object.defineProperty(e, \"stack\", { value: \"def\" }); return e.stack",
+  "result": {
+   "ok": true,
+   "value": "def",
+   "toolCalls": []
+  },
+  "gap": "property descriptors (getters and setters batch)"
+ },
+ {
+  "code": "function named() { return new Error(\"n\") } const e = named(); console.log(e.stack); return 1",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "logs": [
+    "Error: n\n    at named (<program>:1:27)\n    at <program>:1:54"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const fns = { [\"comp\" + \"uted\"]: () => new Error(\"c\").stack }; return fns.computed()",
+  "result": {
+   "ok": true,
+   "value": "Error: c\n    at computed (<program>:1:40)\n    at <program>:1:71",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const g = function* () { const e = new Error(\"y\"); yield e.stack }; const it = g(); return it.next().value",
+  "result": {
+   "ok": true,
+   "value": "Error: y\n    at g (<program>:1:36)\n    at <program>:1:92",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { host.echo(new Promise(() => {})) } catch (e) { return e.stack }",
+  "result": {
+   "ok": true,
+   "value": "ReferenceError: Unknown identifier 'host'.\n    at <program>:1:7",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const e = new Error(\"x\"); return Object.getOwnPropertyNames ? Object.getOwnPropertyNames(e) : Object.keys(e)",
+  "result": {
+   "ok": true,
+   "value": [
+    "message",
+    "stack"
+   ],
+   "toolCalls": []
+  },
+  "gap": "property descriptors (getters and setters batch)"
+ },
+ {
+  "code": "return [Buffer.isBuffer(Buffer.from(\"a\")), Buffer.isBuffer(new Uint8Array(1)), Buffer.isBuffer(\"a\"), Buffer.isBuffer(), Buffer.isBuffer(Buffer.from(\"ab\").subarray(1)), Buffer.isBuffer(Buffer.from(\"ab\").slice(1)), Buffer.isBuffer(Buffer.from(\"ab\").map((x) => x))]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const b = Buffer.from(\"abc\"); return [b.map((x) => x + 1), Buffer.isBuffer(b.map((x) => x)), b.filter((x) => x > 97), [...b], b.length, b.at(-1), b.join(\"-\"), Array.from(b), [...b.entries()], b.reverse() === b, [...b]]",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "type": "Buffer",
+     "data": [
+      98,
+      99,
+      100
+     ]
+    },
+    true,
+    {
+     "type": "Buffer",
+     "data": [
+      98,
+      99
+     ]
+    },
+    [
+     97,
+     98,
+     99
+    ],
+    3,
+    99,
+    "97-98-99",
+    [
+     97,
+     98,
+     99
+    ],
+    [
+     [
+      0,
+      97
+     ],
+     [
+      1,
+      98
+     ],
+     [
+      2,
+      99
+     ]
+    ],
+    true,
+    [
+     99,
+     98,
+     97
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const b = Buffer.from(\"abc\"); return [b.map((x) => x + 1) instanceof Buffer, [...b.map((x) => x + 1)], [...b.filter((x) => x > 97)], b.at(-1), b.join(\"-\"), Array.from(b), [...b.entries()]]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    [
+     98,
+     99,
+     100
+    ],
+    [
+     98,
+     99
+    ],
+    99,
+    "97-98-99",
+    [
+     97,
+     98,
+     99
+    ],
+    [
+     [
+      0,
+      97
+     ],
+     [
+      1,
+      98
+     ],
+     [
+      2,
+      99
+     ]
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { return Buffer.byteLength(Symbol.iterator) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": 29,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { open() } catch (e) {\n  const c = e.cause\n  return [e.message, Object.keys(e), c instanceof Error, c.code, c.errno, c.path, c.detail, Object.keys(c), \"stack\" in c, c.stack, e.stack]\n}",
+  "result": {
+   "ok": true,
+   "value": [
+    "open failed",
+    [],
+    true,
+    "ENOENT",
+    -2,
+    "x",
+    {
+     "retried": true
+    },
+    [
+     "code",
+     "errno",
+     "path",
+     "detail"
+    ],
+    true,
+    "Error: ENOENT: no such file or directory, open 'x'",
+    "Error: open failed"
+   ],
+   "toolCalls": []
+  }
+ }
+]

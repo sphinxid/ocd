@@ -14,7 +14,7 @@
 //!     incompatible-receiver TypeError, e.g. `receiver(this, &format!("Uint8Array.prototype.{name}"), |o| ...)`;
 //!   - `length(&obj)` is the current length; `get(&obj, index)` is the element, or `None` for a hole or an index
 //!     past the end (the `index in target` test);
-//!   - `wrap(rt, values)` builds what `map` and `filter` return; `None` entries are holes `map` skipped (never
+//!   - `wrap(rt, &target, values)` builds what `map` and `filter` return (a Buffer's are a Buffer); `None` entries are holes `map` skipped (never
 //!     produced for a collection without holes).
 
 use std::rc::Rc;
@@ -709,7 +709,7 @@ pub fn array_global(rt: &Rt) -> Value {
             receiver: Rc::new(|this, name| this_array(this, name)),
             length: Rc::new(|o| o.array_len()),
             get: Rc::new(array_element),
-            wrap: Rc::new(wrap),
+            wrap: Rc::new(|rt, _, items| wrap(rt, items)),
         },
     ));
     methods(&b.function, &proto, table);
@@ -729,7 +729,7 @@ pub struct Elements {
     pub receiver: Rc<dyn Fn(&Value, &str) -> JsResult<Obj>>,
     pub length: Rc<dyn Fn(&Obj) -> usize>,
     pub get: Rc<dyn Fn(&Obj, usize) -> Option<Value>>,
-    pub wrap: Rc<dyn Fn(&Rt, Vec<Option<Value>>) -> Value>,
+    pub wrap: Rc<dyn Fn(&Rt, &Obj, Vec<Option<Value>>) -> Value>,
 }
 
 /// One callback-method call: the receiver, its accessors, and the admitted callback.
@@ -769,7 +769,7 @@ async fn walk_map(w: Walk) -> JsResult<Value> {
         let Some(item) = w.at(index) else { continue };
         *slot = Some(w.visit(item, index).await?);
     }
-    Ok((w.elements.wrap)(&w.rt, values))
+    Ok((w.elements.wrap)(&w.rt, &w.target, values))
 }
 
 async fn walk_filter(w: Walk) -> JsResult<Value> {
@@ -781,7 +781,7 @@ async fn walk_filter(w: Walk) -> JsResult<Value> {
             values.push(Some(item));
         }
     }
-    Ok((w.elements.wrap)(&w.rt, values))
+    Ok((w.elements.wrap)(&w.rt, &w.target, values))
 }
 
 async fn walk_find(w: Walk) -> JsResult<Value> {

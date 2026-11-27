@@ -526,6 +526,7 @@ impl Frame {
 
     pub async fn run(&self, global: &Env, program: &Program) -> JsResult<Value> {
         self.program.set(true);
+        let _frame = super::stack::enter(None);
         // Keep top-level declarations separate so they can shadow builtins.
         let env = new_env(Some(global));
         // Imports load before any code runs, as in a module.
@@ -622,6 +623,9 @@ impl Frame {
 
     /// The continuation runs from the job queue, so the stack below it is gone when it resumes.
     pub async fn await_value(&self, value: Value, node: Option<Loc>) -> JsResult<Value> {
+        if let Some(node) = node {
+            super::stack::mark(node);
+        }
         let result = await_value(&self.rt, value, node).await;
         self.depth.set(0);
         result
@@ -1074,7 +1078,7 @@ impl Frame {
             Err(e) => match handler {
                 None => Err(e),
                 Some(h) => {
-                    let caught = materialize(&self.rt, &e);
+                    let caught = materialize_at(&self.rt, &e, super::stack::current_site());
                     let catch_env = new_env(Some(env));
                     let result: JsResult<Completion> = async {
                         if let Some(p) = &h.param {
@@ -1411,6 +1415,9 @@ impl Frame {
         callee: Option<&'a Expr>,
     ) -> LocalBoxFuture<'a, JsResult<Value>> {
         Box::pin(async move {
+            if let Some(node) = node {
+                super::stack::mark(node);
+            }
             match &callable {
                 Value::Tool(t) => {
                     if t.path().is_empty() {
@@ -1554,10 +1561,17 @@ impl Frame {
         };
         // Generators bind parameters at the call and defer only the body to the first `next()`.
         if func.is_generator {
+            let _frame = super::stack::enter(Some(fn_obj.clone()));
             bind.await?;
+            let entry = fn_obj.clone();
+            let body = async move {
+                let _frame = super::stack::enter(Some(entry));
+                body.await
+            };
             return Ok(self.create_generator(invocation, Box::pin(body), &fn_obj, func.is_async));
         }
         if !func.is_async {
+            let _frame = super::stack::enter(Some(fn_obj.clone()));
             bind.await?;
             return body.await;
         }
@@ -1567,6 +1581,7 @@ impl Frame {
         let rt = self.rt.clone();
         let task = async move {
             let completion = async move {
+                let _frame = super::stack::enter(Some(fn_obj));
                 bind.await?;
                 body.await
             }
@@ -1834,6 +1849,7 @@ impl Frame {
         let args = self.call_arguments(env, arguments).await?;
         let Value::Object(target) = value else { unreachable!() };
         let site = self.site(Some(loc));
+        super::stack::mark(loc);
         construct(&self.rt, site, args, target).resolve().await.map_err(|e| locate(e, Some(loc)))
     }
 
@@ -2471,14 +2487,23 @@ pub fn js_pow(a: f64, b: f64) -> f64 {
 
 /// The program value a handler receives for a failure; one failure always yields the same value.
 pub fn materialize(rt: &Rt, thrown: &Thrown) -> Value {
+    materialize_at(rt, thrown, None)
+}
+
+/// `materialize` by a handler at `site`: a host failure has no site of its own, so its `stack` names where the
+/// handler observed it (2.4.1, #64939); an interpreter failure's names where it was raised.
+pub fn materialize_at(rt: &Rt, thrown: &Thrown, site: Option<Loc>) -> Value {
+    let line = |at: Option<Loc>| at.map(|n| super::stack::frame_line(n, None)).unwrap_or_default();
     match thrown {
         Thrown::Value(v) => v.clone(),
         Thrown::Pending(p) => {
             if let Some(v) = p.value.borrow().clone() {
                 return Value::Object(v);
             }
-            let value = super::globals::create_error_value(rt.builtins.error(p.error_type), Some(&p.message));
-            if let ObjKind::Error(host) = value.kind() {
+            let node = *p.node.borrow();
+            let value =
+                super::globals::create_traced_error(rt.builtins.error(p.error_type), Some(&p.message), line(node));
+            if let ObjKind::Error(host, _) = value.kind() {
                 *host.borrow_mut() = Some(p.clone());
             }
             *p.value.borrow_mut() = Some(value.clone());
@@ -2486,7 +2511,11 @@ pub fn materialize(rt: &Rt, thrown: &Thrown) -> Value {
         }
         other => {
             let message = super::globals::normalize_error(other).message;
-            Value::Object(super::globals::create_error_value(rt.builtins.error(ErrorType::Error), Some(&message)))
+            Value::Object(super::globals::create_traced_error(
+                rt.builtins.error(ErrorType::Error),
+                Some(&message),
+                line(site),
+            ))
         }
     }
 }

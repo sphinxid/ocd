@@ -68,6 +68,11 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# The Code Mode interpreter's tests replay long-running programs (a 2 000 000-iteration loop among them) under a
+# timeout; unoptimized, the tree walker is about 4x slower and those replays time out under load.
+[profile.dev.package.oc-codemode]
+opt-level = 1
+
 [profile.release]
 # Whole-program optimisation: a smaller binary (about 14%) and less resident memory, for a longer build.
 lto = "fat"

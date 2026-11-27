@@ -15,6 +15,7 @@ pub mod modules;
 pub mod promises;
 pub mod references;
 pub mod runner;
+pub mod stack;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;

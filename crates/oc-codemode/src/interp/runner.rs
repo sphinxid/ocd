@@ -191,6 +191,8 @@ pub struct Runner {
     unhandled: RefCell<BTreeMap<u64, Diagnostic>>,
     /// Bodies suspended at an `await` and the promise each waits on, so a stall can point at the one that is stuck.
     parked: RefCell<IndexMap<TaskId, Parked>>,
+    /// The call-stack entries of suspended tasks (`interp::stack`).
+    stacks: RefCell<HashMap<TaskId, Vec<super::stack::Entry>>>,
     /// The intrinsic `Promise.prototype.then`, so adopting a native promise skips exposing its rejection first.
     pub intrinsic_then: RefCell<Option<Obj>>,
     stopping: Cell<bool>,
@@ -211,6 +213,7 @@ impl Default for Runner {
             next_id: Cell::new(0),
             unhandled: RefCell::new(BTreeMap::new()),
             parked: RefCell::new(IndexMap::new()),
+            stacks: RefCell::new(HashMap::new()),
             intrinsic_then: RefCell::new(None),
             stopping: Cell::new(false),
         }
@@ -271,9 +274,18 @@ impl Runner {
         let future = self.tasks.borrow_mut().get_mut(id).and_then(|slot| slot.take());
         let Some(mut future) = future else { return true };
         self.running.borrow_mut().push(id);
+        // The task's own frames go back on top of whatever resumes it, and come off again when it suspends.
+        let base = super::stack::depth();
+        if let Some(saved) = self.stacks.borrow_mut().remove(&id) {
+            super::stack::restore(saved);
+        }
         let waker = futures::task::noop_waker();
         let poll = future.as_mut().poll(&mut Context::from_waker(&waker));
+        let own = super::stack::split_off(base);
         self.running.borrow_mut().pop();
+        if poll.is_pending() && !own.is_empty() {
+            self.stacks.borrow_mut().insert(id, own);
+        }
         match poll {
             Poll::Ready(()) => {
                 self.task_results.borrow_mut().remove(&id);
@@ -521,6 +533,8 @@ impl Runner {
         drop(inbox);
         self.parked.borrow_mut().clear();
         self.task_results.borrow_mut().clear();
+        self.stacks.borrow_mut().clear();
+        super::stack::clear();
         self.intrinsic_then.borrow_mut().take();
     }
 

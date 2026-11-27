@@ -188,8 +188,9 @@ impl WeakData {
 pub enum ObjKind {
     Ordinary,
     Array(RefCell<ArrayData>),
-    /// An object with the [[ErrorData]] slot; `host` is the interpreter failure it materialized from.
-    Error(RefCell<Option<Rc<PendingThrow>>>),
+    /// An object with the [[ErrorData]] slot: the interpreter failure it materialized from, and the `    at` lines of
+    /// its `stack` while that is not formatted yet (2.4.1, #64939: V8 formats `name: message` at the first read).
+    Error(RefCell<Option<Rc<PendingThrow>>>, RefCell<Option<String>>),
     Function(crate::interp::function::FuncKind),
     Arguments,
     Promise(Rc<crate::interp::runner::PromiseState>),
@@ -251,7 +252,7 @@ fn clear_kind(kind: &ObjKind) -> Box<dyn std::any::Any> {
         ObjKind::Array(a) => Box::new(std::mem::take(&mut a.borrow_mut().items)),
         ObjKind::Map(m) | ObjKind::Set(m) => Box::new(std::mem::take(&mut *m.borrow_mut())),
         ObjKind::WeakMap(m) | ObjKind::WeakSet(m) => Box::new(std::mem::take(&mut *m.borrow_mut())),
-        ObjKind::Error(h) => Box::new(h.borrow_mut().take()),
+        ObjKind::Error(h, _) => Box::new(h.borrow_mut().take()),
         ObjKind::Function(f) => Box::new(f.teardown()),
         ObjKind::Promise(cell) => Box::new(cell.teardown()),
         ObjKind::Generator(g) => Box::new(g.teardown()),
@@ -313,7 +314,7 @@ impl Obj {
         match &self.0.kind {
             ObjKind::Ordinary => "Object",
             ObjKind::Array(_) => "Array",
-            ObjKind::Error(_) => "Error",
+            ObjKind::Error(..) => "Error",
             ObjKind::Function(_) => "Function",
             ObjKind::Arguments => "Arguments",
             ObjKind::Promise(_) => "Promise",
@@ -358,7 +359,7 @@ impl Obj {
         matches!(self.0.kind, ObjKind::Function(_))
     }
     pub fn is_error(&self) -> bool {
-        matches!(self.0.kind, ObjKind::Error(_))
+        matches!(self.0.kind, ObjKind::Error(..))
     }
     pub fn is_promise(&self) -> bool {
         matches!(self.0.kind, ObjKind::Promise(_))
@@ -455,9 +456,52 @@ fn is_length(key: &PropKey) -> bool {
     matches!(key, PropKey::Str(s) if s.eq_str("length"))
 }
 
+/// Formats an error's `stack` on its first read: `name: message` as display reads them (data only, a program getter
+/// reads as undefined), then the `    at` lines taken when the error was made.
+fn format_stack(target: &Obj, trace: &RefCell<Option<String>>) {
+    let Some(trace) = trace.borrow_mut().take() else { return };
+    let key = PropKey::str("stack");
+    if !target.0.props.borrow().contains_key(&key) {
+        return;
+    }
+    let read = |name: &str| peek(target, &PropKey::str(name));
+    let name = read("name");
+    let message = read("message");
+    let shown_name = if name.is_undefined() {
+        "Error".to_string()
+    } else {
+        crate::interp::coerce::coerce_to_string(&name).to_rust()
+    };
+    let shown_message =
+        if message.is_undefined() { String::new() } else { crate::interp::coerce::coerce_to_string(&message).to_rust() };
+    let text = crate::interp::coerce::error_text(&shown_name, &shown_message) + &trace;
+    if let Some(Slot::Data { value, .. }) = target.0.props.borrow_mut().get_mut(&key) {
+        *value = Value::from(text);
+    }
+}
+
+/// A property's value as display reads it: data, or a native getter's; a program accessor reads as undefined.
+pub fn peek(target: &Obj, key: &PropKey) -> Value {
+    let mut current = Some(target.clone());
+    while let Some(obj) = current {
+        if let Some(slot) = own(&obj, key) {
+            return match slot {
+                Slot::Data { value, .. } => value,
+                Slot::Accessor { get: Some(g), .. } => g(&Value::Object(target.clone())).unwrap_or_default(),
+                Slot::Accessor { .. } => Value::Undefined,
+            };
+        }
+        current = obj.proto();
+    }
+    Value::Undefined
+}
+
 /// The own property under `key`, including an array's live indexes and `length`.
 pub fn own(target: &Obj, key: &PropKey) -> Option<Slot> {
     match &target.0.kind {
+        ObjKind::Error(_, trace) if trace.borrow().is_some() && matches!(key, PropKey::Str(s) if s.eq_str("stack")) => {
+            format_stack(target, trace);
+        }
         ObjKind::Array(a) => {
             if let Some(at) = parse_array_index_key(key) {
                 let data = a.borrow();
@@ -675,9 +719,19 @@ pub fn set(target: &Obj, key: &PropKey, value: Value) -> JsResult<bool> {
     Ok(true)
 }
 
+/// An error's `stack` replaced or deleted before its first read is never formatted.
+fn drop_stack_trace(target: &Obj, key: &PropKey) {
+    if let ObjKind::Error(_, trace) = &target.0.kind
+        && matches!(key, PropKey::Str(s) if s.eq_str("stack"))
+    {
+        trace.borrow_mut().take();
+    }
+}
+
 /// [[DefineOwnProperty]] for a data property, ignoring the chain.
 pub fn define(target: &Obj, key: impl Into<PropKey>, value: Value, attrs: Attributes) {
     let key = key.into();
+    drop_stack_trace(target, &key);
     if is_indexed(target) {
         if let Ok(Some(_)) = write_element(target, &key, &value) {
             return;
@@ -704,6 +758,7 @@ pub fn define_accessor(target: &Obj, key: impl Into<PropKey>, get: Option<Getter
 
 /// [[Delete]]; false when the property is non-configurable.
 pub fn remove(target: &Obj, key: &PropKey) -> bool {
+    drop_stack_trace(target, key);
     match &target.0.kind {
         ObjKind::Bytes(b) => {
             if let Some(at) = parse_array_index_key(key) {

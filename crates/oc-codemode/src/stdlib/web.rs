@@ -143,7 +143,7 @@ impl Cloner<'_> {
                 let copy = Obj::new(Some(b.uint8_array.clone()), ObjKind::Bytes(BytesData::new(bytes.to_vec())));
                 return Ok(self.remember(o, copy));
             }
-            ObjKind::Error(_) => {
+            ObjKind::Error(..) => {
                 let name = get_str(o, "name")?;
                 let message = get_str(o, "message")?;
                 let error_type = match &name {

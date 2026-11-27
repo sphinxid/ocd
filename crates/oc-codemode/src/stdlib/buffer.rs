@@ -1174,6 +1174,7 @@ pub fn buffer_global(rt: &Rt) -> Value {
             callback: true,
         },
     );
+    define(&ctor, "BYTES_PER_ELEMENT", Value::Number(1.0), crate::object::FROZEN);
     methods(
         &fp,
         &ctor,

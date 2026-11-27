@@ -18,12 +18,19 @@ use crate::interp::function::{
 use crate::interp::iteration::{ArrayCursor, Mode, iterate, iterator_object};
 use crate::interp::limits::{check_array_length, check_string_length};
 use crate::interp::{Rt, Site, describe_value};
-use crate::object::{BytesData, Getter, HIDDEN, Obj, ObjData, ObjKind, define, define_accessor, get, to_uint8};
+use crate::object::{BytesData, FROZEN, Getter, HIDDEN, Obj, ObjData, ObjKind, define, define_accessor, get, to_uint8};
 use crate::stdlib::array::{Elements, sort_array};
 use crate::value::{JsStr, PropKey, Sym, Value};
 
 fn bytes_obj(proto: &Obj, bytes: Vec<u8>) -> Obj {
     Obj::new(Some(proto.clone()), ObjKind::Bytes(BytesData::new(bytes)))
+}
+
+/// New bytes of `source`'s kind, as `slice`, `subarray`, `map` and `filter` make them: a Buffer's are a Buffer
+/// (2.4.1, #64933, as JS's species does).
+fn derive(rt: &Rt, source: &BytesData, bytes: BytesData) -> Obj {
+    let proto = if source.node { &rt.builtins.buffer } else { &rt.builtins.uint8_array };
+    Obj::new(Some(proto.clone()), ObjKind::Bytes(BytesData { node: source.node, ..bytes }))
 }
 
 fn view_of(o: &Obj) -> &BytesData {
@@ -123,18 +130,30 @@ fn is_ascii_whitespace(c: u16) -> bool {
     matches!(c, 0x09 | 0x0A | 0x0C | 0x0D | 0x20)
 }
 
-/// Decodes a partial or full chunk of base64 digits, discarding leftover bits.
-fn decode_chunk(chunk: &[u32], out: &mut Vec<u8>) {
+/// Decodes a partial or full chunk of base64 digits; `strict` refuses leftover bits that are not zero.
+fn decode_chunk(chunk: &[u32], out: &mut Vec<u8>, strict: bool) -> Option<()> {
     let mut n: u32 = 0;
     for (i, &d) in chunk.iter().enumerate() {
         n |= d << (18 - 6 * i);
     }
+    if strict && ((chunk.len() == 2 && n & 0xFFFF != 0) || (chunk.len() == 3 && n & 0xFF != 0)) {
+        return None;
+    }
     let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
     out.extend_from_slice(&bytes[..chunk.len().saturating_sub(1)]);
+    Some(())
 }
 
-/// `Uint8Array.fromBase64` with the default options (base64 alphabet, "loose" last-chunk handling).
-fn from_base64(units: &[u16]) -> Option<Vec<u8>> {
+/// `Uint8Array.fromBase64`'s `lastChunkHandling` (2.4.1, #64931).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LastChunk {
+    Loose,
+    Strict,
+    StopBeforePartial,
+}
+
+/// The spec's FromBase64 (as Bun gives it): `None` is the SyntaxError.
+fn from_base64(units: &[u16], url: bool, last: LastChunk) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     let mut chunk: Vec<u32> = Vec::with_capacity(4);
     let len = units.len();
@@ -149,10 +168,16 @@ fn from_base64(units: &[u16]) -> Option<Vec<u8>> {
         i = skip(i);
         if i == len {
             if !chunk.is_empty() {
-                if chunk.len() == 1 {
-                    return None;
+                match last {
+                    LastChunk::StopBeforePartial => return Some(out),
+                    LastChunk::Strict => return None,
+                    LastChunk::Loose => {
+                        if chunk.len() == 1 {
+                            return None;
+                        }
+                        decode_chunk(&chunk, &mut out, false)?;
+                    }
                 }
-                decode_chunk(&chunk, &mut out);
             }
             return Some(out);
         }
@@ -165,7 +190,7 @@ fn from_base64(units: &[u16]) -> Option<Vec<u8>> {
             i = skip(i);
             if chunk.len() == 2 {
                 if i == len {
-                    return None;
+                    return if last == LastChunk::StopBeforePartial { Some(out) } else { None };
                 }
                 if units[i] == b'=' as u16 {
                     i = skip(i + 1);
@@ -174,15 +199,60 @@ fn from_base64(units: &[u16]) -> Option<Vec<u8>> {
             if i < len {
                 return None;
             }
-            decode_chunk(&chunk, &mut out);
+            decode_chunk(&chunk, &mut out, last == LastChunk::Strict)?;
             return Some(out);
         }
+        let c = match c {
+            0x2B | 0x2F if url => return None,
+            0x2D if url => 0x2B,
+            0x5F if url => 0x2F,
+            c => c,
+        };
         chunk.push(base64_digit(c)?);
         if chunk.len() == 4 {
-            decode_chunk(&chunk, &mut out);
+            decode_chunk(&chunk, &mut out, false)?;
             chunk.clear();
         }
     }
+}
+
+/// `toBase64` with its `alphabet` and `omitPadding` options (2.4.1, #64931).
+fn to_base64(bytes: &[u8], url: bool, omit_padding: bool) -> String {
+    let mut text = encode_base64(bytes);
+    if omit_padding {
+        text.truncate(text.trim_end_matches('=').len());
+    }
+    if url {
+        text = text.replace('+', "-").replace('/', "_");
+    }
+    text
+}
+
+/// The base64 methods' options: `undefined` or an object (`<name> requires that options be an object.`).
+fn base64_options(value: &Value, name: &str) -> JsResult<Option<Obj>> {
+    match value {
+        Value::Undefined => Ok(None),
+        Value::Object(o) => Ok(Some(o.clone())),
+        _ => Err(type_error(format!("{name} requires that options be an object."))),
+    }
+}
+
+/// A string option of the base64 methods: one of `allowed`, the first by default; the index of the one given.
+fn base64_option(options: &Option<Obj>, key: &str, allowed: &[&str], name: &str) -> JsResult<usize> {
+    let value = match options {
+        Some(o) => get(o, &PropKey::str(key))?,
+        None => Value::Undefined,
+    };
+    if value.is_undefined() {
+        return Ok(0);
+    }
+    if let Value::String(s) = &value
+        && let Some(at) = allowed.iter().position(|a| s.eq_str(a))
+    {
+        return Ok(at);
+    }
+    let shown: Vec<String> = allowed.iter().map(|a| format!("\"{a}\"")).collect();
+    Err(type_error(format!("{name} requires that {key} be {}.", shown.join(" or "))))
 }
 
 fn from_hex(units: &[u16]) -> Option<Vec<u8>> {
@@ -221,9 +291,9 @@ fn callback_methods() -> Vec<Method> {
             receiver: Rc::new(bytes_receiver),
             length: Rc::new(|o| view_of(o).length),
             get: Rc::new(|o, index| view_of(o).get(index).map(|b| Value::Number(b as f64))),
-            wrap: Rc::new(|rt, values| {
+            wrap: Rc::new(|rt, target, values| {
                 let bytes = values.iter().map(|v| to_uint8(coerce_to_number(&v.clone().unwrap_or_default()))).collect();
-                Value::Object(bytes_obj(&rt.builtins.uint8_array, bytes))
+                Value::Object(derive(rt, view_of(target), BytesData::new(bytes)))
             }),
         },
     )
@@ -272,7 +342,20 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
             let Value::String(text) = arg(&args, 0) else {
                 return NResult::err(type_error(format!("Uint8Array.{name} expects a string.")));
             };
-            let decoded = if name == "fromHex" { from_hex(text.units()) } else { from_base64(text.units()) };
+            let decoded = if name == "fromHex" {
+                from_hex(text.units())
+            } else {
+                let label = "Uint8Array.fromBase64";
+                let read = base64_options(&arg(&args, 1), label).and_then(|options| {
+                    let alphabet = base64_option(&options, "alphabet", &["base64", "base64url"], label)?;
+                    let last = base64_option(&options, "lastChunkHandling", &["loose", "strict", "stop-before-partial"], label)?;
+                    Ok((alphabet == 1, [LastChunk::Loose, LastChunk::Strict, LastChunk::StopBeforePartial][last]))
+                });
+                match read {
+                    Ok((url, last)) => from_base64(text.units(), url, last),
+                    Err(e) => return NResult::err(e),
+                }
+            };
             match decoded {
                 Some(bytes) => NResult::ok(Value::Object(bytes_obj(&rt.builtins.uint8_array, bytes))),
                 None => NResult::err(syntax_error(format!(
@@ -309,6 +392,9 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
         ],
     );
 
+    // 2.4.1 (#64930): one byte per element, on the constructor and its instances.
+    define(&ctor, "BYTES_PER_ELEMENT", Value::Number(1.0), FROZEN);
+    define(&proto, "BYTES_PER_ELEMENT", Value::Number(1.0), FROZEN);
     let length: Getter = Rc::new(|this| Ok(Value::Number(view_of(&bytes_receiver(this, "length")?).length as f64)));
     define_accessor(&proto, "length", Some(length), None);
     let mut table = vec![
@@ -331,7 +417,7 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
                 let end = relative(opt_number(&arg(&args, 1)), view.length, view.length);
                 let bytes = view.to_vec();
                 let slice = if start < end { bytes[start..end].to_vec() } else { Vec::new() };
-                Value::Object(bytes_obj(&rt.builtins.uint8_array, slice))
+                Value::Object(derive(rt, view, BytesData::new(slice)))
             }))
         }),
         // A view on the same bytes, as in JS: writes through one are visible through the other.
@@ -346,7 +432,7 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
                     length: end.saturating_sub(start),
                     node: false,
                 };
-                Value::Object(Obj::new(Some(rt.builtins.uint8_array.clone()), ObjKind::Bytes(sub)))
+                Value::Object(derive(rt, view, sub))
             }))
         }),
         method("set", 1, |rt, site, this, args| {
@@ -470,8 +556,17 @@ pub fn uint8_array_global(rt: &Rt) -> Value {
                     .and_then(|o| Ok(Value::String(join(&view_of(&o).to_vec(), &JsStr::from(","))?))),
             )
         }),
-        method("toBase64", 0, |_, _, this, _| {
-            NResult::from(bytes_receiver(&this, "toBase64").map(|o| Value::from(encode_base64(&view_of(&o).to_vec()))))
+        method("toBase64", 0, |_, _, this, args| {
+            NResult::from(bytes_receiver(&this, "toBase64").and_then(|o| {
+                let label = "Uint8Array.prototype.toBase64";
+                let options = base64_options(&arg(&args, 0), label)?;
+                let url = base64_option(&options, "alphabet", &["base64", "base64url"], label)? == 1;
+                let omit = match &options {
+                    Some(o) => get(o, &PropKey::str("omitPadding"))?.truthy(),
+                    None => false,
+                };
+                Ok(Value::from(to_base64(&view_of(&o).to_vec(), url, omit)))
+            }))
         }),
         method("toHex", 0, |_, _, this, _| {
             NResult::from(bytes_receiver(&this, "toHex").map(|o| Value::from(to_hex(&view_of(&o).to_vec()))))

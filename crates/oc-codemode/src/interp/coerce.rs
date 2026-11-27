@@ -43,7 +43,7 @@ pub fn obj_to_string(o: &Obj) -> JsStr {
             }
             JsStr::from_units(out)
         }
-        ObjKind::Error(_) => {
+        ObjKind::Error(..) => {
             let name = get_str(o, "name").unwrap_or(Value::Undefined);
             let message = get_str(o, "message").unwrap_or(Value::Undefined);
             let shown_name = match &name {
