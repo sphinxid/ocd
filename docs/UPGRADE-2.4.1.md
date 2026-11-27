@@ -92,6 +92,10 @@ Filled in as batches land.
 - **R4** (done): the recorded request bodies for flattening, Google Interactions continuation and the catalog refresh
   are checked against 2.4.1 (`scripts/parity/wire241.py`). Token revocation on sign-out waits for the plugin helper
   rebuild in R12.
+- **R6** (done): `generate_image` and `generate_video` (old names rewritten in permissions), the xAI, MiniMax,
+  OpenRouter, Seedance and Google video protocols (upstream's tests and recorded replays ported), durable video jobs
+  with restart recovery, the `/generate/video` routes, and `blob_<id>` blobs deleted a week after writing. The new
+  `video` parity scenarios are identical, and the media-name differences left by R2 and R3 are closed.
 - **R7** (done): the CLI help, the hidden `login` command, log redaction, the TUI's `/login` and `/auth`, and job
   tracking.
 - **R8** (done): `opencode` is the new palette, `opencode-classic` the old one and `opencode2` an alias. Every
