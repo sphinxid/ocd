@@ -102,7 +102,9 @@ does not touch.
 
 Upstream's mini tests are ported next to each module. `testdata/scrollback.json` and
 `testdata/footer.json` are goldens produced by running upstream 2.2.2's own modules under Bun with
-OpenTUI 0.7.0's test renderer; the tests compare every cell (text, colors, attributes). The scrollback cases that
+OpenTUI 0.7.0's test renderer; the tests compare every cell (text, colors, attributes). Both resolve against
+`opencode-classic` (2.2.2's `opencode` theme), and the footer frames read the hues at step 200 as 2.2.2 did (2.4.1
+reads 400, tested on its own). The scrollback cases that
 draw Markdown, and the `r9-*` cases (setext headings, rules, task boxes, loose lists, quotes, aligned tables,
 reasoning, streamed blocks, mono), come from 2.4.1's `RunScrollbackStream` on OpenTUI 0.9.4
 (`scripts/mini_scrollback_golden.test.ts`); the diff tool cases keep their 2.2.2 rows (0.9.4 leaves a diff
@@ -125,6 +127,25 @@ Remaining differences from upstream:
 ## Features
 
 The modules below cover the main session and home screens and all dialogs. They also cover:
+
+- **New designs** (2.4.1, #64988; `app/new_designs_tests.rs`, `ui/dialog_nd_tests.rs`, `theme/oracle_tests.rs`): on
+  unless `experimental["new-designs"]` is `false` in `cli.json` (`Config::new_designs`, `App::new_designs`), in
+  which case everything below keeps its legacy layout. Whatever the flag says, `opencode` is 2.3.2's `opencode2`
+  palette, the previous one ships as `opencode-classic` (`assets/themes/v2/opencode-classic.json`), `opencode2` is
+  an alias (config, `theme.set`, the theme list, Settings; a custom `opencode2` theme wins), and mini mode and the
+  terminal pane read hue step 400. Under the flag: every V1 theme (built-ins, custom, the system theme) goes through
+  `migrateV1NewDesigns` (`theme/v1_new.rs`; `testdata/tokens_241.json` is upstream's recorded U.1 oracle and the
+  tests resolve every built-in in every mode, the system theme over six palettes, and mini's classic views);
+  agents take the categorical step 400 and shell mode `categorical[1][400]`; `ui/dialog.rs` draws the dialog kit
+  (`footer_band`, `header_lines`, `buttons_line`, `select_lines_nd`, `choice_text`, `Detail`); the dialogs set
+  their gated options (search in the title row, short lists without a search, Settings choices and descriptions
+  with the theme list returning to it, the model picker's `*`, Free group and favorites snapshot, the Free models
+  picker, the export options list and result, footer wordings and key changes in debug, shell output, execute,
+  plugin errors, `/btw`, the image preview, OAuth and the Go sign-in, the forced worktree delete's file list, the
+  usage dialog's description); autocomplete rows draw their own rail. `ui/testdata/nd/*.json` are cell fixtures
+  upstream recorded from its TypeScript TUI with the new designs on (`packages/cli-rs/parity/fixtures`), compared
+  by `ui/fixture.rs` (text and backgrounds everywhere, colors and bold where there is a glyph). Word-wrapped text in
+  the new layouts breaks like OpenTUI (`text::wrap_word_ot`). Not ported: hover highlights of footer items.
 
 - **Session tab rail:** vertical rail plus horizontal strip, with drag-reorder, rail resize
   and the tab context menu.
@@ -235,8 +256,8 @@ The modules below cover the main session and home screens and all dialogs. They 
   days (#61244); the system theme's mode uses OpenTUI's `themeMode` brightness (`(r*299+g*587+b*114)/1000 > 128`);
   the "Scroll on send" setting (`session.submit_scroll`: `bottom`, or `keep` to leave the transcript where it is).
   Already matching, unchanged: dialog focus when a question arrives (#60365), Home/End in subagent sessions
-  (#60817), older history prepended without a jump (#59236). Not ported (new designs only, off by default): the
-  shell-output copy keys, the search cursor colour, `footerGap`, the OAuth code subtitle. Left: following a live
+  (#60817), older history prepended without a jump (#59236). The new designs' shell-output copy keys, search cursor
+  colour and `footerGap` came with 2.4.1 (see **New designs**). Left: following a live
   light/dark switch of the terminal (`?2031`), an older gap; output streamed below while scrolled up (or after a
   `keep` send) still moves ocd's view, where upstream keeps its scroll position; ocd lets every base binding through
   in a subagent session's composer mode where upstream enables only `session.first`/`session.last`.
@@ -300,7 +321,8 @@ The modules below cover the main session and home screens and all dialogs. They 
   `Usage ctrl+u` action in 2.2.7); the prompt shows `$X left` / `Limit reached` when the model runs low; the sidebar gets the
   `opencode.sidebar.limit` block; warnings toast once per model and level; refused turns show the Go / budget /
   model budget / out-of-credits notices (the Go page link opens on click; no OSC 8). Toasts are clickable (dismiss
-  and run their action). The new-designs details (`ModelDetail` usage, dialog descriptions) are not ported.
+  and run their action). Under the new designs the list's description names the workspace and the next reset; the
+  model limits dialog's `ModelDetail` facts are not ported.
 - **Copy:** mouse drag-select copies on release when `terminal.copy` is `"select"`. In
   `"manual"` mode, right-click copies. While a selection exists, `esc` and `ctrl+c` follow
   `handleSelectionKey`.

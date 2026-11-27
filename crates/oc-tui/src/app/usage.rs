@@ -202,6 +202,14 @@ impl App {
         match state {
             Some(true) => {
                 let rows = self.usage_rows();
+                // Under the new designs a muted line below the title: the workspace and the earliest reset.
+                let workspace = self.usage_info().and_then(|i| i.workspace.name.clone()).filter(|n| !n.is_empty());
+                let resets = rows.iter().map(|(_, u, _)| u.resets_at).fold(f64::INFINITY, f64::min);
+                let description = [workspace.map(|n| format!("Workspace: {n}")), (!rows.is_empty()).then(|| format!("Resets {}", ul::format_reset(resets)))]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" · ");
                 let opts: Vec<Opt> = rows
                     .iter()
                     .map(|(m, u, level)| {
@@ -218,6 +226,7 @@ impl App {
                     Some(sel) => {
                         let current = sel.selected_value();
                         sel.options = opts;
+                        sel.description = Some(description);
                         if let Some(v) = current
                             && let Some(i) = sel.visible().iter().position(|i| sel.options[*i].value == v)
                         {
@@ -226,6 +235,7 @@ impl App {
                     }
                     None => {
                         let mut sel = Select::new("Usage", opts);
+                        sel.description = Some(description);
                         sel.placeholder = "Search models".into();
                         sel.footer_active_only = true;
                         sel.focus_current = false;

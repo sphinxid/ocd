@@ -294,3 +294,17 @@ fn toast_click_runs_its_action() {
     assert!(a.toast.is_none());
     assert_eq!(a.dialogs.last().map(|d| d.purpose.as_str()), Some(super::usage::PURPOSE));
 }
+
+/// Under the new designs `/usage` describes the workspace and the next reset below its title (`description`).
+#[test]
+fn usage_dialog_describes_the_workspace_under_the_new_designs() {
+    for nd in [true, false] {
+        let (mut a, _) = console_app(true);
+        a.config = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "animations": false, "experimental": { "new-designs": nd } }));
+        a.run_command("usage.show", None);
+        let lines = render(&mut a, 110, 36);
+        let joined = lines.join("\n");
+        let reset = crate::util::usage_limits::format_reset(1_793_491_200_000.0);
+        assert_eq!(contains(&lines, &format!("Workspace: Acme · Resets {reset}")), nd, "{joined}");
+    }
+}
