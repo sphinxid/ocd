@@ -5,6 +5,7 @@ pub mod edit;
 pub mod glob;
 pub mod grep;
 pub mod image_generate;
+pub mod video_generate;
 pub mod mcp;
 pub mod mcp_resource;
 pub mod opencode;
@@ -81,7 +82,7 @@ pub struct Services {
 }
 
 /// Built-in tools in upstream registration order (`core/src/plugin/internal.ts`):
-/// patch, edit, glob, grep, generate_image, opencode.*, MCP resource tools, question, read, shell, skill,
+/// patch, edit, glob, grep, generate_image, generate_video, opencode.*, MCP resource tools, question, read, shell, skill,
 /// subagent, todowrite (kept only where `experimental.todo` is on, see oc-core), webfetch, websearch, write.
 pub fn builtin(services: &Services) -> (Vec<Arc<dyn crate::tool::Tool>>, Vec<crate::tool::Namespace>) {
     let mut tools: Vec<Arc<dyn crate::tool::Tool>> = vec![
@@ -91,6 +92,8 @@ pub fn builtin(services: &Services) -> (Vec<Arc<dyn crate::tool::Tool>>, Vec<cra
         Arc::new(grep::GrepTool::new(services.ripgrep.clone())),
         // Core keeps it only while an image model is available and `experimental.image_generate` isn't false.
         Arc::new(image_generate::ImageGenerateTool::new(services.http.clone())),
+        // Core keeps it only while a video model is available and `experimental.video_generate` isn't false.
+        Arc::new(video_generate::VideoGenerateTool),
     ];
     tools.extend(opencode::tools());
     tools.extend(mcp_resource::tools());

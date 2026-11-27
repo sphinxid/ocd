@@ -360,6 +360,19 @@ impl ToolHost for CoreHost {
         engine.generate_image(&key, &request).await.map_err(|e| e.to_string())
     }
 
+    async fn video_start(&self, session_id: &str, request: Value) -> Result<String, String> {
+        let engine = self.engine.as_ref().and_then(std::sync::Weak::upgrade).ok_or("video generation is unavailable")?;
+        let location = self.app.sessions.get(session_id).map_err(|e| e.to_string())?.location;
+        let input = crate::video::tool_input(&request).map_err(|e| e.to_string())?;
+        engine.videos.start(input, Some(location)).await.map_err(|e| e.to_string())
+    }
+
+    async fn video_track(&self, track: oc_tools::host::VideoTrack) -> Result<(), String> {
+        let engine = self.engine.as_ref().and_then(std::sync::Weak::upgrade).ok_or("video generation is unavailable")?;
+        engine.track_video(track);
+        Ok(())
+    }
+
     async fn providers_list(&self) -> Result<Vec<ProviderSummary>, String> {
         let catalog = self.location.as_deref().and_then(|key| self.app.plugins.catalog(key)).ok_or("providers are unavailable")?;
         Ok(catalog.available_providers().into_iter().map(|p| ProviderSummary { id: p.id.clone(), name: p.name.clone() }).collect())

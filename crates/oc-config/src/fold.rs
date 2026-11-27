@@ -85,6 +85,11 @@ pub fn image_generate(entries: &[Entry]) -> Option<&crate::schema::ImageGenerate
     latest(entries, |i| i.experimental.as_ref().and_then(|e| e.image_generate.as_ref()))
 }
 
+/// `experimental.video_generate`, read per field like `image_generate` (`videoGenerate`).
+pub fn video_generate(entries: &[Entry]) -> Option<&crate::schema::VideoGenerate> {
+    latest(entries, |i| i.experimental.as_ref().and_then(|e| e.video_generate.as_ref()))
+}
+
 /// `experimental.subagent_depth ?? 1`.
 pub fn subagent_depth(entries: &[Entry]) -> u64 {
     experimental(entries).and_then(|e| e.subagent_depth).unwrap_or(1)

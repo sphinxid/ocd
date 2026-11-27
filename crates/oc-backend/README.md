@@ -98,8 +98,10 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   reach these handlers through `BackendApi` (`automation.*` operation names, 2.4.1).
   `start` gives the service its prompt path (the session API's `prompt` as a steer, which a new admission needs the
   session's folder for) and runs its loop in every server process; `/automation` is listed where automations and the
-  `opencode.tool.automation` plugin are on. `generate.video.*` answer 403 `Video generation is disabled; enable
-  experimental.video_generate` after decoding. `blob.get` reads `<data>/blobs/<id>` (`BlobStore.read`: 404
+  `opencode.tool.automation` plugin are on. `generate.video.create` (on since 2.4.1) submits a job at the base
+  configuration through `runner.videos` (`oc_core::video`, durable `kv` records) and answers `{id, status: "running"}`
+  once the provider accepted it; `generate.video.get` answers the job (running, completed with its blobs, error with a
+  reason) or 404 `VideoNotFoundError`. Every server runs the video check loop (`runner.videos.run()` at start). `blob.get` reads `<data>/blobs/<id>` (`BlobStore.read`: 404
   `BlobNotFoundError` when missing, the type sniffed from the first 64 bytes). The machine routes (2.4.1) answer as
   with the `machines` flag off: `machine.list`/`add`/`remove` 403 `Machines are disabled; enable
   experimental.machines` after decoding, `machine.link` an empty 404.

@@ -6,9 +6,9 @@
 //! builds whatever the environment or config say; ocd is a release-channel build, so they never turn on.
 //!
 //! 2.4.1 removed the `automations`, `video_generate` and `mcp_events` flags (and the `schedules` alias) because those
-//! features are on by default there. MCP Events are on for every connection, as in 2.4.1. Until ocd ports the rest of
-//! their 2.4.1 behaviour it keeps the others off by default: automations read the top-level `automations` setting
-//! (`oc_core::automation::settings_of`) and video generation answers 403.
+//! features are on by default there: MCP Events are on for every connection, automations read the top-level
+//! `automations` setting (`oc_core::automation::settings_of`), and video generation is on while a connected provider
+//! has a video model (`experimental.video_generate: false` turns the tool off).
 
 use indexmap::IndexMap;
 

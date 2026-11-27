@@ -734,22 +734,40 @@ impl Backend for Engine {
         self.automation_delete(&req.automation_id).await
     }
 
-    // ---- video generation (experimental.video_generate; not ported, off) and blobs ----
+    // ---- video generation (on by default since 2.4.1) and blobs ----
 
+    /// Submits a video job at the server's base configuration and returns its ID once the provider accepted it; the
+    /// server polls the job and stores the finished videos as blobs.
     async fn experimental_generate_video_create(
         &self,
         _ctx: &RequestContext,
-        _req: ExperimentalGenerateVideoCreateRequest,
+        req: ExperimentalGenerateVideoCreateRequest,
     ) -> Result<GenerateVideoCreateResponse, ApiError> {
-        Err(ApiError::forbidden(crate::automations::VIDEO_DISABLED))
+        let directory = self.app.global.config.display().to_string();
+        self.locations.get(&directory).await?;
+        let Some(runner) = &self.runner else { return Err(unavailable("generate")) };
+        let body = serde_json::to_value(&req.body).map_err(|e| defect(e.to_string()))?;
+        let input = oc_core::generate::VideoInput::from_request(&body).map_err(generate_error)?;
+        match runner.videos.start(input, None).await {
+            Ok(id) => from_json(json!({ "data": { "id": id, "status": "running" } })),
+            Err(e) => Err(generate_error(e)),
+        }
     }
 
+    /// A video job: running, completed with its videos' blobs, or error with a reason. Not found 24 hours after it
+    /// finished, or once none of its blobs remain.
     async fn experimental_generate_video_get(
         &self,
         _ctx: &RequestContext,
-        _req: ExperimentalGenerateVideoGetRequest,
+        req: ExperimentalGenerateVideoGetRequest,
     ) -> Result<GenerateVideoGetResponse, ApiError> {
-        Err(ApiError::forbidden(crate::automations::VIDEO_DISABLED))
+        let directory = self.app.global.config.display().to_string();
+        self.locations.get(&directory).await?;
+        let Some(runner) = &self.runner else { return Err(ApiError::video_not_found(req.id.clone(), format!("Video not found: {}", req.id))) };
+        match runner.videos.get(&req.id).await {
+            Ok(job) => from_json(json!({ "data": job.to_value() })),
+            Err(e) => Err(ApiError::video_not_found(e.id, e.message)),
+        }
     }
 
     async fn experimental_blob_get(&self, _ctx: &RequestContext, req: ExperimentalBlobGetRequest) -> Result<oc_server::BlobFile, ApiError> {

@@ -294,6 +294,45 @@ impl Engine {
         self.app.jobs.complete_background(&bg.notification_id);
     }
 
+    /// `recoverVideoJob`: the video service keeps polling a running video itself, here or in another server, so the
+    /// tool's wait, copy and notice just continue. Without the session's location, or once the job settled, it becomes
+    /// its `<background-result kind="video">` notice.
+    async fn recover_video(self: &Arc<Self>, bg: &Background) {
+        let JobRecovery::Video { session_id, path, video_id } = &bg.recovery else { return };
+        if bg.status == JobStatus::Running
+            && let Ok(session) = self.app.sessions.get(session_id)
+            && session.location.workspace_id.is_none()
+            && std::path::Path::new(&session.location.directory).is_dir()
+        {
+            self.track_video(oc_tools::host::VideoTrack {
+                session_id: session_id.clone(),
+                video_id: video_id.clone(),
+                path: path.clone(),
+                title: None,
+                notification_id: Some(bg.notification_id.clone()),
+            });
+            return;
+        }
+        let body = match bg.status {
+            JobStatus::Running => {
+                format!("Video request for {path} couldn't be saved after the server restarted: its project folder no longer exists.")
+            }
+            JobStatus::Completed => bg.output.clone().unwrap_or_else(|| format!("Video request finished. Saved video: {path}.")),
+            JobStatus::Error => bg.error.clone().unwrap_or_else(|| format!("Video request failed for {path}.")),
+            _ => format!("Video request for {path} was cancelled."),
+        };
+        let state = if bg.status == JobStatus::Running { "cancelled" } else { bg.status.as_str() };
+        let text = oc_tools::tools::video_generate::notice(&bg.id, state, &body);
+        let metadata = json!({ "source": oc_tools::tools::video_generate::NAME, "jobID": bg.id, "state": state, "path": path });
+        // Restart notices must not revive idle owners of background tools.
+        let _ = self
+            .app
+            .sessions
+            .synthetic(session_id, Some(bg.notification_id.clone()), text, Some("Video generation".into()), metadata.as_object().cloned(), None)
+            .await;
+        self.app.jobs.complete_background(&bg.notification_id);
+    }
+
     /// `recoverToolJob` for a Code Mode script (`CodeModeJob.notice`): one still running was interrupted by the
     /// restart; a settled one replays its result.
     async fn recover_codemode(&self, bg: &Background) {
@@ -417,6 +456,7 @@ impl Engine {
             match bg.recovery {
                 JobRecovery::Shell { .. } => self.recover_shell_job(bg, notices, &mut reattached).await,
                 JobRecovery::Image { .. } => self.recover_image(bg).await,
+                JobRecovery::Video { .. } => self.recover_video(bg).await,
                 JobRecovery::Codemode { .. } => self.recover_codemode(bg).await,
                 JobRecovery::Subagent { .. } => {}
             }

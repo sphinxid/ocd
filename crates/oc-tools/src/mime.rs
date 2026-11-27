@@ -215,3 +215,48 @@ mod tests {
         assert_eq!(lookup(Path::new("a/b.unknownext")), "application/octet-stream");
     }
 }
+
+/// `Media.detectMediaType` (`ai/src/utils/media-type.ts`, the same rule as `oc_ai::media::detect_media_type`): the
+/// image, video and audio signatures the generation tools accept, plus PDF.
+pub fn detect_media_type(bytes: &[u8]) -> Option<&'static str> {
+    let starts = |prefix: &[u8]| bytes.len() >= prefix.len() && &bytes[..prefix.len()] == prefix;
+    if starts(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) {
+        return Some("image/png");
+    }
+    if starts(&[0xff, 0xd8, 0xff]) {
+        return Some("image/jpeg");
+    }
+    if starts(&[0x47, 0x49, 0x46, 0x38]) {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" {
+        if &bytes[8..12] == b"WEBP" {
+            return Some("image/webp");
+        }
+        if &bytes[8..12] == b"WAVE" {
+            return Some("audio/wav");
+        }
+    }
+    if starts(&[0x25, 0x50, 0x44, 0x46]) {
+        return Some("application/pdf");
+    }
+    if let Some(mime) = iso_bmff(bytes) {
+        return Some(mime);
+    }
+    if starts(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        return Some("video/webm");
+    }
+    if starts(&[0x49, 0x44, 0x33]) {
+        return Some("audio/mpeg");
+    }
+    if bytes.len() >= 2 && bytes[0] == 0xff && (bytes[1] & 0xe0) == 0xe0 {
+        return Some(if (bytes[1] & 0x06) == 0 { "audio/aac" } else { "audio/mpeg" });
+    }
+    if starts(&[0x4f, 0x67, 0x67, 0x53]) {
+        return Some("audio/ogg");
+    }
+    if starts(&[0x66, 0x4c, 0x61, 0x43]) {
+        return Some("audio/flac");
+    }
+    None
+}

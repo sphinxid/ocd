@@ -54,6 +54,8 @@ pub struct Engine {
     pub(crate) precomputed: Mutex<HashMap<String, crate::compaction::Precomputed>>,
     /// Automations (the top-level `automations` setting).
     pub automations: Arc<crate::automation::Automations>,
+    /// Durable video jobs (`VideoGeneration`); its check loop starts with the server.
+    pub videos: Arc<crate::video::VideoGeneration>,
     /// Tools tests register in every location after the built-ins (a stand-in for a plugin's tool transform).
     #[doc(hidden)]
     pub extra_tools: Mutex<Vec<Arc<dyn oc_tools::Tool>>>,
@@ -152,6 +154,7 @@ impl Engine {
                 automations.set_engine(me.clone());
                 automations
             },
+            videos: Arc::new(crate::video::VideoGeneration::new(me.clone())),
             extra_tools: Mutex::new(Vec::new()),
             me: me.clone(),
         })
@@ -654,6 +657,17 @@ impl Engine {
         if !image_models || image_off {
             registry.remove(oc_tools::tools::image_generate::NAME);
         }
+        // `opencode.tool.video-generate` (2.4.1) likewise registers `generate_video` only while a video model is
+        // available. On by default: `experimental.video_generate: false` is honored, but permissions are the supported
+        // way to turn it off.
+        let video_models = match self.models.catalog_at(&location.entries, Some(key)).await {
+            Ok(catalog) => !catalog.available_models_of(&["video".to_string()]).is_empty(),
+            Err(_) => false,
+        };
+        let video_off = matches!(oc_config::fold::video_generate(&location.entries), Some(oc_config::schema::VideoGenerate::Enabled(false)));
+        if !video_models || video_off {
+            registry.remove(oc_tools::tools::video_generate::NAME);
+        }
         // Built-in tool plugins removed by configuration (`-opencode.tool.read`, `-*`, ...).
         if let Some(enabled) = self.app.plugins.enabled(key) {
             for (id, tool) in registry.list() {
@@ -961,6 +975,12 @@ impl Engine {
                     model: m.model.clone(),
                     variant: m.variant.clone(),
                 }),
+                _ => None,
+            },
+            video_model: match oc_config::fold::video_generate(entries) {
+                Some(oc_config::schema::VideoGenerate::Settings { model: Some(m) }) => {
+                    Some(oc_tools::tools::video_generate::ConfiguredModel { provider_id: m.provider_id.clone(), model: m.model.clone() })
+                }
                 _ => None,
             },
             ..Default::default()

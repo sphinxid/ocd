@@ -12,7 +12,6 @@ use serde_json::{Value, json};
 
 /// What the routes answer where the top-level `automations: false` turns automations off (on by default since 2.4.1).
 const AUTOMATIONS_OFF: &str = "Automations are disabled. Set automations to true in config to enable them.";
-const VIDEO_OFF: &str = "Video generation is disabled; enable experimental.video_generate";
 const MISSING_SESSION: &str = "ses_ffffffffffffZZZZZZZZZZZZZZ";
 const MISSING_AUTOMATION: &str = "aut_ffffffffffffZZZZZZZZZZZZZZ";
 
@@ -150,14 +149,26 @@ async fn a_missing_automation_is_not_found_and_a_stored_one_is_forbidden() {
     assert_eq!(res(&h.get("/api/experimental/automation").await), (200, json!({ "data": [] })));
 }
 
+/// 2.4.1 turns video generation on: the routes decode, then answer like the other generate routes.
 #[tokio::test]
-async fn video_generation_answers_disabled_after_decoding() {
-    let h = harness();
+async fn video_generation_is_on_and_answers_after_decoding() {
+    // A server with its session runner (whose working directory happens to turn automations off).
+    let h = harness_off();
     let route = "/api/experimental/generate/video";
-    assert_eq!(res(&h.post(route, json!({ "model": { "providerID": "x", "id": "y" }, "prompt": "p" })).await), forbidden(VIDEO_OFF));
+    assert_eq!(
+        res(&h.post(route, json!({ "model": { "providerID": "x", "id": "y" }, "prompt": "p" })).await),
+        (404, json!({ "_tag": "ModelNotFoundError", "providerID": "x", "modelID": "y", "message": "Model not found: x/y" }))
+    );
     assert_eq!(res(&h.post(route, json!({})).await), invalid("Missing key\n  at [\"model\"]", "Payload"));
     assert_eq!(res(&h.post(route, json!({ "model": "x/y", "prompt": "p" })).await), invalid("Expected Model.Ref\n  at [\"model\"]", "Payload"));
-    assert_eq!(res(&h.get(&format!("{route}/video_0123456789abABCDEFGHIJKLMN")).await), forbidden(VIDEO_OFF));
+    assert_eq!(
+        res(&h.get(&format!("{route}/video_0123456789abABCDEFGHIJKLMN")).await),
+        (
+            404,
+            json!({ "_tag": "VideoNotFoundError", "videoID": "video_0123456789abABCDEFGHIJKLMN",
+                    "message": "Video not found: video_0123456789abABCDEFGHIJKLMN" })
+        )
+    );
     assert_eq!(
         res(&h.get(&format!("{route}/bad")).await),
         invalid("Expected a string matching the RegExp ^video_[0-9a-f]{12}[0-9A-Za-z]{14}$\n  at [\"id\"]", "Params")

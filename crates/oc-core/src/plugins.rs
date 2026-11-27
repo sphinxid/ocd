@@ -37,7 +37,7 @@ use crate::location::Location;
 
 /// Built-in (internal) plugin ids in activation order (`core/src/plugin/internal.ts` `pre`, the
 /// provider and web-search plugins, `post`), as `plugin.list` reports them.
-pub const BUILTIN_PLUGINS: [&str; 94] = [
+pub const BUILTIN_PLUGINS: [&str; 95] = [
     "opencode.tool.input.repair",
     "opencode.config.worktree",
     "opencode.config.mcp",
@@ -99,6 +99,8 @@ pub const BUILTIN_PLUGINS: [&str; 94] = [
     "opencode.tool.glob",
     "opencode.tool.grep",
     "opencode.tool.image-generate",
+    // 2.4.1: on in releases (`generate_video`, while a video model is available).
+    "opencode.tool.video-generate",
     "opencode.tools",
     // 2.4.1: adds `list_mcp_events` (2.3.0's `watch_mcp_event` behind the `mcp_events` flag before).
     "opencode.tools.mcp-events",
@@ -239,6 +241,7 @@ pub fn tool_plugin(tool: &dyn Tool) -> Option<&'static str> {
         "glob" => "opencode.tool.glob",
         "grep" => "opencode.tool.grep",
         oc_tools::tools::image_generate::NAME => "opencode.tool.image-generate",
+        oc_tools::tools::video_generate::NAME => "opencode.tool.video-generate",
         "list_mcp_resources" | "read_mcp_resource" => "opencode.tools.mcp-resources",
         "question" => "opencode.tool.question",
         "read" => "opencode.tool.read",

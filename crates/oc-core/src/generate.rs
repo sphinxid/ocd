@@ -191,7 +191,7 @@ impl Engine {
         Ok(response.text())
     }
 
-    /// `ModelResolver.resolveImage` / `resolveDecision` at `directory`'s location: an enabled model of that type by
+    /// `ModelResolver.resolveImage` / `resolveDecision` / `resolveVideo` at `directory`'s location: an enabled model of that type by
     /// ref, else upstream's `missing` (another type's model is a 422, anything else a 404).
     async fn media_model(self: &Arc<Self>, directory: &str, kind: MediaType, model: &ModelRef) -> Result<MediaModel, GenerateError> {
         let location = self.location(directory).await.map_err(|e| GenerateError::Unavailable { message: e.to_string(), service: None })?;
@@ -300,6 +300,104 @@ impl Engine {
             out.insert("native".into(), Value::Object(native));
         }
         Ok(Value::Object(out))
+    }
+}
+
+/// `Generate.VideoInput`.
+#[derive(Debug, Clone)]
+pub struct VideoInput {
+    pub model: ModelRef,
+    pub prompt: String,
+    pub start: Option<oc_ai::MediaAsset>,
+    pub end: Option<oc_ai::MediaAsset>,
+    pub references: Vec<oc_ai::MediaAsset>,
+    /// Seconds.
+    pub duration: Option<f64>,
+    pub aspect: Option<String>,
+    pub resolution: Option<String>,
+    pub sound: Option<bool>,
+}
+
+impl VideoInput {
+    /// `videoInput`: a public video request (`Generate.VideoRequest`), whose media arrives as inline files.
+    pub fn from_request(input: &Value) -> Result<Self, GenerateError> {
+        let model: ModelRef = serde_json::from_value(input["model"].clone())
+            .map_err(|e| GenerateError::InvalidRequest { message: e.to_string(), field: Some("model".into()) })?;
+        let file = |v: &Value| oc_ai::MediaAsset::base64(v["data"].as_str().unwrap_or_default(), v["mime"].as_str().unwrap_or_default());
+        Ok(Self {
+            model,
+            prompt: input["prompt"].as_str().unwrap_or_default().to_string(),
+            start: input.get("start").filter(|v| v.is_object()).map(file),
+            end: input.get("end").filter(|v| v.is_object()).map(file),
+            references: input.get("references").and_then(Value::as_array).into_iter().flatten().map(file).collect(),
+            duration: input.get("duration").and_then(Value::as_f64),
+            aspect: input.get("aspect").and_then(Value::as_str).map(String::from),
+            resolution: input.get("resolution").and_then(Value::as_str).map(String::from),
+            sound: input.get("sound").and_then(Value::as_bool),
+        })
+    }
+}
+
+impl Engine {
+    /// `ModelResolver.resolveVideo` at `directory`'s location.
+    async fn video_model(self: &Arc<Self>, directory: &str, model: &ModelRef) -> Result<oc_ai::video::VideoModel, GenerateError> {
+        let MediaModel::Video(video) = self.media_model(directory, MediaType::Video, model).await? else { unreachable!() };
+        Ok(video)
+    }
+
+    /// `Generate.video.start`: submits the job and returns the provider's job ID. Submitting is paid and not
+    /// idempotent, so it is never retried.
+    pub async fn generate_video_start(self: &Arc<Self>, directory: &str, input: VideoInput) -> Result<String, GenerateError> {
+        let model = self.video_model(directory, &input.model).await?;
+        let mut request = oc_ai::video::VideoRequest::new(model, input.prompt);
+        request.start = input.start;
+        request.end = input.end;
+        request.references = input.references;
+        request.duration = input.duration;
+        request.aspect = input.aspect;
+        request.resolution = input.resolution;
+        request.sound = input.sound;
+        oc_ai::video::start(self.client.http(), request).await.map_err(|e| provider_error(&input.model, &e))
+    }
+
+    /// `Generate.video.status`.
+    pub async fn generate_video_status(self: &Arc<Self>, directory: &str, model: &ModelRef, id: &str) -> Result<oc_ai::video::VideoStatus, GenerateError> {
+        let video = self.video_model(directory, model).await?;
+        oc_ai::video::status(self.client.http(), &video, id).await.map_err(|e| provider_error(model, &e))
+    }
+
+    /// `Generate.video.result`: every video the job made, at least one.
+    pub async fn generate_video_result(self: &Arc<Self>, directory: &str, model: &ModelRef, id: &str) -> Result<Vec<oc_ai::video::VideoOutput>, GenerateError> {
+        let video = self.video_model(directory, model).await?;
+        let response = oc_ai::video::result(self.client.http(), &video, id).await.map_err(|e| provider_error(model, &e))?;
+        if response.videos.is_empty() {
+            return Err(GenerateError::ProviderRequest {
+                provider_id: model.provider_id.clone(),
+                reason: "provider",
+                message: format!("{}/{} returned no video", model.provider_id, model.id),
+                status: None,
+                retry_after_ms: None,
+            });
+        }
+        Ok(response.videos)
+    }
+
+    /// `Generate.video.cancel`: fails as an invalid request when the provider has no way to cancel a job.
+    pub async fn generate_video_cancel(self: &Arc<Self>, directory: &str, model: &ModelRef, id: &str) -> Result<(), GenerateError> {
+        let video = self.video_model(directory, model).await?;
+        oc_ai::video::cancel(self.client.http(), &video, id).await.map_err(|e| provider_error(model, &e))
+    }
+
+    /// A finished video's bytes as a stream, downloaded as it is read (`VideoFile.stream`).
+    pub async fn generate_video_open(
+        self: &Arc<Self>,
+        model: &ModelRef,
+        video: &oc_ai::video::VideoOutput,
+    ) -> Result<futures::stream::BoxStream<'static, Result<bytes::Bytes, GenerateError>>, GenerateError> {
+        use futures::StreamExt;
+        let stream = oc_ai::video::open(self.client.http(), video).await.map_err(|e| provider_error(model, &e))?;
+        let model = model.clone();
+        Ok(stream.map(move |chunk| chunk.map_err(|e| provider_error(&model, &e))).boxed())
     }
 }
 

@@ -35,7 +35,7 @@ fn truncate(s: &str, n: usize) -> &str {
 /// A listed background job as the API's `Job.Info` (`JobList.toItem`).
 pub fn job_info(job: oc_core::job::ListedJob) -> oc_server::generated::JobInfo {
     use oc_server::generated::{
-        JobCodeMode, JobImage, JobShell, JobStatus, JobSubagent, JobTime, LitCodemode, LitImage, LitShell, LitSubagent,
+        JobCodeMode, JobImage, JobShell, JobStatus, JobSubagent, JobTime, JobVideo, LitCodemode, LitImage, LitShell, LitSubagent, LitVideo,
     };
     use oc_tools::host::{JobRecovery, JobStatus as Status};
     let status = match job.status {
@@ -66,6 +66,7 @@ pub fn job_info(job: oc_core::job::ListedJob) -> oc_server::generated::JobInfo {
         JobRecovery::Image { session_id, path, model } => {
             JobImage { kind: LitImage, id, session_id, status, title, time, path, model }.into()
         }
+        JobRecovery::Video { session_id, path, .. } => JobVideo { kind: LitVideo, id, session_id, status, title, time, path }.into(),
     }
 }
 

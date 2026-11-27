@@ -208,6 +208,16 @@ pub enum JobRecovery {
         path: String,
         model: String,
     },
+    /// A background `generate_video` job (2.4.1): the server keeps polling the video itself, so a restart continues the
+    /// wait, copy and notice.
+    #[serde(rename = "video")]
+    Video {
+        #[serde(rename = "sessionID")]
+        session_id: String,
+        path: String,
+        #[serde(rename = "videoID")]
+        video_id: String,
+    },
 }
 
 /// `Job.Status`.
@@ -273,6 +283,19 @@ pub struct SyntheticMessage {
     /// Admitted outside any location: upstream 2.3.0 tells a session how a shell command ended from the shell
     /// service's own scope, which outlives the location (`shell.watch`), so the notice's events carry none.
     pub unlocated: bool,
+}
+
+/// `VideoGenerateTool.track` input: wait for a video the server is generating, then copy each of its videos from the
+/// blob store into the workspace, as a background job a restarted server can take over from the same recovery record.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoTrack {
+    pub session_id: String,
+    pub video_id: String,
+    /// Where the first video is saved.
+    pub path: String,
+    pub title: Option<String>,
+    /// The job's notice ID; a new one unless a restart takes over a recovered job.
+    pub notification_id: Option<String>,
 }
 
 /// Shell invocation passed through the `shell.create.before` plugin hook.
@@ -443,6 +466,18 @@ pub trait ToolHost: Send + Sync {
     }
 
     // ---------------------------------------------------------------- jobs
+    /// `VideoGeneration.start` at the session's location: submits a `Generate.VideoRequest`-shaped request whose media
+    /// are `{type: "bytes", data, mediaType}` or `{type: "url", url, mediaType?}`, and returns the video job's ID once
+    /// the provider accepted it.
+    async fn video_start(&self, _session_id: &str, _request: Value) -> Result<String, String> {
+        Err("Video generation is not supported in this runtime".into())
+    }
+
+    /// `VideoGenerateTool.track`: the background job that waits for the video, saves it and notifies the session.
+    async fn video_track(&self, _track: VideoTrack) -> Result<(), String> {
+        Err("Video generation is not supported in this runtime".into())
+    }
+
     async fn job_start(&self, start: JobStart) -> Result<JobInfo, String> {
         // Default: run inline in the background with no job registry.
         let info = JobInfo {

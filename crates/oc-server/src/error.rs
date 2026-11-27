@@ -450,6 +450,11 @@ impl ApiError {
     }
 
     /// `404 BlobNotFoundError` — `Blob not found: <id>`.
+    /// `404 VideoNotFoundError{videoID, message}`.
+    pub fn video_not_found(video_id: impl Into<String>, message: impl Into<String>) -> Self {
+        tagged(404, "VideoNotFoundError", json!({ "videoID": video_id.into(), "message": message.into() }))
+    }
+
     pub fn blob_not_found(blob_id: impl Into<String>) -> Self {
         let id = blob_id.into();
         tagged(404, "BlobNotFoundError", json!({ "blobID": id, "message": format!("Blob not found: {id}") }))

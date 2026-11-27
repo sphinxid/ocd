@@ -4,9 +4,9 @@
 //! automation's directory turns its routes into `403`s. An automation whose folder is gone stays manageable, so it can
 //! be inspected and deleted. The checks live in the core service (2.4.1, #65747), which plugins call too.
 //! This module also gives the automation service its prompt path (the session API) and starts its loop. Video
-//! generation (`handlers/generate.ts`) answers `403` behind `experimental.video_generate`, which ocd does not port.
-//! Blobs (`handlers/blob.ts`, `core/src/blob-store.ts`) are files under `<data>/blobs/`, served without a flag; the
-//! server deletes video blobs older than a week at startup and hourly.
+//! generation (`handlers/generate.ts`) is on by default since 2.4.1 (`oc_core::video`). Blobs (`handlers/blob.ts`,
+//! `core/src/blob-store.ts`) are files under `<data>/blobs/`, served without a flag; the server deletes video blobs
+//! older than a week at startup and hourly.
 
 use std::sync::{Arc, Weak};
 
@@ -22,8 +22,6 @@ use crate::util::{defect, from_json};
 
 /// `Automation.DisabledError`'s message.
 pub const AUTOMATIONS_DISABLED: &str = oc_core::automation::DISABLED;
-/// What `generate.video.*` answers while `experimental.video_generate` is off.
-pub const VIDEO_DISABLED: &str = "Video generation is disabled; enable experimental.video_generate";
 /// What `machine.list`, `machine.add` and `machine.remove` answer while the `machines` flag is off (2.4.1
 /// `handlers/machine.ts`). ocd has no machines yet, so it answers this whatever the flag says.
 pub const MACHINES_DISABLED: &str = "Machines are disabled; enable experimental.machines";

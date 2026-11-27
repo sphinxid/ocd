@@ -79,9 +79,10 @@ pub struct SubagentOutboxReport {
 /// `ownerSessionID`: the parent session for a subagent.
 fn owner_session(recovery: &JobRecovery) -> &str {
     match recovery {
-        JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } | JobRecovery::Codemode { session_id, .. } => {
-            session_id
-        }
+        JobRecovery::Shell { session_id, .. }
+        | JobRecovery::Image { session_id, .. }
+        | JobRecovery::Video { session_id, .. }
+        | JobRecovery::Codemode { session_id, .. } => session_id,
         JobRecovery::Subagent { parent_session_id, .. } => parent_session_id,
     }
 }
@@ -94,7 +95,7 @@ fn recovery_title<'a>(job: &'a Active, recovery: &'a JobRecovery) -> &'a str {
     match recovery {
         JobRecovery::Shell { command, .. } => command,
         JobRecovery::Subagent { description, .. } => description,
-        JobRecovery::Image { path, .. } => path,
+        JobRecovery::Image { path, .. } | JobRecovery::Video { path, .. } => path,
         JobRecovery::Codemode { .. } => crate::codemode_job::TITLE,
     }
 }
@@ -104,6 +105,7 @@ fn recovery_kind(recovery: &JobRecovery) -> &'static str {
         JobRecovery::Shell { .. } => "shell",
         JobRecovery::Subagent { .. } => "subagent",
         JobRecovery::Image { .. } => "image",
+        JobRecovery::Video { .. } => "video",
         JobRecovery::Codemode { .. } => "codemode",
     }
 }
@@ -119,7 +121,10 @@ fn matches_session(job: &Active, session: &str) -> bool {
             parent_session_id == session || child_session_id == session
         }
         Some(
-            JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } | JobRecovery::Codemode { session_id, .. },
+            JobRecovery::Shell { session_id, .. }
+            | JobRecovery::Image { session_id, .. }
+            | JobRecovery::Video { session_id, .. }
+            | JobRecovery::Codemode { session_id, .. },
         ) => session_id == session,
     }
 }
@@ -739,9 +744,10 @@ impl Jobs {
 fn decode_recovery(text: &str) -> Option<JobRecovery> {
     let recovery: JobRecovery = serde_json::from_str(text).ok()?;
     let ids: Vec<&str> = match &recovery {
-        JobRecovery::Shell { session_id, .. } | JobRecovery::Image { session_id, .. } | JobRecovery::Codemode { session_id, .. } => {
-            vec![session_id]
-        }
+        JobRecovery::Shell { session_id, .. }
+        | JobRecovery::Image { session_id, .. }
+        | JobRecovery::Video { session_id, .. }
+        | JobRecovery::Codemode { session_id, .. } => vec![session_id],
         JobRecovery::Subagent { parent_session_id, child_session_id, .. } => vec![parent_session_id, child_session_id],
     };
     ids.iter().all(|id| id.starts_with("ses")).then_some(recovery)
@@ -810,6 +816,9 @@ impl ListedJob {
                 out.insert("path".into(), Value::from(path.clone()));
                 out.insert("model".into(), Value::from(model.clone()));
             }
+            JobRecovery::Video { path, .. } => {
+                out.insert("path".into(), Value::from(path.clone()));
+            }
             JobRecovery::Codemode { .. } => {}
         }
         Value::Object(out)
@@ -876,6 +885,7 @@ pub fn format_body(body: &str, child_session_id: &str, background: &[Value]) -> 
                 Some("codemode") => format!("- Code Mode script ({}{elsewhere})", field(item, "jobID")),
                 Some("shell") => format!("- shell ({}{elsewhere}): {}", field(item, "shellID"), clean(&field(item, "command"))),
                 Some("image") => format!("- image ({}{elsewhere}): {}", field(item, "model"), field(item, "path")),
+                Some("video") => format!("- video ({}{elsewhere})", field(item, "path")),
                 _ => format!(
                     "- subagent ({}, sessionID: {}): {}",
                     field(item, "agent"),
@@ -993,6 +1003,7 @@ pub fn outstanding(app: &crate::app::App, session_id: &str, active: &[String]) -
             JobRecovery::Image { session_id, path, model } => {
                 json!({ "kind": "image", "sessionID": session_id, "path": path, "model": model })
             }
+            JobRecovery::Video { session_id, path, .. } => json!({ "kind": "video", "sessionID": session_id, "path": path }),
             JobRecovery::Subagent { parent_session_id, child_session_id, agent, description, .. } => json!({
                 "kind": "subagent",
                 "sessionID": parent_session_id,
