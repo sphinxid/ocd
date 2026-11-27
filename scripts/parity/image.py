@@ -1,4 +1,4 @@
-"""Image generation and decisions (`experimental_image_generate`, `POST /api/experimental/generate/{image,decisions}`,
+"""Image generation and decisions (`generate_image`, `POST /api/experimental/generate/{image,decisions}`,
 `ctx.experimental.generate.*`): mock providers serve image and decision models; the mock records the wire requests
 (multipart boundaries replaced) and answers from `ctx.mock.media` (default: OpenAI Images JSON with a 1x1 PNG)."""
 import base64
@@ -42,6 +42,11 @@ def boot_global(ctx, cfg, project_config=None):
     with open(path, "w") as f:
         json.dump(cfg, f)
     ctx.start()
+    # 2.4.1's generate routes no longer wait for the base location's plugins (`awaitPlugins` is gone): the first
+    # request boots the location and races their activation, so upstream finds none of the configured models
+    # (ModelNotFound). Boot it first, unrecorded, and let its plugins settle.
+    ctx.call("warmup", "GET", "/api/experimental/generate/video/video_0123456789abABCDEFGHIJKLMN", record=False)
+    time.sleep(3)
 
 
 def record_media(ctx, label="media"):
@@ -157,7 +162,7 @@ def image_http_decisions(ctx):
     record_media(ctx)
 
 
-TOOL = "experimental_image_generate"
+TOOL = "generate_image"
 
 
 def call(args, id=None):
@@ -221,7 +226,7 @@ def image_tool_generate(ctx):
     sid = open_session(ctx, [
         call({"prompt": "a red square"}),
         {"text": "Started the image."},
-        {"match": "<image id=", "text": "Your image is ready."},
+        {"match": 'kind=\\"image\\"', "text": "Your image is ready."},
     ])
     ctx.prompt(sid, "draw a red square", timeout=60)
     wait_notice(ctx, sid, 3)
@@ -236,7 +241,7 @@ def image_tool_edit(ctx):
     sid = open_session(ctx, [
         call({"prompt": "make it blue", "images": ["in.gif"], "path": "out/result.jpg"}),
         {"text": "Editing."},
-        {"match": "<image id=", "text": "Edited."},
+        {"match": 'kind=\\"image\\"', "text": "Edited."},
     ])
     with open(os.path.join(ctx.project, "in.gif"), "wb") as f:
         f.write(GIF)
@@ -257,7 +262,7 @@ def image_tool_models(ctx):
         call({"prompt": "x", "images": ["notes.txt"]}),
         call({"prompt": "a cat"}),
         {"text": "Started."},
-        {"match": "<image id=", "text": "Done."},
+        {"match": 'kind=\\"image\\"', "text": "Done."},
     ], cfg_extra={"experimental": {"image_generate": {"model": "mock/missing#hd"}}},
         files={"notes.txt": "not an image"},
         image_models={"painter": {"name": "Painter"}, "sketch": {"name": "Sketch"}})
@@ -288,7 +293,7 @@ def image_tool_failure(ctx):
     sid = open_session(ctx, [
         call({"prompt": "something odd"}),
         {"text": "Started."},
-        {"match": "<image id=", "text": "It failed."},
+        {"match": 'kind=\\"image\\"', "text": "It failed."},
     ])
     ctx.prompt(sid, "draw", timeout=60)
     wait_notice(ctx, sid, 3)
@@ -364,7 +369,7 @@ def image_idle_background(ctx):
     from parity.plugins import BUN, plugin_files, record_storage
     ctx.mock.media = [{"delay": 4, "json": {"data": [{"b64_json": PIXEL}]}}]
     ctx.env_extra["OCD_BUN_PATH"] = BUN
-    ctx.set_script([call({"prompt": "slow"}), {"text": "Started."}, {"match": "<image id=", "text": "Done."}])
+    ctx.set_script([call({"prompt": "slow"}), {"text": "Started."}, {"match": 'kind=\\"image\\"', "text": "Done."}])
     cfg = config(ctx.mock.port, image_models={"painter": {"name": "Painter"}})
     cfg["plugins"] = ["./plugins/v22-plugin"]
     ctx.make_project(config=cfg, files=plugin_files("v22-plugin"))

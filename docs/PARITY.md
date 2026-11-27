@@ -141,6 +141,7 @@ iterator's `next`.
 
 | automation | automations, on by default since 2.4.1 (`scripts/parity/automation.py`; `OPENCODE_FLAGS=automations` against 2.3.1): the automation API and its errors (triggers, targets, sessionless automations, shell actions, list filters, the command list), unattended creation over HTTP, `automations: false` turning them off while the removed `experimental` keys don't, automations whose folder is gone staying manageable where they are off, a prompt automation firing into its session and into a new subagent child, `/automation` and the `automation` tools through Code Mode (`tools.automation.create`) and directly (`automation_create`; summaries, input errors), code actions (programs refused at creation, state, sends to the creator and to a child, an invalid result pausing, failures), shell actions (`automation_shell`: exit codes and output recorded, refused asks, no prompt), two servers on one data directory running an automation once (KV `automation:leader`) |
 | image | image generation and decisions over HTTP (with the one-shot retry), the image tool by default, edits, model choice, turned off, failures, restart recovery, the plugin API, background jobs at the idle boundary |
+| video | 2.4.1 video generation (`scripts/parity/video.py`, an xAI video model on the mock): `POST /generate/video` at the base config (the submit body, typed errors for unknown and chat models and unknown jobs), the server polling the job and storing the video as a `blob_` blob, `GET /generate/video/{id}` and `/blob/{id}`; the `generate_video` tool offered with a video model, its background job saving the file and the `<background-result kind="video">` notice resuming the session; `experimental.video_generate: false` |
 | artifact | `experimental.artifacts`: the HTTP routes and `view`, location resolution, the tools directly and through Code Mode, a plugin provider and its failures |
 | media | `experimental.media_blob`: images stored from a prompt and from the read tool, reads with and without the media capability, the media route, fork, import, cancel, revert and delete, a fork from a location without the flag |
 
@@ -170,6 +171,22 @@ iterator's `next`.
 | fcm231 | 2.3.1 opt-in `full_codemode` (`scripts/parity/fullcodemode231.py`): with `experimental.full_codemode` the tool definitions and Code Mode catalog the model sees (shell, read, edit, write, patch and websearch in Code Mode, the first five pinned; grep, glob and webfetch gone), two parallel `tools.shell` calls, a read, a write and an edit through Code Mode, a `background` input (ignored), Node's `path` (both flavours, `node:path`, `require("path")`); `OPENCODE_FLAGS=full_codemode`; `experimental.all_flags` leaving the tools direct and programs without `path`; a script still running after 10 s returning its receipt, listed as a running `codemode` job, and its `<codemode>` result waking the session; a session-wide background request moving a script at once (only the parts are recorded: where the request's own notice lands relative to the receipt is a race) |
 
 ## Results
+
+**2.4.1 video generation and the media tool renames (batch R6; debug build, 2026-11-27):** against the opencode 2.4.1
+binary. The new `video` group (an xAI video model on the mock): **3 of 3 identical** (`video_http_generate`: the submit
+body, typed errors, the polled job, the stored `blob_` blob and its download; `video_tool_generate`: the tool's
+definition, the background job, the saved file and the `<background-result kind="video">` notice; `video_tool_off`).
+The media tools (`generate_image`/`generate_video`) now match everywhere they differed before: the whole `automation`
+group but `automation_shell` (whose `outside` automation fires later than the scenario reads it in ocd, a timing
+difference), `mcpopt231_automation_event_fires`, all five `mcp227`, the three `clientmcp231`, `mcp241_list_mcp_events`
+(`opencode_models` takes `type: "video"`), `loop_write_edit`, `loop_patch`, `loop_llm_request` and the other `loop_*`
+are identical, as are `image_*` with the tool renamed (`image_idle_background` differs in plugin
+`experimental.job.updated` deliveries, a later batch). `loop_shell_tool`, `loop_tool_error`, `session241_tool_repair` and
+`session241_background_result` differ only in the order of concurrent events (a usage update against a job update, the
+idle marker between two turns); `session241_structured_order` differs in the Code Mode instructions' hash (batch R2's
+Code Mode surface). 2.4.1's generate routes no longer wait for the base location's plugins, so a server's first generate
+request finds no configured models there; `boot_global` now boots that location (unrecorded) before the recorded calls,
+which makes `image_http_*` and `tls230_*` identical again.
 
 **2.4.1 MCP (R3; debug build, 2026-11-26, on top of the automation batch):** against the opencode 2.4.1 binary:
 `mcp241_unset_protocol_negotiates_auto` (a modern, a legacy, an exiting, a silent and a pinned-legacy server:
