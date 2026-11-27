@@ -94,6 +94,12 @@ Filled in as batches land.
   rebuild in R12.
 - **R7** (done): the CLI help, the hidden `login` command, log redaction, the TUI's `/login` and `/auth`, and job
   tracking.
+- **R8** (done): `opencode` is the new palette, `opencode-classic` the old one and `opencode2` an alias. Every
+  built-in theme, the system theme and mini match upstream's recorded theme tokens. The new designs are on by default
+  and `experimental["new-designs"]: false` restores the old layout; 20 of upstream's cell-exact screen fixtures pass,
+  and pty captures of the main screens and dialogs match 2.4.1 with both values. Not ported: hover highlights in
+  dialog footers and the usage model dialog's model facts. The command palette's group order below Suggested
+  differs, in both designs.
 - **R9** (done): Markdown and reasoning in the TUI and mini follow OpenTUI 0.9.4's engine. Pty captures against 2.4.1
   with `experimental["new-designs"]: false` show identical text; colours differ only by the new palette (R8). Tests
   include 2.4.1's own frames and OpenTUI's conformance rows. Not changed: link URLs are always shown (upstream hides
