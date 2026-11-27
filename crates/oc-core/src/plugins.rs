@@ -140,7 +140,7 @@ pub const BUILTIN_PLUGINS: [&str; 95] = [
 ];
 
 /// Index of the first `post` internal plugin in [`BUILTIN_PLUGINS`].
-const POST_START: usize = 76;
+const POST_START: usize = 77;
 
 /// The ocd-native internal plugins in upstream order.
 pub fn internal_plugins() -> InternalPlugins {
