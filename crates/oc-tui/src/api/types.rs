@@ -557,6 +557,15 @@ pub struct ModelInfo {
     pub enabled: bool,
     #[serde(default)]
     pub limit: ModelLimit,
+    #[serde(default)]
+    pub capabilities: ModelCapabilities,
+}
+
+/// `capabilities` (the input modalities are what the model picker's detail lists).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ModelCapabilities {
+    #[serde(default)]
+    pub input: Vec<String>,
 }
 
 fn yes() -> bool {

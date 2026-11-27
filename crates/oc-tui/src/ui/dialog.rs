@@ -277,6 +277,8 @@ pub struct Opt {
     /// Shown below the list while this option is selected, under the new designs (`detail`): muted text, or styled
     /// rows drawn as they are.
     pub detail: Option<Detail>,
+    /// The footer keeps `footer_color` on the selected row too (a styled span such as the favorite marker).
+    pub footer_fixed: bool,
     /// `DialogSelectChoice` under the new designs: a value the row changes, drawn as its footer: `‹ value ›` (cycles
     /// with ←/→) or `value ↵` (`true`: enter opens a picker) on the selected row, padded to the same width elsewhere.
     pub choice: Option<(String, bool)>,
@@ -399,6 +401,8 @@ pub struct Select {
     /// Under the new designs, `hints_right` join the primary group (`group: "primary"`); otherwise every hint is
     /// secondary.
     pub hints_right_primary: bool,
+    /// Under the new designs, `hints` join the primary group too.
+    pub hints_primary: bool,
 }
 
 /// A select dialog's minimum height.
@@ -558,7 +562,8 @@ impl Select {
             let item = FooterItem { title: a.title.clone(), key: Some(action_label(a, kb)), color: None, disabled: self.action_disabled(a) };
             if a.primary.unwrap_or(!a.no_selection) { f.primary.push(item) } else { f.secondary.push(item) }
         }
-        f.secondary.extend(self.hints.iter().map(|(t, k)| FooterItem::new(t.clone(), k.clone())));
+        let left = self.hints.iter().map(|(t, k)| FooterItem::new(t.clone(), k.clone()));
+        if self.hints_primary { f.primary.extend(left) } else { f.secondary.extend(left) }
         let right = self.hints_right.iter().map(|(t, k)| FooterItem::new(t.clone(), k.clone()));
         if self.hints_right_primary { f.primary.extend(right) } else { f.secondary.extend(right) }
         f
@@ -618,18 +623,21 @@ impl PromptDialog {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ExportOptions {
     pub json: bool,
     pub thinking: bool,
     pub tools: bool,
     pub sanitize: bool,
     pub focus: usize,
+    /// The new designs' `location: "temp"`: saved in the system's temporary directory instead of the working one.
+    #[serde(default)]
+    pub temp: bool,
 }
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { json: false, thinking: true, tools: true, sanitize: false, focus: 0 }
+        ExportOptions { json: false, thinking: true, tools: true, sanitize: false, focus: 0, temp: false }
     }
 }
 
@@ -1342,7 +1350,7 @@ pub fn render(buf: &mut Buffer, area: Rect, d: &mut Dialog, base: &Theme, kb: &K
             v
         }
         Body::Text(td) => text_lines(td, wu, area, narrow, t, nd),
-        Body::Image(p) => image_lines(p, wu, area, t),
+        Body::Image(p) => image_lines(p, wu, area, t, nd),
         Body::Choice(c) => {
             let (lines, at) = super::choice::lines(c, wu, area.height as usize, narrow, t);
             cursor = at;
@@ -1394,11 +1402,21 @@ fn finish(
 
 /// `DialogImagePreview` in the legacy layout: the header, blank rows for the image, then `← previous`, the label
 /// and `next →` spread across the row (`justifyContent: space-between`).
-fn image_lines(p: &super::images::ImagePreview, w: usize, area: Rect, t: &Theme) -> Vec<SLine> {
+fn image_lines(p: &super::images::ImagePreview, w: usize, area: Rect, t: &Theme, nd: bool) -> Vec<SLine> {
     let inner = w.saturating_sub(DIALOG_INSET * 2);
-    let mut v = vec![header(&format!("Image {} of {}", p.index + 1, p.uris.len()), "esc", t, w), SLine::blank()];
+    let mut v = vec![header_row(&format!("Image {} of {}", p.index + 1, p.uris.len()), "esc", t, w, DIALOG_INSET, nd), SLine::blank()];
     for _ in 0..super::images::preview_image_rows(area.height) {
         v.push(SLine::blank());
+    }
+    if nd {
+        // The label as the footer's content, `previous ←` / `next →` as its primary actions.
+        let label_c = if p.failed { t.text.feedback.error.base } else { t.text.muted };
+        let mut f = Footer { children: vec![seg(p.label(), fg(label_c))], ..Default::default() };
+        if p.uris.len() > 1 {
+            f.primary = vec![FooterItem::new("previous", "←"), FooterItem::new("next", "→")];
+        }
+        footer_tail(&mut v, Some(&f), 1, w, 0, area.width < 60, t);
+        return v;
     }
     v.push(SLine::blank());
     let many = p.uris.len() > 1;
@@ -1528,7 +1546,7 @@ fn header_lines(title: &str, description: Option<&str>, right: &str, t: &Theme, 
 }
 
 fn description_lines(d: &str, t: &Theme, w: usize, inset: usize) -> Vec<SLine> {
-    wrap(&[seg(d.to_string(), fg(t.text.muted))], w.saturating_sub(inset * 2).max(1), Wrap::Word)
+    wrap_word_ot(&[seg(d.to_string(), fg(t.text.muted))], w.saturating_sub(inset * 2).max(1))
         .into_iter()
         .map(|l| SLine::new(l).prefixed(&[pad(inset)]))
         .collect()
@@ -1864,7 +1882,7 @@ fn select_lines_nd(sel: &mut Select, w: usize, term_h: usize, term_w: usize, siz
                     segs.extend(clip(&text, avail));
                     if let Some(f) = footer {
                         let fc = match o.footer_color {
-                            Some(c) if !active => c,
+                            Some(c) if !active || o.footer_fixed => c,
                             _ => secondary,
                         };
                         let fc = if o.choice.is_some() { if active { t.text.action.primary.focused } else { t.text.muted } } else { fc };
@@ -1910,7 +1928,7 @@ fn select_lines_nd(sel: &mut Select, w: usize, term_h: usize, term_w: usize, siz
                 Some(Detail::Lines(lines)) => detail.extend(lines.into_iter().map(|l| l.prefixed(&[pad(li)]))),
                 Some(Detail::Text(text)) if !text.is_empty() => {
                     let c = t.dialog_footer().text.muted;
-                    for l in wrap(&[seg(text, fg(c))], w.saturating_sub(li * 2).max(1), Wrap::Word) {
+                    for l in wrap_word_ot(&[seg(text, fg(c))], w.saturating_sub(li * 2).max(1)) {
                         detail.push(SLine::new(l).prefixed(&[pad(li)]));
                     }
                 }

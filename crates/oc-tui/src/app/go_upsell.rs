@@ -5,7 +5,7 @@
 
 use super::{App, Toast};
 use crate::api::types::*;
-use crate::ui::dialog::{Body, Dialog, Footer, FooterItem, TextDialog};
+use crate::ui::dialog::{Body, Dialog, TextDialog};
 use crate::ui::go_upsell::{GO_URL, GoUpsell};
 use crate::ui::text::{SLine, fg, seg};
 use serde_json::{Value, json};
@@ -266,15 +266,16 @@ impl App {
         let mut lines = vec![SLine::new(vec![seg(url, fg(t.markdown.link))])];
         if !instructions.is_empty() {
             lines.push(SLine::blank());
-            lines.push(SLine::new(vec![seg(instructions, fg(t.text.muted))]));
+            lines.push(SLine::new(vec![seg(instructions.clone(), fg(t.text.muted))]));
         }
         lines.push(SLine::blank());
         lines.push(SLine::new(vec![seg("Waiting for authorization…", fg(t.text.muted))]));
+        let nd = self.new_designs();
         if let Some(d) = self.dialogs.last_mut().filter(|d| d.purpose == "go-connect") {
             d.data["attempt"] = attempt.clone();
             if let Some(td) = d.text_body() {
                 td.lines = lines;
-                td.footer = Some(Footer { secondary: vec![FooterItem::new("open", "o"), FooterItem::new("copy", "c")], ..Default::default() });
+                td.footer = Some(super::integration::oauth_footer(nd, &instructions));
             }
         }
         self.dirty = true;
@@ -409,8 +410,9 @@ impl App {
     pub fn go_connect_key(&mut self, key: &str) {
         let Some(attempt) = self.dialogs.last().and_then(|d| d.data.get("attempt").cloned()) else { return };
         let url = attempt.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string();
+        let open = if self.new_designs() { "return" } else { "o" };
         match key {
-            "o" => super::commands::open_url(&url),
+            k if k == open => super::commands::open_url(&url),
             "c" => {
                 let instructions = attempt.get("instructions").and_then(|u| u.as_str()).unwrap_or("");
                 static CODE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| regex::Regex::new(r"[A-Z0-9]{4}-[A-Z0-9]{4,5}").unwrap());

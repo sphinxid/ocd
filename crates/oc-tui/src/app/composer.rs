@@ -400,6 +400,7 @@ impl App {
                 .collect();
             pre.push(SLine::blank());
             let mut lines = Vec::new();
+            let mut output_text = String::new();
             match r {
                 Ok(o) => {
                     if o.truncated {
@@ -407,6 +408,7 @@ impl App {
                         pre.push(SLine::blank());
                     }
                     let text = locale::strip_ansi(&o.output).replace("\r\n", "\n").replace('\r', "\n");
+                    output_text = text.clone();
                     if text.trim().is_empty() {
                         lines.push(SLine::new(vec![seg("No captured output. Output redirected to files is not shown here.", fg(t.text.muted))]));
                     }
@@ -423,12 +425,38 @@ impl App {
             td.header_gap = if app.size.0 < 60 { 1 } else { 2 };
             td.height = Some(height);
             td.scroll = usize::MAX / 2;
-            td.footer = Some(Footer { secondary: vec![FooterItem::new("scroll", "↑/↓"), FooterItem::new("follow", "end"), FooterItem::new("back", "esc")], ..Default::default() });
-            let mut d = Dialog::text("text", td);
+            let nd = app.new_designs();
+            td.footer = Some(if nd {
+                // The new designs copy the command (`c`) and the output (`o`).
+                Footer { primary: vec![FooterItem::new("follow", "end"), FooterItem::new("copy command", "c"), FooterItem::new("copy output", "o")], ..Default::default() }
+            } else {
+                Footer { secondary: vec![FooterItem::new("scroll", "↑/↓"), FooterItem::new("follow", "end"), FooterItem::new("back", "esc")], ..Default::default() }
+            });
+            let mut d = Dialog::text(if nd { "shell-output" } else { "text" }, td);
             d.size = Size::XLarge;
             d.centered = true;
+            d.data = serde_json::json!({ "command": cmd, "output": output_text });
             app.open_dialog(d);
         });
+    }
+
+    /// `copy command c` / `copy output o` in the new designs' shell output dialog: the action turns into `✓ copied`.
+    pub(super) fn shell_output_copy(&mut self, key: &str, d: &crate::ui::dialog::Dialog) {
+        use crate::ui::dialog::FooterItem;
+        let kind = if key == "c" { "command" } else { "output" };
+        let text = d.data.get(kind).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if text.is_empty() {
+            return;
+        }
+        crate::clipboard::write(&text);
+        let success = self.theme().dialog().text.feedback.success.base;
+        if let Some(td) = self.dialogs.last_mut().filter(|x| x.purpose == "shell-output").and_then(|x| x.text_body())
+            && let Some(f) = td.footer.as_mut()
+        {
+            f.primary[1] = FooterItem::new("copy command", "c");
+            f.primary[2] = FooterItem::new("copy output", "o");
+            f.primary[if kind == "command" { 1 } else { 2 }] = FooterItem::new("✓ copied", "").color(success);
+        }
     }
 
     /// Composer lines (rendered above the prompt).

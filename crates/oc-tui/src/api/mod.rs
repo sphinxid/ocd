@@ -604,6 +604,12 @@ impl Client {
         self.empty(self.loc(self.request(Method::DELETE, &format!("/api/shell/{shell}")), dir)).await
     }
 
+    /// `vcs.status`: the changed files of a location (`[{file, status, additions, deletions}]`).
+    pub async fn vcs_status(&self, dir: Option<&str>) -> anyhow::Result<Vec<Value>> {
+        let env: LocationEnvelope<Vec<Value>> = self.json(self.loc(self.request(Method::GET, "/api/vcs/status"), dir)).await?;
+        Ok(env.data)
+    }
+
     pub async fn vcs_base(&self, dir: Option<&str>) -> anyhow::Result<Option<Value>> {
         let env: LocationEnvelope<Option<Value>> = self.json(self.loc(self.request(Method::GET, "/api/vcs/base"), dir)).await?;
         Ok(env.data)

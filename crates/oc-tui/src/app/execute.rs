@@ -167,9 +167,15 @@ impl App {
         td.scroll = scroll;
         td.band = Some(base.background.raised.high);
         td.band_scrolls = true;
-        td.footer = Some(Footer {
-            secondary: vec![FooterItem::new("scroll", "↑/↓"), copy("code", "copy code", "c"), copy("output", "copy output", "o"), FooterItem::new("back", "esc")],
-            ..Default::default()
+        td.footer = Some(if self.new_designs() {
+            // The raised body meets the footer band.
+            td.footer_gap = Some(0);
+            Footer { primary: vec![copy("code", "copy code", "c"), copy("output", "copy output", "o")], ..Default::default() }
+        } else {
+            Footer {
+                secondary: vec![FooterItem::new("scroll", "↑/↓"), copy("code", "copy code", "c"), copy("output", "copy output", "o"), FooterItem::new("back", "esc")],
+                ..Default::default()
+            }
         });
         td
     }

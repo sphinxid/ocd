@@ -448,6 +448,8 @@ impl App {
             "dialog.move_session.new" => {
                 let mut p = PromptDialog::new("Name worktree", "Worktree name", "");
                 p.description = vec![];
+                let title = if self.new_designs() { "generate name" } else { "generate one" };
+                p.actions = vec![(title.into(), "dialog.worktree.generate".into())];
                 let mut d = Dialog::new("worktree-name", Body::Prompt(p));
                 d.data = json!({ "id": project });
                 self.open_dialog(d);
@@ -485,7 +487,17 @@ impl App {
                     Ok(_) => app.load_worktrees(&project),
                     Err(e) => {
                         let force = e.downcast_ref::<crate::api::ApiError>().is_some_and(|a| a.body.pointer("/data/forceRequired") == Some(&Value::Bool(true)));
-                        if force {
+                        if force && app.new_designs() {
+                            let dir = v[2..].to_string();
+                            let c = app.client.clone();
+                            let d2 = dir.clone();
+                            app.spawn(async move { c.vcs_status(Some(&d2)).await }, move |app, r| {
+                                let files = r.unwrap_or_default();
+                                let mut dlg = Dialog::text("worktree-force", app.worktree_changes_dialog(&files));
+                                dlg.data = json!({ "id": project, "dir": dir });
+                                app.open_dialog(dlg);
+                            });
+                        } else if force {
                             let mut dlg = Dialog::new(
                                 "worktree-force",
                                 Body::Confirm { title: "Delete worktree?".into(), message: "This worktree has file changes. Do you want to delete it anyway?".into(), confirm: true, label: None },
@@ -501,6 +513,65 @@ impl App {
             _ => {}
         }
         self.dirty = true;
+    }
+
+    /// `DialogWorkspaceFileChanges` for a forced worktree delete, under the new designs: the message, the changed
+    /// files in a raised band (up to 8 rows), `cancel esc` and `delete d` in the footer.
+    pub(super) fn worktree_changes_dialog(&self, files: &[Value]) -> crate::ui::dialog::TextDialog {
+        use crate::ui::dialog::{DIALOG_INSET, Footer, FooterItem, Size, TextDialog};
+        use crate::ui::text::{SLine, fg, seg, wrap_word_ot};
+        let base = self.theme().clone();
+        let t = base.dialog().clone();
+        let w = (Size::Medium.width() as usize).min(self.size.0.saturating_sub(2) as usize);
+        let inner = w.saturating_sub(DIALOG_INSET * 2);
+        let count = |f: &Value| {
+            let n = |k: &str| f.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
+            let (a, d) = (n("additions"), n("deletions"));
+            let mut s = String::new();
+            if a > 0 {
+                s.push_str(&format!("+{a}"));
+            }
+            if d > 0 {
+                s.push_str(&format!(" -{d}"));
+            }
+            s
+        };
+        let changes = files.iter().map(|f| count(f).chars().count() + 2).max().unwrap_or(0).max(7);
+        let name_w = inner.saturating_sub(2 + changes).max(2);
+        let mut pre: Vec<SLine> = wrap_word_ot(&[seg("This worktree has file changes. Do you want to delete it anyway?", fg(t.text.muted))], inner.max(1)).into_iter().map(SLine::new).collect();
+        pre.push(SLine::blank());
+        let lines: Vec<SLine> = files
+            .iter()
+            .map(|f| {
+                let status = match f.get("status").and_then(|s| s.as_str()) {
+                    Some("added") => "A",
+                    Some("deleted") => "D",
+                    _ => "M",
+                };
+                let path = locale::truncate_file_path(f.get("file").and_then(|p| p.as_str()).unwrap_or(""), name_w);
+                let n = |k: &str| f.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
+                let mut right = vec![seg(" ", fg(base.text.base))];
+                if n("additions") > 0 {
+                    right.push(seg(format!("+{}", n("additions")), fg(base.diff.text_added)));
+                }
+                if n("deletions") > 0 {
+                    right.push(seg(format!(" -{}", n("deletions")), fg(base.diff.text_removed)));
+                }
+                let rw: usize = right.iter().map(|s| s.width()).sum();
+                let used = 2 + locale::width(&path);
+                let mut segs = vec![seg(format!("{status:<2}"), fg(base.text.muted)), seg(path, fg(base.text.muted))];
+                segs.push(seg(" ".repeat(inner.saturating_sub(used + rw)), fg(base.text.base)));
+                segs.extend(right);
+                SLine::new(segs)
+            })
+            .collect();
+        let mut td = TextDialog::new("Delete worktree?", lines);
+        td.pre = pre;
+        td.band = Some(base.background.raised.high);
+        td.band_scrolls = true;
+        td.height = Some(files.len().min(8));
+        td.footer = Some(Footer { primary: vec![FooterItem::new("cancel", "esc"), FooterItem::new("delete", "d")], ..Default::default() });
+        td
     }
 
     // ---- Pair --------------------------------------------------------------

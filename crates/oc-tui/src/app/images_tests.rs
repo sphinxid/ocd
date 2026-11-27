@@ -41,7 +41,8 @@ fn frame(a: &mut App, term: &mut Terminal<TestBackend>) -> (Vec<String>, String)
 fn image_session(a: &mut App, preview: bool, verbosity: &str) -> String {
     a.config = crate::config::Config::from_value(json!({
         "tabs": { "mode": "off" }, "animations": false,
-        "session": { "image_preview": preview, "verbosity": verbosity }, "prompt": { "image_preview": preview }
+        "session": { "image_preview": preview, "verbosity": verbosity }, "prompt": { "image_preview": preview },
+        "experimental": { "new-designs": false }
     }));
     let sid = session(a);
     let msgs: Vec<Message> = serde_json::from_value(json!([
@@ -179,7 +180,7 @@ fn a_click_opens_the_preview_and_arrows_page() {
 #[test]
 fn the_preview_pages_through_prompt_images() {
     let mut a = app();
-    a.config = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "animations": false, "prompt": { "image_preview": true } }));
+    a.config = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "animations": false, "prompt": { "image_preview": true }, "experimental": { "new-designs": false } }));
     let u = uri();
     a.editor.insert_chip("[Image 1]", crate::ui::prompt::ChipKind::Paste, json!({ "uri": u, "name": "a.png", "mime": "image/png" }), true);
     a.editor.insert_chip("[Image 2]", crate::ui::prompt::ChipKind::Paste, json!({ "uri": "data:image/png;base64,AQID", "name": "b.png", "mime": "image/png" }), true);

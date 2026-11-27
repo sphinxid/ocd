@@ -140,3 +140,21 @@ fn fixtures_catch_differences() {
     let own = read("U.3-alert");
     assert!(!own.diff(&frame(&mut alert(), own.width, own.height, false), 1).is_empty());
 }
+
+/// `DialogImagePreview` under the new designs: the label as the footer band's content, `previous ←` / `next →` as its
+/// primary actions (with more than one image).
+#[test]
+fn image_preview_footer() {
+    let p = super::images::ImagePreview::new(vec!["data:image/png;base64,AA".into(), "data:image/png;base64,AB".into()], vec![Some("[Image 1]".into()), None], 0);
+    let mut d = Dialog::new(super::images::PREVIEW_PURPOSE, Body::Image(Box::new(p)));
+    d.centered = true;
+    d.size = Size::XLarge;
+    let buf = frame(&mut d, 100, 30, true);
+    let text = super::fixture::buffer_text(&buf);
+    let row = text.iter().position(|l| l.contains("[Image 1]")).expect("the label");
+    assert!(text[row].contains("previous ←   next →"), "{text:#?}");
+    let x = text[row].find("[Image 1]").unwrap() as u16;
+    assert_eq!(buf[(x, row as u16)].bg, theme().dialog().background.raised.high.tui());
+    let legacy = super::fixture::buffer_text(&frame(&mut d, 100, 30, false));
+    assert!(legacy.iter().any(|l| l.contains("← previous") && l.contains("next →")), "{legacy:#?}");
+}

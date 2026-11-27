@@ -269,6 +269,34 @@ pub fn wrap(segs: &[Seg], w: usize, mode: Wrap) -> Vec<Vec<Seg>> {
     out
 }
 
+/// `wrapMode="word"` as OpenTUI's text buffer breaks it: after whitespace and after punctuation such as `-` and `/`,
+/// a word longer than the row split by grapheme (`mini::text::layout`). Rows keep their trailing spaces.
+pub fn wrap_word_ot(segs: &[Seg], w: usize) -> Vec<Vec<Seg>> {
+    use crate::mini::cell::{Color as MiniColor, StyledChunk};
+    use crate::mini::text::{WrapMode, layout};
+    let text: String = segs.iter().map(|s| s.text.as_str()).collect();
+    let rows = layout(&[StyledChunk::plain(text.clone(), MiniColor::WHITE)], w.max(1), WrapMode::Word, false);
+    // Byte offsets where each segment starts in the joined text.
+    let mut starts = Vec::with_capacity(segs.len());
+    let mut at = 0;
+    for s in segs {
+        starts.push(at);
+        at += s.text.len();
+    }
+    rows.into_iter()
+        .map(|r| {
+            let mut out = Vec::new();
+            for (s, start) in segs.iter().zip(&starts) {
+                let (a, b) = (r.start.max(*start), r.end.min(start + s.text.len()));
+                if a < b {
+                    out.push(Seg { text: s.text[a - start..b - start].to_string(), style: s.style, link: s.link.clone() });
+                }
+            }
+            out
+        })
+        .collect()
+}
+
 /// Wrap and produce lines with a prefix on each line.
 pub fn wrap_lines(segs: &[Seg], w: usize, mode: Wrap, prefix: &[Seg]) -> Vec<SLine> {
     let pw: usize = prefix.iter().map(|s| s.width()).sum();

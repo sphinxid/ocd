@@ -258,6 +258,7 @@ impl App {
         sel.options = opts;
         sel.hints = vec![((if show { "hide internal" } else { "show internal" }).into(), "ctrl+a".into())];
         sel.hints_right = if error_hint { vec![("view error".into(), "enter".into())] } else { vec![] };
+        sel.hints_right_primary = true;
         let mut check = Action::new("dialog.plugins.check", if checking { "checking for updates" } else { "check for updates" }).dialog_level().hidden(!has_package);
         check.disabled = checking;
         sel.actions = vec![
@@ -412,13 +413,14 @@ impl App {
         td.under_header = vec![SLine::new(vec![seg(locale::truncate_file_path(&get("source"), width), fg(t.text.muted))])];
         td.height = Some(body_rows + if data.get("ref").is_some_and(|r| r.is_string()) { 2 } else { 0 });
         td.scroll = scroll;
-        td.footer = Some(Footer {
-            secondary: vec![
-                FooterItem::new("investigate", "i"),
-                if copied { FooterItem::new("✓ copied", "").color(t.text.feedback.success.base) } else { FooterItem::new("copy details", "c") },
-            ],
-            primary: vec![FooterItem::new("scroll", "↑/↓")],
-            ..Default::default()
+        let actions = vec![
+            FooterItem::new("investigate", "i"),
+            if copied { FooterItem::new("✓ copied", "").color(t.text.feedback.success.base) } else { FooterItem::new("copy details", "c") },
+        ];
+        td.footer = Some(if self.new_designs() {
+            Footer { primary: actions, ..Default::default() }
+        } else {
+            Footer { secondary: actions, primary: vec![FooterItem::new("scroll", "↑/↓")], ..Default::default() }
         });
         if let Some(d) = self.dialogs.last_mut() {
             d.body = Body::Text(Box::new(td));

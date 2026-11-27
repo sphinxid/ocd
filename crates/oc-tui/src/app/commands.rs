@@ -106,6 +106,125 @@ pub fn settings() -> Vec<(&'static str, &'static str, &'static str, Vec<Value>, 
     v
 }
 
+/// A setting's description (`dialog-config.tsx`), shown below the list while it is selected under the new designs.
+pub fn setting_description(path: &str) -> &'static str {
+    match path {
+        "theme.name" => "Color theme used across the interface",
+        "theme.mode" => "Dark or light variant, or follow the system",
+        "animations" => "Whether spinners and transitions animate",
+        "session.sidebar" => "Whether the sidebar shows when there is room",
+        "session.scrollbar" => "Whether a scrollbar is shown next to the chat",
+        "session.submit_scroll" => "Whether sending a prompt jumps to the latest message",
+        "session.thinking" => "Whether model thinking is shown in the chat",
+        "session.markdown" => "Whether chat markdown is rendered or shown as source",
+        "session.grouping" => "Whether consecutive reads and searches are grouped",
+        "session.verbosity" => "How much tool activity is shown in the chat",
+        "session.image_preview" => "Whether images are shown in the chat",
+        "session.tps" => "Whether tokens per second are shown for responses",
+        "session.new_location" => "Directory new sessions start in",
+        "session.permissions" => "Whether permission requests ask you or auto accept",
+        "tabs.mode" => "Whether sessions open in tabs",
+        "tabs.scope" => "Whether tabs are per directory or shared everywhere",
+        "tabs.layout" => "Whether tabs run along the top or down the side",
+        "tabs.indicators" => "Whether tabs show status icons or always numbers",
+        "diffs.view" => "Whether diffs are side by side or in one column",
+        "diffs.wrap" => "Whether long lines in diffs wrap",
+        "diffs.tree" => "Whether a file tree is shown next to diffs",
+        "diffs.single" => "Whether diffs show one file at a time",
+        "scroll.speed" => "How far each scroll step moves",
+        "scroll.acceleration" => "Whether scrolling speeds up the faster you scroll",
+        "mouse" => "Whether the interface responds to the mouse",
+        "prompt.editor" => "Whether your editor's selection is added to prompts",
+        "prompt.paste" => "Whether large pastes are summarized or shown in full",
+        "prompt.image_preview" => "Whether attached images are previewed in the prompt",
+        "leader.timeout" => "How long the leader key waits for the next key",
+        "attention.notifications" => "Whether to notify when a session needs attention",
+        "attention.sound" => "Whether a sound plays when a session needs attention",
+        "attention.volume" => "Volume of alert sounds",
+        "highlights" => "Whether release highlights are shown after an update",
+        "terminal.title" => "Whether the window title shows the current session",
+        "terminal.copy" => "Whether selecting text copies it",
+        "debug.devtools" => "Whether the developer tools bar is shown",
+        _ => "",
+    }
+}
+
+/// `ModelDetail` without the price: input modalities, context window and reasoning support, muted, the separators in
+/// `hue.neutral.400`.
+pub fn model_facts(m: &ModelInfo, t: &crate::theme::Theme) -> crate::ui::text::SLine {
+    use crate::ui::text::{SLine, fg, seg};
+    let modality = |v: &str| {
+        if v == "pdf" {
+            return "PDF".to_string();
+        }
+        let mut c = v.chars();
+        c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+    };
+    let context = m.limit.context;
+    let tokens = if context >= 1_000_000.0 {
+        format!("{}M", ((context / 1_000_000.0) * 10.0).round() / 10.0)
+    } else if context >= 1_000.0 {
+        format!("{}K", (context / 1_000.0).round())
+    } else {
+        format!("{context}")
+    };
+    let mut facts = vec![m.capabilities.input.iter().map(|v| modality(v)).collect::<Vec<_>>().join(", "), tokens];
+    if !m.variants.is_empty() {
+        facts.push("Reasoning".into());
+    }
+    let mut segs = Vec::new();
+    for (i, f) in facts.into_iter().filter(|f| !f.is_empty()).enumerate() {
+        if i > 0 {
+            segs.push(seg(" · ", fg(t.hue("neutral", 400))));
+        }
+        segs.push(seg(f, fg(t.text.muted)));
+    }
+    SLine::new(segs)
+}
+
+/// A setting's search keywords (`keywords`), matched by the Settings list and the palette.
+pub fn setting_keywords(path: &str) -> &'static str {
+    match path {
+        "theme.name" => "color scheme colors",
+        "theme.mode" => "dark mode light mode system theme",
+        "animations" => "motion effects",
+        "session.sidebar" => "side panel",
+        "session.scrollbar" => "scroll bar",
+        "session.submit_scroll" => "submit scroll position jump to latest follow",
+        "session.thinking" => "reasoning chain of thought",
+        "session.markdown" => "syntax concealment rendering",
+        "session.grouping" => "transcript messages reads searches",
+        "session.verbosity" => "detail activity summary transcript",
+        "session.image_preview" => "attachments images tool output",
+        "session.tps" => "tokens per second throughput",
+        "session.new_location" => "directory cwd inherit",
+        "session.permissions" => "approve accept permission requests",
+        "tabs.mode" => "",
+        "tabs.scope" => "",
+        "tabs.layout" => "sidebar orientation left",
+        "tabs.indicators" => "tab numbers number mode status icons",
+        "diffs.view" => "diff layout split diff unified diff",
+        "diffs.wrap" => "diff wrap word wrap line wrap",
+        "diffs.tree" => "diff files",
+        "diffs.single" => "one file selected file",
+        "scroll.speed" => "scrolling",
+        "scroll.acceleration" => "scroll acceleration",
+        "mouse" => "mouse capture",
+        "prompt.editor" => "file context prompt context editor selection",
+        "prompt.paste" => "paste summary clipboard pasted content",
+        "prompt.image_preview" => "attachments clipboard images prompt",
+        "leader.timeout" => "leader key shortcut timeout",
+        "attention.notifications" => "system notifications desktop notifications alerts",
+        "attention.sound" => "audio sound effects alerts",
+        "attention.volume" => "sound volume audio volume",
+        "highlights" => "what's new changelog release notes",
+        "terminal.title" => "terminal title tab title",
+        "terminal.copy" => "selection clipboard",
+        "debug.devtools" => "debug bar developer tools",
+        _ => "",
+    }
+}
+
 impl App {
     /// Reachable commands in palette order (session route, prompt, frame, app).
     pub fn commands(&self) -> Vec<Cmd> {
@@ -330,6 +449,8 @@ impl App {
                 let opts: Vec<Opt> = self.agents().into_iter().map(|a| Opt::new(a.id.clone(), a.id.clone()).desc(a.description.unwrap_or_default())).collect();
                 let mut s = Select::new("Select agent", opts);
                 s.current = current;
+                s.search_in_title = true;
+                s.title_placeholder = Some("Search agents".into());
                 self.open_dialog(Dialog::select("agent", s, Size::Medium));
             }
             "agent.cycle" | "agent.cycle.reverse" => {
@@ -363,6 +484,8 @@ impl App {
                 opts.extend(info.variants.iter().filter(|v| v.id != "default").map(|v| Opt::new(v.id.clone(), v.id.clone())));
                 let mut s = Select::new("Select variant", opts);
                 s.flat = true;
+                // The new designs leave out the search in this short list.
+                s.render_filter = !self.new_designs();
                 s.current = Some(self.current_variant().unwrap_or_else(|| "default".into()));
                 self.open_dialog(Dialog::select("variant", s, Size::Medium));
             }
@@ -601,7 +724,11 @@ impl App {
                 if sid.is_none() {
                     return false;
                 }
-                self.open_dialog(Dialog::new("export", Body::Export(crate::ui::dialog::ExportOptions::default())));
+                if self.new_designs() {
+                    self.export_list(crate::ui::dialog::ExportOptions::default(), "format");
+                } else {
+                    self.open_dialog(Dialog::new("export", Body::Export(crate::ui::dialog::ExportOptions::default())));
+                }
             }
             "session.background" => {
                 let Some(s) = sid else { return false };
@@ -909,6 +1036,61 @@ impl App {
     }
 
     /// Export flow (`DialogExportOptions` → copy or a file in the working directory → `DialogExportResult`).
+    /// `DialogExportOptions` under the new designs: a list of values (↑/↓ moves, ←/→ or space changes), `copy c` and
+    /// `save to file enter` in the footer. `focus` is the selected row.
+    pub(super) fn export_list(&mut self, o: crate::ui::dialog::ExportOptions, focus: &str) {
+        let include = |v: bool| (if v { "include" } else { "exclude" }).to_string();
+        let row = |title: &str, value: &str, shown: String| {
+            let mut opt = Opt::new(title, value);
+            opt.choice = Some((shown, false));
+            opt
+        };
+        let mut opts = vec![
+            row("Format", "format", (if o.json { "json" } else { "markdown" }).into()),
+            row("Location", "location", (if o.temp { "temp" } else { "project" }).into()),
+        ];
+        if o.json {
+            opts.push(row("Sanitize", "sanitize", (if o.sanitize { "on" } else { "off" }).into()).cat("Options"));
+        } else {
+            opts.push(row("Thinking", "thinking", include(o.thinking)).cat("Options"));
+            opts.push(row("Tools", "tools", include(o.tools)).cat("Options"));
+        }
+        let mut s = Select::new("Export session", opts);
+        s.render_filter = false;
+        s.actions = vec![
+            Action { id: "key:c".into(), title: "copy".into(), right: false, disabled: false, hidden: false, no_selection: true, primary: Some(true) },
+            Action::key("left"),
+            Action::key("right"),
+            Action::key("space"),
+        ];
+        s.hints_right = vec![("save to file".into(), "enter".into())];
+        s.hints_right_primary = true;
+        if let Some(i) = s.visible().iter().position(|i| s.options[*i].value == focus) {
+            s.selected = i;
+        }
+        let mut d = Dialog::select("export-list", s, Size::Medium);
+        d.data = serde_json::to_value(&o).unwrap_or_default();
+        if self.dialogs.last().is_some_and(|d| d.purpose == "export-list") {
+            self.dialogs.pop();
+        }
+        self.open_dialog(d);
+    }
+
+    /// Change the selected export option (`←`/`→`/space).
+    pub(super) fn export_list_change(&mut self, row: &str) {
+        let Some(d) = self.dialogs.last() else { return };
+        let mut o: crate::ui::dialog::ExportOptions = serde_json::from_value(d.data.clone()).unwrap_or_default();
+        match row {
+            "format" => o.json = !o.json,
+            "location" => o.temp = !o.temp,
+            "thinking" => o.thinking = !o.thinking,
+            "tools" => o.tools = !o.tools,
+            "sanitize" => o.sanitize = !o.sanitize,
+            _ => return,
+        }
+        self.export_list(o, row);
+    }
+
     pub fn export_session(&mut self, opts: crate::ui::dialog::ExportOptions, copy: bool) {
         let Some(sid) = self.session_id().map(|s| s.to_string()) else { return };
         self.dialogs.clear();
@@ -917,16 +1099,17 @@ impl App {
                 app.copy(&text, "Copied to clipboard");
                 return;
             }
-            // 2.2.7 (#62253): saved in the working directory, `session-<uuid>.<md|json>`.
-            let path = export_path(&std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")), ext);
+            // 2.2.7 (#62253): saved in the working directory, `session-<uuid>.<md|json>`; the new designs can pick
+            // the temporary directory.
+            let dir = if opts.temp { std::env::temp_dir() } else { std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")) };
+            let path = export_path(&dir, ext);
             let written = path.parent().map(std::fs::create_dir_all).unwrap_or(Ok(())).and_then(|_| std::fs::write(&path, text));
             match written {
                 Ok(_) => {
-                    let t = app.theme().dialog().clone();
-                    let lines = vec![crate::ui::text::SLine::new(vec![crate::ui::text::seg(path.to_string_lossy().to_string(), crate::ui::text::fg(t.text.base))])];
-                    let mut td = TextDialog::new("Session exported", lines);
-                    td.button = Some("Close".into());
-                    app.open_dialog(Dialog::text("export-result", td));
+                    let path = path.to_string_lossy().to_string();
+                    let mut d = Dialog::text("export-result", export_result(app, &path, false));
+                    d.data = json!({ "path": path });
+                    app.open_dialog(d);
                 }
                 Err(e) => app.toast(Toast::new("error", e.to_string())),
             }
@@ -1041,15 +1224,17 @@ impl App {
             opts.push(o);
         }
         for (cat, title, path, _, _, _) in settings() {
-            let mut o = Opt::new(title, format!("setting:{path}")).cat("__settings");
+            let mut o = Opt::new(title, format!("setting:{path}")).cat(cat);
             o.search_footer = Some(format!("Settings · {cat}"));
-            o.search_text = Some(format!("{cat} {path}"));
+            o.search_text = Some(setting_keywords(path).into());
             o.disabled = true;
             opts.push(o);
         }
         let mut s = Select::new("Commands", opts);
         s.flat = true;
         s.threshold = 0.7;
+        s.search_in_title = true;
+        s.title_placeholder = Some("Search commands".into());
         self.open_dialog(Dialog::select("palette", s, Size::Medium));
     }
 
@@ -1074,6 +1259,9 @@ impl App {
     /// model in the server's order (grouped by provider when connected, free first). Without a connection the flat
     /// list puts the favorites of `priority` (the snapshot taken when the picker opened) first.
     pub(super) fn model_dialog(&mut self, provider: Option<String>, priority: Vec<String>) {
+        if self.new_designs() {
+            return self.model_dialog_nd(provider, priority);
+        }
         let models: Vec<ModelInfo> = self.model_list().into_iter().filter(|m| m.status != "deprecated" && provider.as_ref().is_none_or(|p| &m.provider_id == p)).collect();
         let providers = self.providers();
         let pname = |id: &str| providers.iter().find(|p| p.id == id).map(|p| p.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string());
@@ -1150,16 +1338,166 @@ impl App {
         self.open_dialog(d);
     }
 
+    /// `DialogModel` under the new designs: `*` marks favorites (the price moves to the detail), the Favorites
+    /// section keeps the favorites of `priority` (as of opening) so favoriting does not reorder the list, OpenCode's
+    /// free models get a "Free" group at the end, actions read in lowercase and the favorite action follows the
+    /// selection. Without a connected provider (and no provider asked for) it is the "Free models" picker.
+    fn model_dialog_nd(&mut self, provider: Option<String>, priority: Vec<String>) {
+        let connected = self.has_connected_provider();
+        if !connected && provider.is_none() {
+            return self.free_models_dialog(priority);
+        }
+        let models: Vec<ModelInfo> = self.model_list().into_iter().filter(|m| m.status != "deprecated" && provider.as_ref().is_none_or(|p| &m.provider_id == p)).collect();
+        let providers = self.providers();
+        let pname = |id: &str| providers.iter().find(|p| p.id == id).map(|p| p.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string());
+        let show_extra = connected && provider.is_none();
+        let key = |m: &ModelInfo| format!("{}/{}", m.provider_id, m.id);
+        let t = self.theme().dialog().clone();
+        let marker = |o: &mut Opt, favorite: bool| {
+            if favorite {
+                o.footer = Some("*".into());
+                o.footer_color = Some(t.text.formfield.selected);
+                o.footer_fixed = true;
+            }
+        };
+        let mut opts: Vec<Opt> = Vec::new();
+        let mut sectioned: Vec<String> = Vec::new();
+        let mut names = serde_json::Map::new();
+        if show_extra {
+            for f in &priority {
+                if let Some(m) = models.iter().find(|m| key(m) == *f) {
+                    let mut o = Opt::new(m.name.clone(), format!("section:{}", key(m))).cat("Favorites").desc(pname(&m.provider_id));
+                    marker(&mut o, self.models.is_favorite(&m.provider_id, &m.id));
+                    opts.push(o);
+                    sectioned.push(key(m));
+                }
+            }
+            for r in &self.models.recent {
+                let k = format!("{}/{}", r.provider_id, r.model_id);
+                if priority.contains(&k) {
+                    continue;
+                }
+                if let Some(m) = models.iter().find(|m| key(m) == k) {
+                    let mut o = Opt::new(m.name.clone(), format!("section:{}", key(m))).cat("Recent").desc(pname(&m.provider_id));
+                    marker(&mut o, self.models.is_favorite(&m.provider_id, &m.id));
+                    opts.push(o);
+                    sectioned.push(key(m));
+                }
+            }
+        }
+        let mut rest: Vec<&ModelInfo> = models.iter().collect();
+        rest.sort_by(|a, b| {
+            (b.provider_id == "opencode-go")
+                .cmp(&(a.provider_id == "opencode-go"))
+                .then((b.provider_id == "opencode").cmp(&(a.provider_id == "opencode")))
+                .then(locale::compare(&pname(&a.provider_id), &pname(&b.provider_id)))
+                .then(b.free().cmp(&a.free()))
+        });
+        // OpenCode's own free models get their own group at the end instead of joining "OpenCode".
+        let free_group = |m: &ModelInfo| provider.is_none() && m.provider_id == "opencode" && m.free();
+        let (paid, free): (Vec<&ModelInfo>, Vec<&ModelInfo>) = rest.into_iter().partition(|m| !free_group(m));
+        for m in paid.into_iter().chain(free) {
+            let mut o = Opt::new(m.name.clone(), key(m));
+            o.category = Some(if free_group(m) { "Free".into() } else { pname(&m.provider_id) });
+            marker(&mut o, self.models.is_favorite(&m.provider_id, &m.id));
+            o.disabled = sectioned.contains(&key(m));
+            names.insert(key(m), json!(pname(&m.provider_id)));
+            opts.push(o);
+        }
+        let title = provider.as_ref().map(|p| pname(p)).unwrap_or_else(|| "Select model".into());
+        let mut s = Select::new(title, opts);
+        s.flat = true;
+        s.search_in_title = true;
+        s.title_placeholder = Some("Search models".into());
+        s.current = self.current_model().map(|m| format!("{}/{}", m.provider_id, m.id));
+        s.actions = vec![
+            Action::new("model.dialog.provider", if connected { "connect integration" } else { "view all integrations" }).dialog_level(),
+            Action::new("model.dialog.favorite", "favorite"),
+        ];
+        let mut d = Dialog::select("model", s, Size::Medium);
+        d.data = json!({ "provider": provider, "priority": priority, "names": names });
+        self.open_dialog(d);
+        self.model_favorite_title();
+    }
+
+    /// `DialogFreeModels`: the free models (favorites as of opening first, then the most recently used, then the
+    /// server's order), each with its input modalities, context window and reasoning support below the list.
+    fn free_models_dialog(&mut self, priority: Vec<String>) {
+        let t = self.theme().dialog().clone();
+        let key = |m: &ModelInfo| format!("{}/{}", m.provider_id, m.id);
+        let recent: Vec<String> = self.models.recent.iter().map(|r| format!("{}/{}", r.provider_id, r.model_id)).collect();
+        let mut models: Vec<ModelInfo> = self.model_list().into_iter().filter(|m| m.status != "deprecated" && m.free()).collect();
+        models.sort_by_key(|m| recent.iter().position(|r| *r == key(m)).unwrap_or(usize::MAX));
+        models.sort_by_key(|m| !priority.contains(&key(m)));
+        let opts = models
+            .iter()
+            .map(|m| {
+                let mut o = Opt::new(m.name.clone(), key(m));
+                if self.models.is_favorite(&m.provider_id, &m.id) {
+                    o.footer = Some("*".into());
+                    o.footer_color = Some(t.text.formfield.selected);
+                    o.footer_fixed = true;
+                }
+                o.detail = Some(crate::ui::dialog::Detail::Lines(vec![model_facts(m, &t)]));
+                o
+            })
+            .collect();
+        let mut s = Select::new("Free models", opts);
+        s.description = Some("Connect a provider for access to more models".into());
+        s.flat = true;
+        s.current = self.current_model().map(|m| format!("{}/{}", m.provider_id, m.id));
+        s.actions = vec![
+            Action::new("model.dialog.provider", "connect provider").dialog_level(),
+            Action::new("model.dialog.favorite", "favorite"),
+        ];
+        let mut d = Dialog::select("model", s, Size::Medium);
+        d.data = json!({ "provider": null, "priority": priority, "free": true });
+        self.open_dialog(d);
+        self.model_favorite_title();
+    }
+
+    /// Under the new designs the favorite action names what it does to the selected model.
+    pub(super) fn model_favorite_title(&mut self) {
+        if !self.new_designs() {
+            return;
+        }
+        let selected = self.dialogs.last_mut().filter(|d| d.purpose == "model").and_then(|d| d.sel()).and_then(|s| s.selected_value());
+        let favorite = selected
+            .as_deref()
+            .map(|v| v.strip_prefix("section:").unwrap_or(v))
+            .and_then(|v| v.split_once('/'))
+            .is_some_and(|(p, m)| self.models.is_favorite(p, m));
+        if let Some(sel) = self.dialogs.last_mut().filter(|d| d.purpose == "model").and_then(|d| d.sel())
+            && let Some(a) = sel.actions.iter_mut().find(|a| a.id == "model.dialog.favorite")
+        {
+            a.title = (if favorite { "unfavorite" } else { "favorite" }).into();
+        }
+    }
+
     pub fn open_theme_dialog(&mut self) {
+        self.theme_dialog(false);
+    }
+
+    /// `DialogThemeList`; `from_settings` (the new designs' Settings opens it on enter): escape and a pick return
+    /// to Settings instead of closing every dialog.
+    pub(super) fn theme_dialog(&mut self, from_settings: bool) {
         let names = self.themes.names();
         let opts: Vec<Opt> = names.iter().map(|n| Opt::new(n.clone(), n.clone())).collect();
         let mut s = Select::new("Themes", opts);
         s.current = Some(self.themes.active.clone());
+        s.search_in_title = true;
+        s.title_placeholder = Some("Search themes".into());
+        s.can_back = from_settings;
         self.theme_preview_initial = Some(self.themes.active.clone());
-        self.open_dialog(Dialog::select("theme", s, Size::Medium));
+        let mut d = Dialog::select("theme", s, Size::Medium);
+        if from_settings {
+            d.data = json!({ "settings": true });
+        }
+        self.open_dialog(d);
     }
 
     pub fn open_settings(&mut self, focus: Option<&str>) {
+        let nd = self.new_designs();
         let mut opts = Vec::new();
         for (cat, title, path, values, labels, default) in settings() {
             let value = self.config.get(path).cloned().unwrap_or(default);
@@ -1176,15 +1514,36 @@ impl App {
             } else {
                 value.as_str().map(|s| s.to_string()).unwrap_or_else(|| value.to_string())
             };
-            opts.push(Opt::new(title, path).cat(cat).foot(footer));
+            let mut o = Opt::new(title, path).cat(cat);
+            o.search_text = Some(setting_keywords(path).into());
+            if nd {
+                // `DialogSelectChoice`: Theme opens the theme list on enter, the others cycle.
+                o.choice = Some((footer, path == "theme.name"));
+                o.detail = Some(crate::ui::dialog::Detail::Text(setting_description(path).into()));
+            } else {
+                o.footer = Some(footer);
+            }
+            opts.push(o);
         }
+        let focus = focus.unwrap_or("theme.name").to_string();
         let mut s = Select::new("Settings", opts);
-        s.current = Some(focus.unwrap_or("theme.name").to_string());
-        s.hints = vec![("change".into(), "←/→".into())];
+        s.threshold = 0.7;
         s.actions = vec![
             Action::key("left"),
             Action::key("right"),
         ];
+        if nd {
+            // The opening setting is focused without the current-item marker.
+            s.search_in_title = true;
+            s.title_placeholder = Some("Search settings".into());
+            if let Some(i) = s.visible().iter().position(|i| s.options[*i].value == focus) {
+                s.selected = i;
+                s.center = true;
+            }
+        } else {
+            s.current = Some(focus);
+            s.hints = vec![("change".into(), "←/→".into())];
+        }
         let mut d = Dialog::select("settings", s, Size::Medium);
         if let Some(sel) = d.sel() {
             sel.focus_current_option();
@@ -1247,7 +1606,9 @@ impl App {
             .filter(|m| m.kind == "user")
             .map(|m| Opt::new(m.text_str().replace('\n', " "), m.id.clone()).foot(locale::time(m.time.created)))
             .collect();
-        let s = Select::new("Timeline", opts);
+        let mut s = Select::new("Timeline", opts);
+        s.search_in_title = true;
+        s.title_placeholder = Some("Search timeline".into());
         self.open_dialog(Dialog::select("timeline", s, Size::Large));
     }
 
@@ -1314,6 +1675,11 @@ impl App {
     fn open_queued(&mut self) {
         let opts: Vec<Opt> = self.queued_prompts().iter().map(|i| Opt::new(i.payload.get("text").and_then(|t| t.as_str()).unwrap_or("").replace('\n', " "), i.id.clone())).collect();
         let mut s = Select::new("Queued prompts", opts);
+        s.search_in_title = true;
+        s.title_placeholder = Some("Search queued prompts".into());
+        // `footerHints: [{ title: "steer", label: "enter", group: "primary" }]` (on the left in the legacy layout).
+        s.hints = vec![("steer".into(), "enter".into())];
+        s.hints_primary = true;
         s.actions = vec![
             Action::new("queued_prompt.undo", "undo"),
             Action::new("queued_prompt.delete", "delete"),
@@ -1381,6 +1747,8 @@ impl App {
             })
             .collect();
         let mut sel = Select::new("MCP servers", opts);
+        sel.search_in_title = true;
+        sel.title_placeholder = Some("Search MCP servers".into());
         sel.actions = vec![Action::new("dialog.mcp.toggle", "toggle")];
         if let Some(name) = focus
             && let Some(i) = sel.visible().iter().position(|i| sel.options[*i].value == name)
@@ -1437,7 +1805,25 @@ impl App {
     }
 }
 
-/// `DialogDebug`: label column (10 + gap), word-wrapped values, the note and `copy enter` footer.
+/// `DialogExportResult`: the saved path (`Saved to …`, underlined, and `copy path c` under the new designs; the path
+/// and a `Close` button in the legacy layout).
+pub fn export_result(app: &App, path: &str, copied: bool) -> TextDialog {
+    use crate::ui::text::{SLine, fg, seg};
+    let t = app.theme().dialog().clone();
+    if !app.new_designs() {
+        let mut td = TextDialog::new("Session exported", vec![SLine::new(vec![seg(path.to_string(), fg(t.text.base))])]);
+        td.button = Some("Close".into());
+        return td;
+    }
+    let w = (Size::Medium.width() as usize).min(app.size.0.saturating_sub(2) as usize).saturating_sub(DIALOG_INSET * 2);
+    let underline = fg(t.text.muted).add_modifier(ratatui::style::Modifier::UNDERLINED);
+    let lines = crate::ui::text::wrap_word_ot(&[seg("Saved to ", fg(t.text.base)), seg(path.to_string(), underline)], w.max(1)).into_iter().map(SLine::new).collect();
+    let copy = if copied { FooterItem::new("copied", "✓").color(t.text.feedback.success.base) } else { FooterItem::new("copy path", "c") };
+    TextDialog::new("Session exported", lines).footer(Footer { primary: vec![copy], ..Default::default() })
+}
+
+/// `DialogDebug`: label column (10 + gap), word-wrapped values, the note and `copy enter` footer; under the new
+/// designs the note is the header's description and `c` copies.
 pub fn debug_dialog(app: &App, entries: &[(&str, String)], copied: bool) -> TextDialog {
     use crate::ui::text::{SLine, Wrap, fg, seg, wrap};
     let t = app.theme().dialog().clone();
@@ -1450,7 +1836,14 @@ pub fn debug_dialog(app: &App, entries: &[(&str, String)], copied: bool) -> Text
             lines.push(SLine::new(r).prefixed(&[seg(label, fg(t.text.muted))]));
         }
     }
-    let copy = if copied { FooterItem::new("✓ copied", "enter").color(t.text.feedback.success.base) } else { FooterItem::new("copy", "enter") };
+    let nd = app.new_designs();
+    let key = if nd { "c" } else { "enter" };
+    let copy = if copied { FooterItem::new("✓ copied", key).color(t.text.feedback.success.base) } else { FooterItem::new("copy", key) };
+    if nd {
+        let mut td = TextDialog::new("Debug", lines).footer(Footer { primary: vec![copy], ..Default::default() });
+        td.description = Some("Share this when reporting an issue".into());
+        return td;
+    }
     TextDialog::new("Debug", lines).footer(Footer { children: vec![seg("Share this when reporting an issue.", fg(t.text.muted))], secondary: vec![], primary: vec![copy] })
 }
 
@@ -1473,8 +1866,13 @@ pub fn btw_answer(app: &App, question: &str, answer: &str, copied: bool) -> Dial
     // The scrollbox holds at most max(8, 60% of the terminal) rows, including its padding rows.
     let max = ((app.size.1 as f64 * 0.6).floor() as usize).max(8).saturating_sub(2);
     td.height = Some(max).filter(|m| td.lines.len() > *m);
-    let copy = if copied { FooterItem::new("✓ copied", "").color(t.text.feedback.success.base) } else { FooterItem::new("copy", "c") };
-    td.footer = Some(Footer { secondary: vec![copy, FooterItem::new("scroll", "j/k ↑/↓")], ..Default::default() });
+    td.footer = Some(if app.new_designs() {
+        let copy = if copied { FooterItem::new("✓ copied", "").color(t.text.feedback.success.base) } else { FooterItem::new("copy response", "c") };
+        Footer { primary: vec![copy], ..Default::default() }
+    } else {
+        let copy = if copied { FooterItem::new("✓ copied", "").color(t.text.feedback.success.base) } else { FooterItem::new("copy", "c") };
+        Footer { secondary: vec![copy, FooterItem::new("scroll", "j/k ↑/↓")], ..Default::default() }
+    });
     let mut d = Dialog::text("btw-answer", td);
     d.size = Size::Large;
     d.centered = true;

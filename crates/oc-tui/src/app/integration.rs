@@ -471,7 +471,7 @@ impl App {
         let account = selected.is_some_and(|v| v != "add");
         let mut rename = Action::new("dialog.integration.rename", "rename").hidden(!account);
         rename.disabled = !account;
-        let mut delete = Action::new("dialog.integration.delete", "delete").hidden(!account);
+        let mut delete = Action::new("dialog.integration.delete", if self.new_designs() { "remove account" } else { "delete" }).hidden(!account);
         delete.disabled = !account;
         sel.actions = vec![rename, delete];
         sel
@@ -591,7 +591,9 @@ impl App {
                 }
             })
             .collect();
-        let sel = Select::new(format!("Connect {}", s(&integration, "name")), options);
+        let mut sel = Select::new(format!("Connect {}", s(&integration, "name")), options);
+        // The new designs leave out the search in this short list.
+        sel.render_filter = !self.new_designs();
         let token = self.integration_show(ctx, Step::Methods, Dialog::select(PURPOSE, sel, Size::Medium));
         if let Some(d) = self.top_dialog(token) {
             d.data["integration"] = integration;
@@ -898,8 +900,8 @@ impl App {
         }
         lines.extend(wrapped(message, inner, fg(t.text.muted)));
         let mut td = TextDialog::new(title, lines);
-        if attempt.is_some() {
-            td.footer = Some(Footer { secondary: vec![FooterItem::new("open", "o"), FooterItem::new("copy", "c")], ..Default::default() });
+        if let Some(a) = attempt {
+            td.footer = Some(oauth_footer(self.new_designs(), s(a, "instructions")));
         } else {
             td.empty_footer_gap = true;
         }
@@ -1043,12 +1045,13 @@ impl App {
         }
     }
 
-    /// `o` opens the authorization URL, `c` copies the device code (or the URL).
+    /// `o` (enter under the new designs) opens the authorization URL, `c` copies the device code (or the URL).
     fn oauth_key(&mut self, token: u64, key: &str) {
         let Some(Live { step: Step::OAuthAuto { attempt, .. }, .. }) = self.live(token).cloned() else { return };
         let url = s(&attempt, "url");
+        let open = if self.new_designs() { "return" } else { "o" };
         match key {
-            "o" => {
+            k if k == open => {
                 if open_url(url).is_err() {
                     self.toast(Toast::new("error", "Could not open the browser. Copy the URL and continue manually."));
                 }
@@ -1442,4 +1445,14 @@ pub fn open_url(input: &str) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|e| e.to_string())
+}
+
+/// The OAuth footer: `open o  copy c` in the legacy layout; under the new designs `copy code c` (`copy link` without a
+/// device code in the instructions) and `open link enter`.
+pub(super) fn oauth_footer(nd: bool, instructions: &str) -> Footer {
+    if !nd {
+        return Footer { secondary: vec![FooterItem::new("open", "o"), FooterItem::new("copy", "c")], ..Default::default() };
+    }
+    let code = regex::Regex::new(OAUTH_CODE).unwrap().is_match(instructions);
+    Footer { primary: vec![FooterItem::new(if code { "copy code" } else { "copy link" }, "c"), FooterItem::new("open link", "enter")], ..Default::default() }
 }

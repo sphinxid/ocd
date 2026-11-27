@@ -1372,6 +1372,11 @@ impl App {
                 self.dialogs.clear();
                 self.open_open_dialog();
             }
+            Outcome::Back if purpose == "theme" && d.data.get("settings").is_some() => {
+                self.close_dialog();
+                self.dialogs.clear();
+                self.open_settings(Some("theme.name"));
+            }
             Outcome::Close | Outcome::Back => self.close_dialog(),
             Outcome::Filter(f) => {
                 if purpose == "session" {
@@ -1393,8 +1398,10 @@ impl App {
                     }
                 }
                 if purpose == "model"
-                    && let Some(sel) = self.dialogs.last_mut().and_then(|d| d.sel())
+                    && let Some(d) = self.dialogs.last_mut()
                 {
+                    let names = d.data.get("names").cloned().unwrap_or_default();
+                    let Some(sel) = d.sel() else { return };
                     // Favorites and Recent sections only show without a search; the full list then holds them.
                     let sectioned: Vec<String> = sel.options.iter().filter_map(|o| o.value.strip_prefix("section:").map(|v| v.to_string())).collect();
                     for o in sel.options.iter_mut() {
@@ -1403,8 +1410,24 @@ impl App {
                         } else if sectioned.contains(&o.value) {
                             o.disabled = f.is_empty();
                         }
+                        // The new designs' search results name the provider inline, without a group: the category
+                        // still matches, as search text.
+                        if let Some(name) = names.get(&o.value).and_then(|n| n.as_str()) {
+                            if f.is_empty() {
+                                if o.category.is_none() {
+                                    o.category = o.search_text.take();
+                                }
+                                o.description = None;
+                            } else {
+                                if o.category.is_some() {
+                                    o.search_text = o.category.take();
+                                }
+                                o.description = Some(name.to_string());
+                            }
+                        }
                     }
                     sel.focus_current_option();
+                    self.model_favorite_title();
                 }
                 if purpose == "theme" {
                     let first = self.dialogs.last_mut().and_then(|d| d.sel()).and_then(|s| s.selected_value());
@@ -1422,6 +1445,9 @@ impl App {
                 }
             }
             Outcome::Moved(v) => {
+                if purpose == "model" {
+                    self.model_favorite_title();
+                }
                 if purpose == "timeline" {
                     self.jump_to_message(&v);
                 }
@@ -1488,6 +1514,17 @@ impl App {
     fn dialog_key(&mut self, purpose: &str, key: &str, d: &dialog::Dialog) {
         match (purpose, key) {
             ("export-result", "return") => self.close_dialog(),
+            ("export-result", "c") if self.new_designs() => {
+                let path = d.data.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+                crate::clipboard::write(&path);
+                let body = super::commands::export_result(self, &path, true);
+                if let Some(top) = self.dialogs.last_mut().filter(|x| x.purpose == "export-result") {
+                    top.body = Body::Text(Box::new(body));
+                }
+            }
+            ("shell-output", "c" | "o") => self.shell_output_copy(key, d),
+            // The new designs' file changes dialog confirms a forced worktree delete with `d`.
+            ("worktree-force", "d") => self.dialog_outcome(Outcome::Confirm(true)),
             (super::update::PURPOSE, _) => self.update_dialog_key(key),
             ("execute", "c") => self.execute_copy("code"),
             (super::goal::PURPOSE, _) => {
@@ -1496,8 +1533,8 @@ impl App {
             }
             ("plugin-error", "c" | "i") => self.error_details_key(key),
             ("execute", "o") => self.execute_copy("output"),
-            ("go-connect", "o" | "c") => self.go_connect_key(key),
-            ("debug", "return") => {
+            ("go-connect", "o" | "c" | "return") => self.go_connect_key(key),
+            ("debug", "return" | "c") if (key == "c") == self.new_designs() => {
                 let text = d.data.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
                 crate::clipboard::write(&text);
                 self.toast(Toast::new("info", "Debug info copied to clipboard"));
@@ -1583,6 +1620,19 @@ impl App {
                 self.theme_preview_initial = None;
                 self.dialogs.clear();
                 self.set_theme(v, true);
+                if d.data.get("settings").is_some() {
+                    self.open_settings(Some("theme.name"));
+                }
+            }
+            // The new designs' export list saves on enter, whatever row is selected.
+            "export-list" => {
+                let o = serde_json::from_value(d.data.clone()).unwrap_or_default();
+                self.export_session(o, false);
+            }
+            // Under the new designs enter on Theme opens the theme list, which returns here.
+            "settings" if v == "theme.name" && self.new_designs() => {
+                self.dialogs.clear();
+                self.theme_dialog(true);
             }
             "settings" => self.change_setting(v, 1),
             "session" | "navigate" => {
@@ -1595,7 +1645,10 @@ impl App {
                 for (t, val, desc) in [("Jump to", "jump", "view message in session"), ("Revert", "revert", "undo messages and file changes"), ("Copy", "copy", "message text to clipboard"), ("Fork", "fork", "create a new session")] {
                     opts.push(dialog::Opt::new(t, val).desc(desc));
                 }
-                let mut nd = dialog::Dialog::select("message", dialog::Select::new("Message Actions", opts), dialog::Size::Medium);
+                let mut sel = dialog::Select::new("Message Actions", opts);
+                // The new designs leave out the search in this short list.
+                sel.render_filter = !self.new_designs();
+                let mut nd = dialog::Dialog::select("message", sel, dialog::Size::Medium);
                 nd.data = json!(v);
                 self.open_dialog(nd);
             }
@@ -1756,6 +1809,7 @@ impl App {
                     if !filter.is_empty() {
                         self.dialog_outcome(Outcome::Filter(filter));
                     }
+                    self.model_favorite_title();
                 }
             }
             ("model", "model.dialog.provider") => {
@@ -1846,6 +1900,15 @@ impl App {
                     let d = app.location_dir();
                     app.fetch_catalog(&d, crate::store::Catalog::Mcp);
                 });
+            }
+            ("export-list", "key:c") => {
+                let o = serde_json::from_value(self.dialogs.last().map(|d| d.data.clone()).unwrap_or_default()).unwrap_or_default();
+                self.export_session(o, true);
+            }
+            ("export-list", "key:left" | "key:right" | "key:space") => {
+                if let Some(v) = v {
+                    self.export_list_change(&v);
+                }
             }
             ("export", "copy") | ("export", "export") => {
                 let opts = match self.dialogs.last().map(|d| &d.body) {
@@ -2509,13 +2572,17 @@ impl App {
                     .iter()
                     .map(|(t, v, d)| dialog::Opt::new(*t, *v).desc(*d))
                     .collect();
-                let mut d = dialog::Dialog::select("message", dialog::Select::new("Message Actions", opts), dialog::Size::Medium);
+                let mut sel = dialog::Select::new("Message Actions", opts);
+                sel.render_filter = !self.new_designs();
+                let mut d = dialog::Dialog::select("message", sel, dialog::Size::Medium);
                 d.data = json!(id);
                 self.open_dialog(d);
             }
             Click::PendingSteer(id) => {
                 let opts = vec![dialog::Opt::new("Move to queue", "queue"), dialog::Opt::new("Delete", "cancel")];
-                let mut d = dialog::Dialog::select("pending", dialog::Select::new("Pending steer", opts), dialog::Size::Medium);
+                let mut sel = dialog::Select::new("Pending steer", opts);
+                sel.render_filter = !self.new_designs();
+                let mut d = dialog::Dialog::select("pending", sel, dialog::Size::Medium);
                 d.data = json!(id);
                 self.open_dialog(d);
             }

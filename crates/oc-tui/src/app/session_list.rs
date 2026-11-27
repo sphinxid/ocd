@@ -169,11 +169,14 @@ impl App {
         let selected = sel.selected_value();
         sel.options = opts;
         sel.title_suffix = (!all && !name.is_empty()).then(|| format!(" for {name}"));
+        sel.search_in_title = true;
+        sel.title_placeholder = Some(if !all && !name.is_empty() { format!("Search sessions in {name}") } else { "Search sessions".into() });
         sel.empty = Some(message.into());
         sel.no_match = Some(message.into());
         sel.empty_color = error.then_some(t.text.feedback.error.base);
         sel.hints.clear();
-        if !tabs && !slots.is_empty() && !first.is_empty() && !last.is_empty() {
+        // The new designs leave out the quick switch hint.
+        if !self.config.new_designs() && !tabs && !slots.is_empty() && !first.is_empty() && !last.is_empty() {
             let prefix = &first[..first.len() - 1];
             let range = if first.ends_with('1') && last == format!("{prefix}9") { format!("{prefix}1-9") } else { format!("{first} through {last}") };
             sel.hints.push(("switch".into(), range));
