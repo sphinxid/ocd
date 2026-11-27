@@ -1588,11 +1588,18 @@ impl App {
         if path == "session.permissions" {
             self.autoaccept = next == json!("autoaccept");
         }
-        // Rebuild the settings dialog keeping the selection.
-        let selected = self.dialogs.last_mut().and_then(|d| d.sel().map(|s| s.selected));
+        // Rebuild the settings dialog keeping the search and the selection (under the new designs the scroll too:
+        // `preserveSelection`).
+        let nd = self.new_designs();
+        let kept = self.dialogs.last_mut().and_then(|d| d.sel().map(|s| (s.filter.clone(), s.selected, s.scroll)));
         self.open_settings(Some(path));
-        if let (Some(sel), Some(i)) = (self.dialogs.last_mut().and_then(|d| d.sel()), selected) {
+        if let (Some(sel), Some((filter, i, scroll))) = (self.dialogs.last_mut().and_then(|d| d.sel()), kept) {
+            sel.filter = filter;
             sel.selected = i;
+            if nd {
+                sel.scroll = scroll;
+                sel.center = false;
+            }
         }
     }
 

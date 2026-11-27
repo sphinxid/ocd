@@ -153,6 +153,21 @@ fn settings_dialog_values() {
     check(&mut a, "E.18a-settings-config");
 }
 
+/// Changing a value keeps the search and the selected setting.
+#[test]
+fn settings_change_keeps_the_search_and_selection() {
+    let mut a = settings_app();
+    a.open_settings(None);
+    for c in ["s", "c", "r", "o", "l", "l"] {
+        key(&mut a, c);
+    }
+    key(&mut a, "right");
+    let sel = a.dialogs.last_mut().unwrap().sel().unwrap();
+    assert_eq!(sel.filter, "scroll");
+    assert_eq!(sel.selected_value().as_deref(), Some("session.scrollbar"));
+    assert_eq!(a.config.bool("session.scrollbar"), Some(true));
+}
+
 /// Enter on Theme opens the theme list, which returns to Settings on escape (restoring the theme) or on a pick.
 #[test]
 fn settings_theme_opens_the_list_and_returns() {
