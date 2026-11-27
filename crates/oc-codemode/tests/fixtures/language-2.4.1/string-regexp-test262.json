@@ -1,0 +1,98 @@
+[
+ {
+  "test": "",
+  "code": "Test262-adapted regexp split behavior",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "",
+  "code": "Test262-adapted replace behavior",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "",
+  "code": "Test262-adapted replaceAll behavior",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "",
+  "code": "Test262-adapted match behavior",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "",
+  "code": "Test262-adapted matchAll behavior",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "",
+  "code": "Test262-adapted search behavior",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]

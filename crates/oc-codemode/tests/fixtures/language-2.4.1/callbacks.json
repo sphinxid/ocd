@@ -1,0 +1,836 @@
+[
+ {
+  "test": "built-in method references as callbacks > map accepts Math methods",
+  "code": "return [-1, 2, -3].map(Math.abs)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "built-in method references as callbacks > map accepts Math methods",
+  "code": "return [1.5, 2.7].map(Math.floor)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "built-in method references as callbacks > map(JSON.stringify) matches JS: the index replacer and array space are ignored",
+  "code": "return [{ a: 1 }, [2]].map(JSON.stringify)",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"a\":1}",
+    "[2]"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "built-in method references as callbacks > map(Number.parseInt) reproduces the JS radix footgun",
+  "code": "return [\"1\", \"2\"].map(Number.parseInt)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "built-in method references as callbacks > filter and find accept built-in predicates",
+  "code": "return [0, 1, NaN, 2].filter(Number.isInteger)",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "built-in method references as callbacks > filter and find accept built-in predicates",
+  "code": "return [1.5, 3, 2.5].find(Number.isInteger)",
+  "result": {
+   "ok": true,
+   "value": 3,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "built-in method references as callbacks > detached method references lose their receiver, like JS",
+  "code": "return [\"a\", \"z\"].filter(\"abc\".includes)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: String.prototype.includes called on null or undefined. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "built-in method references as callbacks > promise reactions accept built-in references",
+  "code": "return await Promise.resolve(-5).then(Math.abs)",
+  "result": {
+   "ok": true,
+   "value": 5,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Error constructors work as callbacks and direct calls",
+  "code": "return [\"boom\"].map(Error)[0].message",
+  "result": {
+   "ok": true,
+   "value": "boom",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Error constructors work as callbacks and direct calls",
+  "code": "return TypeError(\"bad\").name",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > error values stringify like JS Error.prototype.toString",
+  "code": "return String(TypeError(\"bad\"))",
+  "result": {
+   "ok": true,
+   "value": "TypeError: bad",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > error values stringify like JS Error.prototype.toString",
+  "code": "return String(Error(\"\"))",
+  "result": {
+   "ok": true,
+   "value": "Error",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > error values stringify like JS Error.prototype.toString",
+  "code": "return \"x\" + RangeError(\"oops\")",
+  "result": {
+   "ok": true,
+   "value": "xRangeError: oops",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > error values stringify like JS Error.prototype.toString",
+  "code": "return \"a1b2\".replace(/\\d/, Error)",
+  "result": {
+   "ok": true,
+   "value": "aError: 1b2",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > literal elisions are real holes, like JS",
+  "code": "return (0 in [, 1])",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > literal elisions are real holes, like JS",
+  "code": "return Object.keys([, 1, ,])",
+  "result": {
+   "ok": true,
+   "value": [
+    "1"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > literal elisions are real holes, like JS",
+  "code": "return [, 1, ,].filter(() => true).length",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > literal elisions are real holes, like JS",
+  "code": "return [, ,].every((x) => false)",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return Array(1, 2, 3)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return Array(\"3\")",
+  "result": {
+   "ok": true,
+   "value": [
+    "3"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return Array(3).length",
+  "result": {
+   "ok": true,
+   "value": 3,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return new Array(2).length",
+  "result": {
+   "ok": true,
+   "value": 2,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return Array(3).map((x) => 1)",
+  "result": {
+   "ok": true,
+   "value": [
+    null,
+    null,
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return Array(3).map((x) => 1).length",
+  "result": {
+   "ok": true,
+   "value": 3,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return [...Array(3)].map((_, i) => i)",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return Array(-1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Invalid array length. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Array constructs from arguments or a length",
+  "code": "return Array(1.5)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Invalid array length. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Object returns objects unchanged and rejects primitive wrappers",
+  "code": "return Object()",
+  "result": {
+   "ok": true,
+   "value": {},
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Object returns objects unchanged and rejects primitive wrappers",
+  "code": "const o = { a: 1 }; return Object(o) === o",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Object returns objects unchanged and rejects primitive wrappers",
+  "code": "return Object(1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Object(number) wrapper objects are not supported; use the primitive value directly. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Date() without new returns a deterministic ISO string and ignores arguments",
+  "code": "return /^\\d{4}-\\d{2}-\\d{2}T.*Z$/.test(Date(1000))",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > Date() without new returns a deterministic ISO string and ignores arguments",
+  "code": "return \"abc\".replace(RegExp(\"b\"), \"x\")",
+  "result": {
+   "ok": true,
+   "value": "axc",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > map(Array) matches the JS 3-argument call",
+  "code": "return [7].map(Array)",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     7,
+     0,
+     [
+      7
+     ]
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > array length is bounded below the JS maximum, so one call cannot materialize an unbounded array",
+  "code": "return Array(10000000).length",
+  "result": {
+   "ok": true,
+   "value": 10000000,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > array length is bounded below the JS maximum, so one call cannot materialize an unbounded array",
+  "code": "return Array(10000001)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Invalid array length. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > array length is bounded below the JS maximum, so one call cannot materialize an unbounded array",
+  "code": "try { Array(-1) } catch (e) { throw Error(e.name) }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: RangeError"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > returned sparse arrays normalize holes to null at the host boundary",
+  "code": "return Array(3)",
+  "result": {
+   "ok": true,
+   "value": [
+    null,
+    null,
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > RegExp with non-string flags throws a SyntaxError, like JS",
+  "code": "try { RegExp(\"a\", 0) } catch (e) { throw Error(e.name) }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Error: SyntaxError"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > new-requiring constructors throw a TypeError when called",
+  "code": "return Map()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Constructor Map requires 'new'. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > new-requiring constructors throw a TypeError when called",
+  "code": "return [1].map(Set)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Constructor Set requires 'new'. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > new-requiring constructors throw a TypeError when called",
+  "code": "return Promise(() => 1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Constructor Promise requires 'new'. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "constructors callable without new, like JS > new-requiring constructors throw a TypeError when called",
+  "code": "return await Promise.resolve(1).then(Map).catch((e) => e.name)",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sort accepts the unified callback set > sort preserves trailing holes while toSorted densifies them",
+  "code": "\n        const defaultSorted = [2, , 1]\n        const compared = [2, , 1]\n        const copied = defaultSorted.toSorted()\n        defaultSorted.sort()\n        compared.sort((a, b) => a - b)\n        return [\n          Object.hasOwn(defaultSorted, 2),\n          Object.hasOwn(compared, 2),\n          Object.hasOwn(copied, 2),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    false,
+    false,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sort accepts the unified callback set > sort preserves trailing holes while toSorted densifies them",
+  "code": "const values = [2, undefined, 1]; values.sort(); return Object.hasOwn(values, 2)",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sort accepts the unified callback set > sort writes its snapshot without discarding comparator length mutations",
+  "code": "\n        const values = [3, 2, 1]\n        let first = true\n        values.sort((a, b) => {\n          if (first) {\n            first = false\n            values.push(\"kept\")\n          }\n          return a - b\n        })\n        return values\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    3,
+    "kept"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sort accepts the unified callback set > sort writes its snapshot without discarding comparator length mutations",
+  "code": "\n        const values = [3, , 1, , 2]\n        let first = true\n        values.sort((a, b) => {\n          if (first) {\n            first = false\n            values.splice(0)\n          }\n          return a - b\n        })\n        return { values, owns: values.map((_, index) => Object.hasOwn(values, index)) }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "values": [
+     1,
+     2,
+     3
+    ],
+    "owns": [
+     true,
+     true,
+     true
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sort accepts the unified callback set > sort and toSorted take built-in comparators",
+  "code": "return [0, 1, 0].sort(Boolean)",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    0,
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sort accepts the unified callback set > sort and toSorted take built-in comparators",
+  "code": "return [0, 1, 0].toSorted(Boolean)",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    0,
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sort accepts the unified callback set > a non-callable comparator is rejected",
+  "code": "return [2, 1].sort(42)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Array.sort expects a function callback. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sort accepts the unified callback set > a non-callable comparator is rejected",
+  "code": "return [2, 1].toSorted(42)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Array.toSorted expects a function callback. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Array.from mapper > maps with (value, index) over arrays, strings, and Sets",
+  "code": "return Array.from([1, 2, 3], (x) => x * 2)",
+  "result": {
+   "ok": true,
+   "value": [
+    2,
+    4,
+    6
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Array.from mapper > maps with (value, index) over arrays, strings, and Sets",
+  "code": "return Array.from(\"ab\", (c, i) => c + i)",
+  "result": {
+   "ok": true,
+   "value": [
+    "a0",
+    "b1"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Array.from mapper > maps with (value, index) over arrays, strings, and Sets",
+  "code": "return Array.from(new Set([1, 2]), (x) => x * 10)",
+  "result": {
+   "ok": true,
+   "value": [
+    10,
+    20
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Array.from mapper > accepts coercion builtins and an explicit undefined mapper",
+  "code": "return Array.from([\"5\", \"7\"], Number)",
+  "result": {
+   "ok": true,
+   "value": [
+    5,
+    7
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Array.from mapper > accepts coercion builtins and an explicit undefined mapper",
+  "code": "return Array.from([1, 2], undefined)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Array.from mapper > rejects a non-callable mapper",
+  "code": "return Array.from([1], 42)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Array.from expects a function callback. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "thisArg is accepted and ignored, like JS arrows > iteration methods and Array.from ignore a thisArg",
+  "code": "return [1, 2].map((x) => x * 2, {})",
+  "result": {
+   "ok": true,
+   "value": [
+    2,
+    4
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "thisArg is accepted and ignored, like JS arrows > iteration methods and Array.from ignore a thisArg",
+  "code": "return [1, 2].map((x) => x, undefined)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "thisArg is accepted and ignored, like JS arrows > iteration methods and Array.from ignore a thisArg",
+  "code": "return Array.from([1], (x) => x + 1, {})",
+  "result": {
+   "ok": true,
+   "value": [
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "thisArg is accepted and ignored, like JS arrows > Map, Set, and URLSearchParams forEach ignore a thisArg",
+  "code": "const o = []; new Map([[\"a\", 1]]).forEach((v, k) => o.push(k), {}); return o",
+  "result": {
+   "ok": true,
+   "value": [
+    "a"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "thisArg is accepted and ignored, like JS arrows > Map, Set, and URLSearchParams forEach ignore a thisArg",
+  "code": "const o = []; new Set([1]).forEach((v) => o.push(v), \"self\"); return o",
+  "result": {
+   "ok": true,
+   "value": [
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "thisArg is accepted and ignored, like JS arrows > Map, Set, and URLSearchParams forEach ignore a thisArg",
+  "code": "const o = []; new URLSearchParams(\"a=1\").forEach((v) => o.push(v), 0); return o",
+  "result": {
+   "ok": true,
+   "value": [
+    "1"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "still-rejected callables get the wrap hint > detached Promise statics as callbacks suggest an arrow wrapper",
+  "code": "return [1].map(Promise.resolve)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Array.map cannot use this callable as a callback; wrap it in an arrow function, e.g. (value) => fn(value). (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "still-rejected callables get the wrap hint > built-in references work as replacers",
+  "code": "return \"abc\".replace(/b/, JSON.stringify)",
+  "result": {
+   "ok": true,
+   "value": "a\"b\"c",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "still-rejected callables get the wrap hint > built-in references work as replacers",
+  "code": "return \"3.7\".replace(/\\d\\.\\d/, Math.floor)",
+  "result": {
+   "ok": true,
+   "value": "3",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "still-rejected callables get the wrap hint > non-callables still get the plain callback error",
+  "code": "return [1].map(42)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Array.map expects a function callback. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "still-rejected callables get the wrap hint > JSON callbacks use the unified callback gate",
+  "code": "return JSON.stringify({ a: -1 }, (key, item) => typeof item === \"number\" ? Math.abs(item) : item)",
+  "result": {
+   "ok": true,
+   "value": "{\"a\":1}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "still-rejected callables get the wrap hint > non-callable JSON callback arguments are ignored",
+  "code": "return JSON.parse('{\"a\":1}', undefined)",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": 1
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "still-rejected callables get the wrap hint > non-callable JSON callback arguments are ignored",
+  "code": "return JSON.parse('{\"a\":1}', 42)",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": 1
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "still-rejected callables get the wrap hint > non-callable JSON callback arguments are ignored",
+  "code": "return JSON.stringify({ a: 1 }, 42)",
+  "result": {
+   "ok": true,
+   "value": "{\"a\":1}",
+   "toolCalls": []
+  }
+ }
+]

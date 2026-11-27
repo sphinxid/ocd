@@ -1,0 +1,16 @@
+[
+ {
+  "test": "crypto.randomUUID WPT parity (WebCryptoAPI/randomUUID.https.any.js) > namespace format, version, and variant bits over 256 iterations without collision",
+  "code": "\n        const uuids = new Set()\n        const randomUUID = () => {\n          const uuid = crypto.randomUUID()\n          if (uuids.has(uuid)) throw new Error(\"uuid collision \" + uuid)\n          uuids.add(uuid)\n          return uuid\n        }\n        const UUIDRegex = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/\n        let format = true, version = true, variant = true\n        for (let i = 0; i < 256; i++) format = format && UUIDRegex.test(randomUUID())\n        for (let i = 0; i < 256; i++) version = version && (parseInt(randomUUID().split(\"-\")[2].slice(0, 2), 16) & 0b11110000) === 0b01000000\n        for (let i = 0; i < 256; i++) variant = variant && (parseInt(randomUUID().split(\"-\")[3].slice(0, 2), 16) & 0b11000000) === 0b10000000\n        return [format, version, variant, uuids.size]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    true,
+    768
+   ],
+   "toolCalls": []
+  }
+ }
+]

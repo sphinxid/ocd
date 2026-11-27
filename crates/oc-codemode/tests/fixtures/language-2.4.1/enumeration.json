@@ -1,0 +1,278 @@
+[
+ {
+  "test": "Object.keys over tool references > enumerates top-level namespaces (the transcript program)",
+  "code": "\n      const namespaces = Object.keys(tools)\n      return { namespaces, count: namespaces.length }\n    ",
+  "result": {
+   "ok": true,
+   "value": {
+    "namespaces": [
+     "echo",
+     "shop"
+    ],
+    "count": 2
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over tool references > enumerates tool names at a nested namespace",
+  "code": "return Object.keys(tools.github)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnknownTool",
+    "message": "Unknown tool namespace 'github'."
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over tool references > a callable tool is a leaf and enumerates as []",
+  "code": "return Object.keys(tools.github.list_issues)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnknownTool",
+    "message": "Unknown tool namespace 'github.list_issues'."
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over tool references > search is a global built-in function",
+  "code": "return typeof search",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over tool references > an unknown namespace is an UnknownTool error",
+  "code": "return Object.keys(tools.nonexistent)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "UnknownTool",
+    "message": "Unknown tool namespace 'nonexistent'."
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over tool references > Object.values/entries on a tool reference explain the working idioms",
+  "code": "return Object.entries(tools.github)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Object.entries(...) cannot read tools: it is a namespace of host functions, not plain data. Use Object.keys(tools) for its names. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > returns index strings, like JS",
+  "code": "return Object.keys([\"a\", \"b\", \"c\"])",
+  "result": {
+   "ok": true,
+   "value": [
+    "0",
+    "1",
+    "2"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > returns index strings, like JS",
+  "code": "return Object.keys([])",
+  "result": {
+   "ok": true,
+   "value": [],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > objects keep their own enumerable keys",
+  "code": "return Object.keys({ a: 1, b: 2 })",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > non-object inputs follow ToObject, and nullish inputs name what was received",
+  "code": "return [Object.keys(\"ab\"), Object.entries(42), Object.keys(() => 1), Object.keys(true)]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "0",
+     "1"
+    ],
+    [],
+    [],
+    []
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > non-object inputs follow ToObject, and nullish inputs name what was received",
+  "code": "try { Object.values(null) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Object.values(...) cannot convert null to an object."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > non-object inputs follow ToObject, and nullish inputs name what was received",
+  "code": "return Object.keys(tools.github.list_issues({ value: \"x\" }))",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Object.keys(...) received an un-awaited Promise; await it before inspecting the result. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > non-object inputs follow ToObject, and nullish inputs name what was received",
+  "code": "const { a, size } = new Map(); return [a, size]",
+  "result": {
+   "ok": true,
+   "value": [
+    null,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > non-object inputs follow ToObject, and nullish inputs name what was received",
+  "code": "return Array.from(7)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Array.from expects an iterable or array-like value, received a number. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.keys over arrays > non-object inputs follow ToObject, and nullish inputs name what was received",
+  "code": "return [(() => 1).x, Object.keys(() => 1)]",
+  "result": {
+   "ok": true,
+   "value": [
+    null,
+    []
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...in > iterates own enumerable keys of a plain object with break/continue",
+  "code": "\n      const seen = []\n      for (const key in { a: 1, b: 2, c: 3, d: 4 }) {\n        if (key === \"b\") continue\n        if (key === \"d\") break\n        seen.push(key)\n      }\n      return seen\n    ",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "c"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...in > iterates index strings over arrays",
+  "code": "\n      const indexes = []\n      for (const i in [\"x\", \"y\", \"z\"]) {\n        if (i === \"2\") break\n        indexes.push(i)\n      }\n      return indexes\n    ",
+  "result": {
+   "ok": true,
+   "value": [
+    "0",
+    "1"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...in > supports let declarations and bare identifiers",
+  "code": "\n      let last = \"\"\n      for (let key in { a: 1, b: 2 }) last = key\n      return last\n    ",
+  "result": {
+   "ok": true,
+   "value": "b",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...in > supports let declarations and bare identifiers",
+  "code": "\n      let key = \"before\"\n      for (key in { only: 1 }) {}\n      return key\n    ",
+  "result": {
+   "ok": true,
+   "value": "only",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...in > enumerates namespaces and tools from the supplied tools",
+  "code": "\n      const names = []\n      for (const ns in tools) {\n        for (const name in tools[ns]) names.push(ns + \".\" + name)\n      }\n      return names\n    ",
+  "result": {
+   "ok": true,
+   "value": [
+    "shop.show"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...in > non-object values enumerate like JS: strings by index, everything else nothing",
+  "code": "\n        const out = []\n        for (const key in \"ab\") out.push(key)\n        for (const key in 42) out.push(key)\n        for (const key in null) out.push(key)\n        for (const key in undefined) out.push(key)\n        for (const key in new Map([[1, 2]])) out.push(key)\n        for (const key in Math) out.push(key)\n        return out\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "0",
+    "1"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...in > non-object values enumerate like JS: strings by index, everything else nothing",
+  "code": "for (const key in tools.github.list_issues({ value: \"x\" })) {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: for...in received an un-awaited Promise; await it before inspecting the result. (line 1, col 19)",
+    "location": {
+     "line": 1,
+     "column": 19
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]

@@ -1,0 +1,229 @@
+[
+ {
+  "test": "Object.keys Test262 parity > test/built-ins/Object/keys/15.2.3.14-1-{1,2,3}.js: primitives are coerced",
+  "code": "return [Object.keys(0), Object.keys(true), Object.keys(\"abc\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    [],
+    [],
+    [
+     "0",
+     "1",
+     "2"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.entries and Object.values Test262 parity > test/built-ins/Object/entries/primitive-strings.js",
+  "code": "\n        const result = Object.entries('abc')\n        return [Array.isArray(result), result.length, result[0][0], result[0][1], result[1][0], result[1][1], result[2][0], result[2][1]]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    3,
+    "0",
+    "a",
+    "1",
+    "b",
+    "2",
+    "c"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.entries and Object.values Test262 parity > test/built-ins/Object/entries/primitive-numbers.js",
+  "code": "\n        return [0, -0, Infinity, -Infinity, NaN, Math.PI].map((number) => Object.entries(number).length)\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.entries and Object.values Test262 parity > test/built-ins/Object/entries/primitive-booleans.js",
+  "code": "\n        const trueResult = Object.entries(true)\n        const falseResult = Object.entries(false)\n        return [Array.isArray(trueResult), trueResult.length, Array.isArray(falseResult), falseResult.length]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    0,
+    true,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.entries and Object.values Test262 parity > test/built-ins/Object/values/primitive-strings.js",
+  "code": "\n        const result = Object.values('abc')\n        return [Array.isArray(result), result.length, result[0], result[1], result[2]]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    3,
+    "a",
+    "b",
+    "c"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.entries and Object.values Test262 parity > test/built-ins/Object/values/primitive-numbers.js",
+  "code": "\n        return [0, -0, Infinity, -Infinity, NaN, Math.PI].map((number) => Object.values(number).length)\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.entries and Object.values Test262 parity > test/built-ins/Object/values/primitive-booleans.js",
+  "code": "\n        const trueResult = Object.values(true)\n        const falseResult = Object.values(false)\n        return [Array.isArray(trueResult), trueResult.length, Array.isArray(falseResult), falseResult.length]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    0,
+    true,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.hasOwn Test262 parity > test/built-ins/Object/hasOwn/hasown_nonexistent.js",
+  "code": "const o = {}; return Object.hasOwn(o, \"foo\")",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.assign Test262 parity > test/built-ins/Object/assign/Source-String.js",
+  "code": "\n        const target = new Object()\n        const result = Object.assign(target, \"123\")\n        return [result[0], result[1], result[2]]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "1",
+    "2",
+    "3"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.assign Test262 parity > test/built-ins/Object/assign/Source-Null-Undefined.js",
+  "code": "\n        const target = new Object()\n        const result = Object.assign(target, undefined, null)\n        return result === target\n      ",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.assign Test262 parity > test/built-ins/Object/assign/target-Array.js",
+  "code": "\n        const target = [7, 8, 9]\n        let result = Object.assign(target, [1])\n        const first = [result === target, [...result]]\n        const sparseArraySource = []\n        sparseArraySource[2] = 3\n        result = Object.assign(target, sparseArraySource)\n        const second = [result === target, [...result]]\n        result = Object.assign(target, { 4: 0 })\n        return [...first, ...second, result === target, result.length, result[3] === undefined, result[4]]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    [
+     1,
+     8,
+     9
+    ],
+    true,
+    [
+     1,
+     8,
+     3
+    ],
+    true,
+    5,
+    true,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.assign Test262 parity > test/built-ins/Object/assign/target-Array.js",
+  "code": "\n        const target = [7]\n        for (const source of [{ x: 1 }, { \"1.5\": 1 }, { \"-0\": 1 }, { 1: 8 }, { length: 1 }]) Object.assign(target, source)\n        return [[...target], target.length, Object.keys(target), target.x]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     7
+    ],
+    1,
+    [
+     "0",
+     "x",
+     "1.5",
+     "-0"
+    ],
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.assign Test262 parity > test/built-ins/Object/assign/Target-Object.js",
+  "code": "\n        const target = { foo: 1 }\n        const result = Object.assign(target, { a: 2 })\n        return [result.foo, result.a]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.assign Test262 parity > test/built-ins/Object/assign/Override.js",
+  "code": "\n        const target = { a: 1 }\n        const result = Object.assign(target, \"1a2c3\", { a: \"c\" }, undefined, { b: 6 }, null, 125, { a: 5 })\n        return [Object.keys(result).length, result.a, result[0], result[1], result[2], result[3], result[4], result.b]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    7,
+    5,
+    "1",
+    "a",
+    "2",
+    "c",
+    "3",
+    6
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.assign Test262 parity > test/built-ins/Object/assign/ObjectOverride-sameproperty.js",
+  "code": "\n        const target = { a: 1 }\n        const result = Object.assign(target, { a: 2 }, { a: \"c\" })\n        return result.a\n      ",
+  "result": {
+   "ok": true,
+   "value": "c",
+   "toolCalls": []
+  }
+ }
+]

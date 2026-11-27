@@ -1,0 +1,98 @@
+[
+ {
+  "test": "Host.fn > every call gets its key, <runId>:<callId>",
+  "code": "note(); note()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'note'. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "per-run state > run.metadata is the result's, and a resumed run gets it back with fresh globals",
+  "code": "count(); count(); await wait(); return count()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'count'. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "per-run state > a suspend fails while a call that isn't idempotent runs",
+  "code": "await slow()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'slow'. (line 1, col 7)",
+    "location": {
+     "line": 1,
+     "column": 7
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "per-run state > a suspend fails while a call holds a host function, even an idempotent one",
+  "code": "await slow(open().read)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'slow'. (line 1, col 7)",
+    "location": {
+     "line": 1,
+     "column": 7
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "per-run state > a durable function keeps running across a suspend and is waited on again",
+  "code": "return (await job()) + 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'job'. (line 1, col 15)",
+    "location": {
+     "line": 1,
+     "column": 15
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "translate > promises: await keeps waiting across a suspend",
+  "code": "return [keep({ n: slow() }), await slow()]",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'keep'. (line 1, col 9)",
+    "location": {
+     "line": 1,
+     "column": 9
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]

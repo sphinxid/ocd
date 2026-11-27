@@ -96,7 +96,8 @@ async fn check(file: &str) {
     // The recordings run with `TZ=UTC`, and the host time zone is process-wide: every test here pins the same one.
     unsafe { std::env::set_var("TZ", "UTC") };
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(file);
-    let cases: Vec<Json> = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let text = common::sanitize_surrogates(&std::fs::read_to_string(&path).unwrap());
+    let cases: Vec<Json> = serde_json::from_str(&text).unwrap();
     let runtime = runtime();
     let only = std::env::var("CASES_ONLY").ok();
     let (mut failures, mut stale) = (Vec::new(), Vec::new());
@@ -148,4 +149,28 @@ language_tests! {
     buffer => "buffer",
     classes => "classes",
     intl => "intl",
+    array_callbacks_test262 => "array-callbacks-test262",
+    callbacks => "callbacks",
+    constructor_test262 => "constructor-test262",
+    date_test262 => "date-test262",
+    enumeration => "enumeration",
+    for_await_test262 => "for-await-test262",
+    generator_test262 => "generator-test262",
+    groupby_test262 => "groupby-test262",
+    json_callbacks_test262 => "json-callbacks-test262",
+    labeled_control_test262 => "labeled-control-test262",
+    language => "language",
+    lexical_test262 => "lexical-test262",
+    new_expression => "new-expression",
+    object_coercion_test262 => "object-coercion-test262",
+    parity => "parity",
+    promise => "promise",
+    promise_test262 => "promise-test262",
+    regexp_math_test262 => "regexp-math-test262",
+    set_methods_test262 => "set-methods-test262",
+    stdlib => "stdlib",
+    string_date_methods_test262 => "string-date-methods-test262",
+    string_regexp_test262 => "string-regexp-test262",
+    var_hoisting_test262 => "var-hoisting-test262",
+    web_wpt => "web-wpt",
 }

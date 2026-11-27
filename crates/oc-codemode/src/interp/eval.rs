@@ -1039,6 +1039,11 @@ impl Frame {
                     if let (Err(ce), Thrown::GeneratorReturn(_)) = (&closed, &e) {
                         return Err(ce.clone());
                     }
+                    // The loop's iterator-closing handler catches and rethrows: a host failure leaves it as the
+                    // program Error it materialized into, as upstream's VM does (its kind becomes ExecutionFailure).
+                    if matches!(e, Thrown::ToolRuntime(_) | Thrown::ToolFailure(_)) {
+                        return Err(Thrown::Value(materialize_at(&self.rt, &e, super::stack::current_site())));
+                    }
                     return Err(e);
                 }
                 Ok(c) => {

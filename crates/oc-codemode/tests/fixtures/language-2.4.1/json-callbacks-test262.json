@@ -1,0 +1,312 @@
+[
+ {
+  "test": "Test262 JSON.parse reviver adaptations > test/built-ins/JSON/parse/reviver-call-order.js",
+  "code": "\n        const calls = []\n        JSON.parse('{\"p1\":0,\"p2\":0,\"p1\":0,\"2\":0,\"1\":0}', (key, item) => {\n          calls.push(key)\n          return item\n        })\n        return calls\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "1",
+    "2",
+    "p1",
+    "p2",
+    ""
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.parse reviver adaptations > deletes properties and array elements when the reviver returns undefined",
+  "code": "\n        const result = JSON.parse('{\"keep\":1,\"drop\":2,\"items\":[1,2,3]}', (key, item) => {\n          if (key === \"drop\" || key === \"1\") return undefined\n          return item\n        })\n        return [result, Object.hasOwn(result, \"drop\"), Object.hasOwn(result.items, 1), result.items.length]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "keep": 1,
+     "items": [
+      1,
+      null,
+      3
+     ]
+    },
+    false,
+    false,
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.parse reviver adaptations > replaces the root and may delete it",
+  "code": "return JSON.parse('{\"a\":1}', (key, item) => key === \"\" ? item.a : item)",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.parse reviver adaptations > replaces the root and may delete it",
+  "code": "return JSON.parse('{\"a\":1}', (key, item) => key === \"\" ? undefined : item) === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.parse reviver adaptations > test/built-ins/JSON/parse/reviver-call-err.js",
+  "code": "try { JSON.parse(\"0\", () => { throw \"stop\" }) } catch (error) { return error } return \"missed\"",
+  "result": {
+   "ok": true,
+   "value": "stop",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > array replacers filter keys in their own order and apply recursively",
+  "code": "return JSON.stringify({ b: 1, a: 2, c: 3 }, [\"c\", \"b\", \"a\"])",
+  "result": {
+   "ok": true,
+   "value": "{\"c\":3,\"b\":1,\"a\":2}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > array replacers filter keys in their own order and apply recursively",
+  "code": "return JSON.stringify({ a: { b: 2, c: 3 } }, [\"c\", \"b\", \"a\"])",
+  "result": {
+   "ok": true,
+   "value": "{\"a\":{\"c\":3,\"b\":2}}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > array replacers filter keys in their own order and apply recursively",
+  "code": "return JSON.stringify({ a: 1 }, [])",
+  "result": {
+   "ok": true,
+   "value": "{}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > array replacers deduplicate and coerce number primitives",
+  "code": "return JSON.stringify({ a: 1, b: 2 }, [\"a\", \"a\", \"b\"])",
+  "result": {
+   "ok": true,
+   "value": "{\"a\":1,\"b\":2}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > array replacers deduplicate and coerce number primitives",
+  "code": "return JSON.stringify({ \"0\": 0, \"1\": 1, \"-4\": 2, \"0.3\": 3, \"-Infinity\": 4, \"NaN\": 5 }, [-0, 1, -4, 0.3, -Infinity, NaN])",
+  "result": {
+   "ok": true,
+   "value": "{\"0\":0,\"1\":1,\"-4\":2,\"0.3\":3,\"-Infinity\":4,\"NaN\":5}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > array replacers ignore unsupported entry types",
+  "code": "return JSON.stringify({ true: 1, false: 2, null: 3, kept: 4 }, [true, false, null, {}, \"kept\"])",
+  "result": {
+   "ok": true,
+   "value": "{\"kept\":4}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > array replacers ignore unsupported entry types",
+  "code": "return JSON.stringify({ a: 1 }, undefined)",
+  "result": {
+   "ok": true,
+   "value": "{\"a\":1}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > function replacers receive keys and values in preorder including the root",
+  "code": "\n        const calls = []\n        const output = JSON.stringify({ a: [1, 2], b: true }, (key, item) => {\n          calls.push([key, Array.isArray(item) ? \"array\" : typeof item])\n          return item\n        })\n        return [output, calls]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"a\":[1,2],\"b\":true}",
+    [
+     [
+      "",
+      "object"
+     ],
+     [
+      "a",
+      "array"
+     ],
+     [
+      "0",
+      "number"
+     ],
+     [
+      "1",
+      "number"
+     ],
+     [
+      "b",
+      "boolean"
+     ]
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > test/built-ins/JSON/stringify/replacer-function-object-deleted-property.js",
+  "code": "\n        const input = { a: 1, b: 2 }\n        return JSON.stringify(input, (key, item) => {\n          if (key === \"a\") delete input.b\n          if (key === \"b\" && item === undefined) return \"<replaced>\"\n          return item\n        })\n      ",
+  "result": {
+   "ok": true,
+   "value": "{\"a\":1,\"b\":\"<replaced>\"}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > test/built-ins/JSON/stringify/replacer-function-object-circular.js",
+  "code": "\n        const direct = { prop: {} }\n        const indirect = { p1: { p2: {} } }\n        const errors = []\n        try { JSON.stringify(direct, () => direct) } catch (error) { errors.push(error.name) }\n        try {\n          JSON.stringify(indirect, (key, item) => key === \"p2\" ? indirect : item)\n        } catch (error) { errors.push(error.name) }\n        return errors\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "TypeError"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > test/built-ins/JSON/stringify/replacer-function-array-circular.js",
+  "code": "\n        const circular = [{}]\n        try { JSON.stringify(circular, () => circular) } catch (error) { return error.name }\n        return \"missed\"\n      ",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > repeated objects outside the active ancestor chain are not circular",
+  "code": "\n        const shared = { value: 1 }\n        return JSON.stringify({ left: shared, right: shared }, (key, item) => item)\n      ",
+  "result": {
+   "ok": true,
+   "value": "{\"left\":{\"value\":1},\"right\":{\"value\":1}}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > function replacers replace values and map undefined to omission or null",
+  "code": "return JSON.stringify({ a: 1, nested: { b: [1] } }, (key, item) => item === 1 ? undefined : item)",
+  "result": {
+   "ok": true,
+   "value": "{\"nested\":{\"b\":[null]}}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > function replacers replace values and map undefined to omission or null",
+  "code": "return JSON.stringify(null, (key) => key === \"\" ? { value: 1 } : 2)",
+  "result": {
+   "ok": true,
+   "value": "{\"value\":2}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > function replacers replace values and map undefined to omission or null",
+  "code": "return JSON.stringify(1, () => undefined) === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > callable replacer results follow JSON omission semantics",
+  "code": "\n        const fn = () => 1\n        return [\n          JSON.stringify({ user: 1, builtin: 2 }, (key, item) => key === \"user\" ? fn : key === \"builtin\" ? Math.abs : item),\n          JSON.stringify([1, 2], (key, item) => key === \"0\" ? fn : key === \"1\" ? Number : item),\n          JSON.stringify(null, () => \"abc\".includes) === undefined,\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "{}",
+    "[null,null]",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > built-in toJSON conversion runs before the function replacer",
+  "code": "\n        const seen = []\n        const output = JSON.stringify({ date: new Date(0), url: new URL(\"https://example.test/a\") }, (key, item) => {\n          if (key === \"date\" || key === \"url\") seen.push(typeof item)\n          return item\n        })\n        return [output, seen]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"date\":\"1970-01-01T00:00:00.000Z\",\"url\":\"https://example.test/a\"}",
+    [
+     "string",
+     "string"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Test262 JSON.stringify replacer adaptations > test/built-ins/JSON/stringify/replacer-function-abrupt.js",
+  "code": "try { JSON.stringify({}, () => { throw \"stop\" }) } catch (error) { return error } return \"missed\"",
+  "result": {
+   "ok": true,
+   "value": "stop",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode JSON callback boundaries > revivers and replacers see the holder as this",
+  "code": "\n        const revived = JSON.parse('{\"a\":{\"b\":1}}', function (key, item) { return key === \"b\" ? this.b + 1 : item })\n        const text = JSON.stringify({ a: 1, b: 2 }, function (key, item) { return key === \"a\" ? this.b : item })\n        return [revived, text]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "a": {
+      "b": 2
+     }
+    },
+    "{\"a\":2,\"b\":2}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode JSON callback boundaries > prototype-named keys parse as own data and reach the reviver",
+  "code": "\n        const seen = []\n        const parsed = JSON.parse('{\"__proto__\":{\"polluted\":1},\"constructor\":2}', (key, item) => { seen.push(key); return item })\n        return [seen, parsed.__proto__.polluted, parsed.constructor, ({}).polluted, Object.keys(parsed)]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "polluted",
+     "__proto__",
+     "constructor",
+     ""
+    ],
+    1,
+    2,
+    null,
+    [
+     "__proto__",
+     "constructor"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode JSON callback boundaries > JSON.stringify serializes prototype-named own keys",
+  "code": "return JSON.stringify({ constructor: 1, __proto__: 2 })",
+  "result": {
+   "ok": true,
+   "value": "{\"constructor\":1,\"__proto__\":2}",
+   "toolCalls": []
+  }
+ }
+]

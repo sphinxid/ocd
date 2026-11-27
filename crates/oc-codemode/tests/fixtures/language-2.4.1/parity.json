@@ -1,0 +1,4167 @@
+[
+ {
+  "test": "H2: string property access reads as undefined (not a throw) > unknown property on a string is undefined",
+  "code": "const s = \"hi\"; return s.login === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H2: string property access reads as undefined (not a throw) > unknown property on a string is undefined",
+  "code": "const s = \"hi\"; return s.login",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H2: string property access reads as undefined (not a throw) > optional chaining + fallback on a string does not throw",
+  "code": "const s = \"hi\"; return s?.login ?? \"fallback\"",
+  "result": {
+   "ok": true,
+   "value": "fallback",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H2: string property access reads as undefined (not a throw) > the real MCP pattern: result is a JSON string, defensive read falls through",
+  "code": "const me = { result: '{\"login\":\"x\"}' }; return me.result?.login ?? me.result",
+  "result": {
+   "ok": true,
+   "value": "{\"login\":\"x\"}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H2: string property access reads as undefined (not a throw) > unknown property on a number is undefined",
+  "code": "return (5).foo ?? \"n\"",
+  "result": {
+   "ok": true,
+   "value": "n",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H2: string property access reads as undefined (not a throw) > only canonical string index keys access characters",
+  "code": "\n        const text = \"abc\"\n        return [text[1], text[\"1\"], text[\"01\"], text[\"1.0\"], text[-0], text[\"-0\"]]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "b",
+    "b",
+    null,
+    null,
+    "a",
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > unknown property on an array is undefined",
+  "code": "return [1,2,3].foo === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > unknown property on an array is undefined",
+  "code": "return [1,2,3].foo",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > optional chaining on an array does not throw",
+  "code": "return [1,2,3]?.foo ?? \"fb\"",
+  "result": {
+   "ok": true,
+   "value": "fb",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > unknown property reads stay undefined for methods CodeMode does not implement",
+  "code": "return [1,2,3].unknownMethod === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > array indexing still works",
+  "code": "return [1,2,3][9] === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > array indexing still works",
+  "code": "return [1,2,3][9]",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > only canonical array index keys access elements",
+  "code": "\n        const values = [\"a\", \"b\"]\n        return [values[1], values[\"1\"], values[\"01\"], values[\"1.0\"], values[-0], values[\"-0\"]]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "b",
+    "b",
+    null,
+    null,
+    "a",
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > noncanonical keys are ordinary properties that never alias an element",
+  "code": "\n        const values = [\"a\", \"b\"]\n        values[\"01\"] = \"c\"\n        const before = [values[\"01\"], values[1], values.length]\n        const removed = delete values[\"01\"]\n        return [before, removed, values[\"01\"], values]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "c",
+     "b",
+     2
+    ],
+    true,
+    null,
+    [
+     "a",
+     "b"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H3: array property access reads as undefined (not a throw) > the maximum array length is a property, not an index",
+  "code": "\n        const values = []\n        values[\"4294967295\"] = 1\n        return [values[\"4294967295\"], values.length]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H6: object spread of null/undefined is a no-op > spreading null is a no-op",
+  "code": "const o = null; return { ...o, a: 1 }",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": 1
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H6: object spread of null/undefined is a no-op > spreading an absent argument merges cleanly",
+  "code": "function f(opts){ return { ...opts, a: 1 } } return f(undefined)",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": 1
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H6: object spread of null/undefined is a no-op > spreading a real object still works",
+  "code": "const o = { a: 1 }; return { ...o, b: 2 }",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": 1,
+    "b": 2
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H6: object spread of null/undefined is a no-op > spreading an array or string into an object copies index keys, like JS",
+  "code": "return { ...[1,2], a: 1 }",
+  "result": {
+   "ok": true,
+   "value": {
+    "0": 1,
+    "1": 2,
+    "a": 1
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H6: object spread of null/undefined is a no-op > spreading an array or string into an object copies index keys, like JS",
+  "code": "return { ...\"ab\", ...5, ...true, ...(() => 1), ...new Map([[1, 2]]) }",
+  "result": {
+   "ok": true,
+   "value": {
+    "0": "a",
+    "1": "b"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H4: typeof on an undeclared identifier is 'undefined' > feature-detection guard does not throw",
+  "code": "return typeof foo === \"undefined\" ? \"safe\" : \"no\"",
+  "result": {
+   "ok": true,
+   "value": "safe",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H4: typeof on an undeclared identifier is 'undefined' > typeof of a declared binding is unaffected",
+  "code": "const x = 5; return typeof x",
+  "result": {
+   "ok": true,
+   "value": "number",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H4: typeof on an undeclared identifier is 'undefined' > typeof of a declared binding is unaffected",
+  "code": "const s = \"a\"; return typeof s",
+  "result": {
+   "ok": true,
+   "value": "string",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H4: typeof on an undeclared identifier is 'undefined' > referencing an undeclared identifier outside typeof still throws",
+  "code": "return foo + 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'foo'. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode lexical scope integration > keeps self, cross, and destructuring defaults in the TDZ",
+  "code": "\n        const outer = 1\n        const errors = []\n        try { const first = second, second = 2 } catch (error) { errors.push(error.name) }\n        try { const [first = second, second = 2] = [] } catch (error) { errors.push(error.name) }\n        return errors\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "ReferenceError",
+    "ReferenceError"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode lexical scope integration > keeps typeof and constant assignment inside the TDZ",
+  "code": "\n        const errors = []\n        try { { errors.push(typeof item); let item } } catch (error) { errors.push(error.name) }\n        try { { constant = 1; const constant = 2 } } catch (error) { errors.push(error.name) }\n        return errors\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "ReferenceError",
+    "ReferenceError"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode lexical scope integration > shadows builtins from the start of the program scope",
+  "code": "\n        let observed\n        try { observed = typeof Promise } catch (error) { observed = error.name }\n        const Promise = 1\n        return observed\n      ",
+  "result": {
+   "ok": true,
+   "value": "ReferenceError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode lexical scope integration > keeps classic for initializers inside the header TDZ",
+  "code": "\n        let index = 1\n        try { for (let index = index; index < 2; index++) {} } catch (error) { return error.name }\n      ",
+  "result": {
+   "ok": true,
+   "value": "ReferenceError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode lexical scope integration > removes loop scopes when per-iteration initialization fails",
+  "code": "\n        const value = \"outer\"\n        try { for (let [value] of [1]) {} } catch {}\n        return value\n      ",
+  "result": {
+   "ok": true,
+   "value": "outer",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "unary void > evaluates its operand and returns undefined",
+  "code": "let count = 0; const result = void (count += 1); return [count, result === undefined]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "unary void > discards opaque values",
+  "code": "return void tools === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > deletes plain object fields and reports missing fields as successful",
+  "code": "\n        const object = { keep: 1, remove: 2 }\n        return [delete object.remove, delete object.missing, object]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    {
+     "keep": 1
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > a non-reference operand is evaluated and the result is true; a variable cannot be deleted",
+  "code": "\n        let called = false\n        const results = [delete 0, delete null, delete { x: 1 }, delete void 0, delete (() => { called = true })()]\n        let variable = 1\n        let failure\n        try { delete variable } catch (error) { failure = error.constructor.name }\n        return [results, called, failure]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    true,
+    "TypeError"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > evaluates computed object and key expressions once",
+  "code": "\n        const object = { remove: true }\n        let objectReads = 0\n        let keyReads = 0\n        function getObject() { objectReads++; return object }\n        function getKey() { keyReads++; return \"remove\" }\n        const removed = delete getObject()[getKey()]\n        return [removed, objectReads, keyReads, Object.hasOwn(object, \"remove\")]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    1,
+    1,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > deleting an array index creates a hole without changing its length",
+  "code": "const values = [1, 2, 3]; const removed = delete values[1]; return [removed, values.length, 1 in values, values]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    3,
+    false,
+    [
+     1,
+     null,
+     3
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > array length is not configurable",
+  "code": "const values = [1, 2]; delete values.length",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot delete property 'length'. (line 1, col 31)",
+    "location": {
+     "line": 1,
+     "column": 31
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > arrays accept named properties like JS, and they stay out of the JSON form",
+  "code": "\n        const values = [1]\n        values.field = 2\n        return [values.field, Object.keys(values), values]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    2,
+    [
+     "0",
+     "field"
+    ],
+    [
+     1
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > optional deletion short-circuits without evaluating the key",
+  "code": "let keyReads = 0; const object = null; return [delete object?.[keyReads++], keyReads]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > rejects deletion from opaque runtime references",
+  "code": "return delete tools.example",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Only data fields may be deleted. (line 1, col 15)",
+    "location": {
+     "line": 1,
+     "column": 15
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > prototype-named keys delete like any own data key",
+  "code": "const object = { __proto__: 1, a: 2 }; delete object.__proto__; return Object.keys(object)",
+  "result": {
+   "ok": true,
+   "value": [
+    "a"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "property deletion > prototype-named keys delete like any own data key",
+  "code": "const values = [1]; delete values[\"constructor\"]; return values",
+  "result": {
+   "ok": true,
+   "value": [
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > guards run instead of the program crashing on a transient NaN",
+  "code": "return parseInt(\"abc\") || 0",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > guards run instead of the program crashing on a transient NaN",
+  "code": "const x = Number(\"abc\"); return Number.isNaN(x) ? 0 : x",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > guards run instead of the program crashing on a transient NaN",
+  "code": "const o = {}; o.count = (o.count || 0) + 1; return o.count",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > guards run instead of the program crashing on a transient NaN",
+  "code": "const a = []; return a.length ? a.reduce((s,x)=>s+x,0)/a.length : 0",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > a non-finite value becomes null when it leaves CodeMode",
+  "code": "return 5/0",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > a non-finite value becomes null when it leaves CodeMode",
+  "code": "return 0/0",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > a non-finite value becomes null when it leaves CodeMode",
+  "code": "return Math.max()",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > a non-finite value becomes null when it leaves CodeMode",
+  "code": "return { a: Number(\"x\"), b: 2, c: [1/0] }",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": null,
+    "b": 2,
+    "c": [
+     null
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > NaN and Infinity are usable identifiers and inspectable in-CodeMode",
+  "code": "return Number.isNaN(NaN)",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > NaN and Infinity are usable identifiers and inspectable in-CodeMode",
+  "code": "return Infinity > 1e9",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > NaN and Infinity are usable identifiers and inspectable in-CodeMode",
+  "code": "return Number.isFinite(1/0)",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > NaN and Infinity are usable identifiers and inspectable in-CodeMode",
+  "code": "return [3,1,2].reduce((a,b)=>Math.max(a,b), -Infinity)",
+  "result": {
+   "ok": true,
+   "value": 3,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > NaN and Infinity are usable identifiers and inspectable in-CodeMode",
+  "code": "return JSON.stringify({ x: Number(\"z\") })",
+  "result": {
+   "ok": true,
+   "value": "{\"x\":null}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H1: NaN/Infinity flow as intermediates and normalize to null at the boundary > the boundary normalizes non-finite numbers to null like JSON.stringify",
+  "code": "return { a: Number(\"z\"), b: [Infinity, -Infinity, 1] }",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": null,
+    "b": [
+     null,
+     null,
+     1
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "undefined at the boundary > vanishes like JSON.stringify",
+  "code": "return { q: undefined, keep: 1, nested: { a: undefined, b: [undefined] } }",
+  "result": {
+   "ok": true,
+   "value": {
+    "keep": 1,
+    "nested": {
+     "b": [
+      null
+     ]
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "undefined at the boundary > vanishes like JSON.stringify",
+  "code": "return [1, undefined, 2]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    null,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "undefined at the boundary > vanishes like JSON.stringify",
+  "code": "return undefined",
+  "result": {
+   "ok": true,
+   "value": null,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > new Error carries name/message and is instanceof Error",
+  "code": "const e = new Error(\"boom\"); return [e instanceof Error, e.name, e.message]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "Error",
+    "boom"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > Error without new behaves like new Error",
+  "code": "const e = Error(\"plain\"); return [e instanceof Error, e.name, e.message]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "Error",
+    "plain"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > Error without new behaves like new Error",
+  "code": "const e = new Error(); return [e.name, e.message, e instanceof Error]",
+  "result": {
+   "ok": true,
+   "value": [
+    "Error",
+    "",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > specific error types are instanceof themselves and Error, not each other",
+  "code": "const e = new TypeError(\"t\"); return [e instanceof TypeError, e instanceof Error, e instanceof RangeError]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > specific error types are instanceof themselves and Error, not each other",
+  "code": "return new Error(\"e\") instanceof TypeError",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > new Error(message, { cause }) installs a non-enumerable cause only when the option is present",
+  "code": "\n        const inner = new Error(\"root\")\n        const e = new TypeError(\"m\", { cause: inner })\n        const agg = new AggregateError([], \"a\", { cause: 3 })\n        return [e.cause === inner, Object.keys(e), \"cause\" in new Error(\"m\"), \"cause\" in new Error(\"m\", { cause: undefined }), agg.cause]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    [],
+    false,
+    true,
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > thrown errors keep instanceof through try/catch",
+  "code": "try { throw new Error(\"x\") } catch (e) { return [e instanceof Error, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "x"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > interpreter runtime failures are caught as Error values",
+  "code": "try { JSON.parse(\"nope\") } catch (e) { return e instanceof Error }",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > interpreter runtime failures are caught as Error values",
+  "code": "try { undeclared() } catch (e) { return e instanceof Error }",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > caught failures carry the constructor name the real-JS failure would have",
+  "code": "\n      try { JSON.parse(\"{oops\") } catch (e) {\n        return [e.name, e instanceof SyntaxError, e instanceof Error, e instanceof TypeError, e.message.includes(\"JSON\")]\n      }\n    ",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    true,
+    true,
+    false,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > caught failures carry the constructor name the real-JS failure would have",
+  "code": "try { undeclared() } catch (e) { return [e.name, e instanceof ReferenceError] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "ReferenceError",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > caught failures carry the constructor name the real-JS failure would have",
+  "code": "try { const c = 1; c = 2 } catch (e) { return [e.name, e instanceof TypeError] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > caught failures carry the constructor name the real-JS failure would have",
+  "code": "try { \"a\".match(\"(\") } catch (e) { return [e.name, e instanceof SyntaxError] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > caught failures carry the constructor name the real-JS failure would have",
+  "code": "try { new RegExp(\"(\") } catch (e) { return [e.name, e instanceof SyntaxError] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > interpreter failures are TypeErrors; unsupported syntax is a SyntaxError",
+  "code": "try { null.x } catch (e) { return [e.name, e instanceof TypeError] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > interpreter failures are TypeErrors; unsupported syntax is a SyntaxError",
+  "code": "try { tools + 1 } catch (e) { return e.name }",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > interpreter failures are TypeErrors; unsupported syntax is a SyntaxError",
+  "code": "try { class A { #x } } catch (e) { return [e.name, e instanceof SyntaxError] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "SyntaxError",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > errors inherit constructor and instanceof through a real prototype chain",
+  "code": "\n        const { constructor } = new RangeError(\"r\")\n        let caught\n        try { const { a } = null } catch (e) { caught = e }\n        return [\n          constructor === RangeError,\n          new RangeError(\"r\") instanceof Error,\n          new RangeError(\"r\") instanceof TypeError,\n          caught.constructor === TypeError,\n          ({ ...caught }).constructor === Object,\n          \"constructor\" in caught,\n          Object.keys(new RangeError(\"r\")),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    false,
+    true,
+    true,
+    true,
+    []
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > Promise.allSettled rejection reasons are Error values",
+  "code": "\n      const settled = await Promise.allSettled([Promise.reject(new Error(\"b\"))])\n      return [settled[0].reason instanceof Error, settled[0].reason.message]\n    ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > non-error thrown values are not instanceof Error",
+  "code": "try { throw \"raw\" } catch (e) { return e instanceof Error }",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > non-error thrown values are not instanceof Error",
+  "code": "try { throw { message: \"shaped\" } } catch (e) { return e instanceof Error }",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > plain data is never instanceof Error",
+  "code": "return [({}) instanceof Error, \"s\" instanceof Error, null instanceof Error]",
+  "result": {
+   "ok": true,
+   "value": [
+    false,
+    false,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > errors serialize as { name, message } by brand; neither is enumerable",
+  "code": "return new Error(\"m\")",
+  "result": {
+   "ok": true,
+   "value": {
+    "name": "Error",
+    "message": "m"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > errors serialize as { name, message } by brand; neither is enumerable",
+  "code": "return JSON.stringify(new Error(\"m\"))",
+  "result": {
+   "ok": true,
+   "value": "{\"name\":\"Error\",\"message\":\"m\"}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > errors serialize as { name, message } by brand; neither is enumerable",
+  "code": "try { throw new Error(\"m\") } catch (e) { return [Object.keys(e), e.name, e.hasOwnProperty(\"message\")] }",
+  "result": {
+   "ok": true,
+   "value": [
+    [],
+    "Error",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > errors serialize as { name, message } by brand; neither is enumerable",
+  "code": "return new Error().hasOwnProperty(\"message\")",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > spreading an error loses the brand, like losing the prototype in JS",
+  "code": "const e = new Error(\"m\"); return ({ ...e }) instanceof Error",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > spreading an error loses the brand, like losing the prototype in JS",
+  "code": "const e = new Error(\"m\"); return { ...e }",
+  "result": {
+   "ok": true,
+   "value": {},
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > typeof Error is function; an unknown instanceof right-hand side is a catchable error",
+  "code": "return typeof Error",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > typeof Error is function; an unknown instanceof right-hand side is a catchable error",
+  "code": "try { return 1 instanceof 5 } catch (e) { return \"caught\" }",
+  "result": {
+   "ok": true,
+   "value": "caught",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Error values and instanceof > typeof Error is function; an unknown instanceof right-hand side is a catchable error",
+  "code": "return 1 instanceof 5",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: The right-hand side of 'instanceof' is not callable. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > sort with a comparator mutates and returns the receiver",
+  "code": "\n        const input = [3, 1, 2]\n        const result = input.sort((a, b) => a - b)\n        return { input, same: input === result }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "input": [
+     1,
+     2,
+     3
+    ],
+    "same": true
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > splice can replace and insert elements",
+  "code": "const a = [\"a\",\"d\"]; a.splice(1, 0, \"b\", \"c\"); return a",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > splice can replace and insert elements",
+  "code": "const a = [1,2,3]; const removed = a.splice(1, 1, \"x\"); return { removed, a }",
+  "result": {
+   "ok": true,
+   "value": {
+    "removed": [
+     2
+    ],
+    "a": [
+     1,
+     "x",
+     3
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > splice rejects inserting a container into itself",
+  "code": "const a = [1]; a.splice(0, 0, [a]); return a",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Array.splice result contains a circular value. (line 1, col 16)",
+    "location": {
+     "line": 1,
+     "column": 16
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > indexOf and lastIndexOf with no argument search for undefined",
+  "code": "return [1, undefined, 3].indexOf()",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > indexOf and lastIndexOf with no argument search for undefined",
+  "code": "return [1, undefined, 3].lastIndexOf()",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > indexOf and lastIndexOf with no argument search for undefined",
+  "code": "return [1, 2, 3].indexOf()",
+  "result": {
+   "ok": true,
+   "value": -1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > keys/values/entries return iterators usable with for...of and spread",
+  "code": "return [...[\"x\",\"y\",\"z\"].keys()]",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > keys/values/entries return iterators usable with for...of and spread",
+  "code": "return [...[\"x\",\"y\"].values()]",
+  "result": {
+   "ok": true,
+   "value": [
+    "x",
+    "y"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > keys/values/entries return iterators usable with for...of and spread",
+  "code": "\n      const out = []\n      for (const [index, item] of [\"a\",\"b\"].entries()) out.push(index + \":\" + item)\n      return out\n    ",
+  "result": {
+   "ok": true,
+   "value": [
+    "0:a",
+    "1:b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific array behavior > keys/values/entries return iterators usable with for...of and spread",
+  "code": "return [...[7].entries()]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     0,
+     7
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific string behavior > localeCompare orders strings for sorting",
+  "code": "return [\"b\",\"a\",\"c\"].sort((x, y) => x.localeCompare(y))",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "b",
+    "c"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific string behavior > localeCompare honors its locales and options like the host collator",
+  "code": "\n        const numeric = { get numeric() { return true } }\n        return [\n          [\"a10\", \"a9\", \"a1\"].sort((x, y) => x.localeCompare(y, undefined, numeric)),\n          \"a\".localeCompare(\"A\", undefined, { sensitivity: \"base\" }),\n          \"a\".localeCompare(\"á\", \"en\", { sensitivity: \"base\" }),\n          \"a\".localeCompare(\"A\", [\"en\"], { sensitivity: { toString() { return \"accent\" } } }),\n          \"a\".localeCompare(\"A\", \"en\", { caseFirst: \"upper\" }),\n          \"a,b\".localeCompare(\"ab\", \"en\", { ignorePunctuation: true }),\n          \"ä\".localeCompare(\"z\", \"sv\"),\n          \"a\".localeCompare(\"A\"),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a1",
+     "a9",
+     "a10"
+    ],
+    0,
+    0,
+    0,
+    1,
+    0,
+    1,
+    -1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific string behavior > localeCompare rejects invalid locales and options with catchable errors",
+  "code": "\n        const attempt = (f) => { try { return f() } catch (e) { return e.name } }\n        return [\n          attempt(() => \"a\".localeCompare(\"b\", \"xx_bad\")),\n          attempt(() => \"a\".localeCompare(\"b\", undefined, { sensitivity: \"nope\" })),\n          attempt(() => \"a\".localeCompare(\"b\", undefined, null)),\n          attempt(() => \"a\".localeCompare(\"b\", [1])),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError",
+    "RangeError",
+    "TypeError",
+    "TypeError"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific string behavior > an invalid normalize form is a clear catchable error",
+  "code": "try { \"x\".normalize(\"nope\"); return \"no\" } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "String.normalize expects the form \"NFC\", \"NFD\", \"NFKC\", or \"NFKD\" (got \"nope\").",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "CodeMode-specific string behavior > exposes the Annex B string aliases every engine ships",
+  "code": "return [\" x \".trimLeft(), \" x \".trimRight(), \"abc\".substr(1, 1)]",
+  "result": {
+   "ok": true,
+   "value": [
+    "x ",
+    " x",
+    "b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H5: builtin coercion functions work as array callbacks > filter(Boolean) drops falsy values",
+  "code": "return [0, 1, \"\", 2, null, 3].filter(Boolean)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H5: builtin coercion functions work as array callbacks > map(String) coerces each element",
+  "code": "return [1, 2, 3].map(String)",
+  "result": {
+   "ok": true,
+   "value": [
+    "1",
+    "2",
+    "3"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "H5: builtin coercion functions work as array callbacks > a non-callable callback is still rejected",
+  "code": "return [1,2,3].map(42)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Array.map expects a function callback. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...of assignment destructuring > assigns entry pairs into predeclared variables",
+  "code": "\n      let key\n      let item\n      const out = []\n      for ([key, item] of Object.entries({ a: 1, b: 2 })) out.push(key + item)\n      return { key, item, out }\n    ",
+  "result": {
+   "ok": true,
+   "value": {
+    "key": "b",
+    "item": 2,
+    "out": [
+     "a1",
+     "b2"
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "for...of assignment destructuring > assigns object patterns and defaults",
+  "code": "\n      let id\n      let label\n      const labels = []\n      for ({ id, label = \"unknown\" } of [{ id: 1 }, { id: 2, label: \"two\" }]) labels.push(label)\n      return { id, label, labels }\n    ",
+  "result": {
+   "ok": true,
+   "value": {
+    "id": 2,
+    "label": "two",
+    "labels": [
+     "unknown",
+     "two"
+    ]
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sequence expressions > evaluate left to right and return the final value",
+  "code": "let x = 0; const result = (x += 1, x *= 3, x + 2); return { x, result }",
+  "result": {
+   "ok": true,
+   "value": {
+    "x": 3,
+    "result": 5
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sequence expressions > support comma-separated for-loop updates",
+  "code": "\n      const pairs = []\n      for (let left = 0, right = 3; left < right; left++, right--) pairs.push([left, right])\n      return pairs\n    ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     0,
+     3
+    ],
+    [
+     1,
+     2
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > assigns object and array patterns to existing bindings",
+  "code": "\n        let a = 0\n        let b = 0\n        ;({ a } = { a: 2 })\n        ;[a, b] = [3, 4]\n        return [a, b]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    4
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > supports defaults, nesting, rest, and member targets",
+  "code": "\n        let first = 0\n        let fallback = 0\n        let rest = {}\n        const target = {}\n        ;[first, fallback = 2, ...target.tail] = [1]\n        ;({ nested: { value: target.value }, kept: target.kept = 3, ...rest } = {\n          nested: { value: 4 },\n          extra: 5,\n        })\n        return { first, fallback, target, rest }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "first": 1,
+    "fallback": 2,
+    "target": {
+     "tail": [],
+     "value": 4,
+     "kept": 3
+    },
+    "rest": {
+     "extra": 5
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > returns the assigned value",
+  "code": "let a = 0; const result = ([a] = [7]); return [a, result]",
+  "result": {
+   "ok": true,
+   "value": [
+    7,
+    [
+     7
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > supports computed object keys and evaluates them once",
+  "code": "\n        let calls = 0\n        const field = () => { calls++; return \"name\" }\n        const { [field()]: name, ...rest } = { name: \"Ada\", role: \"engineer\" }\n        return { calls, name, rest }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "calls": 1,
+    "name": "Ada",
+    "rest": {
+     "role": "engineer"
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > supports object patterns over arrays; detached methods lose their receiver like JS",
+  "code": "\n        const { 0: first, length, slice, ...rest } = [\"a\", \"b\", \"c\"]\n        return { first, length, sliced: slice === Array.prototype.slice, rest }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "first": "a",
+    "length": 3,
+    "sliced": true,
+    "rest": {
+     "1": "b",
+     "2": "c"
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > supports object patterns over arrays; detached methods lose their receiver like JS",
+  "code": "const { slice } = [1]; slice(0)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Array.prototype.slice called on incompatible receiver undefined. (line 1, col 24)",
+    "location": {
+     "line": 1,
+     "column": 24
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > preserves exact computed property names on arrays",
+  "code": "\n        const { [\"01\"]: item, ...rest } = [10, 20]\n        return { missing: item === undefined, rest }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "missing": true,
+    "rest": {
+     "0": 10,
+     "1": 20
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > supports array patterns over strings, Maps, Sets, and URLSearchParams",
+  "code": "\n        const [letter, ...letters] = \"A😀B\"\n        const [[mapKey, mapValue]] = new Map([[\"key\", 1]])\n        const [setFirst, setSecond] = new Set([2, 3])\n        const [[queryKey, queryValue]] = new URLSearchParams(\"q=test&page=2\")\n        return { letter, letters, mapKey, mapValue, setFirst, setSecond, queryKey, queryValue }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "letter": "A",
+    "letters": [
+     "😀",
+     "B"
+    ],
+    "mapKey": "key",
+    "mapValue": 1,
+    "setFirst": 2,
+    "setSecond": 3,
+    "queryKey": "q",
+    "queryValue": "test"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > supports iterable patterns in assignment and parameters",
+  "code": "\n        let first\n        let rest\n        ;[first, ...rest] = new Set([1, 2, 3])\n        const read = ([[key, value]]) => key + value\n        return { first, rest, entry: read(new Map([[\"a\", 4]])) }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "first": 1,
+    "rest": [
+     2,
+     3
+    ],
+    "entry": "a4"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > excludes computed numeric keys from object rest",
+  "code": "\n        const { [0]: declared, ...declarationRest } = { 0: \"a\", 1: \"b\" }\n        let assigned\n        let assignmentRest\n        ;({ [0]: assigned, ...assignmentRest } = { 0: \"c\", 1: \"d\" })\n        return { declared, declarationRest, assigned, assignmentRest }\n      ",
+  "result": {
+   "ok": true,
+   "value": {
+    "declared": "a",
+    "declarationRest": {
+     "1": "b"
+    },
+    "assigned": "c",
+    "assignmentRest": {
+     "1": "d"
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "destructuring assignment > computed keys of any type become their string form, as in JS",
+  "code": "\n        const counts = {}\n        for (const category of [\"a\", null, undefined, \"a\", true, 1.5]) counts[category] = (counts[category] ?? 0) + 1\n        const key = {}\n        const { [key]: value } = { \"[object Object]\": 7 }\n        const o = { null: 1, \"1,2\": 2 }\n        return [counts, value, o[null], o[[1, 2]], undefined in o]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "a": 2,
+     "null": 1,
+     "undefined": 1,
+     "true": 1,
+     "1.5": 1
+    },
+    7,
+    1,
+    2,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: zero-argument coercion functions > Number() is 0 and String() is empty, unlike their undefined-argument forms",
+  "code": "return Number()",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: zero-argument coercion functions > Number() is 0 and String() is empty, unlike their undefined-argument forms",
+  "code": "return String()",
+  "result": {
+   "ok": true,
+   "value": "",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: zero-argument coercion functions > Number() is 0 and String() is empty, unlike their undefined-argument forms",
+  "code": "return Boolean()",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: zero-argument coercion functions > Number() is 0 and String() is empty, unlike their undefined-argument forms",
+  "code": "return Number.isNaN(Number(undefined))",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: zero-argument coercion functions > Number() is 0 and String() is empty, unlike their undefined-argument forms",
+  "code": "return String(undefined)",
+  "result": {
+   "ok": true,
+   "value": "undefined",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: zero-argument coercion functions > parseInt() and parseFloat() stay NaN with no argument",
+  "code": "return Number.isNaN(parseInt())",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: zero-argument coercion functions > parseInt() and parseFloat() stay NaN with no argument",
+  "code": "return Number.isNaN(parseFloat())",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > coerce their argument like native JS, unlike the Number statics",
+  "code": "return isFinite(\"42\")",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > coerce their argument like native JS, unlike the Number statics",
+  "code": "return Number.isFinite(\"42\")",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > coerce their argument like native JS, unlike the Number statics",
+  "code": "return isNaN(\"oops\")",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > coerce their argument like native JS, unlike the Number statics",
+  "code": "return isNaN(\"42\")",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > coerce their argument like native JS, unlike the Number statics",
+  "code": "return isFinite(Infinity)",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > coerce their argument like native JS, unlike the Number statics",
+  "code": "return isNaN(null)",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > zero-argument forms match native",
+  "code": "return isFinite()",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > zero-argument forms match native",
+  "code": "return isNaN()",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > read as functions",
+  "code": "return typeof isFinite",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > read as functions",
+  "code": "return typeof isNaN",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > work as array callbacks",
+  "code": "return [1, \"2\", \"x\", Infinity].filter(isFinite)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    "2"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: global isFinite and isNaN > work as array callbacks",
+  "code": "return [\"1\", \"x\"].map(isNaN)",
+  "result": {
+   "ok": true,
+   "value": [
+    false,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: built-in arguments coerce as in JS > numeric arguments apply ToIntegerOrInfinity",
+  "code": "\n        return [\n          [1, 2, 3].indexOf(2, \"1\"), [1, 2, 3].lastIndexOf(3, \"5\"), [1, 2, 3].includes(1, \"1\"),\n          [1, 2, 3, 4].slice(\"1\", \"3\"), [1, 2, 3].at(null), [1, 2, 3].at(1.7),\n          [1, [2, [3]]].flat(1.9), [1, 2, 3].with(1.5, 9), [1, 2, 3, 4].splice(\"1\", \"2\"),\n          Math.max(\"3\", \"2\"), Math.floor(null), Math.hypot(\"3\", \"4\"),\n          parseInt(\"11\", \"2\"), Number.parseInt(\"ff\", \"16\"), (1.5).toFixed(\"2\"), (255).toString(\"16\"),\n          String.fromCharCode(\"65\", 66.9), new Uint8Array([1, 2, 3]).indexOf(2, \"1\"),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    false,
+    [
+     2,
+     3
+    ],
+    1,
+    2,
+    [
+     1,
+     2,
+     [
+      3
+     ]
+    ],
+    [
+     1,
+     9,
+     3
+    ],
+    [
+     2,
+     3
+    ],
+    3,
+    0,
+    5,
+    3,
+    255,
+    "1.50",
+    "ff",
+    "AB",
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: built-in arguments coerce as in JS > join separators, JSON.parse text, and Array.from length coerce",
+  "code": "\n        return [\n          [1, 2].join(null), [1, 2].join(0), [1, 2].join(undefined), new Uint8Array([1, 2]).join(null),\n          JSON.parse(123), JSON.parse(true),\n          Array.from({ length: \"2\" }), Array.from({ length: 2.5 }), Array.from({ length: -1 }), Array.from({}),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "1null2",
+    "102",
+    "1,2",
+    "1null2",
+    123,
+    true,
+    [
+     null,
+     null
+    ],
+    [
+     null,
+     null
+    ],
+    [],
+    []
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: built-in arguments coerce as in JS > join separators, JSON.parse text, and Array.from length coerce",
+  "code": "return JSON.parse(undefined)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: JSON.parse received invalid JSON: JSON Parse error: Unexpected identifier \"undefined\" (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: arrays coerce to numbers through their string form > arrays with objects become NaN instead of crashing on host ToPrimitive",
+  "code": "let x = [{}]; x++; return Number.isNaN(x)",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: arrays coerce to numbers through their string form > arrays with objects become NaN instead of crashing on host ToPrimitive",
+  "code": "return isFinite([{}])",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: arrays coerce to numbers through their string form > arrays with objects become NaN instead of crashing on host ToPrimitive",
+  "code": "return \"abc\".slice([{}])",
+  "result": {
+   "ok": true,
+   "value": "abc",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: arrays coerce to numbers through their string form > single-element and empty arrays match native Number()",
+  "code": "return Number([5])",
+  "result": {
+   "ok": true,
+   "value": 5,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: arrays coerce to numbers through their string form > single-element and empty arrays match native Number()",
+  "code": "return Number([])",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: arrays coerce to numbers through their string form > single-element and empty arrays match native Number()",
+  "code": "return Number.isNaN(Number([1, 2]))",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > includes and indexOf coerce numbers",
+  "code": "return \"v1.2\".includes(1)",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > includes and indexOf coerce numbers",
+  "code": "return \"a2b\".indexOf(2)",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > includes and indexOf coerce numbers",
+  "code": "return \"abc\".includes(\"d\")",
+  "result": {
+   "ok": true,
+   "value": false,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > slice, repeat, and padStart coerce numeric strings",
+  "code": "return \"abc\".slice(\"1\")",
+  "result": {
+   "ok": true,
+   "value": "bc",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > slice, repeat, and padStart coerce numeric strings",
+  "code": "return \"ab\".repeat(\"2\")",
+  "result": {
+   "ok": true,
+   "value": "abab",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > slice, repeat, and padStart coerce numeric strings",
+  "code": "return \"7\".padStart(\"3\", 0)",
+  "result": {
+   "ok": true,
+   "value": "007",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > split coerces separators but treats undefined as absent",
+  "code": "return \"a1b\".split(1)",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > split coerces separators but treats undefined as absent",
+  "code": "return \"a,b\".split(undefined)",
+  "result": {
+   "ok": true,
+   "value": [
+    "a,b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > split coerces separators but treats undefined as absent",
+  "code": "return \"a,b\".split()",
+  "result": {
+   "ok": true,
+   "value": [
+    "a,b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > split coerces separators but treats undefined as absent",
+  "code": "return \"a,b\".split(undefined, 0)",
+  "result": {
+   "ok": true,
+   "value": [],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > split coerces separators but treats undefined as absent",
+  "code": "return \"a,b\".split(undefined, 1)",
+  "result": {
+   "ok": true,
+   "value": [
+    "a,b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > replace coerces search and replacement values",
+  "code": "return \"a1b\".replace(1, 2)",
+  "result": {
+   "ok": true,
+   "value": "a2b",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > replace coerces search and replacement values",
+  "code": "return \"a1b\".replace(1, () => \"x\")",
+  "result": {
+   "ok": true,
+   "value": "axb",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > repeat rejections carry the native RangeError name",
+  "code": "try { \"a\".repeat(-1) } catch (e) { return e.name }",
+  "result": {
+   "ok": true,
+   "value": "RangeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > includes, startsWith, and endsWith reject regular expressions with a TypeError",
+  "code": "try { \"abc\".includes(/a/) } catch (e) { return e.name }",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > includes, startsWith, and endsWith reject regular expressions with a TypeError",
+  "code": "try { \"abc\".startsWith(/a/) } catch (e) { return e.name }",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > includes, startsWith, and endsWith reject regular expressions with a TypeError",
+  "code": "try { \"abc\".endsWith(/a/) } catch (e) { return e.name }",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > opaque runtime references still reject as data errors",
+  "code": "const f = () => 1; return \"abc\".includes(f)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: String.includes expects argument 1 to be a data value. (line 1, col 27)",
+    "location": {
+     "line": 1,
+     "column": 27
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: String method arguments coerce like native JS > opaque runtime references still reject as data errors",
+  "code": "const f = () => 1; return \"a\".replace(f, () => \"x\")",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: String.replace expects argument 1 to be a data value. (line 1, col 27)",
+    "location": {
+     "line": 1,
+     "column": 27
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: match() and search() with no argument > behave as an empty pattern like native JS",
+  "code": "return \"abc\".search()",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: match() and search() with no argument > behave as an empty pattern like native JS",
+  "code": "const m = \"abc\".match(); return { first: m[0], index: m.index }",
+  "result": {
+   "ok": true,
+   "value": {
+    "first": "",
+    "index": 0
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: ++ and -- use CodeMode numeric coercion > numeric strings increment like native JS",
+  "code": "let x = \"5\"; x++; return x",
+  "result": {
+   "ok": true,
+   "value": 6,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: ++ and -- use CodeMode numeric coercion > numeric strings increment like native JS",
+  "code": "let x = \"5\"; return ++x",
+  "result": {
+   "ok": true,
+   "value": 6,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: ++ and -- use CodeMode numeric coercion > numeric strings increment like native JS",
+  "code": "const o = { n: \"2\" }; o.n--; return o.n",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: ++ and -- use CodeMode numeric coercion > dates increment through their epoch time",
+  "code": "let d = new Date(5); d++; return d",
+  "result": {
+   "ok": true,
+   "value": 6,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: ++ and -- use CodeMode numeric coercion > plain data objects become NaN instead of crashing",
+  "code": "let x = {}; x++; return Number.isNaN(x)",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: ++ and -- use CodeMode numeric coercion > plain data objects become NaN instead of crashing",
+  "code": "const o = { a: {} }; o.a++; return Number.isNaN(o.a)",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: ++ and -- use CodeMode numeric coercion > opaque runtime references reject with a clear error",
+  "code": "let f = () => 1; f++",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: '++' requires a data value. (line 1, col 18)",
+    "location": {
+     "line": 1,
+     "column": 18
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return typeof Math.sum",
+  "result": {
+   "ok": true,
+   "value": "undefined",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return RegExp.quote === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return Number.range === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return String.dedent === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return isFinite.something === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return console.group === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return Date.moment === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return JSON.rawJSON === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return URL.createObjectURL === undefined",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > feature detection on missing statics works like native JS",
+  "code": "return Math.sum?.([1]) ?? \"fallback\"",
+  "result": {
+   "ok": true,
+   "value": "fallback",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return typeof Math.max",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return typeof console.log",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return typeof Date.now",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return typeof Math.sumPrecise",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return typeof RegExp.escape",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return typeof Object.groupBy",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return typeof Map.groupBy",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return Math.max(1, 2)",
+  "result": {
+   "ok": true,
+   "value": 2,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return Math.sumPrecise([1, 2])",
+  "result": {
+   "ok": true,
+   "value": 3,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return RegExp.escape(\"a.b\")",
+  "result": {
+   "ok": true,
+   "value": "\\x61\\.b",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return URL.canParse(\"https://example.com\")",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return Number.isInteger(3)",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > known statics still resolve and run",
+  "code": "return Number.MAX_SAFE_INTEGER",
+  "result": {
+   "ok": true,
+   "value": 9007199254740991,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > calling an unknown static reports a native-style TypeError",
+  "code": "try { Math.sum([1]) } catch (e) { return e.name + \": \" + e.message }",
+  "result": {
+   "ok": true,
+   "value": "TypeError: Math.sum is not a function.",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > calling an unknown static reports a native-style TypeError",
+  "code": "try { Math[\"sum\"]([1]) } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "Math.sum is not a function.",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > calling an unknown static reports a native-style TypeError",
+  "code": "try { JSON.rawJSON(\"1\") } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "JSON.rawJSON is not a function.",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > calling an unknown static reports a native-style TypeError",
+  "code": "try { search({ query: \"star\" }).filter(() => 1) } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "search(...).filter is not a function.",
+   "toolCalls": [
+    {
+     "name": "search"
+    }
+   ]
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > calling an unknown static reports a native-style TypeError",
+  "code": "const foo = () => ({ bar: () => ({}) }); try { foo().bar().baz() } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "foo(...).bar(...).baz is not a function.",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "coercion parity: unknown static members read as undefined > built-ins are objects on a real prototype chain",
+  "code": "\n        return [\n          Math.constructor === Object,\n          Number.constructor === Function,\n          Object.prototype.hasOwnProperty === ({}).hasOwnProperty,\n          Array.prototype.push.name,\n          Array.prototype.push.length,\n          Math.max.length,\n          Object.keys(Math),\n          typeof Array.prototype.map,\n          Array.isArray(Array.prototype),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    true,
+    "push",
+    1,
+    2,
+    [],
+    "function",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "async function line breaks > a line break between function and the name is an async function",
+  "code": "async function\nfoo() { return 1 }\nreturn await foo()",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "async function line breaks > a line break between async and function is not an async function",
+  "code": "async\nfunction foo() { return 1 }\nreturn foo()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'async'. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "functions are objects > name follows NamedEvaluation and length counts required parameters",
+  "code": "\n        function decl(a, b = 1, ...rest) {}\n        const arrow = () => {}\n        const named = function inner() {}\n        let assigned\n        assigned = (a, b) => {}\n        const { fromDefault = () => {} } = {}\n        const [fromArray = function () {}] = []\n        const obj = { method() {}, key: () => {}, [Symbol.iterator]: () => {} }\n        const passthrough = (0, () => {})\n        return [\n          [decl.name, decl.length],\n          [arrow.name, named.name, assigned.name, assigned.length],\n          [fromDefault.name, fromArray.name],\n          [obj.method.name, obj.key.name, obj[Symbol.iterator].name],\n          passthrough.name,\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "decl",
+     1
+    ],
+    [
+     "arrow",
+     "inner",
+     "assigned",
+     2
+    ],
+    [
+     "fromDefault",
+     "fromArray"
+    ],
+    [
+     "method",
+     "key",
+     "[Symbol.iterator]"
+    ],
+    ""
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "functions are objects > functions hold own properties; name and length are read-only",
+  "code": "\n        const fn = () => 1\n        fn.count = 2\n        fn.count += 1\n        let renamed = false\n        try { fn.name = \"other\" } catch (error) { renamed = error instanceof TypeError }\n        const { name, count } = fn\n        return [fn.count, Object.keys(fn), \"count\" in fn, \"name\" in fn, name, count, renamed, delete fn.count, fn.count]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    [
+     "count"
+    ],
+    true,
+    true,
+    "fn",
+    3,
+    true,
+    true,
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "tagged templates > the tag receives the cooked strings, their raw forms, and the substitutions in order",
+  "code": "\n        const tag = (strings, ...values) => [strings, strings.raw, values, Object.keys(strings)]\n        return tag`a${1}b\\n${2}c`\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a",
+     "b\n",
+     "c"
+    ],
+    [
+     "a",
+     "b\\n",
+     "c"
+    ],
+    [
+     1,
+     2
+    ],
+    [
+     "0",
+     "1",
+     "2"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "tagged templates > an invalid escape cooks to undefined and keeps its raw text",
+  "code": "return ((strings) => [strings[0] === undefined, strings.raw[0]])`\\unicode`",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "\\unicode"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "tagged templates > each site has one template object; different sites differ",
+  "code": "\n        const seen = []\n        const tag = (strings) => { seen.push(strings) }\n        for (let i = 0; i < 2; i++) tag`x${i}`\n        tag`x${0}`\n        return [seen[0] === seen[1], seen[0] === seen[2]]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "tagged templates > the tag is read like a callee: members, chained tags, async tags, and the not-a-function error",
+  "code": "\n        const o = { tag: (strings) => strings[0].toUpperCase() }\n        const chain = () => chain\n        const asyncTag = async (strings, value) => strings[0] + value\n        let failure\n        try { (1)`x` } catch (error) { failure = error instanceof TypeError }\n        return [o.tag`abc`, typeof chain`a``b`, await asyncTag`n=${1}`, failure]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "ABC",
+    "function",
+    "n=1",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "tagged templates > raw is read-only",
+  "code": "try { ((strings) => { strings.raw = 1 })`a` } catch (error) { return error.name }",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String.raw > joins the raw strings with the substitutions",
+  "code": "return [String.raw`a\\n${1}b`, String.raw({ raw: [\"x\", \"y\", \"z\"] }, 1, 2, 3)]",
+  "result": {
+   "ok": true,
+   "value": [
+    "a\\n1b",
+    "x1y2z"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String.raw > extra substitutions are dropped, missing ones are skipped, and a program object's toString is used",
+  "code": "\n        const shout = { toString() { return \"!\" } }\n        return [String.raw({ raw: [\"x\", \"y\"] }, 1, 2), String.raw({ raw: [\"x\", \"y\", \"z\"] }, shout), String.raw({ raw: { length: 0 } })]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "x1y",
+    "x!yz",
+    ""
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String.raw > a template without a raw array is a TypeError",
+  "code": "String.raw(1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: String.raw expects a template object with a raw array. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sloppy duplicate parameters and for...in targets > a repeated parameter name binds the last argument",
+  "code": "function f(a, b, a) { return [a, b] } return [f(1, 2, 3), f(1)]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     3,
+     2
+    ],
+    [
+     null,
+     null
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "sloppy duplicate parameters and for...in targets > for...in assigns to any target: members, computed members, and patterns",
+  "code": "\n        const x = {}, seen = [], a = []\n        let i = 0, first\n        for (x.y in { p: 1, q: 2 }) seen.push(x.y)\n        for (a[i++] in { p: 1, q: 2 });\n        for ([first] in { ab: 1 });\n        return [seen, x.y, a, first]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "p",
+     "q"
+    ],
+    "q",
+    [
+     "p",
+     "q"
+    ],
+    "a"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "loose equality and operator gates on opaque references > == follows IsLooselyEqual for data values",
+  "code": "\n        return [null == undefined, \"1\" == 1, true == 1, \"\" == 0, [1] == 1, [1, 2] == \"1,2\",\n          ({}) == \"[object Object]\", NaN == NaN, ({}) == ({}), null == 0, new Date(0) == 0]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "loose equality and operator gates on opaque references > functions and tool references compare by identity and are never equal to nullish",
+  "code": "\n        const fn = () => 1, other = () => 2\n        return [fn == null, fn != null, fn == undefined, fn == fn, fn == other, [fn] == null, ({ f: fn }) == null,\n          [fn] == [fn], tools == null, tools == tools]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    false,
+    true,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "loose equality and operator gates on opaque references > coercing an opaque reference against a non-nullish primitive still rejects",
+  "code": "const fn = () => 1; return fn == 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Binary operators require data values. (line 1, col 28)",
+    "location": {
+     "line": 1,
+     "column": 28
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "loose equality and operator gates on opaque references > coercing an opaque reference against a non-nullish primitive still rejects",
+  "code": "const fn = () => 1; return fn + \"\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Binary operators require data values. (line 1, col 28)",
+    "location": {
+     "line": 1,
+     "column": 28
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "loose equality and operator gates on opaque references > coercing an opaque reference against a non-nullish primitive still rejects",
+  "code": "const fn = () => 1; return -fn",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Unary operators require data values. (line 1, col 28)",
+    "location": {
+     "line": 1,
+     "column": 28
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "loose equality and operator gates on opaque references > coercing an opaque reference against a non-nullish primitive still rejects",
+  "code": "let fn = () => 1; fn++",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: '++' requires a data value. (line 1, col 19)",
+    "location": {
+     "line": 1,
+     "column": 19
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "loose equality and operator gates on opaque references > switch and Object.is match opaque references by identity",
+  "code": "\n        const fn = () => 1, other = () => 2\n        const pick = (v) => { switch (v) { case fn: return \"fn\"; case other: return \"other\"; default: return \"none\" } }\n        return [pick(fn), pick(other), pick(1), Object.is(fn, fn), Object.is(fn, other), Object.is(NaN, NaN), Object.is(0, -0)]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "fn",
+    "other",
+    "none",
+    true,
+    false,
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "loose equality and operator gates on opaque references > operators look only at their direct operands, so nested functions coerce like other data",
+  "code": "\n        const fn = () => 1\n        let x = [fn]\n        x++\n        return [[1, [2]] + \"\", ({ a: 1 }) * 2, [fn] + \"\", Number.isNaN(-[fn]), Number.isNaN(x), typeof fn, !fn]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "1,2",
+    null,
+    "[object Function]",
+    true,
+    true,
+    "function",
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.freeze, seal, and preventExtensions > a frozen object rejects writes, additions, and deletes with TypeErrors",
+  "code": "\n        const o = Object.freeze({ a: 1 })\n        const errors = []\n        try { o.a = 2 } catch (e) { errors.push(e.name + \": \" + e.message) }\n        try { o.b = 2 } catch (e) { errors.push(e.name + \": \" + e.message) }\n        try { delete o.a } catch (e) { errors.push(e.name + \": \" + e.message) }\n        return [errors, o.a, Object.isFrozen(o), Object.isSealed(o), Object.isExtensible(o)]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "TypeError: Cannot assign to read only property 'a'.",
+     "TypeError: Cannot add property b, object is not extensible.",
+     "TypeError: Cannot delete property 'a'."
+    ],
+    1,
+    true,
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.freeze, seal, and preventExtensions > seal keeps writes, preventExtensions keeps deletes, and each returns its argument",
+  "code": "\n        const s = { a: 1 }, p = { a: 1 }\n        const errors = []\n        Object.seal(s).a = 2\n        try { delete s.a } catch (e) { errors.push(e.name) }\n        delete Object.preventExtensions(p).a\n        try { p.b = 1 } catch (e) { errors.push(e.name) }\n        return [errors, s.a, Object.keys(p), Object.isSealed(s), Object.isFrozen(s), Object.isSealed(p), Object.isFrozen(p)]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "TypeError",
+     "TypeError"
+    ],
+    2,
+    [],
+    true,
+    false,
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.freeze, seal, and preventExtensions > primitives pass through, and Object.assign honors the flags",
+  "code": "\n        return [Object.freeze(1) === 1, Object.isFrozen(1), Object.isSealed(\"a\"), Object.isExtensible(null), Object.isFrozen({}), Object.isExtensible({})]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    true,
+    false,
+    false,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.freeze, seal, and preventExtensions > primitives pass through, and Object.assign honors the flags",
+  "code": "Object.assign(Object.freeze({ a: 1 }), { b: 1 })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot add property b, object is not extensible. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.freeze, seal, and preventExtensions > frozen arrays reject element, length, and mutating-method writes like JS",
+  "code": "\n        const a = Object.freeze([1, 2])\n        const attempt = (f) => { try { f(); return \"ok\" } catch (e) { return e.name + \": \" + e.message } }\n        return [\n          attempt(() => a.push(3)),\n          attempt(() => { a[0] = 9 }),\n          attempt(() => { a[5] = 9 }),\n          attempt(() => { a.length = 0 }),\n          attempt(() => a.pop()),\n          attempt(() => a.sort()),\n          attempt(() => a.reverse()),\n          attempt(() => a.fill(0)),\n          attempt(() => a.copyWithin(0, 1)),\n          attempt(() => a.splice(0, 1)),\n          attempt(() => a.unshift(0)),\n          a, a.map((x) => x * 2), Object.isFrozen(a), Object.isFrozen(Object.freeze([])),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError: Cannot add property 2, object is not extensible.",
+    "TypeError: Cannot assign to read only property '0'.",
+    "TypeError: Cannot add property 5, object is not extensible.",
+    "TypeError: Cannot assign to read only property 'length'.",
+    "TypeError: Cannot delete property '1'.",
+    "TypeError: Cannot assign to read only property '0'.",
+    "TypeError: Cannot assign to read only property '0'.",
+    "TypeError: Cannot assign to read only property '0'.",
+    "TypeError: Cannot assign to read only property '0'.",
+    "TypeError: Cannot delete property '1'.",
+    "TypeError: Cannot add property 2, object is not extensible.",
+    [
+     1,
+     2
+    ],
+    [
+     2,
+     4
+    ],
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.freeze, seal, and preventExtensions > sealed and non-extensible arrays allow exactly the writes JS does",
+  "code": "\n        const s = Object.seal([1, 2]), p = Object.preventExtensions([1, 2, 3])\n        const attempt = (f) => { try { f(); return \"ok\" } catch (e) { return e.name } }\n        const results = [attempt(() => { s[0] = 5 }), attempt(() => s.pop()), attempt(() => { s.length = 0 }), attempt(() => s.push(1))]\n        p.pop(); p.sort(); p.reverse(); p.fill(0, 1); p.copyWithin(0, 1); p.length = 5\n        results.push(attempt(() => p.push(1)), attempt(() => p.splice(0, 1, 7, 8)), p.splice(0, 1, 7), attempt(() => { p[9] = 1 }))\n        return [results, s, p, Object.isSealed(p), Object.isFrozen(p), Object.isSealed(Object.preventExtensions([])), Object.isFrozen(Object.preventExtensions([]))]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "ok",
+     "TypeError",
+     "TypeError",
+     "TypeError",
+     "TypeError",
+     "TypeError",
+     [
+      0
+     ],
+     "TypeError"
+    ],
+    [
+     5,
+     2
+    ],
+    [
+     7,
+     0,
+     null,
+     null,
+     null
+    ],
+    false,
+    false,
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.freeze, seal, and preventExtensions > typed arrays with elements cannot be frozen; wrappers freeze their properties only",
+  "code": "Object.freeze(new Uint8Array([1]))",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot freeze array buffer views with elements. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.freeze, seal, and preventExtensions > typed arrays with elements cannot be frozen; wrappers freeze their properties only",
+  "code": "\n        const empty = Object.freeze(new Uint8Array(0))\n        const bytes = Object.preventExtensions(new Uint8Array([1]))\n        const m = Object.freeze(new Map()); m.set(1, 2)\n        const f = Object.freeze(() => 1)\n        let named = \"ok\"\n        try { f.x = 1 } catch (e) { named = e.name }\n        return [Object.isFrozen(empty), Object.isFrozen(bytes), Object.isExtensible(bytes), m.size, Object.isFrozen(f), named, f()]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    false,
+    false,
+    1,
+    true,
+    "TypeError",
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > getPrototypeOf returns the built-in prototypes for objects and primitives",
+  "code": "\n        return [\n          Object.getPrototypeOf([]) === Array.prototype,\n          Object.getPrototypeOf({}) === Object.prototype,\n          Object.getPrototypeOf(Object.prototype),\n          Object.getPrototypeOf(\"a\") === String.prototype,\n          Object.getPrototypeOf(1) === Number.prototype,\n          Object.getPrototypeOf(true) === Boolean.prototype,\n          Object.getPrototypeOf(new TypeError(\"x\")) === TypeError.prototype,\n          Object.getPrototypeOf(TypeError.prototype) === Error.prototype,\n          Object.getPrototypeOf(() => 1) === Function.prototype,\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    null,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > getPrototypeOf rejects null, undefined, and symbols",
+  "code": "Object.getPrototypeOf(null)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Object.getPrototypeOf cannot convert null to an object. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > getPrototypeOf rejects null, undefined, and symbols",
+  "code": "Object.getPrototypeOf(undefined)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Object.getPrototypeOf cannot convert undefined to an object. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > getPrototypeOf rejects null, undefined, and symbols",
+  "code": "Object.getPrototypeOf(Symbol.iterator)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Object.getPrototypeOf cannot convert a symbol to an object. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > Object.create links the prototype: inherited reads, in, own-only keys, and inherited for...in",
+  "code": "\n        const p = { greet(name) { return \"hi \" + name }, a: 1 }\n        const c = Object.create(p)\n        c.name = \"x\"\n        const seen = []\n        for (const key in c) seen.push(key)\n        return [\"greet\" in c, Object.keys(c), c.hasOwnProperty(\"a\"), c.a, c.greet(c.name), Object.getPrototypeOf(c) === p, Object.getPrototypeOf(Object.create(null)), seen]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    [
+     "name"
+    ],
+    false,
+    1,
+    "hi x",
+    true,
+    null,
+    [
+     "name",
+     "greet",
+     "a"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > Object.create rejects non-object prototypes and defines properties from descriptors",
+  "code": "Object.create(1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Object prototype may only be an Object or null. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > Object.create rejects non-object prototypes and defines properties from descriptors",
+  "code": "Object.create()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Object prototype may only be an Object or null. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > Object.create rejects non-object prototypes and defines properties from descriptors",
+  "code": "return Object.create(null, { a: { value: 1, enumerable: true } }).a",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.getPrototypeOf and Object.create > Object.create rejects non-object prototypes and defines properties from descriptors",
+  "code": "return Object.keys(Object.create({}, undefined))",
+  "result": {
+   "ok": true,
+   "value": [],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "structuredClone > deep-copies data values and keeps shared references shared",
+  "code": "\n        const shared = { n: 1 }\n        const source = { a: shared, b: shared, list: [1, , shared], map: new Map([[1, { a: [1, 2] }]]), set: new Set([shared]), when: new Date(5), bytes: new Uint8Array([1, 2]) }\n        const c = structuredClone(source)\n        c.a.n = 2\n        return [\n          c !== source, c.a === c.b, c.a !== shared, shared.n, c.list[2] === c.a, 1 in c.list, c.list.length,\n          c.map.get(1).a, c.map !== source.map, c.set.has(c.a), c.when.getTime(), c.when instanceof Date,\n          c.bytes instanceof Uint8Array, c.bytes[1], Array.isArray(c.list),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    true,
+    1,
+    true,
+    false,
+    3,
+    [
+     1,
+     2
+    ],
+    true,
+    true,
+    5,
+    true,
+    true,
+    2,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "structuredClone > regexps reset lastIndex, errors keep name, message, and cause, and extras are dropped",
+  "code": "\n        const r = /a/g\n        r.lastIndex = 3\n        const e = new TypeError(\"boom\", { cause: { code: 1 } })\n        e.extra = 1\n        const custom = new Error(\"x\")\n        custom.name = \"Custom\"\n        const [cr, ce, cc] = [structuredClone(r), structuredClone(e), structuredClone(custom)]\n        return [cr.source, cr.flags, cr.lastIndex, ce instanceof TypeError, ce.name, ce.message, ce.cause, ce.cause !== e.cause, ce.extra, Object.keys(ce), cc.name]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "g",
+    0,
+    true,
+    "TypeError",
+    "boom",
+    {
+     "code": 1
+    },
+    true,
+    null,
+    [],
+    "Error"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "structuredClone > the clone is a plain extensible object: prototypes, symbols, undefined fields, and frozen state drop",
+  "code": "\n        const c = structuredClone(Object.freeze(Object.assign(Object.create({ inherited: 1 }), { a: undefined, [Symbol.iterator]: 1, b: 2 })))\n        return [Object.isFrozen(c), Object.getPrototypeOf(c) === Object.prototype, \"a\" in c, Symbol.iterator in c, c.b, c.inherited]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    false,
+    true,
+    true,
+    false,
+    2,
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "structuredClone > functions, symbols, promises, wrappers, and tool references throw a DataCloneError TypeError",
+  "code": "try { structuredClone(() => 1) } catch (e) { return e.name }",
+  "result": {
+   "ok": true,
+   "value": "TypeError",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "structuredClone > functions, symbols, promises, wrappers, and tool references throw a DataCloneError TypeError",
+  "code": "structuredClone()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: structuredClone requires 1 argument (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "error constructor prototype chain > derived error constructors extend Error and inherit its statics",
+  "code": "\n        const derived = [TypeError, RangeError, SyntaxError, ReferenceError, EvalError, URIError, AggregateError]\n        return [\n          derived.every((ctor) => Object.getPrototypeOf(ctor) === Error),\n          Object.getPrototypeOf(Error) === Function.prototype,\n          TypeError.isError(new RangeError(\"x\")),\n          new TypeError(\"x\") instanceof Error,\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > this is the call receiver for non-arrow functions and lexical for arrows",
+  "code": "\n        const o = { n: 1, m() { return this.n }, a() { return (() => this.n)() }, bare() { return this } }\n        const detached = o.bare\n        function f() { return this }\n        return [o.m(), o[\"m\"](), o?.m(), (o.m)(), o.a(), o.bare() === o, detached(), f(), (0, o.bare)(), this, (() => this)()]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    true,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > this reaches generator and async methods and plain-function callbacks",
+  "code": "\n        const o = { n: 2, *g() { yield this.n }, async m() { return this.n }, xs: [1, 2], go() { return this.xs.map(function (x) { return [x, this] }) } }\n        return [[...o.g()], await o.m(), o.go()]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     2
+    ],
+    2,
+    [
+     [
+      1,
+      null
+     ],
+     [
+      2,
+      null
+     ]
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > arguments is an unmapped array-like that arrows and parameters interact with as in JS",
+  "code": "\n        function f(a) { arguments[0] = 9; return [arguments.length, arguments[1], a, [...arguments], Array.isArray(arguments), JSON.stringify(arguments), typeof arguments.map, (() => arguments[1])()] }\n        function shadow(arguments) { return arguments }\n        function hoisted() { var arguments; return arguments.length }\n        let outer\n        try { outer = arguments } catch (error) { outer = error.name }\n        return [f(1, 2), shadow(7), hoisted(1, 2, 3), outer]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     2,
+     2,
+     1,
+     [
+      9,
+      2
+     ],
+     false,
+     "{\"0\":9,\"1\":2}",
+     "undefined",
+     2
+    ],
+    7,
+    3,
+    "ReferenceError"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > call, apply, and bind set this and arguments on program functions and built-ins",
+  "code": "\n        function f(a, b, c) { return [this, a, b, c] }\n        const g = f.bind({ k: 1 }, \"A\")\n        const arr = [1]\n        Array.prototype.push.call(arr, 2, 3)\n        return [\n          f.call(\"t\", 1, 2),\n          f.apply({ k: 2 }, [1, 2]),\n          f.apply(null, { length: 2, 0: \"x\", 1: \"y\" }),\n          f.apply(null).length,\n          g(\"B\", \"C\"), g.name, g.length,\n          f.bind(1).bind(2)()[0],\n          arr,\n          Math.max.apply(null, [1, 5, 3]),\n          Math.max.bind(null, 10)(3),\n          [1, 2].map(f.bind(null, 0)).map((r) => r[1]),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "t",
+     1,
+     2,
+     null
+    ],
+    [
+     {
+      "k": 2
+     },
+     1,
+     2,
+     null
+    ],
+    [
+     null,
+     "x",
+     "y",
+     null
+    ],
+    4,
+    [
+     {
+      "k": 1
+     },
+     "A",
+     "B",
+     "C"
+    ],
+    "bound f",
+    2,
+    1,
+    [
+     1,
+     2,
+     3
+    ],
+    5,
+    10,
+    [
+     0,
+     0
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > call and apply reject non-callable receivers and non-array-like argument lists",
+  "code": "Function.prototype.call.call(1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Function.prototype.call called on incompatible receiver a number. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > call and apply reject non-callable receivers and non-array-like argument lists",
+  "code": "(() => 1).apply(null, 5)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Function.prototype.apply expects an array-like argument list. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > call and apply reject non-callable receivers and non-array-like argument lists",
+  "code": "(() => 1).apply(null, { length: 1e9 })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Invalid array length (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > call and apply reject non-callable receivers and non-array-like argument lists",
+  "code": "function f() { return arguments.length } return [f.apply(null, { length: -5 }), f.apply(null, { length: \"2\" })]",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "this, arguments, and Function.prototype.call/apply/bind > call and apply reject non-callable receivers and non-array-like argument lists",
+  "code": "function f(n) { return f.call(null, n + 1) } f(0)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Maximum call stack size exceeded (line 1, col 24)",
+    "location": {
+     "line": 1,
+     "column": 24
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > program-installed valueOf and toString on opaque values are ignored at every site",
+  "code": "\n        const f = () => 1\n        f.toString = () => \"custom\"\n        f.valueOf = () => 5\n        return [String(f), `${f}`, [f].join(), new Error(f).message, isNaN(Number(f)), isNaN(Math.abs(f))]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "[object Function]",
+    "[object Function]",
+    "[object Function]",
+    "[object Function]",
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > == converts an object facing a non-nullish primitive through its own valueOf",
+  "code": "\n        const one = { valueOf() { return 1 } }\n        return [one == 1, 1 == one, one == true, one == \"1\", one == null, one == one, one == { valueOf() { return 1 } }, [1] == 1]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    true,
+    true,
+    false,
+    true,
+    false,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > == converts an object facing a non-nullish primitive through its own valueOf",
+  "code": "(() => 1) == 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Binary operators require data values. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > operators, unary, template literals, and conversion functions use the object's own methods",
+  "code": "\n        const money = { valueOf() { return 7 } }\n        return [money * 2, money + 1, money + \"\", -money, +money, ~money, money < 8, money ** 2, money | 8,\n          Number(money), Math.max(money, 1), `${money}`, String(money), isNaN(money), isFinite(money),\n          parseInt({ toString() { return \"42px\" } }), parseInt(\"ff\", { valueOf() { return 16 } }),\n          Number.parseFloat({ toString() { return \"1.5\" } })]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    14,
+    8,
+    "7",
+    -7,
+    7,
+    -8,
+    true,
+    49,
+    15,
+    7,
+    7,
+    "[object Object]",
+    "[object Object]",
+    false,
+    true,
+    42,
+    255,
+    1.5
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > the hint picks the method: + and Number prefer valueOf, template literals and String prefer toString",
+  "code": "\n        const both = { valueOf() { return 1 }, toString() { return \"s\" } }\n        return [both + \"\", `${both}`, String(both), both * 2, new Error(both).message, [both].join(), [both, 2] + \"\"]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "1",
+    "s",
+    "s",
+    2,
+    "s",
+    "s",
+    "s,2"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > operands convert left then right, and a throwing valueOf surfaces as the program error",
+  "code": "\n        const order = []\n        const a = { valueOf() { order.push(\"a\"); return 1 } }, b = { valueOf() { order.push(\"b\"); return 2 } }\n        a + b; a < b; a - b\n        return order\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "b",
+    "a",
+    "b",
+    "a",
+    "b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > operands convert left then right, and a throwing valueOf surfaces as the program error",
+  "code": "\n        const bad = { valueOf() { throw new RangeError(\"nope\") } }\n        const names = []\n        try { bad + 1 } catch (e) { names.push(e.name) }\n        try { Number(bad) } catch (e) { names.push(e.name) }\n        try { Math.abs(bad) } catch (e) { names.push(e.name) }\n        return names\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError",
+    "RangeError",
+    "RangeError"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > arrays keep their built-in join form unless the program replaces toString",
+  "code": "\n        const arr = [1, 2]\n        const before = [arr + \"\", [] + [], [1, , 3].join(\"-\"), [1, { toString() { return \"q\" } }].join(\"-\")]\n        arr.toString = () => \"x\"\n        return [...before, arr + \"\", `${arr}`, String(arr)]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "1,2",
+    "",
+    "1--3",
+    "1-q",
+    "x",
+    "x",
+    "x"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > update and compound assignment convert the current value",
+  "code": "\n        let x = { valueOf() { return 5 } }\n        const o = { n: { valueOf() { return 4 } } }\n        const after = x++\n        o.n += 1\n        o.n++\n        let s = { valueOf() { return 2 } }\n        s *= 3\n        return [after, x, o.n, s]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    5,
+    6,
+    6,
+    6
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > functions and other opaque values still reject arithmetic, and an object without a primitive form throws",
+  "code": "const f = () => 1; return f + 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Binary operators require data values. (line 1, col 27)",
+    "location": {
+     "line": 1,
+     "column": 27
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > functions and other opaque values still reject arithmetic, and an object without a primitive form throws",
+  "code": "return -(() => 1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Unary operators require data values. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "ToPrimitive: operators and conversions honor program valueOf and toString > functions and other opaque values still reject arithmetic, and an object without a primitive form throws",
+  "code": "return { valueOf() { return {} }, toString() { return [] } } + 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot convert object to primitive value. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "object destructuring from primitives > reads through the primitive's prototype like member access",
+  "code": "\n        const { length, 0: first, toUpperCase } = \"abc\"\n        const { toFixed } = 1.5\n        const {} = true\n        const { 0: a, ...rest } = \"xyz\"\n        const { ...none } = 42\n        let n\n        ;({ length: n } = \"hello\")\n        return [length, first, toUpperCase.call(\"q\"), toFixed.call(2.345, 1), a, rest, none, n]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    "a",
+    "Q",
+    "2.3",
+    "x",
+    {
+     "1": "y",
+     "2": "z"
+    },
+    {},
+    5
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "object destructuring from primitives > only null and undefined sources throw",
+  "code": "const { a } = null",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot destructure null as it is null. (line 1, col 7)",
+    "location": {
+     "line": 1,
+     "column": 7
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "object destructuring from primitives > only null and undefined sources throw",
+  "code": "const {} = undefined",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot destructure undefined as it is undefined. (line 1, col 7)",
+    "location": {
+     "line": 1,
+     "column": 7
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "object destructuring from primitives > only null and undefined sources throw",
+  "code": "let a; ({ a } = undefined)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot destructure undefined as it is undefined. (line 1, col 9)",
+    "location": {
+     "line": 1,
+     "column": 9
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Date components convert through ToPrimitive > construction and Date.UTC ask each of the first seven arguments in order",
+  "code": "\n        const seen = []\n        const part = (n) => ({ valueOf() { seen.push(n); return n } })\n        const time = new Date(part(2024), part(1), part(2), part(3), part(4), part(5), part(6), part(99)).getTime()\n        const utc = Date.UTC(2024, { valueOf() { return 0 } }, 15)\n        return [seen, time === new Date(2024, 1, 2, 3, 4, 5, 6).getTime(), utc === Date.UTC(2024, 0, 15)]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     2024,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Date components convert through ToPrimitive > construction and Date.UTC ask each of the first seven arguments in order",
+  "code": "new Date(2024, { valueOf() { throw new RangeError(\"boom\") } })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: boom"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Date components convert through ToPrimitive > setters on an invalid Date answer NaN without overwriting a time set during coercion",
+  "code": "\n        const d = new Date(NaN)\n        const result = d.setDate({ valueOf() { d.setTime(0); return 1 } })\n        const y = new Date(NaN)\n        return [Number.isNaN(result), d.getTime(), y.setFullYear(2020) === Date.UTC(2020, 0, 1) - y.getTimezoneOffset() * 60000]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    0,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "iteration callbacks receive thisArg > Array, Array.from, Map, Set, URLSearchParams, Headers, and Uint8Array pass it as this",
+  "code": "\n        const c = { n: 0 }\n        const count = function () { this.n++ }\n        ;[1, 2].forEach(count, c)\n        ;[1].map(count, c)\n        ;[1].filter(count, c)\n        ;[1].find(count, c)\n        ;[1].findIndex(count, c)\n        ;[1].findLast(count, c)\n        ;[1].findLastIndex(count, c)\n        ;[1].some(count, c)\n        ;[1].every(count, c)\n        ;[1].flatMap(count, c)\n        Array.from([1], count, c)\n        Array.from({ length: 1 }, count, c)\n        new Map([[1, 1]]).forEach(count, c)\n        new Set([1]).forEach(count, c)\n        new URLSearchParams(\"a=1\").forEach(count, c)\n        new Headers({ a: \"1\" }).forEach(count, c)\n        new Uint8Array([1]).forEach(count, c)\n        return c.n\n      ",
+  "result": {
+   "ok": true,
+   "value": 18,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "iteration callbacks receive thisArg > Array, Array.from, Map, Set, URLSearchParams, Headers, and Uint8Array pass it as this",
+  "code": "return [1, 2].map(function (x) { return x + this.v }, { v: 10 })",
+  "result": {
+   "ok": true,
+   "value": [
+    11,
+    12
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "iteration callbacks receive thisArg > arrows keep their lexical this, reduce takes an initial value instead, and opaque values are only bound",
+  "code": "return [1].map(() => typeof this, { v: 1 })",
+  "result": {
+   "ok": true,
+   "value": [
+    "undefined"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "iteration callbacks receive thisArg > arrows keep their lexical this, reduce takes an initial value instead, and opaque values are only bound",
+  "code": "return [1, 2].reduce(function (a, b) { return a + b + (this === undefined ? 0 : 100) }, 0)",
+  "result": {
+   "ok": true,
+   "value": 3,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "iteration callbacks receive thisArg > arrows keep their lexical this, reduce takes an initial value instead, and opaque values are only bound",
+  "code": "\n        let seen\n        ;[1].forEach(function () { seen = this }, tools.nowhere)\n        return typeof seen\n      ",
+  "result": {
+   "ok": true,
+   "value": "function",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > reads, writes, compound assignment, in, delete, literals, and destructuring share one conversion",
+  "code": "\n        const key = { toString() { return \"id\" } }\n        const o = {}\n        o[key] = 1\n        o[key] += 1\n        const literal = { [key]: \"lit\" }\n        const had = key in o\n        delete literal[key]\n        return [o.id, had, (({ [key]: v }) => v)(o), literal, o[[1, 2]] === undefined]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    2,
+    true,
+    2,
+    {},
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > reads, writes, compound assignment, in, delete, literals, and destructuring share one conversion",
+  "code": "\n        const seen = []\n        const base = { x: 1 }\n        base[{ toString() { seen.push(1); return \"\" } }] ^= 0\n        base[{ toString() { seen.push(2); return \"x\" } }]++\n        return [seen, base[\"\"], base.x]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     1,
+     2
+    ],
+    0,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > valueOf is the fallback, a symbol result stays a symbol, and conversion failures surface",
+  "code": "\n        const o = { 7: \"seven\" }\n        const sym = { toString() { return Symbol.iterator } }\n        o[sym] = 1\n        return [o[{ valueOf() { return 7 }, toString: undefined }], typeof o[Symbol.iterator], Object.keys(o)]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "seven",
+    "number",
+    [
+     "7"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > valueOf is the fallback, a symbol result stays a symbol, and conversion failures surface",
+  "code": "({})[{ toString() { throw new RangeError(\"bad key\") } }]",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: bad key"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > valueOf is the fallback, a symbol result stays a symbol, and conversion failures surface",
+  "code": "({})[{ toString() { return {} }, valueOf() { return {} } }]",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot convert object to primitive value. (line 1, col 6)",
+    "location": {
+     "line": 1,
+     "column": 6
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > valueOf is the fallback, a symbol result stays a symbol, and conversion failures surface",
+  "code": "const key = { toString() { return \"a\" } }; key in 5",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: The 'in' operator requires a data object on the right-hand side. (line 1, col 44)",
+    "location": {
+     "line": 1,
+     "column": 44
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > a nullish base throws before the key converts, as ToObject precedes ToPropertyKey",
+  "code": "const base = null; base[{ toString() { throw new RangeError(\"key evaluated\") } }]",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot read properties of null (reading '[object Object]'). (line 1, col 20)",
+    "location": {
+     "line": 1,
+     "column": 20
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > opaque values keep their built-in key form and a tool reference toString is never called",
+  "code": "\n        const o = { \"[object Function]\": 1, \"[object Promise]\": 2 }\n        return [o[() => 1], o[Promise.resolve(\"k\")]]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "computed property keys convert through the object's own toString > opaque values keep their built-in key form and a tool reference toString is never called",
+  "code": "({})[{ toString: tools.nowhere }] = 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot convert object to primitive value. (line 1, col 6)",
+    "location": {
+     "line": 1,
+     "column": 6
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > string positions use the string hint and numeric positions the number hint",
+  "code": "\n        const s = { toString() { return \"b\" } }\n        const n = { valueOf() { return 1 } }\n        return [\n          \"abc\".indexOf(s), \"abc\".lastIndexOf(s), \"abc\".includes(s), \"abc\".startsWith(s, n), \"abc\".endsWith(s, 2),\n          \"abc\".charAt(n), \"abc\".at({ valueOf() { return -1 } }), \"abc\".slice(n), \"abc\".substring(n, 2),\n          \"abc\".charCodeAt(n), \"a\".padStart({ valueOf() { return 3 } }, s), \"x\".padEnd(3, s), \"ab\".repeat({ valueOf() { return 2 } }),\n          \"a\".concat(s, { valueOf() { return 1 }, toString() { return \"T\" } }), \"b\".localeCompare(s),\n          (1.005).toFixed({ valueOf() { return 2 } }), (255).toString({ valueOf() { return 16 } }),\n          (1234.5678).toPrecision({ valueOf() { return 6 } }), (12345).toExponential({ valueOf() { return 2 } }),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    1,
+    true,
+    true,
+    true,
+    "b",
+    "c",
+    "bc",
+    "b",
+    98,
+    "bba",
+    "xbb",
+    "abab",
+    "abT",
+    0,
+    "1.00",
+    "ff",
+    "1234.57",
+    "1.23e+4"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > split, replace, match, and search convert a plain pattern but keep a RegExp as is",
+  "code": "\n        const s = { toString() { return \"b\" } }\n        return [\n          \"abc\".split(s), \"abc\".split(/b/, { valueOf() { return 1 } }), \"abc\".split(undefined, { valueOf() { return undefined } }),\n          \"abc\".replace(s, \"X\"), \"abc\".replace(/b/, { toString() { return \"R\" } }), \"abc\".replaceAll(s, s),\n          \"abc\".replace(s, (m) => m.toUpperCase()), \"abc\".match(s)[0], \"abcb\".matchAll(s).length, \"abc\".search(s),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a",
+     "c"
+    ],
+    [
+     "a"
+    ],
+    [],
+    "aXc",
+    "aRc",
+    "abc",
+    "aBc",
+    "b",
+    2,
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > split, replace, match, and search convert a plain pattern but keep a RegExp as is",
+  "code": "\"abc\".includes(/b/)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: String.includes cannot take a regular expression; use regex.test(string) or String.search instead. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > the receiver converts first, then each consumed argument, in spec order; extra arguments are untouched",
+  "code": "\n        const log = []\n        const observer = (name, string, number) => ({\n          toString() { log.push(\"toString:\" + name); return string },\n          valueOf() { log.push(\"valueOf:\" + name); return number },\n        })\n        const padded = String.prototype.padStart.call(observer(\"receiver\", {}, \"abc\"), observer(\"maxLength\", 11, {}), observer(\"fillString\", {}, \"def\"))\n        const extra = \"abc\".indexOf(\"b\", 1, { valueOf() { throw new Error(\"extra argument converted\") } })\n        return [padded, log, extra, String.prototype.trim.call({ toString() { return \" abc \" } })]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "defdefdeabc",
+    [
+     "toString:receiver",
+     "valueOf:receiver",
+     "valueOf:maxLength",
+     "toString:maxLength",
+     "toString:fillString",
+     "valueOf:fillString"
+    ],
+    1,
+    "abc"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > conversion failures surface and opaque arguments still reject",
+  "code": "\"abc\".indexOf({ toString() { throw new RangeError(\"intostr\") } })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: intostr"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > conversion failures surface and opaque arguments still reject",
+  "code": "(1).toString({ valueOf() { throw new SyntaxError(\"poison\") } })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "SyntaxError: poison"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > conversion failures surface and opaque arguments still reject",
+  "code": "(1).toFixed({ toString() { return {} }, valueOf() { return {} } })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot convert object to primitive value. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > conversion failures surface and opaque arguments still reject",
+  "code": "\"abc\".indexOf(tools.nowhere)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: String.indexOf expects argument 1 to be a data value. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "String and Number method arguments convert through ToPrimitive > conversion failures surface and opaque arguments still reject",
+  "code": "\"abc\".indexOf(Promise.resolve(\"b\"))",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: String.indexOf expects argument 1 to be a data value. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "WeakMap and WeakSet > hold program objects by identity and answer like JS for non-object keys",
+  "code": "\n        const k = {}\n        const f = () => 1\n        const wm = new WeakMap([[k, 1]])\n        const ws = new WeakSet([k])\n        return [\n          wm.set(f, \"fn\") === wm, wm.get(k), wm.get(f), wm.has({}), wm.get(1), wm.has(1), wm.delete(\"s\"),\n          wm.getOrInsert(k, 9), wm.getOrInsertComputed({}, (key) => typeof key),\n          ws.add(f) === ws, ws.has(k), ws.has(f), ws.has(1), ws.delete(k), ws.has(k),\n          String(wm), wm.size, \"clear\" in wm, Symbol.iterator in ws, JSON.stringify(wm),\n        ]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    1,
+    "fn",
+    false,
+    null,
+    false,
+    false,
+    1,
+    "object",
+    true,
+    true,
+    true,
+    false,
+    true,
+    false,
+    "[object WeakMap]",
+    null,
+    false,
+    false,
+    "{}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "WeakMap and WeakSet > reject primitive keys, plain calls, bad receivers, and cloning",
+  "code": "new WeakMap().set(1, 1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Invalid value used as weak map key: a number cannot be held weakly. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "WeakMap and WeakSet > reject primitive keys, plain calls, bad receivers, and cloning",
+  "code": "new WeakSet([1])",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Invalid value used in weak set: a number cannot be held weakly. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "WeakMap and WeakSet > reject primitive keys, plain calls, bad receivers, and cloning",
+  "code": "WeakMap()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Constructor WeakMap requires 'new'. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "WeakMap and WeakSet > reject primitive keys, plain calls, bad receivers, and cloning",
+  "code": "WeakMap.prototype.get.call(new Map(), {})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: WeakMap.prototype.get called on incompatible receiver a Map. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "WeakMap and WeakSet > reject primitive keys, plain calls, bad receivers, and cloning",
+  "code": "structuredClone(new WeakSet())",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: DataCloneError: a WeakSet could not be cloned. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]
