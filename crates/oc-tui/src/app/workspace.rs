@@ -488,7 +488,7 @@ impl App {
                         if force {
                             let mut dlg = Dialog::new(
                                 "worktree-force",
-                                Body::Confirm { title: "Delete worktree?".into(), message: "This worktree has file changes. Do you want to delete it anyway?".into(), confirm: true },
+                                Body::Confirm { title: "Delete worktree?".into(), message: "This worktree has file changes. Do you want to delete it anyway?".into(), confirm: true, label: None },
                             );
                             dlg.data = json!({ "id": project, "dir": v[2..] });
                             app.open_dialog(dlg);

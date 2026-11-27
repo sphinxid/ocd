@@ -2,7 +2,11 @@
 
 pub mod choice;
 pub mod dialog;
+#[cfg(test)]
+mod dialog_nd_tests;
 pub mod diff;
+#[cfg(test)]
+pub mod fixture;
 pub mod form;
 pub mod go_art;
 pub mod go_upsell;

@@ -79,7 +79,8 @@ impl App {
         self.prepare_image_dialog();
         if let Some(mut d) = self.dialogs.pop() {
             let kb = self.keybinds.clone();
-            let (rect, hits, c) = dialog::render(buf, area, &mut d, &t, &kb);
+            let nd = self.new_designs();
+            let (rect, hits, c) = dialog::render(buf, area, &mut d, &t, &kb, nd);
             let image = matches!(d.body, dialog::Body::Image(_));
             let dt = t.dialog();
             look = c.map(|_| {
@@ -87,7 +88,9 @@ impl App {
                     // `DialogPrompt`: `text.base`, or the disabled form-field background while busy.
                     dialog::Body::Prompt(p) if p.busy.is_some() => dt.background.formfield.disabled,
                     dialog::Body::Prompt(_) => dt.text.base,
-                    // `DialogSelect`'s search input and the integration form's typed answer.
+                    // `DialogSelect`'s search input (`text.base` under the new designs) and the integration form's
+                    // typed answer.
+                    dialog::Body::Select(_) if nd => dt.text.base,
                     _ => dt.text.formfield.focused,
                 };
                 (self.config.cursor_decscusr(), color)

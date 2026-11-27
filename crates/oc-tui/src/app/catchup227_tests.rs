@@ -385,7 +385,7 @@ fn the_confirm_dialog_toggles_with_tab_and_answers_clicks() {
         Some(Body::Confirm { confirm, .. }) => Some(*confirm),
         _ => None,
     };
-    a.open_dialog(Dialog::new("confirm", Body::Confirm { title: "Delete worktree?".into(), message: "Sure?".into(), confirm: true }));
+    a.open_dialog(Dialog::new("confirm", Body::Confirm { title: "Delete worktree?".into(), message: "Sure?".into(), confirm: true, label: None }));
     a.on_key(Stroke::key("tab"));
     assert_eq!(confirm(&a), Some(false));
     let mut s = Stroke::key("tab");
