@@ -1,0 +1,576 @@
+[
+ {
+  "test": "Object.defineProperty > data properties default to false attributes, and read-only ones refuse writes",
+  "code": "const o = {}\n        Object.defineProperty(o, \"x\", { value: 1 })\n        let refused\n        try { o.x = 2 } catch (e) { refused = e.message }\n        return [o.x, Object.keys(o), refused, Object.getOwnPropertyDescriptor(o, \"x\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    [],
+    "Cannot assign to read only property 'x'.",
+    {
+     "value": 1,
+     "writable": false,
+     "enumerable": false,
+     "configurable": false
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > accessors from descriptors, with a getter and a setter",
+  "code": "const o = { _v: 1 }\n        const r = Object.defineProperty(o, \"v\", { get() { return this._v }, set(x) { this._v = x * 2 }, enumerable: true, configurable: true })\n        o.v = 5\n        const d = Object.getOwnPropertyDescriptor(o, \"v\")\n        return [r === o, o.v, typeof d.get, typeof d.set, d.enumerable, d.configurable, Object.keys(d)]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    10,
+    "function",
+    "function",
+    true,
+    true,
+    [
+     "get",
+     "set",
+     "enumerable",
+     "configurable"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > the transitions ValidateAndApplyPropertyDescriptor allows and refuses",
+  "code": "const o = {}\n        Object.defineProperty(o, \"a\", { value: 1, configurable: true })\n        Object.defineProperty(o, \"a\", { get() { return 2 } })\n        const first = o.a\n        Object.defineProperty(o, \"a\", { value: 3 })\n        const d = Object.getOwnPropertyDescriptor(o, \"a\")\n        Object.defineProperty(o, \"b\", { value: NaN })\n        Object.defineProperty(o, \"b\", { value: NaN })\n        Object.defineProperty(o, \"c\", { get() { return 1 } })\n        const refusals = []\n        for (const [key, desc] of [[\"b\", { value: 1 }], [\"b\", { writable: true }], [\"c\", { value: 1 }], [\"c\", { get() {} }], [\"c\", { enumerable: true }], [\"c\", { configurable: true }]]) {\n          try { Object.defineProperty(o, key, desc) } catch (e) { refusals.push(e.message) }\n        }\n        Object.defineProperty(o, \"z\", { value: 0, writable: true })\n        Object.defineProperty(o, \"z\", { value: -0 })\n        return [first, o.a, d.writable, d.configurable, refusals.length, Object.is(o.z, -0), refusals[0]]",
+  "result": {
+   "ok": true,
+   "value": [
+    2,
+    3,
+    false,
+    true,
+    6,
+    true,
+    "Cannot redefine property: b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > a generic descriptor updates an accessor in place",
+  "code": "const o = { get x() { return 1 } }\n        Object.defineProperty(o, \"x\", { enumerable: false })\n        return [o.x, Object.keys(o), typeof Object.getOwnPropertyDescriptor(o, \"x\").get]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    [],
+    "function"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > descriptor objects are read through getters and the prototype chain",
+  "code": "const log = []\n        const desc = Object.create({ get value() { log.push(\"value\"); return 7 } })\n        Object.defineProperty(desc, \"enumerable\", { get() { log.push(\"enumerable\"); return true } })\n        const o = Object.defineProperty({}, \"x\", desc)\n        return [o.x, Object.keys(o), log]",
+  "result": {
+   "ok": true,
+   "value": [
+    7,
+    [
+     "x"
+    ],
+    [
+     "enumerable",
+     "value"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > bad descriptors and targets are TypeErrors",
+  "code": "Object.defineProperty({}, \"x\", 1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Property description must be an object: a number (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > bad descriptors and targets are TypeErrors",
+  "code": "Object.defineProperty({}, \"x\", { get: 1 })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Getter must be a function: a number (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > bad descriptors and targets are TypeErrors",
+  "code": "Object.defineProperty({}, \"x\", { get() {}, value: 1 })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Invalid property descriptor. Cannot both specify accessors and a value or writable attribute. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > bad descriptors and targets are TypeErrors",
+  "code": "Object.defineProperty(1, \"x\", {})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Object.defineProperty called on non-object (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > bad descriptors and targets are TypeErrors",
+  "code": "Object.defineProperty(Object.preventExtensions({}), \"x\", { value: 1 })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot define property x, object is not extensible (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.defineProperty > frozen and sealed objects keep their accessors, and setters still run",
+  "code": "const o = Object.freeze({ n: 1, get x() { return this.n }, set x(v) { log.push(v) } })\n        const log = []\n        o.x = 5\n        return [o.x, log, Object.isFrozen(o), Object.getOwnPropertyDescriptor(o, \"x\").configurable]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    [
+     5
+    ],
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "arrays > elements take only the array's shared attributes, never accessors",
+  "code": "Object.defineProperty([1], 0, { get() { return 1 } })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Accessor properties are not supported on array elements; store the value or use a plain object. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "arrays > elements take only the array's shared attributes, never accessors",
+  "code": "Object.defineProperty([1], 0, { value: 2, writable: false })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Array elements share their attributes; only writable, enumerable and configurable equal to the array's are supported. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "arrays > elements take only the array's shared attributes, never accessors",
+  "code": "const a = [1, 2]\n        Object.defineProperty(a, 0, { value: 9 })\n        Object.defineProperty(a, 2, { value: 3, writable: true, enumerable: true, configurable: true })\n        Object.defineProperty(a, \"length\", { value: 2 })\n        Object.defineProperty(a, \"extra\", { get() { return this.length } })\n        return [a, a.extra]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     9,
+     2
+    ],
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "arrays > a frozen array refuses new values and keeps its elements",
+  "code": "Object.defineProperty(Object.freeze([10]), 0, { value: 99 })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot redefine property: 0 (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "arrays > a frozen array refuses new values and keeps its elements",
+  "code": "Object.defineProperty(Object.freeze([10]), \"length\", { value: 5 })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot redefine property: length (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "arrays > a frozen array refuses new values and keeps its elements",
+  "code": "const a = Object.freeze([10]); Object.defineProperty(a, 0, { value: 10 }); return a",
+  "result": {
+   "ok": true,
+   "value": [
+    10
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "arrays > a frozen array refuses new values and keeps its elements",
+  "code": "Object.defineProperty([1], \"length\", { writable: false })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Making an array's length read-only is not supported; use Object.freeze. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reading descriptors and names > getOwnPropertyDescriptor(s) and getOwnPropertyNames",
+  "code": "function f(a, b) {}\n        return [\n          Object.getOwnPropertyNames({ b: 1, a: 2, 1: 3 }),\n          Object.getOwnPropertyNames([5]),\n          Object.getOwnPropertyNames(f),\n          Object.getOwnPropertyNames(\"ab\"),\n          Object.getOwnPropertyDescriptor(\"ab\", 1),\n          Object.getOwnPropertyDescriptor(\"ab\", \"length\"),\n          Object.getOwnPropertyDescriptor(1, \"x\"),\n          Object.keys(Object.getOwnPropertyDescriptors({ a: 1, get b() { return 2 } })),\n          Object.getOwnPropertyDescriptor([7], 0),\n        ]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "1",
+     "b",
+     "a"
+    ],
+    [
+     "0",
+     "length"
+    ],
+    [
+     "length",
+     "name"
+    ],
+    [
+     "0",
+     "1",
+     "length"
+    ],
+    {
+     "value": "b",
+     "writable": false,
+     "enumerable": true,
+     "configurable": false
+    },
+    {
+     "value": 2,
+     "writable": false,
+     "enumerable": false,
+     "configurable": false
+    },
+    null,
+    [
+     "a",
+     "b"
+    ],
+    {
+     "value": 7,
+     "writable": true,
+     "enumerable": true,
+     "configurable": true
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reading descriptors and names > getOwnPropertyDescriptor(s) and getOwnPropertyNames",
+  "code": "Object.getOwnPropertyDescriptor(null, \"x\")",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Object.getOwnPropertyDescriptor cannot convert null to an object. (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reading descriptors and names > built-in accessors show as callable companion functions",
+  "code": "const d = Object.getOwnPropertyDescriptor(Map.prototype, \"size\")\n        let refused\n        try { d.get.call({}) } catch (e) { refused = e instanceof TypeError }\n        Object.defineProperty(Map.prototype, \"size\", d)\n        const r = Object.getOwnPropertyDescriptor(RegExp.prototype, \"lastIndex\")\n        return [d.get.name, d.get.call(new Map([[1, 2]])), d.set, refused, new Map([[1, 1], [2, 2]]).size, typeof r]",
+  "result": {
+   "ok": true,
+   "value": [
+    "get size",
+    1,
+    null,
+    true,
+    2,
+    "object"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reading descriptors and names > a built-in accessor copied to a plain object, and a mixed native and program slot",
+  "code": "const o = {}\n        Object.defineProperty(o, \"flags\", Object.getOwnPropertyDescriptor(RegExp.prototype, \"flags\"))\n        const u = new URL(\"https://a.test/x\")\n        Object.defineProperty(URL.prototype, \"pathname\", { set(v) { log.push(v) } })\n        const log = []\n        u.pathname = \"/y\"\n        const d = Object.getOwnPropertyDescriptor(URL.prototype, \"pathname\")\n        return [typeof Object.getOwnPropertyDescriptor(o, \"flags\").get, u.pathname, log, typeof d.get, typeof d.set]",
+  "result": {
+   "ok": true,
+   "value": [
+    "function",
+    "/x",
+    [
+     "/y"
+    ],
+    "function",
+    "function"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reading descriptors and names > built-ins' own properties follow the usual rules",
+  "code": "Object.defineProperty(Math, \"PI\", { value: 3 })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot redefine property: PI (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reading descriptors and names > built-ins' own properties follow the usual rules",
+  "code": "function f() {}; Object.defineProperty(f, \"name\", { value: \"g\" }); return f.name",
+  "result": {
+   "ok": true,
+   "value": "g",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reading descriptors and names > built-ins' own properties follow the usual rules",
+  "code": "Object.defineProperty(String.prototype, \"first\", { get() { return this[0] }, configurable: true })\n        Object.defineProperty(Number.prototype, \"double\", { get() { return this * 2 }, set(v) { log.push(v) }, configurable: true })\n        const log = []\n        ;(5).double = 1\n        return [\"abc\".first, (4).double, log]",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    8,
+    [
+     1
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.create and defineProperties > Object.create takes descriptors, and defineProperties reads them all before defining",
+  "code": "const log = []\n        const o = Object.create({ inherited: 1 }, { a: { value: 1, enumerable: true }, b: { get() { return 2 } } })\n        const t = {}\n        try {\n          Object.defineProperties(t, { x: { value: 1 }, y: { get value() { log.push(\"y\"); return 2 } }, z: 5 })\n        } catch (e) { log.push(e.message) }\n        return [o.a, o.b, o.inherited, Object.keys(o), Object.getOwnPropertyNames(t), log]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    1,
+    [
+     "a"
+    ],
+    [],
+    [
+     "y",
+     "Property description must be an object: a number"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Object.create and defineProperties > defineProperties fails after the earlier ones are defined",
+  "code": "const t = Object.defineProperty({}, \"b\", { value: 1 })\n        try { Object.defineProperties(t, { a: { value: 1 }, b: { value: 2 } }) } catch (e) {}\n        return Object.getOwnPropertyNames(t)",
+  "result": {
+   "ok": true,
+   "value": [
+    "b",
+    "a"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "defineProperty edge cases > a refused length define leaves length alone, and a frozen array's length cannot change",
+  "code": "const a = [1]\n        let refused\n        try { Object.defineProperty(a, \"length\", { value: 5, writable: false }) } catch (e) { refused = e.message }\n        const f = Object.freeze([1])\n        let frozen\n        try { Object.defineProperty(f, \"length\", { value: 5 }) } catch (e) { frozen = e.message }\n        return [a.length, refused, f.length, frozen]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    "Making an array's length read-only is not supported; use Object.freeze.",
+    1,
+    "Cannot redefine property: length"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "defineProperty edge cases > a Uint8Array index past the end is refused",
+  "code": "Object.defineProperty(new Uint8Array(2), 5, { value: 99, writable: true, enumerable: true, configurable: true })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot redefine property: 5 (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "defineProperty edge cases > defineProperties converts its argument with ToObject",
+  "code": "Object.defineProperties({}, \"ab\")",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Property description must be an object: a string (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "defineProperty edge cases > defineProperties converts its argument with ToObject",
+  "code": "return [Object.defineProperties({ a: 1 }, 5), Object.defineProperties({ b: 2 }, true)]",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "a": 1
+    },
+    {
+     "b": 2
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "defineProperty edge cases > defineProperties converts its argument with ToObject",
+  "code": "Object.defineProperties({}, null)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot convert null to object (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "defineProperty edge cases > defining a value refuses a cycle the way an assignment does",
+  "code": "const a = {}; a.self = a",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Object assignment result contains a circular value. (line 1, col 15)",
+    "location": {
+     "line": 1,
+     "column": 15
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "defineProperty edge cases > defining a value refuses a cycle the way an assignment does",
+  "code": "const a = {}; Object.defineProperty(a, \"self\", { value: a })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Object assignment result contains a circular value. (line 1, col 15)",
+    "location": {
+     "line": 1,
+     "column": 15
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]

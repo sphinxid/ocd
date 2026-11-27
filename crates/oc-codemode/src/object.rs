@@ -30,14 +30,50 @@ pub const FROZEN: Attributes = Attributes { writable: false, enumerable: false, 
 pub type Getter = Rc<dyn Fn(&Value) -> JsResult<Value>>;
 pub type Setter = Rc<dyn Fn(&Value, Value) -> JsResult<()>>;
 
-/// One own property: a data slot or a native accessor pair.
+/// One half of an accessor: a built-in's native closure, or a program function (2.4.1, #64908: getters and setters).
+#[derive(Clone)]
+pub enum Half<F> {
+    Native(F),
+    Program(Obj),
+}
+
+impl<F> Half<F> {
+    pub fn program(&self) -> Option<&Obj> {
+        match self {
+            Half::Program(f) => Some(f),
+            Half::Native(_) => None,
+        }
+    }
+}
+
+pub type GetHalf = Half<Getter>;
+pub type SetHalf = Half<Setter>;
+
+/// One own property: a data slot or an accessor pair.
 #[derive(Clone)]
 pub enum Slot {
     Data { value: Value, attrs: Attributes },
-    Accessor { get: Option<Getter>, set: Option<Setter>, enumerable: bool, configurable: bool },
+    Accessor { get: Option<GetHalf>, set: Option<SetHalf>, enumerable: bool, configurable: bool },
 }
 
 impl Slot {
+    /// An accessor with a program half, which only program code may call (display shows `[Getter]` instead).
+    pub fn is_program_accessor(&self) -> bool {
+        matches!(self, Slot::Accessor { get, set, .. }
+            if matches!(get, Some(Half::Program(_))) || matches!(set, Some(Half::Program(_))))
+    }
+    /// How display shows a program accessor in place of its value, in Node's words.
+    pub fn accessor_label(&self) -> &'static str {
+        match self {
+            Slot::Accessor { get: Some(_), set: Some(_), .. } => "[Getter/Setter]",
+            Slot::Accessor { get: Some(_), .. } => "[Getter]",
+            _ => "[Setter]",
+        }
+    }
+    /// An accessor with no getter: it reads as undefined and never crosses to the host.
+    pub fn is_setter_only(&self) -> bool {
+        matches!(self, Slot::Accessor { get: None, .. })
+    }
     pub fn enumerable(&self) -> bool {
         match self {
             Slot::Data { attrs, .. } => attrs.enumerable,
@@ -487,7 +523,7 @@ pub fn peek(target: &Obj, key: &PropKey) -> Value {
         if let Some(slot) = own(&obj, key) {
             return match slot {
                 Slot::Data { value, .. } => value,
-                Slot::Accessor { get: Some(g), .. } => g(&Value::Object(target.clone())).unwrap_or_default(),
+                Slot::Accessor { get: Some(Half::Native(g)), .. } => g(&Value::Object(target.clone())).unwrap_or_default(),
                 Slot::Accessor { .. } => Value::Undefined,
             };
         }
@@ -532,10 +568,23 @@ fn read(slot: Slot, receiver: &Value) -> JsResult<Value> {
     match slot {
         Slot::Data { value, .. } => Ok(value),
         Slot::Accessor { get, .. } => match get {
-            Some(g) => g(receiver),
+            Some(Half::Native(g)) => g(receiver),
+            Some(Half::Program(g)) => crate::interp::eval::call_sync(&g, receiver.clone(), Vec::new()),
             None => Ok(Value::Undefined),
         },
     }
+}
+
+/// [[Get]]'s lookup: the slot `key` names on `target` or its prototype chain.
+pub fn lookup(target: &Obj, key: &PropKey) -> Option<Slot> {
+    let mut current = Some(target.clone());
+    while let Some(obj) = current {
+        if let Some(slot) = own(&obj, key) {
+            return Some(slot);
+        }
+        current = obj.proto();
+    }
+    None
 }
 
 pub fn has_own(target: &Obj, key: &PropKey) -> bool {
@@ -594,6 +643,22 @@ pub fn has_prototype(value: &Value, proto: &Obj) -> bool {
         current = obj.proto();
     }
     false
+}
+
+/// Why [[Set]] refused: an accessor with only a getter, or a read-only property.
+pub fn failed_assignment(receiver: &Value, key: &PropKey) -> crate::interp::errors::Thrown {
+    let target = match receiver {
+        Value::Object(o) => Some(o.clone()),
+        other => crate::interp::current_rt().and_then(|rt| rt.builtins.primitive_prototype(other).cloned()),
+    };
+    if let Some(Slot::Accessor { .. }) = target.and_then(|t| lookup(&t, key)) {
+        return type_error(format!(
+            "Cannot set property '{}' of {} which has only a getter.",
+            key.display(),
+            crate::interp::describe_value(receiver)
+        ));
+    }
+    type_error(format!("Cannot assign to read only property '{}'.", key.display()))
 }
 
 /// Creating a property on a non-extensible object is the one [[Set]] failure with its own message.
@@ -684,8 +749,12 @@ pub fn set(target: &Obj, key: &PropKey, value: Value) -> JsResult<bool> {
             Slot::Accessor { set: setter, .. } => {
                 return match setter {
                     None => Ok(false),
-                    Some(s) => {
+                    Some(Half::Native(s)) => {
                         s(&Value::Object(target.clone()), value)?;
+                        Ok(true)
+                    }
+                    Some(Half::Program(s)) => {
+                        crate::interp::eval::call_sync(&s, Value::Object(target.clone()), vec![value])?;
                         Ok(true)
                     }
                 };
@@ -748,12 +817,332 @@ pub fn define_data(target: &Obj, key: impl Into<PropKey>, value: Value) {
     define(target, key, value, DATA);
 }
 
+/// A built-in's native accessor.
 pub fn define_accessor(target: &Obj, key: impl Into<PropKey>, get: Option<Getter>, set: Option<Setter>) {
-    target
-        .0
-        .props
-        .borrow_mut()
-        .insert(key.into(), Slot::Accessor { get, set, enumerable: false, configurable: true });
+    target.0.props.borrow_mut().insert(
+        key.into(),
+        Slot::Accessor { get: get.map(Half::Native), set: set.map(Half::Native), enumerable: false, configurable: true },
+    );
+}
+
+/// An object literal's `get x() {}` or `set x(v) {}`: an existing accessor keeps its other half; a data property, or
+/// no property, becomes an accessor with only this half.
+pub fn define_accessor_half(target: &Obj, key: PropKey, getter: bool, f: Obj, enumerable: bool) {
+    drop_stack_trace(target, &key);
+    let mut props = target.0.props.borrow_mut();
+    let (mut get, mut set) = match props.get(&key) {
+        Some(Slot::Accessor { get, set, .. }) => (get.clone(), set.clone()),
+        _ => (None, None),
+    };
+    if getter {
+        get = Some(Half::Program(f));
+    } else {
+        set = Some(Half::Program(f));
+    }
+    props.insert(key, Slot::Accessor { get, set, enumerable, configurable: true });
+}
+
+/// A property descriptor a program gave: a field is `Some` when the descriptor has it (`"get" in desc`).
+#[derive(Clone, Default)]
+pub struct Descriptor {
+    pub value: Option<Value>,
+    pub writable: Option<bool>,
+    /// `Some(None)`: the descriptor's `get` is `undefined`.
+    pub get: Option<Option<Obj>>,
+    pub set: Option<Option<Obj>>,
+    pub enumerable: Option<bool>,
+    pub configurable: Option<bool>,
+}
+
+impl Descriptor {
+    pub fn is_accessor(&self) -> bool {
+        self.get.is_some() || self.set.is_some()
+    }
+    pub fn is_data(&self) -> bool {
+        self.value.is_some() || self.writable.is_some()
+    }
+}
+
+thread_local! {
+    /// The function a program sees for each native accessor half (`Object.getOwnPropertyDescriptor(Map.prototype,
+    /// "size").get`, named `get size`), by the closure's address, and the half each one stands for.
+    static COMPANIONS: RefCell<std::collections::HashMap<usize, Obj>> = RefCell::new(std::collections::HashMap::new());
+    static COMPANION_HALVES: RefCell<std::collections::HashMap<usize, (Option<Getter>, Option<Setter>)>> =
+        RefCell::new(std::collections::HashMap::new());
+}
+
+/// Forgets the companions of this thread's native accessors (teardown).
+pub fn clear_companions() {
+    COMPANIONS.with(|c| c.borrow_mut().clear());
+    COMPANION_HALVES.with(|c| c.borrow_mut().clear());
+}
+
+fn closure_addr<T: ?Sized>(f: &Rc<T>) -> usize {
+    Rc::as_ptr(f) as *const u8 as usize
+}
+
+/// The function a program sees for an accessor half: the program function, or a native half's companion, made the
+/// first time it is asked for.
+pub fn get_half_function(half: &GetHalf, key: &PropKey) -> Option<Obj> {
+    match half {
+        Half::Program(f) => Some(f.clone()),
+        Half::Native(g) => companion(closure_addr(g), key, true, || {
+            let g = g.clone();
+            (Some(g.clone()), None, Rc::new(move |this: &Value, _: &[Value]| g(this)) as Rc<dyn Fn(&Value, &[Value]) -> JsResult<Value>>)
+        }),
+    }
+}
+
+pub fn set_half_function(half: &SetHalf, key: &PropKey) -> Option<Obj> {
+    match half {
+        Half::Program(f) => Some(f.clone()),
+        Half::Native(s) => companion(closure_addr(s), key, false, || {
+            let s = s.clone();
+            (None, Some(s.clone()), Rc::new(move |this: &Value, args: &[Value]| {
+                s(this, args.first().cloned().unwrap_or_default())?;
+                Ok(Value::Undefined)
+            }) as Rc<dyn Fn(&Value, &[Value]) -> JsResult<Value>>)
+        }),
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn companion(
+    addr: usize,
+    key: &PropKey,
+    getter: bool,
+    make: impl FnOnce() -> (Option<Getter>, Option<Setter>, Rc<dyn Fn(&Value, &[Value]) -> JsResult<Value>>),
+) -> Option<Obj> {
+    if let Some(f) = COMPANIONS.with(|c| c.borrow().get(&addr).cloned()) {
+        return Some(f);
+    }
+    let rt = crate::interp::current_rt()?;
+    let (g, st, call) = make();
+    let label = match key {
+        PropKey::Str(s) => s.to_rust(),
+        PropKey::Sym(sym) => format!("[{}]", sym.description().trim_start_matches("Symbol(").trim_end_matches(')')),
+    };
+    let name = format!("{} {label}", if getter { "get" } else { "set" });
+    let f = crate::interp::function::native(
+        &rt.builtins.function,
+        &name,
+        if getter { 0 } else { 1 },
+        crate::interp::function::NativeFn {
+            call: Rc::new(move |_, _, this, args| crate::interp::function::NResult::Ready(call(&this, &args))),
+            construct: None,
+            callback: true,
+        },
+    );
+    COMPANIONS.with(|c| c.borrow_mut().insert(addr, f.clone()));
+    COMPANION_HALVES.with(|c| c.borrow_mut().insert(f.addr(), (g, st)));
+    Some(f)
+}
+
+/// The half to store for a function a program gives: a companion's native closure, so reads stay on the native path.
+fn get_half_of(f: Obj) -> GetHalf {
+    match COMPANION_HALVES.with(|c| c.borrow().get(&f.addr()).and_then(|(g, _)| g.clone())) {
+        Some(g) => Half::Native(g),
+        None => Half::Program(f),
+    }
+}
+
+fn set_half_of(f: Obj) -> SetHalf {
+    match COMPANION_HALVES.with(|c| c.borrow().get(&f.addr()).and_then(|(_, s)| s.clone())) {
+        Some(s) => Half::Native(s),
+        None => Half::Program(f),
+    }
+}
+
+fn same_get(a: &Option<GetHalf>, b: &Option<GetHalf>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(Half::Program(x)), Some(Half::Program(y))) => Obj::ptr_eq(x, y),
+        (Some(Half::Native(x)), Some(Half::Native(y))) => Rc::ptr_eq(x, y),
+        _ => false,
+    }
+}
+
+fn same_set(a: &Option<SetHalf>, b: &Option<SetHalf>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(Half::Program(x)), Some(Half::Program(y))) => Obj::ptr_eq(x, y),
+        (Some(Half::Native(x)), Some(Half::Native(y))) => Rc::ptr_eq(x, y),
+        _ => false,
+    }
+}
+
+/// ValidateAndApplyPropertyDescriptor for an own property: `Ok(false)` where the spec answers false (the caller
+/// throws), a TypeError for what the object model cannot hold (an accessor on an array element, elements whose
+/// attributes differ from their array's shared ones). Everything is checked before anything changes.
+pub fn define_own_property(target: &Obj, key: &PropKey, desc: &Descriptor) -> JsResult<bool> {
+    let current = own(target, key);
+    if current.is_none() && !target.extensible() {
+        return Ok(false);
+    }
+    if let Some(c) = &current
+        && !compatible(c, desc)
+    {
+        return Ok(false);
+    }
+    if is_indexed(target) {
+        if let Some(at) = parse_array_index_key(key) {
+            return define_element(target, at, current, desc);
+        }
+        if target.is_array() && is_length(key) {
+            return define_length(target, desc);
+        }
+    }
+    drop_stack_trace(target, key);
+    let slot = match &current {
+        None => created(desc),
+        Some(c) => applied(c, desc),
+    };
+    target.0.props.borrow_mut().insert(key.clone(), slot);
+    Ok(true)
+}
+
+// Whether `desc` may change a non-configurable `current` (a configurable one may change in any way).
+fn compatible(current: &Slot, desc: &Descriptor) -> bool {
+    if current.configurable() {
+        return true;
+    }
+    if desc.configurable == Some(true) {
+        return false;
+    }
+    if desc.enumerable.is_some_and(|e| e != current.enumerable()) {
+        return false;
+    }
+    match current {
+        Slot::Data { value, attrs } => {
+            if desc.is_accessor() {
+                return false;
+            }
+            if attrs.writable {
+                return true;
+            }
+            desc.writable != Some(true) && !desc.value.as_ref().is_some_and(|v| !v.same_value(value))
+        }
+        Slot::Accessor { get, set, .. } => {
+            if desc.is_data() {
+                return false;
+            }
+            desc.get.as_ref().is_none_or(|g| same_get(&g.clone().map(get_half_of), get))
+                && desc.set.as_ref().is_none_or(|s| same_set(&s.clone().map(set_half_of), set))
+        }
+    }
+}
+
+// A new property: what the descriptor gives, and false or undefined for what it leaves out.
+fn created(desc: &Descriptor) -> Slot {
+    let enumerable = desc.enumerable.unwrap_or(false);
+    let configurable = desc.configurable.unwrap_or(false);
+    if desc.is_accessor() {
+        return Slot::Accessor {
+            get: desc.get.clone().flatten().map(get_half_of),
+            set: desc.set.clone().flatten().map(set_half_of),
+            enumerable,
+            configurable,
+        };
+    }
+    Slot::Data {
+        value: desc.value.clone().unwrap_or_default(),
+        attrs: Attributes { writable: desc.writable.unwrap_or(false), enumerable, configurable },
+    }
+}
+
+// An existing property with the descriptor's fields applied: a kind change keeps only the attributes.
+fn applied(current: &Slot, desc: &Descriptor) -> Slot {
+    let enumerable = desc.enumerable.unwrap_or(current.enumerable());
+    let configurable = desc.configurable.unwrap_or(current.configurable());
+    let kept = Descriptor { enumerable: Some(enumerable), configurable: Some(configurable), ..desc.clone() };
+    match current {
+        Slot::Data { .. } if desc.is_accessor() => created(&kept),
+        Slot::Accessor { .. } if desc.is_data() => created(&kept),
+        Slot::Data { value, attrs } => Slot::Data {
+            value: desc.value.clone().unwrap_or_else(|| value.clone()),
+            attrs: Attributes { writable: desc.writable.unwrap_or(attrs.writable), enumerable, configurable },
+        },
+        Slot::Accessor { get, set, .. } => Slot::Accessor {
+            get: match &desc.get {
+                Some(g) => g.clone().map(get_half_of),
+                None => get.clone(),
+            },
+            set: match &desc.set {
+                Some(s) => s.clone().map(set_half_of),
+                None => set.clone(),
+            },
+            enumerable,
+            configurable,
+        },
+    }
+}
+
+// An array or Uint8Array element: elements have no slots, so only data with the collection's own attributes fits.
+fn define_element(target: &Obj, at: usize, current: Option<Slot>, desc: &Descriptor) -> JsResult<bool> {
+    if desc.is_accessor() {
+        return Err(type_error(
+            "Accessor properties are not supported on array elements; store the value or use a plain object.",
+        ));
+    }
+    if let Some(b) = target.bytes()
+        && at >= b.length
+    {
+        return Ok(false);
+    }
+    let shared = match target.array_data() {
+        Some(a) => a.borrow().elements,
+        None => DATA,
+    };
+    let base = match &current {
+        Some(Slot::Data { attrs, .. }) => *attrs,
+        _ => Attributes { writable: false, enumerable: false, configurable: false },
+    };
+    let writable = desc.writable.unwrap_or(base.writable);
+    let enumerable = desc.enumerable.unwrap_or(base.enumerable);
+    let configurable = desc.configurable.unwrap_or(base.configurable);
+    if writable != shared.writable || enumerable != shared.enumerable || configurable != shared.configurable {
+        return Err(type_error(
+            "Array elements share their attributes; only writable, enumerable and configurable equal to the array's are supported.",
+        ));
+    }
+    if current.is_none() || desc.value.is_some() {
+        let value = desc.value.clone().unwrap_or_default();
+        match &target.0.kind {
+            ObjKind::Bytes(b) => b.set(at, to_uint8(number_for_write(&value))),
+            ObjKind::Array(a) => {
+                if at >= crate::interp::limits::MAX_ARRAY_LENGTH {
+                    return Err(crate::interp::errors::range_error("Invalid array length"));
+                }
+                let mut data = a.borrow_mut();
+                if at >= data.items.len() {
+                    data.items.resize(at + 1, None);
+                }
+                data.items[at] = Some(value);
+            }
+            _ => {}
+        }
+    }
+    Ok(true)
+}
+
+// An array's `length`: its value, or making it read-only, which the shared element attributes can't separate.
+fn define_length(target: &Obj, desc: &Descriptor) -> JsResult<bool> {
+    if desc.is_accessor() || desc.configurable == Some(true) || desc.enumerable == Some(true) {
+        return Ok(false);
+    }
+    let writable = target.array_data().map(|a| a.borrow().elements.writable).unwrap_or(true);
+    if desc.writable == Some(false) && writable {
+        return Err(type_error("Making an array's length read-only is not supported; use Object.freeze."));
+    }
+    if let Some(value) = &desc.value {
+        let length = number_for_write(value);
+        if length != target.array_len() as f64
+            && write_element(target, &PropKey::str("length"), &Value::Number(length))? == Some(false)
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// [[Delete]]; false when the property is non-configurable.
@@ -858,14 +1247,34 @@ pub fn keys(target: &Obj) -> Vec<JsStr> {
         .collect()
 }
 
-/// Own enumerable string entries: `Object.entries` and serialization.
+/// Own enumerable string entries: `Object.entries` and serialization. Each key's enumerability is checked as it is
+/// visited, so a getter that deletes or hides a later key is seen.
 pub fn entries(target: &Obj) -> JsResult<Vec<(JsStr, Value)>> {
     let mut out = Vec::new();
-    for key in keys(target) {
-        let value = get_own(target, &PropKey::Str(key.clone()))?;
-        out.push((key, value));
+    for key in own_keys(target) {
+        let PropKey::Str(name) = &key else { continue };
+        if !enumerable(target, &key) {
+            continue;
+        }
+        let value = get_own(target, &key)?;
+        out.push((name.clone(), value));
     }
     Ok(out)
+}
+
+/// Own enumerable string entries as display shows them, never calling program getters: a program accessor reads as
+/// its label (`[Getter]`), returned as `Err(label)`.
+pub fn shown_entries(target: &Obj) -> Vec<(JsStr, Result<Value, &'static str>)> {
+    let mut out = Vec::new();
+    for name in keys(target) {
+        let key = PropKey::Str(name.clone());
+        match own(target, &key) {
+            Some(slot) if slot.is_program_accessor() => out.push((name, Err(slot.accessor_label()))),
+            Some(slot) => out.push((name, Ok(read(slot, &Value::Object(target.clone())).unwrap_or_default()))),
+            None => {}
+        }
+    }
+    out
 }
 
 pub fn record(proto: &Obj, fields: Vec<(&str, Value)>) -> Obj {
@@ -876,12 +1285,16 @@ pub fn record(proto: &Obj, fields: Vec<(&str, Value)>) -> Obj {
     target
 }
 
-/// Copies own enumerable properties with [[Set]], skipping `skip`.
+/// Copies own enumerable properties with [[Set]], skipping `skip`. Each key's enumerability is checked as it is
+/// visited, so a getter that deletes or hides a later key is seen.
 pub fn assign(target: &Obj, source: &Obj, skip: Option<&[PropKey]>) -> JsResult<()> {
-    for key in enumerable_keys(source) {
+    for key in own_keys(source) {
         if let Some(skip) = skip
             && skip.contains(&key)
         {
+            continue;
+        }
+        if !enumerable(source, &key) {
             continue;
         }
         let value = get_own(source, &key)?;

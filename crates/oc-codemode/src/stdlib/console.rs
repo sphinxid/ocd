@@ -7,7 +7,7 @@ use crate::interp::coerce::{coerce_to_string, obj_to_string};
 use crate::interp::function::{method, methods, NResult};
 use crate::interp::references::contains_opaque_reference;
 use crate::interp::Rt;
-use crate::object::{entries, get, Obj, ObjKind};
+use crate::object::{get, Obj, ObjKind};
 use crate::value::{PropKey, Value};
 
 const METHODS: [&str; 7] = ["log", "info", "debug", "warn", "error", "dir", "table"];
@@ -119,8 +119,18 @@ fn inspect(o: &Obj, item: &mut dyn FnMut(&Value, &mut HashSet<usize>) -> String,
         }
         ObjKind::Date(_) | ObjKind::RegExp(_) | ObjKind::URLSearchParams(_) | ObjKind::URL(_) => obj_to_string(o).to_rust(),
         ObjKind::Ordinary | ObjKind::Arguments => {
-            let list = entries(o).unwrap_or_default();
-            let parts: Vec<String> = list.iter().map(|(k, v)| format!("{}:{}", json_string(k), item(v, seen))).collect();
+            // A program accessor shows as `[Getter]`, `[Setter]` or `[Getter/Setter]`; display never calls it.
+            let list = crate::object::shown_entries(o);
+            let parts: Vec<String> = list
+                .iter()
+                .map(|(k, v)| {
+                    let shown = match v {
+                        Ok(v) => item(v, seen),
+                        Err(label) => label.to_string(),
+                    };
+                    format!("{}:{}", json_string(k), shown)
+                })
+                .collect();
             format!("{{{}}}", parts.join(","))
         }
     }
@@ -175,12 +185,25 @@ fn table_rows(data: &Value, columns: Option<&[String]>) -> Vec<Row> {
         Value::Object(o) if o.is_array() => {
             o.array_values().iter().enumerate().map(|(i, item)| (i.to_string(), table_values(item, columns))).collect()
         }
-        Value::Object(o) => entries(o)
-            .unwrap_or_default()
+        Value::Object(o) => crate::object::shown_entries(o)
             .into_iter()
-            .map(|(k, v)| (k.to_rust(), table_values(&v, columns)))
+            .map(|(k, v)| (k.to_rust(), table_values(&shown(v), columns)))
             .collect(),
         other => vec![("0".into(), vec![("Value".into(), other.clone())])],
+    }
+}
+
+/// A displayed value: a program accessor's label in place of its value.
+fn shown(value: Result<Value, &'static str>) -> Value {
+    value.unwrap_or_else(Value::str)
+}
+
+/// A column of a row, read through the chain without calling a program getter.
+fn shown_property(o: &crate::object::Obj, column: &str) -> Value {
+    let key = PropKey::str(column);
+    match crate::object::lookup(o, &key) {
+        Some(slot) if slot.is_program_accessor() => Value::str(slot.accessor_label()),
+        _ => get(o, &key).unwrap_or_default(),
     }
 }
 
@@ -188,8 +211,8 @@ fn table_values(value: &Value, columns: Option<&[String]>) -> Vec<(String, Value
     match value {
         Value::Object(o) if !o.is_array() => {
             let mut out: Vec<(String, Value)> = match columns {
-                Some(cols) => cols.iter().map(|c| (c.clone(), get(o, &PropKey::str(c)).unwrap_or_default())).collect(),
-                None => entries(o).unwrap_or_default().into_iter().map(|(k, v)| (k.to_rust(), v)).collect(),
+                Some(cols) => cols.iter().map(|c| (c.clone(), shown_property(o, c))).collect(),
+                None => crate::object::shown_entries(o).into_iter().map(|(k, v)| (k.to_rust(), shown(v))).collect(),
             };
             // Object.fromEntries semantics: integer-like keys first.
             let (mut ints, rest): (Vec<_>, Vec<_>) =

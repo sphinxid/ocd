@@ -1,0 +1,631 @@
+[
+ {
+  "test": "base classes > a declaration and an expression",
+  "code": "\n        class A { get1() { return 1 } }\n        const B = class { two() { return 2 } }\n        const C = class Named { self() { return Named } }\n        return [new A().get1(), new B().two(), B.name, C.name, new C().self() === C, typeof A]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    "B",
+    "Named",
+    true,
+    "function"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "base classes > the constructor sets fields on this",
+  "code": "\n        class Point { constructor(x, y) { this.x = x; this.y = y } }\n        const p = new Point(1, 2)\n        return [p.x, p.y, p, Point.length, Point.name]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    {
+     "x": 1,
+     "y": 2
+    },
+    2,
+    "Point"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "base classes > a constructor returning an object replaces the instance",
+  "code": "class A { constructor() { return { other: true } } } class B { constructor() { this.a = 1; return 5 } } return [new A(), new B()]",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "other": true
+    },
+    {
+     "a": 1
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "base classes > instance and static methods",
+  "code": "\n        class Counter {\n          constructor(n) { this.n = n }\n          inc() { this.n++; return this }\n          get_() { return this.n }\n          static make(n) { return new Counter(n) }\n          static \"quoted\"() { return this.name }\n        }\n        return [Counter.make(1).inc().inc().get_(), Counter.quoted(), Counter.prototype.inc.name, Counter.make.name]",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    "Counter",
+    "inc",
+    "make"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "base classes > methods are not enumerable",
+  "code": "\n        class A { constructor() { this.a = 1 } m() {} static s() {} }\n        const a = new A()\n        const keys = []\n        for (const k in a) keys.push(k)\n        return [Object.keys(a), JSON.stringify(a), keys, Object.keys(A), Object.keys(A.prototype),\n          Object.getOwnPropertyDescriptor(A, \"prototype\").writable, A.prototype.constructor === A]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a"
+    ],
+    "{\"a\":1}",
+    [
+     "a"
+    ],
+    [],
+    [],
+    false,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "base classes > calling a class without new throws a TypeError",
+  "code": "\n        class A {}\n        const out = []\n        try { A() } catch (e) { out.push(e instanceof TypeError, e.message) }\n        try { [1].map(A) } catch (e) { out.push(e instanceof TypeError) }\n        try { A.call({}) } catch (e) { out.push(e instanceof TypeError) }\n        return out",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "Class constructor A cannot be invoked without 'new'",
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "base classes > instanceof",
+  "code": "class A {} class B {} const a = new A(); return [a instanceof A, a instanceof B, a instanceof Object, Object.getPrototypeOf(a) === A.prototype]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    false,
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "base classes > the class binding has a TDZ",
+  "code": "\n        const out = []\n        try { new A() } catch (e) { out.push(e instanceof ReferenceError) }\n        { try { B } catch (e) { out.push(e instanceof ReferenceError) } class B {} out.push(typeof B) }\n        class A {}\n        return out",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    "function"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "base classes > the inner name is immutable and the outer binding is not",
+  "code": "\n        class A { m() { try { A = 1 } catch (e) { return e instanceof TypeError } } }\n        const m = new A().m()\n        A = 2\n        return [m, A]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > two and three levels: prototype and constructor chains, inherited methods",
+  "code": "\n        class A { constructor(x) { this.x = x } a() { return \"a\" + this.x } who() { return \"A\" } }\n        class B extends A { constructor(x, y) { super(x); this.y = y } b() { return \"b\" + this.y } who() { return \"B\" } }\n        class C extends B { constructor() { super(1, 2) } who() { return \"C\" } }\n        const c = new C()\n        return [\n          c.a(), c.b(), c.who(), c,\n          Object.getPrototypeOf(B.prototype) === A.prototype, Object.getPrototypeOf(C) === B, Object.getPrototypeOf(B) === A,\n          c.constructor === C, C.name,\n        ]",
+  "result": {
+   "ok": true,
+   "value": [
+    "a1",
+    "b2",
+    "C",
+    {
+     "x": 1,
+     "y": 2
+    },
+    true,
+    true,
+    true,
+    true,
+    "C"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > instanceof across the hierarchy",
+  "code": "\n        class A {}\n        class B extends A {}\n        class C extends B {}\n        const b = new B()\n        return [new C() instanceof A, new C() instanceof B, b instanceof C, b instanceof A, new A() instanceof B]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    false,
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > any expression evaluating to a class can be extended",
+  "code": "\n        const make = (tag) => class { tag() { return tag } }\n        class X extends make(\"t\") {}\n        const Y = class extends (0, X) { get t() { return this.tag() } }\n        return [new X().tag(), new Y().t]",
+  "result": {
+   "ok": true,
+   "value": [
+    "t",
+    "t"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > super calls with arguments and spread, and the default derived constructor",
+  "code": "\n        class A { constructor(...args) { this.args = args } }\n        class B extends A { constructor(a, ...rest) { super(a * 10, ...rest) } }\n        class C extends A {}\n        return [new B(1, 2, 3).args, new C(4, 5).args, C.length]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     10,
+     2,
+     3
+    ],
+    [
+     4,
+     5
+    ],
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > super.method() and super.x in instance and static methods and accessors",
+  "code": "\n        class A {\n          m(n) { return \"A.m\" + n + this.tag }\n          get g() { return \"A.g\" + this.tag }\n          set s(v) { this.stored = \"A:\" + v }\n          static sm() { return \"A.sm\" + this.name }\n          static get sg() { return \"A.sg\" }\n        }\n        A.prototype.data = \"proto-data\"\n        class B extends A {\n          constructor() { super(); this.tag = \"!\" }\n          m(n) { return \"B>\" + super.m(n) }\n          get g() { return \"B>\" + super.g }\n          set s(v) { super.s = v + \"+\" }\n          d() { return super.data + super[\"m\"](2) }\n          static sm() { return \"B>\" + super.sm() }\n          static get sg() { return \"B>\" + super.sg }\n        }\n        const b = new B()\n        b.s = \"v\"\n        return [b.m(1), b.g, b.stored, b.d(), B.sm(), B.sg]",
+  "result": {
+   "ok": true,
+   "value": [
+    "B>A.m1!",
+    "B>A.g!",
+    "A:v+",
+    "proto-dataA.m2!",
+    "B>A.smB",
+    "B>A.sg"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > super.x = v writes to this when there is no setter",
+  "code": "\n        class A {}\n        class B extends A { set(v) { super.x = v; return [this.x, Object.keys(this)] } }\n        return new B().set(3)",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    [
+     "x"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > super.x with ++, --, compound and logical assignment, and delete super.x",
+  "code": "\n        class A { get x() { return this._x ?? 1 } set x(v) { this._x = v } }\n        class B extends A {\n          m() {\n            const r = [super.x++, super.x, ++super.x]\n            super.x += 10\n            super[\"x\"] *= 2\n            super.x ||= 5\n            super.y ??= 7\n            const k = \"x\"\n            r.push(this.x, this.y, super[k]--, this.x)\n            try { delete super.x } catch (e) { r.push(e.name) }\n            return r\n          }\n        }\n        return new B().m()",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    3,
+    26,
+    7,
+    26,
+    25,
+    "ReferenceError"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > a field cannot be defined on a frozen instance",
+  "code": "class A { f = Object.freeze(this); g = 1 }; new A()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot define property f. (line 1, col 11)",
+    "location": {
+     "line": 1,
+     "column": 11
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > an anonymous class has its name before its static fields run",
+  "code": "const C = class { static n = this.name }; return C.n",
+  "result": {
+   "ok": true,
+   "value": "C",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > super in object literal methods and accessors",
+  "code": "\n        const o = {\n          n: 1,\n          has(k) { return super.hasOwnProperty.call(this, k) },\n          get g() { return super.toString === Object.prototype.toString },\n          [\"k\"]() { return (() => super.hasOwnProperty(\"n\"))() },\n        }\n        return [o.has(\"n\"), o.has(\"x\"), o.g, o.k()]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    false,
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > arrows capture super and this",
+  "code": "\n        class A { m() { return \"A\" + this.n } }\n        class B extends A {\n          constructor() { const early = () => this.n; super(); this.n = 1; this.early = early() }\n          m() { return [1, 2].map((i) => super.m() + i) }\n          f = () => super.m()\n        }\n        const b = new B()\n        return [b.m(), b.f(), b.early]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "A11",
+     "A12"
+    ],
+    "A1",
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > this before super() is a ReferenceError, also through an arrow",
+  "code": "class A {}; class B extends A { constructor() { this.x = 1; super() } }; new B()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Must call super constructor in derived class before accessing 'this' or returning from derived constructor (line 1, col 49)",
+    "location": {
+     "line": 1,
+     "column": 49
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > this before super() is a ReferenceError, also through an arrow",
+  "code": "class A {}; class B extends A { constructor() { const f = () => this; f(); super() } }; new B()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Must call super constructor in derived class before accessing 'this' or returning from derived constructor (line 1, col 65)",
+    "location": {
+     "line": 1,
+     "column": 65
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > this before super() is a ReferenceError, also through an arrow",
+  "code": "class A {}; class B extends A { constructor() {} }; new B()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Must call super constructor in derived class before accessing 'this' or returning from derived constructor (line 1, col 47)",
+    "location": {
+     "line": 1,
+     "column": 47
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > a second super() is a ReferenceError",
+  "code": "class A {}; class B extends A { constructor() { super(); super() } }; new B()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Super constructor may only be called once (line 1, col 58)",
+    "location": {
+     "line": 1,
+     "column": 58
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > derived fields initialize right after super() returns, after the parent's",
+  "code": "\n        const log = []\n        class A { a = log.push(\"A.field\"); constructor() { log.push(\"A.ctor\") } }\n        class B extends A {\n          b = log.push(\"B.field:\" + this.a)\n          constructor() { log.push(\"B.before\"); super(); log.push(\"B.after:\" + this.b) }\n        }\n        class C extends B { c = log.push(\"C.field\") }\n        new C()\n        return log",
+  "result": {
+   "ok": true,
+   "value": [
+    "B.before",
+    "A.field",
+    "A.ctor",
+    "B.field:2",
+    "B.after:4",
+    "C.field"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > derived constructor return rules",
+  "code": "\n        class A {}\n        class Obj extends A { constructor() { super(); return { other: true } } }\n        class NoSuper extends A { constructor() { return { early: true } } }\n        class Undef extends A { constructor() { super(); return undefined } }\n        class Parent { constructor() { return { replaced: 1 } } }\n        class Child extends Parent { constructor() { super(); this.mine = 2 } }\n        return [new Obj(), new NoSuper(), new Undef() instanceof A, new Child()]",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "other": true
+    },
+    {
+     "early": true
+    },
+    true,
+    {
+     "replaced": 1,
+     "mine": 2
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > derived constructor return rules",
+  "code": "class A {}; class B extends A { constructor() { super(); return 1 } }; new B()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Derived constructors may only return object or undefined (line 1, col 58)",
+    "location": {
+     "line": 1,
+     "column": 58
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > static inheritance",
+  "code": "\n        class A { static count = 1; static make() { return new this() } static get label() { return \"L\" + this.name } }\n        class B extends A {}\n        return [B.count, B.make() instanceof B, B.label, Object.keys(B), B.hasOwnProperty(\"count\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    true,
+    "LB",
+    [],
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > refused heritages",
+  "code": "class A extends null {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Classes extending null are not supported. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > refused heritages",
+  "code": "class A extends 1 {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Class extends value a number is not a constructor or null. (line 1, col 17)",
+    "location": {
+     "line": 1,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "class inheritance > refused heritages",
+  "code": "function f() {}; class A extends f {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Class extends value a function is not a constructor or null. (line 1, col 34)",
+    "location": {
+     "line": 1,
+     "column": 34
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > every error type can be subclassed",
+  "code": "\n        class A extends AggregateError {}\n        const a = new A([1, 2], \"agg\")\n        return [a.errors, a.message, a.name, a instanceof A, a instanceof AggregateError]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     1,
+     2
+    ],
+    "agg",
+    "AggregateError",
+    true,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > multi-level, cause, and name from a field or a getter",
+  "code": "\n        class A extends TypeError { name = \"NotFound\" }\n        class B extends A { constructor(m, cause) { super(m, { cause }); this.code = 404 } }\n        class G extends RangeError { get name() { return \"Got\" } }\n        const b = new B(\"x\", \"why\")\n        return [b instanceof A, b instanceof TypeError, b.name, b.toString(), b.code, b.cause, b.hasOwnProperty(\"cause\"),\n          new A(\"y\").hasOwnProperty(\"cause\"), String(new G(\"z\")), new B().message]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    "NotFound",
+    "NotFound: x",
+    404,
+    "why",
+    true,
+    false,
+    "Got: z",
+    ""
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > caught, uncaught, returned, logged and stringified like plain errors",
+  "code": "class E extends Error {}; try { throw new E(\"m\") } catch (e) { return [e instanceof E, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "m"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > caught, uncaught, returned, logged and stringified like plain errors",
+  "code": "class E extends TypeError { name = \"NotFound\" }; throw new E(\"gone\")",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "NotFound: gone"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > caught, uncaught, returned, logged and stringified like plain errors",
+  "code": "throw new TypeError(\"gone\")",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: gone"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > caught, uncaught, returned, logged and stringified like plain errors",
+  "code": "class E extends Error { name = \"E\" }; return new E(\"x\")",
+  "result": {
+   "ok": true,
+   "value": {
+    "name": "E",
+    "message": "x"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > caught, uncaught, returned, logged and stringified like plain errors",
+  "code": "return new Error(\"x\")",
+  "result": {
+   "ok": true,
+   "value": {
+    "name": "Error",
+    "message": "x"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > caught, uncaught, returned, logged and stringified like plain errors",
+  "code": "class E extends Error {}; return [JSON.stringify(new E(\"x\")), JSON.stringify(new Error(\"x\"))]",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"name\":\"Error\",\"message\":\"x\"}",
+    "{\"name\":\"Error\",\"message\":\"x\"}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "classes extending Error > caught, uncaught, returned, logged and stringified like plain errors",
+  "code": "class E extends Error { name = \"E\" }; console.log(new E(\"hi\"))",
+  "result": {
+   "ok": true,
+   "value": null,
+   "logs": [
+    "E: hi"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "showing and copying class values > JSON.stringify and structuredClone keep own enumerable fields and drop the prototype",
+  "code": "\n        class A { x = 1; get g() { return 2 } m() {} }\n        const c = structuredClone(new A())\n        return [JSON.stringify(new A()), c, Object.getPrototypeOf(c) === Object.prototype, c instanceof A, typeof c.m]",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"x\":1}",
+    {
+     "x": 1
+    },
+    true,
+    false,
+    "undefined"
+   ],
+   "toolCalls": []
+  }
+ }
+]

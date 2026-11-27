@@ -3291,7 +3291,8 @@
     }
    },
    "toolCalls": []
-  }
+  },
+  "gap": "2.4.1 changed this: Object.getOwnPropertyNames (#64908); cases-2.4.1.json has its result"
  },
  {
   "code": "return Object.getOwnPropertyNames(Buffer).sort()",
@@ -3306,7 +3307,8 @@
     }
    },
    "toolCalls": []
-  }
+  },
+  "gap": "2.4.1 changed this: Object.getOwnPropertyNames (#64908); cases-2.4.1.json has its result"
  },
  {
   "code": "try { return Buffer.from(\"héllo\").toString() } catch (e) { return [e.name, e.message, e.code] }",

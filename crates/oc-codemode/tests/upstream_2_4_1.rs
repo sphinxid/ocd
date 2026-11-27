@@ -91,10 +91,10 @@ fn runtime() -> CodeMode {
     .unwrap()
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn results_match_upstream_2_4_1() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cases-2.4.1.json");
-    let cases: Vec<Json> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+/// Runs every case of `file` (under `tests/fixtures`); a case's `gap` note says it must still differ.
+async fn check(file: &str) {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(file);
+    let cases: Vec<Json> = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let runtime = runtime();
     let only = std::env::var("CASES_ONLY").ok();
     let (mut failures, mut stale) = (Vec::new(), Vec::new());
@@ -114,7 +114,34 @@ async fn results_match_upstream_2_4_1() {
         }
     }
     let report = failures.join("\n\n");
-    std::fs::write(std::env::temp_dir().join("oc-codemode-cases-2.4.1.txt"), &report).ok();
-    assert!(stale.is_empty(), "these cases now match; delete their gap notes:\n{}", stale.join("\n\n"));
-    assert!(failures.is_empty(), "{} of {} differ:\n\n{report}", failures.len(), cases.len());
+    let name = file.replace('/', "-");
+    std::fs::write(std::env::temp_dir().join(format!("oc-codemode-{name}.txt")), &report).ok();
+    assert!(stale.is_empty(), "{file}: these cases now match; delete their gap notes:\n{}", stale.join("\n\n"));
+    assert!(failures.is_empty(), "{file}: {} of {} differ:\n\n{report}", failures.len(), cases.len());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn results_match_upstream_2_4_1() {
+    check("cases-2.4.1.json").await;
+}
+
+/// psychoscript's own language tests (upstream `packages/codemode/test/*.test.ts` before the move, #65011): every
+/// program they run, with the result 2.4.1's Code Mode gives (`tests/fixtures/language-2.4.1/<test>.json`, collected
+/// by `tests/recorder/extract-programs.ts` and recorded by `tests/recorder/cases-2.4.1.ts`).
+macro_rules! language_tests {
+    ($($name:ident => $file:literal),* $(,)?) => {
+        $(
+            #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+            async fn $name() {
+                check(concat!("language-2.4.1/", $file, ".json")).await;
+            }
+        )*
+    };
+}
+
+language_tests! {
+    accessors => "accessors",
+    descriptors => "descriptors",
+    errors => "errors",
+    buffer => "buffer",
 }

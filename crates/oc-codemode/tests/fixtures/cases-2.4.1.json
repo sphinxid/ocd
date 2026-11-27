@@ -895,8 +895,7 @@
    "ok": true,
    "value": "def",
    "toolCalls": []
-  },
-  "gap": "property descriptors (getters and setters batch)"
+  }
  },
  {
   "code": "function named() { return new Error(\"n\") } const e = named(); console.log(e.stack); return 1",
@@ -942,8 +941,7 @@
     "stack"
    ],
    "toolCalls": []
-  },
-  "gap": "property descriptors (getters and setters batch)"
+  }
  },
  {
   "code": "return [Buffer.isBuffer(Buffer.from(\"a\")), Buffer.isBuffer(new Uint8Array(1)), Buffer.isBuffer(\"a\"), Buffer.isBuffer(), Buffer.isBuffer(Buffer.from(\"ab\").subarray(1)), Buffer.isBuffer(Buffer.from(\"ab\").slice(1)), Buffer.isBuffer(Buffer.from(\"ab\").map((x) => x))]",
@@ -1091,6 +1089,1017 @@
     "Error: ENOENT: no such file or directory, open 'x'",
     "Error: open failed"
    ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let n = 0\nconst o = { a: 1, get b() { n++; return { c: [n] } }, set d(v) {}, get e() { n++ } }\nconst r = host.echo(o, [o.b])\nreturn [n, r, Object.keys(r[0])]",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'host'. (line 3, col 11)",
+    "location": {
+     "line": 3,
+     "column": 11
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let n = 0\nconst o = { a: 1, get b() { n++; return { c: [n] } }, set d(v) {}, get e() { n++ } }\nconst r = await tools.echo({ o, list: [o.b] })\nreturn [n, r]",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    {
+     "o": {
+      "a": 1,
+      "b": {
+       "c": [
+        2
+       ]
+      }
+     },
+     "list": [
+      {
+       "c": [
+        1
+       ]
+      }
+     ]
+    }
+   ],
+   "toolCalls": [
+    {
+     "name": "echo"
+    }
+   ]
+  }
+ },
+ {
+  "code": "let n = 0\nconst o = { a: 1, get b() { n++; return [n] } }\nconst r = await host.echoAsync(o)\nreturn [n, r]",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'host'. (line 3, col 17)",
+    "location": {
+     "line": 3,
+     "column": 17
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get boom() { throw new Error(\"getter failed\") } }\ntry { host.echo(o) } catch (e) { return [e.message, e.stack] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "Unknown identifier 'host'.",
+    "ReferenceError: Unknown identifier 'host'.\n    at <program>:2:7"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get boom() { throw new Error(\"getter failed\") } }\ntry { await host.echoAsync(o) } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "Unknown identifier 'host'.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get boom() { throw new Error(\"getter failed\") } }\ntry { await tools.echo(o) } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "getter failed",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get self() { return o } }\ntry { host.echo(o) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "ReferenceError",
+    "Unknown identifier 'host'."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get f() { return () => 1 }, x: 1 }\nreturn host.echo(o)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'host'. (line 2, col 8)",
+    "location": {
+     "line": 2,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get p() { return Promise.resolve(5) }, x: 1 }\nreturn host.echo(o)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'host'. (line 2, col 8)",
+    "location": {
+     "line": 2,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let n = 0\nconst o = { a: 1, get b() { return ++n }, set c(v) {}, get d() { return { e: 2 } } }\nreturn [JSON.stringify(o), JSON.stringify([o]), n]",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"a\":1,\"b\":1,\"d\":{\"e\":2}}",
+    "[{\"a\":1,\"b\":2,\"d\":{\"e\":2}}]",
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let n = 0\nconst o = { a: 1, get b() { return ++n }, set c(v) {} }\nconst c = structuredClone(o)\nreturn [c, Object.keys(c), n, Object.getOwnPropertyDescriptor(c, \"b\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "a": 1,
+     "b": 1
+    },
+    [
+     "a",
+     "b",
+     "c"
+    ],
+    1,
+    {
+     "value": 1,
+     "writable": true,
+     "enumerable": true,
+     "configurable": true
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let n = 0\nreturn { a: 1, get b() { return ++n }, set c(v) {}, get d() { return n } }",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": 1,
+    "b": 1,
+    "d": 1
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const log = []\nconst o = { get a() { log.push(\"a\"); delete this.b; return 1 }, b: 2, get c() { log.push(\"c\"); return 3 } }\nreturn [Object.entries(o), Object.values({ ...o }), log]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     [
+      "a",
+      1
+     ],
+     [
+      "c",
+      3
+     ]
+    ],
+    [
+     1,
+     3
+    ],
+    [
+     "a",
+     "c",
+     "a",
+     "c"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get a() { Object.defineProperty(this, \"b\", { enumerable: false }); return 1 }, b: 2, c: 3 }\nreturn [Object.entries(o), { ...o }]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     [
+      "a",
+      1
+     ],
+     [
+      "c",
+      3
+     ]
+    ],
+    {
+     "a": 1,
+     "c": 3
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const t = { set x(v) { this.seen = v } }\nObject.assign(t, { x: 5 }, { get y() { return 6 } })\nreturn [t.seen, t.y, Object.keys(t)]",
+  "result": {
+   "ok": true,
+   "value": [
+    5,
+    6,
+    [
+     "x",
+     "seen",
+     "y"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const t = { get x() { return 1 } }\ntry { Object.assign(t, { x: 2 }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Cannot set property 'x' of a data object which has only a getter."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get x() { return 1 } }\ntry { o.x = 2 } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Cannot set property 'x' of a data object which has only a getter."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = Object.freeze({ a: 1 })\ntry { o.a = 2 } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Cannot assign to read only property 'a'."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const p = { get x() { return 1 } }; const c = Object.create(p)\ntry { c.x = 2 } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Cannot set property 'x' of a data object which has only a getter."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let seen; const p = { set x(v) { seen = [this === c, v] } }; const c = Object.create(p)\nc.x = 2\nreturn [seen, Object.keys(c)]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     true,
+     2
+    ],
+    []
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { _v: 1, get v() { return this._v }, set v(x) { this._v = x } }\no.v += 2; o.v++; ++o.v; o.v ||= 9; o.v &&= o.v * 2; o.v ??= 0\nreturn [o.v, o._v]",
+  "result": {
+   "ok": true,
+   "value": [
+    10,
+    10
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get a() { return 1 }, get b() { return [2, 3] } }\nconst { a, b: [x, y], ...rest } = o\nconst [p = o.a] = []\nreturn [a, x, y, rest, p]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    3,
+    {},
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const it = { i: 0, get next() { return () => ({ get done() { return it.i > 2 }, get value() { return it.i++ } }) } }\nconst iterable = { get [Symbol.iterator]() { return () => it } }\nreturn [...iterable]",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let reads = 0\nconst thenable = { get then() { reads++; return (resolve) => resolve(42) } }\nconst v = await thenable\nreturn [v, reads]",
+  "result": {
+   "ok": true,
+   "value": [
+    42,
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const order = []\nconst thenable = { get then() { order.push(\"then read\"); return (resolve) => { order.push(\"then called\"); resolve(1) } } }\nPromise.resolve().then(() => order.push(\"tick 1\")).then(() => order.push(\"tick 2\")).then(() => order.push(\"tick 3\"))\nconst p = Promise.resolve(thenable)\nawait p\norder.push(\"awaited\")\nreturn order",
+  "result": {
+   "ok": true,
+   "value": [
+    "tick 1",
+    "then read",
+    "then called",
+    "tick 2",
+    "awaited"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const order = []\nconst thenable = { then(resolve) { order.push(\"then called\"); resolve(1) } }\nPromise.resolve().then(() => order.push(\"tick 1\")).then(() => order.push(\"tick 2\")).then(() => order.push(\"tick 3\"))\nawait Promise.resolve(thenable)\norder.push(\"awaited\")\nreturn order",
+  "result": {
+   "ok": true,
+   "value": [
+    "tick 1",
+    "then called",
+    "tick 2",
+    "awaited"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "function F() {} \nconst proto = {}\nconst fake = { get prototype() { return proto } }\nconst o = Object.create(proto)\nreturn o instanceof F",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: The right-hand side of 'instanceof' has no 'prototype' object. (line 5, col 8)",
+    "location": {
+     "line": 5,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { a: 1 }; Object.defineProperty(o, \"b\", { get() { return 2 }, enumerable: true })\nconst names = Object.getOwnPropertyNames(o); const ds = Object.getOwnPropertyDescriptors(o)\nreturn [names, Object.keys(ds), ds.a, typeof ds.b.get, ds.b.set, ds.b.enumerable, ds.b.configurable]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a",
+     "b"
+    ],
+    [
+     "a",
+     "b"
+    ],
+    {
+     "value": 1,
+     "writable": true,
+     "enumerable": true,
+     "configurable": true
+    },
+    "function",
+    null,
+    true,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperty(1, \"a\", {}) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Object.defineProperty called on non-object"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperty({}, \"a\", 1) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Property description must be an object: a number"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperty({}, \"a\", { get: 1 }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Getter must be a function: a number"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperty({}, \"a\", { set: {} }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Setter must be a function: a data object"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperty({}, \"a\", { get() {}, value: 1 }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = Object.defineProperty({}, \"a\", { value: 1 })\ntry { Object.defineProperty(o, \"a\", { value: 2 }) } catch (e) { return [e.name, e.message, Object.getOwnPropertyDescriptor(o, \"a\")] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Cannot redefine property: a",
+    {
+     "value": 1,
+     "writable": false,
+     "enumerable": false,
+     "configurable": false
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = Object.preventExtensions({})\ntry { Object.defineProperty(o, \"a\", { value: 2 }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Cannot define property a, object is not extensible"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperty([], 0, { get() {} }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Accessor properties are not supported on array elements; store the value or use a plain object."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperty([1], 0, { value: 2, writable: false }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Array elements share their attributes; only writable, enumerable and configurable equal to the array's are supported."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const a = [1, 2]; Object.defineProperty(a, 0, { value: 5 }); Object.defineProperty(a, \"length\", { value: 1 }); return a",
+  "result": {
+   "ok": true,
+   "value": [
+    5
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperty([1], \"length\", { writable: false }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Making an array's length read-only is not supported; use Object.freeze."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.getOwnPropertyDescriptor(null, \"a\") } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Object.getOwnPropertyDescriptor cannot convert null to an object."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.getOwnPropertyNames(undefined) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Object.getOwnPropertyNames cannot convert undefined to an object."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [Object.getOwnPropertyNames(\"ab\"), Object.getOwnPropertyDescriptor(\"ab\", 1), Object.getOwnPropertyDescriptor(\"ab\", \"length\"), Object.getOwnPropertyDescriptor(5, \"x\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "0",
+     "1",
+     "length"
+    ],
+    {
+     "value": "b",
+     "writable": false,
+     "enumerable": true,
+     "configurable": false
+    },
+    {
+     "value": 2,
+     "writable": false,
+     "enumerable": false,
+     "configurable": false
+    },
+    null
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Object.getOwnPropertyNames(tools)",
+  "result": {
+   "ok": true,
+   "value": [
+    "echo",
+    "shop"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.getOwnPropertyDescriptor(tools, \"echo\") } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Object.getOwnPropertyDescriptor cannot read tools: it is a namespace of host functions, not an object."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = Object.create({ inherited: 1 }, { a: { value: 1, enumerable: true }, b: { get() { return 2 } } })\nreturn [o.a, o.b, Object.keys(o), o.inherited]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    [
+     "a"
+    ],
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.create({}, null) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Cannot convert null to object"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { Object.defineProperties({}, { a: { value: 1 }, b: 5 }) } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "Property description must be an object: a number"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = Object.getOwnPropertyDescriptor(URL.prototype, \"href\"); return [d.get.name, d.set.name, d.get.length, d.set.length, typeof d.set]",
+  "result": {
+   "ok": true,
+   "value": [
+    "get href",
+    "set href",
+    0,
+    1,
+    "function"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = {}; Object.defineProperty(o, \"size\", Object.getOwnPropertyDescriptor(Map.prototype, \"size\")); try { return o.size } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "Map.prototype.size called on incompatible receiver a data object.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const m = new Map([[1, 2]]); Object.defineProperty(Map.prototype, \"size\", { get() { return 99 }, configurable: true }); const r = m.size; return r",
+  "result": {
+   "ok": true,
+   "value": 99,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = Object.getOwnPropertyDescriptor(Map.prototype, \"size\"); Object.defineProperty(Map.prototype, \"size\", { set(v) {} }); const d2 = Object.getOwnPropertyDescriptor(Map.prototype, \"size\"); return [d2.get === d.get, typeof d2.set, new Map([[1,1]]).size]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "function",
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { (function () {}).caller } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "try { (function () {}).arguments = 1 } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError",
+    "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return [\"caller\" in Function.prototype, Object.getOwnPropertyNames(Function.prototype)]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    [
+     "length",
+     "name",
+     "call",
+     "apply",
+     "bind",
+     "caller",
+     "arguments",
+     "constructor"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const f = function named(a, b, c) {}; const b = f.bind(null, 1); return [b.name, b.length]",
+  "result": {
+   "ok": true,
+   "value": [
+    "bound named",
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const f = Object.defineProperty(function (a, b) {}, \"name\", { get() { return 5 } }); return f.bind(null).name",
+  "result": {
+   "ok": true,
+   "value": "bound ",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { m() { return \"m\" } }; console.log({ get a() { return 1 }, b: o }); return 1",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "logs": [
+    "{\"a\":[Getter],\"b\":{\"m\":[opaque reference]}}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "console.table({ r: { get a() { return 1 }, b: 2 } }); return 0",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "logs": [
+    "(index)\ta\tb\nr\t[Getter]\t2"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = Object.create({ get x() { return 1 } }); console.table([o], [\"x\"]); return 0",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "logs": [
+    "(index)\tx\n0\t[Getter]"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let n = 0; const o = { get x() { n++; return 1 } }; const s = String(o); const k = Object.keys(o); const h = \"x\" in o; for (const p in o) {}; return [n, k, h]",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    [
+     "x"
+    ],
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get length() { return 2 }, 0: \"a\", get 1() { return \"b\" } }; return Array.from(o)",
+  "result": {
+   "ok": true,
+   "value": [
+    "a",
+    "b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = { get x() { return this.x } }; try { return o.x } catch (e) { return [e.name, e.message] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError",
+    "Maximum call stack size exceeded"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const o = {}; Object.defineProperty(o, \"x\", { get() { return new Error(\"in getter\").stack } }); return o.x",
+  "result": {
+   "ok": true,
+   "value": "Error: in getter\n    at get (<program>:1:62)\n    at <program>:1:104",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let calls = []; const o = { get a() { calls.push(\"a\"); return 1 }, set a(v) { calls.push(\"set \" + v) } }; const { a, ...rest } = o; o.a = a + 1; return [calls, rest]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a",
+     "set 2"
+    ],
+    {}
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const p = Object.defineProperty(Object.create(null), \"v\", { get() { return 1 }, enumerable: true }); return [p.v, Object.keys(p), JSON.stringify(p)]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    [
+     "v"
+    ],
+    "{\"v\":1}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const sym = { get [Symbol.iterator]() { return function* () { yield 1; yield 2 } } }; return Array.from(sym)",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Object.getOwnPropertyNames(Buffer.prototype).sort()",
+  "result": {
+   "ok": true,
+   "value": [
+    "compare",
+    "constructor",
+    "copy",
+    "equals",
+    "fill",
+    "includes",
+    "indexOf",
+    "lastIndexOf",
+    "readDoubleBE",
+    "readDoubleLE",
+    "readFloatBE",
+    "readFloatLE",
+    "readInt16BE",
+    "readInt16LE",
+    "readInt32BE",
+    "readInt32LE",
+    "readInt8",
+    "readIntBE",
+    "readIntLE",
+    "readUInt16BE",
+    "readUInt16LE",
+    "readUInt32BE",
+    "readUInt32LE",
+    "readUInt8",
+    "readUIntBE",
+    "readUIntLE",
+    "readUint16BE",
+    "readUint16LE",
+    "readUint32BE",
+    "readUint32LE",
+    "readUint8",
+    "slice",
+    "subarray",
+    "swap16",
+    "swap32",
+    "swap64",
+    "toJSON",
+    "toString",
+    "write",
+    "writeDoubleBE",
+    "writeDoubleLE",
+    "writeFloatBE",
+    "writeFloatLE",
+    "writeInt16BE",
+    "writeInt16LE",
+    "writeInt32BE",
+    "writeInt32LE",
+    "writeInt8",
+    "writeIntBE",
+    "writeIntLE",
+    "writeUInt16BE",
+    "writeUInt16LE",
+    "writeUInt32BE",
+    "writeUInt32LE",
+    "writeUInt8",
+    "writeUIntBE",
+    "writeUIntLE",
+    "writeUint16BE",
+    "writeUint16LE",
+    "writeUint32BE",
+    "writeUint32LE",
+    "writeUint8"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return Object.getOwnPropertyNames(Buffer).sort()",
+  "result": {
+   "ok": true,
+   "value": [
+    "BYTES_PER_ELEMENT",
+    "alloc",
+    "allocUnsafe",
+    "allocUnsafeSlow",
+    "byteLength",
+    "compare",
+    "concat",
+    "from",
+    "isBuffer",
+    "isEncoding",
+    "length",
+    "name",
+    "poolSize",
+    "prototype"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const order = []\nconst like = { get size() { order.push(\"size\"); return 1 }, get has() { order.push(\"has\"); return () => true }, get keys() { order.push(\"keys\"); return () => [5].values() } }\nconst s = new Set([1, 2])\nreturn [[...s.union(like)], order, [...s.intersection(like)], s.isSubsetOf(like), s.isSupersetOf(like), s.isDisjointFrom(like)]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     1,
+     2,
+     5
+    ],
+    [
+     "size",
+     "has",
+     "keys",
+     "size",
+     "has",
+     "keys",
+     "size",
+     "has",
+     "keys",
+     "size",
+     "has",
+     "keys",
+     "size",
+     "has",
+     "keys"
+    ],
+    [],
+    false,
+    false,
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "Object.create(null, { a: { value: 1 } })",
+  "result": {
+   "ok": true,
+   "value": {},
    "toolCalls": []
   }
  }

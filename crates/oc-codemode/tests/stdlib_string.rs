@@ -2802,12 +2802,12 @@ return pats.map(p => { try { const r = new RegExp(p, "v"); return r.test("a") } 
         (
             "probe s2.txt",
             r#"return [RegExp.name, RegExp.length, RegExp.escape.length, RegExp.prototype.exec.length, RegExp.prototype.test.length, RegExp.prototype.toString.length, Object.getOwnPropertyNames(RegExp.prototype)]"#,
-            r#"{"ok":false,"error":{"kind":"ExecutionFailure","message":"TypeError: Object.getOwnPropertyNames is not a function. (line 1, col 153)","location":{"line":1,"column":153}},"toolCalls":[]}"#,
+            r#"{"ok":true,"value":["RegExp",2,1,1,1,0,["constructor","source","flags","lastIndex","hasIndices","global","ignoreCase","multiline","sticky","unicode","unicodeSets","dotAll","exec","test","toString"]],"toolCalls":[]}"#,
         ),
         (
             "probe s2.txt",
             r#"return [String.name, String.length, String.fromCharCode.length, String.raw.length, Object.getOwnPropertyNames(String.prototype), "".replace.length, "".split.length, "".padStart.length, "".concat.length, "".at.length, ""[Symbol.iterator].name]"#,
-            r#"{"ok":false,"error":{"kind":"ExecutionFailure","message":"TypeError: Object.getOwnPropertyNames is not a function. (line 1, col 84)","location":{"line":1,"column":84}},"toolCalls":[]}"#,
+            r#"{"ok":true,"value":["String",1,1,1,["constructor","toString","valueOf","toLowerCase","toUpperCase","toLocaleLowerCase","toLocaleUpperCase","trim","trimStart","trimLeft","trimEnd","trimRight","localeCompare","normalize","split","slice","includes","startsWith","endsWith","indexOf","lastIndexOf","replace","replaceAll","match","matchAll","search","repeat","padStart","padEnd","charAt","at","substring","substr","isWellFormed","toWellFormed","charCodeAt","codePointAt","concat"],2,2,1,1,1,"[Symbol.iterator]"],"toolCalls":[]}"#,
         ),
         (
             "probe s2.txt",
@@ -3187,7 +3187,7 @@ return pats.map(p => { try { const r = new RegExp(p); return [r.test("Ab"), r.te
         (
             "probe s5.txt",
             r#"const re = /a/g; const s = structuredClone ? 1 : 0; return [re.exec.name, typeof re.exec, Object.getOwnPropertyDescriptor(RegExp.prototype, "flags").get.name]"#,
-            r#"{"ok":false,"error":{"kind":"ExecutionFailure","message":"TypeError: Object.getOwnPropertyDescriptor is not a function. (line 1, col 91)","location":{"line":1,"column":91}},"toolCalls":[]}"#,
+            r#"{"ok":true,"value":["exec","function","get flags"],"toolCalls":[]}"#,
         ),
         (
             "probe s6.txt",

@@ -8,7 +8,7 @@
 use super::Rt;
 use super::errors::{ErrorType, JsResult, error_at};
 use crate::ast::Loc;
-use crate::object::{DATA, Obj, ObjKind, define, entries, get};
+use crate::object::{DATA, Obj, ObjKind, define, get};
 use crate::value::Value;
 
 /// `node:fs` names the same module as `fs`.
@@ -95,7 +95,9 @@ pub fn namespace(rt: &Rt, specifier: &str, site: Option<Loc>) -> JsResult<Obj> {
     }
     let namespace = Obj::new(None, ObjKind::Ordinary);
     if let Value::Object(source) = &module {
-        for (key, value) in entries(source)? {
+        // The module's enumerable keys with their values as display reads them: a program getter is not run.
+        for key in crate::object::keys(source) {
+            let value = crate::object::peek(source, &crate::value::PropKey::Str(key.clone()));
             define(&namespace, key, value, DATA);
         }
     }

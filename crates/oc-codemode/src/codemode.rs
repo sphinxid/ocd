@@ -317,6 +317,7 @@ impl CodeMode {
         }
         set_rt(None);
         crate::interp::teardown_envs();
+        crate::object::clear_companions();
         crate::object::teardown_registry();
         match self.limits.max_output_bytes {
             Some(max) => bound_output(result, max),

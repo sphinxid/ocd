@@ -36,8 +36,9 @@ pub fn create_traced_error(prototype: &Obj, message: Option<&str>, trace: String
 
 /// Error.prototype.toString as diagnostics show it.
 pub fn error_to_string(value: &Obj) -> String {
-    let name = get_str(value, "name").unwrap_or_default();
-    let message = get_str(value, "message").unwrap_or_default();
+    // Display never runs program code: a program getter reads as undefined.
+    let name = crate::object::peek(value, &PropKey::str("name"));
+    let message = crate::object::peek(value, &PropKey::str("message"));
     let shown_name = if name.is_undefined() { "Error".to_string() } else { coerce_to_string(&name).to_rust() };
     let shown_message = if message.is_undefined() { String::new() } else { coerce_to_string(&message).to_rust() };
     super::coerce::error_text(&shown_name, &shown_message)
@@ -161,7 +162,16 @@ pub fn error_global(rt: &Rt, error_type: ErrorType) -> Value {
             &b.function,
             &prototype,
             vec![method("toString", 0, |_, _, this, _| {
-                NResult::Ready(receiver(&this, "Error.prototype.toString", |_| true).map(|o| Value::str(&error_to_string(&o))))
+                NResult::Ready(receiver(&this, "Error.prototype.toString", |_| true).and_then(|o| {
+                    // `name` and `message` through their getters (2.4.1).
+                    let name = get_str(&o, "name")?;
+                    let message = get_str(&o, "message")?;
+                    let shown_name =
+                        if name.is_undefined() { "Error".to_string() } else { coerce_to_string(&name).to_rust() };
+                    let shown_message =
+                        if message.is_undefined() { String::new() } else { coerce_to_string(&message).to_rust() };
+                    Ok(Value::str(&super::coerce::error_text(&shown_name, &shown_message)))
+                }))
             })],
         );
         methods(
@@ -235,14 +245,23 @@ fn function_global(rt: &Rt) -> Value {
                     Err(e) => return NResult::err(e),
                 };
                 let bound: Vec<Value> = args.get(1..).map(|s| s.to_vec()).unwrap_or_default();
-                let name = format!("bound {}", coerce_to_string(&get_str(&f, "name").unwrap_or_default()));
-                let length = f.func().map(|k| k.length).unwrap_or(0).saturating_sub(bound.len());
+                // The target's `name` and `length` as they read now, getters included (2.4.1, #64908).
+                let read = |key: &str| get_str(&f, key);
+                let (name, length) = match (read("name"), read("length")) {
+                    (Ok(name), Ok(length)) => (name, length),
+                    (Err(e), _) | (_, Err(e)) => return NResult::err(e),
+                };
+                let name = format!("bound {}", if let Value::String(s) = &name { s.to_rust() } else { String::new() });
+                let length = match length {
+                    Value::Number(n) if !n.is_nan() => (n.trunc() - bound.len() as f64).max(0.0),
+                    _ => 0.0,
+                };
                 let this_arg = arg(&args, 0);
                 let fv = Value::Object(f);
                 let bound_fn = native(
                     &rt.builtins.function,
                     &name,
-                    length,
+                    0,
                     NativeFn {
                         call: Rc::new(move |rt, site, _, rest| {
                             let (rt, fv, this_arg) = (rt.clone(), fv.clone(), this_arg.clone());
@@ -254,10 +273,23 @@ fn function_global(rt: &Rt) -> Value {
                         callback: true,
                     },
                 );
+                define(&bound_fn, "length", Value::Number(length), crate::object::READONLY);
                 NResult::ok(Value::Object(bound_fn))
             }),
         ],
     );
+    // 2.4.1 (#64965): strict functions' restricted `caller` and `arguments`, accessors that throw.
+    let restricted = || -> JsResult<Value> {
+        Err(type_error("'caller' and 'arguments' are restricted function properties and cannot be accessed in this context."))
+    };
+    for key in ["caller", "arguments"] {
+        crate::object::define_accessor(
+            &b.function,
+            key,
+            Some(Rc::new(move |_| restricted())),
+            Some(Rc::new(move |_, _| restricted().map(|_| ()))),
+        );
+    }
     let reject: super::function::NativeCall =
         Rc::new(|_, _, _, _| NResult::err(type_error("The Function constructor is not supported; write the function inline.")));
     Value::Object(constructor(

@@ -1104,7 +1104,7 @@ const CASES: &[(&str, &str)] = &[
     ),
     (
         r#"try { return Object.getOwnPropertyDescriptor(Set.prototype, "size").get.call([]) } catch (e) { return [e.name, e.message] }"#,
-        r#"{"ok":true,"value":["TypeError","Object.getOwnPropertyDescriptor is not a function."],"toolCalls":[]}"#,
+        r#"{"ok":true,"value":["TypeError","Set.prototype.size called on incompatible receiver an array."],"toolCalls":[]}"#,
     ),
     (
         r#"const a = new Set([1, 2, 3]); const b = new Set([2, 3, 4]); return [[...a.union(b)], [...a.intersection(b)], [...a.difference(b)], [...a.symmetricDifference(b)], a.isSubsetOf(b), a.isSupersetOf(new Set([1])), a.isDisjointFrom(new Set([9]))]"#,

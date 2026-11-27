@@ -32,3 +32,4 @@ promise.test.ts	133	2.3.1 changed this: the stalled-await error says "There are 
 promise.test.ts	134	2.3.1 changed this: the stalled-await error says "There are no timers or sleep" (#64487) (2.3.1 corpus, promise.test.ts 134)
 promise.test.ts	135	2.3.1 changed this: the stalled-await error says "There are no timers or sleep" (#64487) (2.3.1 corpus, promise.test.ts 135)
 tool-paths.test.ts	47	2.3.1 changed this: a search input error suggests `search("issues")` (#64347) (2.3.1 corpus, tool-paths.test.ts 62)
+parity.test.ts	281	2.4.1 changed this: Object.create defines properties from descriptors (#64908; cases-2.4.1.json)

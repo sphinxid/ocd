@@ -16,7 +16,7 @@ use super::references::reject_circular_insertion;
 use super::{new_env, Binding, Env, Rt, Site};
 use crate::ast::*;
 use crate::object::{
-    self, define, get_with_receiver, has, has_prototype, record, remove, set, Obj, ObjKind, FROZEN, HIDDEN,
+    self, define, get_with_receiver, has, has_prototype, record, remove, set, Obj, ObjKind, Slot, FROZEN, HIDDEN,
 };
 use crate::value::{JsStr, PropKey, Sym, ToolRef, Value};
 
@@ -375,6 +375,22 @@ pub struct Frame {
 pub async fn call_value(rt: &Rt, callable: &Value, this: Value, args: Vec<Value>, site: Site) -> JsResult<Value> {
     let frame = Frame::new(rt.clone(), 0, site);
     frame.call(callable.clone(), this, args, None, None).await
+}
+
+/// Calls a program getter or setter where a built-in or the object model reads or writes a property (2.4.1, #64908).
+/// A getter's or setter's body never suspends (it can't `await`; an async function it calls runs as its own task,
+/// and host work it blocks on blocks here), so it runs to completion in one poll, nested in the current job.
+pub fn call_sync(f: &Obj, this: Value, args: Vec<Value>) -> JsResult<Value> {
+    let rt = super::rt();
+    let site = Site { node: None, depth: super::stack::depth() };
+    let callable = Value::Object(f.clone());
+    let mut call = std::pin::pin!(call_value(&rt, &callable, this, args, site));
+    match call.as_mut().poll(&mut std::task::Context::from_waker(futures::task::noop_waker_ref())) {
+        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Pending => Err(type_error(
+            "A built-in cannot call the getter or setter here; read the property into a variable first.",
+        )),
+    }
 }
 
 /// Await: suspends the innermost async body until `value` settles; a stall while it waits is reported at `node`.
@@ -1210,7 +1226,7 @@ impl Frame {
                     Ok(())
                 }
                 Pat::Member(m) => {
-                    self.modify_member(env, m, move |_| Box::pin(async move { Ok((true, value.clone(), value)) }))
+                    self.modify_member(env, m, false, move |_| Box::pin(async move { Ok((true, value.clone(), value)) }))
                         .await?;
                     Ok(())
                 }
@@ -1955,7 +1971,9 @@ impl Frame {
                 self.assign_var(env, &i.name, value, i.loc)
             }
             Pat::Member(m) => {
-                self.modify_member(env, m, move |current| {
+                // A plain `=` never reads the property (a getter there doesn't run).
+                let read = matches!(op, AssignOp::Compound(_));
+                self.modify_member(env, m, read, move |current| {
                     Box::pin(async move {
                         let r = self.eval(env, right).await?;
                         match op {
@@ -1989,7 +2007,7 @@ impl Frame {
                 self.assign_var(env, &i.name, value, i.loc)
             }
             Pat::Member(m) => {
-                self.modify_member(env, m, move |current| {
+                self.modify_member(env, m, true, move |current| {
                     Box::pin(async move {
                         if should(&current) {
                             let r = self.eval(env, right).await?;
@@ -2029,7 +2047,7 @@ impl Frame {
             }
             Expr::Member(m) => {
                 let loc = m.loc;
-                self.modify_member(env, m, move |current| {
+                self.modify_member(env, m, true, move |current| {
                     Box::pin(async move {
                         let primitive = self.to_primitive_at(&current, Hint::Number, loc).await?;
                         let value = operand(&primitive, loc)?;
@@ -2090,9 +2108,6 @@ impl Frame {
                     object::assign(&object, &source, None)?;
                 }
                 ObjectMember::Prop(p) => {
-                    if p.kind != PropKind::Init {
-                        return Err(type_error_at("Only init object properties are supported.", p.loc));
-                    }
                     let key = match &p.key {
                         crate::ast::PropKey::Computed(e) => {
                             let v = self.eval(env, e).await?;
@@ -2109,6 +2124,14 @@ impl Frame {
                         EvKey::Sym(Sym::AsyncIterator) => "[Symbol.asyncIterator]".to_string(),
                         other => other.prop().display(),
                     };
+                    if p.kind != PropKind::Init {
+                        // `get x() {}` / `set x(v) {}` (2.4.1, #64908), named `get x` / `set x`.
+                        let getter = p.kind == PropKind::Get;
+                        let label = format!("{} {name}", if getter { "get" } else { "set" });
+                        let Value::Object(f) = self.eval_named(env, &p.value, &label).await? else { unreachable!() };
+                        object::define_accessor_half(&object, key.prop(), getter, f, true);
+                        continue;
+                    }
                     let value = self.eval_named(env, &p.value, &name).await?;
                     define(&object, key.prop(), value, object::DATA);
                 }
@@ -2244,12 +2267,11 @@ impl Frame {
                         if k.eq_str("length") {
                             return Ok(MemberRef::Value(Value::Number(s.len() as f64)));
                         }
-                        if let Some(i) = object::parse_array_index(k) {
-                            return Ok(MemberRef::Value(if i < s.len() {
-                                Value::String(s.slice(i, i + 1))
-                            } else {
-                                Value::Undefined
-                            }));
+                        // An index past the end reads through String.prototype, like any other key.
+                        if let Some(i) = object::parse_array_index(k)
+                            && i < s.len()
+                        {
+                            return Ok(MemberRef::Value(Value::String(s.slice(i, i + 1))));
                         }
                     }
                 }
@@ -2275,6 +2297,8 @@ impl Frame {
     }
 
     fn read_property(&self, target: &Obj, key: &PropKey, node: Loc, receiver: &Value) -> JsResult<Value> {
+        // A program getter it runs shows this read as its caller's line in a `stack`.
+        super::stack::mark(node);
         get_with_receiver(target, key, receiver).map_err(|e| locate(e, Some(node)))
     }
 
@@ -2319,6 +2343,7 @@ impl Frame {
         &'a self,
         env: &'a Env,
         node: &'a Member,
+        read: bool,
         compute: impl FnOnce(Value) -> LocalBoxFuture<'a, JsResult<(bool, Value, Value)>>,
     ) -> JsResult<Value> {
         let reference = match self.member_reference(env, node).await {
@@ -2328,6 +2353,23 @@ impl Frame {
         let MemberRef::Prop { target, key, receiver } = reference else {
             return Err(type_error_at("Only data fields may be assigned.", node.loc));
         };
+        // A write to a primitive's property: only an inherited setter takes it, with the primitive as `this`.
+        if !matches!(&receiver, Value::Object(_))
+            && let Some(Slot::Accessor { set: setter, .. }) = object::lookup(&target, &key)
+        {
+            let current = if read { self.read_reference(&target, &key, node, &receiver)? } else { Value::Undefined };
+            let (write, next, result) = compute(current).await?;
+            if write {
+                match setter {
+                    None => return Err(locate(object::failed_assignment(&receiver, &key), Some(node.loc))),
+                    Some(object::Half::Native(f)) => f(&receiver, next).map_err(|e| locate(e, Some(node.loc)))?,
+                    Some(object::Half::Program(f)) => {
+                        call_sync(&f, receiver.clone(), vec![next]).map_err(|e| locate(e, Some(node.loc)))?;
+                    }
+                }
+            }
+            return Ok(result);
+        }
         if !matches!(&receiver, Value::Object(r) if Obj::ptr_eq(r, &target)) {
             return Err(type_error_at(
                 format!(
@@ -2339,7 +2381,7 @@ impl Frame {
                 node.loc,
             ));
         }
-        let current = self.read_reference(&target, &key, node, &receiver)?;
+        let current = if read { self.read_reference(&target, &key, node, &receiver)? } else { Value::Undefined };
         let (write, next, result) = compute(current).await?;
         if write {
             self.assign_to_reference(&target, &key, next, node.loc)?;
@@ -2348,14 +2390,17 @@ impl Frame {
     }
 
     fn assign_to_reference(&self, target: &Obj, key: &PropKey, next: Value, node: Loc) -> JsResult<()> {
+        super::stack::mark(node);
         let label = if target.is_array() { "Array assignment result" } else { "Object assignment result" };
+        // An accessor decides what a write stores (or refuses it), so only a data write can make a cycle.
         let written = reject_circular_insertion(target, &next, label)
+            .or_else(|e| if matches!(object::lookup(target, key), Some(Slot::Accessor { .. })) { Ok(()) } else { Err(e) })
             .and_then(|_| set(target, key, next))
             .map_err(|e| locate(e, Some(node)))?;
         if written {
             return Ok(());
         }
-        Err(type_error_at(format!("Cannot assign to read only property '{}'.", key.display()), node))
+        Err(locate(object::failed_assignment(&Value::Object(target.clone()), key), Some(node)))
     }
 
     // ToPropertyKey: a data object converts through its own `toString`/`valueOf` first.

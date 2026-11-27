@@ -1,0 +1,560 @@
+[
+ {
+  "test": "object literal accessors > a getter and a setter share one property",
+  "code": "const o = { _v: 2, get v() { return this._v * 10 }, set v(x) { this._v = x } }\n      const before = o.v\n      o.v = 5\n      return [before, o.v, o._v, Object.keys(o)]",
+  "result": {
+   "ok": true,
+   "value": [
+    20,
+    50,
+    5,
+    [
+     "_v",
+     "v"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "object literal accessors > names and lengths: get x, set x, computed and symbol keys",
+  "code": "const k = \"dyn\"\n        const o = { get x() { return 1 }, set x(v) {}, get [k + 1]() { return 2 }, get [Symbol.iterator]() { return 3 }, get 5() { return 4 } }\n        return [o.x, o.dyn1, o[Symbol.iterator], o[5]]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "object literal accessors > later definitions win, and data and accessors replace each other in source order",
+  "code": "const a = { get x() { return 1 }, get x() { return 2 } }\n        const b = { x: 1, get x() { return 3 } }\n        const c = { get x() { return 3 }, x: 4 }\n        const d = { get x() { return 5 }, x: 6, set x(v) { this.seen = v } }\n        d.x = 7\n        const e = { ...{ x: 1 }, get x() { return 8 } }\n        return [a.x, b.x, c.x, d.x, d.seen, e.x]",
+  "result": {
+   "ok": true,
+   "value": [
+    2,
+    3,
+    4,
+    null,
+    7,
+    8
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "object literal accessors > an accessor named __proto__ is an own property, as in JS",
+  "code": "const o = { get __proto__() { return 1 } }; return [o.__proto__, Object.keys(o)]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    [
+     "__proto__"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > member, computed and object keys, with this as the receiver",
+  "code": "const o = { n: 3, get x() { return this.n } }\n        const key = { toString() { return \"x\" } }\n        const k = \"x\"\n        return [o.x, o[\"x\"], o[k], o[key]]",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    3,
+    3,
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > an inherited getter sees the object read from",
+  "code": "const p = { get id() { return this.name } }; const c = Object.create(p); c.name = \"c\"; return c.id",
+  "result": {
+   "ok": true,
+   "value": "c",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > method calls keep the receiver",
+  "code": "const o = { k: 4, get m() { return function () { return this.k } } }\n        return [o.m(), o[\"m\"]()]",
+  "result": {
+   "ok": true,
+   "value": [
+    4,
+    4
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > optional chaining, typeof, and destructuring with defaults and nesting",
+  "code": "const o = { get a() { return undefined }, get b() { return { c: 5 } }, get f() { return () => 1 } }\n        const { a = 7, b: { c }, [\"f\"]: f } = o\n        return [o?.b?.c, o.missing?.x, typeof o.f, a, c, f(), o.f?.()]",
+  "result": {
+   "ok": true,
+   "value": [
+    5,
+    null,
+    "function",
+    7,
+    5,
+    1,
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > each read calls the getter once",
+  "code": "let calls = 0; const o = { get x() { calls++; return 1 } }; o.x; o[\"x\"]; const { x } = o; o.x?.toString(); return calls",
+  "result": {
+   "ok": true,
+   "value": 4,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > a getter that throws is caught in the caller",
+  "code": "const o = { get x() { throw new Error(\"boom\") } }; try { return o.x } catch (e) { return e.message }",
+  "result": {
+   "ok": true,
+   "value": "boom",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > a getter that throws is caught in the caller",
+  "code": "const o = { get x() { throw new TypeError(\"no\") } }\nreturn o.x",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: no"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > a recursive getter hits the call depth limit",
+  "code": "const o = { get x() { return this.x } }; return o.x",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Maximum call stack size exceeded (line 1, col 30)",
+    "location": {
+     "line": 1,
+     "column": 30
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > a getter can return a promise, and a long getter is time sliced",
+  "code": "const o = { get p() { return Promise.resolve(3) } }; return await o.p",
+  "result": {
+   "ok": true,
+   "value": 3,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > a getter can return a promise, and a long getter is time sliced",
+  "code": "const o = { get n() { let s = 0; for (let i = 0; i < 1e5; i++) s += i; return s } }; return o.n",
+  "result": {
+   "ok": true,
+   "value": 4999950000,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "reads call the getter > instanceof calls a prototype getter, after checking the callable",
+  "code": "return {} instanceof {}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: The right-hand side of 'instanceof' is not callable. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "writes call the setter > assignment answers the assigned value, not what the setter returns",
+  "code": "const o = { set x(v) { this.y = v * 2; return 99 } }; const r = (o.x = 3); const s = (o[\"x\"] = 4); return [r, s, o.y]",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    4,
+    8
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "writes call the setter > compound assignment, ++ and -- run the getter then the setter",
+  "code": "const log = []\n        const o = { n: 1, get x() { log.push(\"get\"); return this.n }, set x(v) { log.push(\"set \" + v); this.n = v } }\n        o.x += 5\n        const post = o.x++\n        const pre = ++o[\"x\"]\n        o.x--\n        return [post, pre, o.n, log]",
+  "result": {
+   "ok": true,
+   "value": [
+    6,
+    8,
+    7,
+    [
+     "get",
+     "set 6",
+     "get",
+     "set 7",
+     "get",
+     "set 8",
+     "get",
+     "set 7"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "writes call the setter > logical assignment calls the setter only when it assigns",
+  "code": "let sets = 0\n        const o = { v: 0, get x() { return this.v }, set x(v) { sets++; this.v = v } }\n        o.x ||= 1\n        o.x ||= 2\n        o.x &&= 3\n        o.x ??= 4\n        return [o.v, sets]",
+  "result": {
+   "ok": true,
+   "value": [
+    3,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "writes call the setter > an inherited setter takes the write; a getter-only accessor refuses it",
+  "code": "const p = { set x(v) { this.got = v } }; const c = Object.create(p); c.x = 1; return [c.got, Object.keys(c)]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    [
+     "got"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "writes call the setter > an inherited setter takes the write; a getter-only accessor refuses it",
+  "code": "const o = { get x() { return 1 } }; o.x = 2",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot set property 'x' of a data object which has only a getter. (line 1, col 37)",
+    "location": {
+     "line": 1,
+     "column": 37
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "writes call the setter > a setter decides what is stored, so assigning the object itself is no cycle",
+  "code": "const o = { set self(v) { this.ok = v === o } }; o.self = o; return o.ok",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "enumeration never calls accessors > keys, for...in, in, hasOwnProperty, delete and console.log",
+  "code": "let calls = 0\n        const o = { a: 1, get b() { calls++; return 2 }, set c(v) { calls++ }, get d() { calls++ }, set d(v) {} }\n        const seen = []\n        for (const k in o) seen.push(k)\n        console.log(o)\n        const r = [Object.keys(o), seen, \"b\" in o, o.hasOwnProperty(\"b\"), delete o.a, calls]\n        return r",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a",
+     "b",
+     "c",
+     "d"
+    ],
+    [
+     "a",
+     "b",
+     "c",
+     "d"
+    ],
+    true,
+    true,
+    true,
+    0
+   ],
+   "logs": [
+    "{\"a\":1,\"b\":[Getter],\"c\":[Setter],\"d\":[Getter/Setter]}"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "enumeration never calls accessors > console.table labels accessors, own and inherited",
+  "code": "console.table([Object.create({ get a() { return 1 } }), { get a() { return 2 }, b: 3 }], [\"a\", \"b\"]); return 0",
+  "result": {
+   "ok": true,
+   "value": 0,
+   "logs": [
+    "(index)\ta\tb\n0\t[Getter]\t\n1\t[Getter]\t3"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "copying built-ins > spread and rest call each getter once in key order and copy data",
+  "code": "const log = []\n        const o = { a: 1, get b() { log.push(\"b\"); return 2 }, get c() { log.push(\"c\"); return 3 }, [Symbol.iterator]: 4 }\n        const copy = { ...o }\n        const { a, ...rest } = o\n        return [copy, rest, log, Object.keys(rest), copy[Symbol.iterator], rest[Symbol.iterator]]",
+  "result": {
+   "ok": true,
+   "value": [
+    {
+     "a": 1,
+     "b": 2,
+     "c": 3
+    },
+    {
+     "b": 2,
+     "c": 3
+    },
+    [
+     "b",
+     "c",
+     "b",
+     "c"
+    ],
+    [
+     "b",
+     "c"
+    ],
+    4,
+    4
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "copying built-ins > Object.entries and values check enumerability as they visit",
+  "code": "const o = { get a() { delete this.b; return 1 }, b: 2, c: 3 }\n        const p = { get a() { return 1 }, b: 2 }\n        return [Object.entries(o), Object.values(p)]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     [
+      "a",
+      1
+     ],
+     [
+      "c",
+      3
+     ]
+    ],
+    [
+     1,
+     2
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "copying built-ins > Object.assign runs source getters and target setters, including inherited ones",
+  "code": "const log = []\n        const target = Object.create({ set b(v) { log.push(\"set b \" + v) } })\n        const source = { a: 1, get b() { log.push(\"get b\"); return 2 }, [Symbol.iterator]: 5 }\n        Object.assign(target, source, null, \"xy\")\n        return [Object.keys(target), target[Symbol.iterator], target[0], log]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "0",
+     "1",
+     "a"
+    ],
+    5,
+    "x",
+    [
+     "get b",
+     "set b 2"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "copying built-ins > JSON.stringify calls getters and leaves setter-only properties out",
+  "code": "const o = { a: 1, get b() { return [2] }, set c(v) {}, nested: { get d() { return \"d\" } } }\n        return JSON.stringify(o)",
+  "result": {
+   "ok": true,
+   "value": "{\"a\":1,\"b\":[2],\"nested\":{\"d\":\"d\"}}",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "copying built-ins > the program's result calls getters, and a then getter is adopted",
+  "code": "return { a: 1, get b() { return 2 }, set c(v) {} }",
+  "result": {
+   "ok": true,
+   "value": {
+    "a": 1,
+    "b": 2
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "copying built-ins > the program's result calls getters, and a then getter is adopted",
+  "code": "return { get then() { return (resolve) => resolve(7) } }",
+  "result": {
+   "ok": true,
+   "value": 7,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "the iterator protocol > a self-memoizing done getter reads each property once, in order",
+  "code": "const out = []\n        const it = { [Symbol.iterator]() { let i = 0; return { next() { i++; return { get done() { delete this.done; this.done = i > 2; return i > 2 }, get value() { return i } } } } } }\n        for (const x of it) out.push(x)\n        return out",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "thenables > await reads a then getter once; a non-function then fulfills with the object",
+  "code": "let calls = 0\n        const a = await { get then() { calls++; return (resolve) => resolve(1) } }\n        const b = await { get then() { calls++; return 5 }, x: 2 }\n        return [a, b.x, calls]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "thenables > a throwing then getter rejects, and Promise.resolve adopts through a getter",
+  "code": "const bad = { get then() { throw new Error(\"nope\") } }\n        const caught = await Promise.resolve(bad).catch((e) => e.message)\n        return [caught, await Promise.resolve({ get then() { return (r) => r(3) } })]",
+  "result": {
+   "ok": true,
+   "value": [
+    "nope",
+    3
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "internal arrays ignore indexed accessors on Object.prototype > a setter does not catch the writes of a replayed built-in",
+  "code": "Object.defineProperty(Object.prototype, 0, { set(v) {}, configurable: true })\n      const o = Object.defineProperty({}, \"a\", { get value() { return 1 } })\n      delete Object.prototype[0]\n      return o.a",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "internal arrays ignore indexed accessors on Object.prototype > a getter-only accessor does not break defineProperty, JSON.stringify or Object.entries",
+  "code": "Object.defineProperty(Object.prototype, 0, { get() { return \"p\" }, configurable: true })\n      const o = Object.defineProperty({}, \"a\", { get value() { return 1 } })\n      const json = JSON.stringify({ x: [1, 2], y: { z: 3 } })\n      const entries = Object.entries({ b: 2, c: 3 })\n      const values = Object.values({ b: 2 })\n      delete Object.prototype[0]\n      return [o.a, json, entries, values]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    "{\"x\":[1,2],\"y\":{\"z\":3}}",
+    [
+     [
+      "b",
+      2
+     ],
+     [
+      "c",
+      3
+     ]
+    ],
+    [
+     2
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "internal arrays ignore indexed accessors on Object.prototype > a getter-only accessor does not break returning an object",
+  "code": "Object.defineProperty(Object.prototype, 0, { get() { return \"p\" }, configurable: true })\n      return { list: [1, [2, 3]], nested: { k: \"v\" } }",
+  "result": {
+   "ok": true,
+   "value": {
+    "list": [
+     1,
+     [
+      2,
+      3
+     ]
+    ],
+    "nested": {
+     "k": "v"
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "internal arrays ignore indexed accessors on Object.prototype > a String.prototype index getter past the string's end is read",
+  "code": "Object.defineProperty(String.prototype, 5, { get() { return \"g\" }, configurable: true })\n      const r = [\"a\"[5], \"abc\"[1]]\n      delete String.prototype[5]\n      return r",
+  "result": {
+   "ok": true,
+   "value": [
+    "g",
+    "b"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "internal arrays ignore indexed accessors on Object.prototype > bind gives length 0 when the target's length is NaN or not a number",
+  "code": "const f = Object.defineProperty(function (a, b) {}, \"length\", { value: NaN })\n      const g = Object.defineProperty(function (a, b) {}, \"length\", { get() { return \"2\" } })\n      return [f.bind(null).length, g.bind(null).length]",
+  "result": {
+   "ok": true,
+   "value": [
+    0,
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "internal arrays ignore indexed accessors on Object.prototype > assigning a cycle through a data property is still rejected",
+  "code": "const o = {}; o.self = o; return 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Object assignment result contains a circular value. (line 1, col 15)",
+    "location": {
+     "line": 1,
+     "column": 15
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]

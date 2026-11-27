@@ -490,6 +490,22 @@ impl Runner {
             return self.settle(rt, promise, Err(cycle));
         }
         let Value::Object(thenable) = &resolution else { return self.settle(rt, promise, Ok(resolution)) };
+        // A program accessor `then` is read in a job of its own, one microtask after JS reads it (psychoscript), and
+        // the thenable is then adopted in that job.
+        if crate::object::lookup(thenable, &PropKey::str("then")).is_some_and(|slot| slot.is_program_accessor()) {
+            let (promise, thenable) = (promise.clone(), thenable.clone());
+            self.enqueue(move || {
+                let rt = super::rt();
+                match get(&thenable, &PropKey::str("then")) {
+                    Err(e) => rt.runner.settle(&rt, &promise, Err(e)),
+                    Ok(then) if then.js_typeof() != "function" => {
+                        rt.runner.settle(&rt, &promise, Ok(Value::Object(thenable)))
+                    }
+                    Ok(then) => thenable_job(promise, thenable, then),
+                }
+            });
+            return;
+        }
         let then = match get(thenable, &PropKey::str("then")) {
             Ok(t) => t,
             Err(e) => return self.settle(rt, promise, Err(e)),

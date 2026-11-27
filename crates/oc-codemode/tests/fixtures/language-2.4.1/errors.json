@@ -1,0 +1,586 @@
+[
+ {
+  "test": "source syntax > reports a syntax error with its location and what code must look like",
+  "code": "const = 1",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 7)",
+    "location": {
+     "line": 1,
+     "column": 7
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "source syntax > explains that exports aren't available",
+  "code": "const x = 1\nexport { x }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Exports aren't available. Return the result instead. (line 2, col 1)",
+    "location": {
+     "line": 2,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "source syntax > rejects TypeScript-only syntax",
+  "code": "const value: number = 1; return value",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 1, col 12)",
+    "location": {
+     "line": 1,
+     "column": 12
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "source syntax > locates a syntax error on a later line",
+  "code": "const a = 1\nconst b = 2\nreturn a +* b",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "SyntaxError: Unexpected token. Code must be plain JavaScript written as a program body. (line 3, col 11)",
+    "location": {
+     "line": 3,
+     "column": 11
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "source syntax > rejects empty code",
+  "code": " \n\t",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ParseError",
+    "message": "Code cannot be empty."
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "error identity > Error.isError is true for every Error value and nothing else",
+  "code": "\n        const caught = (() => { try { null.foo } catch (error) { return error } })()\n        return [Error.isError(new Error(\"x\")), Error.isError(new RangeError(\"x\")), Error.isError(caught),\n          Error.isError({ name: \"Error\", message: \"x\" }), Error.isError(\"Error\"), Error.isError(null)]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    true,
+    false,
+    false,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "error identity > awaiting the same rejected promise twice yields the same error object",
+  "code": "\n        const fail = async () => { null.foo }\n        const p = fail()\n        const a = await p.catch((e) => e)\n        try { await p } catch (b) { return a === b }\n      ",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "error identity > allSettled reasons for the same failure are identical",
+  "code": "\n        const fail = async () => { null.foo }\n        const p = fail()\n        const [a, b] = await Promise.allSettled([p, p])\n        return [a.reason === b.reason, a.reason.name, a.reason.message]\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    "TypeError",
+    "Cannot read properties of null (reading 'foo')."
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "error identity > Promise.any collects the same object a direct catch would",
+  "code": "\n        const fail = async () => { null.foo }\n        const p = fail()\n        const direct = await p.catch((e) => e)\n        try { await Promise.any([p]) } catch (aggregate) { return aggregate.errors[0] === direct }\n      ",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "rethrown interpreter failures > keep their diagnostic kind and source location",
+  "code": "try { Symbol + 1 } catch (e) { throw e }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "InvalidDataValue",
+    "message": "TypeError: Binary operators require data values. (line 1, col 7)",
+    "location": {
+     "line": 1,
+     "column": 7
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "rethrown interpreter failures > keep their location through a rejection handler",
+  "code": "\n      const fail = async () => { null.foo }\n      await fail()\n    ",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot read properties of null (reading 'foo'). (line 2, col 34)",
+    "location": {
+     "line": 2,
+     "column": 34
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "rethrown interpreter failures > keep their location through a rejection handler",
+  "code": "\n      const fail = async () => { null.foo }\n      await fail().catch((e) => { throw e })\n    ",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Cannot read properties of null (reading 'foo'). (line 2, col 34)",
+    "location": {
+     "line": 2,
+     "column": 34
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "uncaught program throws > an Error reports as name: message",
+  "code": "throw new TypeError(\"bad input\")",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: bad input"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "uncaught program throws > a custom name is honored",
+  "code": "const e = new Error(\"x\"); e.name = \"ValidationError\"; throw e",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ValidationError: x"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "uncaught program throws > non-Error values keep the Uncaught prefix",
+  "code": "throw \"boom\"",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Uncaught: boom"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "uncaught program throws > non-Error values keep the Uncaught prefix",
+  "code": "throw { code: 7 }",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "Uncaught: {\"code\":7}"
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "stack > names the program's frames innermost first, like V8",
+  "code": "function inner() { return new Error(\"boom\") }\nconst outer = () => inner()\nreturn outer().stack.split(\"\\n\")",
+  "result": {
+   "ok": true,
+   "value": [
+    "Error: boom",
+    "    at inner (<program>:1:27)",
+    "    at outer (<program>:2:21)",
+    "    at <program>:3:8"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "stack > a built-in failure has its location, and a message-less error just its name",
+  "code": "try { null.x } catch (e) { return [e.stack, new RangeError().stack] }",
+  "result": {
+   "ok": true,
+   "value": [
+    "TypeError: Cannot read properties of null (reading 'x').\n    at <program>:1:7",
+    "RangeError\n    at <program>:1:45"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "stack > is non-enumerable, so JSON and Object.keys don't change",
+  "code": "const e = new Error(\"x\"); e.code = 1\nreturn [JSON.stringify(e), Object.keys(e), Object.getOwnPropertyDescriptor(e, \"stack\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"name\":\"Error\",\"message\":\"x\",\"code\":1}",
+    [
+     "code"
+    ],
+    {
+     "value": "Error: x\n    at <program>:1:11",
+     "writable": true,
+     "enumerable": false,
+     "configurable": true
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "stack > takes its header from the name and message at the first read, then keeps it",
+  "code": "class MyErr extends Error { constructor(m) { super(m); this.name = \"MyErr\" } }\nconst late = new Error(\"y\"); late.name = \"Late\"; late.message = \"z\"\nconst first = late.stack\nlate.name = \"After\"\nconst unnamed = new Error(\"q\"); unnamed.name = \"\"\nconst empty = new Error(\"\"); empty.name = \"N\"\nconst getter = new Error(\"g\"); Object.defineProperty(getter, \"name\", { get() { return \"G\" } })\nreturn [new MyErr(\"x\").stack, first, late.stack, unnamed.stack, empty.stack, getter.stack.split(\"\\n\")[0]]",
+  "result": {
+   "ok": true,
+   "value": [
+    "MyErr: x\n    at MyErr (<program>:1:46)\n    at <program>:8:9",
+    "Late: z\n    at <program>:2:14",
+    "Late: z\n    at <program>:2:14",
+    "q\n    at <program>:5:17",
+    "N\n    at <program>:6:15",
+    "Error: g"
+   ],
+   "toolCalls": []
+  },
+  "gap": "classes (#64965)"
+ },
+ {
+  "test": "stack > an assigned stack replaces it, before or after the first read",
+  "code": "const a = new Error(\"a\"); a.stack = \"custom\"\nconst b = new Error(\"b\"); b.stack; b.stack = 1\nreturn [a.stack, b.stack, Object.getOwnPropertyDescriptor(a, \"stack\").enumerable]",
+  "result": {
+   "ok": true,
+   "value": [
+    "custom",
+    1,
+    false
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "stack > keeps the 10 innermost frames",
+  "code": "function f(n) { return n === 0 ? new Error(\"deep\") : f(n - 1) }\nreturn f(20).stack.split(\"\\n\")",
+  "result": {
+   "ok": true,
+   "value": [
+    "Error: deep",
+    "    at f (<program>:1:34)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)",
+    "    at f (<program>:1:54)"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "source locations > uses the submitted line and 1-based column",
+  "code": "const value = 1\nreturn value()",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: value is not a function. (line 2, col 8)",
+    "location": {
+     "line": 2,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "source locations > names a missing method on a call instead of the previous line",
+  "code": "// Try search with different namespaces\nfor (const ns of [\"github\", \"tools.github\", \"tools\", \"\"]) {\n  const s = await search({query: \"star\", namespace: ns, limit: 100}).filter((item) => item.path);\n  return s\n}",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: search(...).filter is not a function. (line 3, col 19)",
+    "location": {
+     "line": 3,
+     "column": 19
+    }
+   },
+   "toolCalls": [
+    {
+     "name": "search"
+    }
+   ]
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > become the same-named program error",
+  "code": "\n        try { (1).toFixed(200) } catch (e) { return [e.name, e instanceof RangeError, e.message] }\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError",
+    true,
+    "toFixed() argument must be between 0 and 100"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > report the location of the call that raised them",
+  "code": "return [1].map((n) => n.toFixed(200))",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: toFixed() argument must be between 0 and 100 (line 1, col 23)",
+    "location": {
+     "line": 1,
+     "column": 23
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > a built-in that rejects its arguments before doing any work is located at the call",
+  "code": "new Promise(Symbol)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: new Promise(...) expects an executor function (e.g. new Promise((resolve, reject) => { ... })). (line 1, col 1)",
+    "location": {
+     "line": 1,
+     "column": 1
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > a rejection born inside a promise the built-in created is located at the creating call",
+  "code": "return await Promise.all(1)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Promise.all expects a synchronous iterable, received a number. (line 1, col 14)",
+    "location": {
+     "line": 1,
+     "column": 14
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > a rejection born inside a promise the built-in created is located at the creating call",
+  "code": "return await Promise.race([])",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Promise.race([]) would never settle; provide at least one promise or value. (line 1, col 14)",
+    "location": {
+     "line": 1,
+     "column": 14
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > a rejection born inside a promise the built-in created is located at the creating call",
+  "code": "return await Promise.all({ [Symbol.iterator]: () => ({ next: 1 }) })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Iterator next must be a function. (line 1, col 14)",
+    "location": {
+     "line": 1,
+     "column": 14
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > a rejection born inside a promise the built-in created is located at the creating call",
+  "code": "let p; p = Promise.resolve().then(() => p); return await p",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Chaining cycle detected: a promise cannot resolve with itself. (line 1, col 12)",
+    "location": {
+     "line": 1,
+     "column": 12
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > an un-awaited rejection born inside promise machinery keeps its location in the warning",
+  "code": "Promise.all(1); return 1",
+  "result": {
+   "ok": true,
+   "value": 1,
+   "warnings": [
+    {
+     "kind": "ExecutionFailure",
+     "message": "Unhandled rejection from an un-awaited promise: TypeError: Promise.all expects a synchronous iterable, received a number. (line 1, col 1)",
+     "location": {
+      "line": 1,
+      "column": 1
+     }
+    }
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "host errors escaping built-ins > a failure inside a built-in called by another built-in is located at the outer call",
+  "code": "return Array.from({ [Symbol.iterator]: () => ({ next: 1 }) })",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: Iterator next must be a function. (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "call depth > runaway recursion fails fast with a catchable RangeError",
+  "code": "\n        const f = (n) => f(n + 1)\n        try { f(0) } catch (e) { return [e.name, e instanceof RangeError, e.message] }\n      ",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError",
+    true,
+    "Maximum call stack size exceeded"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "call depth > uncaught overflow reports the call that overflowed",
+  "code": "const f = (n) => f(n + 1); return f(0)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Maximum call stack size exceeded (line 1, col 18)",
+    "location": {
+     "line": 1,
+     "column": 18
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "call depth > the limit is 10000 nested calls",
+  "code": "let depth = 0; const f = () => { depth++; f() }; try { f() } catch { return depth }",
+  "result": {
+   "ok": true,
+   "value": 10000,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "call depth > the limit is 10000 nested calls",
+  "code": "const f = (n) => (n === 0 ? 0 : 1 + f(n - 1)); return f(9000)",
+  "result": {
+   "ok": true,
+   "value": 9000,
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "call depth > recursion through a built-in callback counts",
+  "code": "const f = (n) => [n].map((x) => f(x + 1)); return f(0)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Maximum call stack size exceeded (line 1, col 33)",
+    "location": {
+     "line": 1,
+     "column": 33
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "call depth > an await resets the depth, so long async chains are fine",
+  "code": "\n        const page = async (n) => { await null; return n === 0 ? \"done\" : page(n - 1) }\n        return await page(3000)\n      ",
+  "result": {
+   "ok": true,
+   "value": "done",
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "call depth > an async function that recurses before its first await overflows like JS",
+  "code": "const f = async (n) => f(n + 1); return await f(0)",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "RangeError: Maximum call stack size exceeded (line 1, col 24)",
+    "location": {
+     "line": 1,
+     "column": 24
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]

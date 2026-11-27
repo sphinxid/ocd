@@ -8,8 +8,9 @@ Programs can only use the supported JavaScript built-ins (with Node's `Buffer` s
 `search(...)` discovery function (synchronous, and its result can also be awaited or chained like a Promise), and
 globals the host adds through extensions (core adds `fetch`, and with the opt-in `experimental.full_codemode` also
 `path`, see The `path` global). `import`, `import()` and
-`require` load those globals by Node module name (see Modules). Classes, getters/setters, BigInt, arbitrary symbols,
-timers, exports, `eval`/`Function`, and TypeScript syntax are rejected with the same diagnostics as upstream. The exact support matrix is upstream's `interpreter-support.md`; behaviour, diagnostics, and model-visible
+`require` load those globals by Node module name (see Modules). Getters and setters are supported since 2.4.1 (see
+Getters and setters). Classes, BigInt, arbitrary symbols, timers, exports, `eval`/`Function`, and TypeScript syntax
+are rejected with the same diagnostics as upstream. The exact support matrix is upstream's `interpreter-support.md`; behaviour, diagnostics, and model-visible
 strings match upstream byte for byte (verified by replaying upstream's recorded test executions, see Tests).
 
 ## Architecture
@@ -387,6 +388,33 @@ spec's options (`"base64"`/`"base64url"`, `"loose"`/`"strict"`/`"stop-before-par
 or value failing with `TypeError: Uint8Array.fromBase64 requires that alphabet be "base64" or "base64url".` and the
 like (#64931).
 
+## Getters and setters (2.4.1, #64908)
+
+Object literals take `get x() {}` and `set x(v) {}` (computed and symbol keys too; named `get x` / `set x`), and
+`Object.defineProperty`, `defineProperties`, `getOwnPropertyDescriptor(s)`, `getOwnPropertyNames` and
+`Object.create(proto, props)` take and give property descriptors, with the spec's validation and upstream's texts
+(`Property description must be an object: …`, `Getter must be a function: …`, `Invalid property descriptor. …`,
+`Cannot redefine property: x`, `Cannot define property x, object is not extensible`, `Object.defineProperty called on
+non-object`; array elements share one set of attributes, so an element can't be an accessor or have attributes of its
+own, and `length` can't be made read-only alone). A built-in accessor shows as a function (`get size`, made on first
+use and kept) and can be redefined half by half. An accessor half is `object::Half::{Native, Program}`; a program
+getter or setter runs wherever the object model reads or writes (`eval::call_sync`: its body never suspends, so it
+runs to completion nested in the current job), so every read and write form honours it: member reads, method calls,
+destructuring, `=` (which no longer reads the property first), compound and logical assignment, `++`/`--`, inherited
+setters (with a primitive as `this` through its wrapper prototype), `instanceof`'s `prototype`, the iterator
+protocol, `Object.assign`, spread, rest, `entries`/`values` (enumerability checked key by key, so a getter that
+deletes or hides a later key is seen), `JSON.stringify`, `structuredClone`, the result and host and tool arguments
+(setter-only properties left out). Writing a getter-only property fails with `Cannot set property 'x' of a data
+object which has only a getter.`; a write that reaches a setter is never refused as circular. `console.log` and
+`console.table` never call them and show `[Getter]`, `[Setter]` or `[Getter/Setter]`; `Object.keys`, `for…in`, `in`,
+`hasOwnProperty`, an error's `stack` header and `import * as` never call them either. A thenable whose `then` is a
+program accessor is read in a job of its own, one microtask after JS reads it, as upstream does. `bind` reads the
+target's `name` and `length` through getters, and `Function.prototype.caller`/`arguments` are accessors that throw
+`'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.`
+
+Not reproduced: upstream reads the getters a built-in meets ahead of it, once per receiver and key per call, in
+rounds; here each read calls the getter when it happens, as JS does.
+
 ## Error stacks (2.4.1, #64939)
 
 Every Error has an own non-enumerable `stack` in V8's format (`interp::stack`): `name: message` (read when `stack` is
@@ -435,10 +463,9 @@ About 1 in 5 000 generated nonsense patterns still differs (a run of six stars a
 
 ## Unsupported JavaScript (same as upstream, same diagnostics)
 
-Classes and private fields, user-defined constructors (`new f()` on a program function), getters/setters in object
-literals, BigInt, arbitrary `Symbol()` values and symbol-keyed properties (only `Symbol.iterator`/`asyncIterator`),
+Classes and private fields, user-defined constructors (`new f()` on a program function), BigInt, arbitrary `Symbol()` values and symbol-keyed properties (only `Symbol.iterator`/`asyncIterator`),
 exports and `import.meta`, `new.target`, `super`, `with`, `debugger`, `eval`/`Function`, timers (`setTimeout`,
-`queueMicrotask`), `Proxy`/`Reflect`, `Object.defineProperty`/property descriptors, `for...in` skipping keys deleted during the loop,
+`queueMicrotask`), `Proxy`/`Reflect`, `__defineGetter__` and friends, `for...in` skipping keys deleted during the loop,
 `ArrayBuffer`/`DataView`/typed arrays other than `Uint8Array`, `Request`/`Response`/`Blob`, `crypto.subtle`, non-UTF-8
 `TextDecoder`, `Iterator.concat`/`zip`, array methods on array-likes (`Array.prototype.slice.call(arguments)`),
 TypeScript syntax. Unsupported syntax is reported lazily (when reached) as `UnsupportedSyntax`.

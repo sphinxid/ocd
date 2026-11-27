@@ -698,7 +698,8 @@
     }
    },
    "toolCalls": []
-  }
+  },
+  "gap": "2.4.1 changed this: getters (#64908); cases-2.4.1.json has its result"
  },
  {
   "code": "const t = (f) => { try { return f() } catch (e) { return e.name + \": \" + e.message } }\nreturn [t(() => Object.fromEntries(5)), t(() => Object.fromEntries([5])), t(() => Object.fromEntries([\"ab\"])), t(() => Object.fromEntries([[1, 2], [{ toString() { return \"k\" } }, 3]])), t(() => Object.fromEntries(new Map([[\"a\", 1]]))), t(() => Object.fromEntries([[Symbol.iterator, 1]]))]",

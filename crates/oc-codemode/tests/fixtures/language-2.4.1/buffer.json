@@ -1,0 +1,141 @@
+[
+ {
+  "test": "Buffer > converts text in each encoding, defaulting to UTF-8",
+  "code": "const b = Buffer.from(\"héllo\")\n        return [b.length, b.toString(), String(b), `${b}`, b.toString(\"hex\"), b.toString(\"base64\"),\n          Buffer.from(\"aGk=\", \"base64\").toString(), Buffer.from(\"6869\", \"hex\").toString(), Buffer.byteLength(\"é\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    6,
+    "héllo",
+    "héllo",
+    "héllo",
+    "68c3a96c6c6f",
+    "aMOpbGxv",
+    "hi",
+    "hi",
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Buffer > is a Uint8Array, and Buffer.isBuffer tells the two apart",
+  "code": "const b = Buffer.from([1, 2, 3])\n        return [b instanceof Uint8Array, Buffer.isBuffer(b), Buffer.isBuffer(new Uint8Array(1)), [...b], b[1],\n          Object.prototype.toString.call(b)]",
+  "result": {
+   "ok": true,
+   "value": [
+    true,
+    true,
+    false,
+    [
+     1,
+     2,
+     3
+    ],
+    2,
+    "[object Uint8Array]"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Buffer > concatenates, slices over the same memory, compares and searches like Node",
+  "code": "const b = Buffer.concat([Buffer.from(\"ab\"), Buffer.from(\"cd\")])\n        const view = b.subarray(1, 3)\n        view[0] = 120\n        return [b.toString(), view.toString(), b.equals(Buffer.from(\"axcd\")), Buffer.compare(Buffer.from(\"a\"), Buffer.from(\"b\")),\n          b.includes(\"cd\"), b.indexOf(\"c\"), Buffer.alloc(3, 1).toString(\"hex\"), Buffer.alloc(4, \"ab\").toString()]",
+  "result": {
+   "ok": true,
+   "value": [
+    "axcd",
+    "xc",
+    true,
+    -1,
+    true,
+    2,
+    "010101",
+    "abab"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Buffer > makes a Buffer from a Buffer through the inherited Uint8Array methods, like Bun",
+  "code": "const b = Buffer.from(\"abc\")\n        const made = [b.map((x) => x + 1), b.filter((x) => x > 97), Uint8Array.prototype.slice.call(b, 1),\n          Uint8Array.prototype.subarray.call(b, 2)]\n        return [...made.map((x) => [Buffer.isBuffer(x), x.toString()]), Buffer.isBuffer(new Uint8Array(1).map((x) => x)),\n          String(new Uint8Array([1, 2]).slice(1))]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     true,
+     "bcd"
+    ],
+    [
+     true,
+     "bc"
+    ],
+    [
+     true,
+     "bc"
+    ],
+    [
+     true,
+     "c"
+    ],
+    false,
+    "2"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Buffer > reads and writes numbers",
+  "code": "const b = Buffer.alloc(4)\n        b.writeUInt16BE(0x1234, 0)\n        b.writeInt8(-1, 2)\n        return [b.readUInt16BE(0), b.readUInt16LE(0), b.readInt8(2), b.toString(\"hex\")]",
+  "result": {
+   "ok": true,
+   "value": [
+    4660,
+    13330,
+    -1,
+    "1234ff00"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Buffer > serializes like Node and rejects unknown encodings with Node's code",
+  "code": "let code\n        try { Buffer.from(\"x\", \"nope\") } catch (e) { code = [e.name, e.code] }\n        return [JSON.stringify(Buffer.from(\"hi\")), code]",
+  "result": {
+   "ok": true,
+   "value": [
+    "{\"type\":\"Buffer\",\"data\":[104,105]}",
+    [
+     "TypeError",
+     "ERR_UNKNOWN_ENCODING"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Buffer > crosses extensions as a Buffer in both directions",
+  "code": "const b = read()\n        write(Buffer.from(\"x\"))\n        return [Buffer.isBuffer(b), b.toString()]",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "ReferenceError: Unknown identifier 'read'. (line 1, col 11)",
+    "location": {
+     "line": 1,
+     "column": 11
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "test": "Buffer > is importable from the buffer module",
+  "code": "const { Buffer: B } = await import(\"node:buffer\"); return B.from(\"ok\").toString()",
+  "result": {
+   "ok": true,
+   "value": "ok",
+   "toolCalls": []
+  }
+ }
+]

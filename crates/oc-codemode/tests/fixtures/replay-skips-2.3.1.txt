@@ -3,3 +3,4 @@
 # ported yet: the test fails once such a record replays exactly, so the batch that ports it removes the line.
 promise.test.ts	64	upstream waits for an uninterruptible tool cleanup (400 ms) past the timeout; Rust host futures are dropped immediately, so no TimeoutExceeded warning (as in the 2.2 and 2.3.0 corpora)
 promise.test.ts	65	same as seq 64 (uninterruptible tool cleanup past the timeout)
+parity.test.ts	281	2.4.1 changed this: Object.create defines properties from descriptors (#64908; cases-2.4.1.json)
