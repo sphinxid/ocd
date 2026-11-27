@@ -79,9 +79,10 @@ pub trait Io: Send + Sync {
     async fn bun(&self) -> Option<PathBuf> {
         None
     }
-    async fn session_exists(&self, session_id: &str) -> Result<bool, String>;
-    async fn fork(&self, session_id: &str, message_id: &str) -> Result<Option<Fork>, String>;
-    async fn remove(&self, session_id: &str) -> Result<(), String>;
+    /// `config_dir`: the chat's `CLAUDE_CONFIG_DIR`, whose transcripts are its own (2.4.1).
+    async fn session_exists(&self, session_id: &str, config_dir: Option<&str>) -> Result<bool, String>;
+    async fn fork(&self, session_id: &str, message_id: &str, config_dir: Option<&str>) -> Result<Option<Fork>, String>;
+    async fn remove(&self, session_id: &str, config_dir: Option<&str>) -> Result<(), String>;
 }
 
 /// The plugin KV (`ctx.storage`).
@@ -89,12 +90,16 @@ pub trait Io: Send + Sync {
 pub trait Storage: Send + Sync {
     async fn get(&self, key: &str) -> Option<Value>;
     async fn set(&self, key: &str, value: Value);
+    async fn remove(&self, key: &str);
+    /// The keys that start with `prefix`.
+    async fn scan(&self, prefix: &str) -> Vec<String>;
 }
 
 /// What a chat's own process found (`ClaudeStatus.report`).
 pub trait Reporter: Send + Sync {
     fn missing(&self);
-    fn ready(&self, probe: ProbeResult);
+    /// `config_dir`: the `CLAUDE_CONFIG_DIR` the process ran with.
+    fn ready(&self, probe: ProbeResult, config_dir: Option<String>);
 }
 
 /// The location a request runs for.
@@ -153,6 +158,8 @@ struct Active {
 struct EntryData {
     process: Option<Arc<Live>>,
     record: Option<Record>,
+    /// The `CLAUDE_CONFIG_DIR` the record belongs to.
+    config_dir: Option<String>,
     idle: Option<tokio::task::AbortHandle>,
     active: Option<Active>,
 }
@@ -198,8 +205,19 @@ pub struct Registry {
 /// The cancellation of a run (not an error anyone sees).
 const CANCELLED: &str = "Claude Agent request cancelled";
 
-fn records_key(session_id: &str) -> String {
-    format!("sessions/{session_id}")
+/// Each Claude config folder has its own transcripts, so a chat keeps one record per folder (2.4.1).
+fn records_key(session_id: &str, config_dir: Option<&str>) -> String {
+    match config_dir {
+        Some(dir) => format!("sessions/{session_id}:{dir}"),
+        None => format!("sessions/{session_id}"),
+    }
+}
+
+impl Request {
+    /// The folder of Claude Code's own state and transcripts for this request.
+    fn config_dir(&self) -> Option<String> {
+        super::config_dir_of(&self.connection)
+    }
 }
 
 impl Registry {
@@ -242,23 +260,22 @@ impl Registry {
     async fn close_entries(&self) {
         let entries: Vec<Arc<Entry>> = self.entries.lock().values().cloned().chain(self.temporary.lock().iter().cloned()).collect();
         for entry in entries {
-            let active = entry.data.lock().active.as_ref().map(|a| (a.cancel.clone(), a.done.clone()));
-            if let Some((cancel, mut done)) = active {
-                cancel.cancel();
-                while !*done.borrow_and_update() {
-                    if done.changed().await.is_err() {
-                        break;
-                    }
-                }
-            }
-            // The active turn's finalizer can install a new idle timer.
-            if let Some(idle) = entry.data.lock().idle.take() {
-                idle.abort();
-            }
-            let _guard = entry.lock.lock().await;
-            stop(&entry).await;
+            close_entry(&entry).await;
         }
         self.entries.lock().clear();
+    }
+
+    /// OpenCode deleted the session, so nothing can resume it: its process stops and every record saved for it, in
+    /// any config folder, is removed (2.4.1).
+    pub async fn remove(&self, storage: &dyn Storage, session_id: &str) {
+        let entry = self.entries.lock().remove(session_id);
+        if let Some(entry) = entry {
+            close_entry(&entry).await;
+        }
+        storage.remove(&records_key(session_id, None)).await;
+        for key in storage.scan(&format!("{}:", records_key(session_id, None))).await {
+            storage.remove(&key).await;
+        }
     }
 
     fn entry_for(&self, request: &Request) -> Arc<Entry> {
@@ -282,6 +299,7 @@ impl Registry {
 
     /// `ClaudeSessions.run`: one model call. `cancel` interrupts it (the turn is drained and saved).
     pub async fn run(self: &Arc<Self>, ctx: &Context, mut request: Request, cancel: CancellationToken) -> Result<(), String> {
+        request.connection = super::without_default_folder(&request.connection, &ctx.io.env());
         let entry = self.entry_for(&request);
         let _guard = tokio::select! {
             guard = entry.lock.lock() => guard,
@@ -311,7 +329,7 @@ impl Registry {
             stop(entry).await;
             let session_id = entry.data.lock().record.as_ref().map(|r| r.claude_session_id.clone());
             if let Some(session_id) = session_id
-                && let Err(error) = ctx.io.remove(&session_id).await
+                && let Err(error) = ctx.io.remove(&session_id, request.config_dir().as_deref()).await
             {
                 tracing::warn!(%error, "failed to remove a Claude side-call transcript");
             }
@@ -331,7 +349,9 @@ impl Registry {
         let Some(boundary) = sync::boundary(&request.prompt, Some(&source)) else { return Ok(0) };
         // Validate catch-up input before creating a forked transcript on disk.
         sync::catch_up(&request.prompt, boundary.start)?;
-        let Some(fork) = ctx.io.fork(&source.claude_session_id, &boundary.message_id).await? else { return Ok(0) };
+        let Some(fork) = ctx.io.fork(&source.claude_session_id, &boundary.message_id, request.config_dir().as_deref()).await? else {
+            return Ok(0);
+        };
         let history = boundary
             .history
             .iter()
@@ -347,11 +367,15 @@ impl Registry {
     async fn snapshot(&self, ctx: &Context, entry: &Arc<Entry>, request: &Request) -> Result<usize, String> {
         let Some(source_id) = request.source_id.clone() else { return Ok(0) };
         let source = self.entries.lock().get(&source_id).cloned();
+        let config_dir = request.config_dir();
         let copy = async {
-            let live = source.as_ref().and_then(|s| s.data.lock().record.clone());
+            let live = source.as_ref().and_then(|s| {
+                let data = s.data.lock();
+                data.record.clone().filter(|_| data.config_dir == config_dir)
+            });
             let record = match live {
                 Some(record) => Some(record),
-                None => get_record(ctx, &source_id).await,
+                None => get_record(ctx, &source_id, config_dir.as_deref()).await,
             };
             self.branch(ctx, entry, request, record).await
         };
@@ -379,8 +403,16 @@ impl Registry {
             let start = self.snapshot(ctx, entry, request).await?;
             return Ok((start, None));
         };
+        let config_dir = request.config_dir();
+        {
+            let mut data = entry.data.lock();
+            if data.config_dir != config_dir {
+                data.record = None;
+            }
+            data.config_dir = config_dir.clone();
+        }
         if entry.data.lock().record.is_none() {
-            let record = get_record(ctx, &session_id).await;
+            let record = get_record(ctx, &session_id, config_dir.as_deref()).await;
             entry.data.lock().record = record;
         }
         let record = entry.data.lock().record.clone();
@@ -402,7 +434,7 @@ impl Registry {
                     decision.start
                 } else {
                     let claude = record.as_ref().map(|r| r.claude_session_id.clone()).unwrap_or_default();
-                    if ctx.io.session_exists(&claude).await? {
+                    if ctx.io.session_exists(&claude, config_dir.as_deref()).await? {
                         decision.start
                     } else {
                         entry.data.lock().record = None;
@@ -438,8 +470,27 @@ impl Registry {
     }
 }
 
-async fn get_record(ctx: &Context, session_id: &str) -> Option<Record> {
-    Record::decode(ctx.storage.get(&records_key(session_id)).await.as_ref())
+async fn get_record(ctx: &Context, session_id: &str, config_dir: Option<&str>) -> Option<Record> {
+    Record::decode(ctx.storage.get(&records_key(session_id, config_dir)).await.as_ref())
+}
+
+/// Cancels the entry's turn and stops its process.
+async fn close_entry(entry: &Arc<Entry>) {
+    let active = entry.data.lock().active.as_ref().map(|a| (a.cancel.clone(), a.done.clone()));
+    if let Some((cancel, mut done)) = active {
+        cancel.cancel();
+        while !*done.borrow_and_update() {
+            if done.changed().await.is_err() {
+                break;
+            }
+        }
+    }
+    // The active turn's finalizer can install a new idle timer.
+    if let Some(idle) = entry.data.lock().idle.take() {
+        idle.abort();
+    }
+    let _guard = entry.lock.lock().await;
+    stop(entry).await;
 }
 
 fn arm_idle(entry: &Arc<Entry>) {
@@ -543,7 +594,14 @@ async fn open(ctx: &Context, entry: &Arc<Entry>, request: &Request, cancel: &Can
     };
     // A new process reports its version, login and models, which keeps the model list current without a separate check.
     if starting {
-        ctx.reporter.ready(probe);
+        let config_dir = request.config_dir();
+        let logged_in = super::probe::is_logged_in(&probe.account);
+        ctx.reporter.ready(probe, config_dir.clone());
+        // Fail before sending the prompt, because Claude Code's own error does not say which folder needs a login.
+        if !logged_in {
+            stop(entry).await;
+            return Err(super::login_message(config_dir.as_deref()));
+        }
     }
     // Apply controls before sending input or releasing parked tool results.
     let model = live.model.lock().clone();
@@ -706,7 +764,7 @@ async fn turn(
         });
         let record = Record { claude_session_id: session.id.clone(), history, interrupted: Some(interrupted && !completed) };
         entry.data.lock().record = Some(record.clone());
-        ctx.storage.set(&records_key(session_id), serde_json::to_value(&record).unwrap_or(Value::Null)).await;
+        ctx.storage.set(&records_key(session_id, request.config_dir().as_deref()), serde_json::to_value(&record).unwrap_or(Value::Null)).await;
     }
     step
 }

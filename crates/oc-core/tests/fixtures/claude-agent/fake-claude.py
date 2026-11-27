@@ -8,6 +8,8 @@ Environment:
 
 Scenario keys (all optional):
   "init":     overrides merged into the `initialize` response (account, models, claude_code_version, ...)
+  "folders":  {CLAUDE_CONFIG_DIR: overrides} merged into the `initialize` response of a `claude` started with that
+              config folder ("" for none), after "init"
   "contextWindows": {model: rawMaxTokens} for the login probe's `get_context_usage`
   "exit":     {"code": n, "stderr": "..."} exit right after reading `initialize` (no answer)
   "turns":    a list of turns, taken in order by every chat `claude` (shared through "<log>.state"); a turn is a list
@@ -20,6 +22,11 @@ Scenario keys (all optional):
                 {"result": {...}}                       the result (fields override the default success)
                 {"assistant_error": "billing_error", "text": "..."}  a synthetic API error message
                 {"rate_limit": {...}}                   a rate_limit_event
+                {"limit": {...}}                        a plan limit refusing the turn before any output: a rejected
+                                                        rate_limit_event (fields override seven_day), a synthetic
+                                                        rate_limit assistant error and a 429 error result
+                {"websearch": {...}}                    one reply calling Claude Code's WebSearch, answered with this
+                                                        `tool_use_result`
                 {"init_servers": [...]}                 the system/init mcp_servers list
                 {"exit": n, "stderr": "..."}            exit now
               A turn without a result step ends with a default success result.
@@ -138,6 +145,7 @@ INIT = {
     "pid": 0, "claude_code_version": "2.1.302",
 }
 INIT.update(SCENARIO.get("init", {}))
+INIT.update(SCENARIO.get("folders", {}).get(os.environ.get("CLAUDE_CONFIG_DIR", ""), {}))
 WINDOWS = SCENARIO.get("contextWindows", {"opus": 1000000, "haiku": 200000})
 
 state = {"initialize": None, "turn": None, "interrupted": False, "steer": [], "msg": 0, "parent": None}
@@ -371,6 +379,28 @@ def result(overrides=None, error=False):
     write(base({"type": "system", "subtype": "session_state_changed", "state": "idle", "sdk_host_only": True, "uuid": str(uuid.uuid4())}))
 
 
+def websearch(output):
+    state["msg"] += 1
+    mid = f"msg_{state['msg']}"
+    tid = f"toolu_{state['msg']}_0"
+    query = output.get("query", "")
+    assistant(mid, [{"type": "tool_use", "id": tid, "name": "WebSearch", "input": {"query": query, "mode": "standard"}}])
+    uid = str(uuid.uuid4())
+    links = [link for item in output.get("results", []) if isinstance(item, dict) for link in item.get("content", [])]
+    notes = [item for item in output.get("results", []) if isinstance(item, str)]
+    text = "Web search results for query: \"%s\"\n\nLinks: %s\n\n%s" % (query, json.dumps(links), "\n\n".join(notes))
+    write(base({"type": "user", "message": {"role": "user", "content": [{"tool_use_id": tid, "type": "tool_result", "content": text}]},
+                "parent_tool_use_id": None, "uuid": uid, "tool_use_result": output}))
+
+
+def limit(overrides):
+    info = dict({"status": "rejected", "rateLimitType": "seven_day", "resetsAt": 1792800000}, **overrides)
+    write(base({"type": "rate_limit_event", "rate_limit_info": info, "uuid": str(uuid.uuid4())}))
+    state["msg"] += 1
+    assistant(f"msg_err_{state['msg']}", [{"type": "text", "text": "You've hit your weekly limit"}], "rate_limit")
+    result({"is_error": True, "result": "You've hit your weekly limit · resets Mon 12:00am", "api_error_status": 429})
+
+
 def interrupted_end():
     uid = str(uuid.uuid4())
     write(base({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user]"}]}, "parent_tool_use_id": None, "uuid": uid}))
@@ -402,6 +432,13 @@ def run_turn(message):
             finish(step["exit"], step.get("stderr"))
         if "rate_limit" in step:
             write(base({"type": "rate_limit_event", "rate_limit_info": step["rate_limit"], "uuid": str(uuid.uuid4())}))
+        if "limit" in step:
+            limit(step["limit"])
+            ended = True
+            break
+        if "websearch" in step:
+            websearch(step["websearch"])
+            continue
         if "assistant_error" in step:
             state["msg"] += 1
             assistant(f"msg_err_{state['msg']}", [{"type": "text", "text": step.get("text", "API Error")}], step["assistant_error"])

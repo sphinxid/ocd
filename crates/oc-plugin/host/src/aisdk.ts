@@ -308,10 +308,15 @@ function installSpec(name: string) {
 /** The Claude Agent SDK version upstream 2.2.5 bundles (`@anthropic-ai/claude-agent-sdk`). */
 export const CLAUDE_SDK_SPEC = "@anthropic-ai/claude-agent-sdk@0.3.301"
 
-export async function importInstalled(io: BridgeIO, spec: string, specifier?: string) {
+/** Installs `spec` into ocd's npm cache and resolves `specifier` (default: the package) as an importable URL. */
+export async function resolveInstalled(io: BridgeIO, spec: string, specifier?: string) {
   const installed = await io.request("npm.add", { spec })
   const resolved = Bun.resolveSync(specifier ?? installed.name, installed.directory)
-  return (await import(resolved.startsWith("node:") ? resolved : pathToFileURL(resolved).href)) as Record<string, unknown>
+  return resolved.startsWith("node:") ? resolved : pathToFileURL(resolved).href
+}
+
+export async function importInstalled(io: BridgeIO, spec: string, specifier?: string) {
+  return (await import(await resolveInstalled(io, spec, specifier))) as Record<string, unknown>
 }
 
 async function loadSDKFactory(io: BridgeIO, name: string) {

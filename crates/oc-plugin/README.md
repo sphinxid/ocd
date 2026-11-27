@@ -132,7 +132,7 @@ The protocol is newline-delimited JSON-RPC 2.0 (`src/protocol.rs`, `host/src/pee
 | `aisdk.load` | `{location, model, enabled?}` | `{}`; or an error with `type` `aisdk.init` and `data.detail` (upstream `causeMessage`) |
 | `aisdk.stream` | `{location, model, options, stream, http?: {response}, enabled?}` | `null` after the last part; or an error with `type` `aisdk.error` and `data: {operation, shape}` |
 | `aisdk.close` | `{location}` | `null` (drops the location's language model and SDK caches) |
-| `claude.transcript` | `{op: "exists" \| "fork" \| "remove", sessionID, messageID?}` | the Claude Agent provider's transcript operations with the real `@anthropic-ai/claude-agent-sdk` 0.3.301 (`getSessionInfo`, `forkSession` + `getSessionMessages` as upstream's `claude/fork.ts`, `deleteSession`): `true`/`false`, `{sessionID, messages: {old: new}}` or `null`, `null` |
+| `claude.transcript` | `{op: "exists" \| "fork" \| "remove", sessionID, messageID?, configDir?}` | the Claude Agent provider's transcript operations with the real `@anthropic-ai/claude-agent-sdk` 0.3.301 (`getSessionInfo`, `forkSession` + `getSessionMessages` as upstream's `claude/fork.ts`, `deleteSession`): `true`/`false`, `{sessionID, messages: {old: new}}` or `null`, `null`. With `configDir` (2.4.1, the local agent CLI provider's config folders) the operation runs in a `worker_threads` worker whose environment sets `CLAUDE_CONFIG_DIR` to it, as upstream's folder worker does, so other sessions keep their folder; a fork whose worker cannot start answers `null` (the chat replays its history instead). oc-core looks for a transcript in a config folder itself |
 
 ### Sidecar → Rust
 

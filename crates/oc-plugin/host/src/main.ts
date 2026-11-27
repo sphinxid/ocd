@@ -7,7 +7,7 @@ import { makeLoader, type Installed, type Operation } from "./loader.js"
 import { LocationRuntime, type Generation } from "./location.js"
 import { isDomain } from "./domains.js"
 import { log, logError, Peer, RemoteError } from "./peer.js"
-import { AISDKService, CLAUDE_SDK_SPEC, importInstalled, initFailure, stream as aisdkStream } from "./aisdk.js"
+import { AISDKService, CLAUDE_SDK_SPEC, initFailure, resolveInstalled, stream as aisdkStream } from "./aisdk.js"
 
 export const PROTOCOL = 1
 
@@ -145,18 +145,28 @@ peer.handle("aisdk.close", (params: { location: string }) => {
 
 // The Claude Agent provider's transcript operations (claude/io.ts, claude/fork.ts) with the real SDK's file-only
 // functions. The SDK is installed into ocd's npm cache on first use (without its optional native `claude`).
-let claudeSDK: Promise<any> | undefined
-function loadClaudeSDK() {
-  claudeSDK ??= importInstalled(io, CLAUDE_SDK_SPEC, "@anthropic-ai/claude-agent-sdk").catch((cause) => {
-    // Let the next request try again, for example after the SDK is installed.
-    claudeSDK = undefined
-    throw new Error("Claude Agent SDK isn't installed. Install @anthropic-ai/claude-agent-sdk to use Claude Agent.", { cause })
-  })
+let claudeSDK: Promise<string> | undefined
+function claudeSDKURL() {
+  claudeSDK ??= resolveInstalled(io, CLAUDE_SDK_SPEC, "@anthropic-ai/claude-agent-sdk")
+    .then(async (url) => {
+      await import(url)
+      return url
+    })
+    .catch((cause) => {
+      // Let the next request try again, for example after the SDK is installed.
+      claudeSDK = undefined
+      throw new Error("Claude Agent SDK isn't installed. Install @anthropic-ai/claude-agent-sdk to use Claude Agent.", {
+        cause,
+      })
+    })
   return claudeSDK
 }
 
-peer.handle("claude.transcript", async (params: { op: string; sessionID: string; messageID?: string }) => {
-  const { deleteSession, forkSession, getSessionInfo, getSessionMessages } = await loadClaudeSDK()
+type TranscriptParams = { op: string; sessionID: string; messageID?: string; configDir?: string }
+
+// Self-contained: a config folder worker runs its source text.
+async function transcript(sdk: any, params: TranscriptParams) {
+  const { deleteSession, forkSession, getSessionInfo, getSessionMessages } = sdk
   if (params.op === "exists") return (await getSessionInfo(params.sessionID)) !== undefined
   if (params.op === "remove") {
     await deleteSession(params.sessionID)
@@ -182,6 +192,48 @@ peer.handle("claude.transcript", async (params: { op: string; sessionID: string;
     return { sessionID: fork.sessionId, messages }
   } catch (error) {
     await deleteSession(fork.sessionId)
+    throw error
+  }
+}
+
+class WorkerUnavailableError extends Error {}
+
+// The SDK's session helpers take no folder and read CLAUDE_CONFIG_DIR from process.env. A worker has its own, so they
+// see another folder without changing it for other sessions (2.4.1 `inFolder`).
+async function inFolder(url: string, params: TranscriptParams & { configDir: string }) {
+  const { Worker } = await import("node:worker_threads")
+  const source = [
+    `const { parentPort, workerData } = require("node:worker_threads")`,
+    `const transcript = ${transcript.toString()}`,
+    `import(workerData.url).then((sdk) => transcript(sdk, workerData.params)).then(`,
+    `  (value) => parentPort.postMessage({ value: value === undefined ? null : value }),`,
+    `  (error) => parentPort.postMessage({ error: String(error && error.message !== undefined ? error.message : error) }),`,
+    `)`,
+  ].join("\n")
+  const worker = new Worker(source, {
+    eval: true,
+    env: { ...process.env, CLAUDE_CONFIG_DIR: params.configDir },
+    workerData: { url, params },
+  })
+  return new Promise<unknown>((resolve, reject) => {
+    worker.once("message", (reply: { value?: unknown; error?: string }) => {
+      if ("error" in reply) return reject(new Error(reply.error))
+      resolve(reply.value)
+    })
+    // The worker reports helper failures as messages, so an error here means it could not start.
+    worker.once("error", (cause) => reject(new WorkerUnavailableError("Claude folder worker failed to start", { cause })))
+    worker.once("exit", () => reject(new Error(`Claude session helper ${params.op} exited without a result`)))
+  }).finally(() => worker.terminate())
+}
+
+peer.handle("claude.transcript", async (params: TranscriptParams) => {
+  const url = await claudeSDKURL()
+  if (!params.configDir) return transcript(await import(url), params)
+  try {
+    return await inFolder(url, { ...params, configDir: params.configDir })
+  } catch (error) {
+    // Without the worker, a fresh Claude session replays the history instead.
+    if (params.op === "fork" && error instanceof WorkerUnavailableError) return null
     throw error
   }
 })

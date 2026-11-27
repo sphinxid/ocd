@@ -61,12 +61,20 @@ impl Io for RealIo {
         plugins.host_or_create().bun().await.ok()
     }
 
-    async fn session_exists(&self, session_id: &str) -> Result<bool, String> {
+    async fn session_exists(&self, session_id: &str, config_dir: Option<&str>) -> Result<bool, String> {
+        if let Some(dir) = config_dir {
+            // Look for the transcript the way the SDK does. Loading the SDK in a worker for this would slow every resume.
+            return Ok(transcript_in(std::path::Path::new(dir), session_id));
+        }
         Ok(self.call(json!({ "op": "exists", "sessionID": session_id })).await? == Value::Bool(true))
     }
 
-    async fn fork(&self, session_id: &str, message_id: &str) -> Result<Option<Fork>, String> {
-        let out = self.call(json!({ "op": "fork", "sessionID": session_id, "messageID": message_id })).await?;
+    async fn fork(&self, session_id: &str, message_id: &str, config_dir: Option<&str>) -> Result<Option<Fork>, String> {
+        let mut params = json!({ "op": "fork", "sessionID": session_id, "messageID": message_id });
+        if let Some(dir) = config_dir {
+            params["configDir"] = json!(dir);
+        }
+        let out = self.call(params).await?;
         let Some(object) = out.as_object() else { return Ok(None) };
         let messages: HashMap<String, String> = object
             .get("messages")
@@ -77,7 +85,19 @@ impl Io for RealIo {
         Ok(Some(Fork { session_id, messages }))
     }
 
-    async fn remove(&self, session_id: &str) -> Result<(), String> {
-        self.call(json!({ "op": "remove", "sessionID": session_id })).await.map(|_| ())
+    async fn remove(&self, session_id: &str, config_dir: Option<&str>) -> Result<(), String> {
+        let mut params = json!({ "op": "remove", "sessionID": session_id });
+        if let Some(dir) = config_dir {
+            params["configDir"] = json!(dir);
+        }
+        self.call(params).await.map(|_| ())
     }
+}
+
+/// Whether `<config_dir>/projects/*/<session_id>.jsonl` exists and is not empty.
+pub fn transcript_in(config_dir: &std::path::Path, session_id: &str) -> bool {
+    let Ok(folders) = std::fs::read_dir(config_dir.join("projects")) else { return false };
+    folders.flatten().any(|folder| {
+        std::fs::metadata(folder.path().join(format!("{session_id}.jsonl"))).is_ok_and(|file| file.len() > 0)
+    })
 }

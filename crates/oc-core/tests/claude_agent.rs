@@ -116,9 +116,17 @@ impl Env {
     }
 }
 
+/// The transcript operations: forks are made up (a fresh session ID), and every call is logged with its config folder.
+#[derive(Default)]
+struct Transcripts {
+    forks: Vec<(String, String, Option<String>)>,
+    removed: Vec<(String, Option<String>)>,
+}
+
 struct TestIo {
     exe: String,
     env: BTreeMap<String, String>,
+    transcripts: Arc<Mutex<Transcripts>>,
 }
 
 #[async_trait]
@@ -129,13 +137,22 @@ impl Io for TestIo {
     fn env(&self) -> BTreeMap<String, String> {
         self.env.clone()
     }
-    async fn session_exists(&self, _session_id: &str) -> Result<bool, String> {
-        Ok(true)
+    async fn session_exists(&self, session_id: &str, config_dir: Option<&str>) -> Result<bool, String> {
+        // The stand-in writes its transcripts where Claude Code would.
+        let dir = config_dir.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(&self.env["HOME"]).join(".claude"));
+        Ok(oc_core::claude_agent::transcripts::transcript_in(&dir, session_id))
     }
-    async fn fork(&self, _session_id: &str, _message_id: &str) -> Result<Option<Fork>, String> {
-        Ok(None)
+    async fn fork(&self, session_id: &str, message_id: &str, config_dir: Option<&str>) -> Result<Option<Fork>, String> {
+        self.transcripts.lock().forks.push((session_id.into(), message_id.into(), config_dir.map(String::from)));
+        Ok(Some(Fork { session_id: uuid::Uuid::new_v4().to_string(), messages: HashMap::new() }))
     }
-    async fn remove(&self, _session_id: &str) -> Result<(), String> {
+    async fn remove(&self, session_id: &str, config_dir: Option<&str>) -> Result<(), String> {
+        let mut transcripts = self.transcripts.lock();
+        // A fork can only be deleted from the config folder it was written to.
+        if transcripts.forks.iter().any(|(_, _, dir)| dir.as_deref() != config_dir) {
+            return Err(format!("removed {session_id} from the wrong config folder"));
+        }
+        transcripts.removed.push((session_id.into(), config_dir.map(String::from)));
         Ok(())
     }
 }
@@ -151,6 +168,14 @@ impl Storage for MemoryStorage {
     async fn set(&self, key: &str, value: Value) {
         self.0.lock().insert(key.to_string(), value);
     }
+    async fn remove(&self, key: &str) {
+        self.0.lock().remove(key);
+    }
+    async fn scan(&self, prefix: &str) -> Vec<String> {
+        let mut keys: Vec<String> = self.0.lock().keys().filter(|k| k.starts_with(prefix)).cloned().collect();
+        keys.sort();
+        keys
+    }
 }
 
 #[derive(Default)]
@@ -160,14 +185,19 @@ impl Reporter for Reports {
     fn missing(&self) {
         self.0.lock().push("missing".into());
     }
-    fn ready(&self, probe: ProbeResult) {
-        self.0.lock().push(format!("ready {}", probe.version.unwrap_or_default()));
+    fn ready(&self, probe: ProbeResult, config_dir: Option<String>) {
+        let folder = config_dir.map(|d| format!(" {d}")).unwrap_or_default();
+        self.0.lock().push(format!("ready {}{folder}", probe.version.unwrap_or_default()));
     }
 }
 
 fn context(env: &Env, storage: Arc<MemoryStorage>, reports: Arc<Reports>) -> Context {
+    context_with(env, storage, reports, Arc::default())
+}
+
+fn context_with(env: &Env, storage: Arc<MemoryStorage>, reports: Arc<Reports>, transcripts: Arc<Mutex<Transcripts>>) -> Context {
     Context {
-        io: Arc::new(TestIo { exe: env.script.to_string_lossy().into_owned(), env: env.env() }),
+        io: Arc::new(TestIo { exe: env.script.to_string_lossy().into_owned(), env: env.env(), transcripts }),
         storage,
         reporter: reports,
         directory: env.dir.path().to_string_lossy().into_owned(),
@@ -500,7 +530,10 @@ async fn startup_failures_and_disconnected_tools() {
     let error = registry.run(&ctx, call, CancellationToken::new()).await.unwrap_err();
     assert_eq!(error, "The OpenCode tool server did not connect to Claude Code");
 
-    let missing = Context { io: Arc::new(TestIo { exe: env.dir.path().join("nope").to_string_lossy().into_owned(), env: env.env() }), ..ctx };
+    let missing = Context {
+        io: Arc::new(TestIo { exe: env.dir.path().join("nope").to_string_lossy().into_owned(), env: env.env(), transcripts: Arc::default() }),
+        ..ctx
+    };
     let (call, _) = request(Some("ses_z"), vec![user("hi")], vec![]);
     let error = registry.run(&missing, call, CancellationToken::new()).await.unwrap_err();
     assert!(error.starts_with("Claude Code native binary not found at "), "{error}");
@@ -630,4 +663,169 @@ fn empty_successes_after_api_retries_report_the_terminal_status() {
     empty["is_error"] = json!(false);
     empty["api_error_status"] = Value::Null;
     assert_eq!(Converter::new(vec![]).convert(&empty).last().unwrap()["type"], json!("finish"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// 2.4.1: config folders and deleted sessions (`claude/{sessions,branches}.test.ts`, `plugin.test.ts`)
+// ---------------------------------------------------------------------------------------------
+
+use oc_core::claude_agent::config_dirs;
+
+const FIRST: &str = "Remember the marker COPPER-OTTER. Reply only with that marker.";
+
+fn followup(text: &str) -> Vec<Value> {
+    vec![user(FIRST), json!({ "role": "assistant", "content": [{ "type": "text", "text": "COPPER-OTTER" }] }), user(text)]
+}
+
+/// A request with this connection (no gateway: every folder logs in on its own).
+fn request_in(session: Option<&str>, prompt: Vec<Value>, connection: Vec<(String, String)>) -> (Request, Parts) {
+    let (mut request, parts) = request(session, prompt, vec![]);
+    request.connection = connection;
+    (request, parts)
+}
+
+fn folder(env: &Env, name: &str) -> String {
+    config_dirs(Some(&json!(env.dir.path().join(name).to_string_lossy()))).remove(0)
+}
+
+fn in_folder(dir: &str) -> Vec<(String, String)> {
+    vec![("CLAUDE_CONFIG_DIR".into(), dir.into())]
+}
+
+/// The config folder of every `claude` started, in order.
+fn folders(env: &Env) -> Vec<Option<String>> {
+    env.spawns().iter().map(|s| s["env"]["CLAUDE_CONFIG_DIR"].as_str().map(String::from)).collect()
+}
+
+fn text_turn() -> Value {
+    json!([{ "text": "COPPER-OTTER" }])
+}
+
+#[tokio::test]
+async fn each_config_folder_keeps_its_own_claude_session_and_switching_back_catches_up() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [text_turn(), text_turn(), text_turn()] }));
+    let storage = Arc::new(MemoryStorage::default());
+    let ctx = context(&env, storage.clone(), Arc::default());
+    let registry = Registry::new();
+    let work = folder(&env, "claude-work");
+    let (one, _) = request_in(Some("session-a"), vec![user(FIRST)], vec![]);
+    registry.run(&ctx, one, CancellationToken::new()).await.unwrap();
+    let flag = |run: usize, name: &str| {
+        env.spawns()[run]["argv"].as_array().unwrap().iter().filter_map(Value::as_str).find_map(|a| a.strip_prefix(name).map(String::from))
+    };
+    let id = flag(0, "--session-id=").unwrap();
+    let mut prompt = followup("What was the marker? Reply only with it.");
+    let (two, _) = request_in(Some("session-a"), prompt.clone(), in_folder(&work));
+    registry.run(&ctx, two, CancellationToken::new()).await.unwrap();
+    prompt.push(json!({ "role": "assistant", "content": [{ "type": "text", "text": "COPPER-OTTER" }] }));
+    prompt.push(user("And once more?"));
+    let (three, _) = request_in(Some("session-a"), prompt, vec![]);
+    registry.run(&ctx, three, CancellationToken::new()).await.unwrap();
+    let users: Vec<String> = env.received().into_iter().filter(|m| m["type"] == "user").map(|m| m["message"]["content"].to_string()).collect();
+    // The other folder cannot resume this login's transcript, so it starts its own from the whole history.
+    assert_eq!(folders(&env), [None, Some(work.clone()), None]);
+    assert!(flag(1, "--resume=").is_none());
+    assert!(users[1].contains("Remember the marker COPPER-OTTER"));
+    let other = storage.get(&format!("sessions/session-a:{work}")).await.unwrap();
+    assert_ne!(other["claudeSessionID"], json!(id));
+    assert_eq!(flag(2, "--resume=").as_deref(), Some(id.as_str()));
+    assert!(users[2].contains("What was the marker?"));
+    assert!(!users[2].contains("Remember the marker COPPER-OTTER"));
+    assert_eq!(storage.get("sessions/session-a").await.unwrap()["claudeSessionID"], json!(id));
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_logged_out_model_folder_fails_with_the_command_to_log_in_to_it() {
+    if standin().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let work = config_dirs(Some(&json!(dir.path().join("claude-work").to_string_lossy()))).remove(0);
+    let env = Env::new(json!({ "folders": { work.clone(): { "account": { "tokenSource": "none", "apiProvider": "firstParty" } } } }));
+    let reports = Arc::new(Reports::default());
+    let ctx = context(&env, Arc::default(), reports.clone());
+    let registry = Registry::new();
+    let (request, _) = request_in(Some("session-a"), vec![user(FIRST)], in_folder(&work));
+    let error = registry.run(&ctx, request, CancellationToken::new()).await.unwrap_err();
+    assert_eq!(error, oc_core::claude_agent::login_message(Some(&work)));
+    assert!(error.contains(&format!("\"{work}\"")));
+    // The report names the folder, so the provider's status can tell it is another account.
+    assert_eq!(reports.0.lock().clone(), [format!("ready 2.1.302 {work}")]);
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_branch_is_forked_and_deleted_in_the_chats_own_config_folder() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [text_turn(), [{ "text": "Summary." }]] }));
+    let transcripts: Arc<Mutex<Transcripts>> = Arc::default();
+    let ctx = context_with(&env, Arc::default(), Arc::default(), transcripts.clone());
+    let registry = Registry::new();
+    let work = folder(&env, "claude-work");
+    let (one, _) = request_in(Some("session-a"), vec![user(FIRST)], in_folder(&work));
+    registry.run(&ctx, one, CancellationToken::new()).await.unwrap();
+    let (mut summary, _) = request_in(None, followup("Summarize"), in_folder(&work));
+    summary.source_id = Some("session-a".into());
+    registry.run(&ctx, summary, CancellationToken::new()).await.unwrap();
+    let transcripts = transcripts.lock();
+    assert_eq!(transcripts.forks.len(), 1);
+    assert_eq!(transcripts.forks[0].2.as_deref(), Some(work.as_str()));
+    // The double refuses a removal from another folder.
+    assert_eq!(transcripts.removed.len(), 1);
+    assert_eq!(transcripts.removed[0].1.as_deref(), Some(work.as_str()));
+    drop(transcripts);
+    registry.close().await;
+}
+
+// plugin.test.ts "deleting a session stops its process and removes what was saved for it" (2.4.1)
+#[tokio::test]
+async fn deleting_a_session_stops_its_process_and_removes_its_records() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [text_turn()] }));
+    let storage = Arc::new(MemoryStorage::default());
+    let ctx = context(&env, storage.clone(), Arc::default());
+    let registry = Registry::new();
+    let (one, _) = request_in(Some("session-a"), vec![user(FIRST)], vec![]);
+    registry.run(&ctx, one, CancellationToken::new()).await.unwrap();
+    storage.set("sessions/session-a:/claude-work", json!({ "claudeSessionID": "other-folder" })).await;
+    storage.set("sessions/session-ab", json!({ "claudeSessionID": "another-chat" })).await;
+    storage.set("models", json!({ "models": [] })).await;
+    registry.remove(storage.as_ref(), "session-a").await;
+    for _ in 0..100 {
+        if env.log().iter().any(|e| e["event"] == "exit") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(env.log().iter().any(|e| e["event"] == "exit"));
+    let mut keys: Vec<String> = storage.0.lock().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["models", "sessions/session-ab"]);
+    // A new turn starts over: nothing resumes the deleted session.
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn the_default_folder_runs_without_naming_it() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [text_turn()] }));
+    let ctx = context(&env, Arc::default(), Arc::default());
+    let registry = Registry::new();
+    let default = oc_core::claude_agent::config_dirs(Some(&json!("~/.claude"))).remove(0);
+    // A side call: it saves no transcript, so the stand-in writes nothing to the real default folder either way.
+    let (one, parts) = request_in(None, vec![user(FIRST)], in_folder(&default));
+    registry.run(&ctx, one, CancellationToken::new()).await.unwrap();
+    assert_eq!(text(&parts), "COPPER-OTTER");
+    assert_eq!(folders(&env), [None]);
+    registry.close().await;
 }

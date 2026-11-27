@@ -54,7 +54,8 @@ pub enum State {
     Checking,
     Missing,
     Failed(String),
-    Ready(ProbeResult),
+    /// The probe, and the `CLAUDE_CONFIG_DIR` it ran with.
+    Ready(ProbeResult, Option<String>),
 }
 
 /// One model of the saved catalog.
@@ -266,6 +267,10 @@ pub fn connection_env(settings: Option<&serde_json::Map<String, Value>>, headers
             env.push((name.to_string(), js::number(n)));
         }
     }
+    // The login check and model list use the first folder of a list.
+    if let Some(first) = config_dirs(get("configDir")).into_iter().next() {
+        env.push(("CLAUDE_CONFIG_DIR".into(), first));
+    }
     let lines: Vec<String> = headers
         .and_then(Value::as_object)
         .map(|h| h.iter().map(|(k, v)| format!("{k}: {}", v.as_str().map(String::from).unwrap_or_else(|| oc_ai::json::js_string(v)))).collect())
@@ -279,6 +284,80 @@ pub fn connection_env(settings: Option<&serde_json::Map<String, Value>>, headers
     env
 }
 
+/// `ClaudeQueryOptions.configDirs(value)`: the `configDir` setting (one folder or a list) as absolute folders.
+pub fn config_dirs(value: Option<&Value>) -> Vec<String> {
+    let items: Vec<&Value> = match value {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(value) => vec![value],
+        None => vec![],
+    };
+    items
+        .into_iter()
+        .filter_map(Value::as_str)
+        .map(|item| {
+            // Claude Code does not expand ~, so a configDir like ~/.claude-work would point inside the project.
+            // An absolute path also means Claude Code and our own transcript lookups agree on the folder.
+            let dir = match item.strip_prefix("~/") {
+                Some(rest) => oc_util::global::os_home().join(rest).to_string_lossy().into_owned(),
+                None => item.to_string(),
+            };
+            resolve_path(&dir)
+        })
+        .collect()
+}
+
+/// Node's `path.resolve(p)`: absolute against the working directory, with `.` and `..` resolved.
+pub fn resolve_path(p: &str) -> String {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    #[cfg(windows)]
+    {
+        let joined = cwd.join(p);
+        std::path::absolute(&joined).unwrap_or(joined).to_string_lossy().into_owned()
+    }
+    #[cfg(not(windows))]
+    {
+        use std::path::{Component, PathBuf};
+        let mut out = PathBuf::from("/");
+        for component in cwd.join(p).components() {
+            match component {
+                Component::ParentDir => {
+                    out.pop();
+                }
+                Component::Normal(part) => out.push(part),
+                Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+            }
+        }
+        out.to_string_lossy().into_owned()
+    }
+}
+
+/// `ClaudeQueryOptions.withoutDefaultFolder`: Claude Code keeps its state in ~/.claude.json only while
+/// `CLAUDE_CONFIG_DIR` is unset. Naming the default folder moves that to ~/.claude/.claude.json, which can hold an
+/// older model list, so the default folder is used by not naming it.
+pub fn without_default_folder(connection: &[(String, String)], process: &BTreeMap<String, String>) -> Vec<(String, String)> {
+    let default = oc_util::global::os_home().join(".claude").to_string_lossy().into_owned();
+    let named = connection.iter().any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && *v == default);
+    // With the variable already set for opencode, leaving it out would run that folder instead.
+    if !named || process.contains_key("CLAUDE_CONFIG_DIR") {
+        return connection.to_vec();
+    }
+    connection.iter().filter(|(k, _)| k != "CLAUDE_CONFIG_DIR").cloned().collect()
+}
+
+/// The `CLAUDE_CONFIG_DIR` of a connection.
+pub fn config_dir_of(connection: &[(String, String)]) -> Option<String> {
+    connection.iter().find(|(k, _)| k == "CLAUDE_CONFIG_DIR").map(|(_, v)| v.clone())
+}
+
+/// `ClaudeProbe.loginMessage(configDir)`.
+pub fn login_message(config_dir: Option<&str>) -> String {
+    let Some(dir) = config_dir else { return "Claude Code is not logged in. Run `claude auth login` in a terminal.".into() };
+    if cfg!(windows) {
+        return format!("Claude Code is not logged in. Run `$env:CLAUDE_CONFIG_DIR = \"{dir}\"; claude auth login` in PowerShell.");
+    }
+    format!("Claude Code is not logged in. Run `CLAUDE_CONFIG_DIR=\"{dir}\" claude auth login` in a terminal.")
+}
+
 /// `problem(state)`: the connection status a state shows.
 pub fn problem(state: &State) -> Option<ConnectionStatus> {
     match state {
@@ -288,8 +367,8 @@ pub fn problem(state: &State) -> Option<ConnectionStatus> {
         )),
         // The message already says what went wrong with Claude Code.
         State::Failed(message) => Some(ConnectionStatus::needs_auth(message.clone(), None)),
-        State::Ready(probe) if !probe::is_logged_in(&probe.account) => {
-            Some(ConnectionStatus::needs_auth("Claude Code is not logged in. Run `claude auth login` in a terminal.", None))
+        State::Ready(probe, config_dir) if !probe::is_logged_in(&probe.account) => {
+            Some(ConnectionStatus::needs_auth(login_message(config_dir.as_deref()), None))
         }
         _ => None,
     }
@@ -325,6 +404,24 @@ impl sessions::Storage for Kv {
             tracing::warn!(%error, key, "failed to save Claude Agent state");
         }
     }
+    async fn remove(&self, key: &str) {
+        if let Err(error) = self.db.kv_remove(&format!("{}{key}", self.namespace)) {
+            tracing::warn!(%error, key, "failed to remove Claude Agent state");
+        }
+    }
+    async fn scan(&self, prefix: &str) -> Vec<String> {
+        let mut keys = vec![];
+        let mut after: Option<String> = None;
+        loop {
+            let Ok((entries, next)) = self.db.kv_scan(&format!("{}{prefix}", self.namespace), after.as_deref(), Some(1000)) else { break };
+            keys.extend(entries.into_iter().filter_map(|(key, _)| key.strip_prefix(&self.namespace).map(String::from)));
+            match next {
+                Some(next) => after = Some(next),
+                None => break,
+            }
+        }
+        keys
+    }
 }
 
 /// One location's plugin instance.
@@ -343,9 +440,21 @@ impl sessions::Reporter for Location {
     fn missing(&self) {
         self.report(State::Missing);
     }
-    /// A chat's own process reported (`fromChat`).
-    fn ready(&self, probe: ProbeResult) {
-        self.report_from(State::Ready(probe), true);
+    /// A chat's own process reported (`fromChat`). A model with its own `configDir` runs another account, which must
+    /// not replace the provider's login, prices and models. Every folder in the provider's list is its own, so those
+    /// follow the folder a chat last started on (2.4.1).
+    fn ready(&self, probe: ProbeResult, config_dir: Option<String>) {
+        if let Some(owner) = self.owner.upgrade() {
+            let process = process_env();
+            let mut own = vec![config_dir_of(&without_default_folder(&owner.connection(&self.key), &process))];
+            for dir in owner.config_dirs(&self.key) {
+                own.push(config_dir_of(&without_default_folder(&[("CLAUDE_CONFIG_DIR".into(), dir)], &process)));
+            }
+            if !own.contains(&config_dir) {
+                return;
+            }
+        }
+        self.report_from(State::Ready(probe, config_dir), true);
     }
 }
 
@@ -378,7 +487,7 @@ impl Location {
                 plugins.integrations_changed(&self.key);
             }
         }
-        let State::Ready(probe) = state else { return };
+        let State::Ready(probe, _) = state else { return };
         let base_url = owner
             .connection(&self.key)
             .into_iter()
@@ -419,7 +528,9 @@ impl Location {
             self.report(State::Missing);
             return;
         };
-        let env = sessions::base_env(sessions::Io::env(&io), &owner.connection(&self.key));
+        let connection = without_default_folder(&owner.connection(&self.key), &sessions::Io::env(&io));
+        let config_dir = config_dir_of(&connection);
+        let env = sessions::base_env(sessions::Io::env(&io), &connection);
         let bun = if process::is_script(&executable) { sessions::Io::bun(&io).await } else { None };
         let options = process::Options {
             executable,
@@ -437,7 +548,7 @@ impl Location {
             tools: None,
         };
         let next = match probe::run(options).await {
-            Ok(probe) => State::Ready(probe),
+            Ok(probe) => State::Ready(probe, config_dir),
             Err(message) => {
                 tracing::warn!(cause = %message, "Claude Code login check failed");
                 State::Failed(message)
@@ -552,6 +663,14 @@ impl ClaudeAgent {
         connection_env(provider.settings.as_ref(), headers.as_ref(), body.as_ref())
     }
 
+    /// `ClaudeProvider.configDirs(ctx)`: the provider's `configDir` setting as folders.
+    pub fn config_dirs(&self, key: &str) -> Vec<String> {
+        let Some(plugins) = self.plugins.upgrade() else { return vec![] };
+        let Some(catalog) = plugins.catalog(key) else { return vec![] };
+        let Some(provider) = catalog.provider(PROVIDER_ID) else { return vec![] };
+        config_dirs(provider.settings.as_ref().and_then(|s| s.get("configDir")))
+    }
+
     fn provider_reload(&self, key: &str) {
         if let Some(plugins) = self.plugins.upgrade() {
             plugins.provider_reload(key);
@@ -559,7 +678,7 @@ impl ClaudeAgent {
     }
 
     /// `credential.switched` for `claude-agent` checks again at every location; a session that stopped
-    /// running starts its parked turn's idle timer.
+    /// running starts its parked turn's idle timer; a deleted session's process stops and its records go.
     fn subscribe(&self, runtime: &tokio::runtime::Handle) {
         let me = self.me.clone();
         let bus = self.bus.clone();
@@ -584,6 +703,16 @@ impl ClaudeAgent {
                         "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
                             if let Some(id) = event.data.get("sessionID").and_then(Value::as_str) {
                                 owner.registry.idle(id);
+                            }
+                        }
+                        // OpenCode deleted the session, so nothing can resume it (2.4.1).
+                        "session.deleted" => {
+                            if let Some(id) = event.data.get("sessionID").and_then(Value::as_str).map(String::from) {
+                                let owner = owner.clone();
+                                tokio::spawn(async move {
+                                    let storage = Kv::new(owner.db.clone());
+                                    owner.registry.remove(&storage, &id).await;
+                                });
                             }
                         }
                         _ => {}
@@ -704,6 +833,36 @@ mod tests {
         assert!(Catalog::decode(Some(&json!({ "models": [{ "id": "a", "name": "A", "efforts": [], "hidden": "yes" }] }))).is_none());
     }
 
+    // accounts.test.ts "configDir takes one folder or a list, expanding ~, and the login check uses the first" (2.4.1)
+    #[test]
+    fn config_folders() {
+        let home = oc_util::global::os_home().join(".claude-1").to_string_lossy().into_owned();
+        assert_eq!(config_dirs(Some(&json!("~/.claude-1"))), vec![home.clone()]);
+        assert_eq!(config_dirs(Some(&json!(["~/.claude-1", "/tmp/claude-2", 3]))), vec![home.clone(), resolve_path("/tmp/claude-2")]);
+        assert_eq!(config_dirs(None), Vec::<String>::new());
+        let settings = json!({ "configDir": ["~/.claude-1", "/tmp/claude-2"] });
+        assert_eq!(connection_env(settings.as_object(), None, None), vec![("CLAUDE_CONFIG_DIR".to_string(), home)]);
+        // Relative folders resolve against the working directory, and `.` / `..` go.
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(resolve_path("a/./b/../c"), cwd.join("a").join("c").to_string_lossy());
+        #[cfg(unix)]
+        assert_eq!(resolve_path("/x//y/../z/"), "/x/z");
+    }
+
+    // plugin.test.ts "runs the default folder without naming it, so Claude Code keeps its usual state file" (2.4.1)
+    #[test]
+    fn the_default_folder_is_not_named() {
+        let default = oc_util::global::os_home().join(".claude").to_string_lossy().into_owned();
+        let connection = vec![("ANTHROPIC_BASE_URL".to_string(), "http://x".to_string()), ("CLAUDE_CONFIG_DIR".to_string(), default.clone())];
+        let none = BTreeMap::new();
+        assert_eq!(without_default_folder(&connection, &none), connection[..1].to_vec());
+        // With the variable already set for opencode, leaving it out would run that folder instead.
+        let set = BTreeMap::from([("CLAUDE_CONFIG_DIR".to_string(), "/elsewhere".to_string())]);
+        assert_eq!(without_default_folder(&connection, &set), connection);
+        let other = vec![("CLAUDE_CONFIG_DIR".to_string(), format!("{default}-work"))];
+        assert_eq!(without_default_folder(&other, &none), other);
+    }
+
     #[test]
     fn connection_environment() {
         let settings = json!({ "baseURL": "http://x", "apiKey": "k", "headerTimeout": 5000, "other": 1 });
@@ -725,8 +884,18 @@ mod tests {
         assert_eq!(problem(&State::Missing).unwrap().url.as_deref(), Some("https://code.claude.com/docs/en/setup"));
         assert_eq!(problem(&State::Failed("boom".into())).unwrap().message, "boom");
         let logged_out = ProbeResult { version: None, account: json!({ "tokenSource": "none" }), models: vec![] };
-        assert_eq!(problem(&State::Ready(logged_out)).unwrap().message, "Claude Code is not logged in. Run `claude auth login` in a terminal.");
+        assert_eq!(
+            problem(&State::Ready(logged_out.clone(), None)).unwrap().message,
+            "Claude Code is not logged in. Run `claude auth login` in a terminal."
+        );
+        let folder = resolve_path("/claude-work");
+        let expected = if cfg!(windows) {
+            format!("Claude Code is not logged in. Run `$env:CLAUDE_CONFIG_DIR = \"{folder}\"; claude auth login` in PowerShell.")
+        } else {
+            format!("Claude Code is not logged in. Run `CLAUDE_CONFIG_DIR=\"{folder}\" claude auth login` in a terminal.")
+        };
+        assert_eq!(problem(&State::Ready(logged_out, Some(folder))).unwrap().message, expected);
         let logged_in = ProbeResult { version: None, account: json!({ "email": "a" }), models: vec![] };
-        assert!(problem(&State::Ready(logged_in)).is_none());
+        assert!(problem(&State::Ready(logged_in, None)).is_none());
     }
 }
