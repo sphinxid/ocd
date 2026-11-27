@@ -17,6 +17,7 @@
 //! - **Transcripts** (`getSessionInfo`, `forkSession`, `getSessionMessages`, `deleteSession`): the
 //!   real `@anthropic-ai/claude-agent-sdk` 0.3.301 file functions in the plugin sidecar.
 
+pub mod accounts;
 pub mod bridge;
 pub mod convert;
 pub mod hooks;
@@ -267,7 +268,7 @@ pub fn connection_env(settings: Option<&serde_json::Map<String, Value>>, headers
             env.push((name.to_string(), js::number(n)));
         }
     }
-    // The login check and model list use the first folder of a list.
+    // The account rotation picks the folder for each request. The login check and model list use the first.
     if let Some(first) = config_dirs(get("configDir")).into_iter().next() {
         env.push(("CLAUDE_CONFIG_DIR".into(), first));
     }
@@ -712,6 +713,7 @@ impl ClaudeAgent {
                                 tokio::spawn(async move {
                                     let storage = Kv::new(owner.db.clone());
                                     owner.registry.remove(&storage, &id).await;
+                                    sessions::Storage::remove(&storage, &accounts::key(&id)).await;
                                 });
                             }
                         }

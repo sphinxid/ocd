@@ -71,6 +71,12 @@ fn connection(model: &Value) -> Vec<(String, String)> {
     super::connection_env(settings.as_ref(), model.get("headers"), body.as_ref())
 }
 
+/// `ClaudeQueryOptions.configDirs(options.configDir)`: the folders a request may rotate through.
+fn config_dirs(model: &Value) -> Vec<String> {
+    let settings = model.get("settings").and_then(Value::as_object).map(oc_ai::catalog::types::native_settings);
+    super::config_dirs(settings.as_ref().and_then(|s| s.get("configDir")))
+}
+
 pub struct ClaudeBridge {
     pub inner: Arc<dyn AiSdkBridge>,
     pub claude: Arc<ClaudeAgent>,
@@ -161,6 +167,7 @@ fn do_stream(claude: Arc<ClaudeAgent>, key: String, call: StreamCall) -> Result<
                 let _ = parts.send(Ok(part));
             }
         }),
+        holding: None,
     };
     let cancel = CancellationToken::new();
     // The consumer going away (or the call's abort) cancels the run; the run still drains and saves its turn.
@@ -176,8 +183,9 @@ fn do_stream(claude: Arc<ClaudeAgent>, key: String, call: StreamCall) -> Result<
         });
     }
     let registry = claude.registry.clone();
+    let dirs = config_dirs(&call.model);
     tokio::spawn(async move {
-        let result = registry.run(&ctx, request, cancel.clone()).await;
+        let result = super::accounts::run(&registry, &ctx, request, &dirs, cancel.clone()).await;
         if let Err(error) = result
             && !cancel.is_cancelled()
             && !sessions::is_cancelled(&error)

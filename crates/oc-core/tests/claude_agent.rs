@@ -234,6 +234,7 @@ fn request(session: Option<&str>, prompt: Vec<Value>, tools: Vec<Value>) -> (Req
         prompt,
         tools,
         emit: Box::new(move |message: &Value| sink.lock().extend(convert.convert(message))),
+        holding: None,
     };
     (request, parts)
 }
@@ -666,12 +667,14 @@ fn empty_successes_after_api_retries_report_the_terminal_status() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 2.4.1: config folders and deleted sessions (`claude/{sessions,branches}.test.ts`, `plugin.test.ts`)
+// 2.4.1: config folders, account rotation and deleted sessions
+// (`claude/{accounts,sessions,branches}.test.ts`, `plugin.test.ts`)
 // ---------------------------------------------------------------------------------------------
 
-use oc_core::claude_agent::config_dirs;
+use oc_core::claude_agent::{accounts, config_dirs};
 
 const FIRST: &str = "Remember the marker COPPER-OTTER. Reply only with that marker.";
+const RESETS: &str = "2026-10-24T00:00:00.000Z";
 
 fn followup(text: &str) -> Vec<Value> {
     vec![user(FIRST), json!({ "role": "assistant", "content": [{ "type": "text", "text": "COPPER-OTTER" }] }), user(text)]
@@ -697,8 +700,257 @@ fn folders(env: &Env) -> Vec<Option<String>> {
     env.spawns().iter().map(|s| s["env"]["CLAUDE_CONFIG_DIR"].as_str().map(String::from)).collect()
 }
 
+fn errors(parts: &Parts) -> Vec<String> {
+    parts.lock().iter().filter(|p| p["type"] == "error").map(|p| p["error"]["message"].as_str().unwrap_or_default().to_string()).collect()
+}
+
+/// The provider's folder list, through the account rotation (what a model of the provider runs).
+async fn rotating(
+    registry: &Arc<Registry>,
+    ctx: &Context,
+    dirs: &[String],
+    session: Option<&str>,
+    prompt: Vec<Value>,
+) -> (Result<(), String>, Parts) {
+    let (request, parts) = request_in(session, prompt, in_folder(&dirs[0]));
+    (accounts::run(registry, ctx, request, dirs, CancellationToken::new()).await, parts)
+}
+
+fn limit() -> Value {
+    json!([{ "limit": {} }])
+}
+
 fn text_turn() -> Value {
     json!([{ "text": "COPPER-OTTER" }])
+}
+
+#[tokio::test]
+async fn a_refused_chat_retries_unseen_on_the_next_account_and_stays_there() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [limit(), text_turn(), text_turn()] }));
+    let dirs = vec![folder(&env, "a"), folder(&env, "b"), folder(&env, "c")];
+    let (storage, reports) = (Arc::new(MemoryStorage::default()), Arc::new(Reports::default()));
+    let ctx = context(&env, storage.clone(), reports.clone());
+    let registry = Registry::new();
+    let (result, one) = rotating(&registry, &ctx, &dirs, Some("session-a"), vec![user(FIRST)]).await;
+    result.unwrap();
+    assert_eq!(text(&one), "COPPER-OTTER");
+    assert!(errors(&one).is_empty());
+    let (result, two) = rotating(&registry, &ctx, &dirs, Some("session-a"), followup("What was the marker? Reply only with it.")).await;
+    result.unwrap();
+    assert_eq!(text(&two), "COPPER-OTTER");
+    assert_eq!(folders(&env), [Some(dirs[0].clone()), Some(dirs[1].clone())]);
+    assert_eq!(storage.get("accounts/session-a").await, Some(json!(dirs[1])));
+    assert_eq!(storage.get("last-account").await, Some(json!(dirs[1])));
+    assert_eq!(reports.0.lock().last().cloned(), Some(format!("ready 2.1.302 {}", dirs[1])));
+    // Nothing of the refused attempt reached OpenCode, so it did not cancel the turn: the first account's record
+    // settled, and a later switch back catches up from the end of that turn.
+    let refused = storage.get(&format!("sessions/session-a:{}", dirs[0])).await.unwrap();
+    assert_eq!(refused["interrupted"], json!(false));
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_new_chat_starts_on_the_account_that_last_worked() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [limit(), text_turn(), text_turn()] }));
+    let dirs = vec![folder(&env, "a"), folder(&env, "b"), folder(&env, "c")];
+    let storage = Arc::new(MemoryStorage::default());
+    let ctx = context(&env, storage.clone(), Arc::default());
+    let old = Registry::new();
+    rotating(&old, &ctx, &dirs, Some("session-a"), vec![user(FIRST)]).await.0.unwrap();
+    assert_eq!(storage.get("last-account").await, Some(json!(dirs[1])));
+    // After a restart, a new chat skips the refused account.
+    old.close().await;
+    let registry = Registry::new();
+    let (result, parts) = rotating(&registry, &ctx, &dirs, Some("session-b"), vec![user(FIRST)]).await;
+    result.unwrap();
+    assert_eq!(text(&parts), "COPPER-OTTER");
+    assert_eq!(folders(&env), [Some(dirs[0].clone()), Some(dirs[1].clone()), Some(dirs[1].clone())]);
+    assert_eq!(storage.get("accounts/session-b").await, Some(json!(dirs[1])));
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_side_call_starts_on_its_chats_account_and_can_rotate_without_moving_the_chat() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [text_turn(), limit(), [{ "text": "Summary." }]] }));
+    let dirs = vec![folder(&env, "a"), folder(&env, "b"), folder(&env, "c")];
+    let storage = Arc::new(MemoryStorage::default());
+    let transcripts: Arc<Mutex<Transcripts>> = Arc::default();
+    let ctx = context_with(&env, storage.clone(), Arc::default(), transcripts.clone());
+    let registry = Registry::new();
+    rotating(&registry, &ctx, &dirs, Some("session-a"), vec![user(FIRST)]).await.0.unwrap();
+    // A compaction: no session of its own, the chat as its source.
+    let (mut request, summary) = request_in(None, followup("Summarize"), in_folder(&dirs[0]));
+    request.source_id = Some("session-a".into());
+    accounts::run(&registry, &ctx, request, &dirs, CancellationToken::new()).await.unwrap();
+    assert!(errors(&summary).is_empty(), "{:?}", errors(&summary));
+    assert_eq!(text(&summary), "Summary.");
+    let forks: Vec<Option<String>> = transcripts.lock().forks.iter().map(|f| f.2.clone()).collect();
+    assert_eq!(forks, [Some(dirs[0].clone())]);
+    assert_eq!(folders(&env), [Some(dirs[0].clone()), Some(dirs[0].clone()), Some(dirs[1].clone())]);
+    assert_eq!(storage.get("accounts/session-a").await, Some(json!(dirs[0])));
+    assert_eq!(storage.get("last-account").await, Some(json!(dirs[1])));
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_limit_after_output_is_shown_as_an_error_and_the_next_turn_moves() {
+    if standin().is_none() {
+        return;
+    }
+    let after_text = json!([
+        { "text": "COPPER-OTTER" },
+        { "assistant_error": "rate_limit", "text": "" },
+        { "result": { "is_error": true, "result": "You've hit your limit", "api_error_status": 429 } },
+    ]);
+    let env = Env::new(json!({ "turns": [after_text, limit(), text_turn()] }));
+    let dirs = vec![folder(&env, "a"), folder(&env, "b"), folder(&env, "c")];
+    let storage = Arc::new(MemoryStorage::default());
+    let ctx = context(&env, storage.clone(), Arc::default());
+    let registry = Registry::new();
+    let (result, one) = rotating(&registry, &ctx, &dirs, Some("session-a"), vec![user(FIRST)]).await;
+    result.unwrap();
+    assert_eq!(text(&one), "COPPER-OTTER");
+    assert_eq!(one.lock().last().unwrap()["type"], json!("error"));
+    assert!(storage.get("accounts/session-a").await.is_none());
+    // The next turn tries the first account again, which refuses unseen, then moves on.
+    let (result, two) = rotating(&registry, &ctx, &dirs, Some("session-a"), followup("What was the marker? Reply only with it.")).await;
+    result.unwrap();
+    assert!(errors(&two).is_empty());
+    assert_eq!(folders(&env), [Some(dirs[0].clone()), Some(dirs[1].clone())]);
+    assert_eq!(storage.get("accounts/session-a").await, Some(json!(dirs[1])));
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn when_every_account_refuses_the_chat_shows_one_error_and_keeps_its_account() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [text_turn(), limit(), limit(), text_turn()] }));
+    let dirs = vec![folder(&env, "a"), folder(&env, "b")];
+    let storage = Arc::new(MemoryStorage::default());
+    let ctx = context(&env, storage.clone(), Arc::default());
+    let registry = Registry::new();
+    rotating(&registry, &ctx, &dirs, Some("session-a"), vec![user(FIRST)]).await.0.unwrap();
+    // Like a model whose own limit is used up on every account.
+    let (result, refused) = rotating(&registry, &ctx, &dirs, Some("session-a"), followup("Use the capped model")).await;
+    result.unwrap();
+    let errors = errors(&refused);
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].contains(RESETS), "{}", errors[0]);
+    assert_eq!(storage.get("accounts/session-a").await, Some(json!(dirs[0])));
+    assert_eq!(storage.get("last-account").await, Some(json!(dirs[0])));
+    // Like switching to a model that still has room: it starts on the chat's own account and works.
+    let prompt = [followup("Use the capped model"), vec![user("What was the marker? Reply only with it.")]].concat();
+    let (result, two) = rotating(&registry, &ctx, &dirs, Some("session-a"), prompt).await;
+    result.unwrap();
+    assert_eq!(text(&two), "COPPER-OTTER");
+    assert_eq!(folders(&env), [Some(dirs[0].clone()), Some(dirs[1].clone()), Some(dirs[0].clone())]);
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_failure_that_is_not_a_limit_is_shown_without_moving_the_chat() {
+    if standin().is_none() {
+        return;
+    }
+    let failure = json!([
+        { "assistant_error": "invalid_request", "text": "There's an issue with the selected model (claude-does-not-exist)." },
+        { "result": { "is_error": true, "result": "There's an issue with the selected model (claude-does-not-exist)." } },
+    ]);
+    let env = Env::new(json!({ "turns": [limit(), failure] }));
+    let dirs = vec![folder(&env, "a"), folder(&env, "b"), folder(&env, "c")];
+    let storage = Arc::new(MemoryStorage::default());
+    let ctx = context(&env, storage.clone(), Arc::default());
+    let registry = Registry::new();
+    let (result, parts) = rotating(&registry, &ctx, &dirs, Some("session-a"), vec![user(FIRST)]).await;
+    result.unwrap();
+    assert!(errors(&parts)[0].contains("claude-does-not-exist"));
+    assert_eq!(folders(&env), [Some(dirs[0].clone()), Some(dirs[1].clone())]);
+    assert!(storage.get("accounts/session-a").await.is_none());
+    assert!(storage.get("last-account").await.is_none());
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_logged_out_account_fails_with_the_command_to_log_in_to_its_folder() {
+    if standin().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let a = config_dirs(Some(&json!(dir.path().join("a").to_string_lossy()))).remove(0);
+    let env = Env::new(json!({ "folders": { a.clone(): { "account": { "tokenSource": "none", "apiProvider": "firstParty" } } } }));
+    let dirs = vec![a.clone(), folder(&env, "b")];
+    let storage = Arc::new(MemoryStorage::default());
+    let ctx = context(&env, storage.clone(), Arc::default());
+    let registry = Registry::new();
+    let (result, _) = rotating(&registry, &ctx, &dirs, Some("session-a"), vec![user(FIRST)]).await;
+    let error = result.unwrap_err();
+    assert!(error.contains(&format!("\"{a}\"")), "{error}");
+    assert_eq!(folders(&env), [Some(a)]);
+    assert!(storage.get("accounts/session-a").await.is_none());
+    // No prompt was sent.
+    assert!(!env.received().iter().any(|m| m["type"] == "user"));
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_model_with_one_folder_or_an_api_key_never_rotates() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [limit(), limit()] }));
+    let dirs = vec![folder(&env, "a"), folder(&env, "b"), folder(&env, "c")];
+    let storage = Arc::new(MemoryStorage::default());
+    let ctx = context(&env, storage.clone(), Arc::default());
+    let registry = Registry::new();
+    let work = folder(&env, "work");
+    let (result, parts) = rotating(&registry, &ctx, std::slice::from_ref(&work), Some("session-a"), vec![user(FIRST)]).await;
+    result.unwrap();
+    assert!(errors(&parts)[0].contains("Resets at"));
+    let (mut keyed, parts) = request_in(Some("session-key"), vec![user(FIRST)], in_folder(&dirs[0]));
+    keyed.connection.push(("ANTHROPIC_API_KEY".into(), "sk-test".into()));
+    accounts::run(&registry, &ctx, keyed, &dirs, CancellationToken::new()).await.unwrap();
+    assert_eq!(errors(&parts).len(), 1);
+    assert_eq!(folders(&env), [Some(work), Some(dirs[0].clone())]);
+    assert!(storage.0.lock().keys().all(|k| !k.starts_with("accounts/") && k != "last-account"));
+    registry.close().await;
+}
+
+#[tokio::test]
+async fn a_new_fork_starts_on_its_parents_account() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [limit(), text_turn(), [{ "text": "FORKED" }]] }));
+    let dirs = vec![folder(&env, "a"), folder(&env, "b"), folder(&env, "c")];
+    let storage = Arc::new(MemoryStorage::default());
+    let transcripts: Arc<Mutex<Transcripts>> = Arc::default();
+    let ctx = context_with(&env, storage.clone(), Arc::default(), transcripts.clone());
+    let old = Registry::new();
+    rotating(&old, &ctx, &dirs, Some("session-a"), vec![user(FIRST)]).await.0.unwrap();
+    assert_eq!(storage.get("accounts/session-a").await, Some(json!(dirs[1])));
+    // Move the newest account away, so only the parent's saved account can steer the fork there.
+    storage.set("last-account", json!(dirs[2])).await;
+    old.close().await;
+    let registry = Registry::new();
+    let (mut request, _) = request_in(Some("child-a"), followup("A forked question"), in_folder(&dirs[0]));
+    request.source_id = Some("session-a".into());
+    accounts::run(&registry, &ctx, request, &dirs, CancellationToken::new()).await.unwrap();
+    let forks: Vec<Option<String>> = transcripts.lock().forks.iter().map(|f| f.2.clone()).collect();
+    assert_eq!(forks, [Some(dirs[1].clone())]);
+    assert_eq!(folders(&env).last().cloned().flatten(), Some(dirs[1].clone()));
+    assert_eq!(storage.get("accounts/child-a").await, Some(json!(dirs[1])));
+    registry.close().await;
 }
 
 #[tokio::test]

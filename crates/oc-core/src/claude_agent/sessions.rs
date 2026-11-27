@@ -125,6 +125,9 @@ pub struct Request {
     pub prompt: Vec<Value>,
     pub tools: Vec<Value>,
     pub emit: Box<dyn FnMut(&Value) + Send + Sync>,
+    /// Set while the account rotation holds this attempt's messages back (2.4.1): a failure it holds reaches OpenCode
+    /// only after the turn, so the turn settles instead of being cancelled by the error.
+    pub holding: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl Request {
@@ -638,6 +641,7 @@ async fn turn(
     let user_id = adds_user.then(|| uuid::Uuid::new_v4().to_string());
     let log = Mutex::new(TurnLog::default());
     let (mut completed, mut interrupted, mut started, mut parked) = (false, false, false, false);
+    let holding = request.holding.clone();
 
     let step: Result<(), String> = async {
         match &continuation {
@@ -727,9 +731,11 @@ async fn turn(
             }
         };
         // A failed result becomes an error part, which ends OpenCode's stream and cancels this run before it
-        // settles: upstream's turn ends interrupted, so the next prompt continues after the submitted input.
+        // settles: upstream's turn ends interrupted, so the next prompt continues after the submitted input. An error
+        // the account rotation holds back cancels nothing, so that turn settles.
         if let Step::Result(result) = &outcome
             && result_failed(result)
+            && !holding.as_ref().is_some_and(|h| h.load(std::sync::atomic::Ordering::SeqCst))
         {
             interrupted = true;
             return Ok(());

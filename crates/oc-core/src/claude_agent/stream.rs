@@ -107,8 +107,20 @@ fn iso(seconds: f64) -> String {
     chrono::DateTime::from_timestamp_millis(ms).map(|d| d.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()).unwrap_or_default()
 }
 
+/// A failed request (`ClaudeAgentError.Failure`): its message, and whether a plan or rate limit refused it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Failed {
+    pub message: String,
+    pub limited: bool,
+}
+
 impl Failure {
     pub fn check(&mut self, message: &Value) -> Option<String> {
+        self.failed(message).map(|f| f.message)
+    }
+
+    /// [`Failure::check`] with whether a limit refused the request (2.4.1).
+    pub fn failed(&mut self, message: &Value) -> Option<Failed> {
         let kind = s(message, "type").unwrap_or_default();
         if kind == "rate_limit_event" {
             let info = message.get("rate_limit_info").cloned().unwrap_or(Value::Null);
@@ -165,13 +177,14 @@ impl Failure {
             _ => String::new(),
         };
         let text = format!("{limit}{reset}");
-        if !text.is_empty() {
-            return Some(text);
-        }
-        if let Some(status) = status.filter(|s| *s != 0.0) {
-            return Some(format!("Claude Code could not finish its reply (HTTP {})", js::number(status)));
-        }
-        Some("Claude Code could not finish its reply".into())
+        let message = if !text.is_empty() {
+            text
+        } else if let Some(status) = status.filter(|s| *s != 0.0) {
+            format!("Claude Code could not finish its reply (HTTP {})", js::number(status))
+        } else {
+            "Claude Code could not finish its reply".into()
+        };
+        Some(Failed { message, limited })
     }
 }
 
