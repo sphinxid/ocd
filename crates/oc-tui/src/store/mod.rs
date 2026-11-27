@@ -1636,6 +1636,21 @@ mod tests {
         assert_eq!(job_ids(&s), ["job_live"]);
     }
 
+    /// 2.4.1 lists video jobs (`Job.Video`) with the others: the store follows them like any background job.
+    #[test]
+    fn follows_video_jobs() {
+        let mut s = Store::new("/project");
+        let video = |status: &str| {
+            json!({ "kind": "video", "id": "video_0123456789abABCDEFGHIJKLMN", "sessionID": "ses_root", "status": status,
+                    "title": "a kite", "time": { "started": 1 }, "path": "/w/kite.mp4" })
+        };
+        s.apply(&ev("experimental.job.updated", json!({ "info": video("running") })));
+        assert_eq!(job_ids(&s), ["video_0123456789abABCDEFGHIJKLMN"]);
+        assert_eq!(s.jobs_for("ses_root")[0].kind, "video");
+        s.apply(&ev("experimental.job.updated", json!({ "info": video("completed") })));
+        assert!(job_ids(&s).is_empty());
+    }
+
     #[test]
     fn applies_job_events_that_arrive_while_the_list_is_in_flight() {
         let mut s = Store::new("/project");
