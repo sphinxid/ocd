@@ -386,3 +386,26 @@ fn worktree_name_action() {
     }
 }
 
+/// Autocomplete under the new designs (`autocomplete.tsx`): each row draws its own left rail, the selected row's in
+/// `text.formfield.focused` (the border color in the legacy layout).
+#[test]
+fn autocomplete_rail() {
+    for nd in [true, false] {
+        let mut a = if nd { app_new_designs() } else { app() };
+        a.on_key(crate::keymap::Stroke::key("/"));
+        let ac = a.autocomplete.clone().expect("autocomplete open");
+        let buf = super::tests::render_buf(&mut a, 100, 30);
+        let t = a.theme().clone();
+        let selected = ac.items[ac.selected].display.trim().to_string();
+        let (y, x) = (0..30u16)
+            .find_map(|y| {
+                let line: String = (0..100u16).map(|x| buf[(x, y)].symbol().to_string()).collect();
+                line.find(&selected).map(|_| (y, line.chars().position(|c| c == '┃').unwrap() as u16))
+            })
+            .expect("the selected row");
+        assert_eq!(buf[(x, y)].symbol(), "┃");
+        let want = if nd { t.text.formfield.focused } else { t.border };
+        assert_eq!(buf[(x, y)].fg, want.tui(), "nd {nd}");
+        assert_eq!(buf[(x, y + 1)].fg, t.border.tui(), "nd {nd}");
+    }
+}

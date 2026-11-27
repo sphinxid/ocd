@@ -623,6 +623,7 @@ impl App {
 
     fn draw_autocomplete(&mut self, buf: &mut Buffer, anchor: Rect, ac: &super::Autocomplete) {
         let t = self.theme().clone();
+        let nd = self.new_designs();
         let count = ac.items.len();
         let h = 10.min(count.max(1)).min((anchor.y as usize).max(1)) as u16;
         let rect = Rect::new(anchor.x, anchor.y.saturating_sub(h), anchor.width, h);
@@ -654,6 +655,8 @@ impl App {
                 }
             };
             let c = if ac.error { t.text.feedback.error.base } else { t.text.muted };
+            // The new designs keep the message on one truncated line.
+            let text = if nd { locale::truncate(text, (anchor.width as usize).saturating_sub(4).max(1)) } else { text.to_string() };
             lines.push(SLine::new(vec![pad(1), s(text, c)]));
         }
         let start = ac.selected.saturating_sub(h as usize - 1);
@@ -685,7 +688,10 @@ impl App {
         }
         for y in rect.y..rect.bottom() {
             let border = Style::default().fg(t.border.tui()).remove_modifier(ratatui::style::Modifier::all());
-            put(buf, rect.x, y, "┃", border, 1);
+            // Under the new designs each row draws its own left rail: the selected row's is the selection bar.
+            let row = start + (y - rect.y) as usize;
+            let rail = if nd && count > 0 && row == ac.selected { border.fg(t.text.formfield.focused.tui()) } else { border };
+            put(buf, rect.x, y, "┃", rail, 1);
             put(buf, rect.right().saturating_sub(1), y, "┃", border, 1);
         }
         draw_lines(buf, Rect::new(rect.x + 1, rect.y, rect.width.saturating_sub(2), rect.height), &lines, 0, "");
