@@ -67,6 +67,15 @@ pub struct CatalogModel {
     pub context_window: Option<f64>,
     #[serde(rename = "resolvedModel", default, skip_serializing_if = "Option::is_none")]
     pub resolved_model: Option<String>,
+    /// A model ID that Claude Code no longer lists, or lists under another ID: still usable, kept out of pickers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+}
+
+impl CatalogModel {
+    fn is_hidden(&self) -> bool {
+        self.hidden == Some(true)
+    }
 }
 
 /// The model list kept between starts (plugin KV `models`), so opencode can list models without running `claude`.
@@ -100,7 +109,10 @@ impl Catalog {
             if !strings("id") || !strings("name") || !m.get("efforts").and_then(Value::as_array).is_some_and(|e| e.iter().all(Value::is_string)) {
                 return None;
             }
-            if m.get("contextWindow").is_some_and(|v| !v.is_number()) || m.get("resolvedModel").is_some_and(|v| !v.is_string()) {
+            if m.get("contextWindow").is_some_and(|v| !v.is_number())
+                || m.get("resolvedModel").is_some_and(|v| !v.is_string())
+                || m.get("hidden").is_some_and(|v| !v.is_boolean())
+            {
                 return None;
             }
         }
@@ -131,30 +143,58 @@ pub fn price_source(account: &Value, base_url: Option<&str>) -> Option<String> {
     price_provider(provider).map(String::from)
 }
 
+/// Claude Code lists a model under whatever name the chat was started with, and each account caches its own list,
+/// while a chat or the config may hold any ID that was ever listed. So no ID is dropped, and a model already offered
+/// under one ID keeps it when Claude Code lists it under another (2.4.1).
 /// Context windows only come from the full check, so a chat's startup report keeps the saved ones.
 pub fn from_claude(models: &[Value], saved: &[CatalogModel]) -> Vec<CatalogModel> {
-    let known: HashMap<&str, Option<f64>> = saved.iter().map(|m| (m.id.as_str(), m.context_window)).collect();
-    models
-        .iter()
-        .filter_map(|model| {
-            let value = model.get("value").and_then(Value::as_str).unwrap_or_default();
-            // "default" follows Claude Code's own default, which can change under a running opencode session
-            if value == "default" {
-                return None;
-            }
-            Some(CatalogModel {
-                id: value.to_string(),
-                name: model.get("displayName").and_then(Value::as_str).unwrap_or_default().to_string(),
-                efforts: model
-                    .get("supportedEffortLevels")
-                    .and_then(Value::as_array)
-                    .map(|e| e.iter().filter_map(Value::as_str).map(String::from).collect())
-                    .unwrap_or_default(),
-                context_window: model.get("contextWindow").and_then(Value::as_f64).or_else(|| known.get(value).copied().flatten()),
-                resolved_model: model.get("resolvedModel").and_then(Value::as_str).map(String::from),
+    let value = |model: &Value| model.get("value").and_then(Value::as_str).unwrap_or_default().to_string();
+    // "default" follows Claude Code's own default, which can change under a running opencode session
+    let listed: Vec<&Value> = models.iter().filter(|model| value(model) != "default").collect();
+    let mut result: indexmap::IndexMap<String, CatalogModel> = indexmap::IndexMap::new();
+    for model in &listed {
+        let id = value(model);
+        let resolved = model.get("resolvedModel").and_then(Value::as_str).map(String::from);
+        let own = saved.iter().find(|item| item.id == id);
+        let offered = if own.is_some_and(|own| !own.is_hidden()) {
+            None
+        } else {
+            saved.iter().find(|item| {
+                !item.is_hidden()
+                    && item.resolved_model.is_some()
+                    && item.resolved_model == resolved
+                    // An alias that is still listed has moved to another version, and this row is the old one
+                    && !listed.iter().any(|other| value(other) == item.id)
             })
-        })
-        .collect()
+        };
+        let entry = CatalogModel {
+            id: id.clone(),
+            name: model.get("displayName").and_then(Value::as_str).unwrap_or_default().to_string(),
+            efforts: model
+                .get("supportedEffortLevels")
+                .and_then(Value::as_array)
+                .map(|e| e.iter().filter_map(Value::as_str).map(String::from).collect())
+                .unwrap_or_default(),
+            context_window: model.get("contextWindow").and_then(Value::as_f64).or_else(|| offered.or(own).and_then(|m| m.context_window)),
+            resolved_model: resolved,
+            hidden: None,
+        };
+        match offered {
+            Some(offered) => {
+                result.insert(offered.id.clone(), CatalogModel { id: offered.id.clone(), ..entry.clone() });
+                result.insert(id, CatalogModel { hidden: Some(true), ..entry });
+            }
+            None => {
+                result.insert(id, entry);
+            }
+        }
+    }
+    for model in saved {
+        if !result.contains_key(&model.id) {
+            result.insert(model.id.clone(), CatalogModel { hidden: Some(true), ..model.clone() });
+        }
+    }
+    result.into_values().collect()
 }
 
 /// `toModel(model, prices)`.
@@ -188,6 +228,10 @@ pub fn to_model(model: &CatalogModel, prices: Option<&indexmap::IndexMap<String,
         })
         .collect();
     info.cost = priced.map(|m| m.cost.clone()).unwrap_or_default();
+    // opencode keeps a deprecated model out of its pickers and still runs chats on it
+    if model.is_hidden() {
+        info.status = oc_ai::catalog::types::ModelStatus::Deprecated;
+    }
     info
 }
 
@@ -341,15 +385,18 @@ impl Location {
             .find(|(k, _)| k == "ANTHROPIC_BASE_URL")
             .map(|(_, v)| v)
             .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok());
+        // Another project folder may have saved IDs since this one loaded
+        let stored = Catalog::decode(sessions::Storage::get(&Kv::new(owner.db.clone()), CATALOG_KEY).await.as_ref());
         let next = {
             let current = self.catalog.read();
-            Catalog { price_source: price_source(&probe.account, base_url.as_deref()), models: from_claude(&probe.models, &current.models) }
+            let saved = stored.as_ref().unwrap_or(&current);
+            Catalog { price_source: price_source(&probe.account, base_url.as_deref()), models: from_claude(&probe.models, &saved.models) }
         };
         // A freshly started process reports its models without context sizes, which only the full check finds: run it
         // once per such model, so the model doesn't fall back to the default window.
         let unknown: Vec<String> = {
             let checked = self.checked.lock();
-            next.models.iter().filter(|m| m.context_window.is_none() && !checked.contains(&m.id)).map(|m| m.id.clone()).collect()
+            next.models.iter().filter(|m| !m.is_hidden() && m.context_window.is_none() && !checked.contains(&m.id)).map(|m| m.id.clone()).collect()
         };
         if from_chat && !unknown.is_empty() {
             self.checked.lock().extend(unknown);
@@ -581,7 +628,7 @@ mod tests {
     #[test]
     fn catalog_keeps_saved_context_windows() {
         let saved =
-            vec![CatalogModel { id: "opus".into(), name: "Opus".into(), efforts: vec![], context_window: Some(1_000_000.0), resolved_model: None }];
+            vec![CatalogModel { id: "opus".into(), name: "Opus".into(), efforts: vec![], context_window: Some(1_000_000.0), resolved_model: None, hidden: None }];
         let models = from_claude(
             &[
                 json!({ "value": "default", "displayName": "Default" }),
@@ -601,6 +648,60 @@ mod tests {
         assert_eq!(model.family.as_deref(), Some("claude-haiku"));
         assert_eq!(model.limit.output, 0);
         assert_eq!(to_model(&models[0], None).variants.len(), 2);
+    }
+
+    fn saved(id: &str, name: &str, resolved: Option<&str>) -> CatalogModel {
+        CatalogModel { id: id.into(), name: name.into(), efforts: vec![], context_window: None, resolved_model: resolved.map(String::from), hidden: None }
+    }
+
+    /// The models of upstream's `startup.jsonl` recording that the 2.4.1 tests rely on.
+    fn listed() -> Vec<Value> {
+        vec![
+            json!({ "value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)" }),
+            json!({ "value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5" }),
+            json!({ "value": "fable", "resolvedModel": "claude-fable-5-1", "displayName": "Fable 5.1" }),
+            json!({ "value": "sonnet", "resolvedModel": "claude-sonnet-5-5", "displayName": "Sonnet 5.5" }),
+            json!({ "value": "haiku", "resolvedModel": "claude-haiku-5-5", "displayName": "Haiku 5.5" }),
+            json!({ "value": "claude-sonnet-5", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet 5" }),
+        ]
+    }
+
+    // plugin.test.ts "keeps every saved model ID usable when Claude Code lists a model under another name" (2.4.1)
+    #[test]
+    fn renamed_models_keep_every_saved_id() {
+        let saved = vec![
+            // The recorded list calls this model `fable`
+            CatalogModel { context_window: Some(500_000.0), ..saved("claude-fable-5-1", "Fable 5.1", Some("claude-fable-5-1")) },
+            // and lists Sonnet 5 under its own ID, next to a `sonnet` that has moved to a newer version
+            saved("sonnet", "Sonnet 5", Some("claude-sonnet-5")),
+            saved("claude-retired", "Retired", None),
+        ];
+        let models = from_claude(&listed(), &saved);
+        let status = |id: &str| {
+            let model = models.iter().find(|m| m.id == id).unwrap_or_else(|| panic!("{id} is listed"));
+            to_model(model, None).status
+        };
+        use oc_ai::catalog::types::ModelStatus;
+        assert_eq!(status("claude-fable-5-1"), ModelStatus::Active);
+        assert_eq!(status("fable"), ModelStatus::Deprecated);
+        assert_eq!(status("claude-sonnet-5"), ModelStatus::Active);
+        assert_eq!(status("sonnet"), ModelStatus::Active);
+        assert_eq!(status("claude-retired"), ModelStatus::Deprecated);
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["opus", "claude-fable-5-1", "fable", "sonnet", "haiku", "claude-sonnet-5", "claude-retired"]);
+        // The kept ID takes the listed model's details and its own saved context window.
+        assert_eq!(
+            serde_json::to_value(&models[1..3]).unwrap(),
+            json!([
+                { "id": "claude-fable-5-1", "name": "Fable 5.1", "efforts": [], "contextWindow": 500000, "resolvedModel": "claude-fable-5-1" },
+                { "id": "fable", "name": "Fable 5.1", "efforts": [], "contextWindow": 500000, "resolvedModel": "claude-fable-5-1", "hidden": true },
+            ])
+        );
+        assert_eq!(serde_json::to_value(&models[6]).unwrap(), json!({ "id": "claude-retired", "name": "Retired", "efforts": [], "hidden": true }));
+        // A hidden saved row is never the one a renamed model keeps.
+        let again = from_claude(&listed(), &models);
+        assert_eq!(serde_json::to_value(&again).unwrap(), serde_json::to_value(&models).unwrap());
+        assert!(Catalog::decode(Some(&json!({ "models": [{ "id": "a", "name": "A", "efforts": [], "hidden": "yes" }] }))).is_none());
     }
 
     #[test]
