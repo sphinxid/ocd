@@ -261,15 +261,25 @@ pub struct Options {
     pub hooks: Option<Arc<PendingTools>>,
     /// The `opencode` SDK MCP server, when tools are offered.
     pub tools: Option<Arc<ToolServer>>,
+    /// The web search relay (`ClaudeWebSearch.search`, 2.4.1): thinking disabled, at most two turns, and Claude
+    /// Code's own WebSearch as its only tool.
+    pub web_search: bool,
 }
 
 /// The flags `ProcessTransport.initialize()` passes (`Be` forms), in order.
 pub fn args(options: &Options) -> Vec<String> {
     let mut args: Vec<String> = ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json"].map(String::from).to_vec();
-    args.push("--thinking=adaptive".into());
-    args.push("--thinking-display=summarized".into());
+    if options.web_search {
+        args.push("--thinking=disabled".into());
+    } else {
+        args.push("--thinking=adaptive".into());
+        args.push("--thinking-display=summarized".into());
+    }
     if let Some(effort) = &options.effort {
         args.push(format!("--effort={effort}"));
+    }
+    if options.web_search {
+        args.push("--max-turns=2".into());
     }
     if let Some(model) = &options.model {
         args.push(format!("--model={model}"));
@@ -277,8 +287,13 @@ pub fn args(options: &Options) -> Vec<String> {
     if let Some(resume) = &options.resume {
         args.push(format!("--resume={resume}"));
     }
-    args.push("--allowedTools=mcp__opencode__*".into());
-    args.push("--tools=".into());
+    if options.web_search {
+        args.push("--allowedTools=WebSearch".into());
+        args.push("--tools=WebSearch".into());
+    } else {
+        args.push("--allowedTools=mcp__opencode__*".into());
+        args.push("--tools=".into());
+    }
     args.push("--setting-sources=".into());
     args.push("--strict-mcp-config".into());
     args.push("--permission-mode=dontAsk".into());

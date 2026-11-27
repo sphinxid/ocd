@@ -1816,7 +1816,13 @@ impl Plugins {
     pub async fn search_providers(&self, key: &str) {
         let Some(base) = self.websearch.read().clone() else { return };
         let Some(ws) = self.websearch_for(key) else { return };
-        let builtins = base.provider_list();
+        let mut builtins = base.provider_list();
+        // opencode.provider.claude-agent, a provider plugin, adds its web search provider before the web search plugins'.
+        if self.builtin_enabled(key, crate::claude_agent::PLUGIN_ID)
+            && let Some(claude) = self.claude.websearch_provider(key)
+        {
+            builtins.insert(0, claude);
+        }
         if !self.transforms(key, "websearch") {
             ws.set_providers(builtins);
             return;
@@ -1866,6 +1872,13 @@ impl Plugins {
         if let Some(selection) = out.get("selection").and_then(oc_tools::websearch::Selection::from_json) {
             ws.set_config_selection(Some(selection));
         }
+    }
+
+    /// `ctx.websearch.reload()` from a built-in plugin: the location's providers are rebuilt and `websearch.updated`
+    /// announced when the list changed.
+    pub async fn websearch_reload(&self, key: &str) {
+        self.search_providers(key).await;
+        self.notify_domain(key, "websearch", Some(oc_schema::types::LocationRef { directory: key.to_string(), workspace_id: None }));
     }
 
     /// Calls a function handle: native (`rs:`) ones in process, plugin ones in the sidecar.

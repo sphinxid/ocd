@@ -29,6 +29,7 @@ pub mod sessions;
 pub mod stream;
 pub mod sync;
 pub mod transcripts;
+pub mod websearch;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Weak};
@@ -434,6 +435,8 @@ pub struct Location {
     refreshing: tokio::sync::Mutex<()>,
     /// Models a chat reported without a context size that a full check already ran for (`checked`).
     checked: parking_lot::Mutex<std::collections::HashSet<String>>,
+    /// Whether the integration has an active connection, which offers the web search provider (2.4.1).
+    connected: std::sync::atomic::AtomicBool,
     owner: Weak<ClaudeAgent>,
 }
 
@@ -547,6 +550,7 @@ impl Location {
             system: process::SystemPrompt::Default,
             hooks: None,
             tools: None,
+            web_search: false,
         };
         let next = match probe::run(options).await {
             Ok(probe) => State::Ready(probe, config_dir),
@@ -616,6 +620,7 @@ impl ClaudeAgent {
                 catalog: RwLock::new(saved),
                 refreshing: tokio::sync::Mutex::new(()),
                 checked: Default::default(),
+                connected: Default::default(),
                 owner: self.me.clone(),
             });
             locations.insert(key.to_string(), location.clone());
@@ -625,8 +630,13 @@ impl ClaudeAgent {
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             self.subscribe(&runtime);
         }
+        let connected = matches!(integrations.active(PROVIDER_ID).await, Ok(Some(_)));
+        if connected {
+            location.connected.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.websearch_reload(key);
+        }
         // Without a saved list there is no model to pick, so the first message that would fill it can never be sent.
-        if empty && matches!(integrations.active(PROVIDER_ID).await, Ok(Some(_))) {
+        if empty && connected {
             let (location, owner) = (location.clone(), self.me.upgrade());
             tokio::spawn(async move {
                 if let Some(owner) = owner {
@@ -672,6 +682,26 @@ impl ClaudeAgent {
         config_dirs(provider.settings.as_ref().and_then(|s| s.get("configDir")))
     }
 
+    /// The web search provider of location `key`, offered while the integration is connected. It is never made the
+    /// default: users pick it in their config.
+    pub fn websearch_provider(&self, key: &str) -> Option<Arc<dyn oc_tools::websearch::SearchProvider>> {
+        let location = self.location(key)?;
+        if !location.connected.load(std::sync::atomic::Ordering::SeqCst) {
+            return None;
+        }
+        Some(Arc::new(websearch::ClaudeSearch { owner: self.me.clone(), key: key.to_string() }))
+    }
+
+    /// `ctx.websearch.reload()`.
+    fn websearch_reload(&self, key: &str) {
+        let (plugins, key) = (self.plugins.clone(), key.to_string());
+        tokio::spawn(async move {
+            if let Some(plugins) = plugins.upgrade() {
+                plugins.websearch_reload(&key).await;
+            }
+        });
+    }
+
     fn provider_reload(&self, key: &str) {
         if let Some(plugins) = self.plugins.upgrade() {
             plugins.provider_reload(key);
@@ -698,7 +728,12 @@ impl ClaudeAgent {
                             let locations: Vec<Arc<Location>> = owner.locations.lock().values().cloned().collect();
                             for location in locations {
                                 let owner = owner.clone();
-                                tokio::spawn(async move { location.refresh(&owner).await });
+                                tokio::spawn(async move {
+                                    let connected = matches!(location.integrations.active(PROVIDER_ID).await, Ok(Some(_)));
+                                    location.connected.store(connected, std::sync::atomic::Ordering::SeqCst);
+                                    owner.websearch_reload(&location.key);
+                                    location.refresh(&owner).await
+                                });
                             }
                         }
                         "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {

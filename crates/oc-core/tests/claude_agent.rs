@@ -267,6 +267,7 @@ async fn probe_reports_version_account_and_context_windows() {
         system: SystemPrompt::Default,
         hooks: None,
         tools: None,
+        web_search: false,
     };
     let result = probe::run(options).await.unwrap();
     assert_eq!(result.version.as_deref(), Some("2.1.302"));
@@ -337,6 +338,7 @@ async fn logged_out_and_old_versions() {
         system: SystemPrompt::Default,
         hooks: None,
         tools: None,
+        web_search: false,
     };
     // An old Claude Code still lists its models (no context discovery before 2.1.257).
     let result = probe::run(options).await.unwrap();
@@ -667,11 +669,11 @@ fn empty_successes_after_api_retries_report_the_terminal_status() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 2.4.1: config folders, account rotation and deleted sessions
-// (`claude/{accounts,sessions,branches}.test.ts`, `plugin.test.ts`)
+// 2.4.1: config folders, account rotation, deleted sessions and the web search relay
+// (`claude/{accounts,sessions,branches}.test.ts`, `plugin.test.ts`, `websearch.test.ts`)
 // ---------------------------------------------------------------------------------------------
 
-use oc_core::claude_agent::{accounts, config_dirs};
+use oc_core::claude_agent::{accounts, config_dirs, websearch};
 
 const FIRST: &str = "Remember the marker COPPER-OTTER. Reply only with that marker.";
 const RESETS: &str = "2026-10-24T00:00:00.000Z";
@@ -1080,4 +1082,63 @@ async fn the_default_folder_runs_without_naming_it() {
     assert_eq!(text(&parts), "COPPER-OTTER");
     assert_eq!(folders(&env), [None]);
     registry.close().await;
+}
+
+// websearch.test.ts "searches in a claude with only WebSearch" (2.4.1), against the recorded exchange
+#[tokio::test]
+async fn the_web_search_relay_runs_claude_with_only_websearch() {
+    if standin().is_none() {
+        return;
+    }
+    let lines = recording("websearch");
+    let output = lines.iter().find_map(|l| l["message"].get("tool_use_result").cloned()).unwrap();
+    let env = Env::new(json!({ "turns": [[{ "websearch": output }, { "text": "Node.js moves to one release a year." }]] }));
+    let connection = vec![("ANTHROPIC_BASE_URL".to_string(), "https://gateway.example".to_string())];
+    let options = websearch::options(env.script.to_string_lossy().into_owned(), None, env.env(), &connection);
+    let found = websearch::search(options, "Node.js release schedule").await.unwrap();
+    assert!(found[0].title.as_deref().unwrap().starts_with("Summary of all results below, written by Claude"));
+    assert!(found[0].content.as_deref().unwrap().contains("Node.js"));
+    assert!(found.len() > 1);
+    let spawn = &env.spawns()[0];
+    let recorded_spawn = lines.iter().find(|l| l["from"] == "spawn").unwrap();
+    assert_eq!(spawn["argv"], recorded_spawn["args"]);
+    assert_eq!(spawn["env"]["ANTHROPIC_BASE_URL"], json!("https://gateway.example"));
+    // Compared as real paths: the temp folder can be a link (macOS) or a short name (Windows).
+    let real = |p: PathBuf| p.canonicalize().unwrap_or(p);
+    assert_eq!(spawn["cwd"].as_str().map(PathBuf::from).map(real), Some(real(std::env::temp_dir())));
+    // The initialize request and the prompt, as the SDK writes them.
+    let sent: Vec<Value> = lines.iter().filter(|l| l["from"] == "sdk").map(|l| l["message"].clone()).collect();
+    let received = env.received();
+    assert_eq!(received[0]["request"], sent[0]["request"]);
+    assert_eq!(received[1], sent[1]);
+    // The process is closed as soon as the results arrive.
+    for _ in 0..200 {
+        if env.log().iter().any(|e| e["event"] == "exit") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(env.log().iter().any(|e| e["event"] == "exit"));
+}
+
+#[tokio::test]
+async fn the_web_search_relay_reports_refusals_and_replies_without_a_search() {
+    if standin().is_none() {
+        return;
+    }
+    let env = Env::new(json!({ "turns": [limit(), [{ "text": "I know this one." }]] }));
+    let search = |env: &Env| websearch::search(websearch::options(env.script.to_string_lossy().into_owned(), None, env.env(), &[]), "q");
+    let error = search(&env).await.unwrap_err();
+    assert!(error.contains("Resets at"), "{error}");
+    let error = search(&env).await.unwrap_err();
+    assert_eq!(error, "Claude finished without searching the web");
+}
+
+#[test]
+fn the_recorded_web_search_gives_claudes_summary_and_links() {
+    let found = claude_messages("websearch").iter().find_map(websearch::results).unwrap();
+    assert!(found[0].title.as_deref().unwrap().starts_with("Summary of all results below, written by Claude (top source: Evolving"));
+    assert!(found[0].content.as_deref().unwrap().contains("Node.js"));
+    assert_eq!(found.len(), 13);
+    assert!(found[1..].iter().all(|r| r.content.is_none()));
 }

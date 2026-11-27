@@ -556,6 +556,7 @@ fn session_options(
         system: request.system.clone(),
         hooks: Some(pending),
         tools,
+        web_search: false,
     }
 }
 
