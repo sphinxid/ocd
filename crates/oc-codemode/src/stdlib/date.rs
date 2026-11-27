@@ -21,7 +21,7 @@ use crate::value::Value;
 // ---------------------------------------------------------------------------------------------------------------
 // Time-value algebra (ECMA-262 §21.4.1).
 
-const MS_PER_SECOND: f64 = 1000.0;
+pub const MS_PER_SECOND: f64 = 1000.0;
 const MS_PER_MINUTE: f64 = 60_000.0;
 const MS_PER_HOUR: f64 = 3_600_000.0;
 const MS_PER_DAY: f64 = 86_400_000.0;
@@ -149,7 +149,7 @@ pub fn time_clip(t: f64) -> f64 {
 const CHRONO_LIMIT_MS: f64 = 8.0e15;
 const MS_PER_CYCLE: f64 = 146_097.0 * MS_PER_DAY;
 
-fn chrono_seconds(t: f64) -> i64 {
+pub fn chrono_seconds(t: f64) -> i64 {
     let mut t = t;
     if t > CHRONO_LIMIT_MS {
         t -= ((t - CHRONO_LIMIT_MS) / MS_PER_CYCLE).ceil() * MS_PER_CYCLE;
@@ -161,7 +161,7 @@ fn chrono_seconds(t: f64) -> i64 {
 
 /// Outside the time-value range the host looks offsets up at an equivalent time: the same month, day, and time in a
 /// year between 2008 and 2037 with the same leap-ness and weekday of January 1.
-fn equivalent_time(t: f64) -> f64 {
+pub fn equivalent_time(t: f64) -> f64 {
     let days = day(t);
     let within = t - days * MS_PER_DAY;
     let f = fields(t);
@@ -217,7 +217,7 @@ pub fn utc(t: f64) -> f64 {
     if convertible(t) { t - offset_at_local(t) } else { t }
 }
 
-fn zone_id() -> String {
+pub fn zone_id() -> String {
     if let Ok(tz) = std::env::var("TZ") {
         let tz = tz.trim_start_matches(':');
         if !tz.is_empty() {
@@ -411,30 +411,6 @@ fn utc_string(t: f64) -> String {
         f.minutes as i64,
         f.seconds as i64
     )
-}
-
-/// ICU en-US in UTC: `M/D/Y` with the proleptic Gregorian year of era (1 BC for year 0).
-fn locale_date(f: &Fields) -> String {
-    let year = if f.year <= 0.0 { 1.0 - f.year } else { f.year };
-    format!("{}/{}/{}", f.month as i64 + 1, f.date as i64, year as i64)
-}
-
-fn locale_time(f: &Fields) -> String {
-    let h = f.hours as i64;
-    let hour12 = if h % 12 == 0 { 12 } else { h % 12 };
-    format!("{hour12}:{:02}:{:02} {}", f.minutes as i64, f.seconds as i64, if h < 12 { "AM" } else { "PM" })
-}
-
-fn locale_string(name: &str, t: f64) -> String {
-    if !t.is_finite() {
-        return "Invalid Date".into();
-    }
-    let f = fields(t);
-    match name {
-        "toLocaleDateString" => locale_date(&f),
-        "toLocaleTimeString" => locale_time(&f),
-        _ => format!("{}, {}", locale_date(&f), locale_time(&f)),
-    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1336,6 +1312,59 @@ fn setter(name: &'static str, length: usize) -> Method {
     })
 }
 
+/// `toLocaleString(locales, options)` and its date and time halves (2.4.1, #64938): locales (`en-US` by default) and
+/// options read as upstream reads them, through getters and the program's conversions, then formatted as Bun's
+/// `Intl.DateTimeFormat` formats them, in the host's local time zone unless `timeZone` says otherwise.
+fn locale_method(name: &'static str) -> Method {
+    method(name, 0, move |rt, site, this, args| {
+        let t = match this_date(&this, name) {
+            Ok(o) => time_of(&o),
+            Err(e) => return NResult::err(e),
+        };
+        let (locales, options) = (arg(&args, 0), arg(&args, 1));
+        if matches!(locales, Value::Null) || matches!(options, Value::Null) {
+            return NResult::err(crate::interp::errors::type_error("Cannot convert undefined or null to object."));
+        }
+        let rt = rt.clone();
+        NResult::future(async move {
+            use super::date_format::{format, DATE_TIME_OPTIONS};
+            use crate::interp::coerce::{to_primitive, Hint};
+            let tags = match &locales {
+                Value::Undefined => vec!["en-US".to_string()],
+                Value::Object(_) => {
+                    let values = super::intl::read_locales(&rt, &locales, site, "").await?.unwrap_or_default();
+                    super::intl::canonical_tags(&values, "")?
+                }
+                Value::String(text) => {
+                    let text = text.to_rust();
+                    vec![super::intl::canonical_tag(&text)
+                        .ok_or_else(|| crate::interp::errors::range_error(format!("invalid language tag: {text}")))?]
+                }
+                // A number or boolean has no length as an object: no locales, so the default.
+                _ => Vec::new(),
+            };
+            let mut values = vec![Value::Undefined; DATE_TIME_OPTIONS.len()];
+            if let Value::Object(o) = &options {
+                for (i, key) in DATE_TIME_OPTIONS.iter().enumerate() {
+                    values[i] = crate::object::get(o, &crate::value::PropKey::str(key))?;
+                }
+                for (i, key) in DATE_TIME_OPTIONS.iter().enumerate() {
+                    values[i] = match &values[i] {
+                        Value::Undefined => Value::Undefined,
+                        v if *key == "hour12" => Value::Bool(v.truthy()),
+                        v @ Value::Object(_) => {
+                            let hint = if *key == "fractionalSecondDigits" { Hint::Number } else { Hint::String };
+                            to_primitive(&rt, v, hint, site).await?
+                        }
+                        v => v.clone(),
+                    };
+                }
+            }
+            Ok(Value::from(format(t, name, &tags, &values)?))
+        })
+    })
+}
+
 fn formatter(name: &'static str, format: fn(f64) -> String) -> Method {
     method(name, 0, move |_, _, this, _| {
         NResult::Ready(this_date(&this, name).map(|o| Value::from(format(time_of(&o)))))
@@ -1437,9 +1466,9 @@ pub fn date_global(rt: &Rt) -> Value {
         formatter("toTimeString", time_string),
         formatter("toUTCString", utc_string),
         formatter("toGMTString", utc_string),
-        formatter("toLocaleString", |t| locale_string("toLocaleString", t)),
-        formatter("toLocaleDateString", |t| locale_string("toLocaleDateString", t)),
-        formatter("toLocaleTimeString", |t| locale_string("toLocaleTimeString", t)),
+        locale_method("toLocaleString"),
+        locale_method("toLocaleDateString"),
+        locale_method("toLocaleTimeString"),
     ];
     table.extend(GETTERS.iter().map(|&name| getter(name)));
     table.extend(SETTERS.iter().map(|&(name, length)| setter(name, length)));

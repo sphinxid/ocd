@@ -16,6 +16,8 @@ futures.workspace = true
 indexmap.workspace = true
 regex.workspace = true
 url.workspace = true
+icu_locale_core = { version = "2", features = ["alloc"] }
+chrono-tz = { version = "0.10", features = ["case-insensitive"] }
 base64.workspace = true
 chrono.workspace = true
 rand.workspace = true

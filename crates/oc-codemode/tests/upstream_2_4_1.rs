@@ -93,6 +93,8 @@ fn runtime() -> CodeMode {
 
 /// Runs every case of `file` (under `tests/fixtures`); a case's `gap` note says it must still differ.
 async fn check(file: &str) {
+    // The recordings run with `TZ=UTC`, and the host time zone is process-wide: every test here pins the same one.
+    unsafe { std::env::set_var("TZ", "UTC") };
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(file);
     let cases: Vec<Json> = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let runtime = runtime();
@@ -145,4 +147,5 @@ language_tests! {
     errors => "errors",
     buffer => "buffer",
     classes => "classes",
+    intl => "intl",
 }

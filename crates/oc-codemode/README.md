@@ -443,6 +443,35 @@ and `import.meta` (`new.target is not supported.`), `super()` in an arrow functi
 (`Destructuring into super.x is not supported.`) and `delete super.x` (`ReferenceError: Unsupported reference to
 'super'.`). Field initializers show in stacks as `<instance_members_initializer>` and `<static_initializer>`.
 
+## Intl (2.4.1, #64935, #64938)
+
+There is no global `Intl`, but `localeCompare` and `Date.prototype.toLocaleString`/`toLocaleDateString`/
+`toLocaleTimeString` take their locales and options (`stdlib::intl`), read as upstream reads them (locales as a string
+or an array-like through getters, options in upstream's order through getters and the program's conversions, `null`
+refused) and validated with Bun 1.4.4's messages (`String.localeCompare: invalid language tag: xx_bad`, `sensitivity
+must be either "base", "accent", "case", or "variant"`, `hour must be "2-digit" or "numeric"`, `invalid time zone:
+Nope`, `dateStyle is specified while formatting time is requested`, ...). Tags are checked and canonicalized with
+`icu_locale_core`.
+
+- `localeCompare` extends the root-collation approximation with `sensitivity`, `numeric` (also `-u-kn-true`),
+  `caseFirst` (also `-u-kf-upper`), `ignorePunctuation` (punctuation, not symbols), `ß` against `ss` at the secondary
+  level, and the tailorings of Swedish and Finnish (`å ä ö` after `z`, `ü` as `y`), Danish and Norwegian (`æ ø å`,
+  `aa` as `å`), Spanish (`ñ`) and Turkish and Azerbaijani (`ç ğ ı ö ş ü`). Other locales collate as the root.
+- Dates format as Bun's `Intl.DateTimeFormat`: ECMA-402's option processing (required and default fields,
+  `dateStyle`/`timeStyle`, `hour12` over `hourCycle`, `fractionalSecondDigits`, `dayPeriod`, `era`, `timeZoneName` in
+  its six forms), time zones from the IANA database (`chrono-tz`, any case, also `+05:30`-style offsets), the host's
+  local zone when there is no `timeZone`, and `en-US` when there are no locales. The patterns and names
+  (`stdlib/intl_data.rs`, Unicode CLDR data under the Unicode License v3) are generated from Bun 1.4.4 by
+  `tests/recorder/intl-data.ts` for 20 locales (en-US, en-GB, en-CA, en-AU, en-IN, de-DE, fr-FR, fr-CA, es-ES, es-MX,
+  it-IT, pt-BR, nl-NL, sv-SE, pl-PL, ja-JP, zh-CN, zh-TW, ko-KR, ru-RU) and about 1 500 option sets each; another
+  option set is composed from its date and time halves, and another locale formats as the first one with its
+  language, else as `en-US`. Zone names come from the locale's names for 22 zones (every zone for English), else the
+  localized `GMT+5:30` form.
+
+Not reproduced: locales outside those 20 (`nl-BE` formats as `nl-NL`), other locales' names for zones outside the 22,
+and zone offsets and names before about 1970, where ICU's and the IANA database's history differ.
+`tests/fixtures/language-2.4.1/intl.json` holds 400 random formatting calls with Bun's results; all match.
+
 ## Error stacks (2.4.1, #64939)
 
 Every Error has an own non-enumerable `stack` in V8's format (`interp::stack`): `name: message` (read when `stack` is
@@ -496,7 +525,7 @@ function), BigInt, arbitrary `Symbol()` values and symbol-keyed properties (only
 exports and `import.meta`, `new.target`, `super()` in arrow functions, `with`, `debugger`, `eval`/`Function`, timers (`setTimeout`,
 `queueMicrotask`), `Proxy`/`Reflect`, `__defineGetter__` and friends, `for...in` skipping keys deleted during the loop,
 `ArrayBuffer`/`DataView`/typed arrays other than `Uint8Array`, `Request`/`Response`/`Blob`, `crypto.subtle`, non-UTF-8
-`TextDecoder`, `Iterator.concat`/`zip`, array methods on array-likes (`Array.prototype.slice.call(arguments)`),
+`TextDecoder`, a global `Intl` (see Intl), `Iterator.concat`/`zip`, array methods on array-likes (`Array.prototype.slice.call(arguments)`),
 TypeScript syntax. Unsupported syntax is reported lazily (when reached) as `UnsupportedSyntax`.
 
 ### Automation code

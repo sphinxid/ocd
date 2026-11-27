@@ -3324,5 +3324,724 @@
    },
    "toolCalls": []
   }
+ },
+ {
+  "code": "const numeric = { get numeric() { return true } }\nreturn [\n  [\"a10\", \"a9\", \"a1\"].sort((x, y) => x.localeCompare(y, undefined, numeric)),\n  \"a\".localeCompare(\"A\", undefined, { sensitivity: \"base\" }),\n  \"a\".localeCompare(\"á\", \"en\", { sensitivity: \"base\" }),\n  \"a\".localeCompare(\"A\", [\"en\"], { sensitivity: { toString() { return \"accent\" } } }),\n  \"a\".localeCompare(\"A\", \"en\", { caseFirst: \"upper\" }),\n  \"a,b\".localeCompare(\"ab\", \"en\", { ignorePunctuation: true }),\n  \"ä\".localeCompare(\"z\", \"sv\"),\n  \"a\".localeCompare(\"A\"),\n]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "a1",
+     "a9",
+     "a10"
+    ],
+    0,
+    0,
+    0,
+    1,
+    0,
+    1,
+    -1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const attempt = (f) => { try { return f() } catch (e) { return e.name + \": \" + e.message } }\nreturn [\n  attempt(() => \"a\".localeCompare(\"b\", \"xx_bad\")),\n  attempt(() => \"a\".localeCompare(\"b\", undefined, { sensitivity: \"nope\" })),\n  attempt(() => \"a\".localeCompare(\"b\", undefined, null)),\n  attempt(() => \"a\".localeCompare(\"b\", [1])),\n  attempt(() => \"a\".localeCompare(\"b\", undefined, { caseFirst: \"x\" })),\n  attempt(() => \"a\".localeCompare(\"b\", undefined, { usage: \"x\" })),\n  attempt(() => \"a\".localeCompare(\"b\", undefined, { localeMatcher: \"x\" })),\n  attempt(() => \"a\".localeCompare(\"b\", \"en-US-u-kn-true\")),\n  attempt(() => \"a\".localeCompare(\"b\", \"\")),\n  attempt(() => \"a\".localeCompare(\"b\", [\"en\", \"!!\"])),\n  attempt(() => \"a\".localeCompare(\"b\", null)),\n  attempt(() => \"a\".localeCompare(\"b\", { length: 1, 0: \"en\" })),\n  attempt(() => \"a\".localeCompare(\"b\", {})),\n]",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError: String.localeCompare: invalid language tag: xx_bad",
+    "RangeError: String.localeCompare: sensitivity must be either \"base\", \"accent\", \"case\", or \"variant\"",
+    "TypeError: String.localeCompare cannot take null locales or options; pass undefined for the defaults.",
+    "TypeError: String.localeCompare: locale value must be a string or object",
+    "RangeError: String.localeCompare: caseFirst must be either \"upper\", \"lower\", or \"false\"",
+    "RangeError: String.localeCompare: usage must be either \"sort\" or \"search\"",
+    "RangeError: String.localeCompare: localeMatcher must be either \"lookup\" or \"best fit\"",
+    -1,
+    "RangeError: String.localeCompare: invalid language tag: ",
+    "RangeError: String.localeCompare: invalid language tag: !!",
+    "TypeError: String.localeCompare cannot take null locales or options; pass undefined for the defaults.",
+    -1,
+    -1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const words = [\"Äpfel\", \"apple\", \"Zebra\", \"zoo\", \"ångström\", \"öl\", \"Oslo\", \"ñu\", \"nube\", \"noche\", \"Æble\", \"øre\", \"a1\", \"a10\", \"a2\", \"A1\", \"b\", \"B\", \"résumé\", \"resume\", \"Resume\", \"co-op\", \"coop\", \"co op\", \"x\", \"X\", \"ä\", \"a\"]\nconst sorted = (locale, options) => [...words].sort((x, y) => x.localeCompare(y, locale, options)).join(\" \")\nreturn [\n  sorted(\"en\"), sorted(\"sv\"), sorted(\"fi\"), sorted(\"da\"), sorted(\"nb\"), sorted(\"es\"), sorted(\"de\"),\n  sorted(\"en\", { numeric: true }), sorted(\"en\", { caseFirst: \"upper\" }), sorted(\"en\", { caseFirst: \"lower\" }),\n  sorted(\"en\", { sensitivity: \"base\" }), sorted(\"en\", { sensitivity: \"accent\" }), sorted(\"en\", { sensitivity: \"case\" }),\n  sorted(\"en\", { ignorePunctuation: true }), sorted(\"en-u-kn-true\"), sorted(\"en-u-kf-upper\"), sorted(undefined, { numeric: false }),\n]",
+  "result": {
+   "ok": true,
+   "value": [
+    "a ä a1 A1 a10 a2 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo resume Resume résumé x X Zebra zoo",
+    "a a1 A1 a10 a2 apple b B co op co-op coop noche ñu nube Oslo resume Resume résumé x X Zebra zoo ångström ä Æble Äpfel öl øre",
+    "a a1 A1 a10 a2 apple b B co op co-op coop noche ñu nube Oslo resume Resume résumé x X Zebra zoo ångström ä Æble Äpfel öl øre",
+    "a a1 A1 a10 a2 apple b B co op co-op coop noche ñu nube Oslo resume Resume résumé x X Zebra zoo ä Æble Äpfel öl øre ångström",
+    "a a1 A1 a10 a2 apple b B co op co-op coop noche ñu nube Oslo resume Resume résumé x X Zebra zoo ä Æble Äpfel öl øre ångström",
+    "a ä a1 A1 a10 a2 Æble ångström Äpfel apple b B co op co-op coop noche nube ñu öl øre Oslo resume Resume résumé x X Zebra zoo",
+    "a ä a1 A1 a10 a2 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo resume Resume résumé x X Zebra zoo",
+    "a ä a1 A1 a2 a10 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo resume Resume résumé x X Zebra zoo",
+    "a ä A1 a1 a10 a2 Æble ångström Äpfel apple B b co op co-op coop noche ñu nube öl øre Oslo Resume resume résumé X x Zebra zoo",
+    "a ä a1 A1 a10 a2 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo resume Resume résumé x X Zebra zoo",
+    "ä a a1 A1 a10 a2 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo résumé resume Resume x X Zebra zoo",
+    "a ä a1 A1 a10 a2 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo resume Resume résumé x X Zebra zoo",
+    "ä a a1 A1 a10 a2 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo résumé resume Resume x X Zebra zoo",
+    "a ä a1 A1 a10 a2 Æble ångström Äpfel apple b B co-op coop co op noche ñu nube öl øre Oslo resume Resume résumé x X Zebra zoo",
+    "a ä a1 A1 a2 a10 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo resume Resume résumé x X Zebra zoo",
+    "a ä A1 a1 a10 a2 Æble ångström Äpfel apple B b co op co-op coop noche ñu nube öl øre Oslo Resume resume résumé X x Zebra zoo",
+    "a ä a1 A1 a10 a2 Æble ångström Äpfel apple b B co op co-op coop noche ñu nube öl øre Oslo resume Resume résumé x X Zebra zoo"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const pairs = [[\"a\", \"A\"], [\"a\", \"á\"], [\"á\", \"A\"], [\"a\", \"b\"], [\"résumé\", \"resume\"], [\"co-op\", \"coop\"], [\"a01\", \"a1\"], [\"a 1\", \"a1\"], [\"1\", \"１\"], [\"x\", \"x\"], [\"\", \"a\"], [\"ä\", \"a\"], [\"Å\", \"z\"], [\"ñ\", \"o\"], [\"æ\", \"z\"], [\"ß\", \"ss\"], [\"e\", \"é\"]]\nconst opts = [undefined, { sensitivity: \"base\" }, { sensitivity: \"accent\" }, { sensitivity: \"case\" }, { numeric: true }, { ignorePunctuation: true }, { caseFirst: \"upper\" }, { usage: \"search\" }]\nreturn opts.map((o) => pairs.map(([a, b]) => a.localeCompare(b, \"en\", o)))",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     -1,
+     -1,
+     1,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     -1,
+     0,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1
+    ],
+    [
+     0,
+     0,
+     0,
+     -1,
+     0,
+     -1,
+     -1,
+     -1,
+     0,
+     0,
+     -1,
+     0,
+     -1,
+     -1,
+     -1,
+     0,
+     0
+    ],
+    [
+     0,
+     -1,
+     1,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     0,
+     0,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1
+    ],
+    [
+     -1,
+     0,
+     -1,
+     -1,
+     0,
+     -1,
+     -1,
+     -1,
+     0,
+     0,
+     -1,
+     0,
+     -1,
+     -1,
+     -1,
+     0,
+     0
+    ],
+    [
+     -1,
+     -1,
+     1,
+     -1,
+     1,
+     -1,
+     0,
+     -1,
+     0,
+     0,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1
+    ],
+    [
+     -1,
+     -1,
+     1,
+     -1,
+     1,
+     0,
+     -1,
+     0,
+     -1,
+     0,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1
+    ],
+    [
+     1,
+     -1,
+     1,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     -1,
+     0,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1
+    ],
+    [
+     -1,
+     -1,
+     1,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     -1,
+     0,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const pairs = [[\"ä\", \"z\"], [\"å\", \"ä\"], [\"ö\", \"ø\"], [\"æ\", \"ä\"], [\"Å\", \"å\"], [\"aa\", \"å\"], [\"ñ\", \"n\"], [\"ñ\", \"o\"], [\"ü\", \"y\"], [\"ö\", \"o\"]]\nreturn [\"sv\", \"fi\", \"da\", \"nb\", \"nn\", \"no\", \"es\", \"de\", \"fr\", \"en-US\", \"tr\"].map((l) => pairs.map(([a, b]) => a.localeCompare(b, l)))",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     1,
+     -1,
+     -1,
+     1,
+     1,
+     -1,
+     1,
+     -1,
+     1,
+     1
+    ],
+    [
+     1,
+     -1,
+     -1,
+     1,
+     1,
+     -1,
+     1,
+     -1,
+     1,
+     1
+    ],
+    [
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1
+    ],
+    [
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1
+    ],
+    [
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1
+    ],
+    [
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1
+    ],
+    [
+     -1,
+     -1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     -1,
+     1
+    ],
+    [
+     -1,
+     -1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     -1,
+     1
+    ],
+    [
+     -1,
+     -1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     -1,
+     1
+    ],
+    [
+     -1,
+     -1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     -1,
+     1
+    ],
+    [
+     -1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     -1,
+     1
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = new Date(Date.UTC(2024, 0, 15, 13, 5, 9))\nreturn [\n  d.toLocaleString(\"en-US\", { timeZone: \"Asia/Tokyo\" }),\n  d.toLocaleDateString(undefined, { weekday: \"long\", timeZone: \"UTC\" }),\n  d.toLocaleDateString(\"en-US\", { month: \"short\", day: \"numeric\", timeZone: \"UTC\" }),\n  d.toLocaleString(\"de-DE\", { timeZone: \"UTC\" }),\n  d.toLocaleString(\"en-GB\", { timeZone: \"UTC\" }),\n  d.toLocaleString([\"fr-FR\"], { timeZone: \"UTC\", dateStyle: \"full\", timeStyle: \"short\" }),\n  d.toLocaleTimeString(\"en-US\", { timeZone: \"America/New_York\", timeZoneName: \"short\", hour: \"2-digit\", minute: \"2-digit\" }),\n  d.toLocaleString(\"en-US\", { timeZone: \"UTC\", hour12: false }),\n  new Date(NaN).toLocaleString(\"en-US\", { timeZone: \"UTC\" }),\n  d.toLocaleDateString({ length: 1, 0: \"de-DE\" }, { timeZone: \"UTC\" }),\n  d.toLocaleDateString({}, { timeZone: \"UTC\" }),\n]",
+  "result": {
+   "ok": true,
+   "value": [
+    "1/15/2024, 10:05:09 PM",
+    "Monday",
+    "Jan 15",
+    "15.1.2024, 13:05:09",
+    "15/01/2024, 13:05:09",
+    "lundi 15 janvier 2024 à 13:05",
+    "08:05 AM EST",
+    "1/15/2024, 13:05:09",
+    "Invalid Date",
+    "15.1.2024",
+    "1/15/2024"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = new Date(Date.UTC(2024, 0, 15, 13, 5, 9))\nreturn [d.toLocaleString(), Number(d.toLocaleTimeString(\"en-US\", { hour: \"numeric\", hour12: false })) === d.getHours()]",
+  "result": {
+   "ok": true,
+   "value": [
+    "1/15/2024, 1:05:09 PM",
+    true
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "let calls = 0\nconst options = { get timeZone() { calls++; return { toString: () => \"Asia/Tokyo\" } }, hour: \"numeric\", hour12: false }\nreturn [new Date(Date.UTC(2024, 0, 15, 13)).toLocaleTimeString([{ toString: () => \"en-US\" }], options), calls]",
+  "result": {
+   "ok": true,
+   "value": [
+    "22",
+    1
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = new Date(0)\nreturn [\n  () => d.toLocaleString(\"en-US\", { timeZone: \"Nope\" }),\n  () => d.toLocaleTimeString(\"en-US\", { dateStyle: \"short\" }),\n  () => d.toLocaleString(\"en-US\", null),\n  () => d.toLocaleString(null),\n  () => d.toLocaleString(\"!!\"),\n].map((f) => { try { return f() } catch (e) { return e.name + \": \" + e.message } })",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError: invalid time zone: Nope",
+    "TypeError: dateStyle is specified while formatting time is requested",
+    "TypeError: Cannot convert undefined or null to object.",
+    "TypeError: Cannot convert undefined or null to object.",
+    "RangeError: invalid language tag: !!"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = new Date(Date.UTC(2024, 6, 4, 18, 30, 45, 123))\nconst locales = [\"en-US\", \"en-GB\", \"de-DE\", \"fr-FR\", \"es-ES\", \"it-IT\", \"pt-BR\", \"nl-NL\", \"sv-SE\", \"ja-JP\", \"zh-CN\", \"ru-RU\", \"de\", \"en\", \"fr-CA\", \"xx\"]\nreturn locales.map((l) => [d.toLocaleString(l, { timeZone: \"UTC\" }), d.toLocaleDateString(l, { timeZone: \"UTC\" }), d.toLocaleTimeString(l, { timeZone: \"UTC\" })])",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "7/4/2024, 6:30:45 PM",
+     "7/4/2024",
+     "6:30:45 PM"
+    ],
+    [
+     "04/07/2024, 18:30:45",
+     "04/07/2024",
+     "18:30:45"
+    ],
+    [
+     "4.7.2024, 18:30:45",
+     "4.7.2024",
+     "18:30:45"
+    ],
+    [
+     "04/07/2024 18:30:45",
+     "04/07/2024",
+     "18:30:45"
+    ],
+    [
+     "4/7/2024, 18:30:45",
+     "4/7/2024",
+     "18:30:45"
+    ],
+    [
+     "04/07/2024, 18:30:45",
+     "04/07/2024",
+     "18:30:45"
+    ],
+    [
+     "04/07/2024, 18:30:45",
+     "04/07/2024",
+     "18:30:45"
+    ],
+    [
+     "4-7-2024, 18:30:45",
+     "4-7-2024",
+     "18:30:45"
+    ],
+    [
+     "2024-07-04 18:30:45",
+     "2024-07-04",
+     "18:30:45"
+    ],
+    [
+     "2024/7/4 18:30:45",
+     "2024/7/4",
+     "18:30:45"
+    ],
+    [
+     "2024/7/4 18:30:45",
+     "2024/7/4",
+     "18:30:45"
+    ],
+    [
+     "04.07.2024, 18:30:45",
+     "04.07.2024",
+     "18:30:45"
+    ],
+    [
+     "4.7.2024, 18:30:45",
+     "4.7.2024",
+     "18:30:45"
+    ],
+    [
+     "7/4/2024, 6:30:45 PM",
+     "7/4/2024",
+     "6:30:45 PM"
+    ],
+    [
+     "2024-07-04 18 h 30 min 45 s",
+     "2024-07-04",
+     "18 h 30 min 45 s"
+    ],
+    [
+     "7/4/2024, 6:30:45 PM",
+     "7/4/2024",
+     "6:30:45 PM"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = new Date(Date.UTC(2024, 6, 4, 8, 3, 5))\nconst styles = [\"full\", \"long\", \"medium\", \"short\"]\nconst out = []\nfor (const l of [\"en-US\", \"de-DE\", \"ja-JP\", \"fr-FR\"]) for (const ds of styles) out.push(d.toLocaleDateString(l, { dateStyle: ds, timeZone: \"UTC\" }), d.toLocaleTimeString(l, { timeStyle: ds, timeZone: \"Europe/Paris\" }), d.toLocaleString(l, { dateStyle: ds, timeStyle: ds, timeZone: \"America/Los_Angeles\" }))\nreturn out",
+  "result": {
+   "ok": true,
+   "value": [
+    "Thursday, July 4, 2024",
+    "10:03:05 AM Central European Summer Time",
+    "Thursday, July 4, 2024 at 1:03:05 AM Pacific Daylight Time",
+    "July 4, 2024",
+    "10:03:05 AM GMT+2",
+    "July 4, 2024 at 1:03:05 AM PDT",
+    "Jul 4, 2024",
+    "10:03:05 AM",
+    "Jul 4, 2024, 1:03:05 AM",
+    "7/4/24",
+    "10:03 AM",
+    "7/4/24, 1:03 AM",
+    "Donnerstag, 4. Juli 2024",
+    "10:03:05 Mitteleuropäische Sommerzeit",
+    "Donnerstag, 4. Juli 2024 um 01:03:05 Nordamerikanische Westküsten-Sommerzeit",
+    "4. Juli 2024",
+    "10:03:05 MESZ",
+    "4. Juli 2024 um 01:03:05 GMT-7",
+    "04.07.2024",
+    "10:03:05",
+    "04.07.2024, 01:03:05",
+    "04.07.24",
+    "10:03",
+    "04.07.24, 01:03",
+    "2024年7月4日木曜日",
+    "10時03分05秒 中央ヨーロッパ夏時間",
+    "2024年7月4日木曜日 1時03分05秒 米国太平洋夏時間",
+    "2024年7月4日",
+    "10:03:05 GMT+2",
+    "2024年7月4日 1:03:05 GMT-7",
+    "2024/07/04",
+    "10:03:05",
+    "2024/07/04 1:03:05",
+    "2024/07/04",
+    "10:03",
+    "2024/07/04 1:03",
+    "jeudi 4 juillet 2024",
+    "10:03:05 heure d’été d’Europe centrale",
+    "jeudi 4 juillet 2024 à 01:03:05 heure d’été du Pacifique nord-américain",
+    "4 juillet 2024",
+    "10:03:05 UTC+2",
+    "4 juillet 2024 à 01:03:05 UTC−7",
+    "4 juil. 2024",
+    "10:03:05",
+    "4 juil. 2024, 01:03:05",
+    "04/07/2024",
+    "10:03",
+    "04/07/2024 01:03"
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = new Date(Date.UTC(2024, 11, 31, 23, 59, 1, 7))\nconst opts = [{ weekday: \"short\" }, { month: \"long\" }, { month: \"narrow\" }, { year: \"2-digit\", month: \"2-digit\", day: \"2-digit\" }, { hour: \"2-digit\", minute: \"2-digit\", hour12: true }, { hour: \"numeric\", hourCycle: \"h23\" }, { hour: \"numeric\", hourCycle: \"h11\" }, { hour: \"numeric\", hourCycle: \"h24\" }, { minute: \"2-digit\", second: \"2-digit\", fractionalSecondDigits: 3 }, { era: \"long\", year: \"numeric\" }, { weekday: \"long\", year: \"numeric\", month: \"long\", day: \"numeric\" }, { timeZoneName: \"long\" }, { timeZoneName: \"shortOffset\", hour: \"numeric\" }, { timeZoneName: \"longOffset\" }, { timeZoneName: \"shortGeneric\" }, { timeZoneName: \"longGeneric\" }]\nreturn [\"en-US\", \"de-DE\", \"ja-JP\", \"ru-RU\"].map((l) => opts.map((o) => d.toLocaleString(l, { ...o, timeZone: \"Asia/Kolkata\" })))",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "Wed",
+     "January",
+     "J",
+     "01/01/25",
+     "05:29 AM",
+     "05",
+     "5 AM",
+     "05",
+     "29:01.007",
+     "2025 Anno Domini",
+     "Wednesday, January 1, 2025",
+     "1/1/2025, 5:29:01 AM India Standard Time",
+     "5 AM GMT+5:30",
+     "1/1/2025, 5:29:01 AM GMT+05:30",
+     "1/1/2025, 5:29:01 AM India Time",
+     "1/1/2025, 5:29:01 AM India Standard Time"
+    ],
+    [
+     "Mi",
+     "Januar",
+     "J",
+     "01.01.25",
+     "05:29 AM",
+     "05 Uhr",
+     "5 AM",
+     "05 Uhr",
+     "29:01,007",
+     "2025 n. Chr.",
+     "Mittwoch, 1. Januar 2025",
+     "1.1.2025, 5:29:01 Indische Normalzeit",
+     "05 Uhr GMT+5:30",
+     "1.1.2025, 05:29:01 GMT+05:30",
+     "1.1.2025, 05:29:01 Indien (Ortszeit)",
+     "1.1.2025, 05:29:01 Indische Normalzeit"
+    ],
+    [
+     "水",
+     "1月",
+     "1月",
+     "25/01/01",
+     "午前05:29",
+     "5時",
+     "午前5時",
+     "5時",
+     "29:01.007",
+     "西暦2025年",
+     "2025年1月1日水曜日",
+     "2025/1/1 5時29分01秒 インド標準時",
+     "5時 GMT+5:30",
+     "2025/1/1 5:29:01 GMT+05:30",
+     "2025/1/1 5:29:01 インド時間",
+     "2025/1/1 5:29:01 インド標準時"
+    ],
+    [
+     "ср",
+     "январь",
+     "Я",
+     "01.01.25",
+     "05:29 AM",
+     "5",
+     "5 AM",
+     "5",
+     "29:01,007",
+     "2025 г. от Рождества Христова",
+     "среда, 1 января 2025 г.",
+     "01.01.2025, 5:29:01 Индия",
+     "05 GMT+5:30",
+     "01.01.2025, 05:29:01 GMT+05:30",
+     "01.01.2025, 05:29:01 Индия",
+     "01.01.2025, 05:29:01 Индия"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const d = new Date(Date.UTC(2024, 2, 10, 12))\nreturn [\"UTC\", \"Europe/London\", \"America/New_York\", \"Asia/Kathmandu\", \"Australia/Lord_Howe\", \"+05:30\", \"-08\", \"Etc/GMT+5\", \"america/chicago\"].map((tz) => [d.toLocaleString(\"en-US\", { timeZone: tz, timeZoneName: \"short\" }), d.toLocaleString(\"en-GB\", { timeZone: tz, timeZoneName: \"long\" })])",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "3/10/2024, 12:00:00 PM UTC",
+     "10/03/2024, 12:00:00 Coordinated Universal Time"
+    ],
+    [
+     "3/10/2024, 12:00:00 PM GMT",
+     "10/03/2024, 12:00:00 Greenwich Mean Time"
+    ],
+    [
+     "3/10/2024, 8:00:00 AM EDT",
+     "10/03/2024, 8:00:00 Eastern Daylight Time"
+    ],
+    [
+     "3/10/2024, 5:45:00 PM GMT+5:45",
+     "10/03/2024, 17:45:00 Nepal Time"
+    ],
+    [
+     "3/10/2024, 11:00:00 PM GMT+11",
+     "10/03/2024, 23:00:00 Lord Howe Daylight Time"
+    ],
+    [
+     "3/10/2024, 5:30:00 PM GMT+5:30",
+     "10/03/2024, 17:30:00 GMT+05:30"
+    ],
+    [
+     "3/10/2024, 4:00:00 AM GMT-8",
+     "10/03/2024, 4:00:00 GMT-08:00"
+    ],
+    [
+     "3/10/2024, 7:00:00 AM GMT-5",
+     "10/03/2024, 7:00:00 GMT-05:00"
+    ],
+    [
+     "3/10/2024, 7:00:00 AM CDT",
+     "10/03/2024, 7:00:00 Central Daylight Time"
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const attempt = (f) => { try { return f() } catch (e) { return e.name + \": \" + e.message } }\nconst d = new Date(0)\nreturn [\n  attempt(() => d.toLocaleString(\"en-US\", { hour: \"x\" })),\n  attempt(() => d.toLocaleString(\"en-US\", { fractionalSecondDigits: 5 })),\n  attempt(() => d.toLocaleString(\"en-US\", { dateStyle: \"short\", hour: \"numeric\" })),\n  attempt(() => d.toLocaleDateString(\"en-US\", { timeStyle: \"short\" })),\n  attempt(() => d.toLocaleString(\"en-US\", { calendar: \"!!\" })),\n  attempt(() => d.toLocaleString(\"en-US\", { timeZoneName: \"x\" })),\n  attempt(() => d.toLocaleString(5)),\n  attempt(() => d.toLocaleString([\"en-US\", 5])),\n  attempt(() => d.toLocaleString(\"en-US\", \"options\")),\n  attempt(() => d.toLocaleDateString(\"en-US\", { hour: \"numeric\", timeZone: \"UTC\" })),\n  attempt(() => d.toLocaleTimeString(\"en-US\", { weekday: \"long\", timeZone: \"UTC\" })),\n]",
+  "result": {
+   "ok": true,
+   "value": [
+    "RangeError: hour must be \"2-digit\" or \"numeric\"",
+    "RangeError: fractionalSecondDigits is out of range",
+    "TypeError: dateStyle and timeStyle may not be used with other DateTimeFormat options",
+    "TypeError: timeStyle is specified while formatting date is requested",
+    "RangeError: calendar is not a well-formed calendar value",
+    "RangeError: timeZoneName must be \"short\", \"long\", \"shortOffset\", \"longOffset\", \"shortGeneric\", or \"longGeneric\"",
+    "1/1/1970, 12:00:00 AM",
+    "TypeError: locale value must be a string or object",
+    "1/1/1970, 12:00:00 AM",
+    "1/1/1970, 12 AM",
+    "Thursday 12:00:00 AM"
+   ],
+   "toolCalls": []
+  }
  }
 ]

@@ -1,0 +1,3517 @@
+[
+ {
+  "code": "return new Date(3446771401437).toLocaleTimeString(\"fr-FR\", {\"month\": \"long\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "mars à 07:30:01",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4099098576674).toLocaleTimeString(\"en-US\", {\"dateStyle\": \"medium\", \"timeStyle\": \"short\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1065540732263).toLocaleDateString(\"fr-FR\", {\"dateStyle\": \"medium\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "7 oct. 2003",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2122700586947).toLocaleDateString(\"ja-JP\", {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "2037/4/7 16時",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3366007165271).toLocaleDateString(\"es-ES\", {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "30/8/2076, 21",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3910539571169).toLocaleDateString(\"en-AU\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "01/12/2093, 31.16",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3034504078091).toLocaleDateString(\"en-IN\", {\"dateStyle\": \"medium\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "27 Feb 2066",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(309699347435).toLocaleTimeString(\"en-US\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "25 Thu, 1:35:47 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2383207755739).toLocaleTimeString(\"pt-BR\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "dom., 9, 13:09:15",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(888018584421).toLocaleTimeString(undefined, {\"weekday\": \"long\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "Friday 5:49:44 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1831358747358).toLocaleTimeString(\"en-CA\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "Jan 2028, 3:45:47 a.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3629429156205).toLocaleTimeString(\"ja-JP\", {\"timeStyle\": \"full\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "17時45分56秒 オーストラリア東部夏時間",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(162402325043).toLocaleDateString(\"ru-RU\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "февр. 1975 г.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2756929860605).toLocaleTimeString(\"es-ES\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "12 may, 21:51",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3244083407197).toLocaleTimeString(\"pt-BR\", {\"timeStyle\": \"long\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "19:16:47 GMT+13",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2362263814693).toLocaleDateString(\"en-IN\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "Nov 2044",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(311785207354).toLocaleString(\"de-DE\", {\"month\": \"long\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "November",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2376392809359).toLocaleTimeString(\"fr-FR\", {\"dateStyle\": \"short\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(804637297588).toLocaleDateString(\"zh-CN\", {\"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "1995/7/2",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1803080263205).toLocaleTimeString(\"nl-NL\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "12:37:43 GMT+13",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1410251327139).toLocaleTimeString(\"fr-CA\", {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "17 h",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(664334101003).toLocaleString(\"zh-TW\", {\"timeStyle\": \"short\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "凌晨1:15",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3932011020178).toLocaleString(\"zh-CN\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "周六17:17",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1805437009961).toLocaleString(\"es-MX\", {\"timeZoneName\": \"long\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "19/3/2027, 8:16:49 a.m. hora estándar de Europa oriental",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1048524085339).toLocaleTimeString(\"pt\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(194210234877).toLocaleString(\"fr-CA\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "16 h 17 min 14 s UTC−3",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1324322767236).toLocaleString(\"es-ES\", {\"timeZoneName\": \"long\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "20/12/2011, 6:26:07 (hora de verano de Australia oriental)",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(38372875493).toLocaleDateString(\"de\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "21. März, 6:07",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1231143154310).toLocaleDateString(undefined, {\"hour\": \"2-digit\", \"minute\": \"2-digit\", \"hour12\": true, \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "1/5/2009, 03:12 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3945307350811).toLocaleString(\"ko-KR\", {\"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "2095. 1. 8. 오전 8:42:30",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2086701500559).toLocaleString(\"de-DE\", {\"month\": \"long\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "Februar",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(96862498336).toLocaleString(\"fr-FR\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "25 janvier",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3365702450051).toLocaleString(\"nl-NL\", {\"month\": \"long\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "augustus",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3449581008212).toLocaleDateString(\"pt\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "ter., 00:56",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(801181641166).toLocaleString(\"nl-NL\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "23-05-1995",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(336905419323).toLocaleTimeString(\"es-ES\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "17",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2257702657710).toLocaleTimeString(\"es-MX\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "18/07/2041, 3:37:37 a.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1609595933349).toLocaleString(\"en-US\", {\"month\": \"narrow\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "J",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(165482415549).toLocaleDateString(\"pl-PL\", {\"dateStyle\": \"long\", \"timeStyle\": \"long\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1252067588557).toLocaleTimeString(\"en-GB\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "Fri 16:33",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1576104554421).toLocaleString(\"zh-TW\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "19/12",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(909863226642).toLocaleTimeString(\"fr-FR\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "31 oct., 22:47",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2109753765216).toLocaleTimeString(\"en-AU\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "Sat 7:42 pm",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1215119316211).toLocaleTimeString(\"ru-RU\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "июль 2008 г., 18:08:36",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1155697633346).toLocaleString(\"pt\", {\"month\": \"narrow\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "A",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3365708423070).toLocaleDateString(\"en-GB\", {\"timeStyle\": \"long\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2806728764740).toLocaleTimeString(\"de\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "44,74",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(355063668639).toLocaleDateString(\"fr-FR\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(626277300048).toLocaleDateString(\"en\", {\"dateStyle\": \"medium\", \"timeStyle\": \"short\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1314862254536).toLocaleString(\"ja-JP\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "4:30 (木)",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2475976967639).toLocaleTimeString(\"en-US\", {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "23",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3393651215579).toLocaleTimeString(\"pl-PL\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "07.77, 11:53:35",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4101280554802).toLocaleDateString(\"en-US\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "Fri 1:35 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1180041851165).toLocaleTimeString(\"ja-JP\", {\"timeStyle\": \"full\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "16時24分11秒 米国中部夏時間",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2548160797978).toLocaleDateString(\"zh-TW\", {\"month\": \"narrow\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "9",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3262501435876).toLocaleString(\"nl-NL\", {\"hour\": \"2-digit\", \"minute\": \"2-digit\", \"hour12\": true, \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "01:23 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1792635821940).toLocaleString(\"en\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "Oct 21, 7:23 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2744104295498).toLocaleDateString(\"pt\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "15/12/2056",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2450976426417).toLocaleTimeString(\"pt\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "09/47, 13:47:06",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1154215075916).toLocaleTimeString(undefined, {\"timeStyle\": \"full\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "11:17:55 AM New Zealand Standard Time",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(286247622996).toLocaleString(\"fr-FR\", {\"weekday\": \"narrow\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "S",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(607871229488).toLocaleDateString(\"es-MX\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "6/4/1989, 9.48",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3851427304560).toLocaleString(\"en-CA\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "Thu 5:55 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(243820958773).toLocaleString(\"ko-KR\", {\"timeZoneName\": \"long\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "1977. 9. 23. 오전 3시 2분 38초 동유럽 하계 표준시",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(548633670281).toLocaleDateString(\"pt-BR\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "22/05/1987, GMT+5:30",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1523415084196).toLocaleDateString(\"it-IT\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "10/04/2018, 24,19",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1876814238109).toLocaleTimeString(\"ru-RU\", {\"hour\": \"2-digit\", \"minute\": \"2-digit\", \"hour12\": true, \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "06:17 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3508710896596).toLocaleString(\"es\", {\"month\": \"narrow\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "M",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2380769491662).toLocaleDateString(\"es\", {\"timeStyle\": \"short\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3650415085973).toLocaleDateString(\"en-IN\", {\"timeZoneName\": \"long\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "4/9/2085, China Standard Time",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2862715056818).toLocaleString(\"fr-CA\", {\"dateStyle\": \"full\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "samedi 18 septembre 2060",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2196678194794).toLocaleTimeString(\"en\", {\"month\": \"narrow\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "A, 3:23:14 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3488747380933).toLocaleString(\"es-MX\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "dom 12:29 a.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2709829841455).toLocaleString(\"nl-NL\", {\"dateStyle\": \"long\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "14 november 2055",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1964479463181).toLocaleTimeString(undefined, {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "03:44",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1128420851806).toLocaleTimeString(\"es\", {\"dateStyle\": \"medium\", \"timeStyle\": \"short\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2368125880198).toLocaleDateString(\"es\", {\"timeStyle\": \"long\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2572434175531).toLocaleTimeString(\"en-US\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "9:02:55 AM GMT-4",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3195545594053).toLocaleDateString(\"it-IT\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "06/04/2071",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3918989530967).toLocaleString(\"de\", {\"weekday\": \"long\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "Dienstag",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3437783677202).toLocaleDateString(\"es-MX\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "9 dic, 9:24 a.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1920335775876).toLocaleTimeString(\"ja-JP\", {\"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "21:36:15",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1843719483984).toLocaleTimeString(\"de\", {\"weekday\": \"narrow\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "S, 09:18:03",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1637348160782).toLocaleDateString(\"fr-CA\", {\"timeStyle\": \"long\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1379137107162).toLocaleTimeString(\"es-ES\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "9/13, 5:38:27",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3583829044114).toLocaleTimeString(\"ko-KR\", {\"dateStyle\": \"long\", \"timeStyle\": \"long\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2069875034642).toLocaleTimeString(\"en\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "08/05/2035, 2:47:14 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1172305666584).toLocaleDateString(\"en-AU\", {\"month\": \"long\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "February",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(701908285820).toLocaleDateString(\"de-DE\", {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "Sonntag, 29. März 1992",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(5474921404).toLocaleTimeString(\"zh-TW\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "下午8:48:41 [GMT+12]",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3797039948437).toLocaleDateString(\"pt-BR\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(57935511960).toLocaleDateString(undefined, {\"timeStyle\": \"long\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1550081362110).toLocaleDateString(\"fr-CA\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1211652948138).toLocaleString(\"zh-CN\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "24日周六",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(274434067452).toLocaleDateString(\"ko-KR\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "1978. 9. 12. 오후 3시",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(409992752512).toLocaleString(\"nl-NL\", {\"dateStyle\": \"full\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "woensdag 29 december 1982",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3347481106192).toLocaleString(\"pt-BR\", {\"dateStyle\": \"long\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "29 de janeiro de 2076",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(776174247023).toLocaleTimeString(\"fr-CA\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "1994-08-06 15 h 57 min 27 s",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2482304199008).toLocaleString(\"es-MX\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "8:56 a.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1357959321332).toLocaleString(\"fr-CA\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "15 h 55",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3894700288775).toLocaleString(\"es\", {\"dateStyle\": \"medium\", \"timeStyle\": \"short\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "1 jun 2093, 16:11",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3482868639711).toLocaleDateString(\"zh-TW\", {\"timeStyle\": \"long\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2265273239540).toLocaleString(\"es-ES\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "oct 2041",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3712327252546).toLocaleString(\"de\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "18:00",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(958852057846).toLocaleString(\"en-AU\", {\"dateStyle\": \"long\", \"timeStyle\": \"long\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "21 May 2000 at 7:47:37 am NZST",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(647677503596).toLocaleTimeString(\"ru-RU\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "16:25",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2235837719866).toLocaleString(\"pt\", {\"weekday\": \"long\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "terça-feira",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1588920494340).toLocaleString(\"sv-SE\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "2020-05-08 08:48:14 GMT+2",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(168708839369).toLocaleTimeString(\"en-CA\", {\"weekday\": \"long\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "Wednesday 4:33:59 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3451530745399).toLocaleDateString(\"de-DE\", {\"timeZoneName\": \"long\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "17.5.2079, Chinesische Normalzeit",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1293659398835).toLocaleString(\"es\", {\"era\": \"short\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "29/12/2010 d. C., 19:49:58",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2916415699116).toLocaleDateString(\"pt\", {\"month\": \"long\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "junho",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(919155250392).toLocaleDateString(\"en-CA\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "1999-02-16, GMT+2",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3160430409083).toLocaleString(\"en\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "Feb 24, 2:20 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3680104197574).toLocaleString(\"sv-SE\", {\"dateStyle\": \"long\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "14 augusti 2086",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2160022825523).toLocaleDateString(\"en-US\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "June 13",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1404667234882).toLocaleDateString(\"en\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "7/6/2014, 7:20:34 PM GMT+2",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(26960795818).toLocaleDateString(\"zh-TW\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "11月8日",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3044003685590).toLocaleString(\"en-US\", {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "20",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1517630347742).toLocaleDateString(\"ru-RU\", {\"weekday\": \"long\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "суббота",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2419140879108).toLocaleDateString(\"en-CA\", {\"month\": \"narrow\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "A",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1744179017498).toLocaleDateString(\"nl-NL\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "9-4-2025, 17,49",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3940340153368).toLocaleString(\"en-AU\", {\"dateStyle\": \"medium\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "11 Nov 2094",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3001054486473).toLocaleString(\"en-AU\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "05/02/2065, 3:44:46 pm GMT+5:30",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(437422858540).toLocaleDateString(\"de-DE\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "11.11.1983, 58,54",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2377052415096).toLocaleDateString(\"en-GB\", {\"dateStyle\": \"long\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "29 April 2045",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(370305871405).toLocaleDateString(\"fr-CA\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "1981-09-25 31,40",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3121100870025).toLocaleTimeString(\"pt\", {\"timeZoneName\": \"long\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "23:27:50 Horário Padrão de Moscou",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3884019004219).toLocaleTimeString(\"fr-FR\", {\"timeZoneName\": \"long\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "11:10:04 heure d’été de la Nouvelle-Zélande",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2234926188336).toLocaleTimeString(\"fr-CA\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "ven. 26 23 h 49 min 48 s",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1937753278919).toLocaleTimeString(\"de-DE\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "2:47:58 GMT+10",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4047120614767).toLocaleDateString(\"ko-KR\", {\"timeStyle\": \"short\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2408934219838).toLocaleDateString(\"ru-RU\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "ср, 2",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1685357912756).toLocaleTimeString(\"es\", {\"weekday\": \"narrow\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "L, 11:58:32",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(231466522330).toLocaleString(\"en-GB\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "05/77",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3827454496101).toLocaleString(\"fr-FR\", {\"dateStyle\": \"medium\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "15 avr. 2091",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1288154947826).toLocaleTimeString(\"ko-KR\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "27일 (수) 오전 8:49:07",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2632648902999).toLocaleTimeString(\"es-MX\", {\"hour\": \"2-digit\", \"minute\": \"2-digit\", \"hour12\": true, \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "12:21 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1877108623617).toLocaleDateString(\"zh-TW\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "29/6",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2418045741261).toLocaleDateString(\"ko-KR\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "8월 16일 오후 6:22",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3569578569128).toLocaleString(\"en-US\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "Feb 11, 9:36 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2805357087895).toLocaleString(\"en-GB\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "Sun 24",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2446532153109).toLocaleString(\"zh-TW\", {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "2047年7月12日星期五",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3087467597006).toLocaleTimeString(\"pt\", {\"timeStyle\": \"long\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "21:53:17 GMT+8",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2250347962302).toLocaleDateString(\"en-GB\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "Apr 2041",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1481066174148).toLocaleTimeString(\"en-GB\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "Dec 2016, 01:16:14",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(423137149426).toLocaleString(\"pt\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "10:05",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1885098518903).toLocaleTimeString(\"en-GB\", {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "Tuesday, 25 September 2029 at 23:28:38",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1595847166457).toLocaleString(\"de\", {\"weekday\": \"long\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "Montag",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1103244514622).toLocaleDateString(\"it-IT\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "17/12/2004, 13:48",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1141857409461).toLocaleTimeString(\"zh-CN\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "23:36",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2280122952256).toLocaleString(\"es-MX\", {\"timeStyle\": \"short\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "8:29 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(572765595490).toLocaleTimeString(\"es\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "8",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3410996365475).toLocaleDateString(\"es\", {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "2/2/2078, 13",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1818337462750).toLocaleTimeString(\"es-ES\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "14",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3509973067062).toLocaleString(\"de\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "Mo., 01:31",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(209732407571).toLocaleTimeString(\"en-CA\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "Aug 1976, 4:30:07 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2832807975776).toLocaleTimeString(\"ko-KR\", {\"timeStyle\": \"short\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "오전 5:06",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(272934832160).toLocaleTimeString(undefined, {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "Saturday, August 26, 1978 at 1:13:52 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1373374577455).toLocaleDateString(\"en-GB\", {\"hour\": \"2-digit\", \"minute\": \"2-digit\", \"hour12\": true, \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "09/07/2013, 09:56 pm",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(692032243251).toLocaleString(\"en\", {\"weekday\": \"narrow\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "F",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2699340272622).toLocaleDateString(\"en-US\", {\"dateStyle\": \"full\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "Friday, July 16, 2055",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2313272320900).toLocaleString(undefined, {\"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "4/21/2043, 4:38:40 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3965487335437).toLocaleTimeString(\"en-CA\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "35.43",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1288135265228).toLocaleDateString(undefined, {\"weekday\": \"long\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "Tuesday",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3728407266264).toLocaleString(\"zh-CN\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "24日周二",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1615091490934).toLocaleString(\"en-GB\", {\"month\": \"narrow\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "M",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(827106360788).toLocaleTimeString(\"nl-NL\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "zo 20:46",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4002627649360).toLocaleString(\"zh-TW\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "2096/11/1 下午12:00:49 [GMT-5]",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1933823771881).toLocaleTimeString(\"ko-KR\", {\"era\": \"short\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "AD 오후 5:16:11",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1364148127353).toLocaleString(\"en-GB\", {\"timeStyle\": \"long\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "19:02:07 CET",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(317527371753).toLocaleString(\"en-US\", {\"timeStyle\": \"medium\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "1:02:51 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3673664657123).toLocaleString(\"es\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "9:24",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4022037950934).toLocaleTimeString(\"nl-NL\", {\"dateStyle\": \"short\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(887922138086).toLocaleDateString(\"en-AU\", {\"dateStyle\": \"long\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "19 February 1998",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(698686391734).toLocaleDateString(\"nl-NL\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "21-2-1992, 17:33:11 EET",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3731139740303).toLocaleTimeString(\"pt-BR\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "sex., 26, 19:42:20",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3789963668626).toLocaleString(\"fr-FR\", {\"month\": \"narrow\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "F",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1395445283137).toLocaleTimeString(\"ko-KR\", {\"timeStyle\": \"long\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "오후 6시 41분 23초 GMT-5",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1149891182799).toLocaleString(\"nl-NL\", {\"dateStyle\": \"medium\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "10 jun 2006",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(625418686467).toLocaleTimeString(\"fr-FR\", {\"month\": \"long\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "octobre à 08:24:46",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3157619621101).toLocaleTimeString(\"es\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "12:33:41 GMT+0",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(75870814237).toLocaleTimeString(\"nl-NL\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "mei 1972, 15:13:34",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2389125739846).toLocaleString(\"es\", {\"weekday\": \"long\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "sábado",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(310086059863).toLocaleTimeString(\"nl-NL\", {\"weekday\": \"long\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "maandag 15:00:59",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(47641908383).toLocaleTimeString(\"sv-SE\", {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "tisdag 6 juli 1971 kl. 02:51:48",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1561955198786).toLocaleDateString(\"it-IT\", {\"timeStyle\": \"medium\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2025022630965).toLocaleTimeString(undefined, {\"era\": \"short\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "AD, 1:17:10 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1095442243899).toLocaleString(\"ko-KR\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "2004. 9. 18. 오전 3시 30분 43초 GMT+10",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2149319000144).toLocaleTimeString(\"it-IT\", {\"timeStyle\": \"medium\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "09:03:20",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2781604702867).toLocaleString(\"pt-BR\", {\"hour\": \"2-digit\", \"minute\": \"2-digit\", \"hour12\": true, \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "11:58 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2635421755795).toLocaleString(\"ko-KR\", {\"month\": \"long\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "7월",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3548332482860).toLocaleString(\"en-AU\", {\"dateStyle\": \"long\", \"timeStyle\": \"long\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "10 June 2082 at 8:54:42 am GMT-7",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1260385831784).toLocaleTimeString(\"en\", {\"timeZoneName\": \"long\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "7:10:31 PM Coordinated Universal Time",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3404139862341).toLocaleTimeString(\"pt\", {\"weekday\": \"long\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "domingo, 20:24:22",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(262640112550).toLocaleString(\"ko-KR\", {\"dateStyle\": \"medium\", \"timeStyle\": \"short\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "1978. 4. 28. 오후 2:35",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3547014004204).toLocaleDateString(\"en-US\", {\"month\": \"narrow\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "M",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3388749766730).toLocaleDateString(\"fr-CA\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "2077-05-21 0 h 22 min 46 s UTC+9",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2419156181121).toLocaleString(\"en\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "08/29/2046",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1734606316730).toLocaleDateString(\"it-IT\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1972085908929).toLocaleTimeString(\"de\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "28. Juni um 21:38:28",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(221684473365).toLocaleDateString(\"nl-NL\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "10-01-1977",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2950439965465).toLocaleDateString(\"it-IT\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "30/06/2063, GMT+8",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2291315874864).toLocaleString(\"en-AU\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "Sun 10",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(28853106243).toLocaleString(\"ja-JP\", {\"era\": \"short\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "西暦1970/11/30 19:45:06",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2941917415933).toLocaleString(\"en-IN\", {\"timeStyle\": \"full\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "2:16:55 am Moscow Standard Time",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3642218617433).toLocaleTimeString(\"nl-NL\", {\"timeZoneName\": \"long\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "7:23:37 gecoördineerde wereldtijd",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2576318047718).toLocaleTimeString(\"en-IN\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "8 in the morning",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(781629893244).toLocaleString(\"zh-CN\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "53.24",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(298285273517).toLocaleDateString(\"en-US\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "15 Fri",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3486667439775).toLocaleString(\"pt\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "8:43",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3781764554013).toLocaleDateString(\"sv-SE\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2270947901337).toLocaleString(\"de-DE\", {\"hour\": \"2-digit\", \"minute\": \"2-digit\", \"hour12\": true, \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "01:51 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2466827842523).toLocaleTimeString(\"es-ES\", {\"timeStyle\": \"short\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "0:57",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2143772996676).toLocaleDateString(\"ko-KR\", {\"timeStyle\": \"long\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3181331659277).toLocaleDateString(\"ja-JP\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "2070/10/24 12時",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1446446402990).toLocaleString(\"es-MX\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "lun 7:40 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(793399530402).toLocaleString(\"de-DE\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "21. Feb., 17:45",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(405933464665).toLocaleTimeString(\"it-IT\", {\"timeStyle\": \"medium\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "04:17:44",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(104941869639).toLocaleTimeString(\"en-US\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "04/29/1973, 7:31:09 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3045887439512).toLocaleString(\"nl-NL\", {\"dateStyle\": \"medium\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "9 jul 2066",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2786400315301).toLocaleDateString(\"ru-RU\", {\"dateStyle\": \"long\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "18 апреля 2058 г.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(363529772062).toLocaleDateString(\"en-AU\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "9 July",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(743357741816).toLocaleTimeString(\"es-MX\", {\"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "7:15:41 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4042573323917).toLocaleDateString(\"en\", {\"timeStyle\": \"long\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(997173087212).toLocaleString(\"ru-RU\", {\"month\": \"long\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "август",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(186866245989).toLocaleTimeString(\"en-US\", {\"era\": \"short\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "AD, 6:17:25 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1019255303108).toLocaleDateString(\"sv-SE\", {\"month\": \"long\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "april",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1501273213356).toLocaleDateString(undefined, {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "7/29/2017, 01",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2549217187361).toLocaleString(\"de-DE\", {\"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "12.10.2050, 22:53:07",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3663932216024).toLocaleDateString(\"sv-SE\", {\"dateStyle\": \"full\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "torsdag 7 februari 2086",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3443535178849).toLocaleString(\"ja-JP\", {\"weekday\": \"narrow\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "火",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(692349458644).toLocaleDateString(\"de\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "Di., 10.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3207170705869).toLocaleTimeString(\"en-US\", {\"dateStyle\": \"medium\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2123145778772).toLocaleTimeString(\"pt-BR\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "20",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1485356630846).toLocaleTimeString(\"en-AU\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "25 January at 3:03:50 pm",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3711211406258).toLocaleDateString(undefined, {\"timeStyle\": \"medium\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2561929133393).toLocaleString(\"en-GB\", {\"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "09/03/2051, 01:58:53",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3479101250322).toLocaleString(\"es-ES\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "31/03/2080",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(526381145889).toLocaleTimeString(\"en-GB\", {\"weekday\": \"narrow\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "S 17:59:05",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(463310481792).toLocaleString(\"ru-RU\", {\"dateStyle\": \"short\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "06.09.1984",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3232511434747).toLocaleTimeString(\"fr-FR\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "04 h",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4057436365926).toLocaleString(\"pt\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "ter., 10:39",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(876246344110).toLocaleTimeString(\"ja-JP\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "1997/10/08 6:45:44",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(777733465206).toLocaleTimeString(\"zh-TW\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "下午2:04",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1039991036036).toLocaleTimeString(\"en\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "15 Sun, 8:23:56 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(646490837955).toLocaleDateString(\"nl-NL\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "6-90",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1198233990348).toLocaleString(\"fr-CA\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "2007-12-21 12 h 46 min 30 s UTC+2",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2589014747032).toLocaleDateString(\"fr-FR\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "16/01/2052 UTC−6",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3011035405797).toLocaleDateString(undefined, {\"dateStyle\": \"medium\", \"timeStyle\": \"short\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4056675708170).toLocaleString(\"pt-BR\", {\"era\": \"short\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "19/07/2098 d.C., 23:21:48",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3698987218136).toLocaleString(\"en\", {\"dateStyle\": \"long\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "March 20, 2087",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1470199398583).toLocaleString(undefined, {\"timeStyle\": \"medium\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "5:43:18 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1469306070166).toLocaleDateString(\"it-IT\", {\"dateStyle\": \"long\", \"timeStyle\": \"long\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(305333564853).toLocaleDateString(\"es-ES\", {\"month\": \"narrow\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "S",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1889322328015).toLocaleDateString(\"en-CA\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "2029-11-14, 11:45",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(424225703752).toLocaleString(\"ja-JP\", {\"era\": \"short\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "西暦1983/6/12 0:28:23",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2935990054903).toLocaleString(\"pt\", {\"dateStyle\": \"long\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "14 de janeiro de 2063",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2563457972415).toLocaleString(\"fr-CA\", {\"month\": \"narrow\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "M",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(351770529676).toLocaleString(\"fr-FR\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "21 h",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1759080416828).toLocaleString(\"en\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "Sep 28, 1:26 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3808761100588).toLocaleTimeString(\"zh-CN\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "9月10日 18:11",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3671849556787).toLocaleTimeString(\"pt\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "mai. de 2086, 03:12:36",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4070280621757).toLocaleTimeString(\"ru-RU\", {\"weekday\": \"narrow\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "С 11:30:21",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1280948519445).toLocaleString(\"es-ES\", {\"timeStyle\": \"medium\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "23:01:59",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3880868984247).toLocaleTimeString(\"en-US\", {\"month\": \"narrow\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "D, 11:09:44 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3905031639128).toLocaleTimeString(\"es\", {\"dateStyle\": \"long\", \"timeStyle\": \"long\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1039754829563).toLocaleTimeString(\"zh-CN\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "GMT+105:47:09",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(111382580837).toLocaleDateString(\"es\", {\"timeStyle\": \"medium\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3710202187546).toLocaleTimeString(\"sv-SE\", {\"timeZoneName\": \"long\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "23:43:07 östnordamerikansk sommartid",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2850835860275).toLocaleDateString(\"zh-CN\", {\"month\": \"narrow\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "5",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2403467687703).toLocaleString(\"es-MX\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "28/02/46, 21:54",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(196933393938).toLocaleString(\"es\", {\"timeStyle\": \"medium\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "15:43:13",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2640824971280).toLocaleDateString(\"de-DE\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "So., 05:29",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1320714231044).toLocaleString(undefined, {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "11/07/2011",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4035348781566).toLocaleDateString(\"fr-CA\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(253832807952).toLocaleDateString(\"pt\", {\"weekday\": \"narrow\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "S",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2025103944797).toLocaleDateString(\"en-AU\", {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "Sunday 5 March 2034",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3246734639503).toLocaleString(\"fr-FR\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "19/11/2072",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(529553501262).toLocaleDateString(\"es-MX\", {\"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "13/10/1986",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(589906918166).toLocaleTimeString(\"en\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "September 11 at 1:01:58 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1883500360753).toLocaleDateString(\"en-US\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "9/7/2029, 20:32",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(609500918928).toLocaleDateString(\"zh-TW\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "1989/4/25 上午11:48",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2293278719448).toLocaleDateString(\"de-DE\", {\"month\": \"narrow\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "S",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(797924431047).toLocaleString(\"pt\", {\"dateStyle\": \"medium\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "15 de abr. de 1995",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3465107875321).toLocaleString(\"pl-PL\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "9:57",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1749891101116).toLocaleTimeString(\"en\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "41.11",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(881378095879).toLocaleDateString(\"zh-CN\", {\"timeStyle\": \"long\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1226718246127).toLocaleString(\"en-CA\", {\"month\": \"short\", \"year\": \"numeric\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "Nov 2008",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(529032175731).toLocaleTimeString(\"en-US\", {\"timeZoneName\": \"long\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "10:22:55 AM Japan Standard Time",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(52460091042).toLocaleTimeString(\"en-CA\", {\"era\": \"short\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "AD, 9:44:51 a.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3116026084105).toLocaleDateString(\"pl-PL\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "28.09.2068, 5:48",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1652694521795).toLocaleTimeString(\"en-AU\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "11:48",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1856931186703).toLocaleString(\"de-DE\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "11/28",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(907862480181).toLocaleString(\"en-AU\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "8 Oct, 1:01 pm",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(616396094417).toLocaleTimeString(\"pl-PL\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "00",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(306803912314).toLocaleString(\"nl-NL\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "22 sep, 2:18",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2569030943774).toLocaleString(\"pt\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "ter., 05:42",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(91322779876).toLocaleTimeString(\"en-US\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "Wed 5:26 PM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(933806359539).toLocaleTimeString(\"sv-SE\", {\"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "04:09:19",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3271820655819).toLocaleDateString(\"ja-JP\", {\"era\": \"short\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "西暦2073/9/5",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(354282543870).toLocaleDateString(\"en-AU\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "24 March",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2475982511403).toLocaleDateString(\"ja-JP\", {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "2048年6月17日水曜日",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(20648538511).toLocaleTimeString(\"en-AU\", {\"month\": \"narrow\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "A, 6:42:18 pm",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1469437056890).toLocaleString(\"de\", {\"hour\": \"2-digit\", \"minute\": \"2-digit\", \"hour12\": true, \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "11:57 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2825063216985).toLocaleDateString(\"en\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "07/10/2059",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(891666953410).toLocaleTimeString(\"zh-CN\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "GMT-8 21:15:53",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3125662424734).toLocaleDateString(\"es-ES\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "17/1/2069, 18:33",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(442087411263).toLocaleTimeString(\"pt\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "01/84, 19:03:31",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1903269014341).toLocaleString(\"pt-BR\", {\"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "24/04/2030, 08:50:14",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(278916601297).toLocaleTimeString(\"en-US\", {\"era\": \"short\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "AD, 4:50:01 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3537251784611).toLocaleTimeString(\"sv-SE\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "24,61",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2039824316912).toLocaleString(\"es-MX\", {\"weekday\": \"narrow\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "M",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(698814640022).toLocaleDateString(\"sv-SE\", {\"weekday\": \"narrow\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "S",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2049779463020).toLocaleTimeString(\"ko-KR\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "2034. 12. 14. 오후 11:11:03",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(622290826376).toLocaleDateString(\"de\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "20.9.1989, 6:33",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1129388090741).toLocaleTimeString(\"pt-BR\", {\"dateStyle\": \"medium\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(520553999042).toLocaleString(\"de-DE\", {\"dateStyle\": \"full\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "Dienstag, 1. Juli 1986",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1795570647496).toLocaleDateString(\"it-IT\", {\"dateStyle\": \"short\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "25/11/26",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3007535763611).toLocaleDateString(\"de-DE\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "21. April",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(433618921849).toLocaleTimeString(\"it-IT\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "29 set, 2:42",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2185636541410).toLocaleString(\"es-MX\", {\"timeStyle\": \"short\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "10:45 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(778174393287).toLocaleTimeString(\"zh-CN\", {\"dateStyle\": \"long\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(171627957369).toLocaleDateString(\"pt-BR\", {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "terça-feira, 10 de junho de 1975",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1402451171557).toLocaleTimeString(\"pl-PL\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "06.14, 18:46:11",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(869551825724).toLocaleTimeString(\"nl-NL\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "15",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3095408449378).toLocaleTimeString(\"de-DE\", {\"weekday\": \"long\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "Donnerstag, 11:40:49",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1868546738462).toLocaleTimeString(\"en-CA\", {\"timeStyle\": \"short\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "10:15 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1118891400904).toLocaleTimeString(\"fr-CA\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "2005-06-15 22 h 10 min 00 s",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3866775716547).toLocaleString(\"nl-NL\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "13-7-2092, 03:21:56 GMT-5",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(893280987418).toLocaleTimeString(\"pl-PL\", {\"dateStyle\": \"long\", \"timeStyle\": \"long\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1430264341999).toLocaleString(\"ko-KR\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "01:39",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1254914272218).toLocaleString(\"ja-JP\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "12:17",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2650867270480).toLocaleTimeString(\"ko-KR\", {\"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "오전 10:01:10",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1744952137715).toLocaleDateString(\"nl-NL\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "18 april",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(836534844347).toLocaleString(\"sv-SE\", {\"weekday\": \"long\", \"year\": \"numeric\", \"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "torsdag 4 juli 1996",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2093708477218).toLocaleTimeString(\"en-AU\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1478220425507).toLocaleDateString(\"en-US\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "November 4",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2101094430833).toLocaleDateString(\"en-GB\", {\"dateStyle\": \"medium\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "31 Jul 2036",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3898899887104).toLocaleString(\"en-IN\", {\"weekday\": \"long\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "Monday",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2333609979357).toLocaleString(undefined, {\"weekday\": \"long\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "Sunday",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3723237884813).toLocaleTimeString(\"de\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "25. Dezember um 21:44:44",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1861843468311).toLocaleDateString(\"ko-KR\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "2028. 12. 31. GMT+2",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1811409338711).toLocaleString(\"de\", {\"month\": \"long\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "Mai",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(589800156775).toLocaleDateString(\"es\", {\"dateStyle\": \"long\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "9 de septiembre de 1988",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3204546710685).toLocaleDateString(\"es\", {\"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "19/7/2071",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3633358227713).toLocaleDateString(\"ru-RU\", {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "18.02.2085, 13",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(507713130526).toLocaleTimeString(\"en-CA\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "6:25:30 p.m. GMT+11",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3278747793824).toLocaleTimeString(\"nl-NL\", {\"month\": \"narrow\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "N, 11:16:33",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3734893882373).toLocaleString(\"en-GB\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"hourCycle\": \"h23\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "6:31",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3270434989016).toLocaleString(\"en-AU\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "20 August",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(677917094970).toLocaleDateString(\"en-US\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "6/26/1991, 11 in the morning",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1341836192227).toLocaleDateString(\"ko-KR\", {\"timeStyle\": \"medium\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3771890015682).toLocaleString(\"zh-TW\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "下午3時",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3996221354206).toLocaleTimeString(\"pt-BR\", {\"timeStyle\": \"full\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "13:29:14 Horário Universal Coordenado",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(929111447633).toLocaleTimeString(\"de-DE\", {\"timeStyle\": \"short\", \"timeZone\": \"Asia/Tokyo\"})",
+  "result": {
+   "ok": true,
+   "value": "23:30",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(497708720011).toLocaleDateString(\"pt\", {\"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "09/10/1985",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(415077211974).toLocaleString(\"en-US\", {\"dateStyle\": \"long\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "February 25, 1983",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3968444050500).toLocaleTimeString(\"es-MX\", {\"timeStyle\": \"medium\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "9:34:10 a.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(486457590509).toLocaleString(\"ja-JP\", {\"hour\": \"numeric\", \"minute\": \"numeric\", \"second\": \"numeric\", \"timeZoneName\": \"short\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "12:36:30 GMT+5:30",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1044060073082).toLocaleTimeString(\"es\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "13:41",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(531390970139).toLocaleTimeString(\"es-MX\", {\"dateStyle\": \"medium\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2534760701114).toLocaleTimeString(\"nl-NL\", {\"month\": \"narrow\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "A, 09:11:41",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1463809184075).toLocaleString(\"de\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "20.5.2016, 22:39:44 GMT-7",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(4040533040474).toLocaleDateString(\"en-GB\", {\"timeStyle\": \"long\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(781034182058).toLocaleString(\"nl-NL\", {\"timeStyle\": \"medium\", \"timeZone\": \"UTC\"})",
+  "result": {
+   "ok": true,
+   "value": "17:56:22",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3987753281055).toLocaleDateString(\"en-US\", {\"timeStyle\": \"medium\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3466405969329).toLocaleString(\"nl-NL\", {\"hour\": \"numeric\", \"dayPeriod\": \"short\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "02",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3663703799692).toLocaleDateString(\"en-CA\", {\"timeStyle\": \"long\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2343465023464).toLocaleDateString(\"en-US\", {\"fractionalSecondDigits\": 2, \"second\": \"numeric\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "4/5/2044, 23.46",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2643215011697).toLocaleDateString(\"es-ES\", {\"weekday\": \"narrow\", \"timeZone\": \"Asia/Shanghai\"})",
+  "result": {
+   "ok": true,
+   "value": "D",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1573010514243).toLocaleDateString(\"pl-PL\", {\"dateStyle\": \"full\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "środa, 6 listopada 2019",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1108982707826).toLocaleTimeString(\"zh-CN\", {\"month\": \"long\", \"day\": \"numeric\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "2月21日 16:15:07",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(387643707908).toLocaleTimeString(\"pt-BR\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "16:48",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(939222169370).toLocaleDateString(\"zh-TW\", {\"timeStyle\": \"short\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(829036621368).toLocaleTimeString(\"nl-NL\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "9 apr, 17:57",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1629839445496).toLocaleDateString(\"es\", {\"timeStyle\": \"short\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3686121333039).toLocaleString(\"pl-PL\", {\"timeStyle\": \"full\", \"timeZone\": \"Asia/Kolkata\"})",
+  "result": {
+   "ok": true,
+   "value": "16:05:33 czas indyjski standardowy",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(608409943803).toLocaleDateString(\"ru-RU\", {\"weekday\": \"short\", \"day\": \"numeric\", \"timeZone\": \"Africa/Cairo\"})",
+  "result": {
+   "ok": true,
+   "value": "ср, 12",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2059822803689).toLocaleString(\"sv-SE\", {\"weekday\": \"narrow\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "T",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1635057926088).toLocaleString(\"de\", {\"month\": \"narrow\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "O",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1211509571776).toLocaleString(\"en-AU\", {\"dateStyle\": \"full\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "Thursday, 22 May 2008",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1980151169882).toLocaleTimeString(\"es\", {\"year\": \"numeric\", \"month\": \"2-digit\", \"day\": \"2-digit\", \"timeZone\": \"Pacific/Auckland\"})",
+  "result": {
+   "ok": true,
+   "value": "30/09/2032, 22:59:29",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3928312561972).toLocaleTimeString(\"de-DE\", {\"weekday\": \"long\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "Freitag, 14:56:01",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2560864857963).toLocaleString(\"en-US\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "Feb 24, 10:20 AM",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2558421264013).toLocaleTimeString(\"sv-SE\", {\"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"America/Chicago\"})",
+  "result": {
+   "ok": true,
+   "value": "2:34",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(931924219796).toLocaleTimeString(\"en-US\", {\"dateStyle\": \"short\", \"timeStyle\": \"short\", \"hour12\": false, \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: dateStyle is specified while formatting time is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(153621596174).toLocaleDateString(\"en-AU\", {\"year\": \"2-digit\", \"month\": \"numeric\", \"timeZone\": \"Europe/Paris\"})",
+  "result": {
+   "ok": true,
+   "value": "11/74",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2008887016384).toLocaleDateString(\"en\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "8/29/2033, GMT+10",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1249682866112).toLocaleString(undefined, {\"dateStyle\": \"short\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "8/7/09",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2573828866344).toLocaleTimeString(\"ru-RU\", {\"timeZoneName\": \"shortOffset\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "02:27:46 GMT+10",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(719066590596).toLocaleDateString(\"es-MX\", {\"month\": \"short\", \"day\": \"numeric\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "14 oct, 3:43 p.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(221518343394).toLocaleDateString(\"en-CA\", {\"weekday\": \"short\", \"hour\": \"numeric\", \"minute\": \"2-digit\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": true,
+   "value": "Sat 7:52 a.m.",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1160316319302).toLocaleTimeString(\"en-AU\", {\"timeStyle\": \"full\", \"timeZone\": \"America/Sao_Paulo\"})",
+  "result": {
+   "ok": true,
+   "value": "11:05:19 am Brasilia Standard Time",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1084899462698).toLocaleDateString(\"fr-CA\", {\"dateStyle\": \"medium\", \"timeStyle\": \"short\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(403128037152).toLocaleTimeString(\"pt-BR\", {\"timeStyle\": \"long\", \"timeZone\": \"Europe/London\"})",
+  "result": {
+   "ok": true,
+   "value": "21:00:37 GMT+1",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2183988870275).toLocaleDateString(\"en-CA\", {\"weekday\": \"narrow\", \"timeZone\": \"America/Los_Angeles\"})",
+  "result": {
+   "ok": true,
+   "value": "T",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(3568124976616).toLocaleDateString(\"ru-RU\", {\"hour\": \"numeric\", \"hour12\": false, \"timeZone\": \"Europe/Moscow\"})",
+  "result": {
+   "ok": true,
+   "value": "25.01.2083, 20",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(1770568827518).toLocaleTimeString(\"fr-FR\", {\"weekday\": \"narrow\", \"timeZone\": \"America/New_York\"})",
+  "result": {
+   "ok": true,
+   "value": "D 11:40:27",
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "return new Date(2738951292043).toLocaleDateString(\"en-CA\", {\"dateStyle\": \"long\", \"timeStyle\": \"long\", \"timeZone\": \"Australia/Sydney\"})",
+  "result": {
+   "ok": false,
+   "error": {
+    "kind": "ExecutionFailure",
+    "message": "TypeError: timeStyle is specified while formatting date is requested (line 1, col 8)",
+    "location": {
+     "line": 1,
+     "column": 8
+    }
+   },
+   "toolCalls": []
+  }
+ }
+]

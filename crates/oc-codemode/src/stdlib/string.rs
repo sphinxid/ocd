@@ -499,6 +499,8 @@ struct SortKey {
     primary: Vec<u32>,
     secondary: Vec<u32>,
     tertiary: Vec<u32>,
+    /// For each tertiary weight, whether it carries a letter's case (its lowest bit: 1 for uppercase).
+    cased: Vec<bool>,
 }
 
 fn mark_weight(cp: u32) -> u32 {
@@ -582,11 +584,25 @@ fn is_assigned(c: char) -> bool {
 }
 
 fn push_base(key: &mut SortKey, c: char, compat: bool) {
-    key.primary.push(primary_weight(c));
+    push_weighted(key, c, primary_weight(c), compat);
+}
+
+fn push_weighted(key: &mut SortKey, c: char, primary: u32, compat: bool) {
+    key.primary.push(primary);
     key.secondary.push(0);
     let upper = c.is_uppercase() || (c.to_lowercase().next() != Some(c) && !c.is_lowercase());
     let variant = compat || is_katakana(c as u32);
     key.tertiary.push(u32::from(upper) + if variant { 2 } else { 0 });
+    key.cased.push(true);
+}
+
+/// Pushes a weight that has no case.
+fn push_uncased(key: &mut SortKey, secondary: Option<u32>, tertiary: u32) {
+    if let Some(w) = secondary {
+        key.secondary.push(w);
+    }
+    key.tertiary.push(tertiary);
+    key.cased.push(false);
 }
 
 fn push_char(key: &mut SortKey, c: char) {
@@ -596,20 +612,22 @@ fn push_char(key: &mut SortKey, c: char) {
     }
     if let Some((w, t)) = variable_entry(cp) {
         key.primary.push(w * REGION);
-        key.secondary.push(0);
-        key.tertiary.push(t * 4);
+        push_uncased(key, Some(0), t * 4);
         return;
     }
     if let Some(text) = expansion(c) {
         for e in text.chars() {
             push_base(key, e, true);
         }
+        // `ß` differs from `ss` at the secondary level (Unicode's contraction table).
+        if matches!(c, 'ß' | 'ẞ') {
+            push_uncased(key, Some(0xFFD), 0);
+        }
         return;
     }
     if let Some(base) = stroked(c) {
         push_base(key, base, false);
-        key.secondary.push(mark_weight(0x338));
-        key.tertiary.push(0);
+        push_uncased(key, Some(mark_weight(0x338)), 0);
         return;
     }
     if let Some(base) = match c {
@@ -621,8 +639,7 @@ fn push_char(key: &mut SortKey, c: char) {
     } {
         // A variant of the base letter after its other accented forms.
         push_base(key, base, false);
-        key.secondary.push(0xFFF);
-        key.tertiary.push(0);
+        push_uncased(key, Some(0xFFF), 0);
         return;
     }
     if cyrillic_extra(c.to_lowercase().next().unwrap_or(c)).is_some() {
@@ -636,8 +653,7 @@ fn push_char(key: &mut SortKey, c: char) {
     let compat = canonical != compatible;
     for d in compatible {
         if unicode_normalization::char::is_combining_mark(d) {
-            key.secondary.push(mark_weight(d as u32));
-            key.tertiary.push(0);
+            push_uncased(key, Some(mark_weight(d as u32)), 0);
         } else if d == c || latin_extra(d).is_some() || d.is_ascii() || !needs_split(d) {
             push_base(key, d, compat);
         } else {
@@ -651,15 +667,99 @@ fn needs_split(c: char) -> bool {
     expansion(c).is_some() || stroked(c).is_some()
 }
 
-fn sort_key(units: &[u16]) -> SortKey {
+/// Letters some languages sort as letters of their own, as their CLDR tailorings do: the base letter and mark they
+/// decompose to, their primary weight, and a secondary weight for a variant sharing it (`æ` after `ä` in Swedish).
+fn tailored(language: Option<&str>, base: char, mark: Option<char>) -> Option<(u32, Option<u32>)> {
+    let lower = base.to_lowercase().next().unwrap_or(base);
+    let latin = |letter: char, step: u32| (table_end() + 1) * REGION + (letter as u32 - 'a' as u32) * 4 + step;
+    let after_z = |n: u32| latin('z', 3 + n * 4);
+    const VARIANT: u32 = 0xFFE;
+    let found = match (language?, lower, mark) {
+        ("sv" | "fi", 'a', Some('\u{30A}')) => (after_z(1), None),
+        ("sv" | "fi", 'a', Some('\u{308}')) => (after_z(2), None),
+        ("sv" | "fi", 'æ', None) => (after_z(2), Some(VARIANT)),
+        ("sv" | "fi", 'o', Some('\u{308}')) => (after_z(3), None),
+        ("sv" | "fi", 'ø', None) => (after_z(3), Some(VARIANT)),
+        ("sv" | "fi" | "da" | "nb" | "nn" | "no", 'u', Some('\u{308}')) => (latin('y', 0), Some(VARIANT)),
+        ("da" | "nb" | "nn" | "no", 'æ', None) => (after_z(1), None),
+        ("da" | "nb" | "nn" | "no", 'a', Some('\u{308}')) => (after_z(1), Some(VARIANT)),
+        ("da" | "nb" | "nn" | "no", 'ø', None) => (after_z(2), None),
+        ("da" | "nb" | "nn" | "no", 'o', Some('\u{308}')) => (after_z(2), Some(VARIANT)),
+        ("da" | "nb" | "nn" | "no", 'a', Some('\u{30A}')) => (after_z(3), None),
+        ("es", 'n', Some('\u{303}')) => (latin('n', 3), None),
+        ("tr" | "az", 'c', Some('\u{327}')) => (latin('c', 1), None),
+        ("tr" | "az", 'g', Some('\u{306}')) => (latin('g', 1), None),
+        ("tr" | "az", 'ı', None) => (latin('h', 3), None),
+        ("tr" | "az", 'o', Some('\u{308}')) => (latin('o', 2), None),
+        ("tr" | "az", 's', Some('\u{327}')) => (latin('s', 2), None),
+        ("tr" | "az", 'u', Some('\u{308}')) => (latin('u', 1), None),
+        _ => return None,
+    };
+    Some(found)
+}
+
+/// A run of decimal digits as one primary weight sequence: its length (leading zeros dropped), then its digits.
+fn push_number(key: &mut SortKey, digits: &[u32]) {
+    let significant: Vec<u32> = digits.iter().copied().skip_while(|&d| d == 0).collect();
+    let base = table_end() * REGION;
+    key.primary.push(base + significant.len() as u32);
+    for d in &significant {
+        key.primary.push(base + 0x10000 + d);
+    }
+    for _ in 0..1 + significant.len() {
+        push_uncased(key, Some(0), 0);
+    }
+}
+
+fn sort_key_with(units: &[u16], collation: &Collation) -> SortKey {
     // Canonically equivalent strings compare equal: decompose (and reorder marks) first.
     let mut key = SortKey::default();
+    let language = collation.language.as_deref();
     for run in runs(units) {
         match run {
             Run::Text(text) => {
                 let chars: Vec<char> = text.nfd().collect();
                 let mut i = 0;
                 while i < chars.len() {
+                    if collation.ignore_punctuation && variable_entry(chars[i] as u32).is_some_and(|(w, _)| w < PUNCTUATION_END) {
+                        i += 1;
+                        continue;
+                    }
+                    if collation.numeric && digit_value(chars[i] as u32).is_some() {
+                        let mut digits = Vec::new();
+                        while let Some(d) = chars.get(i).and_then(|&c| digit_value(c as u32)) {
+                            digits.push(d);
+                            i += 1;
+                        }
+                        push_number(&mut key, &digits);
+                        continue;
+                    }
+                    if language.is_some() {
+                        // Danish and Norwegian read `aa` as `å` (after it at the tertiary level).
+                        if matches!(language, Some("da" | "nb" | "nn" | "no"))
+                            && matches!(chars[i], 'a' | 'A')
+                            && matches!(chars.get(i + 1), Some('a' | 'A'))
+                            && !chars.get(i + 2).is_some_and(|&m| unicode_normalization::char::is_combining_mark(m))
+                            && let Some((w, _)) = tailored(language, 'a', Some('\u{30A}'))
+                        {
+                            push_weighted(&mut key, chars[i], w, false);
+                            *key.tertiary.last_mut().unwrap() += 4 * (1 + u32::from(chars[i + 1] == 'A'));
+                            i += 2;
+                            continue;
+                        }
+                        let mark = chars.get(i + 1).copied().filter(|&m| unicode_normalization::char::is_combining_mark(m));
+                        let found = mark
+                            .and_then(|m| tailored(language, chars[i], Some(m)).map(|f| (2, f)))
+                            .or_else(|| tailored(language, chars[i], None).map(|f| (1, f)));
+                        if let Some((taken, (w, variant))) = found {
+                            push_weighted(&mut key, chars[i], w, false);
+                            if let Some(v) = variant {
+                                push_uncased(&mut key, Some(v), 0);
+                            }
+                            i += taken;
+                            continue;
+                        }
+                    }
                     // `й` is a letter of its own, not `и` with a breve.
                     if matches!(chars[i], 'и' | 'И') && chars.get(i + 1) == Some(&'\u{306}') {
                         push_char(&mut key, if chars[i] == 'и' { 'й' } else { 'Й' });
@@ -672,13 +772,17 @@ fn sort_key(units: &[u16]) -> SortKey {
             }
             Run::Lone(u) => {
                 key.primary.push((table_end() + 3) * REGION + u as u32);
-                key.secondary.push(0);
-                key.tertiary.push(0);
+                push_uncased(&mut key, Some(0), 0);
             }
         }
     }
     key
 }
+
+/// Where punctuation ends in [`VARIABLE_ORDER`]: symbols (from `` ` ``) are not variable (ICU's `maxVariable`).
+const PUNCTUATION_END: u32 = 63;
+
+pub use crate::stdlib::intl::{Collation, Sensitivity};
 
 /// `localeCompare` without locale or options: an approximation of the ICU root collation JavaScriptCore uses
 /// (tertiary strength, punctuation not ignored): whitespace and punctuation, then digits, then letters
@@ -687,12 +791,31 @@ pub fn locale_compare(a: &[u16], b: &[u16]) -> f64 {
     if a == b {
         return 0.0;
     }
-    let (ka, kb) = (sort_key(a), sort_key(b));
-    let order = ka
-        .primary
-        .cmp(&kb.primary)
-        .then_with(|| ka.secondary.cmp(&kb.secondary))
-        .then_with(|| ka.tertiary.cmp(&kb.tertiary));
+    collate(a, b, &Collation::default())
+}
+
+/// `localeCompare` with a collator's locale and options (2.4.1, #64935): a few CLDR tailorings (Swedish, Finnish,
+/// Danish, Norwegian, Spanish), numeric ordering, the four sensitivities, uppercase first, and punctuation ignored.
+pub fn collate(a: &[u16], b: &[u16], collation: &Collation) -> f64 {
+    let (ka, kb) = (sort_key_with(a, collation), sort_key_with(b, collation));
+    let case = |k: &SortKey| -> Vec<u32> {
+        k.tertiary.iter().zip(&k.cased).filter(|(_, c)| **c).map(|(t, _)| (t & 1) ^ u32::from(collation.upper_first)).collect()
+    };
+    let tertiary = |k: &SortKey| -> Vec<u32> {
+        if !collation.upper_first {
+            return k.tertiary.clone();
+        }
+        k.tertiary.iter().zip(&k.cased).map(|(t, c)| if *c { t ^ 1 } else { *t }).collect()
+    };
+    let mut order = ka.primary.cmp(&kb.primary);
+    order = match collation.sensitivity {
+        Sensitivity::Base => order,
+        Sensitivity::Accent => order.then_with(|| ka.secondary.cmp(&kb.secondary)),
+        Sensitivity::Case => order.then_with(|| case(&ka).cmp(&case(&kb))),
+        Sensitivity::Variant => {
+            order.then_with(|| ka.secondary.cmp(&kb.secondary)).then_with(|| tertiary(&ka).cmp(&tertiary(&kb)))
+        }
+    };
     match order {
         std::cmp::Ordering::Less => -1.0,
         std::cmp::Ordering::Equal => 0.0,
@@ -1038,9 +1161,19 @@ pub fn string_global(rt: &Rt) -> Value {
             simple_sync("trimEnd", 0, &[], |v, _| Ok(Value::String(JsStr::from_slice(trim_end(v.units()))))),
             simple_sync("trimRight", 0, &[], |v, _| Ok(Value::String(JsStr::from_slice(trim_end(v.units()))))),
             // Locale/options are deliberately unsupported; comparison uses the root collation.
-            simple_sync("localeCompare", 1, &[S], |v, args| {
-                let that = str_arg("localeCompare", args, 0)?;
-                Ok(Value::Number(locale_compare(v.units(), that.units())))
+            simple("localeCompare", 1, &[S], |rt, site, v, args| {
+                let that = match str_arg("localeCompare", &args, 0) {
+                    Ok(t) => t,
+                    Err(e) => return NResult::err(e),
+                };
+                let (locales, options) = (arg(&args, 1), arg(&args, 2));
+                if locales.is_undefined() && options.is_undefined() {
+                    return NResult::ok(locale_compare(v.units(), that.units()));
+                }
+                let rt = rt.clone();
+                NResult::future(async move {
+                    crate::stdlib::intl::locale_compare(&rt, v.units(), that.units(), &locales, &options, site).await
+                })
             }),
             simple_sync("normalize", 0, &[S], |v, args| {
                 let form = opt_str("normalize", args, 0)?;
