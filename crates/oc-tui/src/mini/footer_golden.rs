@@ -136,9 +136,11 @@ fn run(case: &Value) -> Vec<Value> {
     let theme = if mono {
         theme::mono_theme(Mode::Dark)
     } else {
-        let doc: Value = serde_json::from_str(crate::theme::OPENCODE_V2).unwrap();
+        let doc: Value = serde_json::from_str(crate::theme::OPENCODE_CLASSIC).unwrap();
         let t = crate::theme::resolve::resolve_document(&doc, Mode::Dark).unwrap();
-        theme::resolve(&t, None, false)
+        // Recorded on 2.2.2 with its `opencode` theme (2.4.1's `opencode-classic`), whose footer read the hues at
+        // step 200; 2.4.1 reads 400 (`theme::tests::footer_reads_hue_step_400`), which only changes those colors.
+        theme::resolve_at(&t, None, false, 200)
     };
     let settings = MiniSettings { mono, ..Default::default() };
     let start = Instant::now();

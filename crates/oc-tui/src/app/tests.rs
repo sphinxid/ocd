@@ -7,7 +7,18 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use serde_json::json;
 
+/// A headless app drawing the legacy designs (`experimental: {"new-designs": false}`), which the screen tests below
+/// were written against. `app_new_designs()` draws 2.4.1's default.
 pub(super) fn app() -> App {
+    app_with(json!({ "tabs": { "mode": "off" }, "animations": false, "experimental": { "new-designs": false } }))
+}
+
+/// A headless app with 2.4.1's default config: the new designs on.
+pub(super) fn app_new_designs() -> App {
+    app_with(json!({ "tabs": { "mode": "off" }, "animations": false }))
+}
+
+pub(super) fn app_with(config: serde_json::Value) -> App {
     let opts = TuiOptions {
         url: "http://127.0.0.1:1".into(),
         directory: "/work/proj".into(),
@@ -15,7 +26,7 @@ pub(super) fn app() -> App {
         channel: "test".into(),
         ..Default::default()
     };
-    let mut cfg = crate::config::Config::from_value(json!({ "tabs": { "mode": "off" }, "animations": false }));
+    let mut cfg = crate::config::Config::from_value(config);
     cfg.terminal_suspend = true;
     let mut app = App::headless(opts, cfg);
     // Isolate from the user's state files.

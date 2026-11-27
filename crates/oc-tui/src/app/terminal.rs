@@ -193,7 +193,7 @@ fn hue_distance(a: f64, b: f64) -> f64 {
 fn terminal_hue(t: &Theme, target: f64) -> Rgba {
     let mut best: Option<(f64, Rgba)> = None;
     for (_, scale) in &t.hues {
-        let c = scale[1];
+        let c = scale[3];
         if c.a == 0 {
             continue;
         }
@@ -208,7 +208,7 @@ fn terminal_hue(t: &Theme, target: f64) -> Rgba {
     }
     match best {
         Some((d, c)) if d <= 30.0 => c,
-        _ => t.accent(200),
+        _ => t.accent(400),
     }
 }
 
@@ -614,9 +614,46 @@ mod tests {
         assert_eq!(st.parser.screen().size(), (1, 1));
     }
 
+    /// `terminal-pane-theme.test.ts` (2.4.1): the ANSI palette takes the blue and magenta hues at step 400.
+    #[test]
+    fn builds_the_ansi_palette_from_semantic_colors() {
+        for (mode, dark) in [(crate::theme::Mode::Light, false), (crate::theme::Mode::Dark, true)] {
+            let doc: serde_json::Value = serde_json::from_str(crate::theme::OPENCODE_CLASSIC).unwrap();
+            let t = crate::theme::resolve::resolve_document(&doc, mode).unwrap();
+            let magenta = if dark { t.hue("purple", 400) } else { t.accent(400) };
+            let normal = [
+                t.text.feedback.error.base,
+                t.text.feedback.success.base,
+                t.text.feedback.warning.base,
+                t.hue("blue", 400),
+                magenta,
+                t.text.feedback.info.base,
+                t.hue("neutral", if dark { 200 } else { 800 }),
+            ];
+            let mut expected = vec![t.hue("neutral", if dark { 800 } else { 200 })];
+            expected.extend(normal);
+            expected.push(t.text.muted);
+            expected.extend(normal[..6].iter().map(|c| t.dec(*c)));
+            expected.push(t.hue("neutral", if dark { 100 } else { 900 }));
+            let got: Vec<String> = terminal_palette(&t, dark).iter().map(|c| c.hex()).collect();
+            assert_eq!(got, expected.iter().map(|c| c.hex()).collect::<Vec<_>>(), "{mode:?}");
+        }
+        // No hue confidently blue or magenta: the accent at 400.
+        let doc: serde_json::Value = serde_json::from_str(crate::theme::OPENCODE_CLASSIC).unwrap();
+        let mut t = crate::theme::resolve::resolve_document(&doc, crate::theme::Mode::Dark).unwrap();
+        let red = t.hues.iter().find(|(n, _)| n == "red").unwrap().1;
+        let green = t.hues.iter().find(|(n, _)| n == "green").unwrap().1;
+        for (name, scale) in t.hues.iter_mut() {
+            *scale = if name == "accent" { green } else { red };
+        }
+        let accent = t.accent(400);
+        let p = terminal_palette(&t, true);
+        assert_eq!((p[4].hex(), p[5].hex()), (accent.hex(), accent.hex()));
+    }
+
     #[test]
     fn renders_screen() {
-        let doc: serde_json::Value = serde_json::from_str(crate::theme::OPENCODE_V2).unwrap();
+        let doc: serde_json::Value = serde_json::from_str(crate::theme::OPENCODE_CLASSIC).unwrap();
         let t = crate::theme::resolve::resolve_document(&doc, crate::theme::Mode::Dark).unwrap();
         let mut p = vt100::Parser::new(3, 10, 0);
         p.process(b"hi \x1b[31mred\x1b[0m");

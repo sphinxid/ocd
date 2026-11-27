@@ -4,6 +4,10 @@
 pub mod color;
 pub mod resolve;
 pub mod v1;
+pub mod v1_new;
+
+#[cfg(test)]
+mod oracle_tests;
 
 pub use color::{Rgba, tint};
 pub use resolve::{Mode, Theme};
@@ -54,8 +58,12 @@ pub const BUILTIN_V1: &[(&str, &str)] = builtin!(
     "zenburn",
 );
 
-/// The V2 default theme (`assets/v2/opencode.json`).
+/// The V2 default theme (`assets/v2/opencode.json`; 2.3.2's `opencode2`).
 pub const OPENCODE_V2: &str = include_str!("../../../../assets/themes/v2/opencode.json");
+
+/// The previous default theme, offered as `opencode-classic` from 2.4.1.
+pub const OPENCODE_CLASSIC: &str = include_str!("../../../../assets/themes/v2/opencode-classic.json");
+pub const CLASSIC_THEME: &str = "opencode-classic";
 
 pub const DEFAULT_THEME: &str = "opencode";
 
@@ -201,9 +209,11 @@ pub enum Source {
     Generated(Value),
 }
 
-fn to_document(name: &str, value: &Value) -> anyhow::Result<Value> {
+/// `parseTheme(source, name, { newDesigns })`: a V1 document goes through the new designs' migration while they
+/// are on.
+fn to_document(name: &str, value: &Value, new_designs: bool) -> anyhow::Result<Value> {
     if value.get("theme").is_some() {
-        return v1::migrate_v1(value);
+        return if new_designs { v1_new::migrate_v1(value) } else { v1::migrate_v1(value) };
     }
     if value.get("base").is_some() {
         return resolve::parse_document(value, name);
@@ -256,7 +266,12 @@ pub fn discover(cwd: &Path) -> anyhow::Result<BTreeMap<String, Value>> {
 
 /// Runtime theme registry and the currently active resolved theme.
 pub struct ThemeManager {
+    /// The selected theme's name (`themes.selected`: the requested name with `opencode2` read as `opencode`).
     pub active: String,
+    /// The requested name (`store.active`).
+    requested: String,
+    /// `experimental["new-designs"]`: V1 themes take the new designs' migration.
+    new_designs: bool,
     /// The requested mode (`store.mode`).
     pub mode: Mode,
     pub lock: Option<Mode>,
@@ -274,6 +289,8 @@ impl ThemeManager {
     pub fn new(active: Option<&str>, mode: Mode, lock: Option<Mode>) -> Self {
         let mut m = ThemeManager {
             active: active.unwrap_or(DEFAULT_THEME).to_string(),
+            requested: active.unwrap_or(DEFAULT_THEME).to_string(),
+            new_designs: false,
             mode: lock.unwrap_or(mode),
             lock,
             custom: BTreeMap::new(),
@@ -285,6 +302,25 @@ impl ThemeManager {
         };
         m.reload();
         m
+    }
+
+    /// Follow `experimental["new-designs"]`: V1 themes (built-in, custom and the system theme) are migrated again.
+    pub fn set_new_designs(&mut self, on: bool) {
+        if self.new_designs == on {
+            return;
+        }
+        self.new_designs = on;
+        self.docs.clear();
+        self.reload();
+    }
+
+    pub fn new_designs(&self) -> bool {
+        self.new_designs
+    }
+
+    /// "opencode2" was the new theme's name before it became "opencode" (unless a custom theme takes the name).
+    pub fn alias<'a>(&self, name: &'a str) -> &'a str {
+        if name == "opencode2" && !self.custom.contains_key("opencode2") { DEFAULT_THEME } else { name }
     }
 
     pub fn set_custom(&mut self, custom: BTreeMap<String, Value>) {
@@ -309,6 +345,7 @@ impl ThemeManager {
     pub fn names(&self) -> Vec<String> {
         let mut names: Vec<String> = BUILTIN_V1.iter().map(|(n, _)| n.to_string()).collect();
         names.push(DEFAULT_THEME.into());
+        names.push(CLASSIC_THEME.into());
         for k in self.custom.keys() {
             if !names.contains(k) {
                 names.push(k.clone());
@@ -322,7 +359,8 @@ impl ThemeManager {
     }
 
     pub fn has(&self, name: &str) -> bool {
-        self.names().iter().any(|n| n == name)
+        let name = self.alias(name);
+        !name.is_empty() && self.names().iter().any(|n| n == name)
     }
 
     fn source_value(&self, name: &str) -> Option<Value> {
@@ -330,6 +368,9 @@ impl ThemeManager {
             && let Some(colors) = &self.system
         {
             let generated = generate_system(colors, self.mode);
+            if self.new_designs {
+                return v1_new::migrate_resolved(&generated, &generated).ok();
+            }
             return v1::migrate_resolved(&generated, &generated).ok();
         }
         if let Some(v) = self.custom.get(name) {
@@ -337,6 +378,9 @@ impl ThemeManager {
         }
         if name == DEFAULT_THEME || name == "system" {
             return serde_json::from_str(OPENCODE_V2).ok();
+        }
+        if name == CLASSIC_THEME {
+            return serde_json::from_str(OPENCODE_CLASSIC).ok();
         }
         BUILTIN_V1.iter().find(|(n, _)| *n == name).and_then(|(_, s)| serde_json::from_str(s).ok())
     }
@@ -348,7 +392,7 @@ impl ThemeManager {
         let Some(src) = self.source_value(name) else {
             anyhow::bail!("Theme not found: {name}");
         };
-        let doc = if name == "system" && self.system.is_some() { src } else { to_document(name, &src)? };
+        let doc = if name == "system" && self.system.is_some() { src } else { to_document(name, &src, self.new_designs)? };
         self.docs.insert(name.to_string(), doc.clone());
         Ok(doc)
     }
@@ -365,12 +409,14 @@ impl ThemeManager {
     /// Resolve the active theme; on failure record an error and fall back to `opencode`.
     pub fn reload(&mut self) {
         self.epoch += 1;
+        self.active = self.alias(&self.requested).to_string();
         let name = if self.has(&self.active) { self.active.clone() } else { DEFAULT_THEME.to_string() };
         match self.document(&name).and_then(|d| resolve::resolve_document(&d, self.mode)) {
             Ok(t) => self.current = t,
             Err(e) => {
                 self.errors.push((name.clone(), e.to_string()));
                 self.active = DEFAULT_THEME.into();
+                self.requested = DEFAULT_THEME.into();
                 let doc: Value = serde_json::from_str(OPENCODE_V2).expect("default theme");
                 self.current = resolve::resolve_document(&doc, self.mode).expect("default theme resolves");
             }
@@ -381,7 +427,7 @@ impl ThemeManager {
         if !self.has(name) {
             return false;
         }
-        self.active = name.to_string();
+        self.requested = self.alias(name).to_string();
         self.reload();
         true
     }
@@ -550,9 +596,58 @@ mod tests {
         resolve::resolve_document(&doc, mode).unwrap()
     }
 
+    fn classic(mode: Mode) -> Theme {
+        let doc: Value = serde_json::from_str(OPENCODE_CLASSIC).unwrap();
+        resolve::resolve_document(&doc, mode).unwrap()
+    }
+
+    /// 2.4.1 (#64988): `opencode` is 2.3.2's `opencode2` (with #64962's lighter light-mode grays).
+    #[test]
+    fn default_theme_is_the_new_palette() {
+        let t = opencode(Mode::Dark);
+        assert_eq!(t.background.base.hex(), "#080808");
+        assert_eq!(t.text.base.hex(), "#ffffff");
+        let light = opencode(Mode::Light);
+        assert_eq!(light.hue("neutral", 500).hex(), "#e6e6e6");
+        assert_eq!(light.hue("neutral", 600).hex(), "#eeeeee");
+    }
+
+    /// `theme.test.tsx` "names the new theme opencode and the previous one opencode-classic".
+    #[test]
+    fn classic_theme_and_opencode2_alias() {
+        let mut m = ThemeManager::new(Some("opencode"), Mode::Dark, None);
+        let new_bg = opencode(Mode::Dark).background.base;
+        let classic_bg = classic(Mode::Dark).background.base;
+        assert_eq!(m.current.background.base, new_bg);
+        assert!(m.set("opencode-classic"));
+        assert_eq!(m.current.background.base, classic_bg);
+        assert_eq!(m.active, "opencode-classic");
+        assert!(m.has("opencode2"));
+        assert!(m.set("opencode2"));
+        assert_eq!(m.active, "opencode");
+        assert_eq!(m.current.background.base, new_bg);
+        // The names do not depend on the new designs experiment.
+        m.set_new_designs(false);
+        assert_eq!(m.current.background.base, new_bg);
+        assert!(m.has("opencode-classic"));
+        // A configured "opencode2" reads as "opencode".
+        let m = ThemeManager::new(Some("opencode2"), Mode::Dark, None);
+        assert_eq!(m.active, "opencode");
+        assert_eq!(m.current.background.base, new_bg);
+        assert!(!m.names().contains(&"opencode2".to_string()));
+        // Unless a custom theme takes the name.
+        let mut m = ThemeManager::new(Some("opencode2"), Mode::Dark, None);
+        let mut custom = BTreeMap::new();
+        custom.insert("opencode2".to_string(), serde_json::from_str::<Value>(OPENCODE_CLASSIC).unwrap());
+        m.set_custom(custom);
+        assert_eq!(m.active, "opencode2");
+        assert_eq!(m.current.background.base, classic_bg);
+    }
+
+    /// The classic theme byte for byte as 2.3.2 shipped `opencode`.
     #[test]
     fn default_dark_values() {
-        let t = opencode(Mode::Dark);
+        let t = classic(Mode::Dark);
         assert_eq!(t.text.base.hex(), "#eeeeee");
         assert_eq!(t.text.muted.hex(), "#808080");
         assert_eq!(t.background.base.hex(), "#0a0a0a");
@@ -577,7 +672,7 @@ mod tests {
 
     #[test]
     fn default_light_values() {
-        let t = opencode(Mode::Light);
+        let t = classic(Mode::Light);
         assert_eq!(t.text.base.hex(), "#1a1a1a");
         assert_eq!(t.background.base.hex(), "#ffffff");
         assert_eq!(t.text.action.primary.selected.hex(), "#3b7dd8");
@@ -594,7 +689,7 @@ mod tests {
                 resolve::resolve_document(&doc, mode).unwrap_or_else(|e| panic!("{name} {mode:?}: {e}"));
             }
         }
-        assert_eq!(m.names().len(), 34);
+        assert_eq!(m.names().len(), 35);
     }
 
     #[test]

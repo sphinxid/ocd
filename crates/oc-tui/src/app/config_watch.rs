@@ -59,6 +59,7 @@ impl App {
             let name = self.config.theme_name().unwrap_or(crate::theme::DEFAULT_THEME).to_string();
             self.themes.set(&name);
         }
+        self.themes.set_new_designs(self.config.new_designs());
         self.reload_theme();
         self.dirty = true;
     }

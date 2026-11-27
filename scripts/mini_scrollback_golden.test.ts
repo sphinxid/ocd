@@ -1,7 +1,7 @@
 // Regenerates mini's scrollback goldens (crates/oc-tui/src/mini/testdata/scrollback.json) from upstream's own
 // RunScrollbackStream. Copy it into an upstream checkout's packages/tui/test/ (bun install done) and run it there with
 // `bun test`, isolated, with:
-//   OPENCODE_CONFIG_DIR  a directory whose themes/ocdold.json is ocd's assets/themes/v2/opencode.json ("resolved" cases
+//   OPENCODE_CONFIG_DIR  a directory whose themes/ocdold.json is ocd's assets/themes/v2/opencode-classic.json ("resolved" cases
 //                        use it, so the colors follow ocd's theme rather than upstream's current one)
 //   OCD_GEN_TS           a writable directory for the tree-sitter client
 //   OCD_GEN_IN           the case file (each case: name, width, wrote, mono, shellOutput, steps)

@@ -5,8 +5,8 @@ use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 pub const STEPS: [u32; 9] = [100, 200, 300, 400, 500, 600, 700, 800, 900];
-const CHROMATIC: [&str; 7] = ["red", "orange", "yellow", "green", "cyan", "blue", "purple"];
-const CATEGORICAL_TOKENS: [&str; 7] = ["secondary", "accent", "success", "warning", "primary", "error", "info"];
+pub(super) const CHROMATIC: [&str; 7] = ["red", "orange", "yellow", "green", "cyan", "blue", "purple"];
+pub(super) const CATEGORICAL_TOKENS: [&str; 7] = ["secondary", "accent", "success", "warning", "primary", "error", "info"];
 const MIN_CHROMA: f64 = 0.03;
 const LIGHT_THRESHOLD: f64 = 0.6;
 const LIGHT_REFS: [&str; 7] = ["#fca5a5", "#fdba74", "#fde047", "#86efac", "#67e8f9", "#93c5fd", "#d8b4fe"];
@@ -155,7 +155,7 @@ pub fn resolve_v1(theme: &Value, mode: &str) -> anyhow::Result<V1Resolved> {
     Ok(out)
 }
 
-fn detect_mode(t: &V1Resolved) -> anyhow::Result<&'static str> {
+pub(super) fn detect_mode(t: &V1Resolved) -> anyhow::Result<&'static str> {
     Ok(if t.get("text")?.luminance() > t.get("background")?.luminance() { "dark" } else { "light" })
 }
 
@@ -188,7 +188,7 @@ pub fn migrate_resolved(light: &V1Resolved, dark: &V1Resolved) -> anyhow::Result
     Ok(json!({ "base": ld, "light": { "hue": lhue }, "dark": dd }))
 }
 
-fn selected_foreground(t: &V1Resolved, bg: Rgba) -> anyhow::Result<Rgba> {
+pub(super) fn selected_foreground(t: &V1Resolved, bg: Rgba) -> anyhow::Result<Rgba> {
     if t.has_selected_list_item_text {
         return t.get("selectedListItemText");
     }
@@ -200,9 +200,9 @@ fn selected_foreground(t: &V1Resolved, bg: Rgba) -> anyhow::Result<Rgba> {
     Ok(if 0.299 * r + 0.587 * g + 0.114 * b > 0.5 { Rgba::rgb(0, 0, 0) } else { Rgba::rgb(255, 255, 255) })
 }
 
-struct Inferred {
-    by_hue: BTreeMap<&'static str, (Rgba, f64)>,
-    by_token: BTreeMap<&'static str, &'static str>,
+pub(super) struct Inferred {
+    pub by_hue: BTreeMap<&'static str, (Rgba, f64)>,
+    pub by_token: BTreeMap<&'static str, &'static str>,
 }
 
 fn hue_distance(a: f64, b: f64) -> f64 {
@@ -240,7 +240,7 @@ fn infer_hue(c: &Rgba) -> Option<(&'static str, f64)> {
     best
 }
 
-fn infer_hues(t: &V1Resolved) -> anyhow::Result<Inferred> {
+pub(super) fn infer_hues(t: &V1Resolved) -> anyhow::Result<Inferred> {
     let mut res = Inferred { by_hue: BTreeMap::new(), by_token: BTreeMap::new() };
     for token in ["accent", "success", "warning", "primary", "error", "info", "secondary"] {
         let color = t.get(token)?;
@@ -260,7 +260,7 @@ fn infer_hues(t: &V1Resolved) -> anyhow::Result<Inferred> {
     Ok(res)
 }
 
-fn byte(v: u8) -> String {
+pub(super) fn byte(v: u8) -> String {
     format!("{v:02x}")
 }
 
@@ -359,15 +359,6 @@ fn migrate_mode(t: &V1Resolved, mode: &str) -> anyhow::Result<Value> {
     let color = |k: &str| -> anyhow::Result<Value> { Ok(Value::String(t.get(k)?.hex())) };
     let selected = selected_foreground(t, t.get("primary")?)?.hex();
     let destructive = selected_foreground(t, t.get("error")?)?.hex();
-    let hues = infer_hues(t)?;
-    let mut categorical: Vec<&str> = Vec::new();
-    for token in CATEGORICAL_TOKENS {
-        if let Some(h) = hues.by_token.get(token)
-            && !categorical.contains(h)
-        {
-            categorical.push(h);
-        }
-    }
     let text = "$hue.neutral.200";
     let text_muted = "$hue.neutral.400";
     let primary = "$hue.interactive.200";
@@ -376,27 +367,7 @@ fn migrate_mode(t: &V1Resolved, mode: &str) -> anyhow::Result<Value> {
     let menu = "$hue.neutral.600";
     let raised_max = "$hue.neutral.500";
 
-    let mut hue = Map::new();
-    hue.insert("gray".into(), Value::Object(neutral_scale(t)?));
-    for name in CHROMATIC {
-        if let Some((c, _)) = hues.by_hue.get(name) {
-            hue.insert(name.into(), Value::Object(hue_scale(c, mode)));
-        }
-    }
-    hue.insert(
-        "accent".into(),
-        Value::String(hues.by_token.get("accent").map(|h| format!("$hue.{h}")).unwrap_or("$hue.gray".into())),
-    );
-    hue.insert(
-        "interactive".into(),
-        Value::String(hues.by_token.get("primary").map(|h| format!("$hue.{h}")).unwrap_or("$hue.gray".into())),
-    );
-    hue.insert("neutral".into(), Value::String("$hue.gray".into()));
-    let categorical: Vec<Value> = if categorical.is_empty() {
-        vec![Value::String("neutral".into())]
-    } else {
-        categorical.into_iter().map(|s| Value::String(s.into())).collect()
-    };
+    let (hue, categorical) = palette_hues(t, neutral_scale(t)?, |c| hue_scale(c, mode))?;
 
     let def = json!({
         "hue": hue,
@@ -436,6 +407,61 @@ fn migrate_mode(t: &V1Resolved, mode: &str) -> anyhow::Result<Value> {
                 "info": { "base": "$background.base" },
             },
         },
+        "@dialog": {
+            "background": {
+                "base": dialog_background(t)?,
+                "action": { "primary": { "$hovered": "$background.raised.high" } },
+            },
+        },
+    });
+    let mut def = def;
+    if let (Some(o), Value::Object(p)) = (def.as_object_mut(), palette_tokens(t)?) {
+        for (k, v) in p {
+            o.insert(k, v);
+        }
+    }
+    Ok(reference_hues(def))
+}
+
+/// `paletteHues`: the gray scale, a scale for each chromatic hue the V1 colors match, the semantic aliases and the
+/// categorical hues.
+pub(super) fn palette_hues(
+    t: &V1Resolved,
+    gray: Map<String, Value>,
+    scale: impl Fn(&Rgba) -> Map<String, Value>,
+) -> anyhow::Result<(Map<String, Value>, Vec<Value>)> {
+    let hues = infer_hues(t)?;
+    let mut categorical: Vec<&str> = Vec::new();
+    for token in CATEGORICAL_TOKENS {
+        if let Some(h) = hues.by_token.get(token)
+            && !categorical.contains(h)
+        {
+            categorical.push(h);
+        }
+    }
+    let mut hue = Map::new();
+    hue.insert("gray".into(), Value::Object(gray));
+    for name in CHROMATIC {
+        if let Some((c, _)) = hues.by_hue.get(name) {
+            hue.insert(name.into(), Value::Object(scale(c)));
+        }
+    }
+    let alias = |token: &str| hues.by_token.get(token).map(|h| format!("$hue.{h}")).unwrap_or("$hue.gray".into());
+    hue.insert("accent".into(), Value::String(alias("accent")));
+    hue.insert("interactive".into(), Value::String(alias("primary")));
+    hue.insert("neutral".into(), Value::String("$hue.gray".into()));
+    let categorical: Vec<Value> = if categorical.is_empty() {
+        vec![Value::String("neutral".into())]
+    } else {
+        categorical.into_iter().map(|s| Value::String(s.into())).collect()
+    };
+    Ok((hue, categorical))
+}
+
+/// `paletteTokens`: the V1 colors that keep their own value (border, scrollbar, diff, syntax, markdown).
+pub(super) fn palette_tokens(t: &V1Resolved) -> anyhow::Result<Value> {
+    let color = |k: &str| -> anyhow::Result<Value> { Ok(Value::String(t.get(k)?.hex())) };
+    Ok(json!({
         "border": { "base": color("border")? },
         "scrollbar": { "base": color("borderActive")? },
         "diff": {
@@ -465,17 +491,10 @@ fn migrate_mode(t: &V1Resolved, mode: &str) -> anyhow::Result<Value> {
             "listEnumeration": color("markdownListEnumeration")?, "image": color("markdownImage")?,
             "imageText": color("markdownImageText")?, "codeBlock": color("markdownCodeBlock")?,
         },
-        "@dialog": {
-            "background": {
-                "base": dialog_background(t)?,
-                "action": { "primary": { "$hovered": "$background.raised.high" } },
-            },
-        },
-    });
-    Ok(reference_hues(def))
+    }))
 }
 
-fn reference_hues(mut theme: Value) -> Value {
+pub(super) fn reference_hues(mut theme: Value) -> Value {
     let Some(hue) = theme.get("hue").and_then(|h| h.as_object()).cloned() else { return theme };
     fn resolve<'a>(name: &str, hue: &'a Map<String, Value>, chain: &mut Vec<String>) -> Option<&'a Map<String, Value>> {
         if chain.iter().any(|c| c == name) {

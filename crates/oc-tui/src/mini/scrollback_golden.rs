@@ -93,7 +93,7 @@ fn expected(c: &Value) -> Value {
 }
 
 fn resolved() -> RunTheme {
-    let doc: Value = serde_json::from_str(crate::theme::OPENCODE_V2).unwrap();
+    let doc: Value = serde_json::from_str(crate::theme::OPENCODE_CLASSIC).unwrap();
     let t = crate::theme::resolve::resolve_document(&doc, Mode::Dark).unwrap();
     theme::resolve(&t, None, false)
 }

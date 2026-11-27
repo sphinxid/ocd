@@ -413,7 +413,8 @@ impl App {
             _ => Mode::Dark,
         };
         let lock = Mode::parse(config.theme_mode());
-        let themes = ThemeManager::new(config.theme_name(), mode, lock);
+        let mut themes = ThemeManager::new(config.theme_name(), mode, lock);
+        themes.set_new_designs(config.new_designs());
         let syntax = SyntaxStyle::from_theme(&themes.current);
         let thinking_syntax = SyntaxStyle::muted(&themes.current);
         let state = crate::util::paths::state_dir();
@@ -664,11 +665,22 @@ impl App {
         agents.iter().find(|a| Some(&a.id) == selected.as_ref()).cloned().or_else(|| agents.first().cloned())
     }
 
+    /// `useNewDesigns()` (`experimental["new-designs"] !== false`).
+    pub fn new_designs(&self) -> bool {
+        self.config.new_designs()
+    }
+
+    /// The categorical step agents take: the new designs keep their vivid accent at 400; 200 there is a muted tint.
+    fn agent_step(&self) -> u32 {
+        if self.new_designs() { 400 } else { 200 }
+    }
+
     pub fn agent_colors(&self) -> HashMap<String, Rgba> {
         let t = self.theme();
+        let step = self.agent_step();
         let mut colors: Vec<Rgba> = Vec::new();
         for i in 0..t.categorical.len() {
-            let c = t.categorical(i, 200);
+            let c = t.categorical(i, step);
             if !colors.iter().any(|x| x.same_value(&c)) {
                 colors.push(c);
             }
@@ -689,7 +701,7 @@ impl App {
 
     pub fn default_agent_color(&self) -> Rgba {
         let t = self.theme();
-        if t.categorical.is_empty() { t.text.base } else { t.categorical(0, 200) }
+        if t.categorical.is_empty() { t.text.base } else { t.categorical(0, self.agent_step()) }
     }
 
     pub fn agent_color(&self, id: &str) -> Rgba {
@@ -1607,7 +1619,9 @@ impl App {
             return false;
         }
         if persist {
-            self.config.set("theme.name", Some(Value::String(name.into())));
+            // "opencode2" is saved as the theme it names.
+            let name = self.themes.active.clone();
+            self.config.set("theme.name", Some(Value::String(name)));
         }
         self.reload_theme();
         true
@@ -1680,3 +1694,5 @@ mod images_tests;
 mod catchup241_tests;
 #[cfg(test)]
 mod opentui094_tests;
+#[cfg(test)]
+mod new_designs_tests;

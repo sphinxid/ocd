@@ -252,6 +252,12 @@ pub fn nearest_indexed(indexed: &[Color], color: Color) -> Color {
 
 /// `map(theme, indexed, syntax, system)`.
 pub fn map(t: &Theme, indexed: &[Color], with_syntax: bool, system: bool) -> RunTheme {
+    map_at(t, indexed, with_syntax, system, 400)
+}
+
+/// `map` reading the footer's hues (running, question, permission, agent colors) at `step`: 400 from 2.4.1, 200
+/// before.
+fn map_at(t: &Theme, indexed: &[Color], with_syntax: bool, system: bool, step: u32) -> RunTheme {
     let base = Color::from_theme(t.text.base);
     let bgbase = Color::from_theme(t.background.base);
     let exact = |c: crate::theme::Rgba| {
@@ -281,7 +287,7 @@ pub fn map(t: &Theme, indexed: &[Color], with_syntax: bool, system: bool) -> Run
     let syntax = with_syntax.then(|| MiniSyntax::generate(t, &scrollback_c));
     let mut categorical: Vec<Color> = Vec::new();
     for i in 0..t.categorical.len() {
-        let c = exact(t.categorical(i, 200));
+        let c = exact(t.categorical(i, step));
         if !categorical.iter().any(|x| x.same_rgb(&c) && x.intent == c.intent) {
             categorical.push(c);
         }
@@ -297,9 +303,9 @@ pub fn map(t: &Theme, indexed: &[Color], with_syntax: bool, system: bool) -> Run
             formfield_focused_bg: exact(t.background.formfield.focused),
             formfield_focused_text: exact(t.text.formfield.focused),
             selection: exact(t.text.formfield.selected),
-            running: exact(t.interactive(200)),
-            question: exact(t.accent(200)),
-            permission: exact(t.accent(200)),
+            running: exact(t.interactive(step)),
+            question: exact(t.accent(step)),
+            permission: exact(t.accent(step)),
             success: exact(fb.success.base),
             link: exact(t.markdown.link),
             categorical,
@@ -407,8 +413,13 @@ pub fn fallback(mode: Mode) -> RunTheme {
 /// `resolveRunTheme(renderer, config, mono)` for an already resolved theme: quantize against the
 /// terminal palette (when reported) and keep the terminal background.
 pub fn resolve(t: &Theme, colors: Option<&crate::theme::TerminalColors>, system: bool) -> RunTheme {
+    resolve_at(t, colors, system, 400)
+}
+
+/// `resolve` with the footer's hues at `step` (the 2.2.2 footer goldens were recorded at 200).
+pub(crate) fn resolve_at(t: &Theme, colors: Option<&crate::theme::TerminalColors>, system: bool, step: u32) -> RunTheme {
     let indexed = indexed_palette(colors);
-    let mut theme = map(t, &indexed, true, system);
+    let mut theme = map_at(t, &indexed, true, system, step);
     let bg = colors.and_then(|c| c.default_background.as_deref()).and_then(Color::from_hex).unwrap_or(Color::from_theme(t.background.base));
     theme.background = Color::default_bg(bg);
     theme
@@ -421,8 +432,34 @@ mod tests {
     #[test]
     fn quantizes_scrollback_to_palette() {
         let theme = fallback(Mode::Dark);
-        assert_eq!(theme.entry.user.body.intent, Intent::Indexed(255));
+        // 2.4.1's opencode theme draws text in #ffffff: bright white.
+        assert_eq!(theme.entry.user.body.intent, Intent::Indexed(15));
         assert_eq!(theme.entry.system.body.intent, Intent::Indexed(8));
         assert_eq!(theme.footer.text.intent, Intent::Rgb);
+    }
+
+    /// `mini/theme.test.ts` (2.4.1): the footer reads the hues at step 400.
+    #[test]
+    fn footer_reads_hue_step_400() {
+        for mode in [Mode::Dark, Mode::Light] {
+            for src in [crate::theme::OPENCODE_V2, crate::theme::OPENCODE_CLASSIC] {
+                let doc: serde_json::Value = serde_json::from_str(src).unwrap();
+                let t = crate::theme::resolve::resolve_document(&doc, mode).unwrap();
+                let theme = resolve(&t, None, false);
+                let rgb = |c: Color| (c.r, c.g, c.b);
+                let want = |c: crate::theme::Rgba| (c.r, c.g, c.b);
+                assert_eq!(rgb(theme.footer.running), want(t.interactive(400)));
+                assert_eq!(rgb(theme.footer.question), want(t.accent(400)));
+                assert_eq!(rgb(theme.footer.permission), want(t.accent(400)));
+                let mut cats: Vec<(u8, u8, u8)> = Vec::new();
+                for i in 0..t.categorical.len() {
+                    let c = want(t.categorical(i, 400));
+                    if !cats.contains(&c) {
+                        cats.push(c);
+                    }
+                }
+                assert_eq!(theme.footer.categorical.iter().map(|c| rgb(*c)).collect::<Vec<_>>(), cats);
+            }
+        }
     }
 }

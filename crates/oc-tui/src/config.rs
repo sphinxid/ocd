@@ -173,6 +173,10 @@ impl Config {
     pub fn theme_name(&self) -> Option<&str> {
         self.str("theme.name")
     }
+    /// `useNewDesigns()`: the new designs are on unless `experimental["new-designs"]` is `false` (2.4.1).
+    pub fn new_designs(&self) -> bool {
+        self.get("experimental").and_then(|e| e.get("new-designs")) != Some(&Value::Bool(false))
+    }
     pub fn theme_mode(&self) -> &str {
         self.str("theme.mode").unwrap_or("system")
     }

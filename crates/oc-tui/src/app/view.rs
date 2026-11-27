@@ -229,6 +229,10 @@ impl App {
             return t.border;
         }
         if self.editor.shell {
+            // The new designs' interactive color matches the first agent's, so shell takes the second categorical color.
+            if self.new_designs() {
+                return t.categorical(if t.categorical.len() > 1 { 1 } else { 0 }, 400);
+            }
             return t.text.action.primary.selected;
         }
         self.current_agent().map(|a| self.agent_color(&a.id)).unwrap_or(t.border)
