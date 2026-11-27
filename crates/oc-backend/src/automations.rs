@@ -5,8 +5,8 @@
 //! be inspected and deleted. The checks live in the core service (2.4.1, #65747), which plugins call too.
 //! This module also gives the automation service its prompt path (the session API) and starts its loop. Video
 //! generation (`handlers/generate.ts`) is on by default since 2.4.1 (`oc_core::video`). Blobs (`handlers/blob.ts`,
-//! `core/src/blob-store.ts`) are files under `<data>/blobs/`, served without a flag; the server deletes video blobs
-//! older than a week at startup and hourly.
+//! `core/src/blob-store.ts`, `oc_core::blob`) are files under `<data>/blobs/` named `blob_<id>`, served without a
+//! flag; the server deletes blobs a week after they were written, at startup and hourly.
 
 use std::sync::{Arc, Weak};
 
@@ -25,36 +25,17 @@ pub const AUTOMATIONS_DISABLED: &str = oc_core::automation::DISABLED;
 /// What `machine.list`, `machine.add` and `machine.remove` answer while the `machines` flag is off (2.4.1
 /// `handlers/machine.ts`). ocd has no machines yet, so it answers this whatever the flag says.
 pub const MACHINES_DISABLED: &str = "Machines are disabled; enable experimental.machines";
-/// `BlobStore.DIRECTORY`, under the data folder.
-pub const BLOB_DIRECTORY: &str = "blobs";
-/// `BlobStore.RETENTION`: blobs are deleted 7 days after they're written.
-pub const BLOB_RETENTION: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
-
-/// `BlobStore.layer`'s cleanup, which belongs to the server: at startup and hourly, video blobs (`video_*`, and their
-/// leftover `.part` files) older than the retention are deleted from `<data>/blobs/`.
+/// `BlobStore.layer`'s cleanup, which belongs to the server: at startup and hourly, blobs (`blob_*`) are deleted a
+/// week after they were written (`oc_core::blob::cleanup`).
 pub(crate) fn start_blob_cleanup(engine: &std::sync::Arc<Engine>) {
-    let directory = engine.app.global.data.join(BLOB_DIRECTORY);
+    let data = engine.app.global.data.clone();
     tokio::spawn(async move {
         loop {
-            cleanup_blobs(&directory).await;
+            oc_core::blob::cleanup(&data).await;
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
     });
 }
-
-/// One pass of the blob cleanup.
-pub async fn cleanup_blobs(directory: &std::path::Path) {
-    let mut files = Vec::new();
-    if let Ok(mut entries) = tokio::fs::read_dir(directory).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.file_name().to_string_lossy().starts_with("video_") {
-                files.push(entry.path());
-            }
-        }
-    }
-    oc_git::file_retention::cleanup(files, BLOB_RETENTION).await;
-}
-
 
 /// `sessions.prompt` for an automation run: the session API's prompt (plugin activation, the `session.prompt` hook,
 /// admission and the wake), delivered as a steer.
@@ -207,20 +188,7 @@ impl Engine {
 
     /// `BlobStore.read`: the file named by the ID, its size, and the type read from its first 64 bytes.
     pub async fn blob_read(&self, id: &str) -> Result<BlobFile, ApiError> {
-        let path = self.app.global.data.join(BLOB_DIRECTORY).join(id);
-        let missing = || ApiError::blob_not_found(id);
-        let meta = tokio::fs::metadata(&path).await.map_err(|_| missing())?;
-        if !meta.is_file() {
-            return Err(missing());
-        }
-        let head = {
-            use tokio::io::AsyncReadExt;
-            let mut file = tokio::fs::File::open(&path).await.map_err(|_| missing())?;
-            let mut buf = Vec::with_capacity(64);
-            (&mut file).take(64).read_to_end(&mut buf).await.map_err(|_| missing())?;
-            buf
-        };
-        let mime = oc_ai::media::detect_media_type(&head).unwrap_or("application/octet-stream").to_string();
-        Ok(BlobFile { path, mime, bytes: meta.len() })
+        let blob = oc_core::blob::read(&self.app.global.data, id).await.ok_or_else(|| ApiError::blob_not_found(id))?;
+        Ok(BlobFile { path: blob.path, mime: blob.mime, bytes: blob.bytes })
     }
 }

@@ -198,9 +198,9 @@ async fn blobs_are_served_from_the_data_folder_with_ranges_and_validators() {
     let h = harness();
     let dir = h.app.global.data.join("blobs");
     std::fs::create_dir_all(&dir).unwrap();
-    let text = "video_0123456789abABCDEFGHIJKLMN_1";
+    let text = "blob_0123456789abABCDEFGHIJKLMN";
     std::fs::write(dir.join(text), "hello blob").unwrap();
-    let mp4 = "video_0123456789abABCDEFGHIJKLMN_0";
+    let mp4 = "blob_0123456789abABCDEFGHIJKLMO";
     std::fs::write(dir.join(mp4), [b"\0\0\0\x18ftypisom".as_slice(), &[7u8; 64]].concat()).unwrap();
 
     let r = blob(&h, text, &[]).await;
@@ -212,7 +212,7 @@ async fn blobs_are_served_from_the_data_folder_with_ranges_and_validators() {
         ("content-security-policy", "default-src 'none'; img-src 'self'; media-src 'self'; sandbox"),
         ("x-content-type-options", "nosniff"),
         ("cache-control", "private, max-age=604800, immutable"),
-        ("etag", "\"video_0123456789abABCDEFGHIJKLMN_1\""),
+        ("etag", "\"blob_0123456789abABCDEFGHIJKLMN\""),
         ("accept-ranges", "bytes"),
         ("content-length", "10"),
     ] {
@@ -226,23 +226,23 @@ async fn blobs_are_served_from_the_data_folder_with_ranges_and_validators() {
     let r = blob(&h, text, &[("range", "bytes=-3")]).await;
     assert_eq!((r.status.as_u16(), &r.body[..], header(&r, "content-range")), (206, b"lob".as_slice(), Some("bytes 7-9/10")));
     let r = blob(&h, text, &[("range", "bytes=50-")]).await;
-    assert_eq!((r.status.as_u16(), header(&r, "content-range"), header(&r, "etag")), (416, Some("bytes */10"), Some("\"video_0123456789abABCDEFGHIJKLMN_1\"")));
+    assert_eq!((r.status.as_u16(), header(&r, "content-range"), header(&r, "etag")), (416, Some("bytes */10"), Some("\"blob_0123456789abABCDEFGHIJKLMN\"")));
     // Only a strong If-Range match allows the range.
     let r = blob(&h, text, &[("range", "bytes=2-5"), ("if-range", "\"other\"")]).await;
     assert_eq!((r.status.as_u16(), &r.body[..]), (200, b"hello blob".as_slice()));
-    let r = blob(&h, text, &[("range", "bytes=2-5"), ("if-range", "\"video_0123456789abABCDEFGHIJKLMN_1\"")]).await;
+    let r = blob(&h, text, &[("range", "bytes=2-5"), ("if-range", "\"blob_0123456789abABCDEFGHIJKLMN\"")]).await;
     assert_eq!(r.status, 206);
-    let r = blob(&h, text, &[("if-none-match", "W/\"video_0123456789abABCDEFGHIJKLMN_1\"")]).await;
+    let r = blob(&h, text, &[("if-none-match", "W/\"blob_0123456789abABCDEFGHIJKLMN\"")]).await;
     assert_eq!((r.status.as_u16(), r.body.len(), header(&r, "cache-control")), (304, 0, Some("private, max-age=604800, immutable")));
 
-    let missing = "video_0123456789abABCDEFGHIJKLMN_2";
+    let missing = "blob_0123456789abABCDEFGHIJKLMP";
     assert_eq!(
         res(&blob(&h, missing, &[]).await),
         (404, json!({ "_tag": "BlobNotFoundError", "blobID": missing, "message": format!("Blob not found: {missing}") }))
     );
     assert_eq!(
         res(&blob(&h, "bad", &[]).await),
-        invalid("Expected a string matching the RegExp ^video_[0-9a-f]{12}[0-9A-Za-z]{14}_(0|[1-9][0-9]{0,2})$\n  at [\"id\"]", "Params")
+        invalid("Expected a string matching the RegExp ^blob_[0-9a-f]{12}[0-9A-Za-z]{14}$\n  at [\"id\"]", "Params")
     );
 }
 
@@ -330,18 +330,18 @@ fn storage_failures_are_classified_by_their_primary_code() {
     assert_eq!(failure::message_for_code(19), None);
 }
 
-/// `BlobStore`: video blobs and their leftover `.part` files older than a week are deleted; newer ones, and files
-/// that are not video blobs, stay.
+/// `BlobStore` (2.4.1, #65671): blobs are deleted a week after they were written, whatever stored them; newer ones,
+/// and files that are not blobs (2.3.1's `video_*` names included), stay.
 #[tokio::test]
-async fn blob_cleanup_deletes_week_old_video_blobs() {
+async fn blob_cleanup_deletes_blobs_a_week_after_they_were_written() {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("blobs");
     std::fs::create_dir_all(&dir).unwrap();
     let old = std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 3600);
     for (name, aged) in [
+        ("blob_0123456789abABCDEFGHIJKLMN", true),
+        ("blob_0123456789abABCDEFGHIJKLMO", false),
         ("video_0123456789abABCDEFGHIJKLMN_0", true),
-        ("video_0123456789abABCDEFGHIJKLMN_1.part", true),
-        ("video_0123456789abABCDEFGHIJKLMO_0", false),
         ("other", true),
     ] {
         let path = dir.join(name);
@@ -350,10 +350,10 @@ async fn blob_cleanup_deletes_week_old_video_blobs() {
             std::fs::File::options().write(true).open(&path).unwrap().set_modified(old).unwrap();
         }
     }
-    oc_backend::automations::cleanup_blobs(&dir).await;
+    oc_core::blob::cleanup(root.path()).await;
     let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
     left.sort();
-    assert_eq!(left, ["other", "video_0123456789abABCDEFGHIJKLMO_0"]);
+    assert_eq!(left, ["blob_0123456789abABCDEFGHIJKLMO", "other", "video_0123456789abABCDEFGHIJKLMN_0"]);
     // A missing folder is fine.
-    oc_backend::automations::cleanup_blobs(&root.path().join("nope")).await;
+    oc_core::blob::cleanup(&root.path().join("nope")).await;
 }

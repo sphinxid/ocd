@@ -101,8 +101,9 @@ responses always match `openapi.json` key order and shapes (a mismatch is a defe
   `opencode.tool.automation` plugin are on. `generate.video.create` (on since 2.4.1) submits a job at the base
   configuration through `runner.videos` (`oc_core::video`, durable `kv` records) and answers `{id, status: "running"}`
   once the provider accepted it; `generate.video.get` answers the job (running, completed with its blobs, error with a
-  reason) or 404 `VideoNotFoundError`. Every server runs the video check loop (`runner.videos.run()` at start). `blob.get` reads `<data>/blobs/<id>` (`BlobStore.read`: 404
-  `BlobNotFoundError` when missing, the type sniffed from the first 64 bytes). The machine routes (2.4.1) answer as
+  reason) or 404 `VideoNotFoundError`. Every server runs the video check loop (`runner.videos.run()` at start). `blob.get` reads `<data>/blobs/<id>` (`oc_core::blob::read`, `BlobStore.read`: 404
+  `BlobNotFoundError` when missing, the type sniffed from the first 64 bytes; 2.4.1 ids are `blob_<id>` and `Blob.Info`
+  has no `expiresAt`). Every server deletes blobs a week after they were written, at startup and hourly. The machine routes (2.4.1) answer as
   with the `machines` flag off: `machine.list`/`add`/`remove` 403 `Machines are disabled; enable
   experimental.machines` after decoding, `machine.link` an empty 404.
 * **disabled features**: `plugin.gui` is always 404 `PluginNotFoundError`.

@@ -167,8 +167,8 @@ fn matches_if_none_match(value: Option<&str>, etag: &str) -> bool {
     })
 }
 
-/// `Blob.ID`: what made the blob and its position among its outputs (`video_<id>_0`).
-const BLOB_ID_PATTERN: &str = "^video_[0-9a-f]{12}[0-9A-Za-z]{14}_(0|[1-9][0-9]{0,2})$";
+/// `Blob.ID` (2.4.1): `blob_<descending id>`, strict because the server names files after it.
+const BLOB_ID_PATTERN: &str = "^blob_[0-9a-f]{12}[0-9A-Za-z]{14}$";
 
 /// `makeMediaGet`: immutable caching, a strong ETag, always a download (2.2.7) with `nosniff` and the sandboxing
 /// CSP, and the real type only for the image types browsers render safely.
