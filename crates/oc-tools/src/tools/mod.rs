@@ -81,7 +81,7 @@ pub struct Services {
 }
 
 /// Built-in tools in upstream registration order (`core/src/plugin/internal.ts`):
-/// patch, edit, glob, grep, experimental_image_generate, opencode.*, MCP resource tools, question, read, shell, skill,
+/// patch, edit, glob, grep, generate_image, opencode.*, MCP resource tools, question, read, shell, skill,
 /// subagent, todowrite (kept only where `experimental.todo` is on, see oc-core), webfetch, websearch, write.
 pub fn builtin(services: &Services) -> (Vec<Arc<dyn crate::tool::Tool>>, Vec<crate::tool::Namespace>) {
     let mut tools: Vec<Arc<dyn crate::tool::Tool>> = vec![

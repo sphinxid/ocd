@@ -285,7 +285,7 @@ impl Engine {
         };
         let state = if bg.status == JobStatus::Running { "cancelled" } else { bg.status.as_str() };
         let text = oc_tools::tools::image_generate::notice(&bg.id, state, &body);
-        let metadata = json!({ "source": "experimental_image_generate", "jobID": bg.id, "state": state, "path": path });
+        let metadata = json!({ "source": "generate_image", "jobID": bg.id, "state": state, "path": path });
         let _ = self
             .app
             .sessions

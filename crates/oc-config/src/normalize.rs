@@ -356,7 +356,25 @@ pub fn normalize(input: &Value) -> NormalizeResult {
         .collect(),
     );
     let migrated_agents = merge_maps(legacy_agents, mode_agents, &p(&["agents"]), &mut d);
-    let native_agents = decode_map(input.get("agents"), &p(&["agents"]), &mut d, |v, path, d| {
+    // Native agent rules may still name the media tools by their old experimental names.
+    let renamed_agents = match input.get("agents") {
+        Some(Value::Object(agents)) => Some(Value::Object(
+            agents
+                .iter()
+                .map(|(name, agent)| match agent {
+                    Value::Object(a) if a.get("permissions").is_some() => {
+                        let mut a = a.clone();
+                        let renamed = legacy::rename_tools(a.get("permissions")).unwrap_or(Value::Null);
+                        a.insert("permissions".into(), renamed);
+                        (name.clone(), Value::Object(a))
+                    }
+                    other => (name.clone(), other.clone()),
+                })
+                .collect(),
+        )),
+        other => other.cloned(),
+    };
+    let native_agents = decode_map(renamed_agents.as_ref(), &p(&["agents"]), &mut d, |v, path, d| {
         decode_encoded::<Agent>(v, path, d)
     });
     diagnose_agent_unsupported(input.get("agent"), &p(&["agent"]), &mut d);
@@ -378,7 +396,8 @@ pub fn normalize(input: &Value) -> NormalizeResult {
     // permissions
     let tool_rules = migrate_tools(input.get("tools"), &mut d);
     let permission_rules = migrate_permissions(input.get("permission"), &mut d);
-    let native_permissions = decode_list(input.get("permissions"), &p(&["permissions"]), &mut d, |v, path, d| {
+    let renamed_permissions = legacy::rename_tools(input.get("permissions"));
+    let native_permissions = decode_list(renamed_permissions.as_ref(), &p(&["permissions"]), &mut d, |v, path, d| {
         decode_encoded::<PermissionRule>(v, path, d)
     });
     let mut permissions = tool_rules;

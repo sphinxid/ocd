@@ -156,6 +156,12 @@ fn decode_agent_markdown(directory: &Path, file: &Path, primary: bool, markdown:
         crate::decode::encode(&Agent::decode(&Value::Object(input))?)
     };
     let mut agent = agent;
+    // Native rules may still name the media tools by their old experimental names.
+    if let Value::Object(a) = &mut agent
+        && let Some(renamed) = legacy::rename_tools(a.get("permissions"))
+    {
+        a.insert("permissions".into(), renamed);
+    }
     if primary && let Value::Object(a) = &mut agent {
         a.insert("mode".into(), Value::String("primary".into()));
     }

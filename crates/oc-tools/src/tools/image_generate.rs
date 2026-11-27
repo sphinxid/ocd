@@ -1,4 +1,4 @@
-//! `experimental_image_generate` (`core/src/tool/plugin/image-generate.ts`): generate or edit one image as a
+//! `generate_image` (`core/src/tool/plugin/image-generate.ts`): generate or edit one image as a
 //! background job. Core registers it only while an image model is available and `experimental.image_generate`
 //! isn't `false`; the generation itself goes through the host (`Generate.image`).
 
@@ -17,7 +17,7 @@ use crate::file_access::{self, Kind, Target};
 use crate::host::{JobRecovery, JobStart, JobStatus, ModelSummary, PermissionError, SyntheticMessage, ToolHost};
 use crate::tool::{DefinitionContext, ErrorCause, Tool, ToolContext, ToolDefinition, ToolError, ToolOptions, ToolResult, decode, meta};
 
-pub const NAME: &str = "experimental_image_generate";
+pub const NAME: &str = "generate_image";
 pub const MAX_INPUT_BYTES: usize = 20 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
 const GENERATE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -25,7 +25,7 @@ const INPUT_TYPES: &[&str] = &["image/png", "image/jpeg", "image/webp", "image/g
 
 pub const DESCRIPTION: &str = "Generates a new image, or edits existing ones.\nOnly call this when the user asks you to create or edit an image. If you think an image would help but the user didn't ask for one, ask them first instead of generating it.\nImages you pass are used as the source to edit, or as references for style and subject.\nEach call makes one image. For several images, call it once per image.\nIt runs in the background: the call starts a job and returns right away, and you are notified automatically when the image is saved, with its path. Never poll, sleep, or check for the file while you wait.\nDon't repeat a request unless the user asks.";
 
-const SCHEMA: &str = include_str!("../../schemas/experimental_image_generate.json");
+const SCHEMA: &str = include_str!("../../schemas/generate_image.json");
 /// A failure that is not a `ToolFailure` of the tool's own (`Unable to generate image`).
 const LEAF: &str = "Unable to generate image";
 
@@ -640,7 +640,7 @@ mod tests {
         assert_eq!(
             asked,
             [
-                ("experimental_image_generate".to_string(), vec!["test/painter".to_string()]),
+                ("generate_image".to_string(), vec!["test/painter".to_string()]),
                 ("edit".into(), vec!["out.png".into()]),
                 ("read".into(), vec!["in.png".into()]),
             ]
@@ -697,14 +697,14 @@ mod tests {
         let (_dir, ctx) = setup(fake.clone(), None);
         assert!(run(&ctx, json!({ "prompt": "x", "path": "out.png" })).await.is_err());
         let actions: Vec<String> = fake.asked.lock().iter().map(|r| r.action.clone()).collect();
-        assert_eq!(actions, ["experimental_image_generate", "edit"]);
+        assert_eq!(actions, ["generate_image", "edit"]);
         *fake.deny.lock() = Some("webfetch".into());
         fake.asked.lock().clear();
         assert!(run(&ctx, json!({ "prompt": "x", "images": ["https://example.invalid/cat.png"] })).await.is_err());
         let asked: Vec<(String, Vec<String>)> = fake.asked.lock().iter().map(|r| (r.action.clone(), r.resources.clone())).collect();
         assert_eq!(
             asked,
-            [("experimental_image_generate".to_string(), vec!["test/painter".to_string()]), ("webfetch".into(), vec!["https://example.invalid/cat.png".into()])]
+            [("generate_image".to_string(), vec!["test/painter".to_string()]), ("webfetch".into(), vec!["https://example.invalid/cat.png".into()])]
         );
         assert!(fake.requests.lock().is_empty());
     }

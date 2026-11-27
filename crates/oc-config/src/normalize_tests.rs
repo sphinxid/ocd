@@ -276,6 +276,27 @@ fn permission_source_order_and_native_append() {
     );
 }
 
+// normalization.test.ts: "maps the media tools' old experimental names in native rules" (2.4.1).
+#[test]
+fn media_tools_old_experimental_names_in_native_rules() {
+    let rule = json!({ "action": "experimental_image_generate", "resource": "*", "effect": "deny" });
+    let (encoded, _) = normalized(json!({
+        "permissions": [rule],
+        "agents": { "build": { "permissions": [{ "action": "experimental_video_generate", "resource": "*", "effect": "deny" }] } },
+    }));
+    assert_eq!(encoded["permissions"], json!([{ "action": "generate_image", "resource": "*", "effect": "deny" }]));
+    assert_eq!(encoded["agents"]["build"]["permissions"], json!([{ "action": "generate_video", "resource": "*", "effect": "deny" }]));
+    // The v1 migration renames them too.
+    let (encoded, _) = normalized(json!({ "permission": { "experimental_image_generate": "deny", "experimental_video_generate": "ask" } }));
+    assert_eq!(
+        encoded["permissions"],
+        json!([
+            { "action": "generate_image", "resource": "*", "effect": "deny" },
+            { "action": "generate_video", "resource": "*", "effect": "ask" },
+        ])
+    );
+}
+
 #[test]
 fn legacy_agent_and_mode_permission_order() {
     for key in ["agent", "mode"] {

@@ -25,8 +25,36 @@ pub fn normalize_action(action: &str) -> String {
         "write" | "patch" | "apply_patch" => "edit".into(),
         "task" => "subagent".into(),
         "bash" => "shell".into(),
+        other => renamed_tool(other),
+    }
+}
+
+/// The media tools dropped their experimental prefix after native permission rules could name them (2.4.1).
+pub fn renamed_tool(action: &str) -> String {
+    match action {
+        "experimental_image_generate" => "generate_image".into(),
+        "experimental_video_generate" => "generate_video".into(),
         other => other.into(),
     }
+}
+
+/// Native rules may still name the media tools by their old experimental names (`renameTools`).
+pub fn rename_tools(rules: Option<&Value>) -> Option<Value> {
+    let Some(Value::Array(rules)) = rules else { return rules.cloned() };
+    Some(Value::Array(
+        rules
+            .iter()
+            .map(|rule| match rule {
+                Value::Object(o) if o.get("action").is_some_and(Value::is_string) => {
+                    let mut o = o.clone();
+                    let action = renamed_tool(o["action"].as_str().unwrap_or_default());
+                    o.insert("action".into(), Value::String(action));
+                    Value::Object(o)
+                }
+                other => other.clone(),
+            })
+            .collect(),
+    ))
 }
 
 /// JavaScript truthiness of a JSON value.

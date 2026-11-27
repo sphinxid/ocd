@@ -621,6 +621,24 @@ fn markdown_agent_flow_collections_alongside_unquoted_colon_descriptions() {
     assert!(permissions.as_array().unwrap().contains(&json!({"action": "edit", "resource": "*", "effect": "deny"})), "{permissions}");
 }
 
+// agent.ts (2.4.1): agent files' native rules may still name the media tools by their old experimental names.
+#[test]
+fn markdown_agent_renames_old_media_tool_rules() {
+    let tmp = Tmp::new();
+    let content = "---\ndescription: Paints\npermissions: [{ action: experimental_image_generate, resource: \"*\", effect: deny }, { action: experimental_video_generate, resource: \"*\", effect: ask }]\n---\nBody";
+    let file = tmp.write("agents/paint.md", content);
+    let entry = sources::decode_agent_file(tmp.path(), &file, false, content).unwrap();
+    let agent = &entry.info().unwrap().agents.as_ref().unwrap()["paint"];
+    let permissions = serde_json::to_value(&agent.permissions).unwrap();
+    assert_eq!(
+        permissions,
+        json!([
+            { "action": "generate_image", "resource": "*", "effect": "deny" },
+            { "action": "generate_video", "resource": "*", "effect": "ask" },
+        ])
+    );
+}
+
 #[test]
 fn markdown_command_legacy_variant() {
     let tmp = Tmp::new();

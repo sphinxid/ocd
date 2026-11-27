@@ -200,7 +200,7 @@ pub enum JobRecovery {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         outstanding: Option<Vec<serde_json::Value>>,
     },
-    /// A background `experimental_image_generate` job.
+    /// A background `generate_image` job.
     #[serde(rename = "image")]
     Image {
         #[serde(rename = "sessionID")]
