@@ -86,6 +86,8 @@ pub struct Loaded {
     /// The web search tool's context/compaction/generate hook: no tool while web search is disabled or policy
     /// removed every provider (2.2.7).
     pub websearch_disabled: bool,
+    /// The model the session selected before any hook routed it (`id`, `modelID`): what the tool policy reads.
+    pub policy_model: (String, String),
 }
 
 /// `modelTools({model, websearch})` (`tool/model-policy.ts`, 2.4.1 #64515): the built-in tools hidden for a request
@@ -811,11 +813,16 @@ impl Engine {
         let websearch_disabled = self.websearch_disabled(&sel).await;
         let mut sel = sel;
         // `modelTools` (`tool/model-policy.ts`, 2.4.1): the tools the session's model doesn't get leave the request's
-        // snapshot, so they are neither offered, counted nor run.
-        let hidden = model_hidden_tools(&resolved.model, websearch_disabled);
+        // snapshot, so they are neither offered, counted nor run. The policy reads the model the session selected,
+        // before a hook routes it (Copilot Auto keeps `edit` and `write` whatever model it picks).
+        let selected = crate::models::selected_model(&catalog, session_model.as_ref(), config_model.as_ref())
+            .and_then(|r| catalog.model(&r.provider_id, &r.id).cloned());
+        let policy = selected.as_ref().unwrap_or(&resolved.model);
+        let hidden = model_hidden_tools(policy, websearch_disabled);
+        let policy_model = (policy.id.clone(), policy.model_id.clone());
         sel.snapshot.direct.retain(|(name, _)| !hidden.contains(&name.as_str()));
         sel.snapshot.codemode.retain(|(name, _)| !hidden.contains(&name.as_str()));
-        Ok(Loaded { sel, resolved, messages, initial, rendered, websearch_disabled })
+        Ok(Loaded { sel, resolved, messages, initial, rendered, websearch_disabled, policy_model })
     }
 
     /// `opencode.tool.websearch`'s hook: `websearch.default()` fails with `WebSearch.Disabled`, or there are no
@@ -846,8 +853,8 @@ impl Engine {
             .map(|a| oc_tools::tool::SubagentSummary { id: a.id.clone(), description: a.description.clone() })
             .collect();
         DefinitionContext {
-            model_id: Some(loaded.resolved.model.id.clone()),
-            api_model_id: Some(loaded.resolved.model.model_id.clone()),
+            model_id: Some(loaded.policy_model.0.clone()),
+            api_model_id: Some(loaded.policy_model.1.clone()),
             // The shell tool always describes the compatible shell (core/src/tool/plugin/shell.ts context
             // hook: `description(ShellSelect.name(compatibleShell))`), not only a configured one.
             shell: Some(oc_tools::shell::select::resolve(
@@ -862,12 +869,13 @@ impl Engine {
 
     /// The tool definitions `estimatePrompt` counts: the snapshot's (`context.tools.definitions`, which the model's
     /// tool policy already narrowed: the `patch` / `edit` + `write` choice and an unavailable web search), as
-    /// registered, before the session hooks that describe them for a request (the shell's name, the subagent list),
-    /// then `execute`.
+    /// registered, before the session hooks that describe them for a request (the subagent list), then `execute`.
+    /// Since 2.4.1 the shell registers its description with the shell's name, so the estimate counts that.
     pub fn estimate_tools(&self, loaded: &Loaded) -> Vec<ToolEntry> {
         let snapshot = &loaded.sel.snapshot;
+        let ctx = DefinitionContext { shell: self.definition_context(loaded).shell, ..DefinitionContext::default() };
         snapshot
-            .definitions(&DefinitionContext::default(), crate::codemode::execute_definition(snapshot))
+            .definitions(&ctx, crate::codemode::execute_definition(snapshot))
             .into_iter()
             .map(|d| ToolEntry::Tool(ToolDefinition::new(d.name, d.description, d.input_schema)))
             .collect()
@@ -2125,8 +2133,9 @@ impl Driver for ExecutionDriver {
         // Claim the job generation before cancelling it so the settlement commit owns its outbox row.
         let settlement = self.report.prepare(app, key, outcome);
         if interrupted {
-            // `jobs.cancel(sessionID)`: the job named after the session, i.e. a subagent run of this child.
-            app.jobs.cancel(key);
+            // `jobs.cancel(sessionID)`: the job named after the session, i.e. a subagent run of this child. Upstream's
+            // `settled` hook runs outside any Location, so its `experimental.job.updated` has none.
+            app.jobs.cancel_unlocated(key);
         }
         if let Err(e) = bus.commit_with(vec![event.into()], |c, _, _| settlement.commit(c)) {
             tracing::error!(sessionID = key, error = %e, "Failed to publish Session execution lifecycle");

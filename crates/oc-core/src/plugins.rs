@@ -37,7 +37,7 @@ use crate::location::Location;
 
 /// Built-in (internal) plugin ids in activation order (`core/src/plugin/internal.ts` `pre`, the
 /// provider and web-search plugins, `post`), as `plugin.list` reports them.
-pub const BUILTIN_PLUGINS: [&str; 95] = [
+pub const BUILTIN_PLUGINS: [&str; 100] = [
     "opencode.tool.input.repair",
     "opencode.config.worktree",
     "opencode.config.mcp",
@@ -46,6 +46,8 @@ pub const BUILTIN_PLUGINS: [&str; 95] = [
     "opencode.vcs.git",
     "opencode.agent",
     "opencode.fork-notice",
+    // 2.4.1: the `home_memory` workspace, nothing without that flag.
+    "opencode.home-memory",
     "opencode.plan",
     "opencode.command",
     "opencode.goal",
@@ -110,6 +112,11 @@ pub const BUILTIN_PLUGINS: [&str; 95] = [
     "opencode.tool.artifact",
     // 2.3.1: replaces `opencode.tool.schedule`; its tools and `/automation` need automations enabled (top-level `automations`, 2.4.1).
     "opencode.tool.automation",
+    // 2.4.1: machine paths (`machines`), `opencode.session.interrupt` (`full_codemode`) and session search
+    // (`sqlite_fts`); none adds a tool without its flag.
+    "opencode.tool.machine",
+    "opencode.tool.session-interrupt",
+    "opencode.tool.session-search",
     "opencode.tool.shell",
     "opencode.tool.skill",
     "opencode.tool.subagent",
@@ -128,6 +135,8 @@ pub const BUILTIN_PLUGINS: [&str; 95] = [
     "opencode.config.image",
     "opencode.config.location-watcher",
     "opencode.config.shell",
+    // 2.4.1: builds the session search index with `sqlite_fts`.
+    "opencode.config.session-search",
     "opencode.config.snapshot",
     "opencode.config.tool-output",
     "opencode.config.compatibility",
@@ -140,7 +149,7 @@ pub const BUILTIN_PLUGINS: [&str; 95] = [
 ];
 
 /// Index of the first `post` internal plugin in [`BUILTIN_PLUGINS`].
-const POST_START: usize = 77;
+const POST_START: usize = 81;
 
 /// The ocd-native internal plugins in upstream order.
 pub fn internal_plugins() -> InternalPlugins {

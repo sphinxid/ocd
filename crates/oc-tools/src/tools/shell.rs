@@ -24,6 +24,8 @@ pub const CODE_MODE_TIMEOUT_MS: u64 = 10 * 60 * 1_000;
 /// How long a call the user interrupted waits for its stopped command to exit before settling with the output so
 /// far (`INTERRUPT_WAIT`).
 pub const INTERRUPT_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+/// How long a stopped command's job may take to settle from its exit before the call releases it.
+const JOB_SETTLE_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
 
 pub const BACKGROUND_INSTRUCTION: &str = "You will be notified automatically when the command finishes. The notification will include the command's output. Unless the user explicitly asks otherwise, DO NOT poll for completion, even if you need the final result to continue. Repeatedly sleeping and reading or searching the output file is polling, not useful work. You may read the current output if it lets you do useful work now, but do not repeatedly check it while waiting for the command to finish. Keep working on anything that does not depend on the result. If you have nothing else to do, end your response; you will be resumed automatically when the command finishes.";
 
@@ -248,7 +250,11 @@ impl ShellTool {
         let _ = self.service.stop(&info.id, oc_schema::message::ShellStatus::Killed);
         // The stop escalates to SIGKILL on its own; the session does not wait for that to settle the call.
         let result = self.service.result_within(info, Some(INTERRUPT_WAIT), ctx.config.max_lines(), ctx.config.max_bytes()).await;
-        // The stopped job settles from the same exit; this only releases it.
+        // The stopped job settles from the same exit (`completed`, as upstream's job fiber sees the exit first); this
+        // only releases it. A command still running is cancelled with its job.
+        if result.info.status != oc_schema::message::ShellStatus::Running {
+            let _ = tokio::time::timeout(JOB_SETTLE_WAIT, ctx.host.job_wait(job_id)).await;
+        }
         let _ = ctx.host.job_cancel(job_id).await;
         let stopped = shell_result::interrupted(&result);
         // The notice ends the message; renderers show what precedes it as the output, like a finished call's.

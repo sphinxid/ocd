@@ -6,6 +6,7 @@ next requests replay them as custom calls. Every request body each binary sent a
 import hashlib
 import json
 import os
+import time
 
 from parity.registry import scenario
 
@@ -132,8 +133,15 @@ def freeform_models_dev_openai(ctx):
     ctx.make_project(config={"model": "openai/gpt-5.4-mini", "providers": {"openai": {
         "settings": {"baseURL": f"http://127.0.0.1:{ctx.mock.port}/v1", "apiKey": "test", "transport": "http"}}}})
     ctx.start()
-    _, models = ctx.call("models", "GET", f"/api/model?directory={ctx.project}", record=False)
-    items = models.get("data", models) if isinstance(models, dict) else models
+    # 2.4.1's model handler no longer waits for the location's plugins (#63814): poll until the catalog has the
+    # models.dev models instead of recording whatever the first read finds.
+    deadline = time.time() + 20
+    while True:
+        _, models = ctx.call("models", "GET", f"/api/model?directory={ctx.project}", record=False)
+        items = models.get("data", models) if isinstance(models, dict) else models
+        if time.time() > deadline or any(isinstance(m, dict) and m.get("providerID") == "openai" for m in (items or [])):
+            break
+        time.sleep(0.25)
     ctx.rec("model capabilities", {m["id"]: m.get("capabilities") for m in (items or [])
                                    if isinstance(m, dict) and m.get("providerID") == "openai"
                                    and m.get("id") in ("gpt-5.4-mini", "gpt-4.1", "gpt-5.6", "o3")})

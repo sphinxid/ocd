@@ -990,15 +990,7 @@ impl Models {
         kind: crate::plugin_request::Kind,
         agent: &str,
     ) -> anyhow::Result<ResolvedModel> {
-        // Without a session model, `ModelResolver.resolve()` takes `Model.default`: the configured model only when
-        // the catalog has it enabled (with a package), else the first available text model. A configured model that
-        // is missing (a stale config, a provider's model that went away) falls back instead of failing the step.
-        let configured = config_model
-            .filter(|c| catalog.model(&c.provider_id, &c.id).is_some_and(|m| m.enabled && m.has_package()));
-        let pick = session_model.or(configured).cloned().or_else(|| {
-            catalog.select(None).map(|m| ModelRef { id: m.id.clone(), provider_id: m.provider_id.clone(), variant: None })
-        });
-        let Some(r) = pick else { return Err(ModelError::NotSelected(session_id.into()).into()) };
+        let Some(r) = selected_model(catalog, session_model, config_model) else { return Err(ModelError::NotSelected(session_id.into()).into()) };
         if catalog.model(&r.provider_id, &r.id).is_none() {
             return Err(ModelError::Unavailable(r.provider_id.clone(), r.id.clone()).into());
         }
@@ -1035,4 +1027,15 @@ impl Models {
             .await
             .map_err(|e| ModelError::Resolve(e.to_string()).into())
     }
+}
+
+/// The model a session selects before any `experimental.model.resolve` hook routes it (`SessionRunnerModel.select`):
+/// its own model, else `Model.default`, the configured model only when the catalog has it enabled (with a package),
+/// else the first available text model. A configured model that is missing (a stale config, a provider's model that
+/// went away) falls back instead of failing the step.
+pub fn selected_model(catalog: &Catalog, session_model: Option<&ModelRef>, config_model: Option<&ModelRef>) -> Option<ModelRef> {
+    let configured = config_model.filter(|c| catalog.model(&c.provider_id, &c.id).is_some_and(|m| m.enabled && m.has_package()));
+    session_model.or(configured).cloned().or_else(|| {
+        catalog.select(None).map(|m| ModelRef { id: m.id.clone(), provider_id: m.provider_id.clone(), variant: None })
+    })
 }

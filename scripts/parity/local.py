@@ -276,8 +276,15 @@ def record_lists(ctx, label):
     items = data.get("data", data) if isinstance(data, dict) else data
     ctx.rec(label + ".providers", sorted([p for p in items if p.get("id") in PROVIDERS], key=lambda p: p["id"]))
     ctx.rec(label + ".models", local_models(ctx))
-    _, _, data = ctx.server.request("GET", "/api/integration", headers={"x-opencode-directory": ctx.project})
-    items = data.get("data", data) if isinstance(data, dict) else data
+    # 2.4.1's handlers no longer wait for the location's plugins (#63814), and each discovery reloads the integrations:
+    # poll until the configured providers' integrations are listed.
+    deadline = time.time() + 10
+    while True:
+        _, _, data = ctx.server.request("GET", "/api/integration", headers={"x-opencode-directory": ctx.project})
+        items = data.get("data", data) if isinstance(data, dict) else data
+        if time.time() > deadline or any(i.get("id") in PROVIDERS for i in items):
+            break
+        time.sleep(0.25)
     ctx.rec(label + ".integrations", sorted([i for i in items if i.get("id") in PROVIDERS], key=lambda i: i["id"]))
 
 
