@@ -111,5 +111,12 @@ Filled in as batches land.
   with `experimental["new-designs"]: false` show identical text; colours differ only by the new palette (R8). Tests
   include 2.4.1's own frames and OpenTUI's conformance rows. Not changed: link URLs are always shown (upstream hides
   them on terminals with OSC 8), and wrapping outside Markdown still breaks only at spaces.
+- **R10** (done): the Code Mode language follows psychoscript 0.2.1: getters and setters with descriptors, classes,
+  V8-format stacks, the Buffer and base64 options, the import error texts, and Intl in `localeCompare` and Date
+  `toLocale*`. 278 programs recorded through 2.4.1's Code Mode, about 1,300 programs from psychoscript's own tests
+  (MIT, Anomaly), 400 random Intl date calls and the test262 sample all match. Gaps: Intl data covers 20 locales
+  (others fall back to the nearest one with the same language, else en-US), zone history before about 1970 can
+  differ, other languages collate in root order, and the ~7,300 test262 files 2.4.1 added to its subset are not
+  recorded.
 - **R11** (done): 22 CLI cases and the machine routes match a 2.4.1 release build with the `machines` flag off.
   ocd keeps answering 403 when the flag is on (see COMPATIBILITY.md).
