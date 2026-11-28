@@ -186,11 +186,21 @@ async fn setup(plugins: Value, turns: Vec<Turn>) -> Setup {
 
 /// [`setup`] with `extra` top-level config keys.
 async fn setup_with(plugins: Value, turns: Vec<Turn>, extra: Value) -> Setup {
+    setup_global(plugins, turns, extra, None).await
+}
+
+/// [`setup_with`], with `global` written as the global config (`<config>/opencode.json`) first.
+async fn setup_global(plugins: Value, turns: Vec<Turn>, extra: Value, global_config: Option<Value>) -> Setup {
     let mock = mock(turns).await;
     // SAFETY: tests only ever set this to the same value.
     unsafe { std::env::set_var("OPENCODE_DISABLE_MODELS_FETCH", "1") };
     let root = tempfile::tempdir().unwrap();
     let root_path = oc_util::fs::canonicalize(root.path()).unwrap();
+    if let Some(config) = global_config {
+        let dir = root_path.join("config");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("opencode.json"), config.to_string()).unwrap();
+    }
     let cwd = root_path.join("work");
     std::fs::create_dir_all(&cwd).unwrap();
     let mut config = json!({
@@ -930,5 +940,140 @@ async fn plugin_artifact_providers_back_the_tools_and_routes() {
     let r = s.h.req("DELETE", &format!("/api/experimental/artifacts/{id}"), None).await;
     assert_eq!(r.status, 204);
     assert_eq!(s.h.get(&format!("/api/experimental/artifacts/{id}")).await.json()["_tag"], "ArtifactNotFoundError");
+    s.shutdown().await;
+}
+
+/// The tool named `name` among a model request's tools.
+fn offered<'a>(tools: &'a [Value], name: &str) -> Option<&'a Value> {
+    tools.iter().find(|t| t["function"]["name"] == name)
+}
+
+/// opencode 2.4.1 (`core/test/plugin/promise-tool.test.ts`, "Promise tools infer codemode override schemas and pass
+/// info and codemode to hooks"): a tool's `options.codemode` object gives Code Mode its own description and schemas,
+/// the tool runs with `context.codemode` there, and `tool.execute.*` hooks get the called tool's `info` and
+/// `codemode`. A top-level call to a Code Mode tool runs as a Code Mode call with no `info`, as upstream's snapshot
+/// has none for it. A `codemode` that is neither a boolean nor an object is refused (`core/src/tool.ts` `register`).
+#[tokio::test]
+async fn plugin_tools_with_codemode_overrides_and_hook_info() {
+    require_bun!();
+    let s = setup(
+        json!([fixture("v241-plugin")]),
+        vec![
+            Turn::Tool("execute", json!({ "code": "return await tools.shell_like({ command: \"pwd\" })" })),
+            Turn::Text("ran"),
+            Turn::Tool("shell_like", json!({ "command": "ls" })),
+            Turn::Text("top level"),
+            Turn::Tool("execute", json!({ "code": "return await tools.plain_typed({ count: 3 })" })),
+            Turn::Text("counted"),
+        ],
+    )
+    .await;
+    let session = s.h.session().await;
+    s.run(&session, "pwd").await;
+
+    // Code Mode offers the override description and input; neither override tool nor the refused one is direct.
+    let tools = s.tools(0);
+    assert!(offered(&tools, "shell_like").is_none() && offered(&tools, "plain_typed").is_none(), "{tools:?}");
+    assert!(offered(&tools, "bad_codemode").is_none(), "{tools:?}");
+    assert!(offered(&tools, "execute").is_some(), "{tools:?}");
+    // The Code Mode catalog (in the system prompt, JSON-escaped here) lists the override description and schemas.
+    let catalog = s.mock.bodies.lock()[0]["messages"].to_string();
+    assert!(
+        catalog.contains(r#"tools.shell_like({\n  command: string,\n}): Promise<{\n  summary: string,\n}> // Code Mode shell"#),
+        "{catalog}"
+    );
+    assert!(catalog.contains(r#"tools.plain_typed({\n  count: number,\n}): Promise<string | null> // Unchanged plain tool"#), "{catalog}");
+    assert!(!catalog.contains("Direct shell") && !catalog.contains("bad_codemode"), "{catalog}");
+
+    // Inside Code Mode the tool decodes with the override input and encodes the override output.
+    let results = |session: &str| -> Vec<Value> {
+        s.messages(session)
+            .iter()
+            .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+            .filter(|p| p["type"] == "tool")
+            .map(|p| p["state"].clone())
+            .collect()
+    };
+    let first = &results(&session)[0];
+    assert_eq!(first["status"], "completed", "{first}");
+    assert!(first["content"].to_string().contains(r#"{\"summary\":\"pwd:none\"}"#), "{first}");
+
+    // The model calls it at the top level: it runs as a Code Mode call.
+    s.run(&session, "ls").await;
+    let second = &results(&session)[1];
+    assert!(second["content"].to_string().contains(r#"{\"summary\":\"ls:none\"}"#), "{second}");
+
+    // A tool without overrides behaves as before.
+    s.run(&session, "count").await;
+    let third = &results(&session)[2];
+    assert!(third["content"].to_string().contains('3'), "{third}");
+
+    let seen = s.h.app.db.kv_get(&kv_key("fixture.v241", "seen")).unwrap().expect("hooks recorded");
+    assert_eq!(
+        seen,
+        json!([
+            { "tool": "execute", "codemode": false, "info": "execute", "override": false },
+            { "tool": "shell_like", "codemode": true, "info": "shell_like", "override": true },
+            { "tool": "shell_like", "codemode": false, "info": null, "override": false },
+            { "tool": "execute", "codemode": false, "info": "execute", "override": false },
+            { "tool": "plain_typed", "codemode": true, "info": "plain_typed", "override": false },
+        ])
+    );
+    s.shutdown().await;
+}
+
+/// opencode 2.4.1 (`core/test/plugin/automation.test.ts`, "Promise plugins can create, list and delete
+/// automations"): `ctx.experimental.automation` creates, lists by directory and deletes, and deleting a deleted
+/// automation fails.
+#[tokio::test]
+async fn plugins_create_list_and_delete_automations() {
+    require_bun!();
+    let s = setup(json!([fixture("v241-plugin")]), vec![]).await;
+    let session = s.h.session().await;
+    let r = s.h.post(&format!("/api/session/{session}/command"), json!({ "name": "automate", "text": "" })).await;
+    assert_eq!(r.status, 204, "{:?}", String::from_utf8_lossy(&r.body));
+    let stored = s.h.app.db.kv_get(&kv_key("fixture.v241", "automation")).unwrap().expect("stored by the command");
+    let created = &stored["created"];
+    assert_eq!((created["name"].as_str(), created["status"].as_str()), (Some("promise inbox"), Some("active")), "{stored}");
+    assert_eq!(created["trigger"]["cron"], "0 9 * * *");
+    assert_eq!(created["action"], json!({ "type": "prompt", "prompt": "Check the balance now.", "to": { "session": session } }));
+    let id = created["id"].clone();
+    assert!(stored["listed"].as_array().unwrap().contains(&id), "{stored}");
+    assert!(stored["again"].is_string(), "{stored}");
+    assert!(!stored["after"].as_array().unwrap().contains(&id), "{stored}");
+    let listed = s.h.get("/api/experimental/automation").await.json();
+    assert_eq!(listed["data"], json!([]), "{listed}");
+    s.shutdown().await;
+}
+
+/// opencode 2.4.1 (#64947, `core/test/integration.test.ts`, "revokes an OAuth credential before removing it, even
+/// when revocation fails"): removing a credential calls its plugin sign-in method's `revoke` first; a failed revoke
+/// is logged and the credential is removed anyway, and a key credential has nothing to revoke.
+#[tokio::test]
+async fn plugin_oauth_methods_revoke_credentials_on_removal() {
+    require_bun!();
+    let plugins = json!([fixture("v241-plugin")]);
+    let s = setup_global(plugins.clone(), vec![], json!({}), Some(json!({ "plugins": plugins }))).await;
+    // Removal goes through the global config location's integrations; boot it and wait for its plugins.
+    let config = oc_util::fs::canonicalize(&s.h.root.path().join("config")).unwrap().display().to_string();
+    assert_eq!(s.h.req_in(Some(&config), "GET", "/api/location", None).await.status, 200);
+    s.h.app.plugins.await_activation(&config).await;
+    let h = &s.h;
+    let create = |value: Value| async move {
+        let r = h.post("/api/credential", json!({ "integrationID": "fixture-oauth", "value": value })).await;
+        assert_eq!(r.status, 200, "{:?}", String::from_utf8_lossy(&r.body));
+        r.json()["data"]["id"].as_str().unwrap().to_string()
+    };
+    let oauth = |refresh: &str| json!({ "type": "oauth", "methodID": "device", "access": "access", "refresh": refresh, "expires": 1 });
+    let working = create(oauth("working")).await;
+    let broken = create(oauth("broken")).await;
+    let key = create(json!({ "type": "key", "key": "sk-test" })).await;
+    for id in [&working, &broken, &key] {
+        let r = s.h.req("DELETE", &format!("/api/credential/{id}"), None).await;
+        assert_eq!(r.status.as_u16() / 100, 2, "{:?}", String::from_utf8_lossy(&r.body));
+    }
+    assert_eq!(s.h.app.db.kv_get(&kv_key("fixture.v241", "revoked")).unwrap(), Some(json!(["working", "broken"])));
+    let left = s.h.get("/api/credential").await.json();
+    assert!(!left.to_string().contains("fixture-oauth"), "{left}");
     s.shutdown().await;
 }

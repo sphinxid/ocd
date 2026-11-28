@@ -2293,7 +2293,8 @@ fn codemode_overrides(definition: ToolDefinition, options: Option<&Value>) -> Op
     Some(definition)
 }
 
-/// One registered tool as it crosses the sidecar (`Tool.Info & { id }`), its executor a native handle.
+/// One registered tool as it crosses the sidecar (`Tool.Info & { id }`): its executor is a native handle, or a
+/// plugin tool's own sidecar handle.
 pub fn tool_json(id: &str, tool: &dyn Tool) -> Value {
     let definition = tool.definition(&DefinitionContext::default());
     let mut v = json!({
@@ -2309,7 +2310,7 @@ pub fn tool_json(id: &str, tool: &dyn Tool) -> Value {
         v["output"] = output;
     }
     v["options"] = options_json(&tool.options());
-    v["execute"] = json!({ "$fn": tool_handle(id) });
+    v["execute"] = json!({ "$fn": tool.plugin_handle().map_or_else(|| tool_handle(id), String::from) });
     v
 }
 
@@ -2438,6 +2439,9 @@ impl PluginTool {
 
 #[async_trait]
 impl Tool for PluginTool {
+    fn plugin_handle(&self) -> Option<&str> {
+        Some(&self.handle)
+    }
     fn codemode_definition(&self) -> Option<ToolDefinition> {
         codemode_overrides(self.definition(&DefinitionContext::default()), self.raw_options.as_ref())
     }

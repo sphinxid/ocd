@@ -492,6 +492,12 @@ pub trait Tool: Send + Sync {
         None
     }
 
+    /// The plugin helper's handle of a plugin tool's own executor. Hook events and `tool.list` name it, so the plugin
+    /// sees its own registration (2.4.1 hook `info`).
+    fn plugin_handle(&self) -> Option<&str> {
+        None
+    }
+
     /// Whether the tool is advertised for this request (session hooks may delete tools).
     fn advertised(&self, _ctx: &DefinitionContext) -> bool {
         true

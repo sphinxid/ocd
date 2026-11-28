@@ -14,7 +14,7 @@ import { Cause, Deferred, Effect, Exit, Logger, PubSub, Schema, Scope, Stream } 
 import { execute as executeTool } from "@upstream-core/tool/runtime"
 import { fromWire, Handles, toWire, type Remote } from "./codec.js"
 import { makeContext } from "./context.js"
-import { SPECS, type Codec, type Domain } from "./domains.js"
+import { decodeTool, SPECS, type Codec, type Domain } from "./domains.js"
 import { log, RemoteError } from "./peer.js"
 import { makeRpc, type RpcFailure } from "./rpc.js"
 import { pluginHook, type AISDKService } from "./aisdk.js"
@@ -434,6 +434,8 @@ export class LocationRuntime {
           this.io.notify("tool.progress", { location: this.key, id: context.id, metadata: toWire(update, undefined) }),
         ),
       ...(cancel ? { cancel } : {}),
+      // A call from inside Code Mode (2.4.1) decodes its input and encodes its output with `options.codemode`'s schemas.
+      ...(context.codemode === true ? { codemode: true } : {}),
     }
     try {
       const exit = await Effect.runPromiseExit(executeTool(tool, input, toolContext as Tool.Context), { signal })
@@ -648,11 +650,18 @@ async function hydrateEvent(key: string, wire: unknown, runtime: LocationRuntime
     if (event?.request) event.request = toRequest(event.request)
     if (key === "session.http.response" && event?.response) event.response = toResponse(event.response)
   }
-  void runtime
+  // `info` (2.4.1): the called tool's registration. A plugin's own tool is its original Tool.Info.
+  if ((key === "tool.execute.before" || key === "tool.execute.after") && event?.info && typeof event.info === "object")
+    event.info = decodeTool(event.info, runtime.codec("tool.hook"))
   return event
 }
 
 async function dehydrateEvent(key: string, event: any, runtime: LocationRuntime): Promise<unknown> {
+  // `info` is read-only: Rust keeps its own.
+  if ((key === "tool.execute.before" || key === "tool.execute.after") && event && typeof event === "object" && "info" in event) {
+    const { info: _info, ...rest } = event
+    event = rest
+  }
   if (key === "session.http.request" || key === "session.http.response") {
     const out = { ...event }
     if (event.request instanceof Request) out.request = await fromRequest(event.request)

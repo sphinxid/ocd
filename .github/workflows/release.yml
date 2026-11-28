@@ -23,9 +23,9 @@ permissions:
 
 env:
   RUST_VERSION: "1.99.0"
-  # The upstream opencode commit ocd replicates (tag v2.3.2), and the bun it builds with.
+  # The upstream opencode commit ocd replicates (tag v2.4.1), and the bun it builds with.
   UPSTREAM_REPO: https://github.com/anomalyco/opencode.git
-  UPSTREAM_COMMIT: c0ad18b402eb2827fc1ee71c171b1177b3fc02d1
+  UPSTREAM_COMMIT: 6f0514052a3c859894ad01bb14cc14dda1e44b96
   BUN_VERSION: "1.4.4"
   CARGO_TERM_COLOR: always
 

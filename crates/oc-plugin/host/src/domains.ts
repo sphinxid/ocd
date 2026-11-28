@@ -18,7 +18,7 @@ import { Skill } from "@opencode/schema/skill"
 import { Tool } from "@opencode/schema/tool"
 import { ToolDefinition } from "@opencode/ai/effect"
 import { Effect, Result, Schema, SchemaIssue } from "effect"
-import { definition, effectiveName, normalizedName } from "@upstream-core/tool/runtime"
+import { defaultCodeMode, definition, effectiveName, normalizedName } from "@upstream-core/tool/runtime"
 import { FN, fromWire, isWireFn, stub, stubHandle, toWire, type Handles, type Remote } from "./codec.js"
 import { log } from "./peer.js"
 
@@ -357,16 +357,63 @@ function registrationError(tool: Tool.Info): { name: string; message: string } |
   const name = normalizedName(tool)
   if (!/^[A-Za-z0-9_-]+$/.test(name)) return { name, message: `Invalid tool name: ${name}` }
   const id = effectiveName(tool)
-  if (tool.options?.codemode === false && id === "execute")
+  if (!defaultCodeMode(tool) && id === "execute")
     return { name: id, message: 'Tool name "execute" is reserved for CodeMode' }
   // Standard Schema libraries such as ArkType make schemas that are functions.
-  if (typeof tool.input !== "object" && typeof tool.input !== "function")
-    return { name: id, message: `Invalid tool definition ${id}: input must be a schema` }
-  const result = Result.try({
+  if (!isSchemaValue(tool.input)) return { name: id, message: `Invalid tool definition ${id}: input must be a schema` }
+  const direct = Result.try({
     try: () => ToolDefinition.make(definition(tool) as any),
     catch: (error) => ({ name: id, message: `Invalid tool definition ${id}: ${schemaMakeError(error)}` }),
   })
-  return Result.isFailure(result) ? result.failure : undefined
+  if (Result.isFailure(direct)) return direct.failure
+  // 2.4.1: `options.codemode` may be an object whose description and schemas Code Mode uses instead.
+  const codemode = tool.options?.codemode
+  if (codemode === undefined || typeof codemode === "boolean") return undefined
+  if (!isRecord(codemode))
+    return { name: id, message: `Invalid tool definition ${id}: options.codemode must be a boolean or object` }
+  if (codemode.input !== undefined && !isSchemaValue(codemode.input))
+    return { name: id, message: `Invalid tool definition ${id}: input must be a schema` }
+  const overridden = Result.try({
+    try: () => ToolDefinition.make(definition(tool, true) as any),
+    catch: (error) => ({ name: id, message: `Invalid tool definition ${id}: ${schemaMakeError(error)}` }),
+  })
+  return Result.isFailure(overridden) ? overridden.failure : undefined
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const isSchemaValue = (value: unknown) => (typeof value === "object" && value !== null) || typeof value === "function"
+
+/** A copy of a tool's options whose `codemode` object is copied too (core/src/tool.ts `cloneOptions`). */
+const cloneOptions = (options: Tool.Options | undefined): Tool.Options | undefined =>
+  options && {
+    ...options,
+    ...(isRecord(options.codemode) ? { codemode: { ...options.codemode } } : {}),
+  }
+
+/**
+ * A tool's options on the wire. A `codemode` object's schemas cross as the JSON Schemas Code Mode offers
+ * (`definition(tool, true)`), next to its `pinned` and `description`.
+ */
+function wireOptions(tool: Tool.Info) {
+  const options = tool.options
+  if (options === undefined) return undefined
+  const codemode = options.codemode
+  if (!isRecord(codemode)) return toWire(options, undefined)
+  const overridden = definition(tool, true)
+  return toWire(
+    {
+      ...options,
+      codemode: {
+        ...(codemode.pinned === undefined ? {} : { pinned: codemode.pinned }),
+        ...(codemode.description === undefined ? {} : { description: codemode.description }),
+        ...(codemode.input === undefined ? {} : { input: overridden.inputSchema }),
+        ...(codemode.output === undefined ? {} : { output: overridden.outputSchema }),
+      },
+    },
+    undefined,
+  )
 }
 
 /** JavaScript plugins may leave out `input` for a tool that takes none (core/src/tool.ts `commit`). */
@@ -411,7 +458,7 @@ export function encodeTool(tool: ToolInfo, codec: Codec) {
     input: def.inputSchema,
     ...(def.freeform === undefined ? {} : { freeform: def.freeform }),
     ...(def.outputSchema === undefined ? {} : { output: def.outputSchema }),
-    ...(tool.options === undefined ? {} : { options: toWire(tool.options, undefined) }),
+    ...(tool.options === undefined ? {} : { options: wireOptions(tool) }),
     execute: {
       [FN]: native ?? codec.handles.register(tool, { group: codec.group, kind: "tool" }),
     },
@@ -446,12 +493,12 @@ const tool: Spec<ToolState, unknown> = {
         return
       }
       const id = effectiveName(tool)
-      editor.tools.set(id, { ...tool, id, options: tool.options && { ...tool.options } } as ToolInfo)
+      editor.tools.set(id, { ...tool, id, options: cloneOptions(tool.options) } as ToolInfo)
     },
     update: (id: string, update: (tool: any) => void) => {
       const current = editor.tools.get(id)
       if (!current) return
-      const draft: any = { ...current, options: current.options && { ...current.options } }
+      const draft: any = { ...current, options: cloneOptions(current.options) }
       update(draft)
       draft.name = current.name
       draft.id = id
@@ -463,7 +510,7 @@ const tool: Spec<ToolState, unknown> = {
         editor.errors.push({ kind: "tool", name: next.name, namespace: next.options?.namespace, message: error.message })
         return
       }
-      editor.tools.set(id, next)
+      editor.tools.set(id, { ...next, options: cloneOptions(next.options) })
     },
     remove: (id: string) => {
       editor.tools.delete(id)

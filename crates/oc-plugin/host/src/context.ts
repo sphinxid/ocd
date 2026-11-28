@@ -138,6 +138,13 @@ export function makeContext(runtime: LocationRuntime, slot: Slot): Plugin.Contex
         image: api("generate.image"),
         decisions: api("generate.decisions"),
       },
+      // Automations (2.4.1): the HTTP handlers, so a create settles its asks unattended and fails where automations
+      // are off.
+      automation: {
+        create: api("automation.create"),
+        list: api("automation.list"),
+        delete: api("automation.delete"),
+      },
     },
     // Deprecated since 2.2: `experimental.generate.text`.
     generate: {

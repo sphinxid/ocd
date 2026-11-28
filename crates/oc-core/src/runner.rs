@@ -1842,12 +1842,19 @@ impl Misplaced {
 impl CoreHooks {
     /// The `info` the `tool.execute.*` hooks get (2.4.1): the registration of the tool `name` runs as, a direct tool
     /// for a top-level call or a Code Mode tool for a program's, or the `execute` tool's; none for an unknown name.
-    fn info(&self, name: &str) -> Option<serde_json::Value> {
+    /// The hook events' `info` (2.4.1): the registration of the tool a call names. A call from inside Code Mode
+    /// names a Code Mode tool; a top-level call names `execute` or a direct tool, so a model's top-level call to a
+    /// Code Mode tool has none (upstream `Tool.snapshot`'s `initial`).
+    fn info(&self, name: &str, codemode: bool) -> Option<serde_json::Value> {
+        if codemode {
+            let tool = self.snapshot.codemode_tool(name)?;
+            return Some(crate::plugins::tool_json(name, tool.as_ref()));
+        }
         if name == oc_codemode::execute_tool::NAME {
             let tool = crate::codemode::ExecuteTool(self.snapshot.clone(), Arc::new(oc_tools::registry::NoHooks), false);
             return Some(crate::plugins::tool_json(name, &tool));
         }
-        let tool = self.snapshot.direct_tool(name).or_else(|| self.snapshot.codemode_tool(name))?;
+        let tool = self.snapshot.direct_tool(name)?;
         Some(crate::plugins::tool_json(name, tool.as_ref()))
     }
 
@@ -1887,7 +1894,7 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
             return Ok(());
         }
         let mut event = serde_json::json!({ "tool": tool });
-        if let Some(info) = self.info(tool) {
+        if let Some(info) = self.info(tool, ctx.codemode) {
             event["info"] = info;
         }
         event["codemode"] = ctx.codemode.into();
@@ -1950,7 +1957,7 @@ impl oc_tools::registry::ExecuteHooks for CoreHooks {
             return;
         }
         let mut event = serde_json::json!({ "tool": tool });
-        if let Some(info) = self.info(tool) {
+        if let Some(info) = self.info(tool, ctx.codemode) {
             event["info"] = info;
         }
         event["codemode"] = ctx.codemode.into();
