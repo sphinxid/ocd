@@ -2,8 +2,9 @@
 
 [← Compatibility](COMPATIBILITY.md)
 
-Status: planned (2026-11-25), in progress. ocd tracks opencode 2.3.2 ([UPGRADE-2.3.2.md](UPGRADE-2.3.2.md)) until
-this is done. Upstream released 2.4.0 (commit `44aed4f`) and 2.4.1 (commit `6f05140`) on Nov 23.
+Status: done (2026-11-28); ocd now reports 2.4.1, and its releases, web UI and plugin helper are built from the
+`v2.4.1` tag (commit `6f05140`). Before, ocd tracked opencode 2.3.2 ([UPGRADE-2.3.2.md](UPGRADE-2.3.2.md)). Upstream
+released 2.4.0 (commit `44aed4f`) and 2.4.1 (commit `6f05140`) on Nov 23.
 
 How it was planned: five read-only reviews of the tree diff `v2.3.2..v2.4.1` (354 commits, about 210 of them in
 areas ocd ports), one each for core, Code Mode and automations, providers and MCP, the TUI and CLI, and machines.
@@ -82,7 +83,7 @@ Filled in as batches land.
   `session_search`'s field order, because ocd has no such tool.
 - **R2** (done): automations are on by default and the `automation` namespace, shell actions, scheduled code with
   Code Mode tools, script diffs (core and TUI), the catalog limits and the `opencode://` refusal follow 2.4.1. The
-  plugin side of `experimental.automation` waits for the plugin helper rebuild in R12. The opt-in `full_codemode`
+  plugin side of `experimental.automation` came with the plugin helper rebuild in R12. The opt-in `full_codemode`
   parts (native description overrides, the model policy in the Code Mode catalog, Bun services for automation code)
   are not ported.
 - **R3** (done): MCP negotiates `auto` by default with the legacy fallback, the MCP Events beta is on without a flag,
@@ -90,8 +91,8 @@ Filled in as batches land.
   `mcp241` parity scenarios are identical; the remaining automation and MCP differences are the media tool names (R6).
   Not ported: mirroring `Mcp-Param` headers on tool calls (event streams do).
 - **R4** (done): the recorded request bodies for flattening, Google Interactions continuation and the catalog refresh
-  are checked against 2.4.1 (`scripts/parity/wire241.py`). Token revocation on sign-out waits for the plugin helper
-  rebuild in R12.
+  are checked against 2.4.1 (`scripts/parity/wire241.py`). Token revocation on sign-out covers plugin sign-in
+  methods since the plugin helper rebuild in R12.
 - **R5** (done): the local agent CLI provider keeps renamed model IDs, runs in `configDir` folders and rotates over a
   list of them on subscription limits, stops a deleted session's process, and can serve web search. The six new
   `claude241` parity scenarios are identical with 2.4.1, checked against a stand-in CLI.
@@ -120,3 +121,17 @@ Filled in as batches land.
   recorded.
 - **R11** (done): 22 CLI cases and the machine routes match a 2.4.1 release build with the `machines` flag off.
   ocd keeps answering 403 when the flag is on (see COMPATIBILITY.md).
+- **R12** (done): ocd reports 2.4.1; the release workflows, the web UI build and `host.js` use the `v2.4.1` tag.
+  The plugin helper bundles 2.4.1's plugin package and follows its host: `ctx.experimental.automation`, Code Mode
+  overrides in a tool's `options.codemode` (description and schemas, `context.codemode`, the new registration
+  error), `info` and `codemode` on tool hooks, and `revoke` through the Promise adapter; upstream's plugin automation,
+  Promise tool override and integration revoke tests are ported against the real helper. The side-by-side run against
+  the 2.4.1 build: **281 of 309 identical** (`fcm231_all_flags` not run: `all_flags` turns on `machines`). It found
+  and fixed five differences: the five flag-gated built-in plugins 2.4.1 lists (`opencode.home-memory`,
+  `opencode.tool.machine`, `opencode.tool.session-interrupt`, `opencode.tool.session-search`,
+  `opencode.config.session-search`), the tool policy reading the session's selected model before Copilot Auto routes
+  it, the prompt estimate counting the shell's name (2.4.1 registers it in the description), a stopped shell
+  command's job settling `completed` from its exit, and a cancelled subagent's job update carrying no location. Left
+  ([PARITY.md](PARITY.md)): 2.4.1's desktop browser plugin changes (its skill text and tools, about nine scenarios),
+  the order of a shell job's update against the step's usage update, opt-in full Code Mode and Console features, and
+  the known renames, races and orderings. Tests: 3,463 passed, none failed.

@@ -1,9 +1,10 @@
 # Differential parity: upstream opencode v2 vs ocd
 
-Upstream reference: since the 2.3.2 catch-up, a local build of `anomalyco/opencode` at tag `v2.3.2` (commit
-`c0ad18b`, built in `packages/cli` with `OPENCODE_CHANNEL=detached bun run script/build.ts --single --skip-web-ui`;
-reports `0.0.0-detached-<timestamp>`, channel `detached`). Port: `target/debug/ocd` (workspace version 2.3.2,
-channel `latest`). From 2026-11-18 to 2026-11-21 the reference was the same kind of build at tag `v2.3.1` (commit
+Upstream reference: since the 2.4.1 catch-up, a local build of `anomalyco/opencode` at tag `v2.4.1` (commit
+`6f05140`, built in `packages/cli` with `OPENCODE_CHANNEL=detached bun run script/build.ts --single`; reports
+`0.0.0-detached-<timestamp>`, channel `detached`, and serves its web UI). Port: `target/debug/ocd` (workspace version
+2.4.1, channel `latest`). From 2026-11-22 to 2026-11-25 the reference was the same kind of build at tag `v2.3.2`
+(commit `c0ad18b`, without the web UI); from 2026-11-18 to 2026-11-21 it was the same kind of build at tag `v2.3.1` (commit
 `c769de8`); from 2026-11-17 to 2026-11-18 the reference was the same kind of build at tag `v2.3.0` (commit
 `a6b15d3`); from 2026-11-11 to 2026-11-16 the reference was the same kind of build at tag `v2.2.7` (commit
 `fedc6f2`); from 2026-11-07 to 2026-11-10 the reference was the same kind of build at tag `v2.2.5` (commit
@@ -172,6 +173,31 @@ iterator's `next`.
 | fcm231 | 2.3.1 opt-in `full_codemode` (`scripts/parity/fullcodemode231.py`): with `experimental.full_codemode` the tool definitions and Code Mode catalog the model sees (shell, read, edit, write, patch and websearch in Code Mode, the first five pinned; grep, glob and webfetch gone), two parallel `tools.shell` calls, a read, a write and an edit through Code Mode, a `background` input (ignored), Node's `path` (both flavours, `node:path`, `require("path")`); `OPENCODE_FLAGS=full_codemode`; `experimental.all_flags` leaving the tools direct and programs without `path`; a script still running after 10 s returning its receipt, listed as a running `codemode` job, and its `<codemode>` result waking the session; a session-wide background request moving a script at once (only the parts are recorded: where the request's own notice lands relative to the receipt is a race) |
 
 ## Results
+
+**Run after the 2.4.1 catch-up (batch R12; debug build, 2026-11-28):** 309 of the 310 scenarios against the local
+v2.4.1 build (`fcm231_all_flags` left out: `experimental.all_flags` turns on 2.4.1's `machines`, which opens an iroh
+endpoint, not plain HTTP): **281 of 309 identical**. The harness now masks the version `2.4.1`. The run (partly in three
+parallel shards, every difference then rerun alone) found five differences that are fixed: the plugin lists lacked the
+five flag-gated built-in plugins 2.4.1 adds (`opencode.home-memory`, `opencode.tool.machine`,
+`opencode.tool.session-interrupt`, `opencode.tool.session-search`, `opencode.config.session-search`; about a dozen
+scenarios), `plugin_copilot_auto` offered `patch` where 2.4.1's tool policy reads the session's selected `auto` model
+and keeps `edit` and `write`, `wire22_output_headroom` asked 10 more output tokens because 2.4.1 counts the shell's name
+in its registered description, `stop_shell_keeps_output` reported the stopped command's job `cancelled` where 2.4.1's
+settles `completed` from the exit, and `subagent_stopped_child` gave the cancelled subagent's job update a location.
+`local_discovery` and `freeform_models_dev_openai` now poll until the location's plugins answer, since 2.4.1's
+handlers no longer wait for them. Left, 28:
+- 2.4.1's desktop browser plugin changes, not ported: `browser_tools`, `browser_tool_errors`, `browser_disconnected`,
+  `browser_timeout`, and the `browser` skill's new text in `readonly_server`, `plugin_inventory`, `plugin_effect`,
+  `plugin_live_changes` and `plugin_skill_files`;
+- a foreground shell command's `experimental.job.updated` arriving before the step's `session.usage.updated`
+  (2.4.1 publishes it after resuming the call): `loop_shell_tool`, `tools227_shell`, `tools22_repair_builtin`,
+  `session225_tool_misses`, `session241_tool_repair`, `stop_long_run_compaction`;
+- opt-in features ported only partly: `fcm231_tools`, `fcm231_env_flag`, `fcm231_slow_script` and
+  `session241_structured_order` (full Code Mode), `console_artifacts` and `console_watches` (2.4.1's Console fixes);
+- `errors_not_found`: the reference build serves its web UI for an unknown root path, the debug build has none;
+- `run227_signal`: the SIGTERM after 1 s reaches the debug build before it prints that it waits for the background
+  job;
+- the known `cli_help`, `cli_inventory`, `stop_retry_exhausted`, `loop_tool_error` and `readonly_fs`.
 
 **2.4.1 local agent CLI provider (batch R5; debug build, 2026-11-27):** against the opencode 2.4.1 binary, with the
 `claude` group's stand-in. The new `claude241` group: **6 of 6 identical** (config folders with a logged-out model
