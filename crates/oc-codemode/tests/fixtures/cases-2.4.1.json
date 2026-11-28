@@ -4043,5 +4043,83 @@
    ],
    "toolCalls": []
   }
+ },
+ {
+  "code": "const arr = [1,2,3]; Array.prototype[Symbol.iterator] = function* () { yield 9 }; const [a] = arr; const r = []; for (const x of arr) r.push(x); return [[...arr], a, r, Array.from(arr)]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     9
+    ],
+    9,
+    [
+     9
+    ],
+    [
+     9
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const arr = [1, 2]; arr[Symbol.iterator] = function* () { yield \"own\" }; return [[...arr], [...[3, 4]]]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     "own"
+    ],
+    [
+     3,
+     4
+    ]
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const b = new Uint8Array([1, 2]); Uint8Array.prototype[Symbol.iterator] = function* () { yield 7 }; return [...b]",
+  "result": {
+   "ok": true,
+   "value": [
+    1,
+    2
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "const next = Iterator.prototype.next; let calls = 0; const it = [1, 2].values(); return [[...[1, 2]], calls]",
+  "result": {
+   "ok": true,
+   "value": [
+    [
+     1,
+     2
+    ],
+    0
+   ],
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "class A {} class B extends A {} Array.prototype[Symbol.iterator] = function* () { yield \"x\" }; return new B() instanceof A",
+  "result": {
+   "ok": true,
+   "value": true,
+   "toolCalls": []
+  }
+ },
+ {
+  "code": "Object.defineProperty(Array.prototype, Symbol.iterator, { get() { return function* () { yield \"g\" } }, configurable: true }); return [...[1]]",
+  "result": {
+   "ok": true,
+   "value": [
+    "g"
+   ],
+   "toolCalls": []
+  }
  }
 ]

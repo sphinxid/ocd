@@ -249,12 +249,29 @@ pub fn string_code_points(s: &JsStr) -> Vec<Value> {
 }
 
 /// The built-in iteration `for...of` and spread use, when this kind of value has one.
+/// Whether an array (or Uint8Array) still iterates as the built-in does: its `[Symbol.iterator]` and the iterator
+/// prototype's `next` are not program functions. A program that replaces them gets them run, as upstream's array
+/// iterator protector stops its fast paths (psychoscript 0.2.1).
+fn intact_array_iteration(rt: &Rt, o: &crate::object::Obj) -> bool {
+    let program = |slot: Option<crate::object::Slot>| match slot {
+        Some(crate::object::Slot::Data { value: Value::Object(f), .. }) => f.closure().is_some(),
+        Some(crate::object::Slot::Accessor { .. }) => true,
+        _ => false,
+    };
+    let key = PropKey::Sym(crate::value::Sym::Iterator);
+    // Upstream guards Array.prototype's iterator (and an array's own); a Uint8Array follows the same guard.
+    let iterator = if o.is_array() { crate::object::lookup(o, &key) } else { crate::object::own(&rt.builtins.array, &key) };
+    !program(iterator) && !program(crate::object::own(&rt.builtins.iterator, &PropKey::str("next")))
+}
+
 pub fn builtin_cursor(rt: &Rt, value: &Value) -> Option<Rc<dyn Cursor>> {
     match value {
         Value::String(s) => Some(ListCursor::new(string_code_points(s))),
         Value::Object(o) => match o.kind() {
             ObjKind::Iterator(c) => Some(c.clone()),
-            ObjKind::Array(_) | ObjKind::Bytes(_) => Some(ArrayCursor::new(rt, o.clone(), Mode::Values)),
+            ObjKind::Array(_) | ObjKind::Bytes(_) if intact_array_iteration(rt, o) => {
+                Some(ArrayCursor::new(rt, o.clone(), Mode::Values))
+            }
             ObjKind::Arguments => {
                 let keys = crate::object::keys(o);
                 let values = keys

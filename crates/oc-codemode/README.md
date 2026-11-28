@@ -481,6 +481,12 @@ Not reproduced: locales outside those 20 (`nl-BE` formats as `nl-NL`), other loc
 and zone offsets and names before about 1970, where ICU's and the IANA database's history differ.
 `tests/fixtures/language-2.4.1/intl.json` holds 400 random formatting calls with Bun's results; all match.
 
+## Replaced array iterators (psychoscript 0.2.1)
+
+Once a program replaces `Array.prototype[Symbol.iterator]` (or gives an array its own) or `Iterator.prototype.next`
+with a function of its own, spreading, destructuring, `for…of`, `Array.from` and the other walks of arrays and
+Uint8Arrays run it, as upstream's array-iterator protector turns its fast paths off (`interp::iteration`).
+
 ## Error stacks (2.4.1, #64939)
 
 Every Error has an own non-enumerable `stack` in V8's format (`interp::stack`): `name: message` (read when `stack` is
