@@ -92,6 +92,9 @@ Filled in as batches land.
 - **R4** (done): the recorded request bodies for flattening, Google Interactions continuation and the catalog refresh
   are checked against 2.4.1 (`scripts/parity/wire241.py`). Token revocation on sign-out waits for the plugin helper
   rebuild in R12.
+- **R5** (done): the local agent CLI provider keeps renamed model IDs, runs in `configDir` folders and rotates over a
+  list of them on subscription limits, stops a deleted session's process, and can serve web search. The six new
+  `claude241` parity scenarios are identical with 2.4.1, checked against a stand-in CLI.
 - **R6** (done): `generate_image` and `generate_video` (old names rewritten in permissions), the xAI, MiniMax,
   OpenRouter, Seedance and Google video protocols (upstream's tests and recorded replays ported), durable video jobs
   with restart recovery, the `/generate/video` routes, and `blob_<id>` blobs deleted a week after writing. The new
