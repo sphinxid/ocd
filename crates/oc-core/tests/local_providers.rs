@@ -287,7 +287,8 @@ async fn lmstudio_discovers_from_configured_endpoints_with_bearer_authentication
     let entries = vec![config(json!({"lmstudio": {"settings": {"baseURL": base, "apiKey": "secret"}}}))];
     c.reconfigure("/loc", &entries);
     eventually(|| c.model("/loc", &entries, "lmstudio", "configured-model"), Option::is_some).await;
-    assert!(configured.seen().iter().any(|s| s.authorization.as_deref() == Some("Bearer secret") && s.path == "/proxy/api/v1/models"));
+    // The discovered state can change before the mock has logged that round's request: wait for the log.
+    eventually(|| async { configured.seen() }, |seen| seen.iter().any(|s| s.authorization.as_deref() == Some("Bearer secret") && s.path == "/proxy/api/v1/models")).await;
     assert!(c.model("/loc", &entries, "lmstudio", "initial-model").await.is_none());
     let discovered = c.discovered("/loc", Kind::LmStudio).unwrap();
     assert_eq!((discovered.base_url.as_str(), discovered.api_key.as_deref()), (base.as_str(), Some("secret")));
@@ -302,7 +303,7 @@ async fn lmstudio_discovers_from_configured_endpoints_with_bearer_authentication
     ];
     c.reconfigure("/loc", &entries);
     eventually(|| async { c.discovered("/loc", Kind::LmStudio).map(|d| d.api_key) }, |k| *k == Some(None)).await;
-    assert!(configured.seen().iter().any(|s| s.authorization.is_none() && s.path == "/proxy/api/v1/models"));
+    eventually(|| async { configured.seen() }, |seen| seen.iter().any(|s| s.authorization.is_none() && s.path == "/proxy/api/v1/models")).await;
 
     // `/proxy/api/v1` is the same server root.
     configured.clear();
@@ -310,7 +311,7 @@ async fn lmstudio_discovers_from_configured_endpoints_with_bearer_authentication
     let entries = vec![config(json!({"lmstudio": {"settings": {"baseURL": api_base, "apiKey": "api-secret"}}}))];
     c.reconfigure("/loc", &entries);
     eventually(|| async { c.discovered("/loc", Kind::LmStudio).map(|d| d.base_url) }, |b| b.as_deref() == Some(api_base.as_str())).await;
-    assert!(configured.seen().iter().any(|s| s.authorization.as_deref() == Some("Bearer api-secret") && s.path == "/proxy/api/v1/models"));
+    eventually(|| async { configured.seen() }, |seen| seen.iter().any(|s| s.authorization.as_deref() == Some("Bearer api-secret") && s.path == "/proxy/api/v1/models")).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
